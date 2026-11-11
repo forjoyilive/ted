@@ -1,3 +1,4 @@
+import { tedEnv } from './env.ts'
 import type { Effort } from './task.ts'
 
 export type AgentKind = 'claude' | 'codex'
@@ -5,7 +6,7 @@ export type AgentKind = 'claude' | 'codex'
 export const runTokenEnv = 'TED_RUN_CAPABILITY'
 
 export function runTokenFrom(env: NodeJS.ProcessEnv): string | undefined {
-  return env[runTokenEnv] || env.TED_RUN_TOKEN || undefined
+  return tedEnv(runTokenEnv, env) || tedEnv('TED_RUN_TOKEN', env) || undefined
 }
 
 export const agentKinds: readonly AgentKind[] = ['claude', 'codex']

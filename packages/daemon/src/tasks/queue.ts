@@ -5,6 +5,7 @@ export const queueKinds = [
   'sub-agent',
   'planning',
   'coordinator',
+  'side-chat',
   'automation-draft',
   'automation',
   'task',
@@ -25,6 +26,17 @@ export interface SlotUse {
   working: number
   byFactory: Readonly<Record<string, number>>
   caps: Readonly<Record<string, number | undefined>>
+  handoffs?: ReadonlySet<string>
+  heldForLoad?: boolean
+}
+
+export const loadMarks = { holdAt: 1, resumeBelow: 0.75 } as const
+
+export function heldForLoad(held: boolean, ratio: number): boolean {
+  if (!Number.isFinite(ratio)) return false
+  if (ratio >= loadMarks.holdAt) return true
+  if (ratio < loadMarks.resumeBelow) return false
+  return held
 }
 
 export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
@@ -32,8 +44,10 @@ export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
     e.kind === 'task' ? priorities.indexOf(e.priority ?? 'none') : 0
   return [...entries].sort(
     (a, b) =>
-      queueKinds.indexOf(a.kind === 'coordinator' ? 'planning' : a.kind) -
-        queueKinds.indexOf(b.kind === 'coordinator' ? 'planning' : b.kind) ||
+      queueKinds.indexOf(a.kind === 'coordinator' || a.kind === 'side-chat' ? 'planning' : a.kind) -
+        queueKinds.indexOf(
+          b.kind === 'coordinator' || b.kind === 'side-chat' ? 'planning' : b.kind,
+        ) ||
       priorityRank(a) - priorityRank(b) ||
       a.rank - b.rank ||
       a.id.localeCompare(b.id),
@@ -45,10 +59,13 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
   const byFactory = { ...use.byFactory }
   const started: T[] = []
   for (const entry of ordered) {
-    if (working >= use.limit) break
     const factory = entry.factoryId
-    const cap = factory === undefined ? undefined : use.caps[factory]
-    if (factory !== undefined && cap !== undefined && (byFactory[factory] ?? 0) >= cap) continue
+    if (!use.handoffs?.has(entry.id)) {
+      if (working >= use.limit) continue
+      if (use.heldForLoad && working > 0) continue
+      const cap = factory === undefined ? undefined : use.caps[factory]
+      if (factory !== undefined && cap !== undefined && (byFactory[factory] ?? 0) >= cap) continue
+    }
     started.push(entry)
     working++
     if (factory !== undefined) byFactory[factory] = (byFactory[factory] ?? 0) + 1

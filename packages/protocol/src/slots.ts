@@ -1,11 +1,22 @@
 import type { Priority } from './task.ts'
 
+export const busyHold = 'this computer is busy'
+
 export type SlotHolder =
   | TaskSlotHolder
   | AutomationSlotHolder
   | PlanSlotHolder
   | CoordinatorSlotHolder
   | DraftSlotHolder
+  | SideChatSlotHolder
+
+export interface SideChatSlotHolder {
+  kind: 'side-chat'
+  runId: string
+  factoryId: string
+  name: string
+  runs: number
+}
 
 export interface DraftSlotHolder {
   kind: 'automation-draft'
@@ -53,6 +64,7 @@ export interface TaskSlotHolder {
 }
 
 export type QueuedForSlot =
+  | { kind: 'side-chat'; place: number; runId: string; factoryId: string; name: string }
   | { kind: 'automation-draft'; place: number; runId: string; name: string; factoryId: string }
   | { kind: 'coordinator'; place: number; runId: string; factoryId: string; name: string }
   | {
@@ -104,4 +116,6 @@ export interface RunSlots {
   holders: SlotHolder[]
   queue: QueuedForSlot[]
   factories: FactorySlots[]
+  heldForLoad?: true
+  loadRatio?: number
 }

@@ -15,7 +15,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -95,8 +95,7 @@ describe('Planning chats', () => {
     })
     const go = path.join(home, 'go')
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await firstWindow(app)
-    await sidebar(window).waitFor()
+    const window = await loadedWindow(app)
     await openFirstFactory(window)
     await window.getByRole('button', { name: 'Plan', exact: true }).first().click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
@@ -136,7 +135,9 @@ describe('Planning chats', () => {
     await row.waitFor()
     expect(await row.textContent()).toContain('Plan notebook sharing')
     await row.click()
-    await roundCard.getByRole('button', { name: 'Accept all recommended' }).click()
+    expect(await roundCard.getByRole('button', { name: 'Accept all recommended' }).count()).toBe(0)
+    expect(await roundCard.getByRole('radio', { name: /The owner only/ }).isChecked()).toBe(true)
+    await roundCard.getByRole('button', { name: 'Submit answers' }).click()
     await chat.getByText(/answered by you at/).waitFor()
     await writeFile(go, '')
 
@@ -178,8 +179,7 @@ describe('Planning chats', () => {
     await client.stopPlan(quick.id)
 
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await firstWindow(app)
-    await sidebar(window).waitFor()
+    const window = await loadedWindow(app)
     await openFirstFactory(window)
     await sidebar(window)
       .getByRole('button', { name: /^Plans/ })

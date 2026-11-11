@@ -21,6 +21,7 @@ import {
   useMergeHarness,
   waitForStage,
 } from './merge-harness.ts'
+import { eventWait } from './support/event-wait.ts'
 
 useMergeHarness()
 
@@ -81,13 +82,16 @@ describe('Approve and merge', () => {
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
 
-    const waiting = await waitUntil(async () => {
-      const current = await getTask(client, task.id)
-      return current.status?.kind === 'waiting-for-github' ? current : undefined
-    }, 'Waiting for CI')
+    const waiting = await eventWait(
+      client.subscribe,
+      async () => {
+        const current = await getTask(client, task.id)
+        return current.status?.kind === 'waiting-for-github' ? current : undefined
+      },
+      'Waiting for CI',
+    )
     expect(waiting.status).toEqual({ kind: 'waiting-for-github', on: 'ci' })
     expect(waiting.repos[0]?.pushed?.ci).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 400))
     expect(await merges()).toEqual([])
 
     await setGh({ checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })

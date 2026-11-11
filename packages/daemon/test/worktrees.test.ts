@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Factory, Run, RunSlots, Task } from '@ted/protocol'
+import type { Factory, Run, RunSlots, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -123,6 +123,21 @@ const commandResults = async (client: Client, runId: string) =>
   )
 
 describe('worktree setup', () => {
+  test('one setup execution records one start and one completion in the thread', async () => {
+    await workflow('      setup: "echo run >> stub-count"\n')
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await leadRun(client, task)
+
+    expect(await readFile(path.join(worktreeOf(), 'stub-count'), 'utf8')).toBe('run\n')
+    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(events.filter((event) => event.text.startsWith('Setting up widgets ·'))).toHaveLength(1)
+    expect(events.filter((event) => event.text === 'Setup finished in widgets')).toHaveLength(1)
+  })
+
   test('copy files and env are in place before setup, and setup runs before the Task Lead', async () => {
     await writeFile(path.join(localFolder, '.env'), 'SECRET=1\n')
     await mkdir(path.join(localFolder, 'config'))
@@ -344,6 +359,9 @@ describe('worktree setup outcomes', () => {
     await writeFile(go, '')
 
     await leadRun(client, task)
+    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(events.filter((event) => event.text.startsWith('Setting up widgets ·'))).toHaveLength(2)
+    expect(events.filter((event) => event.text === 'Setup finished in widgets')).toHaveLength(1)
   })
 })
 

@@ -211,6 +211,63 @@ describe('ted task', () => {
     })
   })
 
+  test.each(['stage', 'fixed', 'default'] as const)(
+    'lead keeps the %s baseline across configured and unconfigured Stages',
+    async (mode) => {
+      const originDir = path.join(home, 'origin')
+      const origin = await makeOriginRepo(originDir)
+      await commitToOrigin(originDir, {
+        '.ted/workflow.yaml':
+          'version: 1\norder: [intake, work, merge]\nlead: { agent: claude, effort: low }\nstages:\n  intake: { effort: high }\n',
+      })
+      await writeFile(
+        path.join(home, 'stub-claude.json'),
+        JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+      )
+      const app = await startAsApp()
+      await app.addFactory({ repo: origin, key: 'NB' })
+      const go = path.join(home, 'advance')
+      const task = await app.createTask({
+        factory: 'NB',
+        title: JSON.stringify({
+          steps: [
+            { everyMessage: [{ endTurn: true }] },
+            { waitFor: go },
+            { run: ['ted', 'outcome', 'advance'] },
+            { endTurn: true },
+          ],
+        }),
+      })
+      await ted(['task', 'lead', task.displayId, 'claude', '--effort', 'medium'])
+      if (mode === 'stage') await ted(['task', 'lead', task.id, 'claude', '--stage-effort'])
+      else if (mode === 'default') await ted(['task', 'lead', task.displayId, 'claude'])
+      const baseline = mode === 'default' ? undefined : 'medium'
+      const chosen = (await app.listTasks()).find((entry) => entry.id === task.id)?.lead
+      expect(chosen).toEqual({
+        agent: 'claude',
+        ...(baseline !== undefined && { effort: baseline }),
+        ...(mode === 'stage' && { effortMode: 'stage' }),
+      })
+      await ted(['task', 'start', task.displayId])
+      const initial = await waitUntil(async () => {
+        const current = (await app.listTasks()).find((entry) => entry.id === task.id)
+        if (!current?.leadRunId) return undefined
+        const { run } = await app.getRun(current.leadRunId)
+        return run.state === 'working' && run.sessionId ? run : undefined
+      }, 'the Intake session')
+      expect(initial.effort).toBe(mode === 'stage' ? 'high' : baseline)
+      await writeFile(go, '')
+      const next = await waitUntil(async () => {
+        const current = (await app.listTasks()).find((entry) => entry.id === task.id)
+        if (current?.stage !== 'work' || !current.leadRunId) return undefined
+        const { run } = await app.getRun(current.leadRunId)
+        return run.state === 'idle' && run.effort === baseline ? run : undefined
+      }, 'the unconfigured Work Stage with its saved baseline')
+      expect(next.id).toBe(initial.id)
+      expect(next.sessionId).toBe(initial.sessionId)
+    },
+  )
+
   test('list says so when there are no Tasks', async () => {
     const listed = await ted(['task', 'list'])
     expect(listed.stdout.trim()).toBe('No Tasks yet.')

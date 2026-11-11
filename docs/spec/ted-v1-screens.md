@@ -87,6 +87,12 @@ Ticket: [KRI-63](https://linear.app/kriyadesign/issue/KRI-63).
 | Delete dialog | [27:1732](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-1732) |
 | New Task dialog, More closed / More open with a Linear URL and a blocker | [27:3697](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-3697) / [27:4022](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-4022) |
 
+### Blocked by in Task details
+
+[KRI-176](https://linear.app/kriyadesign/issue/KRI-176/does-the-blocked-by-field-in-task-details-need-its-own-design): keep the existing picker shared with New Task. No dedicated Task details frame or rebuild is needed. The field uses TED’s shared Button, icons and theme tokens; its search menu aligns to the right edge to fit the details pane.
+
+At the 260px pane width, chips preserve the Task ID and remove button while truncating the title. Multiple blockers stack vertically. This compact presentation is the chosen tradeoff.
+
 ## KRI-64 First launch and Settings
 
 Ticket: [KRI-64](https://linear.app/kriyadesign/issue/KRI-64).
@@ -116,6 +122,8 @@ Ticket: [KRI-64](https://linear.app/kriyadesign/issue/KRI-64).
 | Sidebar footer states: plan-usage chip and updates | [30:210](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=30-210) |
 | Quit dialog · only Automations on | [44:4646](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-4646) |
 | App menu (Linux, no tray) | [44:4593](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-4593) |
+
+The Linux app-menu frame remains a reference for the menu’s contents. Its ☰ button is superseded by the native Electron menu bar ([KRI-169](https://linear.app/kriyadesign/issue/KRI-169/should-ted-on-linux-use-a-native-menu-bar-instead-of-the-menu-in-figma); spec §3.9).
 
 ## KRI-65 Factory setup and settings
 

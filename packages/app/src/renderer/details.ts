@@ -2,8 +2,9 @@ import type { Comment, RunSummary, Task, TaskBrief } from '@ted/protocol'
 import { useState } from 'react'
 import { stageName } from './list-view.ts'
 import { ago, briefSections } from './requests.ts'
+import { activeSubAgentCount, activeSubAgentLabel } from './sub-agents.ts'
 
-export type DetailsSectionId = 'code' | 'changes' | 'runs' | 'apps' | 'brief'
+export type DetailsSectionId = 'code' | 'files' | 'changes' | 'runs' | 'apps' | 'brief'
 
 const collapsedKey = 'ted.taskDetails.collapsed'
 
@@ -69,11 +70,11 @@ export function runStateWord(run: RunSummary): string {
 export function runsCollapsedSummary(runs: readonly RunSummary[]): string {
   const live = runs.filter((r) => r.state !== 'finished')
   const lead = live.find((r) => r.role !== 'sub-agent' && r.current)
-  const others = live.filter((r) => r !== lead).length
+  const subAgents = activeSubAgentCount(runs)
   const stopped = runs.length - live.length
   return [
     ...(lead ? [`Task Lead ${runStateWord(lead)}`] : []),
-    ...(others > 0 ? [others === 1 ? '1 sub-agent' : `${others} sub-agents`] : []),
+    activeSubAgentLabel(subAgents),
     ...(stopped > 0 ? [`${stopped} stopped`] : []),
   ].join(' · ')
 }

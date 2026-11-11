@@ -1,17 +1,9 @@
 import { lstat, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
-import type {
-  DiffRow,
-  DraftLineCommentRequest,
-  FileDiff,
-  LineAnchor,
-  LineComment,
-  LineSide,
-} from '@ted/protocol'
+import type { DiffRow, FileDiff, LineAnchor, LineComment, LineSide } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { type ChangesTarget, fileDiffs } from './changes.ts'
 
-export const maxLineCommentLength = 20_000
 const maxQuotedRows = 200
 
 export interface Anchored {
@@ -48,47 +40,6 @@ export function anchorIn(diff: FileDiff, from: LineAnchor, to: LineAnchor = from
     }
   }
   throw new RequestError(409, 'that line isn’t in the diff any more')
-}
-
-export function draftRequest(body: unknown): DraftLineCommentRequest {
-  const request = (body ?? {}) as Partial<DraftLineCommentRequest>
-  const text = typeof request.body === 'string' ? request.body.trim() : ''
-  if (typeof request.repo !== 'string' || request.repo === '') {
-    throw new RequestError(400, 'repo is required')
-  }
-  if (typeof request.path !== 'string' || request.path === '') {
-    throw new RequestError(400, 'path is required')
-  }
-  const from = anchor(request.from, 'from')
-  const to = request.to === undefined ? undefined : anchor(request.to, 'to')
-  return { repo: request.repo, path: request.path, from, ...(to && { to }), body: lineText(text) }
-}
-
-export function lineText(text: unknown): string {
-  const trimmed = typeof text === 'string' ? text.trim() : ''
-  if (trimmed === '') throw new RequestError(400, 'a line comment needs some text')
-  if (trimmed.length > maxLineCommentLength) {
-    throw new RequestError(400, `a line comment is limited to ${maxLineCommentLength} characters`)
-  }
-  return trimmed
-}
-
-function anchor(value: unknown, name: string): LineAnchor {
-  const given = (value ?? {}) as Record<string, unknown>
-  const line = (key: 'old' | 'new') => {
-    const n = given[key]
-    if (n === undefined) return undefined
-    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) {
-      throw new RequestError(400, `${name}.${key} must be a line number`)
-    }
-    return n
-  }
-  const old = line('old')
-  const added = line('new')
-  if (old === undefined && added === undefined) {
-    throw new RequestError(400, `${name} needs an old or new line number`)
-  }
-  return { ...(old !== undefined && { old }), ...(added !== undefined && { new: added }) }
 }
 
 export async function markOutdated(

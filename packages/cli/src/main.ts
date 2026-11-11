@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -18,28 +19,38 @@ import {
   DaemonClient,
   DaemonUnreachableError,
   type DesignFileInput,
+  type DesignFileSpec,
   type DesignReviewInput,
   type Effort,
   efforts,
   type Factory,
+  filterTedEnv,
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
+  type LocalDesignReviewInput,
   minGhVersion,
-  type ProposalInput,
+  parseBrowserRequest,
+  parseDesignReviewInput,
   parseLinearUrl,
+  parseLocalDesignReviewInput,
+  parseProposalInput,
+  parseRoundInput,
   type RepoSetupReport,
+  RequestValidationError,
   type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
   runTokenFrom,
   type SetTaskReposRequest,
   type TaskLead,
+  tedEnv,
   tedHome,
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
 import { AutomationUsageError, automationCommand, automationUsage } from './automation.ts'
+import { exportCommand } from './export.ts'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
@@ -116,11 +127,36 @@ const usage = `Usage:
                                              a source it already tracks; --follow-up revisits
                                              a Done Task. --sentry-id puts Fixes <SHORT-ID> in
                                              the pull request
-  ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks
-  ted coordinator task <id> [--offset <n>]   Read a Task, brief, Comments and current version
+  ted peers [--offset <n>]                  See current Tasks in this Lead’s Factory
+  ted peers show <Task>                     Read a peer’s description and latest brief
+  ted peers watch [--cursor <cursor>] [--timeout <seconds>]
+                                             Wait up to 25 seconds for activity to change
+  ted peers send <Task> --operation <unique-id> "<text>"
+                                             Send an attributed peer note (stdin if no text)
+  ted peers inbox [--offset <n>]            Read received messages and delivery receipts
+  ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks and their open requests
+  ted coordinator task <id> [--offset <n>]   Read a Task, brief, open requests, Comments and version
   ted coordinator start <id> --operation <id> --version <version>
   ted coordinator move <id> --after <id> / --before <id> --operation <id> --version <version> --neighbours <json>
                                              Start or reorder waiting Tasks (Coordinator only)
+  ted coordinator tell <id> --operation <id> --version <version> [--message "<text>"]
+                                             Send a message to a Task’s Task Lead, on the
+                                             human’s instruction; reads stdin if no --message
+                                             (Coordinator only)
+  ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>
+                         [--choice "<answer>"] [--message "<text>"]
+                         [--approve | --request-changes] [--skip-rows <json>] [--start-unblocked]
+                         [--answers <json> | --recommended]
+                                             Answer an open request on a Task, on the human’s
+                                             instruction: a question (--choice, --message), a
+                                             Gate request, sign-off or proposal (--approve or
+                                             --request-changes), or a Clarify round (--answers
+                                             or --recommended); never a permission prompt,
+                                             simulator ask or the Linear team ask
+                                             (Coordinator only)
+  ted coordinator resume <id> --operation <id> --version <version> [--message "<text>"]
+                                             Resume a stopped or failed Task through the queue
+                                             (Coordinator only)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted task propose --file <file> [--supersedes <request-id>]
@@ -133,9 +169,11 @@ const usage = `Usage:
   ted task repos set <name> …                Set which of the Factory’s repos the Task changes
   ted task repos add <name>                  Add a repo; prints its setup output when done
   ted task repos remove <name> [--yes]       Remove a repo (--yes: even if it has commits)
+  ted export --factory <key> [--format json|markdown] --output <path>
+                                             Export a Factory’s retained Tasks and history
   ted backup list                            List backups of TED’s data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
-  ted task lead <id> claude|codex [--model <name>] [--effort <level>]
+  ted task lead <id> claude|codex [--model <name>] [--effort <level> | --stage-effort]
                                              Set the Task Lead’s agent, model and effort
   ted task lead <id> --default-model         Run this Task Lead on the CLI’s default model
                                              when its model isn’t available
@@ -155,9 +193,19 @@ function parse() {
       strict: true,
       options: {
         offset: { type: 'string' },
+        timeout: { type: 'string' },
+        cursor: { type: 'string' },
         operation: { type: 'string' },
         version: { type: 'string' },
         neighbours: { type: 'string' },
+        message: { type: 'string' },
+        request: { type: 'string' },
+        approve: { type: 'boolean' },
+        'request-changes': { type: 'boolean' },
+        answers: { type: 'string' },
+        recommended: { type: 'boolean' },
+        'skip-rows': { type: 'string' },
+        'start-unblocked': { type: 'boolean' },
         after: { type: 'string' },
         before: { type: 'string' },
         choice: { type: 'string', multiple: true },
@@ -167,6 +215,7 @@ function parse() {
         design: { type: 'string' },
         tutorial: { type: 'boolean' },
         effort: { type: 'string' },
+        'stage-effort': { type: 'boolean' },
         model: { type: 'string' },
         name: { type: 'string' },
         description: { type: 'string' },
@@ -175,6 +224,8 @@ function parse() {
         template: { type: 'string' },
         off: { type: 'boolean' },
         factory: { type: 'string' },
+        format: { type: 'string' },
+        output: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
         'own-worktree': { type: 'boolean' },
@@ -214,11 +265,11 @@ const options = parsed?.values ?? {}
 const home = tedHome()
 
 function inPlan(): boolean {
-  return options.task === undefined && !process.env.TED_TASK && !!process.env.TED_PLAN
+  return options.task === undefined && !tedEnv('TED_TASK') && !!tedEnv('TED_PLAN')
 }
 
 function taskRef(given?: string): string {
-  const ref = given ?? options.task ?? process.env.TED_TASK
+  const ref = given ?? options.task ?? tedEnv('TED_TASK')
   if (!ref) throw new UsageError('outside a Run, name the Task with --task <id>')
   return ref
 }
@@ -261,12 +312,44 @@ try {
     throw new UsageError('')
   } else if (group === 'help' && command === undefined) {
     console.log(usage)
+  } else if (group === 'export' && command === undefined) {
+    console.log(await exportCommand(home, options))
   } else if (group === 'status' && command === undefined) {
     await status()
   } else if (group === 'doctor' && command === undefined) {
     await doctor()
   } else if (group === 'open' && command === undefined) {
     await openApp()
+  } else if (group === 'peers') {
+    const offset = Number(options.offset ?? '0')
+    const timeout = Number(options.timeout ?? '25')
+    if (!Number.isSafeInteger(offset) || offset < 0)
+      throw new UsageError('offset must be a nonnegative integer')
+    if (!Number.isFinite(timeout) || timeout < 0 || timeout > 25)
+      throw new UsageError('timeout must be between 0 and 25 seconds')
+    await withDaemon(home, async (client) => {
+      if (command === undefined) console.log(JSON.stringify(await client.peers(offset)))
+      else if (command === 'show' && rest.length === 1)
+        console.log(JSON.stringify(await client.peer(rest[0] ?? '')))
+      else if (command === 'inbox' && rest.length === 0)
+        console.log(JSON.stringify(await client.peerInbox(offset)))
+      else if (command === 'watch' && rest.length === 0) {
+        const cursor = options.cursor ?? (await client.peers()).cursor
+        console.log(JSON.stringify(await client.watchPeers(cursor, timeout)))
+      } else if (command === 'send' && rest.length >= 1) {
+        if (!options.operation)
+          throw new UsageError('operation is required for replay-safe sending')
+        const text = rest.slice(1).join(' ') || (await readStdin())
+        console.log(
+          JSON.stringify(
+            await client.sendPeer(rest[0] ?? '', { operation: options.operation, text }),
+          ),
+        )
+      } else
+        throw new UsageError(
+          'Use peers, peers show <Task>, peers watch, peers send <Task> <text>, or peers inbox',
+        )
+    })
   } else if (group === 'coordinator') {
     const page = Number(options.offset ?? '0')
     if (!Number.isSafeInteger(page) || page < 0)
@@ -292,15 +375,83 @@ try {
             }),
           ),
         )
-      } else throw new UsageError('Use coordinator tasks, task, start or move')
+      } else if (command === 'resume' && rest.length === 1) {
+        if (!options.operation || !options.version)
+          throw new UsageError('operation and version are required')
+        const message = options.message?.trim()
+        console.log(
+          JSON.stringify(
+            await client.coordinatorAct(rest[0] ?? '', command, {
+              operation: options.operation,
+              version: options.version,
+              ...(message && { message }),
+            }),
+          ),
+        )
+      } else if ((command === 'tell' || command === 'answer') && rest.length === 1) {
+        if (!options.operation || !options.version)
+          throw new UsageError('operation and version are required')
+        const choices = options.choice ?? []
+        const decided = options.approve || options['request-changes']
+        const round = options.answers !== undefined || options.recommended
+        if (command === 'tell' && (options.request || choices.length > 0 || decided || round))
+          throw new UsageError('tell takes only --message')
+        if (command === 'answer' && !options.request)
+          throw new UsageError('name the request with --request <comment-id>')
+        if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
+        if (options.approve && options['request-changes'])
+          throw new UsageError('give --approve or --request-changes, not both')
+        const given = choices.length > 0 || options.approve || round
+        const typed = options.message ?? (command === 'tell' || !given ? await readStdin() : '')
+        const message = typed.trim() === '' ? undefined : typed.trim()
+        if (message === undefined && (command === 'tell' || !given))
+          throw new UsageError(
+            command === 'tell'
+              ? 'give the message with --message "<text>" or on stdin'
+              : options['request-changes']
+                ? 'give the changes to ask for with --message "<text>" or on stdin'
+                : 'give --choice, --approve, --request-changes, --answers, --recommended or --message',
+          )
+        const json = (name: 'answers' | 'skip-rows') => {
+          const raw = options[name]
+          if (raw === undefined) return undefined
+          try {
+            return JSON.parse(raw) as unknown
+          } catch {
+            throw new UsageError(`--${name} must be JSON`)
+          }
+        }
+        const answers = json('answers')
+        const skipRows = json('skip-rows')
+        console.log(
+          JSON.stringify(
+            await client.coordinatorAct(rest[0] ?? '', command, {
+              operation: options.operation,
+              version: options.version,
+              ...(message !== undefined && { message }),
+              ...(command === 'answer' && { request: options.request }),
+              ...(choices[0] !== undefined && { choice: choices[0] }),
+              ...(options.approve && { decision: 'approve' as const }),
+              ...(options['request-changes'] && { decision: 'request-changes' as const }),
+              ...(answers !== undefined && {
+                answers: answers as { answer: string; note?: string }[],
+              }),
+              ...(options.recommended && { recommended: true }),
+              ...(skipRows !== undefined && { skipRows: skipRows as number[] }),
+              ...(options['start-unblocked'] && { startUnblocked: true }),
+            }),
+          ),
+        )
+      } else
+        throw new UsageError('Use coordinator tasks, task, start, move, tell, answer or resume')
     })
   } else if (group === 'automation') {
     await automationCommand(home, command, rest, options)
   } else if (
     group === 'comment' &&
     options.task === undefined &&
-    !process.env.TED_TASK &&
-    process.env.TED_AUTOMATION
+    !tedEnv('TED_TASK') &&
+    tedEnv('TED_AUTOMATION')
   ) {
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
     if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
@@ -374,7 +525,7 @@ try {
     const input =
       group === 'ask'
         ? { round: await readRound(options.round ?? '') }
-        : { proposal: await readJsonFile<ProposalInput>(options.file ?? '', 'proposal') }
+        : { proposal: await readParsedFile(options.file ?? '', 'proposal', parseProposalInput) }
     const request = await withDaemon(home, (client) =>
       client.postPlanRequest({ ...input, ...(supersedes !== undefined && { supersedes }) }),
     )
@@ -428,7 +579,7 @@ try {
   } else if (group === 'task' && command === 'propose' && rest.length === 0) {
     const ref = taskRef()
     if (options.file === undefined) throw new UsageError('give the proposal with --file <file>')
-    const proposal = await readJsonFile<ProposalInput>(options.file, 'proposal')
+    const proposal = await readParsedFile(options.file, 'proposal', parseProposalInput)
     const supersedes = options.supersedes
     const request = await withDaemon(home, (client) =>
       client.postComment(ref, { proposal, ...(supersedes !== undefined && { supersedes }) }),
@@ -516,7 +667,7 @@ try {
       `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
     )
   } else if (group === 'run' && command === 'boundary' && rest.length === 0) {
-    const runId = process.env.TED_RUN
+    const runId = tedEnv('TED_RUN')
     if (!runId) throw new UsageError('ted run boundary only works inside a Run')
     await withDaemon(home, (client) => client.reachedBoundary(runId))
   } else if (group === 'run' && command === 'stop' && rest.length === 1) {
@@ -544,7 +695,7 @@ try {
       await client.listApps(ref)
       return client
     })
-    const result = await browserClient.browserCommand(ref, request)
+    const result = await browserClient.browserCommand(ref, parseBrowserRequest(request))
     console.log(printable(result.text ?? result.url ?? 'Done'))
     if (result.attachment) {
       const attachment = result.attachment
@@ -688,6 +839,8 @@ try {
   } else if (group === 'task' && command === 'lead' && rest.length === 2) {
     const [ref = '', agent = ''] = rest
     const { model, effort } = options
+    if (options['stage-effort'] && effort !== undefined)
+      throw new UsageError('choose --stage-effort or --effort')
     if (!agentKinds.includes(agent as AgentKind))
       throw new UsageError('agent must be claude or codex')
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
@@ -695,10 +848,20 @@ try {
     }
     const lead: TaskLead = {
       agent: agent as AgentKind,
+      ...(options['stage-effort'] && { effortMode: 'stage' as const }),
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort: effort as Effort }),
     }
-    const task = await withDaemon(home, (client) => client.setTaskLead(ref, lead))
+    const task = await withDaemon(home, async (client) => {
+      const saved = options['stage-effort']
+        ? (await client.listTasks()).find((task) => task.id === ref || task.displayId === ref)?.lead
+            ?.effort
+        : undefined
+      return client.setTaskLead(ref, {
+        ...lead,
+        ...(saved !== undefined && { effort: saved }),
+      })
+    })
     console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
@@ -916,7 +1079,7 @@ async function openApp(): Promise<void> {
     },
   )
   if (result?.opened) return void console.log('Opened TED')
-  const app = process.env.TED_APP_EXECUTABLE
+  const app = tedEnv('TED_APP_EXECUTABLE')
   if (!app) {
     console.error('ted: TED isn’t open. Open it from your app launcher.')
     process.exitCode = 1
@@ -927,7 +1090,7 @@ async function openApp(): Promise<void> {
 }
 
 function launchApp(executable: string): void {
-  const { ELECTRON_RUN_AS_NODE: _, ...env } = process.env
+  const { ELECTRON_RUN_AS_NODE: _, ...env } = filterTedEnv(process.env)
   const bundle = /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(executable)?.[1]
   const [command, args] = bundle ? ['/usr/bin/open', [bundle]] : [executable, []]
   spawn(command, args, { detached: true, stdio: 'ignore', env }).unref()
@@ -1034,8 +1197,12 @@ async function workflowCheck(target: string): Promise<void> {
   if (errors > 0) process.exitCode = 1
 }
 
-function describeLead({ agent, model, effort }: TaskLead): string {
-  return [agent, model ?? 'default model', effort ?? 'default effort'].join(' · ')
+function describeLead({ agent, model, effort, effortMode }: TaskLead): string {
+  return [
+    agent,
+    model ?? 'default model',
+    effortMode === 'stage' ? 'Follow Stage settings' : (effort ?? 'default effort'),
+  ].join(' · ')
 }
 
 function formatRun({ run, conversation }: RunWithConversation): string {
@@ -1079,55 +1246,14 @@ function summarize(line: string): string {
   return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
 }
 
-interface DesignFileSpec {
-  path: string
-  caption?: string
-}
-
-interface DesignSpec extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
-  screenshots?: DesignFileSpec[]
-  video?: DesignFileSpec
-  prototype?: DesignFileSpec
-}
-
-function fileSpec(value: unknown, what: string): DesignFileSpec {
-  if (typeof value === 'string') return { path: value }
-  const { path: file, caption } = (value ?? {}) as Record<string, unknown>
-  if (typeof file !== 'string' || (caption !== undefined && typeof caption !== 'string')) {
-    throw new UsageError(`the design file’s ${what} needs a path, as text or as { "path": … }`)
-  }
-  return { path: file, ...(caption !== undefined && { caption }) }
-}
-
-async function readDesign(file: string): Promise<DesignSpec> {
-  const text = await readFile(path.resolve(file), 'utf8')
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (error) {
-    throw new UsageError(
-      `the design file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
-    )
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new UsageError('the design file must hold a JSON object')
-  }
-  const { screenshots, video, prototype, ...rest } = parsed as Record<string, unknown>
-  if (screenshots !== undefined && !Array.isArray(screenshots)) {
-    throw new UsageError('the design file’s screenshots must be a list')
-  }
-  return {
-    ...(rest as Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'>),
-    ...(screenshots && { screenshots: screenshots.map((s) => fileSpec(s, 'screenshot')) }),
-    ...(video !== undefined && { video: fileSpec(video, 'video') }),
-    ...(prototype !== undefined && { prototype: fileSpec(prototype, 'prototype') }),
-  }
+async function readDesign(file: string): Promise<LocalDesignReviewInput> {
+  return readParsedFile(file, 'design', parseLocalDesignReviewInput)
 }
 
 async function uploadDesign(
   client: DaemonClient,
   ref: string,
-  { screenshots, video, prototype, ...rest }: DesignSpec,
+  { screenshots, video, prototype, ...rest }: LocalDesignReviewInput,
 ): Promise<DesignReviewInput> {
   const upload = async ({ path: file, caption }: DesignFileSpec): Promise<DesignFileInput> => {
     const bytes = new Uint8Array(await readFile(path.resolve(file)))
@@ -1140,26 +1266,37 @@ async function uploadDesign(
   }
   const shots = []
   for (const shot of screenshots ?? []) shots.push(await upload(shot))
-  return {
+  return parseDesignReviewInput({
     ...rest,
     ...(shots.length > 0 && { screenshots: shots }),
     ...(video && { video: await upload(video) }),
     ...(prototype && { prototype: await upload(prototype) }),
-  }
+  })
 }
 
 function readRound(file: string): Promise<RoundInput> {
-  return readJsonFile<RoundInput>(file, 'round')
+  return readParsedFile(file, 'round', parseRoundInput)
 }
 
-async function readJsonFile<T>(file: string, what: string): Promise<T> {
+async function readParsedFile<T>(
+  file: string,
+  what: string,
+  parser: (value: unknown) => T,
+): Promise<T> {
   const text = await readFile(path.resolve(file), 'utf8')
+  let value: unknown
   try {
-    return JSON.parse(text) as T
+    value = JSON.parse(text)
   } catch (error) {
     throw new UsageError(
       `the ${what} file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
     )
+  }
+  try {
+    return parser(value)
+  } catch (error) {
+    if (error instanceof RequestValidationError) throw new UsageError(error.message)
+    throw error
   }
 }
 

@@ -2,8 +2,6 @@ agent-orchestrator
 https://github.com/OrchestratorInc/agent-orchestrator
 Copyright 2026 Untrivial
 
-Licensed under the Apache License, Version 2.0. The license text follows.
+Licensed under the Apache License, Version 2.0. The full license text follows.
 
-TED copies or ports parts of agent-orchestrator’s code: the Run chat’s Codex parsing and line diff (packages/daemon/src/agents/codex-chat.ts, diff.ts) and its chat rows (packages/app/src/renderer/components/RunChat.tsx). Each copied or ported file says so at the top and says what TED changed.
-
-agent-orchestrator ships no NOTICE file of its own (checked 2026-11-08), so this attribution stands in for it.
+Attribution written by TED: TED adapts agent-orchestrator code for Codex chat parsing (packages/daemon/src/agents/codex-chat.ts), line diffs (packages/daemon/src/agents/diff.ts), chat rows (packages/app/src/renderer/components/RunChat.tsx), and forwarding GitHub activity to agents (packages/daemon/src/tasks/github-activity.ts). The adapted files identify their upstream sources and TED’s changes.

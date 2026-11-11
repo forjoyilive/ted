@@ -98,3 +98,28 @@ test('Limits updates the machine cap and follows live slot changes', async () =>
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
   expect(screen.getByText('Now: 2 of 2 Runs working')).toBeTruthy()
 })
+
+test('Limits turns on starting fewer Runs when busy and says when starts are held', async () => {
+  const a = appState()
+  working(a)
+  a.mount()
+  await a.settings()
+  await user().click(screen.getByRole('button', { name: 'Limits' }))
+  const control = screen.getByRole('switch', {
+    name: 'Start fewer Runs when this computer is busy',
+  })
+  expect(control.getAttribute('aria-checked')).toBe('false')
+  const help = screen.getAllByRole('button', { name: 'Help' })[2] as HTMLElement
+  await user().hover(help)
+  expect(screen.getByRole('tooltip').textContent).toMatch(
+    /Runs already working carry on\. The limit above is still the most TED runs at once\.$/,
+  )
+  await user().unhover(help)
+  await user().click(control)
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { adjustRunsToLoad: true })
+  a.state.slots = { ...a.state.slots, heldForLoad: true, loadRatio: 1.4 }
+  await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
+  expect(
+    screen.getByText(/^Now: 1 of \d+ Runs working · 1 queued · this computer is busy$/),
+  ).toBeTruthy()
+})

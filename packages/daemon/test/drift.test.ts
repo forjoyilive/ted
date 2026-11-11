@@ -14,6 +14,7 @@ import type {
   LibraryView,
   SaveSettingsResult,
   Task,
+  TaskGates,
 } from '@ted/protocol'
 import { settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -21,6 +22,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
   api,
+  basedOnLine,
   commitToOrigin,
   killRunHosts,
   makeOriginRepo,
@@ -205,72 +207,83 @@ describe('Drift in Factory settings', () => {
     expect(after?.drift).toBeUndefined()
   })
 
-  test('Merge with an agent creates a Task on the default branch with Intake filled in and the Review Gate forced on', async () => {
-    const briefFile = path.join(scratch, 'brief.md')
-    await writeFile(
-      briefFile,
-      [
-        '## Goal',
-        'Fold the inherited changes into review.md.',
-        '## Decisions so far',
-        '- Keep the Factory’s docs step.',
-        '## Current state',
-        'Merged.',
-        '## Open questions',
-        'None.',
-        '## Next step',
-        'Sign off.',
-        '',
-      ].join('\n\n'),
-    )
-    const steps = JSON.stringify({
-      steps: [
-        {
-          everyMessage: [
-            { run: ['ted', 'brief', 'write', '--file', briefFile] },
-            { run: ['ted', 'outcome', 'advance'] },
-            { endTurn: true },
-          ],
+  test.each([
+    ['off', false],
+    ['on', true],
+  ])(
+    'Merge with an agent creates a Task on the default branch with Intake filled in and the Review Gate forced on (overnight mode %s)',
+    async (_, overnight) => {
+      const briefFile = path.join(scratch, 'brief.md')
+      await writeFile(
+        briefFile,
+        [
+          '## Goal',
+          'Fold the inherited changes into review.md.',
+          '## Decisions so far',
+          '- Keep the Factory’s docs step.',
+          '## Current state',
+          'Merged.',
+          '## Open questions',
+          'None.',
+          '## Next step',
+          'Sign off.',
+          '',
+        ].join('\n\n'),
+      )
+      const steps = JSON.stringify({
+        steps: [
+          {
+            everyMessage: [
+              { run: ['ted', 'brief', 'write', '--file', briefFile] },
+              { run: ['ted', 'outcome', 'advance'] },
+              { endTurn: true },
+            ],
+          },
+          { run: ['ted', 'brief', 'write', '--file', briefFile] },
+          { run: ['ted', 'outcome', 'advance'] },
+          { endTurn: true },
+        ],
+      })
+      const override = `${libraryV1}${steps}\n`
+      const { client } = await driftedFactory(override, [
+        'repos:',
+        '  - name: widgets',
+        '    base_branch: develop',
+      ])
+
+      if (overnight) await client.ok('PATCH', '/settings', { overnightMode: true })
+      const task = await client.ok<Task>(
+        'POST',
+        `/factories/${client.factory.id}/stages/review/merge-inherited`,
+      )
+      expect(task).toMatchObject({
+        title: 'Merge inherited changes into review.md',
+        priority: 'none',
+        clarifyDepth: 'none',
+        chosenRepos: ['acme/widgets'],
+      })
+      expect(task.description).toContain(blobHash(libraryV2))
+      expect(task.description).toContain('-- Check the diff against the Design brief.')
+      expect(task.description).toContain('+- Attach the Validate evidence.')
+      expect(task.description).toContain(override.trim())
+      expect(task.description).toContain('skip')
+
+      const review = await waitUntil(
+        async () => {
+          const [item] = await client.ok<InboxItem[]>('GET', '/inbox')
+          return item?.task.id === task.id && item.task.stage === 'review' ? item : undefined
         },
-        { run: ['ted', 'brief', 'write', '--file', briefFile] },
-        { run: ['ted', 'outcome', 'advance'] },
-        { endTurn: true },
-      ],
-    })
-    const override = `${libraryV1}${steps}\n`
-    const { client } = await driftedFactory(override, [
-      'repos:',
-      '  - name: widgets',
-      '    base_branch: develop',
-    ])
-
-    const task = await client.ok<Task>(
-      'POST',
-      `/factories/${client.factory.id}/stages/review/merge-inherited`,
-    )
-    expect(task).toMatchObject({
-      title: 'Merge inherited changes into review.md',
-      priority: 'none',
-      clarifyDepth: 'none',
-      chosenRepos: ['acme/widgets'],
-    })
-    expect(task.description).toContain(blobHash(libraryV2))
-    expect(task.description).toContain('-- Check the diff against the Design brief.')
-    expect(task.description).toContain('+- Attach the Validate evidence.')
-    expect(task.description).toContain(override.trim())
-    expect(task.description).toContain('skip')
-
-    const review = await waitUntil(
-      async () => {
-        const [item] = await client.ok<InboxItem[]>('GET', '/inbox')
-        return item?.task.id === task.id && item.task.stage === 'review' ? item : undefined
-      },
-      'the forced Review Gate',
-      20_000,
-    )
-    expect(review.request).toMatchObject({ stage: 'review' })
-    expect(review.request.gate).toBeDefined()
-  })
+        'the forced Review Gate',
+        20_000,
+      )
+      expect(review.request).toMatchObject({ stage: 'review' })
+      expect(review.request.gate).toBeDefined()
+      const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+      const row = rows.find((r) => r.stage === 'review')
+      expect(row).toMatchObject({ effective: true, required: true })
+      expect(row?.overnight).toBeUndefined()
+    },
+  )
 
   test('Merge with an agent is refused without drift, and only the TED app can ask for it', async () => {
     const client = await start()
@@ -309,7 +322,7 @@ describe('Drift in the Library', () => {
     expect((await client.drift()).library).toBe(1)
 
     await client.saveLibrary({ keepStageFiles: ['review'] }, view.version)
-    expect(await libraryFile('workflow.yaml')).toContain(`based_on: ${blobHash(review)}`)
+    expect(await libraryFile('workflow.yaml')).toContain(basedOnLine(blobHash(review)))
     expect(await libraryFile('stages/review.md')).toBe('My review steps\n')
     expect(reviewRow(await client.library())?.drift).toBeUndefined()
     await waitUntil(async () => (await client.drift()).library === 0, 'no Library drift')

@@ -43,3 +43,13 @@ export interface BrowserReply {
   result?: BrowserResult
   error?: string
 }
+
+export interface BrowserPollRequest {
+  session: string
+}
+
+export interface BrowserReplyRequest extends BrowserPollRequest {
+  canceled?: true
+  error?: string
+  result?: Pick<BrowserResult, 'url' | 'text'>
+}

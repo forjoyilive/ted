@@ -199,12 +199,16 @@ export interface QuitDialog {
 }
 
 function quitQuestion({
+  scheduledTasks = 0,
   runs,
   automationsOn,
   factoriesSettingUp,
   shellsRunning,
 }: Activity): string {
   const count = runs.active + runs.queued
+  if (scheduledTasks > 0) {
+    return `${scheduledTasks} ${plural(scheduledTasks, 'Task is', 'Tasks are')} scheduled to start${count > 0 || automationsOn > 0 || factoriesSettingUp > 0 || shellsRunning > 0 ? ', with other work still going' : ''}. Keep TED running in the background so scheduled Tasks can start?`
+  }
   const runPart = `${count} ${plural(count, 'Run is', 'Runs are')} still going`
   const automationPart = `${automationsOn} ${plural(automationsOn, 'Automation is', 'Automations are')} on`
   if (count === 0 && automationsOn === 0 && factoriesSettingUp === 0 && shellsRunning > 0) {
@@ -226,7 +230,7 @@ export function quitDialog(activity: Activity): QuitDialog {
   return {
     title: 'Quit TED?',
     message: quitQuestion(activity),
-    buttons: ['Keep running', 'Stop them and quit', 'Cancel'],
+    buttons: ['Keep running in the background', 'Stop them and quit', 'Cancel'],
     defaultId: 0,
     cancelId: 2,
     checkboxLabel: 'Don’t ask again',

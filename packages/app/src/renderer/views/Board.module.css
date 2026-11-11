@@ -109,7 +109,7 @@
   color: var(--text-caption);
   font-size: var(--text-11);
   font-weight: var(--weight-regular);
-  line-height: 17px;
+  line-height: var(--leading-17);
 }
 
 .card {

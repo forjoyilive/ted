@@ -15,7 +15,7 @@ import {
 import type { Agents } from './agents/index.ts'
 import { redactSecrets } from './redact.ts'
 import { runFiles } from './runs/host-files.ts'
-import { startRecord } from './runs/run-manager.ts'
+import { type RunManager, startRecord } from './runs/run-manager.ts'
 import type { TedStore } from './store/index.ts'
 
 const execFileAsync = promisify(execFile)
@@ -28,6 +28,7 @@ export interface DiagnosticsSources {
   version: string
   store: TedStore
   agents: Agents
+  runs: Pick<RunManager, 'output'>
 }
 
 interface PsRow {
@@ -82,7 +83,7 @@ function tokenUse(sources: DiagnosticsSources, run: Run): TokenUse {
   const agent = sources.agents.get(run.agent)
   let added: TokenUse = { input: 0, output: 0 }
   let latestTotal: TokenUse | undefined
-  for (const { line } of sources.store.conversation(run.id)) {
+  for (const { line } of sources.runs.output.entries(run.id)) {
     const count = agent.tokensFrom(line)
     if (!count) continue
     if (count.total) latestTotal = { input: count.input, output: count.output }

@@ -25,6 +25,7 @@ import type {
 } from '@ted/protocol'
 import { settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
@@ -217,8 +218,8 @@ describe('Factory settings: Workflow', () => {
       view.version,
     )
     expect(await originFile('.ted/stages/review.md')).toBe(`${inherited}\nAlso check the docs.\n`)
-    expect(await originFile('.ted/workflow.yaml')).toMatch(
-      new RegExp(`review:\\s*\\n\\s+based_on: ${blobHash(inherited)}`),
+    expect(parse((await originFile('.ted/workflow.yaml')) ?? '').stages.review.based_on).toBe(
+      blobHash(inherited),
     )
     const overridden = await client.settings()
     expect(overridden.stages.find((s) => s.id === 'review')).toMatchObject({
@@ -548,5 +549,34 @@ describe('Factory settings: an invalid file', () => {
     await until(async () =>
       (await client.ok<Banner[]>('GET', '/banners')).every((b) => b.problem !== 'workflow-invalid'),
     )
+  })
+})
+
+test('Stage effort overrides Library effort and Inherit removes only the Factory value', async () => {
+  const client = await start()
+  await mkdir(path.join(home, 'library'), { recursive: true })
+  await writeFile(
+    path.join(home, 'library', 'workflow.yaml'),
+    'version: 1\nstages:\n  work: { effort: medium }\n',
+  )
+  const before = await client.settings()
+  expect(before.stages.find((s) => s.id === 'work')).toMatchObject({
+    effort: null,
+    inheritedEffort: 'medium',
+    inheritedEffortFrom: 'library',
+  })
+  const changes = { ...unchanged(before), stages: { work: { effort: 'high' as const } } }
+  await client.save(changes, before.version)
+  expect(await originFile('.ted/workflow.yaml')).toContain('effort: high')
+  const after = await client.settings()
+  expect(after.stages.find((s) => s.id === 'work')).toMatchObject({
+    effort: 'high',
+    inheritedEffort: 'medium',
+  })
+  const preview = await client.preview({ ...unchanged(after), stages: { work: { effort: null } } })
+  expect(preview.valid).toBe(true)
+  expect(preview.files.find((f) => f.path === '.ted/workflow.yaml')?.lines).toContainEqual({
+    kind: 'removed',
+    text: '    effort: high',
   })
 })

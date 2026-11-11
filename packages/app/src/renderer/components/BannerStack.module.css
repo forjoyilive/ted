@@ -63,7 +63,7 @@
 
 .action {
   flex-shrink: 0;
-  height: 26px;
+  min-height: 26px;
   padding: 0 10px;
   border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
@@ -91,7 +91,7 @@
   background: none;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--text-15);
+  font-size: var(--glyph-15);
   line-height: 1;
 }
 
@@ -151,7 +151,7 @@
 }
 
 .menuItem {
-  height: 28px;
+  min-height: 28px;
   padding: 0 10px;
   border: none;
   border-radius: 5px;
