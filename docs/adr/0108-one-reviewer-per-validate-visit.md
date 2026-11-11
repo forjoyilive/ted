@@ -19,3 +19,4 @@ Task Leads in Validate started extra review Runs over the same diff (“Independ
 
 - A Factory’s own Validate Stage file that tells the Task Lead to start a plain sub-agent now gets a refusal there.
 - A Task Lead can still review the diff itself or run a review tool from its shell. TED’s Validate entry text (ADR 0107) tells it not to.
+- Code that changes after the visit’s reviewer was requested can’t get a second review in that visit, so TED refuses `ted outcome advance` until the Task goes back to Work or the branch is back at the reviewed commit (ADR 0107).
