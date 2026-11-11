@@ -50,7 +50,12 @@ async function passing({
   const token = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(current.leadRunId ?? '')
   const app = () => api(ctx.daemon?.port ?? 0, { appKey: ctx.daemon?.appToken ?? '' })
   const call = (route: string, body = {}) =>
-    api(ctx.daemon?.port ?? 0, token).call('POST', root + route, body)
+    waitUntil(async () => {
+      const result = await api(ctx.daemon?.port ?? 0, token).call('POST', root + route, body)
+      return result.status === 409 && /TED is (already )?running/.test(JSON.stringify(result.body))
+        ? undefined
+        : result
+    }, 'TED to finish handing over the Checks')
   const read = async <T>(route: string): Promise<T> => {
     const result = await app().call('GET', route)
     expect(result.status).toBe(200)
@@ -87,10 +92,10 @@ async function passing({
   expect((await advance()).status).toBe(200)
   if (enterValidate) {
     expect((await advance()).status).toBe(200)
-    await waitUntil(
-      async () => (await getTask(client, task.id)).stage === 'validate',
-      'the hand-off Checks to move the Task to Validate',
-    )
+    await waitUntil(async () => {
+      const progress = (await obligations()).progress
+      return (await getTask(client, task.id)).stage === 'validate' && progress && !progress.pending
+    }, 'the hand-off Checks to move the Task to Validate and count as its coverage')
   }
   const settled = async () => {
     await waitUntil(async () => {

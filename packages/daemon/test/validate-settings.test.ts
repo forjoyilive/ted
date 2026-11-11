@@ -142,7 +142,8 @@ const reviewerPrompts = async (client: Client, task: Task) => {
   return Promise.all(reviewers.map(async (r) => userMessages(await client.getRun(r.id))[0] ?? ''))
 }
 
-const counter = 'f="n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";'
+const counter =
+  'f="stub-n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";'
 const runIdOf = 'grep -o "[0-9a-f-]\\{36\\}" | head -1'
 const review = (prompt: string) =>
   `out=$(ted run start --reviewer --prompt-file ${prompt}); ted run wait "$(echo "$out" | ${runIdOf})";`
@@ -281,7 +282,7 @@ describe('stages.validate.p1_only_from', () => {
   )
 
   test(
-    'a Check that fails at Validate entry still sends the Task back in those rounds, and a full review carries TED’s severity rule',
+    'a failed Check the Task Lead assessed as a regression still sends the Task back in those rounds without a severity, and a full review carries TED’s severity rule',
     async () => {
       const count = 'stub-count'
       const client = await start({
@@ -303,6 +304,19 @@ describe('stages.validate.p1_only_from', () => {
       })
       const prompt = await promptFile()
       const reviewed = path.join(scratch, 'reviewed')
+      const handled = path.join(scratch, 'handled')
+      const assessment = path.join(scratch, 'assessment.json')
+      await writeFile(
+        assessment,
+        JSON.stringify({
+          assessment: 'regression',
+          recommendation: 'The Check fails on this Task’s change; repair it in Work.',
+        }),
+      )
+      const regressed = path.join(scratch, 'regressed.md')
+      await writeFile(regressed, '1. The Tests Check fails on this change.\n')
+      const blocker =
+        'ted failure obligations | node -e \'let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{console.log(JSON.parse(s).blockers.at(-1)??"")})\''
       const brief = path.join(scratch, 'brief.md')
       await writeFile(
         brief,
@@ -318,7 +332,11 @@ describe('stages.validate.p1_only_from', () => {
         client,
         [
           `c=$(cat ${count} 2>/dev/null || echo 0);`,
+          `h=$(cat "${handled}" 2>/dev/null || echo 0);`,
           `if [ -e "${reviewed}" ]; then :;`,
+          `elif [ "$c" -lt 3 ] && [ "$c" -gt "$h" ]; then echo $c > "${handled}";`,
+          `ted failure assess "$(${blocker})" --file "${assessment}";`,
+          `ted outcome back --to work --findings "${regressed}";`,
           `elif [ "$c" -ge 3 ]; then touch "${reviewed}"; ${review(prompt)}`,
           `echo "UNFIXED: $(ted outcome back --to work --findings "${prompt}" --severity unfixed 2>&1)";`,
           'ted outcome advance;',

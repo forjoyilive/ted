@@ -47,6 +47,11 @@ interface ValidationOptions {
   background(what: string, work: () => Promise<void>): void
 }
 
+export interface HandOffChecks {
+  run: CheckRun
+  coverage: string | undefined
+}
+
 export function createValidation(options: ValidationOptions) {
   const { store, failures, find } = options
   const visitStart = (task: Task) =>
@@ -408,13 +413,14 @@ export function createValidation(options: ValidationOptions) {
   async function adoptHandOff(
     task: StoredTask,
     resolution: WorkflowResolution,
-    checked: CheckRun,
+    { run: checked, coverage: tested }: HandOffChecks,
   ): Promise<boolean> {
     const plan = await options.plan(task, resolution)
     const local = await coverage(task)
     if (
       checked.outcome !== 'passed' ||
       !local ||
+      local !== tested ||
       sameCheckPlan(checked.checks) !== sameCheckPlan(plan.map((p) => p.check)) ||
       checked.checks.some((c, i) => c.state === 'skipped' && plan[i]?.check.state !== 'skipped')
     )
@@ -437,7 +443,7 @@ export function createValidation(options: ValidationOptions) {
   async function validateChecks(
     taskId: string,
     message?: string,
-    checked?: CheckRun,
+    checked?: HandOffChecks,
   ): Promise<void> {
     options.setChecking(taskId, true)
     try {
@@ -453,7 +459,7 @@ export function createValidation(options: ValidationOptions) {
         await options.deliver(
           task,
           await withApps(
-            `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before moving the Task out of Work. None failed:\n\n${summary(checked.checks)}`,
+            `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
           ),
         )
         return
@@ -701,6 +707,7 @@ export function createValidation(options: ValidationOptions) {
 
   return {
     begin: beginChecks,
+    coverage,
     enter: validateChecks,
     resume: resumeValidation,
     fixes: validationFixes,

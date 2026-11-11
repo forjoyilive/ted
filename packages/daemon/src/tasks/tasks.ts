@@ -312,7 +312,7 @@ import {
   p1OnlyReviewPrompt,
   subAgentsInValidate,
 } from './validate-settings.ts'
-import { createValidation } from './validation.ts'
+import { createValidation, type HandOffChecks } from './validation.ts'
 import { failureCaseFindings, failureCaseReference } from './validation-report.ts'
 import { type CommandResult, copyFiles, outputTail } from './worktree.ts'
 
@@ -1757,22 +1757,20 @@ export function createTasks(options: {
   async function handOffChecks(
     taskId: string,
     heads: readonly (string | undefined)[],
-    begun?: StartedChecks,
+    begun?: { started: StartedChecks; coverage: string | undefined },
   ): Promise<void> {
     let handedOver = false
     const again = 'Report the outcome again with `ted outcome advance` when the work is finished.'
     try {
+      if (!begun) await execution.local(taskId)
+      const coverage = begun ? begun.coverage : await validation.coverage(find(taskId))
       const started =
-        begun ??
-        (await execution
-          .local(taskId)
-          .then(async () =>
-            validation.begin(
-              find(taskId),
-              await gateWorkflow(find(taskId), { fetch: false }),
-              'hand-off',
-            ),
-          ))
+        begun?.started ??
+        (await validation.begin(
+          find(taskId),
+          await gateWorkflow(find(taskId), { fetch: false }),
+          'hand-off',
+        ))
       const result = started === undefined ? undefined : await started.done
       const checkRun =
         started === undefined
@@ -1798,7 +1796,7 @@ export function createTasks(options: {
             store.gateSkippedOvernight(now.id, 'work')
           }
           await move(now, resolution, 'validate', nextStageMessage(workflow, 'validate'), {
-            ...(checkRun !== undefined && { checked: checkRun }),
+            ...(checkRun !== undefined && { checked: { run: checkRun, coverage } }),
           })
           handedOver = true
           return undefined
@@ -4541,7 +4539,7 @@ export function createTasks(options: {
     resolution: WorkflowResolution,
     to: AgentStageId | 'done',
     given: string | undefined,
-    { signedOff = false, checked }: { signedOff?: boolean; checked?: CheckRun } = {},
+    { signedOff = false, checked }: { signedOff?: boolean; checked?: HandOffChecks } = {},
   ): Promise<Task> {
     if (
       to === 'done' ||
@@ -8106,11 +8104,12 @@ export function createTasks(options: {
         if (!gate && stage === 'work' && workflow.next(stage) === 'validate') {
           const heads = await liveHeads(current)
           await execution.local(task.id)
+          const coverage = await validation.coverage(current)
           const started = await validation.begin(current, resolution, 'hand-off')
           if (started) {
             setChecking(task.id, true)
             inBackground(`run ${task.displayId}’s Checks`, () =>
-              handOffChecks(task.id, heads, started),
+              handOffChecks(task.id, heads, { started, coverage }),
             )
             return {
               task: publicTask(task.id),
