@@ -11,6 +11,7 @@ import type {
   RunState,
   Task,
   TaskBrief,
+  TaskChanges,
   TaskEnding,
   TaskFileRef,
   ThreadEvent,
@@ -399,6 +400,9 @@ export function TaskPanes({
   }
   const comments = useComments(task.id)
   const requestOpen = comments.some((c) => c.kind !== 'note' && c.answer === undefined)
+  const reviewOpen = comments.some(
+    (c) => c.kind === 'signoff' && c.stage === 'review' && c.answer === undefined,
+  )
   const back = () => showChanges(undefined)
   const bar = (
     <DraftBar
@@ -454,6 +458,7 @@ export function TaskPanes({
           changes={changes}
           seams={seams}
           footer={bar}
+          backLabel={reviewOpen ? '← Back to sign-off' : 'Collapse'}
           onCollapse={back}
         />
       )}
@@ -474,6 +479,7 @@ export function TaskPanes({
           seams={seams}
           focus={view.focus}
           footer={bar}
+          backLabel={reviewOpen ? '← Back to sign-off' : '← Thread'}
           onBack={back}
           onOpen={openFile}
         />
@@ -495,6 +501,9 @@ export function TaskPanes({
           onOpenTask={onOpenTask}
           onOpenPlan={onOpenPlan}
           onFollowedUp={onFollowedUp}
+          taskChanges={changes}
+          onOpenFile={openFile}
+          onAllChanges={() => showChanges({ kind: 'all' })}
           shownRun={visibleRun}
           onShowRun={show}
           onOpenRun={openRun}
@@ -549,6 +558,9 @@ export function TaskPanes({
 
 export function TaskThread({
   task,
+  taskChanges,
+  onOpenFile,
+  onAllChanges,
   backLink,
   requestId,
   answeredId,
@@ -566,6 +578,9 @@ export function TaskThread({
   onOpenApp,
   onCloseApp,
 }: {
+  taskChanges?: TaskChanges | undefined
+  onOpenFile?: ((file: ChangedFile) => void) | undefined
+  onAllChanges?: (() => void) | undefined
   task: Task
   backLink: string | undefined
   requestId?: string | undefined
@@ -880,6 +895,9 @@ export function TaskThread({
               {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
               <RequestCard
                 key={pinned.id}
+                taskChanges={taskChanges}
+                onOpenFile={onOpenFile}
+                onAllChanges={onAllChanges}
                 request={pinned}
                 task={task}
                 onOpenRun={onOpenRun}
