@@ -66,7 +66,15 @@ export interface LocalLifecycle extends TaskWorktreeLifecycle {
 }
 
 type Repo = { name: string; repo: string }
-type Binding = { handle: LifecycleHandle; file: string; repo: Repo; clones?: string[] }
+type Binding = {
+  handle: LifecycleHandle
+  file: string
+  repo: Repo
+  clones?: string[]
+  source: 'repo' | 'auxiliary' | 'legacy'
+  removal: string | undefined
+  pending: boolean
+}
 
 export function createLocalLifecycle(options: {
   store: TedStore
@@ -90,7 +98,12 @@ export function createLocalLifecycle(options: {
     return task
   }
 
-  function bind(ref: ExecutionRef, repo: Repo, kind: LifecycleHandle['kind']): LifecycleHandle {
+  function bind(
+    ref: ExecutionRef,
+    repo: Repo,
+    kind: LifecycleHandle['kind'],
+    creating = false,
+  ): LifecycleHandle {
     const task = requireLocal(ref)
     if (
       !isSafeRepo(repo.repo) ||
@@ -104,11 +117,24 @@ export function createLocalLifecycle(options: {
     const saved = task.repos.find(
       (r) => !r.removed && r.repo.toLowerCase() === repo.repo.toLowerCase(),
     )
+    const recorded =
+      saved ?? task.repos.find((r) => r.repo.toLowerCase() === repo.repo.toLowerCase())
+    if (kind === 'worktree' && recorded?.removed && !creating)
+      throw new RequestError(409, 'unknown execution handle')
     const file =
       kind === 'clone'
         ? clonePath(options.reposDir, repo)
         : (saved?.worktree ?? path.join(options.worktreesDir, task.displayId, repo.name))
-    return remember(ref, repo, kind, file)
+    const resource = kind === 'worktree' && saved ? { name: saved.name, repo: saved.repo } : repo
+    return remember(
+      ref,
+      resource,
+      kind,
+      file,
+      undefined,
+      'repo',
+      creating || recorded === undefined,
+    )
   }
 
   function remember(
@@ -117,7 +143,11 @@ export function createLocalLifecycle(options: {
     kind: LifecycleHandle['kind'],
     file: string,
     clones?: string[],
+    source: Binding['source'] = 'repo',
+    pending = false,
   ): LifecycleHandle {
+    const removal =
+      kind === 'worktree' && source === 'repo' ? lastRemoval(ref.taskId, repo.name) : undefined
     const id = createHash('sha256')
       .update(
         JSON.stringify([
@@ -130,12 +160,28 @@ export function createLocalLifecycle(options: {
           repo.repo.toLowerCase(),
           repo.name,
           file,
+          source,
+          removal,
         ]),
       )
       .digest('hex')
     const handle = { ...executionHandle({ ...ref, id: executionIds.handle(id) }), kind }
-    bindings.set(id, { handle, file, repo: { ...repo }, ...(clones && { clones }) })
+    bindings.set(id, {
+      handle,
+      file,
+      repo: { ...repo },
+      ...(clones && { clones }),
+      source,
+      removal,
+      pending,
+    })
     return handle
+  }
+
+  function lastRemoval(taskId: string, name: string): string | undefined {
+    return store
+      .taskLog(taskId)
+      .findLast((event) => event.name === 'v1.TaskWorktreeRemoved' && event.data.name === name)?.id
   }
 
   function worktree(ref: ExecutionRef, repo: Repo): LifecycleHandle {
@@ -144,10 +190,21 @@ export function createLocalLifecycle(options: {
 
   function binding(handle: LifecycleHandle, kind?: LifecycleHandle['kind']): Binding {
     const task = requireLocal(handle)
-    for (const repo of task.repos.filter((r) => !r.removed)) bind(handle, repo, handle.kind)
-    auxiliaryWorktrees(handle)
-    legacyWorktree(handle)
+    const current = new Set(
+      task.repos.filter((r) => !r.removed).map((repo) => bind(handle, repo, handle.kind).id),
+    )
+    for (const resource of auxiliaryWorktrees(handle)) current.add(resource.id)
+    const legacy = legacyWorktree(handle)
+    if (legacy) current.add(legacy.id)
     const found = bindings.get(handle.id)
+    if (found?.handle.kind === 'worktree') {
+      const revoked =
+        found.source === 'repo' && found.removal !== lastRemoval(task.id, found.repo.name)
+      if (revoked || (!current.has(handle.id) && !found.pending)) {
+        bindings.delete(handle.id)
+        throw new RequestError(409, 'unknown execution handle')
+      }
+    }
     if (
       !found ||
       (kind !== undefined && handle.kind !== kind) ||
@@ -207,7 +264,7 @@ export function createLocalLifecycle(options: {
     await plain(options.reposDir, source.file)
     await git.fetch(source.file)
     const base = entry.baseBranch ?? (await git.defaultBranch(source.file))
-    const handle = worktree(clone, entry)
+    const handle = bind(clone, entry, 'worktree', true)
     const target = localPath(handle)
     await plain(options.worktreesDir, path.dirname(target), true)
     await plain(options.worktreesDir, target, false, true)
@@ -267,7 +324,14 @@ export function createLocalLifecycle(options: {
       .taskRunList(task.id)
       .filter((run) => run.parentRunId !== undefined && run.cwd.startsWith(own))
       .map((run) =>
-        remember(ref, { name: run.id, repo: factory.repo }, 'worktree', run.cwd, clones),
+        remember(
+          ref,
+          { name: run.id, repo: factory.repo },
+          'worktree',
+          run.cwd,
+          clones,
+          'auxiliary',
+        ),
       )
   }
 
@@ -277,7 +341,14 @@ export function createLocalLifecycle(options: {
     const factory = store.getFactory(task.factoryId)
     return (
       factory &&
-      remember(ref, { name: factory.name, repo: factory.repo }, 'worktree', task.worktree)
+      remember(
+        ref,
+        { name: factory.name, repo: factory.repo },
+        'worktree',
+        task.worktree,
+        undefined,
+        'legacy',
+      )
     )
   }
 
@@ -327,6 +398,7 @@ export function createLocalLifecycle(options: {
         const release = await acquireFactoryPermissions(store, task.factoryId)
         try {
           const current = requireLocal(handle)
+          binding(handle, 'worktree')
           await plain(options.worktreesDir, target.file)
           if (factoryPermissions(store, task.factoryId) === 'bypass') return { release }
           const ref = { problem: 'sandbox-unavailable' as const, factoryId: task.factoryId }

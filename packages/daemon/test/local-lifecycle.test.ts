@@ -4,6 +4,7 @@ import path from 'node:path'
 import { executionIds } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { createBanners } from '../src/banners.ts'
+import { branchExists } from '../src/git.ts'
 import { createSandbox } from '../src/sandbox.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import { createTaskExecution } from '../src/tasks/execution.ts'
@@ -63,6 +64,47 @@ test('worktree handles survive adapter reconstruction and reject foreign or unkn
   const otherRef = await createTaskExecution(store).local(other.id)
   expect(() => local.localPath({ ...handle, ...otherRef })).toThrow()
   expect(() => local.worktree(ref, { name: '../escape', repo: 'acme/widgets' })).toThrow()
+  const file = local.localPath(handle)
+  await mkdir(file, { recursive: true })
+  store.updateSettings({ factoryPermissions: { [task.factoryId]: 'bypass' } })
+  const command = {
+    kind: 'setup' as const,
+    command: { run: 'printf allowed > stub-handle', timeoutMs: 5000 },
+    env: {},
+  }
+  expect((await local.command(handle, command)).outcome).toBe('passed')
+  expect(await readFile(path.join(file, 'stub-handle'), 'utf8')).toBe('allowed')
+  await rm(path.join(file, 'stub-handle'))
+  await expect(local.remove(handle)).rejects.toThrow()
+  const alias = local.worktree(ref, { name: 'renamed', repo: 'acme/widgets' })
+  store.worktreeRemoved(task.id, 'widgets')
+  for (const adapter of [local, backend()]) {
+    expect(() => adapter.localPath(handle)).toThrow('unknown execution handle')
+    expect(() => adapter.localPath(alias)).toThrow('unknown execution handle')
+    expect(() => adapter.worktree(ref, { name: 'widgets', repo: 'acme/widgets' })).toThrow()
+    await expect(adapter.command(handle, command)).rejects.toThrow('unknown execution handle')
+    await expect(adapter.remove(handle)).rejects.toThrow('unknown execution handle')
+  }
+  await expect(readFile(path.join(file, 'stub-handle'))).rejects.toThrow()
+  store.worktreeCreated(task.id, {
+    name: 'widgets',
+    repo: 'acme/widgets',
+    branch: 'ted/handles',
+    worktree: file,
+    copied: [],
+    skipped: [],
+  })
+  const replacement = local.worktree(ref, { name: 'widgets', repo: 'acme/widgets' })
+  expect(replacement.id).not.toBe(handle.id)
+  expect((await local.command(replacement, command)).outcome).toBe('passed')
+  for (const adapter of [local, backend()])
+    expect(() => adapter.localPath(handle)).toThrow('unknown execution handle')
+  await observe('lifecycle-revocation', {
+    liveAndReconstructedRejectRemoved: true,
+    retainedFolderCommandRefused: true,
+    physicalRemovalFailure: true,
+    replacementDoesNotReviveOldHandle: true,
+  })
 })
 
 test('local clone, create, copy and removal use handles and refuse a linked Task folder', async () => {
@@ -102,6 +144,14 @@ test('local clone, create, copy and removal use handles and refuse a linked Task
   expect(made.skipped).toContainEqual({ path: '../outside', reason: 'outside' })
   const file = local.localPath(made.handle)
   expect(await readFile(path.join(file, '.env'), 'utf8')).toBe('LOCAL=present\n')
+  store.startTask({
+    taskId: task.id,
+    stage: 'work',
+    branch: made.branch,
+    worktree: file,
+    entry: { layers: [], order: [{ stage: 'work', enabled: true }] },
+    repo: { name: made.name, repo: made.repo, copied: made.copied, skipped: made.skipped },
+  })
   const refused = await local.command(made.handle, {
     kind: 'setup',
     command: { run: 'touch stub-refused', timeoutMs: 5000 },
@@ -113,6 +163,24 @@ test('local clone, create, copy and removal use handles and refuse a linked Task
   expect(store.listBanners().some((b) => b.problem === 'sandbox-unavailable')).toBe(true)
   await local.remove(made.handle)
   await expect(readFile(path.join(file, '.env'))).rejects.toThrow()
+  store.worktreeRemoved(task.id, 'widgets')
+  const { handle: restoredHandle, ...restored } = await local.create(
+    clone,
+    entry,
+    made.branch,
+    false,
+  )
+  expect(restoredHandle.id).not.toBe(made.handle.id)
+  expect(await readFile(path.join(local.localPath(restoredHandle), '.env'), 'utf8')).toBe(
+    'LOCAL=present\n',
+  )
+  store.worktreeCreated(task.id, { ...restored, worktree: local.localPath(restoredHandle) })
+  expect(backend().localPath(restoredHandle)).toBe(file)
+  await local.remove(restoredHandle)
+  store.worktreeRemoved(task.id, 'widgets')
+  const rollback = await local.create(clone, entry, 'ted/rollback', true)
+  await local.rollback(rollback)
+  expect(await branchExists(local.localPath(clone), 'ted/rollback')).toBe(false)
   const taskFolder = path.join(home, 'worktrees', task.displayId)
   await rm(taskFolder, { recursive: true })
   await symlink(folder, taskFolder)
@@ -124,6 +192,7 @@ test('local clone, create, copy and removal use handles and refuse a linked Task
     restartBindings: true,
     copyAndContainment: true,
     missingSandboxRefused: true,
+    pendingRestoreAndRollback: true,
   })
 })
 

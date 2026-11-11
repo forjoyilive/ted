@@ -63,7 +63,7 @@ export const executionManifest: { version: 1; scenarios: ExecutionScenario[] } =
         'packages/daemon/test/setup-task.test.ts',
         'packages/daemon/test/sub-agents.test.ts',
       ],
-      invariants: ['lifecycle-handles', 'lifecycle-process'],
+      invariants: ['lifecycle-handles', 'lifecycle-revocation', 'lifecycle-process'],
       timeoutMs: 600_000,
       prerequisites: [
         'Node 24',

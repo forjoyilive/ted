@@ -149,6 +149,10 @@ stubbed; the lifecycle adapter, Git, copy, process and sandbox implementations a
 `createLocalLifecycle` is its local adapter. Clone/worktree handles contain an
 assignment reference and an opaque ID; resource paths stay inside the adapter.
 Handles can be reconstructed from stored Task/repo/Run records after restart.
+Repo handles include the latest recorded removal event’s identity, so removing and
+recreating the same path cannot revive an old handle. Resolution requires a current
+authoritative resource or a pending creation binding with an unchanged removal
+identity; a cached entry alone grants no access.
 Operations recheck local ownership and await persistence before filesystem work.
 Tasks retains Workflow resolution, state, command consent/cancellation and ordering.
 Its local compatibility calls to `localPath` populate the existing Task records and
