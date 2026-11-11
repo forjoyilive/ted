@@ -177,3 +177,13 @@ export function suggestRepoName(repo: string): string {
   const name = (repo.split('/').at(-1) ?? repo).toLowerCase().replace(/[^a-z0-9-]+/g, '-')
   return name.replace(/^-+|-+$/g, '') || 'repo'
 }
+
+export interface AutoStartBacklogRequest {
+  enabled: boolean
+}
+export interface SetRepoFolderRequest {
+  path: string
+}
+export interface StopCheckTryRequest {
+  name: string
+}

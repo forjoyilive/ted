@@ -80,7 +80,12 @@ export interface FoundEditor {
 export const editorPlaceholders = ['{path}', '{line}', '{column}'] as const
 
 export interface OpenInEditorRequest {
+  snapshot?: boolean
   file?: string
   line?: number
   column?: number
+}
+
+export interface ShellInputRequest {
+  data: string
 }

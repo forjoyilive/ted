@@ -64,6 +64,7 @@ function holderRuns(holder: SlotHolder): string {
   if (holder.kind === 'automation') return 'Automation Run'
   if (holder.kind === 'automation-draft') return 'Drafting an Automation Prompt'
   if (holder.kind === 'planning') return 'Planning Run'
+  if (holder.kind === 'side-chat') return 'Side chat'
   if (holder.kind === 'coordinator') return 'Coordinator Run'
   if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
   const subs = holder.subAgents
@@ -139,9 +140,11 @@ export function WorkingRunsPopover({
                         ? 'Plan'
                         : holder.kind === 'automation-draft'
                           ? 'Draft'
-                          : holder.kind === 'coordinator'
-                            ? 'Coord'
-                            : 'Auto'
+                          : holder.kind === 'side-chat'
+                            ? 'Chat'
+                            : holder.kind === 'coordinator'
+                              ? 'Coord'
+                              : 'Auto'
                     }
                     title={holder.name}
                     detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
@@ -180,7 +183,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={entry.name}
-                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'coordinator' ? 'Coordinator Run' : entry.kind === 'automation-draft' ? 'Drafting an Automation Prompt' : 'Automation Run'}`}
+                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'side-chat' ? 'Side chat' : entry.kind === 'coordinator' ? 'Coordinator Run' : entry.kind === 'automation-draft' ? 'Drafting an Automation Prompt' : 'Automation Run'}`}
                   />
                 ) : (
                   <Row

@@ -15,7 +15,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -51,9 +51,8 @@ const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sideba
 
 async function launchApp(): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await firstWindow(app)
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   return window
 }
 

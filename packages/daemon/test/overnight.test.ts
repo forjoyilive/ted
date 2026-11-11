@@ -115,7 +115,7 @@ describe('overnight mode', () => {
     expect(await slots(client)).toMatchObject({ working: 1 })
   })
 
-  test('a Gate stays in the Inbox and frees the slot for the next Task', async () => {
+  test('a Gate request posted before the mode turned on stays in the Inbox and frees the slot', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': 'version: 1\nstages:\n  intake:\n    gate: true\n',
     })
@@ -133,6 +133,14 @@ describe('overnight mode', () => {
         { endTurn: true },
       ),
     })
+    await client.ok('POST', `/tasks/${a.id}/start`)
+    await waitUntil(
+      async () =>
+        (await client.ok<InboxItem[]>('GET', '/inbox')).some(
+          ({ request }) => request.taskId === a.id && request.gate,
+        ),
+      'the Intake Gate request',
+    )
     const b = await create(client)
     await client.ok('PATCH', '/settings', { overnightMode: true })
     await lead(client, b)

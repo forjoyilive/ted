@@ -1,9 +1,10 @@
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { type Edition, edition, identity } from './edition.ts'
+import { tedEnv } from './env.ts'
 
 export function tedHome(env: NodeJS.ProcessEnv = process.env, which: Edition = edition): string {
-  return env.TED_HOME || path.join(homedir(), identity(which).homeFolder)
+  return tedEnv('TED_HOME', env, which) || path.join(homedir(), identity(which).homeFolder)
 }
 
 export function tedPaths(home: string) {

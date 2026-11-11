@@ -61,7 +61,7 @@
   color: var(--text-primary);
   font-size: var(--text-14);
   font-weight: var(--weight-medium);
-  line-height: 19px;
+  line-height: var(--leading-19);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -93,7 +93,7 @@
   overflow: hidden;
   color: var(--text-caption);
   font-size: var(--text-12-5);
-  line-height: 17px;
+  line-height: var(--leading-17);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

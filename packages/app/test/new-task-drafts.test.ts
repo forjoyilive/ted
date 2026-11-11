@@ -144,8 +144,10 @@ describe('New Task drafts', () => {
     if (!first || !second) throw new Error('missing Factory')
     await form(window).getByLabel('Description', { exact: true }).fill('Notebook draft')
     await form(window).getByLabel('Factory', { exact: true }).selectOption(second.id)
+    await expect
+      .poll(() => form(window).getByLabel('Description', { exact: true }).inputValue())
+      .toBe('')
     await waitFor(() => form(window).getByLabel('Description', { exact: true }).isEnabled())
-    expect(await form(window).getByLabel('Description', { exact: true }).inputValue()).toBe('')
     await form(window).getByLabel('Description', { exact: true }).fill('Site draft')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByLabel('Factory', { exact: true }).selectOption(first.id)
@@ -182,7 +184,10 @@ describe('New Task drafts', () => {
   test('waits for incomplete startup health and keeps an available lead after Create more', async () => {
     const parent = path.join(ctx.home, 'origin')
     const origin = await makeOriginRepo(parent)
-    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\nlead: { agent: claude }\n' })
+    await commitToOrigin(parent, {
+      '.ted/workflow.yaml':
+        'version: 1\nlead: { agent: claude }\nstages:\n  intake: { effort: high }\n',
+    })
     await addFactory(origin, 'NB')
     let window = await launchApp()
     await sidebar(window).getByRole('button', { name: 'widgets', exact: true }).click()
@@ -233,10 +238,12 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
       .filter({ hasText: 'Task Lead changed to Codex' })
       .waitFor()
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     await window.keyboard.press('Escape')
     await form(window).waitFor({ state: 'detached' })
     await open(window)
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     expect(await form(window).getByRole('status').count()).toBe(0)
     await form(window).getByRole('button', { name: 'Create more', exact: true }).click()
     await waitFor(
@@ -249,6 +256,7 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByRole('button', { name: /^More/ }).click()
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     expect(
       await form(window).getByRole('button', { name: 'Create', exact: true }).isEnabled(),
     ).toBe(true)
@@ -257,12 +265,20 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     const task = (await (await daemonClient()).listTasks()).find(
       (task) => task.description === 'Keep my Task when the installed agents change',
     )
-    expect(task?.lead?.agent).toBe('codex')
+    expect(task?.lead).toMatchObject({ agent: 'codex', effortMode: 'stage' })
     expect(
       (await restarted.listTasks()).find(
         (task) => task.description === 'Another Task after Create more',
-      )?.lead?.agent,
-    ).toBe('codex')
+      )?.lead,
+    ).toMatchObject({ agent: 'codex', effortMode: 'stage' })
+    if (!task) throw new Error('Created Task missing')
+    await restarted.startTask(task.displayId)
+    await waitUntil(async () => {
+      const current = (await restarted.listTasks()).find((entry) => entry.id === task.id)
+      if (!current?.leadRunId) return false
+      return (await restarted.getRun(current.leadRunId)).run.effort === 'high'
+    }, 'fallback Task Lead to use the configured Intake effort')
+    await restarted.stopTask(task.displayId)
   })
 
   test('a removed Linear source stays dismissed on reopening', async () => {

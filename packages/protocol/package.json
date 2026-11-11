@@ -19,6 +19,7 @@
     "./version": "./src/version.ts",
     "./list-view": "./src/list-view.ts",
     "./storage": "./src/storage.ts",
+    "./slots": "./src/slots.ts",
     "./checks": "./src/checks.ts",
     "./changes": "./src/changes.ts",
     "./diff": "./src/diff.ts",
@@ -28,6 +29,7 @@
     "./release": "./src/release.ts",
     "./update": "./src/update.ts",
     "./proposal": "./src/proposal.ts",
-    "./plan": "./src/plan.ts"
+    "./plan": "./src/plan.ts",
+    "./export-file": "./src/export-file.ts"
   }
 }

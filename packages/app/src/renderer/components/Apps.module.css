@@ -92,7 +92,7 @@ button.open {
   overflow: hidden;
   color: var(--text-primary);
   font-size: var(--text-13);
-  line-height: 18px;
+  line-height: var(--leading-18);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -100,7 +100,7 @@ button.open {
 .status {
   color: var(--text-caption);
   font-size: var(--text-12);
-  line-height: 17px;
+  line-height: var(--leading-17);
 }
 
 .status[data-state='exited'],
@@ -199,7 +199,7 @@ button.open {
   border-radius: 4px;
   color: var(--text-caption);
   font-size: var(--text-11);
-  line-height: 16px;
+  line-height: var(--leading-16);
 }
 
 .logStatus {
@@ -223,7 +223,7 @@ button.open {
   color: var(--terminal-fg);
   font-family: var(--font-mono);
   font-size: var(--text-12);
-  line-height: 19px;
+  line-height: var(--leading-19);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -253,7 +253,7 @@ button.open {
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-12-5);
-  line-height: 18px;
+  line-height: var(--leading-18);
 }
 
 .popoverButtons {
@@ -264,4 +264,9 @@ button.open {
 
 .dot[data-state='waiting'] {
   border-color: var(--status-working-fg);
+}
+
+.pending {
+  display: grid;
+  place-items: center;
 }

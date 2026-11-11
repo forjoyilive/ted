@@ -1,4 +1,5 @@
 import { closeSync, fstatSync, readdirSync, readFileSync } from 'node:fs'
+import { tedEnv } from '@ted/protocol'
 
 // On Linux, Node's spawn closes only close-on-exec descriptors, and Electron's main
 // process holds many without the flag, so the daemon would inherit them (ADR 0011).
@@ -18,7 +19,7 @@ export function inheritedFdsEnv(): Record<string, string> {
 // Matching identity guards against a listed descriptor that closed before the spawn
 // and whose number the daemon's runtime then reused for one of its own.
 export function closeInheritedFds(): void {
-  const list = process.env[envName]
+  const list = tedEnv(envName)
   delete process.env[envName]
   for (const entry of list?.split(',') ?? []) {
     const [fdText, ...id] = entry.split(':')

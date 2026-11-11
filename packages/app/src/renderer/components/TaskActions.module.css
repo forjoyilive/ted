@@ -152,7 +152,7 @@
   border: 1px solid var(--text-muted);
   border-radius: 7px;
   color: var(--text-tertiary);
-  font-size: 9px;
+  font-size: var(--glyph-9);
   font-weight: var(--weight-semibold);
   line-height: 1;
 }

@@ -32,6 +32,7 @@ import type {
   Comment,
   Coordinator,
   CoordinatorMessage,
+  CoordinatorStatus,
   CreateAutomationRequest,
   CreateFactoryRequest,
   CreateTaskRequest,
@@ -45,6 +46,7 @@ import type {
   DriftCounts,
   EditAutomationRequest,
   EditTaskRequest,
+  ExportFormat,
   Factory,
   FactoryBoard,
   FactoryRemoval,
@@ -83,6 +85,7 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveExportResult,
   SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
@@ -94,6 +97,7 @@ import type {
   ShellOutput,
   ShellOutputQuery,
   ShellSize,
+  SideChat,
   SimulatorSlots,
   StageEntry,
   StartPlanRequest,
@@ -104,6 +108,8 @@ import type {
   TaskChanges,
   TaskDefaults,
   TaskDraftState,
+  TaskFileContent,
+  TaskFiles,
   TaskGates,
   TaskLead,
   TaskReposResult,
@@ -150,12 +156,17 @@ export const ted = {
   listWaiting: () => window.ted.request('listWaiting') as Promise<WaitingRequest[]>,
   getCoordinator: (id: string) =>
     window.ted.request('getCoordinator', id) as Promise<Coordinator | null>,
+  getCoordinatorChat: (id: string) =>
+    window.ted.request('getCoordinatorChat', id) as Promise<RunChat | null>,
+  coordinatorStatuses: () =>
+    window.ted.request('coordinatorStatuses') as Promise<CoordinatorStatus[]>,
   messageCoordinator: (id: string, input: CoordinatorMessage) =>
     window.ted.request('messageCoordinator', id, input) as Promise<Coordinator>,
   stopCoordinator: (id: string) =>
     window.ted.request('stopCoordinator', id) as Promise<Coordinator>,
   retryCoordinator: (id: string) =>
     window.ted.request('retryCoordinator', id) as Promise<Coordinator>,
+  resetCoordinator: (id: string) => window.ted.request('resetCoordinator', id) as Promise<null>,
   listPlans: (factory?: string) => window.ted.request('listPlans', factory) as Promise<Plan[]>,
   getPlan: (id: string) => window.ted.request('getPlan', id) as Promise<PlanDetail>,
   startPlan: (input: StartPlanRequest) => window.ted.request('startPlan', input) as Promise<Plan>,
@@ -175,6 +186,12 @@ export const ted = {
   doneTalking: (commentId: string) =>
     window.ted.request('doneTalking', commentId) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  getSideChat: (id: string) => window.ted.request('getSideChat', id) as Promise<SideChat | null>,
+  openSideChat: (id: string) => window.ted.request('openSideChat', id) as Promise<SideChat>,
+  sendSideChat: (id: string, text: string) =>
+    window.ted.request('sendSideChat', id, text) as Promise<SideChat>,
+  stopSideChat: (id: string) => window.ted.request('stopSideChat', id) as Promise<SideChat>,
+  retrySideChat: (id: string) => window.ted.request('retrySideChat', id) as Promise<SideChat>,
   getRunChat: (runId: string) => window.ted.request('getRunChat', runId) as Promise<RunChat>,
   sendRunMessage: (runId: string, text: string, interrupt = false) =>
     window.ted.request('sendRunMessage', runId, text, interrupt) as Promise<RunMessage>,
@@ -214,6 +231,8 @@ export const ted = {
     window.ted.request('listCheckRuns', taskId) as Promise<CheckRun[]>,
   checkOutput: (checkRunId: string, position: number) =>
     window.ted.request('checkOutput', checkRunId, position) as Promise<CheckOutput>,
+  exportFactory: (factoryId: string, format: ExportFormat) =>
+    window.ted.request('exportFactory', factoryId, format) as Promise<SaveExportResult>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
@@ -278,6 +297,9 @@ export const ted = {
   listEditors: () => window.ted.request('listEditors') as Promise<FoundEditor[]>,
   openInEditor: (taskId: string, repo: string, at?: OpenInEditorRequest) =>
     window.ted.request('openInEditor', taskId, repo, at) as Promise<void>,
+  taskFiles: (taskId: string) => window.ted.request('taskFiles', taskId) as Promise<TaskFiles>,
+  taskFile: (taskId: string, repo: string, file: string) =>
+    window.ted.request('taskFile', taskId, repo, file) as Promise<TaskFileContent>,
   taskChanges: (taskId: string) =>
     window.ted.request('taskChanges', taskId) as Promise<TaskChanges>,
   fileDiffs: (taskId: string, repo: string, path?: string) =>
@@ -420,7 +442,7 @@ export const ted = {
   listAutomations: (factoryId?: string) =>
     window.ted.request('listAutomations', factoryId) as Promise<Automation[]>,
   getAutomation: (id: string) =>
-    window.ted.request('getAutomation', id) as Promise<AutomationDetail>,
+    window.ted.request('getAutomation', id) as Promise<AutomationDetail | null>,
   draftAutomationPrompt: (input: DraftAutomationPromptRequest) =>
     window.ted.request('draftAutomationPrompt', input) as Promise<AutomationPromptDraft>,
   getAutomationPromptDraft: (id: string) =>

@@ -9,7 +9,7 @@ import type {
   ThreadEventTone,
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
-import type { LoggedEvent } from '../store/index.ts'
+import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
@@ -147,6 +147,14 @@ export function appExitLine(name: string, code: unknown, signal: unknown): strin
   if (typeof code === 'number') return `${name} exited with code ${code}`
   if (typeof signal === 'string' && signal !== '') return `${name} was ended by ${signal}`
   return `${name} stopped running`
+}
+
+export function taskThreadEvents(
+  store: Pick<TedStore, 'taskLog'>,
+  taskId: string,
+  context: ThreadContext,
+): ThreadEvent[] {
+  return threadEvents(taskId, store.taskLog(taskId), context)
 }
 
 export function threadEvents(
@@ -462,6 +470,15 @@ export function threadEvents(
           { judgments: judgmentsIn(data), validate: 'passed' },
         )
         break
+      case 'v1.SendBackAsked':
+        add(
+          entry,
+          'failure',
+          `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          text(data.findings).trim(),
+          text(data.checkRunId) || undefined,
+        )
+        break
       case 'v1.LoopCheckStarted':
         add(
           entry,
@@ -484,7 +501,8 @@ export function threadEvents(
         break
       }
       case 'v1.TaskStageEntered':
-      case 'v2.TaskStageEntered': {
+      case 'v2.TaskStageEntered':
+      case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
         if (sentBackTo === stage) {
@@ -527,6 +545,24 @@ export function threadEvents(
       }
       case 'v1.TaskGatesChanged':
         add(entry, 'edit', 'You changed this Task’s Gates')
+        break
+      case 'v1.GateKeptOvernight':
+        add(
+          entry,
+          'quiet',
+          `Overnight mode is on, but ${
+            data.reason === 'unreadable'
+              ? 'TED couldn’t read this Task’s changes'
+              : 'this Task changes .ted/'
+          }, so its ${stageTitle(text(data.stage))} Gate stays on`,
+        )
+        break
+      case 'v1.GateSkippedOvernight':
+        add(
+          entry,
+          'quiet',
+          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} Gate`,
+        )
         break
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
