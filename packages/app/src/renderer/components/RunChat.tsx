@@ -15,9 +15,10 @@ import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import { LoadingError, Skeleton } from './Loading.tsx'
 import { Markdown } from './Markdown.tsx'
+import { type RequestJump, RequestJumpBar } from './RequestJumpBar.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
-import { ScrollMemory } from './ScrollMemory.tsx'
+import { ScrollMemory, type ScrollReveal } from './ScrollMemory.tsx'
 
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -526,6 +527,7 @@ export interface ChatExtra {
   id: string
   at: string
   node: ReactNode
+  hidden?: boolean
 }
 
 export interface ChatOptions {
@@ -537,6 +539,9 @@ export interface ChatOptions {
   bar?: boolean
   extra?: readonly ChatExtra[]
   pinned?: ReactNode
+  requests?: readonly RequestJump[]
+  revealRequest?: ScrollReveal | undefined
+  onJumpRequest?: ((id: string) => void) | undefined
   label?: string
   placeholder?: string
   endedPlaceholder?: string
@@ -714,7 +719,7 @@ export function ChatTimeline({
       {rows.map((row) =>
         'item' in row && run ? (
           <div
-            key={`${row.item.kind}:${row.item.id}`}
+            key={`${run.id}:${row.item.kind}:${row.item.id}`}
             data-chat-item={row.item.id}
             tabIndex={options.matchItemId === row.item.id ? -1 : undefined}
             className={options.matchItemId === row.item.id ? styles.searchMatch : undefined}
@@ -727,7 +732,17 @@ export function ChatTimeline({
             />
           </div>
         ) : 'extra' in row ? (
-          <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
+          <div
+            key={`extra:${row.extra.id}`}
+            hidden={row.extra.hidden}
+            data-chat-item={row.extra.id}
+            tabIndex={-1}
+            data-nav-item={
+              options.requests?.some((request) => request.id === row.extra.id) || undefined
+            }
+          >
+            {row.extra.node}
+          </div>
         ) : null,
       )}
     </>
@@ -744,6 +759,10 @@ export function ChatBody({
   options?: ChatOptions
 }) {
   const { run, items } = chat
+  const [requestReveal, setRequestReveal] = useState<ScrollReveal>()
+  useEffect(() => {
+    setRequestReveal(options.revealRequest)
+  }, [options.revealRequest])
   const rows = conversationRows(items, options.extra ?? [], run.startedAt)
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
 
@@ -755,9 +774,16 @@ export function ChatBody({
           : options.bar !== false && (
               <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
             ))}
+      <RequestJumpBar
+        requests={options.requests ?? []}
+        onJump={(id) => {
+          setRequestReveal({ id })
+          options.onJumpRequest?.(id)
+        }}
+      />
       <ScrollMemory
         spot={options.inspect ? `search:${run.id}:${options.matchItemId}` : `run:${run.id}`}
-        reveal={options.matchItemId}
+        reveal={options.matchItemId ?? requestReveal}
         count={rows.length}
         grows={lastText}
         className={styles.items}

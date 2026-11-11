@@ -43,6 +43,8 @@
   --focus-ring: light-dark(#4d59cf, #8a95f2);
   --focus-halo: light-dark(#4d59cf33, #8a95f252);
 
+  --status-testing-bg: light-dark(#f3edfc, #30243f);
+  --status-testing-fg: light-dark(#7952b3, #c4a3ee);
   --status-working-fg: light-dark(#3a45b0, #9aa4f5);
   --status-working-bg: light-dark(#eef0fb, #232845);
   --status-waiting-fg: light-dark(#b86e12, #e3a04a);

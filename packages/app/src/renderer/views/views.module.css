@@ -379,8 +379,26 @@
 }
 
 .requestItem {
+  flex-shrink: 0;
+  scroll-margin-block: 8px;
   display: flex;
   flex-direction: column;
+}
+
+.requestItem:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+
+.requestItem[hidden] {
+  display: none;
+}
+
+.threadComposer {
+  flex-shrink: 0;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .pinned {
@@ -692,17 +710,18 @@
   }
 }
 
-.discussionPane {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-.discussionPane[hidden] {
-  display: none;
-}
 .discussionExtra {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.threadBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.threadBody[hidden] {
+  display: none;
 }

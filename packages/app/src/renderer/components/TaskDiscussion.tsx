@@ -6,7 +6,7 @@ import { conversationInStage } from '../task-conversations.ts'
 import { formatDate } from '../time.ts'
 import { LoadingError, Skeleton } from './Loading.tsx'
 import { type ChatExtra, ChatTimeline } from './RunChat.tsx'
-import { ScrollMemory } from './ScrollMemory.tsx'
+import { ScrollMemory, type ScrollReveal } from './ScrollMemory.tsx'
 import { RunWithSideChat } from './SideChat.tsx'
 import styles from './TaskDiscussion.module.css'
 
@@ -31,6 +31,7 @@ export function TaskDiscussion({
   leadRunId,
   earlier,
   revealRun,
+  revealRequest,
   comments,
   entries,
   stage,
@@ -42,7 +43,8 @@ export function TaskDiscussion({
   taskId: string
   leadRunId: string | undefined
   earlier: readonly RunSummary[]
-  revealRun: string | undefined
+  revealRun: string | ScrollReveal | undefined
+  revealRequest?: ScrollReveal | undefined
   comments: readonly Comment[]
   entries: readonly StageEntry[]
   stage: AgentStageId | undefined
@@ -51,15 +53,29 @@ export function TaskDiscussion({
   active: boolean
   loading: boolean
 }) {
+  const conversationTarget =
+    typeof revealRun === 'string' ? `conversation:${revealRun}` : revealRun?.id
   const body = (chat: RunChat | undefined, error?: string, retry?: () => void) => {
     const shown = visibleChat(chat, comments, entries, stage)
     return (
       <section className={styles.container} aria-label="Run chat">
         <ScrollMemory
           spot={`thread:${taskId}`}
-          count={loading ? 0 : extra.length + (shown?.items.length ?? 0) + earlier.length}
+          count={
+            loading
+              ? 0
+              : extra.filter((row) => !row.hidden).length +
+                (shown?.items.length ?? 0) +
+                earlier.length
+          }
           grows={shown?.items.at(-1)}
-          reveal={revealRun ? `conversation:${revealRun}` : undefined}
+          reveal={
+            revealRun !== undefined
+              ? typeof revealRun === 'string'
+                ? `conversation:${revealRun}`
+                : revealRun
+              : revealRequest
+          }
           active={active}
           className={styles.items}
         >
@@ -67,7 +83,7 @@ export function TaskDiscussion({
             <EarlierConversation
               key={run.id}
               run={run}
-              reveal={revealRun === run.id}
+              reveal={conversationTarget === `conversation:${run.id}` ? revealRun : undefined}
               comments={comments}
               entries={entries}
               stage={stage}
@@ -102,7 +118,7 @@ function EarlierConversation({
   stage,
 }: {
   run: RunSummary
-  reveal: boolean
+  reveal: string | ScrollReveal | undefined
   comments: readonly Comment[]
   entries: readonly StageEntry[]
   stage: AgentStageId | undefined

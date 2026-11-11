@@ -86,6 +86,27 @@ function discussion() {
       await screen.findByText('Current exchange.')
       return screen.getByRole('region', { name: 'Task thread' })
     },
+    async replaceLead() {
+      const replacement: RunSummary & { role: 'lead' } = {
+        ...lead,
+        id: 'next-lead',
+        startedAt: '2026-11-09T12:01:00.000Z',
+      }
+      runs = [
+        ...runs.map((run) =>
+          run.id === lead.id ? { ...run, state: 'finished' as const, current: false } : run,
+        ),
+        replacement,
+      ]
+      chats.set(replacement.id, {
+        run: replacement,
+        items: [
+          { kind: 'agent', id: 'a1', text: 'Replacement exchange.', at: replacement.startedAt },
+        ],
+      })
+      current = { ...current, leadRunId: replacement.id, runs: [replacement] }
+      await a.emitTask(current)
+    },
     async finishSub() {
       runs = runs.map((run) => (run.id === sub.id ? { ...run, state: 'finished' } : run))
       chats.set(sub.id, { ...required(chats.get(sub.id)), run: { ...sub, state: 'finished' } })
@@ -399,4 +420,46 @@ test('the combined Task Lead view preserves side-chat routing', async () => {
   )
   await user().click(panel.getByRole('button', { name: 'Close side chat' }))
   expect(view.getByRole('textbox', { name: 'Message the Task Lead' })).toBeTruthy()
+})
+
+test('earlier conversations can be reopened repeatedly from History', async () => {
+  const a = discussion()
+  const view = within(await a.open())
+  const openEarlier = async () => {
+    await user().click(view.getByRole('button', { name: /^History/ }))
+    await user().click(
+      within(screen.getByRole('region', { name: 'Conversation history' })).getByRole('button', {
+        name: /Earlier conversation/,
+      }),
+    )
+    await view.findByText('Yesterday’s exchange.')
+  }
+  await openEarlier()
+  await user().click(view.getByText(/^Earlier conversation ·/))
+  await openEarlier()
+  expect(required(view.getByText(/^Earlier conversation ·/).closest('details'))).toHaveProperty(
+    'open',
+    true,
+  )
+})
+
+test('replacing the Task Lead keeps the Task message and request drafts mounted', async () => {
+  const a = discussion()
+  a.handle('listComments', () => [
+    comment({ body: 'Keep this choice?', choices: ['Yes'], readAt: createdAt }),
+  ])
+  const view = within(await a.open())
+  const answer = view.getByRole('textbox', { name: 'Your answer' })
+  fireEvent.change(answer, { target: { value: 'Keep the existing choice.' } })
+  fireEvent.change(view.getByRole('textbox', { name: 'Message the Task Lead' }), {
+    target: { value: 'Keep this draft too.' },
+  })
+  await a.replaceLead()
+  await view.findByText('Replacement exchange.')
+  expect(view.getByRole('textbox', { name: 'Your answer' })).toBe(answer)
+  expect(answer).toHaveProperty('value', 'Keep the existing choice.')
+  expect(view.getByRole('textbox', { name: 'Message the Task Lead' })).toHaveProperty(
+    'value',
+    'Keep this draft too.',
+  )
 })

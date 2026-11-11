@@ -401,3 +401,15 @@ export function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
     TED_ONLINE_FILE: fileURLToPath(new URL('./fixtures/online.txt', import.meta.url)),
   }
 }
+
+export async function all<T>(names: readonly T[], body: (name: T, index: number) => Promise<void>) {
+  const results = await Promise.allSettled(names.map(body))
+  const failed = results.flatMap((result, i) =>
+    result.status === 'rejected'
+      ? [
+          `${String(names[i])}: ${result.reason instanceof Error ? result.reason.stack : result.reason}`,
+        ]
+      : [],
+  )
+  if (failed.length > 0) throw new Error(failed.join('\n\n'))
+}

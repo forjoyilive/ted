@@ -59,3 +59,8 @@
   background: var(--status-success-bg);
   color: var(--status-success-fg);
 }
+
+.testing {
+  background: var(--status-testing-bg);
+  color: var(--status-testing-fg);
+}

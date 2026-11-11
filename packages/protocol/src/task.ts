@@ -125,6 +125,13 @@ export type TaskMarker =
   | { kind: 'snoozed'; until: string }
   | { kind: 'needs-planning' }
   | { kind: 'preparing' }
+  | {
+      kind: 'test-activity'
+      source: 'tests' | 'checks'
+      phase: 'running' | 'waiting'
+      label: string
+      detail: string
+    }
 
 export type TrackState = 'past' | 'current' | 'skipped' | 'future'
 

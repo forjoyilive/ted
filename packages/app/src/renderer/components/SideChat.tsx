@@ -1,5 +1,5 @@
 import type { SideChat as Chat } from '@ted/protocol'
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useEventValue, useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -14,7 +14,7 @@ type Props = {
 } & ChatOptions
 
 export function RunWithSideChat(props: Props) {
-  return <RunSideChat key={props.runId} {...props} />
+  return <RunSideChat key={props.renderSource ? undefined : props.runId} {...props} />
 }
 
 function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
@@ -25,6 +25,15 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const sideId = useRef<string | undefined>(undefined)
+  const sourceId = useRef(runId)
+  sourceId.current = runId
+  useEffect(() => {
+    void runId
+    setOpen(false)
+    setWhich('source')
+    setError(undefined)
+    setBusy(false)
+  }, [runId])
   const eligible = chat?.run.role === 'lead'
   const { value: side, update } = useEventValue<Chat | null | undefined>({
     initial: undefined,
@@ -44,16 +53,17 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   sideId.current = side?.id
 
   const act = async (request: () => Promise<Chat>) => {
+    const source = runId
     setBusy(true)
     setError(undefined)
     try {
       const next = await request()
-      update(() => next)
+      if (sourceId.current === source) update(() => next)
     } catch (failed) {
-      setError(readableError(failed))
+      if (sourceId.current === source) setError(readableError(failed))
       throw failed
     } finally {
-      setBusy(false)
+      if (sourceId.current === source) setBusy(false)
     }
   }
   const show = () => {
