@@ -59,6 +59,7 @@ interface StubMerge {
   disableAutoFails?: boolean
   rollup?: 'empty' | 'missing' | 'truncated'
   title?: string
+  baseRefName?: string
   mergeState?: string
   mergeable?: string
   reviewDecision?: string | null
@@ -191,7 +192,7 @@ function pullRequests(variables: Record<string, unknown>) {
         id: `PR_${number}`,
         title: merge.title ?? 'Stub pull request',
         url: `https://github.com/${String(variables[`o${i}`])}/${String(variables[`n${i}`])}/pull/${number}`,
-        baseRefName: 'main',
+        baseRefName: merge.baseRefName ?? 'main',
         state: merge.merged ? 'MERGED' : merge.closed ? 'CLOSED' : 'OPEN',
         isDraft: merge.isDraft ?? false,
         headRefOid: headOf(number),

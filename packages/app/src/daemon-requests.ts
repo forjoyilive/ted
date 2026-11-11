@@ -123,6 +123,7 @@ export const forwardedRequests = [
   'factorySettings',
   'previewFactorySettings',
   'saveFactorySettings',
+  'mergeFactorySettings',
   'library',
   'previewLibrary',
   'saveLibrary',

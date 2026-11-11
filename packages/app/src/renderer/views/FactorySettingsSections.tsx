@@ -154,7 +154,7 @@ function SectionHeading({
       </h2>
       <Help>{help}</Help>
       {where === 'repo' ? (
-        <span className={base.repoChip}>Saved to the repo · pull request</span>
+        <span className={base.repoChip}>In the repo</span>
       ) : (
         <span className={base.machineChip}>Saved on {machine}</span>
       )}

@@ -218,7 +218,14 @@ export async function lockRun(
   options: SlotOptions = {},
 ): Promise<(() => Promise<void>) | undefined> {
   const held = Number(process.env[heldLockEnv])
-  if (held && (await holder(options.suiteLock ?? suiteLockFile)) === held) return undefined
+  if (held) {
+    if ((await holder(options.suiteLock ?? suiteLockFile)) === held) return undefined
+    if (fileCount < smallRunFiles) {
+      for (let index = 0; index < (options.slots ?? testSlots); index++) {
+        if ((await holder(slotFile(options.dir ?? slotDir, index))) === held) return undefined
+      }
+    }
+  }
   const onWait = (pid: number) => console.log(waitingMessage(pid))
   if (fileCount >= smallRunFiles) return acquireFullRun({ onWait, ...options })
   const release = await acquireSlot({ onWait, ...options })
