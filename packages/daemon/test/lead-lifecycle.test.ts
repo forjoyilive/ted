@@ -244,6 +244,7 @@ test('a Run without a session queues a fresh Lead with the Task brief', async ()
   expect(store.latestLeadFailure(taskId)).toMatchObject({ recovery: 'fresh' })
   expect(store.queue().map((q) => q.id)).toContain(taskId)
   expect(starts).toEqual([])
+  advance(1)
   await lifecycle.prepare(taskId, { kind: 'existing' })
   expect(start.mock.calls[0]?.[0].prompt).toContain('Keep my committed work')
   expect(store.getTask(taskId)?.leadRunId).toBe('fresh-0')
@@ -294,7 +295,10 @@ test.each(['stale', 'archived', 'stopped', 'queued', 'held', 'stopping', 'sub-ag
         cwd: home,
       })
     finishLead(kind === 'sub-agent' ? 'child' : 'lead')
-    if (kind === 'stale') startLead('new-lead')
+    if (kind === 'stale') {
+      advance(1)
+      startLead('new-lead')
+    }
     if (kind === 'archived') store.archiveTask(taskId)
     if (kind === 'stopped') store.stopTask(taskId, { runs: 1, why: 'human' })
     if (kind === 'queued') store.resumeTask(taskId, { waitForBlockers: false })
