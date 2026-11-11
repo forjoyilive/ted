@@ -1,9 +1,12 @@
-import type { Task, TaskFileRef } from '@ted/protocol'
+import type { ChangesSource, Task, TaskFileRef } from '@ted/protocol'
 import type { ChangedFile } from './changes.ts'
 import type { ShownApp } from './components/AppsSection.tsx'
 import type { LineFocus } from './components/DiffViews.tsx'
 
-export type ChangesView = { kind: 'diff'; file: ChangedFile; focus?: LineFocus } | { kind: 'all' }
+export type ChangesView = (
+  | { kind: 'diff'; file: ChangedFile; focus?: LineFocus }
+  | { kind: 'all' }
+) & { source?: ChangesSource }
 
 export interface MiddlePaneState {
   file?: { taskId: string; file: TaskFileRef } | undefined
@@ -83,7 +86,10 @@ export function middlePane(
     requestedFile && task.repos.some((r) => !r.removed && r.name === requestedFile.repo)
       ? requestedFile
       : undefined
-  const all = file === undefined && changes?.kind === 'all' && changesLoaded
+  const all =
+    file === undefined &&
+    changes?.kind === 'all' &&
+    (changesLoaded || changes.source === 'pull-request')
   return {
     run,
     changes: file === undefined ? changes : undefined,

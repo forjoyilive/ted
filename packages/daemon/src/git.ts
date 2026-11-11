@@ -693,7 +693,7 @@ export async function workingChanges(
   }
 }
 
-function parsePatch(patch: string): { hunks: DiffHunk[]; truncated?: true } {
+export function parsePatch(patch: string): { hunks: DiffHunk[]; truncated?: true } {
   const hunks: DiffHunk[] = []
   let current: DiffHunk | undefined
   let old = 0

@@ -154,3 +154,18 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  margin: 0 0 8px;
+  border: none;
+}
+
+.sources button[aria-pressed='true'] {
+  background: var(--surface-selected);
+  font-weight: var(--weight-semibold);
+}
