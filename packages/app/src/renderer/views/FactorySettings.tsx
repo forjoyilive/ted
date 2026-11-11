@@ -28,6 +28,7 @@ import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Skeleton } from '../components/Loading.tsx'
+import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
 import {
   editedFields,
@@ -860,9 +861,10 @@ function RepoCard({
           <label className={styles.label} htmlFor={`${id}-merge`}>
             Merge method <Edited when={edited.has('mergeMethod')} />
           </label>
-          <select
+          <Select
+            fullWidth
             id={`${id}-merge`}
-            className={styles.select}
+            controlClassName={styles.select}
             value={repo.mergeMethod ?? 'squash'}
             onChange={(event) => {
               const chosen = event.target.value as SettingsMergeMethod
@@ -880,7 +882,7 @@ function RepoCard({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
@@ -1262,9 +1264,10 @@ function AppEditor({
           <label className={styles.label} htmlFor={`${id}-kind`}>
             Kind
           </label>
-          <select
+          <Select
+            fullWidth
             id={`${id}-kind`}
-            className={styles.select}
+            controlClassName={styles.select}
             value={app.kind}
             onChange={(event) => {
               const kind = appKinds.find((k) => k === event.target.value) ?? 'web'
@@ -1277,7 +1280,7 @@ function AppEditor({
                 {appKindLabels[kind]}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
       <div className={styles.field}>

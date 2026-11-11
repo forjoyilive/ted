@@ -19,6 +19,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
 import { useEventValue } from '../data.ts'
 import {
@@ -346,9 +347,10 @@ function StageRow({
         </span>
         <span>
           {row.id === 'clarify' ? (
-            <select
+            <Select
+              fullWidth
               aria-label="Clarify depth"
-              className={styles.cellSelect}
+              controlClassName={styles.cellSelect}
               value={stage?.depth ?? 'auto'}
               onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
             >
@@ -357,7 +359,7 @@ function StageRow({
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : (
             dash
           )}
@@ -622,9 +624,10 @@ export function ChecksSection({
                 onChange={(event) => setCheck(index, { run: event.target.value })}
               />
               {multiRepo && (
-                <select
+                <Select
+                  fullWidth
                   aria-label={`${check.name || 'Check'} repo`}
-                  className={styles.cellSelect}
+                  controlClassName={styles.cellSelect}
                   value={check.repo ?? draft.repos[0]?.name ?? ''}
                   onChange={(event) =>
                     setCheck(index, {
@@ -637,7 +640,7 @@ export function ChecksSection({
                       {repo.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
               <input
                 aria-label={`${check.name || 'Check'} timeout`}
@@ -843,9 +846,10 @@ function AgentRow({
         </span>
         <span className={`${base.mono} ${styles.agentKey}`}>{row.role}</span>
       </span>
-      <select
+      <Select
+        fullWidth
         aria-label={`${name} agent`}
-        className={styles.cellSelect}
+        controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.agent ?? 'claude'}
         onChange={(event) => update({ agent: event.target.value })}
@@ -855,7 +859,7 @@ function AgentRow({
             {label}
           </option>
         ))}
-      </select>
+      </Select>
       <input
         aria-label={`${name} model`}
         className={`${styles.cellInput} ${base.mono}`}
@@ -864,9 +868,10 @@ function AgentRow({
         value={shown.model ?? ''}
         onChange={(event) => update({ model: event.target.value })}
       />
-      <select
+      <Select
+        fullWidth
         aria-label={`${name} effort`}
-        className={styles.cellSelect}
+        controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.effort ?? ''}
         onChange={(event) => {
@@ -883,7 +888,7 @@ function AgentRow({
             {effort}
           </option>
         ))}
-      </select>
+      </Select>
       <FromChip layer={own ? 'factory' : row.inheritedFrom} />
       <span className={styles.actions}>
         {own ? (

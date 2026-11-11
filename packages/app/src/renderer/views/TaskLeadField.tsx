@@ -1,7 +1,8 @@
 import type { AgentKind, Effort, Run, Task, TaskLead } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useId, useState } from 'react'
+import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
 import { agentLabels, leadSummary } from '../task-fields.ts'
 import { ted } from '../ted.ts'
@@ -10,6 +11,7 @@ import styles from './TaskLeadField.module.css'
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export function TaskLeadField({ task }: { task: Task }) {
+  const id = useId()
   const lead = task.lead
   const runId = task.leadRunId
   const { value: run } = useEventValue<Run | undefined>({
@@ -85,10 +87,12 @@ export function TaskLeadField({ task }: { task: Task }) {
         </div>
       )}
       <form className={styles.form} onSubmit={save}>
-        <label className={styles.label}>
+        <label className={styles.label} htmlFor={`${id}-agent`}>
           Agent
-          <select
-            className={styles.control}
+          <Select
+            fullWidth
+            id={`${id}-agent`}
+            controlClassName={styles.control}
             value={agent}
             onChange={(e) => setAgent(e.target.value as AgentKind)}
           >
@@ -97,7 +101,7 @@ export function TaskLeadField({ task }: { task: Task }) {
                 {agentLabels[kind]}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className={styles.label}>
           Model
@@ -108,10 +112,12 @@ export function TaskLeadField({ task }: { task: Task }) {
             onChange={(e) => setModel(e.target.value)}
           />
         </label>
-        <label className={styles.label}>
+        <label className={styles.label} htmlFor={`${id}-effort`}>
           Effort
-          <select
-            className={styles.control}
+          <Select
+            fullWidth
+            id={`${id}-effort`}
+            controlClassName={styles.control}
             value={effort}
             onChange={(e) => setEffort(e.target.value as Effort | '' | 'stage')}
           >
@@ -122,7 +128,7 @@ export function TaskLeadField({ task }: { task: Task }) {
                 {level}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <button type="submit" className={styles.button}>
           Save
