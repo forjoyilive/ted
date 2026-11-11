@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { RunChat, SearchResults } from '@ted/protocol'
+import type { RunChat, SearchResults, Task } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { SearchPalette } from '../src/renderer/components/SearchPalette.tsx'
@@ -7,9 +7,9 @@ import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
-function open(found: Partial<SearchResults> = {}, current = false) {
+function open(found: Partial<SearchResults> = {}, current: boolean | Task = false) {
   const context = {
-    task: current ? task() : undefined,
+    task: typeof current === 'object' ? current : current ? task() : undefined,
     factories: [factory()],
     factoryId: 'f1',
     dispatch: vi.fn(),
@@ -397,3 +397,15 @@ test.each(['failed', 'running', 'stopped', 'diff', 'read-count'] as const)(
     expect(document.activeElement?.getAttribute('data-chat-item')).toBe('tool1')
   },
 )
+
+test('a rejected Cancel snooze command stays open and shows the daemon error', async () => {
+  const a = open({}, task({ stage: 'backlog', snoozedUntil: '2099-11-11T03:45:00.000Z' }))
+  a.handle('setTaskSnooze', async () => {
+    throw new Error('This Task has already started')
+  })
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Cancel snooze' } })
+  await user().click(await screen.findByRole('option', { name: /Cancel snooze/ }))
+  expect((await screen.findByRole('alert')).textContent).toContain('This Task has already started')
+  expect(a.close).not.toHaveBeenCalled()
+  expect(a.request).toHaveBeenCalledWith('setTaskSnooze', 'NB-1', null)
+})

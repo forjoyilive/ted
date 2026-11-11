@@ -217,9 +217,7 @@ export function taskCommands(task: Task): Command[] {
         id: 'cancel-snooze',
         label: 'Cancel snooze',
         scope: 'task',
-        run: () => {
-          void ted.setTaskSnooze(task.id, null)
-        },
+        run: () => ted.setTaskSnooze(task.id, null),
       })
   }
   if (action) {
