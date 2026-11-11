@@ -188,7 +188,7 @@ describe('resuming takes a working slot', () => {
         await writeFile(gate, '')
         await waitFor(client, other, (t) => t.runs[0]?.state === 'idle', 'to go idle')
         expect(await agentStarts()).toHaveLength(count)
-        expect((await getTask(client, task.id)).stopped).toBe(true)
+        expect((await getTask(client, task.id)).status?.kind).toBe('stopped')
         return
       }
       await writeFile(gate, '')
