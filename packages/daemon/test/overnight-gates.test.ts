@@ -126,21 +126,7 @@ describe('overnight mode turns Gates off', () => {
     expect(thread).toContain('Overnight mode is on, so TED skipped the Merge Gate')
   })
 
-  test('with overnight mode off the same Task stops at the Design Gate', async () => {
-    const client = await start(gated)
-    const task = await begin(client)
-    await advanceTo(client, task, 'design')
-    const res = await advance(client, task)
-    expect(res.body).toMatchObject({
-      task: { stage: 'design' },
-      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
-    })
-    expect(await gateRequests(client, task)).toHaveLength(1)
-    expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
-    expect(row(await gates(client, task), 'review')?.overnight).toBeUndefined()
-  })
-
-  test('a Gate turned on for one Task is off overnight too, and the saved choice stays', async () => {
+  test('a Gate turned on for one Task is off overnight too, the saved choice stays, and turning overnight mode off mid-Task brings back the next Gate', async () => {
     const client = await start(gated)
     const task = await begin(client)
     const before = await gates(client, task)
@@ -175,13 +161,28 @@ describe('overnight mode turns Gates off', () => {
     await overnight(client, false)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
     expect((await gates(client, task)).overrides).toEqual({ work: true })
+    expect((await getTask(client, task.id)).stage).toBe('validate')
+    await advanceTo(client, task, 'review')
+    const res = await advance(client, task)
+    expect(res.body).toMatchObject({
+      task: { stage: 'review' },
+      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
+    })
+    expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
   })
 
-  test('a Gate request open when overnight mode turns on stays open', async () => {
+  test('with overnight mode off a Task stops at the Design Gate, and a Gate request open when the mode turns on stays open', async () => {
     const client = await start(gated)
     const task = await begin(client)
     await advanceTo(client, task, 'design')
-    await advance(client, task)
+    const res = await advance(client, task)
+    expect(res.body).toMatchObject({
+      task: { stage: 'design' },
+      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
+    })
+    expect(await gateRequests(client, task)).toHaveLength(1)
+    expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
+    expect(row(await gates(client, task), 'review')?.overnight).toBeUndefined()
     const [open] = await gateRequests(client, task)
     expect(open?.request.stage).toBe('design')
     await overnight(client, true)
@@ -225,24 +226,6 @@ describe('overnight mode turns Gates off', () => {
       { id: 'work', gate: false, overnight: undefined },
     ]
     expect(await read()).toEqual([on, on, on])
-  })
-
-  test('turning overnight mode off mid-Task brings back the next Gate', async () => {
-    const client = await start(gated)
-    await overnight(client, true)
-    const task = await begin(client)
-    await advanceTo(client, task, 'design')
-    await advanceTo(client, task, 'work')
-    await overnight(client, false)
-    expect((await getTask(client, task.id)).stage).toBe('work')
-    await advanceTo(client, task, 'validate')
-    await advanceTo(client, task, 'review')
-    const res = await advance(client, task)
-    expect(res.body).toMatchObject({
-      task: { stage: 'review' },
-      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
-    })
-    expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
   })
 })
 
