@@ -155,62 +155,109 @@ describe('Merge sign-off', () => {
     expect((await comments(client, task)).filter((c) => c.stage === 'merge')).toEqual([])
   })
 
-  test('Request changes waits for a Run that holds the Task instead of failing', async () => {
-    const clock = new ManualClock()
-    const client = await start({
-      daemon: { clock },
-      workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
-    })
-    const { task, signoff } = await toSignoff(client, {}, clock)
-    await writeFile(client.mergingFile, '')
-    const lead = await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'a Lead')
-    const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]
-    if (!factory) throw new Error('no Factory')
-    const gate = path.join(ctx.scratch, 'fetch-gate')
-    const fetching = path.join(ctx.scratch, 'fetching')
-    const uploadPack = path.join(ctx.scratch, 'slow-upload-pack')
-    await writeFile(
-      uploadPack,
-      `#!/bin/sh\ntouch '${fetching}'\nwhile [ -e '${gate}' ]; do sleep 0.05; done\nexec git-upload-pack "$@"\n`,
-      { mode: 0o755 },
-    )
-    const clone = clonePath(tedPaths(ctx.home).repos, factory)
-    await run('git', ['-C', clone, 'config', 'remote.origin.uploadpack', uploadPack])
-    const runToken = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(lead)
-    const runClient = api(ctx.daemon?.port ?? 0, runToken)
-    await writeFile(gate, '')
-    const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })
-    try {
-      await waitUntil(
-        async () => (await stat(fetching).catch(() => undefined)) !== undefined,
-        'a fetch',
-        30_000,
+  test.each(['approve', 'request-changes', 'timeout'] as const)(
+    'a Merge sign-off %s waits atomically for a busy Task',
+    async (action) => {
+      const clock = new ManualClock()
+      const client = await start({
+        daemon: { clock },
+        workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
+      })
+      const { task, signoff } = await toSignoff(client, {}, clock)
+      await writeFile(client.mergingFile, '')
+      const lead = await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'a Lead')
+      const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]
+      if (!factory) throw new Error('no Factory')
+      const gate = path.join(ctx.scratch, 'fetch-gate')
+      const fetching = path.join(ctx.scratch, 'fetching')
+      const uploadPack = path.join(ctx.scratch, 'slow-upload-pack')
+      await writeFile(
+        uploadPack,
+        `#!/bin/sh\ntouch '${fetching}'\nwhile [ -e '${gate}' ]; do sleep 0.05; done\nexec git-upload-pack "$@"\n`,
+        { mode: 0o755 },
       )
-      let settled = false
-      const answer = client
-        .call('POST', `/comments/${signoff.id}/answer`, {
-          action: 'request-changes',
-          text: 'Not yet.',
-        })
-        .finally(() => {
-          settled = true
-        })
-      await eventWait(
-        clock.subscribe,
-        () => clock.pending.includes(15_000),
-        'Request changes to wait on the held Task',
-      )
-      expect(settled).toBe(false)
-      await rm(gate)
-      expect((await answer).status).toBe(200)
-    } finally {
-      await rm(gate, { force: true })
-      expect((await outcome).status).toBe(409)
-    }
-    const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
-    expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
-    expect(await merges()).toEqual([])
-  }, 60_000)
+      const clone = clonePath(tedPaths(ctx.home).repos, factory)
+      await run('git', ['-C', clone, 'config', 'remote.origin.uploadpack', uploadPack])
+      const runToken = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(lead)
+      const runClient = api(ctx.daemon?.port ?? 0, runToken)
+      await writeFile(gate, '')
+      const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })
+      try {
+        await waitUntil(
+          async () => (await stat(fetching).catch(() => undefined)) !== undefined,
+          'a fetch',
+          30_000,
+        )
+        const request = {
+          action: action === 'timeout' ? ('approve' as const) : action,
+          ...(action === 'request-changes' && { text: 'Not yet.' }),
+        }
+        const route = `/comments/${signoff.id}/answer`
+        const answers = [client.call('POST', route, request)]
+        await eventWait(
+          clock.subscribe,
+          () => clock.pending.includes(60_000),
+          'the sign-off to wait on the held Task',
+        )
+        if (action === 'approve') {
+          answers.push(client.call('POST', route, request))
+          await eventWait(
+            clock.subscribe,
+            () => clock.pending.filter((ms) => ms === 60_000).length === 2,
+            'both approvals to wait on the held Task',
+          )
+        }
+        clock.advance(15_000)
+        expect(
+          (await comments(client, task)).find((c) => c.id === signoff.id)?.answer,
+        ).toBeUndefined()
+        if (action === 'timeout') {
+          clock.advance(45_000)
+          const [result] = await Promise.all(answers)
+          expect(result?.status).toBe(409)
+          expect(JSON.stringify(result?.body)).toContain('No answer was applied')
+          expect(
+            (await comments(client, task)).find((c) => c.id === signoff.id)?.answer,
+          ).toBeUndefined()
+        } else {
+          await rm(gate)
+          const results = await Promise.all(answers)
+          expect(results.map((r) => r.status).sort()).toEqual(
+            action === 'approve' ? [200, 409] : [200],
+          )
+          if (action === 'approve') {
+            expect(JSON.stringify(results.find((r) => r.status === 409)?.body)).toContain(
+              'already been answered',
+            )
+          }
+        }
+      } finally {
+        await rm(gate, { force: true })
+        expect((await outcome).status).toBe(409)
+      }
+      const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
+      expect(merge.map((c) => c.answer?.kind)).toEqual([
+        action === 'approve'
+          ? 'approved'
+          : action === 'request-changes'
+            ? 'changes-requested'
+            : undefined,
+      ])
+      if (action === 'approve') {
+        await eventWait(
+          clock.subscribe,
+          () => clock.pending.includes(100),
+          'the GitHub poll to rearm',
+        )
+        clock.advance(100)
+        await waitForStage(client, task, 'done')
+        expect(await merges()).toHaveLength(1)
+      } else {
+        expect(await merges()).toEqual([])
+      }
+    },
+    60_000,
+  )
 
   test('with no Review sign-off, the Merge sign-off carries the brief', async () => {
     const client = await start({
