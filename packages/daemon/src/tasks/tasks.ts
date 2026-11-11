@@ -1821,13 +1821,16 @@ export function createTasks(options: {
   async function leaveWorkToDiagnose(
     task: StoredTask,
   ): Promise<(message: string) => Promise<Task>> {
-    if (leftWork(task)) throw new RequestError(409, `${task.displayId} has left Work`)
-    if (task.stopped || task.status?.kind === 'failed') {
-      throw new RequestError(
-        409,
-        `${task.displayId} is stopped or Failed; resume it, then answer this request`,
-      )
+    const refuseHalted = (now: StoredTask) => {
+      if (leftWork(now)) throw new RequestError(409, `${task.displayId} has left Work`)
+      if (now.stopped || now.status?.kind === 'failed') {
+        throw new RequestError(
+          409,
+          `${task.displayId} is stopped or Failed; resume it, then answer this request`,
+        )
+      }
     }
+    refuseHalted(task)
     if (checking.has(task.id)) {
       throw new RequestError(
         409,
@@ -1852,6 +1855,7 @@ export function createTasks(options: {
         `${task.displayId}’s branch conflicts with ${clean(conflict.base, 200)}, so it can’t leave Work yet. Choose ${tryAgainChoice} and the Task Lead resolves the conflict in Work.`,
       )
     }
+    refuseHalted(find(task.id))
     return (message) => {
       if (workflow.overnightGates?.includes('work') && !gateSkipped(task)) {
         store.gateSkippedOvernight(task.id, 'work')
@@ -1914,6 +1918,12 @@ export function createTasks(options: {
           const { workflow } = resolution
           if (workflow.next('work') !== 'validate' || gateOn(now, workflow, 'work')) {
             return 'the Workflow changed while the Checks ran'
+          }
+          const still = find(taskId)
+          if (leftWork(still)) return undefined
+          if (handOffHalted(still, lead)) {
+            halted = true
+            return undefined
           }
           if (workflow.overnightGates?.includes('work') && !gateSkipped(now)) {
             store.gateSkippedOvernight(now.id, 'work')
@@ -4749,16 +4759,19 @@ export function createTasks(options: {
     }
   }
 
-  function declareSeverity(
+  async function declareSeverity(
     task: StoredTask,
     workflow: ResolvedWorkflow,
     runId: string,
     severity: FindingSeverity | undefined,
-  ): void {
+  ): Promise<void> {
     const round = store.sendBackCount(task.id, 'validate') + 1
     const from = p1OnlyAt(workflow, round)
     if (from !== undefined && lastChangesRequested(task) === '') {
-      if (severity === undefined) throw new RequestError(409, p1OnlyRefusal(round, from))
+      if (severity === undefined) {
+        if ((await movedSinceReview(task)) !== undefined) return
+        throw new RequestError(409, p1OnlyRefusal(round, from))
+      }
       if (
         severity === 'unfixed' &&
         !countedValidateSendBacks(task.id).some((b) => b.checkRunId === undefined)
@@ -7650,7 +7663,7 @@ export function createTasks(options: {
             )
               failedCheck = undefined
             if (!conflict && (failedCheck === undefined || outcome.severity !== undefined))
-              declareSeverity(current, workflow, runId, outcome.severity)
+              await declareSeverity(current, workflow, runId, outcome.severity)
             judge(current, 'sent-back', outcome.judged)
           }
           if (conflict) {

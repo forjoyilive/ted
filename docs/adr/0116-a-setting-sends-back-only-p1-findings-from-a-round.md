@@ -28,6 +28,7 @@ P1 keeps the meaning ADR 0107 gave it: the change loses or corrupts data, opens 
 - The Checks failing before a Task leaves Work (ADR 0111): the Task stays in Work and there is no send-back.
 - A base conflict TED verified (`--cause base-conflict`, ADR 0110).
 - A send-back after the human asked for changes at Validate’s Gate.
+- A send-back when the code is no longer the commit this visit’s reviewer was given (`movedSinceReview`, ADR 0107). TED refuses `ted outcome advance` then and tells the Task Lead to send the Task back for a new review, so that send-back needs no `--severity`. It is counted toward `max_back` like any other.
 - `max_back` and `loop_check`: a send-back that does happen is counted, can start the loop check and can reach the over-limit question, as before.
 - Gates. The setting isn’t a Gate, so overnight mode, forced Gates and a Task’s own Gate overrides leave it alone. A setup Task gets no forced value and takes what the layers give.
 

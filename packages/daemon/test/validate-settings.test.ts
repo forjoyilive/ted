@@ -206,9 +206,11 @@ describe('stages.validate.p1_only_from', () => {
           `echo "PLAIN: $(ted run start --agent claude --name Extra --prompt-file ${prompt} 2>&1)";`,
           `ted outcome back --to work --findings "${findings}" --severity p1;;`,
           `7) ${commit('export2.txt')} ted outcome advance;;`,
-          `8) ${review(prompt)} ted outcome back --to work --findings "${findings}" --severity unfixed;;`,
-          `9) ${commit('export3.txt')} ted outcome advance;;`,
-          `10) ${review(prompt)} ted outcome advance;;`,
+          `8) ${review(prompt)} ${commit('late.txt')} ted outcome back --to work --findings "${findings}";;`,
+          '9) ted outcome advance;;',
+          `10) ${review(prompt)} ted outcome back --to work --findings "${findings}" --severity unfixed;;`,
+          `11) ${commit('export3.txt')} ted outcome advance;;`,
+          `12) ${review(prompt)} ted outcome advance;;`,
           'esac',
         ].join(' '),
       )
@@ -230,7 +232,8 @@ describe('stages.validate.p1_only_from', () => {
       expect(sendBacks.map((b) => [b.cause, b.round, b.severity])).toEqual([
         ['review', 1, undefined],
         ['review', 2, 'p1'],
-        ['review', 3, 'unfixed'],
+        ['review', 3, undefined],
+        ['review', 4, 'unfixed'],
       ])
       const checkRuns = await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)
       expect(checkRuns.map((r) => [r.trigger, r.outcome])).toEqual([
@@ -239,15 +242,17 @@ describe('stages.validate.p1_only_from', () => {
         ['hand-off', 'passed'],
         ['hand-off', 'passed'],
         ['hand-off', 'passed'],
+        ['hand-off', 'passed'],
       ])
       const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
       const lines = events.map((e) => e.text).filter((text) => text.includes('sent this back'))
-      expect(lines).toHaveLength(3)
+      expect(lines).toHaveLength(4)
       expect(lines[0]).not.toContain('declared')
       expect(lines[1]).toMatch(/\(round 2 of 5\).* · P1 declared$/)
-      expect(lines[2]).toMatch(/\(round 3 of 5\).* · earlier Finding unfixed declared$/)
+      expect(lines[2]).not.toContain('declared')
+      expect(lines[3]).toMatch(/\(round 4 of 5\).* · earlier Finding unfixed declared$/)
 
-      const [first, second, third, fourth, ...more] = await reviewerPrompts(client, task)
+      const [first, second, third, fourth, fifth, ...more] = await reviewerPrompts(client, task)
       expect(more).toEqual([])
       expect(first).toContain('# Your instructions from the Task Lead of NB-1')
       expect(first).not.toContain('## Severity')
@@ -255,6 +260,7 @@ describe('stages.validate.p1_only_from', () => {
         [second, 2],
         [third, 3],
         [fourth, 4],
+        [fifth, 5],
       ] as const) {
         expect(prompted).toContain('# Your instructions from TED')
         expect(prompted).toContain(`# Review of the fixes in NB-1, Validate round ${round}`)
@@ -272,7 +278,7 @@ describe('stages.validate.p1_only_from', () => {
       const rounds = userMessages(await leadRun(client, task)).filter((m) =>
         m.includes('# Validate round'),
       )
-      expect(rounds).toHaveLength(3)
+      expect(rounds).toHaveLength(4)
       for (const round of rounds) {
         expect(round).toContain('This Factory sets `stages.validate.p1_only_from: 2`')
         expect(round).toContain('add `--severity p1` to `ted outcome back`')

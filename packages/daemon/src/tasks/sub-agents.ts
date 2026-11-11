@@ -175,13 +175,23 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     return entries.findLast((e) => e.kind === 'agent')?.text
   }
 
-  function ownWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
-    const next = allocating.then(() => addOwnWorktree(task, repo, name))
+  function ownWorktree(
+    task: StoredTask,
+    repo: TaskRepo,
+    name: string,
+    from?: string,
+  ): Promise<string> {
+    const next = allocating.then(() => addOwnWorktree(task, repo, name, from))
     allocating = next.catch(() => undefined)
     return next
   }
 
-  async function addOwnWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
+  async function addOwnWorktree(
+    task: StoredTask,
+    repo: TaskRepo,
+    name: string,
+    from?: string,
+  ): Promise<string> {
     const clone = deps.clonePathFor(repo)
     const base = `${task.branch ?? `ted/${task.displayId.toLowerCase()}`}-${slug(name)}`
     let branch = base
@@ -193,7 +203,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       branch.split('/').at(-1) ?? 'sub-agent',
     )
     await mkdir(path.dirname(dir), { recursive: true })
-    const head = await git.revParse(repo.worktree, 'HEAD')
+    const head = from ?? (await git.revParse(repo.worktree, 'HEAD'))
     await git.addWorktree(clone, { path: dir, branch, from: head })
     return dir
   }
@@ -218,7 +228,11 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       return
     }
     const shared = (await deps.runFolder(task)) ?? repo.worktree
-    const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : shared
+    const reviewed = store
+      .reviewScopes(task.id)
+      .find((s) => s.runId === request.id)
+      ?.commits.find((c) => c.name === repo.name)?.commit
+    const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name, reviewed) : shared
     const fromTed =
       store.reviewerOf(request.id)?.purpose === 'loop-check' ||
       store.p1OnlyReview(request.id) ||
