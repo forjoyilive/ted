@@ -179,7 +179,7 @@ export function currentFactoryId(
 
 type Place = Pick<
   Navigation,
-  'screen' | 'taskId' | 'requestId' | 'settings' | 'planId' | 'lastFactoryId'
+  'screen' | 'taskId' | 'requestId' | 'settings' | 'planId' | 'planFrom' | 'lastFactoryId'
 >
 
 export interface History {
@@ -202,6 +202,7 @@ function placeOf({
   requestId,
   settings,
   planId,
+  planFrom,
   lastFactoryId,
 }: Navigation): Place {
   return {
@@ -209,7 +210,11 @@ function placeOf({
     ...(taskId !== undefined && { taskId }),
     ...(requestId !== undefined && { requestId }),
     ...(settings !== undefined && { settings }),
-    ...(planId !== undefined && { planId, ...(lastFactoryId !== undefined && { lastFactoryId }) }),
+    ...(planId !== undefined && {
+      planId,
+      ...(planFrom !== undefined && { planFrom }),
+      ...(lastFactoryId !== undefined && { lastFactoryId }),
+    }),
   }
 }
 
@@ -218,7 +223,7 @@ function samePlace(a: Place, b: Place): boolean {
 }
 
 function goTo(state: Navigation, place: Place): Navigation {
-  const { taskId: _, requestId: __, settings: ___, planId: ____, ...rest } = state
+  const { taskId: _, requestId: __, settings: ___, planId: ____, planFrom: _____, ...rest } = state
   const { screen } = place
   return {
     ...rest,

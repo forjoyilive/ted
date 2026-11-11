@@ -7,6 +7,7 @@ import {
   initialNavigation,
   type Navigation,
   navigate,
+  newPlan,
   startHistory,
   withHistory,
 } from '../src/renderer/navigation.ts'
@@ -206,6 +207,32 @@ describe('back and forward (⌘[ and ⌘])', () => {
       { type: 'forward' },
     )
     expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
+  })
+
+  test('history retains a continuation source without leaking it into another place or new plan', () => {
+    let history = walk({ type: 'open-plan', factoryId: 'nb', from: 'p1' })
+    history = withHistory(history, { type: 'open', screen: { kind: 'inbox' } })
+    expect(history.now.planFrom).toBeUndefined()
+
+    history = withHistory(history, { type: 'back' })
+    expect(history.now).toMatchObject({
+      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      planId: newPlan,
+      planFrom: 'p1',
+    })
+    history = withHistory(history, { type: 'forward' })
+    expect(history.now.screen).toEqual({ kind: 'inbox' })
+    expect(history.now.planFrom).toBeUndefined()
+
+    history = withHistory(history, { type: 'back' })
+    history = withHistory(history, { type: 'open-plan', factoryId: 'nb' })
+    expect(history.now.planId).toBe(newPlan)
+    expect(history.now.planFrom).toBeUndefined()
+    history = withHistory(history, { type: 'back' })
+    expect(history.now.planFrom).toBe('p1')
+    history = withHistory(history, { type: 'forward' })
+    expect(history.now.planId).toBe(newPlan)
+    expect(history.now.planFrom).toBeUndefined()
   })
 
   test('back with nowhere to go, and actions that stay in place, change nothing', () => {
