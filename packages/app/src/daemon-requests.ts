@@ -58,6 +58,8 @@ export const forwardedRequests = [
   'setTaskGates',
   'setClarifyDepth',
   'listStageEntries',
+  'listFailures',
+  'validationObligations',
   'listCheckRuns',
   'checkOutput',
   'listFactories',

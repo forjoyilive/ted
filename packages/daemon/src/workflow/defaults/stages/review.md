@@ -24,3 +24,5 @@ Decide whether the fix belongs in Work or in Design, put the human’s request i
 A reviewer finding needs a decision about what the Task should deliver.
 
 TED never approves the pull request on GitHub, and neither do you.
+
+Include every accepted failure in the brief with its assessment, evidence and human decision, labelled “failed, accepted by you”. Keep it distinct from passed Checks. Confirm all remaining Checks and reviewer/visual obligations were completed. Acceptance resolves only that failure and never grants this Gate or merge approval.

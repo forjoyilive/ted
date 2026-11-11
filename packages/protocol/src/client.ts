@@ -594,6 +594,13 @@ export class DaemonClient {
       input,
     )
   }
+  verifyFailure(ref: string, id: string, evidence: string): Promise<FailureCase> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/verification`,
+      { evidence },
+    )
+  }
   requestFailureDecision(ref: string, id: string): Promise<FailureCase> {
     return this.#request(
       'POST',
