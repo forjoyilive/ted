@@ -94,9 +94,11 @@ node scripts/validate-execution-lab.ts --opt-in --config "$lab_config" \
 Bootstrap downloads official Node archives over HTTPS and checks hard-coded SHA256
 digests from that version’s official SHASUMS256.txt. It installs pinned pnpm through
 the bundled npm with scripts disabled and an isolated HOME/cache. It changes no
-system tools or shell startup files. An existing runtime must have its own matching
-ownership marker before bootstrap can resume. If bootstrap is interrupted, inspect
-the owned runtime and its output; never remove an unmarked directory to force it.
+system tools or shell startup files. Downloads, extraction and dependency installation
+use a fresh, exclusively created owned staging directory. Existing runtimes are
+validated and preserved without writes; unsafe or incomplete ones are refused for
+inspection. Interrupted staging is removed only through its own ownership marker.
+Never remove an unmarked directory to force installation.
 
 Preflight requires Node 24, pnpm 10.28.0, Git, a functioning native
 `/usr/bin/sandbox-exec`, distinct pinned Mac identities, the designated accounts and
@@ -157,8 +159,13 @@ node scripts/validate-execution-lab.ts --opt-in --config "$lab_config" \
 ```
 
 The deployed candidate’s existing runner dispatches exactly the selected files,
-reuses Vitest suite slots/cleanup, requires invariant observations, and returns
-redacted reports. Unknown scenarios fail; unavailable/skipped scenarios never pass.
+reuses Vitest suite slots/cleanup and their wait budget, requires invariant observations, and returns
+redacted reports. Scenario reports persist under `<root>/reports/<run-id>`, outside
+the disposable deployment. The lab validates ownership and supplies a report allocator
+to the shared runner; its normal report-directory policy is unchanged. Scenario
+children use the approved account’s HOME for the machine’s shared test slots while
+TED_HOME, credentials, integration stubs and caches remain explicitly isolated.
+Unknown scenarios fail; unavailable/skipped scenarios never pass.
 Normal suite/Stage restrictions still apply: do not invoke scenario tests during Work.
 Do not remove or replace other Tasks’ manifest rows, including `local-lifecycle` and
 `native-sandbox`. Tests of a capability must use its real product implementation.
@@ -196,7 +203,10 @@ After an interrupted command, use its reported run ID with `observe`, `stop`,
 checkout; new candidate deployment and scenario execution require a clean commit.
 If a Mac is unreachable, restore SSH first and retry owned cleanup. Never substitute
 `killall`, broad `pkill`, `rm -rf` on an unverified path, or deleting an ownership marker.
-A report/cleanup error is a failure, not permission to broaden cleanup.
+Cleanup executes independently of report writes, including when report storage is
+unavailable at recovery startup. It still attempts both hosts and reports failure
+to the caller when evidence cannot be published. A report/cleanup error is a
+failure, not permission to broaden cleanup.
 
 The module tests are `scripts/execution-lab.test.ts`. Validate should run that file
 and `scripts/validate-execution.test.ts`, plus Typecheck/Lint. Real two-Mac acceptance

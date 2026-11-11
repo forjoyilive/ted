@@ -120,8 +120,16 @@ export async function callHost(
   run: Execute = execute,
 ) {
   const implementation = await readFile(new URL('./host.ts', import.meta.url), 'utf8')
-  const input = `${implementation}\ntry { console.log('TED_LAB_RESULT=' + JSON.stringify(await dispatch(${JSON.stringify(request)}))) } catch(error) { console.error(String(error)); process.exitCode = 1 }\n`
-  const output = await run(hostCommand(config, host, input))
+  const timeout =
+    request.action === 'scenario'
+      ? 30_000 +
+        selectScenarios(request.scenarios ?? []).reduce(
+          (total, scenario) => total + scenario.timeoutMs + 1_820_000,
+          0,
+        )
+      : 900_000
+  const input = `${implementation}\ntry { console.log('TED_LAB_RESULT=' + JSON.stringify(await dispatch(${JSON.stringify({ ...request, timeoutMs: timeout })}))) } catch(error) { console.error(String(error)); process.exitCode = 1 }\n`
+  const output = await run({ ...hostCommand(config, host, input), timeout: timeout + 10_000 })
   if (output.code !== 0)
     throw new Error(
       redactSecrets(
@@ -191,7 +199,7 @@ export interface LabOptions {
   runId?: string
 }
 
-export async function runLab(options: LabOptions, run: Execute = execute) {
+export async function runLab(options: LabOptions, run: Execute = execute, publish = publishReport) {
   if (!options.optIn) throw new Error('--opt-in required before reading host configuration')
   const config = await readConfig(options.configFile, options.root)
   if (!options.scenarios.length) throw new Error('explicit --scenario required')
@@ -234,7 +242,33 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
         replay,
       },
     }
-  const directory = await reportDirectory(config.reportDir, options.root)
+  let directory: string
+  try {
+    directory = await reportDirectory(config.reportDir, options.root)
+  } catch (error) {
+    if (options.action !== 'cleanup') throw error
+    const recovery: unknown[] = []
+    for (const host of config.hosts) {
+      try {
+        recovery.push({
+          role: host.role,
+          result: await callHost(
+            config,
+            host,
+            { labId: config.labId, host, action: 'cleanup', runId: id },
+            run,
+          ),
+        })
+      } catch (failure) {
+        recovery.push({ role: host.role, error: String(failure) })
+      }
+    }
+    throw new Error(
+      redactSecrets(
+        `Report storage unavailable for run ${id}; cleanup attempted on both hosts without report writes: ${JSON.stringify(recovery)}. ${error}`,
+      ),
+    )
+  }
   const started = Date.now()
   const report: ValidationReport = {
     version: 1,
@@ -254,6 +288,7 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
     },
   }
   const deployed: LabHost[] = []
+  let publicationError: unknown
   const step = async (host: LabHost, action: HostRequest['action'], files?: ContentFile[]) => {
     const result = {
       id: `${host.role}:${action}`,
@@ -268,10 +303,12 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
       evidencePaths: [] as string[],
     }
     report.scenarios.push(result)
-    await publishReport(directory, report)
+    if (action !== 'cleanup') await publish(directory, report)
     const before = Date.now()
+    let observed: Record<string, unknown> | undefined
+    let failure: unknown
     try {
-      const observed = await callHost(
+      observed = await callHost(
         config,
         host,
         {
@@ -289,18 +326,29 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
       if (action === 'scenario' && observed.exitCode !== 0)
         throw new Error(`${host.role}: scenario failed or skipped; see collected observations`)
       result.result = 'pass'
-      return observed
-    } finally {
-      result.durationMs = Date.now() - before
-      await publishReport(directory, report)
+    } catch (error) {
+      failure = error ?? new Error('host action failed')
+      result.observed.push({ error: redactSecrets(String(error)) })
     }
+    result.durationMs = Date.now() - before
+    try {
+      await publish(directory, report)
+    } catch (error) {
+      report.errors.push(redactSecrets(`report publication after ${action}: ${error}`))
+      if (action !== 'cleanup') failure ??= error
+    }
+    if (failure !== undefined) throw failure
+    if (!observed) throw new Error('host action returned no observations')
+    return observed
   }
   try {
-    await publishReport(directory, report)
-    report.candidate = await candidateIdentity(options.root)
+    if (options.action !== 'cleanup') {
+      await publish(directory, report)
+      report.candidate = await candidateIdentity(options.root)
+    }
     report.replay.candidate = report.candidate
     if (
-      report.candidate.dirtyPatchIdentity &&
+      report.candidate?.dirtyPatchIdentity &&
       ['acceptance', 'deploy', 'scenario'].includes(options.action)
     )
       throw new Error('commit candidate before lab execution')
@@ -366,7 +414,7 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
         throw new Error('select implementation scenarios, not lab-access')
       for (const host of config.hosts) {
         try {
-          if (recovering) await step(host, 'identity')
+          if (recovering && options.action !== 'cleanup') await step(host, 'identity')
           await step(host, options.action)
         } catch (error) {
           report.errors.push(redactSecrets(`${host.role}: ${error}`))
@@ -376,7 +424,11 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
     }
   } catch (error) {
     report.errors.push(redactSecrets(String(error)))
-    await saveEvidence(directory, 'failure.txt', String(error))
+    try {
+      await saveEvidence(directory, 'failure.txt', String(error))
+    } catch (publicationError) {
+      report.errors.push(redactSecrets(`failure evidence unavailable: ${publicationError}`))
+    }
   } finally {
     if (options.action === 'acceptance') {
       for (const host of deployed.reverse()) {
@@ -390,13 +442,23 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
     if (report.errors.length || report.scenarios.some((scenario) => scenario.result === 'fail'))
       report.result = 'fail'
     report.durationMs = Date.now() - started
-    await publishReport(directory, report)
+    try {
+      await publish(directory, report)
+    } catch (error) {
+      publicationError = error
+    }
   }
+  if (publicationError !== undefined)
+    throw new Error(
+      redactSecrets(
+        `Report publication failed for run ${id}; owned acceptance cleanup was attempted independently. Reports: ${directory}. ${publicationError}`,
+      ),
+    )
   return { code: report.result === 'pass' ? 0 : 1, directory, report, runId: id }
 }
 
 export async function bootstrap(config: LabConfig, run: Execute = execute) {
-  const input = await readFile(new URL('./bootstrap.sh', import.meta.url), 'utf8')
+  const input = `${await readFile(new URL('./bootstrap-paths.sh', import.meta.url), 'utf8')}\n${await readFile(new URL('./bootstrap.sh', import.meta.url), 'utf8')}`
   const results = []
   for (const host of config.hosts) {
     const args = [

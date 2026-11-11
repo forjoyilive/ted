@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   access,
@@ -11,7 +12,9 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
+import { publishReport } from '../packages/daemon/test/support/execution-report.ts'
 import { parseConfig, plainPath, quote, readConfig, sshArgs } from './execution-lab/config.ts'
 import {
   contentName,
@@ -27,6 +30,7 @@ import {
   bootstrap,
   callHost,
   candidateFiles,
+  execute,
   type LabCommand,
   runLab,
 } from './execution-lab/runner.ts'
@@ -73,6 +77,145 @@ async function scratch() {
 }
 
 describe('lab configuration and SSH control', () => {
+  it('can recover both hosts when report allocation or publication is unavailable', async () => {
+    for (const phase of ['allocation', 'publication']) {
+      const directory = await scratch()
+      const value = config()
+      value.knownHosts = `${directory}/known_hosts`
+      value.identityFile = `${directory}/identity`
+      value.reportDir = `${directory}/reports`
+      await writeFile(value.knownHosts, '')
+      await writeFile(value.identityFile, '', { mode: 0o600 })
+      if (phase === 'allocation') await writeFile(value.reportDir, 'not a directory')
+      const file = `${directory}/config.json`
+      await writeFile(file, JSON.stringify(value))
+      const contacted: string[] = []
+      await expect(
+        runLab(
+          {
+            optIn: true,
+            configFile: file,
+            root: process.cwd(),
+            action: 'cleanup',
+            scenarios: ['lab-access'],
+            runId: '33333333-3333-3333-3333-333333333333',
+          },
+          async (command) => {
+            expect(command.input).toContain('"action":"cleanup"')
+            contacted.push(command.program)
+            return { code: 0, stdout: 'TED_LAB_RESULT={"processStopped":true}\n', stderr: '' }
+          },
+          async () => {
+            throw new Error('simulated ENOSPC')
+          },
+        ),
+      ).rejects.toThrow(/cleanup.*attempted/)
+      expect(contacted).toEqual(['/usr/bin/env', '/usr/bin/ssh'])
+    }
+  })
+  it('never lets report-publication failure prevent cleanup of either deployed host', async () => {
+    const directory = await scratch()
+    const value = config()
+    value.knownHosts = `${directory}/known_hosts`
+    value.identityFile = `${directory}/identity`
+    value.reportDir = `${directory}/reports`
+    await writeFile(value.knownHosts, '')
+    await writeFile(value.identityFile, '', { mode: 0o600 })
+    const file = `${directory}/config.json`
+    await writeFile(file, JSON.stringify(value))
+    const seen: string[] = []
+    const starts = new Map<string, number>()
+    const observations = new Map<string, number>()
+    const manifests = new Map<string, string>()
+    await expect(
+      runLab(
+        {
+          optIn: true,
+          configFile: file,
+          root: process.cwd(),
+          action: 'acceptance',
+          scenarios: ['lab-access'],
+        },
+        async (command) => {
+          if (command.program === '/usr/bin/git') return execute(command)
+          const begin = command.input.lastIndexOf('await dispatch(') + 'await dispatch('.length
+          const request = JSON.parse(
+            command.input.slice(begin, command.input.indexOf('))) } catch', begin)),
+          ) as HostRequest & { host: { role: string; machineId: string } }
+          const role = request.host.role
+          seen.push(`${role}:${request.action}`)
+          if (request.action === 'deploy') manifests.set(role, manifestDigest(request.files ?? []))
+          if (request.action === 'start') starts.set(role, (starts.get(role) ?? 0) + 1)
+          if (request.action === 'observe')
+            observations.set(role, (observations.get(role) ?? 0) + 1)
+          const result = {
+            machineId: request.host.machineId,
+            contentHash: manifestDigest(request.files ?? []),
+            artifacts: [],
+            pid: starts.get(role) ?? 0,
+            token: `${role}-${starts.get(role)}`,
+            starts: starts.get(role),
+            sequence: observations.get(role),
+          }
+          if (request.action === 'verify') result.contentHash = manifests.get(role) ?? ''
+          return { code: 0, stdout: `TED_LAB_RESULT=${JSON.stringify(result)}\n`, stderr: '' }
+        },
+        async (destination, report) => {
+          if (
+            report.scenarios.some((step) => step.id === 'executor:start' && step.result === 'pass')
+          )
+            throw new Error('simulated ENOSPC')
+          await publishReport(destination, report)
+        },
+      ),
+    ).rejects.toThrow('owned acceptance cleanup was attempted independently')
+    expect(seen).toContain('executor:cleanup')
+    expect(seen).toContain('controller:cleanup')
+  })
+
+  it('bootstrap refuses an existing archive symlink without changing its outside target', async () => {
+    const directory = await scratch()
+    const root = `${directory}/ted-validation-lab`
+    await mkdir(`${root}/runtime`, { recursive: true })
+    await writeFile(`${root}/.ted-lab-owner`, 'fixture-owner\n')
+    await writeFile(`${root}/runtime/.owner`, 'fixture-owner\n')
+    const outside = `${directory}/outside`
+    await writeFile(outside, 'keep outside')
+    await symlink(outside, `${root}/runtime/node.tar.gz`)
+    const helpers = await readFile(
+      new URL('./execution-lab/bootstrap-paths.sh', import.meta.url),
+      'utf8',
+    )
+    const exec = promisify(execFile)
+    await expect(
+      exec('/bin/sh', ['-c', `${helpers}\nprepare_runtime ${quote(root)} fixture-owner`]),
+    ).rejects.toThrow()
+    expect(await readFile(outside, 'utf8')).toBe('keep outside')
+  })
+
+  it('bootstrap uses an exclusive owned staging directory and refuses linked runtime ancestors', async () => {
+    const directory = await scratch()
+    const root = `${directory}/ted-validation-lab`
+    await mkdir(root)
+    await writeFile(`${root}/.ted-lab-owner`, 'fixture-owner\n')
+    const helpers = await readFile(
+      new URL('./execution-lab/bootstrap-paths.sh', import.meta.url),
+      'utf8',
+    )
+    const exec = promisify(execFile)
+    const stage = (
+      await exec('/bin/sh', ['-c', `${helpers}\nprepare_runtime ${quote(root)} fixture-owner`])
+    ).stdout.trim()
+    expect(stage).toMatch(new RegExp(`^${root}/\\.runtime-[a-zA-Z0-9]{8}$`))
+    expect(await readFile(`${stage}/.owner`, 'utf8')).toBe('fixture-owner\n')
+    await mkdir(`${directory}/outside`)
+    await mkdir(`${root}/runtime`)
+    await writeFile(`${root}/runtime/.owner`, 'fixture-owner\n')
+    await symlink(`${directory}/outside`, `${root}/runtime/node`)
+    await expect(
+      exec('/bin/sh', ['-c', `${helpers}\nprepare_runtime ${quote(root)} fixture-owner`]),
+    ).rejects.toThrow()
+  })
   it('requires explicit distinct hosts, dedicated roots and pinned machine identities', () => {
     expect(parseConfig(config()).hosts).toHaveLength(2)
     for (const mutate of [
@@ -191,7 +334,7 @@ describe('lab configuration and SSH control', () => {
     })
     expect(result.machineId).toBe('actual')
     expect(commands[0]?.program).toBe('/usr/bin/ssh')
-    expect(commands[0]?.input).toContain(JSON.stringify(request))
+    expect(commands[0]?.input).toContain(`"runId":${JSON.stringify(request.runId)}`)
     expect(commands[0]?.args.join(' ')).not.toContain(request.runId)
     for (const output of [
       { code: 0, stdout: '', stderr: '' },
@@ -240,12 +383,7 @@ describe('lab configuration and SSH control', () => {
       },
     )
     expect(result.code).toBe(1)
-    expect(seen).toEqual([
-      'controller:identity',
-      'controller:cleanup',
-      'executor:identity',
-      'executor:cleanup',
-    ])
+    expect(seen).toEqual(['controller:cleanup', 'executor:cleanup'])
   })
 
   it('bootstraps only the configured hosts using the same pinned SSH control', async () => {

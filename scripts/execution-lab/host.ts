@@ -39,6 +39,7 @@ export interface HostRequest {
     | 'connect'
     | 'disconnect'
   runId: string
+  timeoutMs?: number
   files?: ContentFile[]
   candidate?: { revision: string; contentHash: string; dirtyPatchIdentity: string | null }
   scenarios?: string[]
@@ -498,17 +499,28 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
   }
   if (action === 'scenario') {
     if (!request.scenarios?.length) throw new Error('select implementation scenarios explicitly')
-    const reports = path.join(run, 'reports')
+    const reports = path.join(host.root, 'reports', runId)
     await plain(reports)
+    const reportOwner = path.join(reports, '.owner')
+    if (await missing(reports)) {
+      await mkdir(path.dirname(reports), { recursive: true, mode: 0o700 })
+      await mkdir(reports, { mode: 0o700 })
+      await writeFile(reportOwner, owner, { flag: 'wx', mode: 0o600 })
+    }
+    await plain(reportOwner, false)
+    if ((await readFile(reportOwner, 'utf8')) !== owner)
+      throw new Error('scenario report ownership mismatch')
     await plain(path.join(run, 'candidate.json'), false)
     const candidate = JSON.parse(await readFile(path.join(run, 'candidate.json'), 'utf8'))
-    const code = `const {runValidation} = await import(${JSON.stringify(pathToFileURL(path.join(source, 'scripts/validate-execution.ts')).href)}); const result = await runValidation({root:${JSON.stringify(source)}, reportDir:${JSON.stringify(reports)}, scenarios:${JSON.stringify(request.scenarios)}}, {candidate:async()=>(${JSON.stringify(candidate)})}); console.log(JSON.stringify({code:result.code,directory:result.directory})); process.exitCode=result.code;`
+    if (JSON.stringify(candidate) !== JSON.stringify(request.candidate))
+      throw new Error('deployed candidate differs from requested scenario candidate; deploy again')
+    const code = `const {runValidation} = await import(${JSON.stringify(pathToFileURL(path.join(source, 'scripts/validate-execution.ts')).href)}); const {mkdtemp} = await import('node:fs/promises'); const result = await runValidation({root:${JSON.stringify(source)}, reportDir:${JSON.stringify(reports)}, scenarios:${JSON.stringify(request.scenarios)}}, {candidate:async()=>(${JSON.stringify(candidate)}),reportDirectory:async(requested)=>{if(requested!==${JSON.stringify(reports)})throw Error('report destination changed');return mkdtemp(requested+'/validation-')}}); console.log(JSON.stringify({code:result.code,directory:result.directory})); process.exitCode=result.code;`
     const result = await command(
       host.node,
       ['--input-type=module', '-e', code],
-      env,
+      { ...env, HOME: host.home },
       source,
-      900_000,
+      Math.min(Math.max(request.timeoutMs ?? 2_400_000, 900_000), 12 * 60 * 60 * 1000),
     )
     let location: { directory: string }
     try {
