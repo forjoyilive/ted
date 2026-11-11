@@ -279,7 +279,7 @@ export interface SeenStageFile {
   tedVersion: string
 }
 
-export type StopReason = 'human' | 'blockers-removed'
+export type StopReason = 'human' | 'blockers-removed' | 'prepared'
 
 export interface BlockerLink {
   blockerId: string
@@ -571,10 +571,15 @@ export interface TedStore extends TaskHistory {
   removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
-  queueTask(taskId: string, stage: StageId): Task
+  queueTask(taskId: string, stage: StageId, options?: { prepare?: boolean }): Task
   moveToBacklog(taskId: string): Task
   needsPlanning(taskId: string, runId: string): Task
-  startAfterPlanning(taskId: string, stage: StageId, entry: NewStageEntry): Task
+  startAfterPlanning(
+    taskId: string,
+    stage: StageId,
+    entry: NewStageEntry,
+    options?: { prepare?: boolean },
+  ): Task
   taskSplit(
     taskId: string,
     input: { pieceIds: string[]; narrowedTo: string; description: string },
@@ -606,7 +611,7 @@ export interface TedStore extends TaskHistory {
   waitForBlockers(taskId: string): Task
   requeueAfterBlockers(taskId: string): Task
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
-  resumeTask(taskId: string, options: { waitForBlockers: boolean }): Task
+  resumeTask(taskId: string, options: { waitForBlockers: boolean; overnight?: boolean }): Task
   leadNudged(taskId: string, runId: string): void
   appStarted(input: {
     taskId: string
@@ -643,7 +648,12 @@ export interface TedStore extends TaskHistory {
   }): Comment
   leadFailed(failure: LeadFailure): Task
   retryTask(taskId: string, options: { waitForBlockers: boolean }): Task
-  changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
+  changeStage(
+    taskId: string,
+    stage: StageId,
+    entry?: NewStageEntry,
+    options?: { prepare?: boolean },
+  ): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
@@ -769,6 +779,7 @@ export interface TedStore extends TaskHistory {
   liveRuns(): Run[]
   busyTaskIds(): string[]
   tasksIn(ids: ReadonlySet<string>): Task[]
+  preparedTasks(): string[]
   backlogTasks(): { id: string; snoozed: boolean }[]
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
@@ -1249,6 +1260,7 @@ export async function openStore({
     stoppedAt,
     stoppedRuns,
     stoppedWhy,
+    preparation,
     failedAt,
     followUpOf,
     forcedGates,
@@ -1320,6 +1332,7 @@ export async function openStore({
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
     const facts: TaskFacts = {
+      ...(preparation === 'preparing' && { preparing: true }),
       ...(snoozedUntil !== null && { snoozedUntil }),
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
@@ -1328,7 +1341,12 @@ export async function openStore({
         stopped: {
           at: stoppedAt,
           runs: stoppedRuns ?? 0,
-          why: stoppedWhy === 'blockers-removed' ? 'blockers-removed' : 'human',
+          why:
+            stoppedWhy === 'prepared'
+              ? 'prepared'
+              : stoppedWhy === 'blockers-removed'
+                ? 'blockers-removed'
+                : 'human',
         },
       }),
       stage,
@@ -1460,6 +1478,7 @@ export async function openStore({
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
+      ...((preparation === 'preparing' || preparation === 'ready') && { preparation }),
       gateOverrides: gateOverrides === null ? {} : (JSON.parse(gateOverrides) as TaskGateOverrides),
       forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
       changesSettings,
@@ -2595,20 +2614,35 @@ export async function openStore({
       if (queued) updatedQueue(taskId)
       return task
     },
-    queueTask(taskId, stage) {
+    queueTask(taskId, stage, options) {
       const rank = nextRank()
       const at = new Date().toISOString()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         events.taskRanked({ taskId, rank, at }),
         events.taskQueued({ taskId, stage, rank, at }),
+        ...(options?.prepare || taskRow(taskId)?.preparation !== null
+          ? [
+              events.taskPreparationChanged({
+                taskId,
+                state: options?.prepare ? 'preparing' : null,
+                at,
+              }),
+            ]
+          : []),
       )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
     moveToBacklog(taskId) {
-      commit(events.taskMovedToBacklog({ taskId, at: new Date().toISOString() }))
+      const at = new Date().toISOString()
+      commit(
+        events.taskMovedToBacklog({ taskId, at }),
+        ...(taskRow(taskId)?.preparation !== null
+          ? [events.taskPreparationChanged({ taskId, state: null, at })]
+          : []),
+      )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
@@ -2628,13 +2662,22 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
-    startAfterPlanning(taskId, stage, entry) {
+    startAfterPlanning(taskId, stage, entry, options) {
       const at = new Date().toISOString()
       const rank = nextRank()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
+        ...(options?.prepare || taskRow(taskId)?.preparation !== null
+          ? [
+              events.taskPreparationChanged({
+                taskId,
+                state: options?.prepare ? 'preparing' : null,
+                at,
+              }),
+            ]
+          : []),
         stageEntered(taskId, stage, entry, at),
       )
       const task = updatedTask(taskId)
@@ -2705,6 +2748,9 @@ export async function openStore({
       const rank = queued ? Math.max(0, ...queue().map((q) => q.rank)) + 1 : null
       commit(
         events.taskUnarchived({ taskId, rank, at }),
+        ...(taskRow(taskId)?.preparation === 'ready'
+          ? [events.taskStopped({ taskId, runs: 0, why: 'prepared', at })]
+          : []),
         ...(queued && waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
       )
       const task = updatedTask(taskId)
@@ -2801,16 +2847,25 @@ export async function openStore({
       return task
     },
     stopTask(taskId, { runs, why }) {
-      commit(events.taskStopped({ taskId, runs, why, at: new Date().toISOString() }))
+      const at = new Date().toISOString()
+      commit(
+        events.taskStopped({ taskId, runs, why, at }),
+        ...(why === 'human' && taskRow(taskId)?.preparation === 'ready'
+          ? [events.taskPreparationChanged({ taskId, state: null, at })]
+          : []),
+      )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
-    resumeTask(taskId, { waitForBlockers }) {
+    resumeTask(taskId, { waitForBlockers, overnight }) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
       const at = new Date().toISOString()
       commit(
-        events.taskResumed({ taskId, rank, at }),
+        (overnight ? events.taskResumedOvernight : events.taskResumed)({ taskId, rank, at }),
+        ...(taskRow(taskId)?.preparation === 'ready'
+          ? [events.taskPreparationChanged({ taskId, state: null, at })]
+          : []),
         ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
       )
       const task = updatedTask(taskId)
@@ -3329,7 +3384,7 @@ export async function openStore({
       return requireFactory(factoryId)
     },
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
-    changeStage(taskId, stage, entry) {
+    changeStage(taskId, stage, entry, options) {
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId).filter(
         (row) => (row.gate !== null || row.kind === 'round') && row.stage !== stage,
@@ -3337,6 +3392,17 @@ export async function openStore({
       const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
       commit(
         events.taskStageChanged({ taskId, stage, at }),
+        ...(options?.prepare
+          ? [
+              events.taskPreparationChanged({ taskId, state: 'ready', at }),
+              events.taskStopped({
+                taskId,
+                runs: taskRuns(taskId).filter((r) => r.state !== 'finished').length,
+                why: 'prepared',
+                at,
+              }),
+            ]
+          : []),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
         ...withdrawn.map(({ id }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
@@ -3344,6 +3410,7 @@ export async function openStore({
       )
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
+      if (options?.prepare) updatedQueue(taskId)
       if (stage === 'done') {
         for (const { taskId: waiting } of store.query(
           queryDb(taskBlockers.where({ blockerId: taskId })),
@@ -4160,6 +4227,11 @@ export async function openStore({
         .query(allTasks)
         .filter((row) => ids.has(row.id))
         .map((row) => toPublicTask(toTask(row))),
+    preparedTasks: () =>
+      store
+        .query(allTasks)
+        .filter((row) => row.preparation === 'ready' && row.archivedAt === null)
+        .map((row) => row.id),
     backlogTasks: () =>
       store
         .query(allTasks)

@@ -18,6 +18,7 @@ export interface FailureHistory {
 
 export type FreshRunRequest = { pending: boolean } & (
   | { kind: 'resumed' }
+  | { kind: 'overnight' }
   | { kind: 'planning' }
   | { kind: 'blockers' }
   | { kind: 'retried' }
@@ -28,6 +29,7 @@ export type FreshRunRequest = { pending: boolean } & (
 
 const asksForFreshRun = (entry: LoggedEvent): boolean =>
   entry.name === 'v1.TaskResumed' ||
+  entry.name === 'v1.TaskResumedOvernight' ||
   entry.name === 'v1.TaskStartedAfterPlanning' ||
   entry.name === 'v1.TaskRequeuedAfterBlockers' ||
   entry.name === 'v1.TaskRetried' ||
@@ -122,6 +124,8 @@ export function createTaskHistory(
             e.name === 'v2.RunStarted' || e.name === 'v3.RunStarted' || e.name === 'v4.RunStarted',
         )
       switch (last.name) {
+        case 'v1.TaskResumedOvernight':
+          return { kind: 'overnight', pending }
         case 'v1.TaskResumed':
           return { kind: 'resumed', pending }
         case 'v1.TaskStartedAfterPlanning':
@@ -148,7 +152,10 @@ export function createTaskHistory(
     ): { recent: FailureHistory[]; sinceFirst: FailureHistory[] } {
       const log = read(taskId)
       const reset = log.findLastIndex(
-        (e) => e.name === 'v1.TaskRetried' || e.name === 'v1.TaskResumed',
+        (e) =>
+          e.name === 'v1.TaskRetried' ||
+          e.name === 'v1.TaskResumed' ||
+          e.name === 'v1.TaskResumedOvernight',
       )
       const recent = log
         .slice(reset + 1)

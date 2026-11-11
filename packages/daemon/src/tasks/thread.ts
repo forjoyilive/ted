@@ -399,7 +399,17 @@ export function threadEvents(
       case 'v1.TaskRequeuedAfterBlockers':
         add(entry, 'run', 'Blockers merged · Task queued to carry on')
         break
+      case 'v1.TaskPreparationChanged':
+        if (data.state === 'preparing') add(entry, 'run', 'Preparing through Design')
+        break
+      case 'v1.TaskResumedOvernight':
+        add(entry, 'run', 'Overnight mode resumed the Task')
+        break
       case 'v1.TaskStopped': {
+        if (data.why === 'prepared') {
+          add(entry, 'quiet', 'Ready for Work · Resume or turn on Overnight mode')
+          break
+        }
         if (data.why === 'blockers-removed') {
           add(entry, 'quiet', 'Blockers removed · resume the Task to carry on')
           break

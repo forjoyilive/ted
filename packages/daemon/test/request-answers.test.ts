@@ -849,3 +849,28 @@ test('Gate obligations receive the next Stage so a repair may return through val
   await answer(comment, { action: 'approve' })
   expect(effects).toEqual(['obligations:work', 'approval', 'moved'])
 })
+
+test('a preparation Gate validates its Workflow before recording approval', async () => {
+  store.queueTask(taskId, 'design', { prepare: true })
+  expect(store.getTask(taskId)?.preparation).toBe('preparing')
+  const comment = post({ kind: 'gate' }, { kind: 'review', gate: { approveLabel: 'Approve' } })
+  port.gateWorkflow = async () => ({
+    workflow: {
+      ...loopWorkflow(),
+      next: () => 'review',
+      stages: ['intake', 'design', 'review'],
+      order: ['intake', 'design', 'review'],
+    },
+    layers: [],
+  })
+  await expect(answer(comment, { action: 'approve' })).rejects.toThrow(
+    'Prepare through Design needs Work enabled after Clarify and Design',
+  )
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+
+  port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
+  await answer(comment, { action: 'approve' })
+  expect(store.getComment(comment.id)?.answer?.kind).toBe('approved')
+  expect(effects).toEqual(['obligations', 'approval', 'moved'])
+})

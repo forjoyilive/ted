@@ -227,6 +227,7 @@ import {
 import { placeBetween } from './order.ts'
 import { overnightGuidance } from './overnight.ts'
 import { createPeers, type Peers } from './peers.ts'
+import { checkPreparationWorkflow } from './preparation.ts'
 import {
   createPullRequests,
   type PullRequestTarget,
@@ -382,7 +383,7 @@ export interface Tasks {
   setUpFactory(factoryId: string): Promise<Task | undefined>
   newSetupTask(factoryId: string): Promise<Task>
   board(factoryId: string): Promise<FactoryBoard>
-  start(ref: string): Promise<Task>
+  start(ref: string, request?: import('@ted/protocol').StartTaskRequest): Promise<Task>
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -1249,6 +1250,25 @@ export function createTasks(options: {
     )
   }
 
+  function preparedEligible(task: StoredTask): boolean {
+    const agent = task.lead?.agent ?? store.getRun(task.leadRunId ?? '')?.agent
+    return (
+      store.settings().overnightMode &&
+      task.preparation === 'ready' &&
+      !task.archived &&
+      task.runs.length === 0 &&
+      !stoppingByHand.has(task.id) &&
+      !advancing.has(task.id) &&
+      !starting.has(task.id) &&
+      !holds.has(task.id) &&
+      !deleting.has(task.id) &&
+      !removingFactories.has(task.factoryId) &&
+      cloned(task.factoryId) &&
+      (agent === undefined || store.agentPauses()[agent] === undefined) &&
+      unmergedBlockers(task.id).length === 0
+    )
+  }
+
   function checkLoad(waiting: boolean): void {
     const ratio = waiting && store.settings().adjustRunsToLoad ? loadRatio() : undefined
     const was = heldAtLoad !== undefined
@@ -1268,13 +1288,20 @@ export function createTasks(options: {
 
   async function fill(): Promise<void> {
     if (closed || store.newWorkHold() !== undefined) return
+    for (const id of store.preparedTasks()) {
+      const task = store.getTask(id)
+      if (!task || task.archived || task.preparation !== 'ready') continue
+      if (task.runs.length > 0) {
+        stopPreparedLead(task)
+        continue
+      }
+    }
     const version = backlogVersion
-    const backlog = queueOrder<QueueEntry>(
-      store
-        .backlogTasks()
+    const automatic = queueOrder<QueueEntry>(
+      [...store.backlogTasks(), ...store.preparedTasks().map((id) => ({ id }))]
         .flatMap(({ id }) => {
           const stored = store.getTask(id)
-          return stored && backlogEligible(stored) ? [stored] : []
+          return stored && (backlogEligible(stored) || preparedEligible(stored)) ? [stored] : []
         })
         .map((task) => ({
           id: task.id,
@@ -1287,11 +1314,11 @@ export function createTasks(options: {
     const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    const waiting = queued.length + held.length + revives.length + backlog.length > 0
+    const waiting = queued.length + held.length + revives.length + automatic.length > 0
     checkLoad(waiting)
     if (!waiting) return
     const { use } = await slotUse(
-      [...revives, ...held, ...queued, ...backlog].flatMap((q) => q.factoryId ?? []),
+      [...revives, ...held, ...queued, ...automatic].flatMap((q) => q.factoryId ?? []),
     )
     if (closed || store.newWorkHold() !== undefined) return
     const heldIds = new Set(held.map((h) => h.id))
@@ -1308,15 +1335,23 @@ export function createTasks(options: {
       else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
-    for (const entry of backlog) {
+    for (const entry of automatic) {
       if (closed || store.newWorkHold() !== undefined) return
       const task = store.getTask(entry.id)
-      if (!task || !backlogEligible(task)) continue
+      if (!task || !(backlogEligible(task) || preparedEligible(task))) continue
       try {
         const { use } = await slotUse([task.factoryId])
         if (version !== backlogVersion) return
         const before = [...revivesReady(), ...heldReady(), ...ready()]
         if (!startsNow([...before, entry], use).some((q) => q.id === entry.id)) continue
+        const current = find(task.id)
+        if (current.preparation === 'ready') {
+          if (!preparedEligible(current)) continue
+          store.resumeTask(task.id, { waitForBlockers: false, overnight: true })
+          begin(task.id)
+          again = true
+          return
+        }
         if (await queueStart(task.id, version)) {
           begin(task.id)
           again = true
@@ -3944,6 +3979,28 @@ export function createTasks(options: {
     })
   }
 
+  function stopPreparedLead(task: Task): void {
+    if (stoppingByHand.has(task.id)) return
+    stoppingByHand.add(task.id)
+    if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
+    subAgents.dropFor(task.id)
+    inBackground(`stop ${task.displayId} before Work`, async () => {
+      try {
+        await store.persisted()
+        await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
+      } finally {
+        stoppingByHand.delete(task.id)
+        void pump()
+      }
+    })
+  }
+
+  function holdBeforeWork(task: StoredTask, resolution: WorkflowResolution): Task {
+    const held = store.changeStage(task.id, 'work', entryFor(resolution, 'work'), { prepare: true })
+    stopPreparedLead(held)
+    return held
+  }
+
   async function move(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -3961,6 +4018,15 @@ export function createTasks(options: {
       to === 'done' && task.stage !== 'merge' && !resolution.workflow.stages.includes('merge')
     const next = mergeOff ? 'merge' : to
     const message = mergeOff ? mergeOffMessage : given
+    if (task.preparation === 'preparing') {
+      checkPreparationWorkflow(resolution.workflow)
+      if (next === 'work') return holdBeforeWork(task, resolution)
+      if (
+        next === 'done' ||
+        resolution.workflow.order.indexOf(next) > resolution.workflow.order.indexOf('work')
+      )
+        throw new RequestError(409, 'Preparation must stop before Work')
+    }
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (task.stage === 'merge' && next !== 'done') {
       for (const repo of task.repos) {
@@ -4738,16 +4804,19 @@ export function createTasks(options: {
     })
   }
 
-  async function start(ref: string): Promise<Task> {
+  async function start(
+    ref: string,
+    request: import('@ted/protocol').StartTaskRequest = {},
+  ): Promise<Task> {
     const task = live(ref)
     autoStartFailures.delete(task.id)
-    if (!(await queueStart(task.id))) return publicTask(task.id)
+    if (!(await queueStart(task.id, undefined, request.prepare))) return publicTask(task.id)
     await pump()
     await beginning.get(task.id)
     return publicTask(task.id)
   }
 
-  async function queueStart(ref: string, version?: number): Promise<boolean> {
+  async function queueStart(ref: string, version?: number, prepare = false): Promise<boolean> {
     const automatic = version !== undefined
     const task = live(ref)
     const factory = factoryOf(task)
@@ -4755,6 +4824,7 @@ export function createTasks(options: {
       throw new RequestError(409, `${task.displayId} has already started`)
     }
     if (unmergedBlockers(task.id).length > 0) {
+      if (prepare) throw new RequestError(409, `${task.displayId} has unfinished blockers`)
       if (!automatic) store.setStartRequested(task.id, true)
       return false
     }
@@ -4764,6 +4834,10 @@ export function createTasks(options: {
       if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
       const resolution = await taskWorkflow(find(task.id), { fetch: false })
       const current = live(task.id)
+      if (prepare) {
+        if (current.setup) throw new RequestError(409, 'Factory setup Tasks cannot be prepared')
+        checkPreparationWorkflow(resolution.workflow)
+      }
       if (automatic) {
         const lead = current.lead ?? leadFrom(resolution.workflow.settings)
         if (
@@ -4808,9 +4882,11 @@ export function createTasks(options: {
       const stage = resolution.workflow.next('backlog')
       if (planned) {
         const again = resolution.workflow.stages.includes('clarify') ? 'clarify' : stage
-        store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId))
+        store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId), {
+          prepare,
+        })
       } else {
-        store.queueTask(task.id, stage)
+        store.queueTask(task.id, stage, { prepare })
       }
     } finally {
       starting.delete(task.id)
@@ -4943,6 +5019,12 @@ export function createTasks(options: {
       return fromTheBrief(task, {
         heading: 'Picking up after planning outside TED',
         why: afterPlanningWhy,
+      })
+    }
+    if (last?.kind === 'overnight') {
+      return fromTheBrief(task, {
+        heading: 'Picking up after preparation',
+        why: 'Preparation finished. Overnight mode resumed this Task before Work. Continue from the brief and the approved design.',
       })
     }
     if (last?.kind === 'resumed') {
@@ -5378,11 +5460,14 @@ export function createTasks(options: {
     if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
     const started =
       task.stage !== 'backlog' &&
-      (task.leadRunId !== undefined || task.repos.length > 0 || beginning.has(task.id))
+      (task.preparation === 'ready' ||
+        task.leadRunId !== undefined ||
+        task.repos.length > 0 ||
+        beginning.has(task.id))
     if (!started) {
       throw new RequestError(409, `${task.displayId} hasn’t started, so there’s nothing to stop`)
     }
-    if (task.stopped || stoppingByHand.has(task.id)) {
+    if ((task.stopped && task.preparation !== 'ready') || stoppingByHand.has(task.id)) {
       throw new RequestError(409, `${task.displayId} is already stopped`)
     }
     stoppingByHand.add(task.id)

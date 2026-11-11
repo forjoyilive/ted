@@ -18,6 +18,7 @@ import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/work
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
 import { mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
+import { checkPreparationWorkflow } from './preparation.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import { createLinearConsent } from './request-linear-team.ts'
 import { roundAnswerMessage, roundAnswers } from './rounds.ts'
@@ -639,6 +640,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         const now = find(task.id)
         const resolution = await gateWorkflow(now)
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
+        if (now.preparation === 'preparing') checkPreparationWorkflow(resolution.workflow)
         await requireObligations(now, next)
         const answered = answerRequest(task, comment, {
           kind: 'approved',

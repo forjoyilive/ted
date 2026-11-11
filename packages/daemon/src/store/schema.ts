@@ -93,6 +93,7 @@ export const tasks = State.SQLite.table({
     stoppedAt: State.SQLite.text({ nullable: true }),
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
+    preparation: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
@@ -1092,6 +1093,14 @@ export const events = {
     name: 'v1.TaskRequeuedAfterBlockers',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
+  taskPreparationChanged: Events.synced({
+    name: 'v1.TaskPreparationChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      state: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskStopped: Events.synced({
     name: 'v1.TaskStopped',
     schema: Schema.Struct({
@@ -1100,6 +1109,10 @@ export const events = {
       why: Schema.String,
       at: Schema.String,
     }),
+  }),
+  taskResumedOvernight: Events.synced({
+    name: 'v1.TaskResumedOvernight',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
   taskResumed: Events.synced({
     name: 'v1.TaskResumed',
@@ -2748,8 +2761,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskWaitingForBlockers': (args) => task(args),
   'v1.TaskRequeuedAfterBlockers': (args) => task(args),
+  'v1.TaskPreparationChanged': (args) => task(args, { state: args.state }),
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
+  'v1.TaskResumedOvernight': (args) => task(args),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
   'v1.TaskLeadFailed': (args) =>
     task(args, {
@@ -3031,6 +3046,8 @@ const materializers = counted(
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
       ],
+      'v1.TaskPreparationChanged': ({ taskId, state, at }) =>
+        tasks.update({ preparation: state, changedAt: at }).where({ id: taskId }),
       'v1.TaskStopped': ({ taskId, runs, why, at }) => [
         taskQueue.delete().where({ taskId }),
         tasks
@@ -3041,6 +3058,12 @@ const materializers = counted(
             waitsForBlockers: false,
             changedAt: at,
           })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskResumedOvernight': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks
+          .update({ stoppedAt: null, stoppedRuns: null, stoppedWhy: null, changedAt: at })
           .where({ id: taskId }),
       ],
       'v1.TaskResumed': ({ taskId, rank, at }) => [
