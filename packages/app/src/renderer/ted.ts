@@ -97,6 +97,7 @@ import type {
   ShellOutput,
   ShellOutputQuery,
   ShellSize,
+  SideChat,
   SimulatorSlots,
   StageEntry,
   StartPlanRequest,
@@ -185,6 +186,12 @@ export const ted = {
   doneTalking: (commentId: string) =>
     window.ted.request('doneTalking', commentId) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  getSideChat: (id: string) => window.ted.request('getSideChat', id) as Promise<SideChat | null>,
+  openSideChat: (id: string) => window.ted.request('openSideChat', id) as Promise<SideChat>,
+  sendSideChat: (id: string, text: string) =>
+    window.ted.request('sendSideChat', id, text) as Promise<SideChat>,
+  stopSideChat: (id: string) => window.ted.request('stopSideChat', id) as Promise<SideChat>,
+  retrySideChat: (id: string) => window.ted.request('retrySideChat', id) as Promise<SideChat>,
   getRunChat: (runId: string) => window.ted.request('getRunChat', runId) as Promise<RunChat>,
   sendRunMessage: (runId: string, text: string, interrupt = false) =>
     window.ted.request('sendRunMessage', runId, text, interrupt) as Promise<RunMessage>,

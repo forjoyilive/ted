@@ -205,6 +205,8 @@ async function handle(
   if (caller.kind === 'run') {
     const services = await options.data.services()
     if (!services.store.getRun(caller.runId)) throw new HttpError(403, 'This Run no longer exists')
+    if (services.store.sideChats.forRun(caller.runId))
+      throw new HttpError(403, 'Side chats have no Task or tool authority')
     if (services.store.coordinators.forRun(caller.runId)) {
       const ownBoundary = req.method === 'POST' && url === `/runs/${caller.runId}/boundary`
       const coordinatorTool =

@@ -55,7 +55,15 @@ export function runMeta(run: RunSummary): string {
     .join(' · ')
 }
 
-function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void) | undefined }) {
+function RunBar({
+  run,
+  onStopTask,
+  action,
+}: {
+  run: RunSummary
+  onStopTask: (() => void) | undefined
+  action?: ReactNode
+}) {
   const now = useNow()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -78,6 +86,7 @@ function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void)
           {!live && ' · finished'}
         </span>
       </div>
+      {action}
       {error !== undefined && (
         <span className={styles.barError} role="alert">
           {error}
@@ -505,6 +514,7 @@ export interface ChatExtra {
 }
 
 export interface ChatOptions {
+  headerAction?: ReactNode
   inspect?: boolean
   matchItemId?: string
 
@@ -715,7 +725,9 @@ export function ChatBody({
       {!options.inspect &&
         (options.header
           ? options.header(run)
-          : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />)}
+          : options.bar !== false && (
+              <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
+            ))}
       <ScrollMemory
         spot={options.inspect ? `search:${run.id}:${options.matchItemId}` : `run:${run.id}`}
         reveal={options.matchItemId}

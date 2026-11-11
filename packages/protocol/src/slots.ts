@@ -8,6 +8,15 @@ export type SlotHolder =
   | PlanSlotHolder
   | CoordinatorSlotHolder
   | DraftSlotHolder
+  | SideChatSlotHolder
+
+export interface SideChatSlotHolder {
+  kind: 'side-chat'
+  runId: string
+  factoryId: string
+  name: string
+  runs: number
+}
 
 export interface DraftSlotHolder {
   kind: 'automation-draft'
@@ -55,6 +64,7 @@ export interface TaskSlotHolder {
 }
 
 export type QueuedForSlot =
+  | { kind: 'side-chat'; place: number; runId: string; factoryId: string; name: string }
   | { kind: 'automation-draft'; place: number; runId: string; name: string; factoryId: string }
   | { kind: 'coordinator'; place: number; runId: string; factoryId: string; name: string }
   | {
