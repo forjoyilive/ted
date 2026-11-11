@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
+  fstatSync,
   fsyncSync,
   ftruncateSync,
   openSync,
   readFileSync,
+  readSync,
   statSync,
   writeSync,
 } from 'node:fs'
@@ -58,11 +60,13 @@ import {
   launchAuthority,
   revokeLaunchAuthority,
 } from './launch-authority.ts'
+import { parsedOutput } from './parsed-output.ts'
 import { createRunOutput, type RunOutputReader } from './run-output.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
 const pollMs = 150
+const lockCheckMs = 1000
 const batchBytes = 1024 * 1024
 
 export interface RunManagerOptions {
@@ -160,6 +164,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   const output = createRunOutput({ home, store })
   const following = new Map<string, Promise<void>>()
+  const generations = new Map<string, Generation>()
   const stopRequested = new Set<string>()
   const launchStops = new Map<string, AbortController>()
   const heard = new Map<string, number>()
@@ -222,6 +227,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       .catch((error: unknown) => console.error(`stopped following Run ${runId}:`, error))
       .finally(() => {
         following.delete(runId)
+        generations.delete(runId)
         if (launchStops.get(runId) === controller) launchStops.delete(runId)
         replacing.delete(runId)
         outdated.delete(runId)
@@ -242,7 +248,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const generation = await generationBefore(files.log, offset, (line) =>
       agent.sessionContinuedFrom(line),
     )
+    generations.set(runId, generation)
     let awaitingStart = revived || offset === 0 ? Date.now() + stopGraceMs : undefined
+    let lockCheckedAt = 0
     const last = await lastStartRecord(path.join(runsDir, runId))
     if (last?.permissions !== undefined) store.setRunPermissions(runId, last.permissions)
     if (last !== undefined && !(last.v >= oldestHost)) {
@@ -250,8 +258,21 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (store.getRun(runId)?.state === 'idle') void replaceWhenIdle(runId)
     }
     while (!closed) {
-      const hostGone = awaitingStart === undefined && !isLockHeld(files.lock)
-      const batch = await readRecords(files.log, offset)
+      const started = awaitingStart === undefined
+      let batch = await readRecords(files.log, offset)
+      let hostGone = false
+      if (
+        started &&
+        batch.toOffset === offset &&
+        (replacing.has(runId) || Date.now() - lockCheckedAt >= lockCheckMs)
+      ) {
+        lockCheckedAt = Date.now()
+        if (!isLockHeld(files.lock)) {
+          hostGone = true
+          lockCheckedAt = 0
+          batch = await readRecords(files.log, offset)
+        }
+      }
       if (
         awaitingStart !== undefined &&
         (batch.records.some(({ record }) => record.t === 'start') || Date.now() > awaitingStart)
@@ -343,6 +364,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const accepted: string[] = []
     let exit: Extract<HostRecord, { t: 'exit' }> | undefined
     const startedWith = generation.count
+    generation.readTo = batch.toOffset
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
       heard.set(runId, Date.now())
     }
@@ -682,28 +704,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   ): boolean {
     const run = store.getRun(runId)
     if (!run) return false
-    const agent = agents.get(run.agent)
     const siblings = records.filter(
       (r) => r.text === record.text && r.outputFrom === record.outputFrom,
     )
     const required = siblings.indexOf(record) + 1
-    const entries = output.entries(runId)
-    const earlier = new Set(
-      agent
-        .chat(
-          entries.filter((entry) => entry.offset < record.outputFrom),
-          run.cwd,
-        )
-        .filter((entry) => entry.kind === 'user')
-        .map((entry) => entry.key),
-    )
+    const { chat } = parsedOutput(output, agents, run)
     return (
-      agent
-        .chat(entries, run.cwd)
+      chat
+        .entries()
         .filter(
           (entry) =>
             entry.kind === 'user' &&
-            !earlier.has(entry.key) &&
+            (chat.userFrom(entry.key) ?? 0) >= record.outputFrom &&
             entry.text.trim() === record.text.trim(),
         ).length >= required
     )
@@ -932,9 +944,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       let generation = 0
       for (let waited = 0; generation === 0; waited += pollMs) {
         try {
-          generation = readFileSync(files.log, 'utf8')
-            .split('\n')
-            .filter((line) => line.startsWith('{"t":"start"')).length
+          const read = generations.get(runId)
+          generation = (read?.count ?? 0) + startsFrom(files.log, read?.readTo ?? 0)
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
         }
@@ -1154,7 +1165,7 @@ async function generationBefore(
   offset: number,
   sessionContinuedFrom: (line: string) => boolean,
 ): Promise<Generation> {
-  const generation: Generation = { count: 0, sessionSeen: true, errors: [] }
+  const generation: Generation = { count: 0, sessionSeen: true, errors: [], readTo: offset }
   if (offset === 0) return generation
   const handle = await open(log, 'r').catch(() => undefined)
   if (!handle) return generation
@@ -1194,6 +1205,28 @@ interface Generation {
   count: number
   sessionSeen: boolean
   errors: string[]
+  readTo: number
+}
+
+function startsFrom(log: string, offset: number): number {
+  const fd = openSync(log, 'r')
+  try {
+    const length = fstatSync(fd).size - offset
+    if (length <= 0) return 0
+    const buffer = Buffer.alloc(length)
+    let read = 0
+    while (read < length) {
+      const bytes = readSync(fd, buffer, read, length - read, offset + read)
+      if (bytes === 0) break
+      read += bytes
+    }
+    return buffer
+      .toString('utf8', 0, read)
+      .split('\n')
+      .filter((line) => line.startsWith('{"t":"start"')).length
+  } finally {
+    closeSync(fd)
+  }
 }
 
 const errorLinesKept = 8

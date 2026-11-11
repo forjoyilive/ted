@@ -5911,13 +5911,17 @@ export function createTasks(options: {
     if (closed) return
     const paused = store.agentPauses()
     const now = clock.now()
-    for (const run of store.listRuns()) {
+    const live = store.liveRuns()
+    const working = new Set(live.filter((run) => run.state === 'working').map((run) => run.id))
+    for (const id of pausedAt.keys()) if (!working.has(id)) pausedAt.delete(id)
+    for (const run of live) {
       if (run.state !== 'working' || run.taskId === undefined || silent.has(run.id)) {
         if (run.state === 'waiting') pausedAt.set(run.id, now)
-        else if (run.state !== 'working') pausedAt.delete(run.id)
         continue
       }
-      if (store.getTask(run.taskId)?.leadRunId !== run.id) continue
+      if (run.parentRunId !== undefined) continue
+      const lead = store.taskRunList(run.taskId).find((r) => r.parentRunId === undefined)
+      if (lead?.id !== run.id) continue
       if (paused[run.agent] !== undefined) {
         pausedAt.set(run.id, now)
         continue
