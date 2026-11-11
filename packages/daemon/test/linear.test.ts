@@ -67,13 +67,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
   await killRunHosts(home)
   await linear.close()
   await cleanup()
