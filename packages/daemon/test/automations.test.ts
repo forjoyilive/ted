@@ -304,7 +304,7 @@ describe('Automations', () => {
     expect(after.nextFirings[0]).toBe('2026-11-10T09:00:00.000Z')
   })
 
-  test('weekly architecture reviews queue and create distinct, deduplicated Backlog Tasks', async () => {
+  test('weekly architecture reviews queue and create distinct, deduplicated Backlog Tasks; the Run can list Automations but not change them, and the next Run sees the Tasks', async () => {
     const client = await startTed()
     const templates = await client.ok<AutomationTemplate[]>('GET', '/automations/templates')
     const template = templates.find((t) => t.id === 'architecture')
@@ -351,6 +351,8 @@ describe('Automations', () => {
         },
         { run: ['ted', 'task', 'create', '--source', other, 'Concentrate queue ownership'] },
         { run: ['ted', 'task', 'create', '--factory', 'XX', '--source', other, 'Wrong Factory'] },
+        { run: ['ted', 'automation', 'list'] },
+        { run: ['ted', 'automation', 'disable', template.name] },
         { endTurn: true },
       )}`,
     })
@@ -400,12 +402,44 @@ describe('Automations', () => {
       })
       expect(task.leadRunId).toBeUndefined()
     }
+    expect(
+      tasks.find((t) => t.displayId === 'NB-1'),
+      'the first Task',
+    ).toMatchObject({
+      title: 'Deepen the parser boundary',
+      stage: 'backlog',
+      createdBy: 'automation',
+      source: { url: source },
+    })
     expect(row?.result).toMatchObject({ kind: 'created', tasks: expect.any(Array) })
     expect(row?.created).toHaveLength(2)
+    const createdIds = (list: { displayId: string }[] | undefined) =>
+      (list ?? []).map((t) => t.displayId).sort()
+    expect(
+      createdIds(row?.result.kind === 'created' ? row.result.tasks : undefined),
+      'the Run’s result',
+    ).toEqual(['NB-1', 'NB-2'])
+    expect(createdIds(row?.created), 'the Run’s created Tasks').toEqual(['NB-1', 'NB-2'])
     const results = await commandResults(client, row?.runId ?? '')
-    expect(results.map((r) => r.code)).toEqual([0, 1, 0, 1])
-    expect(results[1]?.stderr).toContain('Already tracked as NB-1 · Backlog')
-    expect(results[3]?.stderr).toContain('only in NB, its own Factory')
+    expect(results.map((r) => r.code)).toEqual([0, 1, 0, 1, 0, 1])
+    expect(results[0], 'the first create').toMatchObject({
+      code: 0,
+      stdout: 'Created NB-1  Deepen the parser boundary\n',
+    })
+    expect(results[1], 'a source already tracked').toMatchObject({
+      code: 1,
+      stderr: 'ted: Already tracked as NB-1 · Backlog\n',
+    })
+    expect(results[3]?.stderr, 'another Factory').toBe(
+      'ted: this Automation creates Tasks only in NB, its own Factory\n',
+    )
+    expect(results[4]?.code, 'automation list').toBe(0)
+    expect(results[4]?.stdout, 'automation list').toContain(template.name)
+    expect(results[5], 'automation disable').toMatchObject({
+      code: 1,
+      stderr: 'ted: Ask the human to change Automations\n',
+    })
+    expect((await detail(client, automation.id)).automation.on, 'still on').toBe(true)
     const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
     expect(run.run.prompt).toContain(template.prompt)
 
@@ -418,8 +452,12 @@ describe('Automations', () => {
     )
     expect(await client.ok<Task[]>('GET', '/tasks')).toHaveLength(2)
     const repeated = await client.ok<RunWithConversation>('GET', `/runs/${next?.runId}`)
-    expect(repeated.run.prompt).toContain(`source ${source}`)
-    expect(repeated.run.prompt).toContain(`source ${other}`)
+    expect(repeated.run.prompt, 'the next Run’s prompt').toContain(
+      `- NB-1 · Deepen the parser boundary · open, in Backlog · source ${source}`,
+    )
+    expect(repeated.run.prompt, 'the next Run’s prompt').toContain(
+      `- NB-2 · Concentrate queue ownership · open, in Backlog · source ${other}`,
+    )
   })
 
   test('an edit sending null for model or effort clears it back to the default', async () => {
@@ -641,67 +679,6 @@ describe('Automations', () => {
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ trigger: 'made-up', slotAt: '2026-11-09T10:15:00.000Z' })
-  })
-
-  test('an Automation Run creates Tasks from sources, never twice, and sees them next time', async () => {
-    const client = await startTed()
-    const url = 'https://acme.sentry.io/issues/4242/'
-    const automation = await create(client, {
-      prompt: steps(
-        { run: ['ted', 'task', 'create', '--source', url, 'Crash in parser'] },
-        { run: ['ted', 'task', 'create', '--source', `${url}?project=7`, 'Crash again'] },
-        {
-          run: ['ted', 'task', 'create', '--factory', 'XX', '--source', 'https://x.io/1', 'Else'],
-        },
-        { run: ['ted', 'automation', 'list'] },
-        { run: ['ted', 'automation', 'disable', 'Sentry crash intake'] },
-        { endTurn: true },
-      ),
-    })
-    clock = Date.parse('2026-11-09T09:00:05Z')
-    const [row] = await waitForHistory(
-      client,
-      automation.id,
-      (rows) => rows[0]?.result.kind === 'created',
-      'the Run to create a Task',
-    )
-    const tasks = await client.ok<Task[]>('GET', '/tasks')
-    expect(tasks).toHaveLength(1)
-    expect(tasks[0]).toMatchObject({
-      displayId: 'NB-1',
-      title: 'Crash in parser',
-      stage: 'backlog',
-      createdBy: 'automation',
-      source: { url },
-    })
-    expect(row?.result).toMatchObject({ kind: 'created', tasks: [{ displayId: 'NB-1' }] })
-    expect(row?.created).toMatchObject([{ displayId: 'NB-1' }])
-    const results = await commandResults(client, row?.runId ?? '')
-    expect(results[0]).toMatchObject({ code: 0, stdout: 'Created NB-1  Crash in parser\n' })
-    expect(results[1]).toMatchObject({
-      code: 1,
-      stderr: 'ted: Already tracked as NB-1 · Backlog\n',
-    })
-    expect(results[2]?.stderr).toBe(
-      'ted: this Automation creates Tasks only in NB, its own Factory\n',
-    )
-    expect(results[3]?.code).toBe(0)
-    expect(results[3]?.stdout).toContain('Sentry crash intake')
-    expect(results[4]).toMatchObject({
-      code: 1,
-      stderr: 'ted: Ask the human to change Automations\n',
-    })
-    expect((await detail(client, automation.id)).automation.on).toBe(true)
-
-    clock = Date.parse('2026-11-10T09:00:05Z')
-    const rows = await waitForHistory(
-      client,
-      automation.id,
-      (r) => r.length === 2 && r[0]?.runId !== undefined,
-      'a second Run',
-    )
-    const next = await client.ok<RunWithConversation>('GET', `/runs/${rows[0]?.runId}`)
-    expect(next.run.prompt).toContain(`- NB-1 · Crash in parser · open, in Backlog · source ${url}`)
   })
 
   test('an Automation imports Linear issues through the CLI', async () => {
@@ -1065,11 +1042,13 @@ describe('Tasks an Automation Run starts', () => {
     )
   }
 
-  async function fire(client: Client, done: Task) {
+  async function fire(client: Client, done: Task, mode: string) {
+    const titles = { created: `Fix the crash (${mode})`, followUp: `Fix it again (${mode})` }
     const automation = await create(client, {
+      name: `Sentry crash intake (${mode})`,
       prompt: steps(
-        { run: ['ted', 'task', 'create', '--start', 'Fix the crash'] },
-        { run: ['ted', 'task', 'create', '--follow-up', done.displayId, 'Fix it again'] },
+        { run: ['ted', 'task', 'create', '--start', titles.created] },
+        { run: ['ted', 'task', 'create', '--follow-up', done.displayId, titles.followUp] },
         { endTurn: true },
       ),
     })
@@ -1081,10 +1060,13 @@ describe('Tasks an Automation Run starts', () => {
       'the Run to create two Tasks',
     )
     const results = await commandResults(client, row?.runId ?? '')
-    expect(results.map((r) => r.code)).toEqual([0, 0])
+    expect(
+      results.map((r) => r.code),
+      mode,
+    ).toEqual([0, 0])
     const tasks = await client.ok<Task[]>('GET', '/tasks')
-    const created = tasks.find((t) => t.title === 'Fix the crash')
-    const followUp = tasks.find((t) => t.title === 'Fix it again')
+    const created = tasks.find((t) => t.title === titles.created)
+    const followUp = tasks.find((t) => t.title === titles.followUp)
     if (!created || !followUp) throw new Error('the Tasks weren’t created')
     return { automation, created, followUp }
   }
@@ -1127,7 +1109,7 @@ describe('Tasks an Automation Run starts', () => {
     expect((await getTask(client, done.id)).stage).toBe('done')
   })
 
-  test('in a Bypass Factory they stay in Backlog for the human to start', async () => {
+  test('in a Bypass Factory they stay in Backlog for the human to start; back in Auto, --start and a Follow-up start at once', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': 'version: 1\npermissions: bypass\norder: [intake, work, merge]\n',
     })
@@ -1138,37 +1120,37 @@ describe('Tasks an Automation Run starts', () => {
       confirmBypass: true,
     })
     const done = await doneTask(client)
-    const { automation, created, followUp } = await fire(client, done)
-    for (const task of [created, followUp]) {
+    const held = await fire(client, done, 'Bypass')
+    for (const task of [held.created, held.followUp]) {
       const now = await getTask(client, task.id)
-      expect(now.stage).toBe('backlog')
-      expect(now.leadRunId).toBeUndefined()
-      expect(now.runs).toEqual([])
+      expect(now.stage, `Bypass: ${task.title}`).toBe('backlog')
+      expect(now.leadRunId, `Bypass: ${task.title}`).toBeUndefined()
+      expect(now.runs, `Bypass: ${task.title}`).toEqual([])
       const comments = await client.ok<{ body: string; author: { kind: string } }[]>(
         'GET',
         `/tasks/${task.id}/comments`,
       )
-      expect(comments).toContainEqual(
+      expect(comments, `Bypass: ${task.title}`).toContainEqual(
         expect.objectContaining({
           author: { kind: 'ted' },
-          body: `Created by ${automation.name} · left in Backlog because this Factory runs in Bypass`,
+          body: `Created by ${held.automation.name} · left in Backlog because this Factory runs in Bypass`,
         }),
       )
     }
-    expect(followUp.followUpOf).toEqual({ id: done.id, displayId: done.displayId })
-  })
-
-  test('in an Auto Factory --start and a Follow-up start at once', async () => {
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    expect(held.followUp.followUpOf, 'Bypass: the Follow-up').toEqual({
+      id: done.id,
+      displayId: done.displayId,
     })
-    const client = await startTed()
-    const done = await doneTask(client)
-    const { created, followUp } = await fire(client, done)
-    for (const task of [created, followUp]) {
+
+    await client.ok('PUT', `/factories/${factory?.id}/permissions`, { mode: 'auto' })
+    const started = await fire(client, done, 'Auto')
+    for (const task of [started.created, started.followUp]) {
       await waitForTask(client, task.id, (t) => t.stage !== 'backlog', `${task.displayId} to start`)
       const comments = await client.ok<{ body: string }[]>('GET', `/tasks/${task.id}/comments`)
-      expect(comments.some((c) => c.body.includes('left in Backlog'))).toBe(false)
+      expect(
+        comments.some((c) => c.body.includes('left in Backlog')),
+        `Auto: ${task.title}`,
+      ).toBe(false)
     }
   })
 })
@@ -1263,31 +1245,37 @@ async function readStarts(): Promise<{ argv: string[] }[]> {
 }
 
 describe('Factory Linear intake enforcement', () => {
-  test.each(['team', 'project', 'none'] as const)(
-    'enforces %s scope for custom Automations while allowing manual imports',
-    async (kind) => {
-      const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
-      const linear = await startStubLinear({
-        [key]: {
-          name: 'Nabha',
-          workspace: { name: 'Acme', urlKey: 'acme' },
-          teams: [{ id: 'team-NB', name: 'Widgets', key: 'NB' }],
-          projects: [{ id: 'project-one', name: 'One' }],
-          issues: [
-            { identifier: 'NB-42', title: 'Matching both', projectId: 'project-one' },
-            { identifier: 'NB-43', title: 'Matching team', projectId: 'project-two' },
-            { identifier: 'OT-44', title: 'Matching project', projectId: 'project-one' },
-            { identifier: 'OT-45', title: 'Matching neither' },
+  test('enforces no scope, then a team scope, then a project scope for custom Automations, names the scope in the Run’s prompt, and allows manual imports', async () => {
+    const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+    const sets = {
+      none: ['NB-42', 'NB-43', 'OT-44', 'OT-45'],
+      team: ['NB-52', 'NB-53', 'OT-54', 'OT-55'],
+      project: ['NB-62', 'NB-63', 'OT-64', 'OT-65'],
+    }
+    const linear = await startStubLinear({
+      [key]: {
+        name: 'Nabha',
+        workspace: { name: 'Acme', urlKey: 'acme' },
+        teams: [{ id: 'team-NB', name: 'Widgets', key: 'NB' }],
+        projects: [{ id: 'project-one', name: 'One' }],
+        issues: Object.values(sets).flatMap(
+          ([both = '', team = '', project = '', neither = '']) => [
+            { identifier: both, title: 'Matching both', projectId: 'project-one' },
+            { identifier: team, title: 'Matching team', projectId: 'project-two' },
+            { identifier: project, title: 'Matching project', projectId: 'project-one' },
+            { identifier: neither, title: 'Matching neither' },
           ],
-        },
+        ),
+      },
+    })
+    try {
+      await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+      const client = await startTed({
+        linear: { apiUrl: linear.url, keyring: stubKeyring(stubKeyringFile(home)) },
       })
-      try {
-        await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
-        const client = await startTed({
-          linear: { apiUrl: linear.url, keyring: stubKeyring(stubKeyringFile(home)) },
-        })
-        const [factory] = await client.ok<Factory[]>('GET', '/factories')
-        if (!factory) throw new Error('no Factory')
+      const [factory] = await client.ok<Factory[]>('GET', '/factories')
+      if (!factory) throw new Error('no Factory')
+      for (const kind of ['none', 'team', 'project'] as const) {
         if (kind !== 'none')
           await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
             scope: {
@@ -1298,10 +1286,10 @@ describe('Factory Linear intake enforcement', () => {
               workspace: 'acme',
             },
           })
-        const ids = ['NB-42', 'NB-43', 'OT-44', 'OT-45']
+        const ids = sets[kind]
         const automation = await create(client, {
           on: false,
-          name: 'Custom intake',
+          name: `Custom intake (${kind})`,
           prompt: steps(
             ...ids.map((id) => ({
               run: ['ted', 'task', 'create', '--source', `https://linear.app/acme/issue/${id}`, id],
@@ -1314,37 +1302,42 @@ describe('Factory Linear intake enforcement', () => {
           client,
           automation.id,
           (rows) => rows[0]?.result.kind === 'created',
-          'scoped import',
+          `scoped import (${kind})`,
         )
         const results = await commandResults(client, row?.runId ?? '')
-        expect(results.map((result) => result.code)).toEqual(
-          kind === 'team' ? [0, 0, 1, 1] : kind === 'project' ? [0, 1, 0, 1] : [0, 0, 0, 0],
-        )
+        expect(
+          results.map((result) => result.code),
+          `${kind}: exit codes`,
+        ).toEqual(kind === 'team' ? [0, 0, 1, 1] : kind === 'project' ? [0, 1, 0, 1] : [0, 0, 0, 0])
         for (const result of results.filter((result) => result.code !== 0))
-          expect(result.stderr).toContain('outside this Factory’s Linear intake scope')
-        const imported = await client.ok<Task[]>('GET', '/tasks')
-        expect(imported.map((task) => task.source?.linear?.identifier).sort()).toEqual(
+          expect(result.stderr, `${kind}: refusal`).toContain(
+            'outside this Factory’s Linear intake scope',
+          )
+        const imported = (await client.ok<Task[]>('GET', '/tasks'))
+          .map((task) => task.source?.linear?.identifier)
+          .filter((id) => id !== undefined && ids.includes(id))
+        expect(imported.sort(), `${kind}: imported issues`).toEqual(
           kind === 'team'
-            ? ['NB-42', 'NB-43']
+            ? [ids[0], ids[1]]
             : kind === 'project'
-              ? ['NB-42', 'OT-44']
-              : ids.sort(),
+              ? [ids[0], ids[2]]
+              : [...ids].sort(),
         )
         const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
-        expect(run.run.prompt).toContain(
+        expect(run.run.prompt, `${kind}: prompt`).toContain(
           kind === 'none' ? 'Linear intake scope: Unscoped' : `Linear intake scope: ${kind}`,
         )
         const manual = await client.ok<Task>('POST', '/tasks', {
           factory: 'NB',
-          source: 'https://linear.app/acme/issue/OT-45',
+          source: `https://linear.app/acme/issue/${ids[3]}`,
           title: 'Human override',
         })
-        expect(manual.createdBy).not.toBe('automation')
-      } finally {
-        await linear.close()
+        expect(manual.createdBy, `${kind}: manual import`).not.toBe('automation')
       }
-    },
-  )
+    } finally {
+      await linear.close()
+    }
+  })
 
   test('a scoped Automation cannot import unverifiable issues, but a human can', async () => {
     const client = await startTed()
