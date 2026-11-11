@@ -2,6 +2,7 @@ import type { TaskGateOverrides, TaskGates } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Loading } from '../components/Loading.tsx'
+import { Select } from '../components/Select.tsx'
 import { useConnection } from '../data.ts'
 import { stageName } from '../list-view.ts'
 import { OvernightNotice } from '../overnight.tsx'
@@ -114,9 +115,10 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
               <label className={styles.label} htmlFor={`gate-${taskId}-${row.stage}`}>
                 {stageName(row.stage)}
               </label>
-              <select
+              <Select
+                fullWidth
                 id={`gate-${taskId}-${row.stage}`}
-                className={styles.select}
+                controlClassName={styles.select}
                 disabled={busy || changed || !!row.locked}
                 value={
                   row.required
@@ -141,7 +143,7 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
                 <option value="inherit">Use Workflow ({row.inherited ? 'On' : 'Off'})</option>
                 <option value="on">On</option>
                 <option value="off">Off</option>
-              </select>
+              </Select>
               <p className={styles.rowNote}>
                 {row.locked ?? `Workflow: ${row.inherited ? 'On' : 'Off'}`}
               </p>

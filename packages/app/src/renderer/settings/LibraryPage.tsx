@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { Skeleton } from '../components/Loading.tsx'
+import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
 import { useConnection } from '../data.ts'
 import { type SettingsDraft, type StageDraft, stageEdited } from '../factory-settings.ts'
@@ -355,9 +356,10 @@ function StageLine({
         </span>
         <span>
           {row.id === 'clarify' ? (
-            <select
+            <Select
+              fullWidth
               aria-label="Clarify depth"
-              className={sections.cellSelect}
+              controlClassName={sections.cellSelect}
               value={stage?.depth ?? 'auto'}
               onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
             >
@@ -366,7 +368,7 @@ function StageLine({
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : (
             dash
           )}
