@@ -5008,11 +5008,28 @@ export function createTasks(options: {
     if (counted && limit !== undefined && count >= limit) {
       const times = `${count} ${count === 1 ? 'time' : 'times'}`
       if (from === 'validate') {
+        if (
+          workflow.settings.stages.validate?.loop_check !== false &&
+          (await startLoopCheck(task, {
+            to,
+            findings,
+            round: count + 1,
+            limit,
+            ...(checkRunId !== undefined && { checkRunId }),
+          }))
+        ) {
+          return {
+            task: publicTask(task.id),
+            message:
+              'TED is checking progress before asking the human. The Task stays in Validate.',
+            pending: true,
+          }
+        }
         const request = askAboutLoop(task, workflow, {
           to,
           findings,
           title: `Validate has sent this Task back ${times}, its limit`,
-          intro: `Validate has sent this Task back to ${stageTitle(to)} ${times}, its limit (max_back: ${limit}), and wants to send it back again. These are each round’s blocking Findings.`,
+          intro: `TED couldn’t assess progress. ${workflow.settings.stages.validate?.loop_check === false ? 'Loop checks are disabled.' : 'A Loop check couldn’t start.'} Validate has reached its send-back limit (${count}) and needs your decision.`,
           ...(checkRunId !== undefined && { checkRunId }),
         })
         return {
@@ -5026,7 +5043,7 @@ export function createTasks(options: {
         kind: 'question',
         author: { kind: 'ted' },
         title: `${stageTitle(from)} wants to send this Task back to ${stageTitle(to)} again`,
-        body: `${stageTitle(from)} has sent this Task back ${times}, its limit (max_back: ${limit}). Its Findings this time:\n\n${findings}`,
+        body: `${stageTitle(from)} has reached its send-back limit (${count}) and needs your decision. Send it back to ${stageTitle(to)} for another attempt, or keep it in ${stageTitle(from)} to revisit the approach. Full Findings are in the Task’s history.`,
         choices: [`Send it back to ${stageTitle(to)}`, `Keep it in ${stageTitle(from)}`],
       })
       store.askAboutSendBack({
@@ -5097,10 +5114,19 @@ export function createTasks(options: {
       findings: string
       title: string
       intro: string
+      verdict?: LoopVerdict
       checkRunId?: string
     },
   ): Comment {
-    const rounds = [...countedValidateSendBacks(task.id).map((b) => b.findings), input.findings]
+    const choices = loopChoices(workflow)
+    const recommendation =
+      input.verdict === 'looping' && choices.includes(backToDesignChoice)
+        ? `Recommended: ${backToDesignChoice}. Revisit the approach before another repair.`
+        : input.verdict === 'converging'
+          ? `Recommended: ${tryAgainChoice}. Allow another attempt at the remaining Findings.`
+          : input.verdict === 'looping'
+            ? `Recommended: ${tryAgainChoice}. Add guidance to break the repeated pattern.`
+            : `Suggested next step: ${tryAgainChoice} to allow another repair attempt${choices.includes(backToDesignChoice) ? ', or Back to Design to revisit the approach' : ''}.`
     const request = store.postComment({
       taskId: task.id,
       kind: 'question',
@@ -5108,9 +5134,10 @@ export function createTasks(options: {
       title: input.title,
       body: [
         input.intro,
-        ...rounds.map((findings, i) => `Round ${i + 1}:\n${findings.trim()}`),
+        recommendation,
+        'Full Findings are in the Task’s history. Moving on leaves the Findings open.',
       ].join('\n\n'),
-      choices: loopChoices(workflow),
+      choices,
     })
     store.askAboutSendBack({
       commentId: request.id,
@@ -5196,7 +5223,8 @@ export function createTasks(options: {
     store.finishLoopCheck(check.runId, verdict, reason)
     const task = find(check.taskId)
     if (task.stage !== 'validate' || task.archived) return
-    if (verdict === 'converging') {
+    const atLimit = check.limit !== undefined && check.round > check.limit
+    if (verdict === 'converging' && !atLimit) {
       store.recordSendBack({
         taskId: task.id,
         from: 'validate',
@@ -5222,17 +5250,22 @@ export function createTasks(options: {
     const request = askAboutLoop(task, workflow, {
       to: check.to,
       findings: check.findings,
-      title: looping
-        ? 'Validate and Work are going round in circles'
-        : `Validate has sent this Task back ${check.round} times`,
+      title: atLimit
+        ? `Validate has sent this Task back ${check.round - 1} ${check.round === 2 ? 'time' : 'times'}, its limit`
+        : looping
+          ? 'Validate and Work are going round in circles'
+          : `Validate has sent this Task back ${check.round} times`,
       intro: looping
-        ? `TED’s loop check read Validate’s ${check.round} rounds of Findings and the changes between them, and found they’re looping: ${reason}`
-        : `TED couldn’t tell whether Validate’s ${check.round} rounds are converging (${reason}), so it’s asking you.`,
+        ? `Work and Validate are repeating the same problem. ${reason}`
+        : verdict === 'converging'
+          ? `Making progress, but Validate has reached its send-back limit (${check.limit}) and needs your decision. ${reason}`
+          : `TED couldn’t assess progress: ${reason}. The Task is waiting for your decision.`,
+      verdict,
       ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
     })
     await deliver(
       task,
-      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : 'gave no verdict'}, so TED asked the human what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
+      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : verdict === 'converging' ? 'found progress, but the send-back limit still needs a human decision' : 'gave no verdict'}, so TED asked the human what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
     )
   }
 
@@ -8274,7 +8307,7 @@ function reasonIn(text: string): string {
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim()
-  return oneLine(reason === '' ? 'no reason given' : reason, 300)
+  return oneLine(redactSecrets(reason === '' ? 'no reason given' : reason), 300)
 }
 
 function latest(a: string, b: string): string {

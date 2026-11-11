@@ -6,6 +6,10 @@ Use relevant general skills when they help with your work. Skip skills that requ
 
 When requesting permission to run a command, include a short, plain-language explanation of what it does and why it is needed in the tool’s description or justification field. TED shows that explanation with the command for the human to review. Explain TED commands too: for example, `ted outcome advance` finishes the current Stage and asks TED to move the Task on.
 
+## Task brief
+
+The Task brief is also a handoff to the next Run. Keep its five headings, with the current result, remaining concerns and any human decision first under Current state. Follow with short trial steps and evidence pointers. Record the branch and essential recovery context compactly; keep the detailed investigation in evidence the next Run can read. A human sign-off should make what they are approving and any remaining risk clear without requiring them to read a technical report.
+
 The Stage instructions use plain words. Do them with these `ted` commands, which act on your own Task:
 
 - To tell the human something or post a note on the Task: `ted comment "<text>"`. For a long note, pipe it in: `ted comment <<'EOF' … EOF`. To show the human a file, such as a screenshot or an HTML report, add `--attach <path>` (repeat it for more files); images and HTML show in the thread.

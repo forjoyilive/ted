@@ -885,7 +885,10 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 
 - Validate `max_back: 5`. At the third send-back (`loop_check: 3`; `false` turns it off), TED itself starts a sub-agent with the `reviewer` agent, model and effort. It reads the three rounds of Findings and the diffs between them and says **converging** or **looping**. (KRI-16, KRI-53)
 - Converging: back to Work with the verdict added. Looping: ask the human now. (KRI-16)
-- The ask (a `question`, at a looping verdict or over 5) lists each round’s blocking Findings and offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. (KRI-16, KRI-55)
+- At the send-back limit, TED runs a fresh Loop check before asking, unless `loop_check` is `false`. This assessment includes the pending Findings as well as the earlier rounds; even a converging verdict waits for the human’s decision. A failed or unavailable assessment is shown as unknown. (KRI-269)
+- The ask (a `question`, at a looping verdict or over 5) gives a short progress assessment and recommends an existing next step. It offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. Moving on explicitly leaves the Findings open. Full Findings stay in the Task’s history, including the pending send-back; asking does not count as sending back. (KRI-16, KRI-55, KRI-269)
+
+Human-facing Task messages across Stages lead with the current result, risk or needed decision, followed by its consequence and next step. Shared Task Lead guidance keeps routine updates brief and sign-offs clear about what is being approved. Validation summarizes relevant coverage and review outcomes while keeping remaining concerns prominent; detailed logs, review identifiers and test inventories belong in linked or attached evidence. Briefs retain the context a replacement Task Lead needs. Existing messages are not rewritten or automatically shortened. (KRI-269)
 
 ### 8.6 Confirmation row
 

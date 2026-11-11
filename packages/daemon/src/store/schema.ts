@@ -2705,6 +2705,13 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       reviewer: args.reviewer,
     }),
   'v1.LoopCheckStarted': (args) => task(args, { runId: args.runId, round: args.round }),
+  'v1.SendBackAsked': (args) =>
+    task(args, {
+      from: args.from,
+      to: args.to,
+      findings: args.findings,
+      checkRunId: args.checkRunId,
+    }),
   'v1.LoopCheckFinished': (args) =>
     task(args, { runId: args.runId, verdict: args.verdict, reason: args.reason }),
   'v1.RunMessageSent': (args) => ({
