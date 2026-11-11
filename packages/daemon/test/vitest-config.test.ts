@@ -37,6 +37,23 @@ describe('vitest config', () => {
   }, 60_000)
 })
 
+test('a run of 10 or more files gets 6 workers and a smaller one 3', async () => {
+  const { workersFor } = await import('../../../vitest.config.ts')
+  const files = Array.from(
+    { length: 12 },
+    (_, i) => `packages/daemon/test/file-${i}.test.ts`,
+  ).concat('packages/app/test/board.test.ts')
+  expect(workersFor(['run'], files)).toBe(6)
+  expect(workersFor(['run', 'packages/daemon/test'], files)).toBe(6)
+  expect(workersFor(['run', 'packages/daemon/test/file-1.test.ts'], files)).toBe(3)
+  expect(workersFor(['run', 'packages/app/test', '--reporter', 'verbose'], files)).toBe(3)
+  expect(workersFor(['run', '-t', 'packages/daemon', 'board'], files)).toBe(3)
+  expect(
+    workersFor(['run', ...files.slice(0, 9), '--reporter=verbose', '--project', 'node'], files),
+  ).toBe(3)
+  expect(workersFor(['run', ...files.slice(0, 10)], files)).toBe(6)
+})
+
 test('TSX component tests are discovered from the repo and app, and Electron imports are followed through TSX helpers', async () => {
   const { launchesElectron } = await import('../../../vitest.config.ts')
   const root = (await resolveConfig({ root: repo, watch: false })).test
@@ -51,7 +68,7 @@ test('TSX component tests are discovered from the repo and app, and Electron imp
       }),
     ]),
   )
-  expect(root.maxWorkers).toBe(3)
+  expect([3, 6]).toContain(root.maxWorkers)
   expect(root.projects).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
