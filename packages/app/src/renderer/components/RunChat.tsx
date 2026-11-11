@@ -516,7 +516,7 @@ function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
     setSending(true)
     setError(undefined)
     try {
-      await ted.sendRunMessage(run.id, text, interrupt && working)
+      await ted.sendRunMessage(run.id, text, { interrupt: interrupt && working })
       setText('')
     } catch (failed) {
       setError(readableError(failed))

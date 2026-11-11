@@ -936,7 +936,9 @@ export function TaskDetails({
               text={clarifyDepthText(task)}
               value={task.clarifyDepth}
               options={clarifyDepths.map((d) => [d, clarifyDepthLabels[d]])}
-              onChange={(value) => change(ted.setClarifyDepth(task.id, value as ClarifyDepth))}
+              onChange={(value) =>
+                change(ted.setClarifyDepth(task.id, { depth: value as ClarifyDepth }))
+              }
             />
           ) : (
             <>

@@ -28,7 +28,7 @@ export function TaskLeadField({ task }: { task: Task }) {
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'run-updated' && event.run.id === runId) setRun(event.run)
     })
-    void ted.getRun(runId).then(setRun)
+    void ted.getRun(runId).then(({ run }) => setRun(run))
     return unsubscribe
   }, [task.leadRunId])
 
@@ -45,8 +45,9 @@ export function TaskLeadField({ task }: { task: Task }) {
     )
   }
 
+  const { useDefaultModel: resetDefaultModel } = ted
   const pickDefaultModel = () => {
-    ted.pickDefaultModel(task.id).then(
+    resetDefaultModel(task.id).then(
       () => setError(undefined),
       (e: unknown) => setError(errorText(e)),
     )

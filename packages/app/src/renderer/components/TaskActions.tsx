@@ -353,7 +353,7 @@ export function TaskActionsMenu({
                     key={depth}
                     label={clarifyDepthLabels[depth]}
                     checked={task.clarifyDepth === depth}
-                    onChoose={() => act(() => ted.setClarifyDepth(task.id, depth))}
+                    onChoose={() => act(() => ted.setClarifyDepth(task.id, { depth: depth }))}
                   />
                 ))}
               </Submenu>

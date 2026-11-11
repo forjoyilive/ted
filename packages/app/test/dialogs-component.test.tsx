@@ -181,7 +181,7 @@ test('Model unavailable offers the default model and sends the human’s choice'
     startedAt: createdAt,
   }
   const api = bridge({
-    getRun: () => ({ ...run, problem: 'model-unavailable' }),
+    getRun: () => ({ run: { ...run, problem: 'model-unavailable' }, conversation: [] }),
     useDefaultModel: vi.fn(),
   })
   render(

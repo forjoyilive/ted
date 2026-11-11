@@ -844,7 +844,7 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
     setSaving(true)
     setProblem(undefined)
     try {
-      const status = await ted.saveLinearKey(key)
+      const status = await ted.saveLinearKey({ key })
       if (!mounted.current) return
       if (status.storedIn !== undefined) {
         onSaved()

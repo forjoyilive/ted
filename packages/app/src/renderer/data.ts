@@ -546,7 +546,7 @@ const planEvent = (event: TedEvent, planId?: string) =>
 
 export function useCoordinator(factoryId: string): Coordinator | null | undefined {
   return useReloading(
-    () => ted.getCoordinator(factoryId),
+    () => ted.coordinator(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
       event.type === 'task-updated' ||

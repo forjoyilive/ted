@@ -60,7 +60,7 @@ export function LinearGroup({
   }
 
   const save = (inFile = false) =>
-    act(inFile ? 'file' : 'save', () => ted.saveLinearKey(draft, inFile), true)
+    act(inFile ? 'file' : 'save', () => ted.saveLinearKey({ key: draft, inFile }), true)
 
   const stored = status?.storedIn !== undefined
   const masked = stored ? `${'•'.repeat(20)}${status?.last4 ?? ''}` : ''
