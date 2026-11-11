@@ -2,8 +2,8 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
-import { required, user } from './support/component.ts'
-import { comment, createdAt, task } from './support/fixtures.ts'
+import { deferred, required, user } from './support/component.ts'
+import { comment, createdAt, factory, task } from './support/fixtures.ts'
 
 async function openTask(a: ReturnType<typeof appState>) {
   a.state.tasks = [task()]
@@ -92,42 +92,120 @@ test('Full brief opens its five sections in the middle pane and returns to Threa
   expect(screen.getByRole('region', { name: 'Task thread' })).toBeTruthy()
 })
 
-test('Inbox resolution selects the next request and clears Task panes after the last', async () => {
+test('Inbox answers close before its list refresh, keep confirmation, and clear it on leaving', async () => {
   const a = appState()
-  a.state.tasks = [task()]
+  const nextTask = task({ id: 'NB-2', displayId: 'NB-2', number: 2 })
+  a.state.tasks = [task(), nextTask]
+  a.state.factories.push(factory({ id: 'f2', key: 'MS', name: 'Marketing' }))
   const first = comment({ body: 'First question?', choices: ['Yes'] })
-  const second = comment({ id: 'c2', body: 'Second question?', choices: ['Yes'] })
-  let comments = [first, second]
-  a.state.inbox = comments.map((request) => ({ task: task(), request }))
-  a.handle('listComments', () => comments)
-  a.handle('markCommentsRead', () => ({ read: 1 }))
-  a.handle('answerRequest', () => {
-    comments = []
-    a.state.inbox = []
-    a.emit({
-      type: 'comment-updated',
-      comment: { ...second, answer: { kind: 'answered', at: createdAt, choice: 'Yes' } },
-    })
-    return { ...second, answer: { kind: 'answered', at: createdAt, choice: 'Yes' } }
+  const second = comment({
+    id: 'c2',
+    taskId: nextTask.id,
+    kind: 'permission',
+    body: 'Second request',
+    permission: { command: 'pnpm build' },
   })
+  let comments = [first, second]
+  a.state.inbox = comments.map((request) => ({
+    task: request.taskId === nextTask.id ? nextTask : task(),
+    request,
+  }))
+  a.handle('listComments', (taskId) => comments.filter((request) => request.taskId === taskId))
+  a.handle('markCommentsRead', () => ({ read: 1 }))
   a.mount()
   const inbox = await screen.findByRole('region', { name: 'Inbox' })
   await user().click(within(inbox).getByText('First question?'))
   await screen.findByRole('region', { name: 'Question' })
-  a.state.inbox = [{ task: task(), request: second }]
-  comments = [second]
+  const refresh = deferred<never[]>()
+  a.handle('listInbox', () => refresh.promise)
+  const reply = deferred<ReturnType<typeof comment>>()
+  a.handle('answerRequest', (id) => {
+    const original = required(comments.find((request) => request.id === id))
+    const answered = {
+      ...original,
+      answer: { kind: 'answered' as const, at: createdAt, choice: 'Yes' },
+    }
+    comments = comments.map((request) => (request.id === id ? answered : request))
+    a.emit({ type: 'comment-updated', comment: answered })
+    return reply.promise
+  })
+  await user().click(
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Yes' }),
+  )
+  expect(
+    within(screen.getByRole('region', { name: 'Permission' })).getByText('Second request'),
+  ).toBeTruthy()
+  expect(within(inbox).getByRole('status').textContent).toBe('')
+  await act(async () =>
+    reply.resolve({ ...first, answer: { kind: 'answered', at: createdAt, choice: 'Yes' } }),
+  )
+  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  expect(screen.queryByRole('region', { name: 'Question, answered' })).toBeNull()
+  await user().click(within(inbox).getByRole('button', { name: 'Marketing 0' }))
+  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  await user().click(within(inbox).getByRole('button', { name: 'All 1' }))
+  await user().click(within(inbox).getByRole('switch', { name: 'Answered' }))
+  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  await user().click(within(inbox).getByRole('switch', { name: 'Answered' }))
+  await user().click(within(inbox).getByText('Second request'))
+  a.handle('answerRequest', () => {
+    throw new Error('Answer could not be saved')
+  })
+  await user().click(
+    within(screen.getByRole('region', { name: 'Permission' })).getByRole('button', {
+      name: 'Deny',
+    }),
+  )
+  await screen.findByText('Answer could not be saved')
+  expect(
+    within(screen.getByRole('region', { name: 'Permission' })).getByText('Second request'),
+  ).toBeTruthy()
+  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  const answered = { ...second, answer: { kind: 'denied' as const, at: createdAt } }
+  a.handle('answerRequest', () => answered)
+  await user().click(
+    within(screen.getByRole('region', { name: 'Permission' })).getByRole('button', {
+      name: 'Deny',
+    }),
+  )
+  await screen.findByText('Nothing waiting on you')
+  expect(within(inbox).getByRole('status').textContent).toBe('Denied NB-2’s permission request')
+  expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
+  expect(screen.queryByRole('complementary', { name: 'Task details' })).toBeNull()
+  await act(async () => refresh.resolve([]))
+  await user().click(screen.getByRole('button', { name: 'All Tasks' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: /^Inbox/,
+    }),
+  )
+  expect(
+    within(screen.getByRole('region', { name: 'Inbox' })).getByRole('status').textContent,
+  ).toBe('')
+})
+
+test('external resolution clears an Inbox request without claiming the user answered it', async () => {
+  const a = appState()
+  a.state.tasks = [task()]
+  const request = comment({ body: 'Still needed?' })
+  a.state.inbox = [{ task: task(), request }]
+  a.handle('listComments', () => [request])
+  a.handle('markCommentsRead', () => ({ read: 1 }))
+  a.mount()
+  const inbox = await screen.findByRole('region', { name: 'Inbox' })
+  await user().click(await within(inbox).findByText('Still needed?'))
+  await screen.findByRole('region', { name: 'Question' })
+  const refresh = deferred<never[]>()
+  a.handle('listInbox', () => refresh.promise)
   await act(async () =>
     a.emit({
       type: 'comment-updated',
-      comment: { ...first, answer: { kind: 'answered', at: createdAt, choice: 'Yes' } },
+      comment: { ...request, answer: { kind: 'withdrawn', at: createdAt, cancelled: true } },
     }),
   )
-  const card = screen.getByRole('region', { name: 'Question' })
-  expect(within(card).getByText('Second question?')).toBeTruthy()
-  await user().click(within(card).getByRole('button', { name: 'Yes' }))
-  await screen.findByText('Nothing waiting on you')
   expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
-  expect(screen.queryByRole('complementary', { name: 'Task details' })).toBeNull()
+  expect(within(inbox).getByRole('status').textContent).toBe('')
+  await act(async () => refresh.resolve([]))
 })
 
 test('multiple requests pin one card and chips switch the pinned request', async () => {
