@@ -38,6 +38,7 @@ export function appState() {
     drift: () => ({ library: 0, factories: {} }),
     simulators: () => ({ supported: false, limit: 2, booted: [] }),
     getSettings: () => state.settings,
+    getLinear: () => ({ state: 'no-key' }),
     notificationsOff: () => false,
     updateStatus: () => ({ state: 'unavailable' }),
     getProfile: () => ({ name: 'Nabha Cosley' }),

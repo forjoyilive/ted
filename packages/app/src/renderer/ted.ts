@@ -408,6 +408,14 @@ export const ted = {
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
   runFix: (request: RunFixRequest) =>
     window.ted.request('runFix', request) as Promise<RunFixResult>,
+  getLinearIntakeChoices: () =>
+    window.ted.request('getLinearIntakeChoices') as Promise<
+      import('@ted/protocol').LinearIntakeChoices
+    >,
+  setFactoryLinearIntake: (
+    factoryId: string,
+    scope: import('@ted/protocol').LinearIntakeScope | null,
+  ) => window.ted.request('setFactoryLinearIntake', factoryId, scope) as Promise<MachineSettings>,
   getLinear: () => window.ted.request('getLinear') as Promise<LinearStatus>,
   saveLinearKey: (key: string, inFile = false) =>
     window.ted.request('saveLinearKey', key, inFile) as Promise<LinearStatus>,

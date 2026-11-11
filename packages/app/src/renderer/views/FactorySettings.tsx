@@ -44,11 +44,13 @@ import {
   Toggle,
   WorkflowSection,
 } from './FactorySettingsSections.tsx'
+import { LinearIntakeSection } from './LinearIntakeSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
 
 const sections = [
+  ['linear-intake', 'Linear intake'],
   ['repos', 'Repos'],
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
@@ -244,6 +246,7 @@ export function FactorySettings({
             {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
             {view?.invalid && <InvalidNotice invalid={view.invalid} />}
             <GeneralSection factory={factory} />
+            <LinearIntakeSection key={factory.id} factoryId={factory.id} />
             {loadError !== undefined && (
               <p className={styles.loadError} role="alert">
                 {loadError}

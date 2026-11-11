@@ -898,9 +898,10 @@ describe('Tasks an Automation Run starts', () => {
       20_000,
     )
 
-  async function doneTask(client: Client) {
+  async function doneTask(client: Client, source?: string) {
     const gate = path.join(scratch, 'gate')
     const task = await client.ok<Task>('POST', '/tasks', {
+      ...(source && { source }),
       factory: 'NB',
       start: true,
       title: steps(
@@ -943,6 +944,44 @@ describe('Tasks an Automation Run starts', () => {
     if (!created || !followUp) throw new Error('the Tasks weren’t created')
     return { automation, created, followUp }
   }
+
+  test('Factory Linear intake scope applies to a Follow-up’s inherited source', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\npermissions: bypass\norder: [intake, work, merge]\n',
+    })
+    const client = await startTed()
+    const done = await doneTask(client, 'https://linear.app/acme/issue/NB-50')
+    await client.ok('PATCH', '/settings', {
+      linearIntakeScopes: {
+        [done.factoryId]: {
+          kind: 'project',
+          id: 'project-one',
+          name: 'One',
+          workspace: 'acme',
+          workspaceId: 'workspace-acme',
+        },
+      },
+    })
+    const automation = await create(client, {
+      on: false,
+      prompt: steps(
+        { run: ['ted', 'task', 'create', '--follow-up', done.displayId, 'Retry'] },
+        { endTurn: true },
+      ),
+    })
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [row] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'no-new-tasks',
+      'Follow-up scope refusal',
+    )
+    const [result] = await commandResults(client, row?.runId ?? '')
+    expect(result?.code).toBe(1)
+    expect(result?.stderr).toContain('Couldn’t verify Linear intake scope')
+    expect(await client.ok<Task[]>('GET', '/tasks')).toHaveLength(1)
+    expect((await getTask(client, done.id)).stage).toBe('done')
+  })
 
   test('in a Bypass Factory they stay in Backlog for the human to start', async () => {
     await commitToOrigin(scratch, {
@@ -1074,3 +1113,124 @@ async function readStarts(): Promise<{ argv: string[] }[]> {
   }
   return starts
 }
+
+describe('Factory Linear intake enforcement', () => {
+  test.each(['team', 'project', 'none'] as const)(
+    'enforces %s scope for custom Automations while allowing manual imports',
+    async (kind) => {
+      const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+      const linear = await startStubLinear({
+        [key]: {
+          name: 'Nabha',
+          workspace: { name: 'Acme', urlKey: 'acme' },
+          teams: [{ id: 'team-NB', name: 'Widgets', key: 'NB' }],
+          projects: [{ id: 'project-one', name: 'One' }],
+          issues: [
+            { identifier: 'NB-42', title: 'Matching both', projectId: 'project-one' },
+            { identifier: 'NB-43', title: 'Matching team', projectId: 'project-two' },
+            { identifier: 'OT-44', title: 'Matching project', projectId: 'project-one' },
+            { identifier: 'OT-45', title: 'Matching neither' },
+          ],
+        },
+      })
+      try {
+        await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+        const client = await startTed({
+          linear: { apiUrl: linear.url, keyring: stubKeyring(stubKeyringFile(home)) },
+        })
+        const [factory] = await client.ok<Factory[]>('GET', '/factories')
+        if (!factory) throw new Error('no Factory')
+        if (kind !== 'none')
+          await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
+            scope: {
+              kind,
+              id: kind === 'team' ? 'team-NB' : 'project-one',
+              name: 'Client label',
+              workspaceId: 'workspace-acme',
+              workspace: 'acme',
+            },
+          })
+        const ids = ['NB-42', 'NB-43', 'OT-44', 'OT-45']
+        const automation = await create(client, {
+          on: false,
+          name: 'Custom intake',
+          prompt: steps(
+            ...ids.map((id) => ({
+              run: ['ted', 'task', 'create', '--source', `https://linear.app/acme/issue/${id}`, id],
+            })),
+            { endTurn: true },
+          ),
+        })
+        await client.ok('POST', `/automations/${automation.id}/run`)
+        const [row] = await waitForHistory(
+          client,
+          automation.id,
+          (rows) => rows[0]?.result.kind === 'created',
+          'scoped import',
+        )
+        const results = await commandResults(client, row?.runId ?? '')
+        expect(results.map((result) => result.code)).toEqual(
+          kind === 'team' ? [0, 0, 1, 1] : kind === 'project' ? [0, 1, 0, 1] : [0, 0, 0, 0],
+        )
+        for (const result of results.filter((result) => result.code !== 0))
+          expect(result.stderr).toContain('outside this Factory’s Linear intake scope')
+        const imported = await client.ok<Task[]>('GET', '/tasks')
+        expect(imported.map((task) => task.source?.linear?.identifier).sort()).toEqual(
+          kind === 'team'
+            ? ['NB-42', 'NB-43']
+            : kind === 'project'
+              ? ['NB-42', 'OT-44']
+              : ids.sort(),
+        )
+        const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
+        expect(run.run.prompt).toContain(
+          kind === 'none' ? 'Linear intake scope: Unscoped' : `Linear intake scope: ${kind}`,
+        )
+        const manual = await client.ok<Task>('POST', '/tasks', {
+          factory: 'NB',
+          source: 'https://linear.app/acme/issue/OT-45',
+          title: 'Human override',
+        })
+        expect(manual.createdBy).not.toBe('automation')
+      } finally {
+        await linear.close()
+      }
+    },
+  )
+
+  test('a scoped Automation cannot import unverifiable issues, but a human can', async () => {
+    const client = await startTed()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    if (!factory) throw new Error('no Factory')
+    await client.ok('PATCH', '/settings', {
+      linearIntakeScopes: {
+        [factory.id]: {
+          kind: 'project',
+          id: 'project-one',
+          name: 'One',
+          workspaceId: 'workspace-acme',
+          workspace: 'acme',
+        },
+      },
+    })
+    const url = 'https://linear.app/acme/issue/NB-50'
+    const automation = await create(client, {
+      on: false,
+      prompt: steps(
+        { run: ['ted', 'task', 'create', '--source', url, 'Unavailable'] },
+        { endTurn: true },
+      ),
+    })
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [row] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'no-new-tasks',
+      'unverifiable import to finish',
+    )
+    expect((await commandResults(client, row?.runId ?? ''))[0]?.code).toBe(1)
+    expect(await client.ok<Task[]>('GET', '/tasks')).toEqual([])
+    await client.ok('POST', '/tasks', { factory: 'NB', source: url, title: 'Manual link' })
+    expect(await client.ok<Task[]>('GET', '/tasks')).toHaveLength(1)
+  })
+})

@@ -495,6 +495,12 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
     return result
   },
+  getLinearIntakeChoices: (client) => client.getLinearIntakeChoices(),
+  setFactoryLinearIntake: (client, factoryId, scope) =>
+    client.setFactoryLinearIntake(
+      String(factoryId),
+      scope as import('@ted/protocol').LinearIntakeScope | null,
+    ),
   getLinear: (client) => client.getLinear(),
   saveLinearKey: (client, key, inFile) =>
     client.saveLinearKey({ key: String(key), inFile: inFile === true }),

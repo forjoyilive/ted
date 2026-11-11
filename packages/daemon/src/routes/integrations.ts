@@ -51,6 +51,11 @@ export const integrationRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/integrations\/linear\/intake-choices$/,
+    handle: async (_, { linear }) => [200, await linear.intakeChoices()],
+  },
+  {
+    method: 'GET',
     path: /^\/integrations\/linear$/,
     handle: async (_, { linear }) => [200, await linear.status()],
   },

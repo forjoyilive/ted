@@ -13,6 +13,7 @@ import {
   type CreateFactoryRequest,
   clarifyDepths,
   type FactorySettingsChanges,
+  isLinearIntakeScope,
   type NewFactoryRepo,
   permissionModes,
   type RepoSettingsInput,
@@ -30,6 +31,39 @@ import { addFactory } from '../factories.ts'
 import { agentChoice, bodyObject, optionalText, type Route, readJson, text } from './route.ts'
 
 export const factoryRoutes: Route[] = [
+  {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/linear-intake$/,
+    async handle({ req, params: [id = ''] }, { store, linear }) {
+      if (!store.listFactories().some((factory) => factory.id === id))
+        throw new HttpError(404, 'Factory not found')
+      const body = record(await readJson(req))
+      if (body.scope !== null && !isLinearIntakeScope(body.scope))
+        throw new HttpError(400, 'Choose a valid Linear scope or null for Unscoped')
+      let scope = body.scope
+      if (scope !== null) {
+        const choices = await linear.intakeChoices()
+        const targetId = scope.id
+        const target = (scope.kind === 'team' ? choices.teams : choices.projects).find(
+          (target) => target.id === targetId,
+        )
+        if (
+          scope.workspaceId !== choices.workspaceId ||
+          scope.workspace !== choices.workspace ||
+          !target
+        )
+          throw new HttpError(409, 'Choose a Team or Project from the connected Linear workspace')
+        scope = { ...scope, name: target.name }
+      }
+      if (!store.listFactories().some((factory) => factory.id === id))
+        throw new HttpError(404, 'Factory not found')
+      const { [id]: previous, ...scopes } = store.settings().linearIntakeScopes
+      return [
+        200,
+        store.updateSettings({ linearIntakeScopes: { ...scopes, ...(scope && { [id]: scope }) } }),
+      ]
+    },
+  },
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/auto-start-backlog$/,

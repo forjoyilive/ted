@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { defaultMachineSettings } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDialog.tsx'
@@ -20,6 +21,8 @@ function props() {
 
 function open(extra: Record<string, (...args: unknown[]) => unknown> = {}) {
   const api = bridge({
+    getSettings: () => defaultMachineSettings,
+    getLinear: () => ({ state: 'no-key' }),
     factorySettings: settingsView,
     homeFolder: () => '/test',
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
@@ -275,6 +278,8 @@ test('repo removal refuses open Tasks and stages an unused repo removal until Sa
   })
   let openTasks = [{ id: 'NB-1', displayId: 'NB-1', title: 'Offline editing' }]
   const api = bridge({
+    getSettings: () => defaultMachineSettings,
+    getLinear: () => ({ state: 'no-key' }),
     factorySettings: () => loaded,
     homeFolder: () => '/test',
     repoRemoval: () => ({ repo: 'acme/api', name: 'api', openTasks }),

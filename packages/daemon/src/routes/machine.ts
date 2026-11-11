@@ -7,6 +7,7 @@ import {
   billings,
   createdByKinds,
   editorIds,
+  isLinearIntakeScope,
   isLinearTeamKey,
   isTimeZone,
   type ListFilters,
@@ -247,6 +248,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
+  linearIntakeScopes(value) {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      Array.isArray(value) ||
+      Object.entries(value).some(([id, scope]) => !id || !isLinearIntakeScope(scope))
+    ) {
+      throw new HttpError(400, 'linearIntakeScopes must contain a valid Linear scope per Factory')
+    }
+    return value as MachineSettings['linearIntakeScopes']
+  },
   linearSync: onOff('linearSync'),
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),

@@ -95,3 +95,37 @@ export function parseLinearUrl(text: string): LinearUrl | undefined {
   const rest = trimmed.slice(found.url.length)
   return rest === '' || /^[?#]\S*$/.test(rest) ? found : undefined
 }
+
+export interface LinearIntakeScope {
+  kind: 'team' | 'project'
+  id: string
+  name: string
+  workspaceId: string
+  workspace: string
+}
+
+export interface LinearIntakeChoices {
+  workspaceId: string
+  workspace: string
+  teams: { id: string; name: string; key: string }[]
+  projects: { id: string; name: string }[]
+}
+
+export function isLinearIntakeScope(value: unknown): value is LinearIntakeScope {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const scope = value as Record<string, unknown>
+  const id = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(v)
+  return (
+    (scope.kind === 'team' || scope.kind === 'project') &&
+    id(scope.id) &&
+    id(scope.workspaceId) &&
+    typeof scope.name === 'string' &&
+    scope.name.trim().length > 0 &&
+    scope.name.length <= 500 &&
+    typeof scope.workspace === 'string' &&
+    /^[a-z0-9][a-z0-9-]{0,99}$/.test(scope.workspace) &&
+    Object.keys(scope).every((key) =>
+      ['kind', 'id', 'name', 'workspaceId', 'workspace'].includes(key),
+    )
+  )
+}

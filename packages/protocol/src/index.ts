@@ -268,8 +268,11 @@ export {
 } from './integrations.ts'
 export {
   findLinearUrl,
+  isLinearIntakeScope,
   isLinearTeamKey,
   type LinearFile,
+  type LinearIntakeChoices,
+  type LinearIntakeScope,
   type LinearIssue,
   type LinearKeyPlace,
   type LinearKeyState,
