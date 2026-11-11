@@ -1,5 +1,18 @@
-import { describe, expect, test } from 'vitest'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { createInterface } from 'node:readline'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, test, vi } from 'vitest'
+import { parseStartSubAgentRequest } from '../../protocol/src/run-parsers.ts'
+import { antigravityAgent } from '../src/agents/antigravity.ts'
+import { type AntigravityPlan, drive } from '../src/agents/antigravity-driver.ts'
 import { createAgents } from '../src/agents/index.ts'
+import { resolveAgentChoices } from '../src/workflow/agent-choices.ts'
+import { checkLayer } from '../src/workflow/check.ts'
 
 const agents = createAgents({ claudeBin: '/nowhere/claude', codexBin: '/nowhere/codex' })
 const run = {
@@ -403,3 +416,563 @@ describe('usage, credentials and cost', () => {
     expect(apiKey.args).toEqual(codex.launch({ ...run, env: {}, billing: 'api-key' }).args)
   })
 })
+
+function antigravityHarness(
+  fields: Partial<AntigravityPlan> = {},
+  overrides: Record<string, unknown> = {},
+) {
+  const sent: {
+    id?: number | string
+    method?: string
+    params?: Record<string, unknown>
+    result?: unknown
+  }[] = []
+  const events: string[] = []
+  const stop = vi.fn()
+  const configOptions = [
+    { id: 'model', category: 'model', options: [{ value: 'gemini-test', name: 'Test model' }] },
+    {
+      id: 'thinking',
+      category: 'thought_level',
+      options: [
+        { value: 'extra', name: 'Extra' },
+        { value: 'max', name: 'Max' },
+      ],
+    },
+  ]
+  const driver = drive({
+    input: JSON.stringify({
+      prompt: 'Start',
+      billing: 'subscription',
+      clientVersion: 'test',
+      cwd: '/repo',
+      ...fields,
+    }),
+    stop,
+    emit: (line) => events.push(line),
+    send(line) {
+      const message = JSON.parse(line)
+      sent.push(message)
+      if (!message.method || message.id === undefined || message.method === 'session/prompt') return
+      const result =
+        message.method === 'initialize'
+          ? {
+              protocolVersion: 1,
+              agentCapabilities: { sessionCapabilities: { resume: {} } },
+              authMethods: [{ id: 'oauth-personal' }, { id: 'gemini-api-key' }],
+            }
+          : message.method === 'session/new'
+            ? {
+                sessionId: 'session',
+                configOptions,
+                models: { availableModels: [{ modelId: 'gemini-test-max' }] },
+              }
+            : message.method === 'session/resume' || message.method === 'session/set_config_option'
+              ? { configOptions }
+              : {}
+      queueMicrotask(() =>
+        driver.onLine(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: message.id,
+            ...((overrides[message.method] ?? { result }) as object),
+          }),
+        ),
+      )
+    },
+  })
+  const update = (update: unknown) =>
+    driver.onLine(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: { sessionId: 'session', update },
+      }),
+    )
+  const complete = () => {
+    for (const message of sent.filter((m) => m.method === 'session/prompt'))
+      driver.onLine(
+        JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { stopReason: 'end_turn' } }),
+      )
+  }
+  return { driver, sent, events, stop, update, complete }
+}
+
+describe('Antigravity', () => {
+  const agent = antigravityAgent('/nowhere/agy')
+
+  test('launches ACP with explicit permission and billing choices, without leaking other credentials', () => {
+    const env = {
+      PATH: '/bin',
+      GEMINI_API_KEY: 'gemini-key',
+      GOOGLE_API_KEY: 'other-key',
+      AGY_ADC_AUTH: 'true',
+      GOOGLE_APPLICATION_CREDENTIALS: '/credentials',
+      GOOGLE_GEMINI_BASE_URL: 'https://unexpected.invalid',
+      GH_TOKEN: 'secret',
+      TED_RUN_CAPABILITY: 'run-1.abc',
+    }
+    const subscription = agent.launch({ ...run, env })
+    expect(subscription.args).toEqual(['acp', '--disable-telemetry', '--sandbox'])
+    expect(subscription.env).toEqual({ PATH: '/bin', TED_RUN_CAPABILITY: 'run-1.abc' })
+    expect(JSON.parse(subscription.input)).toMatchObject({ billing: 'subscription' })
+    const api = agent.launch({
+      ...run,
+      env,
+      billing: 'api-key',
+      permissions: 'bypass',
+      resume: 'session',
+    })
+    expect(api.args).toContain('--dangerously-skip-permissions')
+    expect(api.env).toEqual({
+      PATH: '/bin',
+      TED_RUN_CAPABILITY: 'run-1.abc',
+      GEMINI_API_KEY: 'gemini-key',
+    })
+    expect(api.input).not.toContain('gemini-key')
+    expect(api.sessionId).toBe('session')
+    expect(() => agent.launch({ ...run, billing: 'api-key' })).toThrow('GEMINI_API_KEY')
+    expect(() => agent.launch({ ...run, model: '--unsafe' })).toThrow('model name')
+  })
+
+  test('accepts Antigravity at the public sub-agent parser and each workflow role', () => {
+    expect(
+      parseStartSubAgentRequest({
+        prompt: 'Review',
+        agent: 'antigravity',
+        model: 'gemini-test',
+        effort: 'high',
+      }),
+    ).toMatchObject({ agent: 'antigravity', model: 'gemini-test', effort: 'high' })
+    const layer = checkLayer({
+      kind: 'factory',
+      files: {
+        'workflow.yaml': 'lead: antigravity\nreviewer: antigravity\nplanner: antigravity\n',
+      },
+    })
+    expect(layer.problems.filter((p) => p.severity === 'error')).toEqual([])
+    const choices = resolveAgentChoices(layer.settings, {
+      claude: true,
+      codex: true,
+      antigravity: true,
+    })
+    for (const role of ['lead', 'reviewer', 'planner'] as const)
+      expect(choices[role].agent).toBe('antigravity')
+    expect(
+      resolveAgentChoices(undefined, { claude: true, codex: true, antigravity: true }).lead.agent,
+    ).toBe('claude')
+  })
+
+  test('selects subscription authentication, configures advertised options and recovers the session without replay', async () => {
+    const h = antigravityHarness({ resume: 'session', model: 'gemini-test', effort: 'xhigh' })
+    await vi.waitFor(() => expect(h.sent.some((m) => m.method === 'session/prompt')).toBe(true))
+    expect(h.sent.find((m) => m.method === 'initialize')?.params).toMatchObject({
+      clientInfo: { name: 'ted' },
+      clientCapabilities: {},
+    })
+    expect(h.sent.find((m) => m.method === 'authenticate')?.params).toEqual({
+      methodId: 'oauth-personal',
+    })
+    expect(h.sent.find((m) => m.method === 'session/resume')?.params).toMatchObject({
+      sessionId: 'session',
+      cwd: '/repo',
+      mcpServers: [],
+    })
+    expect(
+      h.sent.filter((m) => m.method === 'session/set_config_option').map((m) => m.params?.value),
+    ).toEqual(['gemini-test', 'extra'])
+    expect(h.events.some((line) => agent.sessionIdFrom(line) === 'session')).toBe(true)
+    h.complete()
+    await vi.waitFor(() => expect(h.events.at(-1)).toContain('idle'))
+    expect(h.stop).not.toHaveBeenCalled()
+  })
+
+  test('streams chat, tools and file diffs, steers at TED’s request, and queues ordinary follow-ups', async () => {
+    const h = antigravityHarness({ billing: 'api-key' })
+    await vi.waitFor(() =>
+      expect(h.sent.filter((m) => m.method === 'session/prompt')).toHaveLength(1),
+    )
+    expect(h.sent.find((m) => m.method === 'authenticate')?.params).toEqual({
+      methodId: 'gemini-api-key',
+    })
+    h.update({
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: 'Editing now.' },
+    })
+    h.update({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'edit',
+      title: 'Edit app.ts',
+      kind: 'edit',
+      status: 'in_progress',
+    })
+    h.update({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'edit',
+      status: 'completed',
+      content: [{ type: 'diff', path: '/repo/app.ts', oldText: 'old\n', newText: 'new\n' }],
+    })
+    const chat = agent.chat(
+      h.events.map((line, offset) => ({ line, offset })),
+      '/repo',
+    )
+    expect(chat).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'agent', text: 'Editing now.' }),
+        expect.objectContaining({
+          kind: 'tool',
+          status: 'done',
+          diffs: [expect.objectContaining({ path: 'app.ts', additions: 1, deletions: 1 })],
+        }),
+      ]),
+    )
+    expect(h.events.some(agent.boundaryFrom)).toBe(true)
+    h.driver.onInput?.(agent.message('Wait for this turn'))
+    expect(h.sent.filter((m) => m.method === 'session/prompt')).toHaveLength(1)
+    h.driver.onInput?.(agent.steer('Use the new requirement'))
+    expect(h.sent.filter((m) => m.method === 'session/prompt')).toHaveLength(2)
+    h.complete()
+    await vi.waitFor(() =>
+      expect(h.sent.filter((m) => m.method === 'session/prompt')).toHaveLength(3),
+    )
+    h.complete()
+    await vi.waitFor(() => expect(h.events.at(-1)).toContain('idle'))
+  })
+
+  test.each([true, false])(
+    'permission approval %s grants only one operation and cancel abandons pending requests',
+    async (approved) => {
+      const h = antigravityHarness()
+      await vi.waitFor(() => expect(h.sent.some((m) => m.method === 'session/prompt')).toBe(true))
+      const ask = (id: number) =>
+        h.driver.onLine(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            method: 'session/request_permission',
+            params: {
+              sessionId: 'session',
+              toolCall: { title: 'git status', rawInput: { command: 'git status' } },
+              options: [
+                { optionId: 'once', kind: 'allow_once' },
+                { optionId: 'always', kind: 'allow_always' },
+                { optionId: 'no', kind: 'reject_once' },
+              ],
+            },
+          }),
+        )
+      ask(900)
+      const permission = agent.permissionPromptFrom(h.events.at(-1) ?? '', () => undefined)
+      expect(permission).toMatchObject({ requestId: '900', command: 'git status', refuse: false })
+      expect(permission?.details).toContain('git status')
+      for (const line of agent.permissionReply({ requestId: '900', approved }))
+        h.driver.onInput?.(line)
+      expect(h.sent.find((m) => m.id === 900)?.result).toEqual({
+        outcome: { outcome: 'selected', optionId: approved ? 'once' : 'no' },
+      })
+      ask(901)
+      h.driver.onInput?.(agent.interrupt()[0] ?? '')
+      expect(h.sent.find((m) => m.id === 901)?.result).toEqual({
+        outcome: { outcome: 'cancelled' },
+      })
+      expect(h.sent.some((m) => m.method === 'session/cancel')).toBe(true)
+      h.complete()
+      await vi.waitFor(() => expect(h.events.at(-1)).toContain('idle'))
+    },
+  )
+
+  test.each([
+    { initialize: { result: { protocolVersion: 2 } } },
+    { authenticate: { error: { code: -32000, message: 'Authentication required' } } },
+    { 'session/new': { error: { code: -1, message: 'session unavailable' } } },
+  ])('refuses an unsupported or failed handshake: %j', async (overrides) => {
+    const h = antigravityHarness({}, overrides)
+    await vi.waitFor(() => expect(h.stop).toHaveBeenCalledOnce())
+    expect(h.sent.some((m) => m.method === 'session/prompt')).toBe(false)
+    expect(h.events.some((line) => JSON.parse(line).ted_antigravity === 'error')).toBe(true)
+  })
+
+  test('fails closed for missing resume support and never falls back to a new conversation', async () => {
+    const h = antigravityHarness(
+      { resume: 'session' },
+      {
+        initialize: {
+          result: {
+            protocolVersion: 1,
+            agentCapabilities: {},
+            authMethods: [{ id: 'oauth-personal' }],
+          },
+        },
+      },
+    )
+    await vi.waitFor(() => expect(h.stop).toHaveBeenCalledOnce())
+    expect(h.sent.some((m) => m.method === 'session/new')).toBe(false)
+  })
+
+  test('unknown server tools are rejected and malformed output stops the driver', async () => {
+    const h = antigravityHarness({ prompt: '' })
+    await vi.waitFor(() => expect(h.events.some((line) => agent.sessionIdFrom(line))).toBe(true))
+    h.driver.onLine(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 901,
+        method: 'fs/write_text_file',
+        params: { path: '/outside', content: 'no' },
+      }),
+    )
+    expect(h.sent.find((m) => m.id === 901)).toMatchObject({ error: { code: -32601 } })
+    h.driver.onLine('not json')
+    expect(h.stop).toHaveBeenCalledOnce()
+  })
+})
+
+test('Antigravity health checks capability and the non-secret sign-in marker without creating sessions', async () => {
+  const agent = antigravityAgent(
+    fileURLToPath(new URL('./fixtures/stub-antigravity.ts', import.meta.url)),
+  )
+  const inspect = agent.health.inspect
+  if (!inspect) throw new Error('Missing health inspection')
+  const home = await mkdtemp(path.join(tmpdir(), 'ted-agy-health-'))
+  try {
+    const base = { binary: agent.binary, env: { ...process.env, HOME: home }, cwd: home }
+    await expect(inspect({ ...base, billing: 'subscription' })).resolves.toMatchObject({
+      signedIn: false,
+    })
+    const cache = path.join(home, '.gemini', 'antigravity-cli', 'cache')
+    await mkdir(cache, { recursive: true })
+    await writeFile(
+      path.join(cache, 'acp-auth-state.json'),
+      JSON.stringify({ methodId: 'oauth-personal' }),
+    )
+    await expect(inspect({ ...base, billing: 'subscription' })).resolves.toMatchObject({
+      signedIn: true,
+      billing: 'subscription',
+    })
+    await expect(
+      inspect({ ...base, env: { ...base.env, GEMINI_API_KEY: '' }, billing: 'api-key' }),
+    ).resolves.toMatchObject({ signedIn: false })
+    await expect(
+      inspect({ ...base, env: { ...base.env, GEMINI_API_KEY: 'stub-key' }, billing: 'api-key' }),
+    ).resolves.toMatchObject({ signedIn: true, billing: 'api-key' })
+    await writeFile(
+      path.join(cache, 'acp-auth-state.json'),
+      JSON.stringify({ methodId: 'gemini-api-key' }),
+    )
+    await expect(inspect({ ...base, billing: 'subscription' })).resolves.toMatchObject({
+      signedIn: false,
+    })
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('Antigravity accepts advertised model slugs with an effort suffix', async () => {
+  const h = antigravityHarness({ model: 'gemini-test-max' })
+  await vi.waitFor(() => expect(h.sent.some((m) => m.method === 'session/prompt')).toBe(true))
+  expect(
+    h.sent.filter((m) => m.method === 'session/set_config_option').map((m) => m.params?.value),
+  ).toEqual(['gemini-test', 'max'])
+  h.complete()
+  await vi.waitFor(() => expect(h.events.at(-1)).toContain('idle'))
+})
+
+test.each([undefined, 'session'])(
+  'Antigravity isolates tool-free Runs on new and resumed sessions: %s',
+  (resume) => {
+    const agent = antigravityAgent('/nowhere/agy')
+    const launch = agent.launch({
+      ...run,
+      tools: 'none',
+      permissions: 'bypass',
+      ...(resume !== undefined && { resume }),
+    })
+    expect(launch.args).not.toContain('--dangerously-skip-permissions')
+    expect(launch.args).toEqual(
+      expect.arrayContaining([
+        '--sandbox',
+        '--include-default-customizations=false',
+        '--agent',
+        'ted-text-only',
+      ]),
+    )
+    expect(launch.cwd).toBe('/tmp/run/antigravity-text-only')
+    expect(JSON.parse(launch.input)).toMatchObject({ textOnly: true, cwd: launch.cwd })
+    const settings = JSON.parse(
+      launch.files['antigravity-isolated/antigravity-cli/settings.json'] ?? '{}',
+    )
+    expect(settings).toMatchObject({
+      toolPermission: 'strict',
+      allowNonWorkspaceAccess: false,
+      permissions: {
+        allow: [],
+        ask: [],
+        deny: expect.arrayContaining([
+          'command(*)',
+          'read_file(*)',
+          'write_file(*)',
+          'read_url(*)',
+          'execute_url(*)',
+          'mcp(*)',
+        ]),
+      },
+    })
+    expect(launch.files['antigravity-isolated/config/hooks.json']).toBe('{}')
+    expect(launch.files['antigravity-isolated/config/mcp_config.json']).toBe('{"mcpServers":{}}')
+    expect(launch.files['antigravity-text-only/.agents/agents/ted-text-only.md']).toContain(
+      'tools: []',
+    )
+    expect(launch.files['antigravity-text-only/.git/HEAD']).toBeTruthy()
+  },
+)
+
+test('Antigravity cancels every tool permission in a tool-free Run and stops on tool activity', async () => {
+  const h = antigravityHarness({ textOnly: true })
+  await vi.waitFor(() => expect(h.sent.some((m) => m.method === 'session/prompt')).toBe(true))
+  h.driver.onLine(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'forbidden',
+      method: 'session/request_permission',
+      params: {
+        sessionId: 'session',
+        toolCall: { title: 'Read files', rawInput: { path: '/outside' } },
+        options: [{ optionId: 'allow', kind: 'allow_once' }],
+      },
+    }),
+  )
+  expect(h.sent.find((m) => m.id === 'forbidden')?.result).toEqual({
+    outcome: { outcome: 'cancelled' },
+  })
+  expect(h.events.some((line) => JSON.parse(line).ted_antigravity === 'permission')).toBe(false)
+  h.update({ sessionUpdate: 'tool_call', toolCallId: 'unexpected', title: 'Read', kind: 'read' })
+  expect(h.stop).toHaveBeenCalledOnce()
+  h.complete()
+})
+
+const realAntigravity = process.env.TED_REAL_ANTIGRAVITY_BIN
+
+test.skipIf(!realAntigravity)(
+  'native Antigravity tool-free profile excludes tools and inherited hooks while retaining model replies',
+  async () => {
+    if (!realAntigravity) throw new Error('Missing native CLI path')
+    const root = await mkdtemp(path.join(tmpdir(), 'ted-agy-text-only-'))
+    const marker = path.join(root, 'hook-ran')
+    const requests: Record<string, unknown>[] = []
+    const server = createServer(async (request, response) => {
+      let body = ''
+      for await (const chunk of request) body += chunk
+      if (body) requests.push(JSON.parse(body))
+      const result = {
+        candidates: [
+          {
+            content: { role: 'model', parts: [{ text: 'Supplied context only.' }] },
+            finishReason: 'STOP',
+          },
+        ],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
+      }
+      const streaming = request.url?.includes('streamGenerateContent')
+      response.writeHead(200, {
+        'content-type': streaming ? 'text/event-stream' : 'application/json',
+      })
+      response.end(streaming ? `data: ${JSON.stringify(result)}\n\n` : JSON.stringify(result))
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Missing model endpoint')
+    const runDir = path.join(root, 'runs', 'chat')
+    let child: ReturnType<typeof spawn> | undefined
+    let closed: Promise<unknown> | undefined
+    try {
+      const hooks = JSON.stringify({
+        unexpected: { SessionStart: [{ type: 'command', command: `touch '${marker}'` }] },
+      })
+      for (const folder of [path.join(root, '.gemini', 'config'), path.join(root, '.agents')]) {
+        await mkdir(folder, { recursive: true })
+        await writeFile(path.join(folder, 'hooks.json'), hooks)
+      }
+      const agent = antigravityAgent(realAntigravity)
+      const launch = agent.launch({
+        prompt: 'Explain only the supplied context. Reply briefly.',
+        runDir,
+        env: { ...process.env, HOME: root, GEMINI_API_KEY: 'local-fixture-only' },
+        billing: 'api-key',
+        permissions: 'bypass',
+        tools: 'none',
+      })
+      for (const [name, content] of Object.entries(launch.files)) {
+        const file = path.join(runDir, name)
+        await mkdir(path.dirname(file), { recursive: true })
+        await writeFile(file, content)
+      }
+      // The native CLI talks only to this fixture; no Google key or model endpoint is used.
+      child = spawn(launch.command, launch.args, {
+        cwd: launch.cwd,
+        env: { ...launch.env, GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${address.port}` },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      closed = once(child, 'close')
+      const events: string[] = []
+      child.stdin?.on('error', () => {})
+      child.stderr?.resume()
+      const running = child
+      const driver = drive({
+        input: launch.input,
+        send: (line) => running.stdin?.write(`${line}\n`),
+        emit: (line) => events.push(line),
+        stop: () => {
+          running.kill('SIGTERM')
+        },
+      })
+      if (!child.stdout) throw new Error('Missing native CLI output')
+      const lines = createInterface({ input: child.stdout })
+      lines.on('line', (line) => driver.onLine(line))
+      await vi.waitFor(
+        () => {
+          const failure = events.find((line) => JSON.parse(line).ted_antigravity === 'error')
+          if (failure) throw new Error(failure)
+          expect(events.some((line) => JSON.parse(line).ted_antigravity === 'completed')).toBe(true)
+        },
+        { timeout: 30_000, interval: 50 },
+      )
+      expect(requests.length).toBeGreaterThan(0)
+      for (const request of requests) expect(request.tools ?? []).toEqual([])
+      expect(events.some((line) => JSON.parse(line).update?.sessionUpdate === 'tool_call')).toBe(
+        false,
+      )
+      await expect(access(marker)).rejects.toThrow()
+      expect(
+        agent.chat(
+          events.map((line, offset) => ({ line, offset })),
+          launch.cwd ?? runDir,
+        ),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'agent',
+            text: expect.stringContaining('Supplied context only.'),
+          }),
+        ]),
+      )
+      lines.close()
+    } finally {
+      child?.kill('SIGTERM')
+      if (closed)
+        await Promise.race([
+          closed,
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(() => {
+              child?.kill('SIGKILL')
+              resolve()
+            }, 2_000)
+            timer.unref()
+          }),
+        ])
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(root, { recursive: true, force: true })
+    }
+  },
+  45_000,
+)

@@ -1,6 +1,7 @@
 import type { AgentKind } from '@ted/protocol'
 import { findBinSync } from '../cli-env.ts'
 import type { Agent } from './agent.ts'
+import { antigravityAgent } from './antigravity.ts'
 import { claudeAgent } from './claude.ts'
 import { codexAgent } from './codex.ts'
 
@@ -21,11 +22,13 @@ export interface Agents {
 export function createAgents(options: {
   claudeBin?: string
   codexBin?: string
+  antigravityBin?: string
   env?: () => NodeJS.ProcessEnv
 }): Agents {
   const byKind: Record<AgentKind, Agent> = {
     claude: claudeAgent(options.claudeBin ?? 'claude'),
     codex: codexAgent(options.codexBin ?? 'codex'),
+    antigravity: antigravityAgent(options.antigravityBin ?? 'agy'),
   }
   const env = options.env ?? (() => process.env)
   const installed = (kind: AgentKind) => findBinSync(byKind[kind].binary, env()) !== undefined

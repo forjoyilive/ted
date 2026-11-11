@@ -12,6 +12,7 @@ import type {
 } from '@ted/protocol'
 
 export interface AgentLaunch {
+  cwd?: string
   command: string
   args: string[]
   env: NodeJS.ProcessEnv
@@ -82,6 +83,12 @@ export interface CredentialReport {
 }
 
 export interface AgentHealthSpec {
+  inspect?(options: {
+    binary: string
+    env: NodeJS.ProcessEnv
+    cwd: string
+    billing: Billing
+  }): Promise<AuthCheck>
   minimumVersion: string
   versionArgs: string[]
   authArgs: string[]

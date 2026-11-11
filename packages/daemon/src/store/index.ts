@@ -2275,6 +2275,10 @@ export async function openStore({
       ...defaultMachineSettings,
       ...(legacy && { appearance: legacy.appearance as Appearance }),
       ...pick(values, Object.keys(defaultMachineSettings)),
+      billing: {
+        ...defaultMachineSettings.billing,
+        ...(values.billing as Partial<MachineSettings['billing']> | undefined),
+      },
     }
   }
 

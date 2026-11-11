@@ -55,6 +55,7 @@ export interface DaemonOptions {
   version: string
   claudeBin?: string
   codexBin?: string
+  antigravityBin?: string
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
@@ -181,6 +182,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const agents = createAgents({
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
+    ...(options.antigravityBin !== undefined && { antigravityBin: options.antigravityBin }),
     env: environment.current,
   })
   const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })

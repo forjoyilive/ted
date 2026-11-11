@@ -22,11 +22,12 @@ export interface HostDriver {
 export type DriveAgent = (io: {
   input: string
   send: (line: string) => void
+  emit?: (line: string) => void
   stop: () => void
 }) => HostDriver
 
-export const hostProtocol = 5
-export const oldestHostProtocol = 5
+export const hostProtocol = 6
+export const oldestHostProtocol = 6
 
 export type HostRecord =
   | {

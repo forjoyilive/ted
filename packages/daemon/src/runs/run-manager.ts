@@ -652,7 +652,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const sideId = path.basename(runDir)
     if (store.sideChats.forRun(sideId)) await sideFolder(home, sideId)
     for (const [name, content] of Object.entries(launch.files)) {
-      await writeFile(path.join(runDir, name), content, { mode: 0o600 })
+      const file = path.join(runDir, name)
+      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 })
+      await writeFile(file, content, { mode: 0o600 })
     }
     const launchFile: LaunchFile = {
       launchId: randomUUID(),
@@ -660,7 +662,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       authority: launchAuthority(store),
       command: launch.command,
       args: launch.args,
-      cwd,
+      cwd: launch.cwd ?? cwd,
       input: launch.input,
       ...(launch.driver !== undefined && { driver: launch.driver }),
       ...(inputFrom !== undefined && { inputFrom }),
@@ -804,7 +806,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           agent: agent.kind,
           ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
           prompt,
-          cwd,
+          cwd: launch.cwd ?? cwd,
           ...(taskId !== undefined && { taskId }),
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),

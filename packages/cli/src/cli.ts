@@ -225,7 +225,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (file === undefined)
       throw new UsageError('give the sub-agent’s instructions with --prompt-file <file>')
     if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-      throw new UsageError('--agent must be claude or codex')
+      throw new UsageError('--agent must be claude, codex or antigravity')
     }
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
       throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
@@ -1242,7 +1242,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (options['stage-effort'] && effort !== undefined)
         throw new UsageError('choose --stage-effort or --effort')
       if (!agentKinds.includes(agent as AgentKind))
-        throw new UsageError('agent must be claude or codex')
+        throw new UsageError('agent must be claude, codex or antigravity')
       if (effort !== undefined && !efforts.includes(effort as Effort)) {
         throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
       }

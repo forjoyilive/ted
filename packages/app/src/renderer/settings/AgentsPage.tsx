@@ -40,6 +40,7 @@ const windowNames: Record<PlanWindow['window'], string> = {
 const keyVariables: Record<AgentKind, string> = {
   claude: 'ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN',
   codex: 'CODEX_API_KEY and OPENAI_API_KEY',
+  antigravity: 'GEMINI_API_KEY and Google Cloud credentials',
 }
 
 export function stopsWork(health: AgentHealth): boolean {
@@ -157,6 +158,13 @@ function BillingChoice({
           </label>
         ))}
       </div>
+      {agent === 'antigravity' && (
+        <p className={styles.line}>
+          {billing === 'subscription'
+            ? 'Sign in with the Google account that has your Ultra plan.'
+            : 'Set GEMINI_API_KEY in your login-shell profile, then choose Check again. Requests are billed separately. TED never asks for or stores the key.'}
+        </p>
+      )}
     </div>
   )
 }
@@ -178,9 +186,11 @@ function PlanUsageSection({ health }: { health: AgentHealth }) {
         </div>
       ) : (
         <p className={styles.line}>
-          {health.agent === 'claude'
-            ? 'Shows once a Run has made a request.'
-            : 'Shows once a Run has started.'}
+          {health.agent === 'antigravity'
+            ? 'Usage figures are unavailable unless reported by Antigravity.'
+            : health.agent === 'claude'
+              ? 'Shows once a Run has made a request.'
+              : 'Shows once a Run has started.'}
         </p>
       )}
     </div>
@@ -374,7 +384,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
       <SettingsGroup>
         <SettingRow
           title="Restart idle Runs onto new agent versions"
-          help="When Claude Code or Codex updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
+          help="When an agent updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
         >
           <Switch
             label="Restart idle Runs onto new agent versions"

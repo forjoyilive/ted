@@ -66,11 +66,13 @@ export interface AgentHealth {
 export const agentDisplayNames: Record<AgentKind, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 }
 
 export const agentShortNames: Record<AgentKind, string> = {
   claude: 'Claude',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 }
 
 export function resetTime(

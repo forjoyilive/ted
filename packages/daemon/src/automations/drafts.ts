@@ -347,6 +347,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         .settings
       const defaults = resolveAgentChoices(settings, {
         claude: agents.installed('claude'),
+        antigravity: agents.installed('antigravity'),
         codex: agents.installed('codex'),
       }).lead
       const lead =

@@ -1126,7 +1126,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           usage={
             <PlanUsage
               health={agentHealth}
-              billing={settings?.billing ?? { claude: 'subscription', codex: 'subscription' }}
+              billing={
+                settings?.billing ?? {
+                  claude: 'subscription',
+                  codex: 'subscription',
+                  antigravity: 'subscription',
+                }
+              }
               open={usageOpen}
               onToggle={() => {
                 setRunsOpen(false)

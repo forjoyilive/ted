@@ -19,7 +19,7 @@ export function runIconState(run: RunSummary): RunIconState {
   return 'idle'
 }
 
-const shortAgentNames = { claude: 'Claude', codex: 'Codex' } as const
+const shortAgentNames = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity' } as const
 
 function agentLine(run: RunSummary): string {
   return [

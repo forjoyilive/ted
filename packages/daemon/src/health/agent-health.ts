@@ -122,7 +122,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const found = { path: binary, ...(version !== undefined && { version }) }
     if (version !== undefined && compareVersions(version, spec.minimumVersion) < 0)
       return done('too-old', found)
-    const auth = spec.auth(await cli(spec.authArgs))
+    const auth = spec.inspect
+      ? await spec.inspect({ binary, env, cwd: home, billing: billing(kind) })
+      : spec.auth(await cli(spec.authArgs))
     if (!auth.signedIn) return done('signed-out', found)
     const account = { ...found, ...(auth.account !== undefined && { account: auth.account }) }
     if (auth.billing === 'api-key' && billing(kind) === 'subscription') {
