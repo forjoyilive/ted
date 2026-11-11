@@ -127,6 +127,27 @@ describe('TedStore', () => {
     }
   })
 
+  test('persists steering release intent without exposing it in the public Run', async () => {
+    let store = await openStore({ directory: dir })
+    try {
+      store.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hi', cwd: '/tmp' })
+      const message = store.queueRunMessage({ runId: 'run-1', text: 'Held note' })
+      const hold = store.recordTurnInterrupted('run-1', true)
+      const release = { messageIds: [message.id], first: message.id, holdId: hold.id }
+      store.releaseRunSteering('run-1', release)
+      await store.persisted()
+      await store.close()
+      store = await openStore({ directory: dir })
+      expect(store.runSteeringRelease('run-1')).toEqual(release)
+      expect(store.getRun('run-1')).not.toHaveProperty('steeringRelease')
+      expect(store.listRuns()[0]).not.toHaveProperty('steeringRelease')
+      const nextHold = store.recordTurnInterrupted('run-1', true)
+      expect(store.runSteeringRelease('run-1')?.holdId).not.toBe(nextHold.id)
+    } finally {
+      await store.close()
+    }
+  })
+
   test('an event log that holds v2.RunOutputRead lines loads, and its lines stay out of the state database', async () => {
     const first = await openStore({ directory: dir })
     first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })

@@ -1,4 +1,9 @@
-import { type Appearance, type QuitChoice, terminalFontSizes } from '@ted/protocol/settings'
+import {
+  type Appearance,
+  type QuitChoice,
+  terminalFontSizes,
+  textSizeLimits,
+} from '@ted/protocol/settings'
 import { systemTimeZone } from '@ted/protocol/time'
 import { useEffect, useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
@@ -16,6 +21,7 @@ import {
   SettingRow,
   SettingsGroup,
   SettingsPage,
+  Stepper,
   Switch,
 } from './controls.tsx'
 import { EditorRow } from './EditorRow.tsx'
@@ -113,6 +119,27 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             options={appearanceOptions}
             onChange={(appearance) => void ted.updateSettings({ appearance })}
           />
+        </SettingRow>
+        <SettingRow
+          title="Text size"
+          detail="Changes text throughout TED. Terminal font size is separate."
+        >
+          <Stepper
+            value={settings.textSize}
+            min={textSizeLimits.min}
+            max={textSizeLimits.max}
+            step={textSizeLimits.step}
+            format={(value) => `${value}%`}
+            lessLabel="Decrease text size"
+            moreLabel="Increase text size"
+            onChange={(textSize) => void ted.updateSettings({ textSize })}
+          />
+          <Button
+            disabled={settings.textSize === 100}
+            onClick={() => void ted.updateSettings({ textSize: 100 })}
+          >
+            Default
+          </Button>
         </SettingRow>
         <SettingRow
           title="Terminal font size"

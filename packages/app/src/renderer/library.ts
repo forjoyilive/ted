@@ -11,6 +11,7 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
   for (const row of view.stages) {
     stages[row.id] = {
       enabled: row.enabled,
+      effort: row.effort ?? null,
       gate: row.gate,
       ...(row.maxBack !== undefined && { maxBack: row.maxBack }),
       ...(row.depth !== undefined && { depth: row.depth }),

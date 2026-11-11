@@ -31,7 +31,7 @@ Read the Task, its sources and the relevant code before asking. Use the repo to 
 2. Unless the human already chose a Clarify depth, pick one and say why in one line: `ted clarify depth <none|few|grilling> "<why>"`.
    - **None** when nothing is unclear. Record the result in the Task brief as described below, then run `ted outcome advance`.
    - **Few** when a handful of simple questions would settle it. Ask them all in one round.
-   - **Grilling** when the Task hides real decisions. Ask in rounds until nothing is left open.
+   - **Grilling** when the Task hides real decisions. Use `grilling` (or `batch-grill-me`) if the skill is available to your agent; otherwise follow the rounds below. Ask in rounds until nothing is left open.
 3. Ask a round with `ted ask --round <file>`. The file is JSON: a short `title`, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text. For example:
 
    ```json

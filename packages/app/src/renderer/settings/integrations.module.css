@@ -20,7 +20,7 @@
   margin-top: 1px;
   border-radius: 9px;
   color: var(--text-on-accent);
-  font-size: var(--text-11);
+  font-size: var(--glyph-11);
   font-weight: var(--weight-semibold);
   line-height: 1;
 }

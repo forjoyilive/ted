@@ -152,11 +152,8 @@ describe('Inbox and Gates', () => {
     await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
-    await expectActionsInsideCard(window, card, [
-      'Talk it through',
-      'Accept all recommended',
-      'Submit answers',
-    ])
+    await expectActionsInsideCard(window, card, ['Talk it through', 'Submit answers'])
+    expect(await card.getByRole('button', { name: 'Accept all recommended' }).count()).toBe(0)
     await card.getByRole('button', { name: 'Talk it through' }).click()
 
     await thread.getByRole('heading', { name: 'Talking through Round 1' }).waitFor()
@@ -353,8 +350,14 @@ describe('Full Inbox', () => {
     await chip('All 3').click()
     await expect.poll(headlines).toHaveLength(3)
 
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
+    await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
+    await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window)
       .getByRole('button', { name: /^Inbox/ })
@@ -386,7 +389,7 @@ describe('Full Inbox', () => {
 })
 
 describe('Permission requests', () => {
-  test('a permission prompt is a card with the command; Deny and Approve collapse it with the answer line', async () => {
+  test('a permission prompt is a card with the command; Deny and Approve keep its details with the answer line', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     await addFactory(origin, 'NB')
     const ask = (command: string, description: string) => ({
@@ -428,7 +431,11 @@ describe('Permission requests', () => {
     const denied = thread.getByRole('region', { name: 'Permission, answered' }).first()
     await denied.getByText('You denied').waitFor()
     await denied.getByText('“Use npm, not an install script.”').waitFor()
-    await denied.getByText('curl -s https://registry.example.dev/install.sh | sh').waitFor()
+    await denied
+      .getByText(/\$ curl -s https:\/\/registry\.example\.dev\/install\.sh \| sh$/)
+      .waitFor()
+    await denied.getByText('Install the CRDT tool').waitFor()
+    expect(await denied.getByRole('button', { name: /Show request|Hide request/ }).count()).toBe(0)
 
     await card.getByText(/npm install --save yjs@13\.6\.27$/).waitFor()
     const details = window.getByRole('complementary', { name: 'Task details' })

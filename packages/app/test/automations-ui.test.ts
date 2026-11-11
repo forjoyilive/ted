@@ -87,6 +87,13 @@ async function openFirstFactory(window: Page) {
 }
 
 describe('Automations in the app', () => {
+  test('a missing Automation crosses the bridge as deleted rather than a request failure', async () => {
+    const { window } = await launch()
+    expect(
+      await window.evaluate(() => globalThis.window.ted.request('getAutomation', 'missing')),
+    ).toBeNull()
+  })
+
   test('the empty page offers templates; a template fills the form and the schedule checks itself', async () => {
     const { window, ted } = await launch()
     await openAutomations(window)
@@ -160,6 +167,49 @@ describe('Automations in the app', () => {
       .first()
       .click()
     await dialog(window).getByRole('heading', { name: 'New Automation in' }).waitFor()
+  })
+
+  test('the architecture template fills a weekly review and saves without starting Tasks', async () => {
+    const { window, ted } = await launch()
+    await openAutomations(window)
+    await window.getByRole('button', { name: 'Use template: Review codebase architecture' }).click()
+    const form = dialog(window)
+    await expect
+      .poll(() => form.getByLabel('Name').inputValue())
+      .toBe('Review codebase architecture')
+    expect(await form.getByRole('textbox', { name: 'Prompt' }).inputValue()).toContain(
+      'up to three',
+    )
+    expect(
+      await form.getByRole('radio', { name: /Review codebase architecture/ }).isChecked(),
+    ).toBe(true)
+    expect(await form.getByLabel('Repeat').inputValue()).toBe('weekly')
+    expect(
+      await form.getByRole('button', { name: 'Monday', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      await form.getByRole('button', { name: 'Tuesday', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('false')
+    expect(await form.getByLabel('Hour', { exact: true }).inputValue()).toBe('9')
+    expect(await form.getByLabel('Minute', { exact: true }).inputValue()).toBe('0')
+    await form.getByText(/^Next: .+ · .+ · .+/).waitFor()
+    if (process.env.TED_ARCHITECTURE_SCREENSHOT) {
+      await window.screenshot({ path: process.env.TED_ARCHITECTURE_SCREENSHOT })
+    }
+    await form.getByRole('button', { name: 'Save', exact: true }).click()
+    await form.waitFor({ state: 'detached' })
+    await window
+      .getByRole('region', { name: 'Automation' })
+      .getByRole('heading', { name: 'Review codebase architecture' })
+      .waitFor()
+    const [saved] = await ted.listAutomations()
+    expect(saved).toMatchObject({
+      template: 'architecture',
+      on: true,
+      schedule: { kind: 'weekly', days: ['mon'], at: '09:00' },
+    })
+    expect((await ted.getAutomation(saved?.id ?? '')).history).toEqual([])
+    expect(await ted.listTasks()).toEqual([])
   })
 
   test('drafts a new Automation Prompt, lets the human edit it and saves only on request', async () => {

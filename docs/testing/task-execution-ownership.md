@@ -32,4 +32,40 @@ The configured Checks are `pnpm typecheck` and `pnpm lint`. Agents run only the 
 
 ## Review
 
-Manual code and security review checked assignment atomicity, idempotency, persistence before local starts, legacy pinning and deletion. Identifiers are not credentials, no assignment mutation route was added, and no remote paths, listeners or authentication changes were introduced. The assignment receipt is stored once, in the immutable assignment record. See ADR 0104 for the future disconnect and revocation contract and its explicit implementation limits. The Workflow’s Validate review remains separate from this Work-stage review.
+Manual code and security review checked assignment atomicity, idempotency, persistence before local starts, legacy pinning and deletion. Identifiers are not credentials, no assignment mutation route was added, and no remote paths, listeners or authentication changes were introduced. The assignment receipt is stored once, in the immutable assignment record. See ADR 0105 for the future disconnect and revocation contract and its explicit implementation limits. The Workflow’s Validate review remains separate from this Work-stage review.
+
+## Merge and review checkpoint
+
+Fetched base: `20b46312b54313550f6f71af219aab607eb69e21`. The merge retains Task history, side chats, command-launch consent and Stage effort selection. The ownership ADR is now 0105 because the base added its own ADR 0104.
+
+The independent reviewer found that sub-agents of an already-live legacy Task Lead could start before an explicit assignment was persisted. The fix adds the same Tasks-owned persistence barrier before sub-agent worktree preparation and launch, with cancellation checks after the await. `sub-agent-execution.test.ts` exercises a legacy Task through TedStore and SubAgents, observes the assignment on disk before both side effects, and prevents both when persistence fails.
+
+Post-merge commands and results:
+
+- `pnpm typecheck`: passed.
+- `ted checks`: passed Typecheck and Lint after the merge and again after the sub-agent fix.
+- `pnpm vitest run packages/daemon/test/execution-store.test.ts packages/daemon/test/execution.test.ts packages/daemon/test/store.test.ts packages/daemon/test/tasks.test.ts packages/daemon/test/task-lead.test.ts packages/daemon/test/side-chats.test.ts`: 75 passed, 3 failed; 5 files passed and the Tasks file failed.
+- Untouched base snapshot, `pnpm vitest run packages/daemon/test/tasks.test.ts`: 15 passed, 2 failed. The same primary case, “a Task with no .ted/ runs every default Stage in order to Done”, failed in its `afterEach` with `Hook timed out in 10000ms`. The following Library-edit case also failed after its temporary repo/store folders were removed. The branch’s following Library-edit and Factory Workflow cases had missing-folder errors. Keep this baseline cleanup failure visible; it is not a pass.
+- `pnpm vitest run packages/daemon/test/sub-agent-execution.test.ts packages/daemon/test/sub-agents.test.ts packages/daemon/test/execution-store.test.ts packages/daemon/test/execution.test.ts`: passed, 4 files / 31 tests, including both legacy sub-agent barrier cases.
+- `pnpm vitest run packages/daemon/test/tasks.test.ts -t 'a Library edit changes|the Factory’s .ted/'`: passed, 2 tests / 15 skipped. The two downstream cases pass without the preceding baseline cleanup timeout.
+
+The base snapshot is an untouched archive in `dist/ted-97-base`, with snapshot-local `@ted` workspace links; dependencies are reused, but source imports resolve to that base snapshot.
+
+Isolated manual verification used `node_modules/.cache/ted-home`, stub agents/GitHub/keyring and offline status. CLI output:
+
+```text
+Created DEV-1  Ownership validation
+DEV-1  Backlog  Ownership validation
+```
+
+Direct Tasks execution interface output, on that same isolated Task:
+
+```text
+Local assignment generation: 1
+Identity and assignment survive reopen: true
+Conflicting assignment: rejected (409)
+```
+
+No agent Run or App was started. The isolated daemon and its hosts were stopped. An initial CLI start with a 1000 ms idle override stopped during startup; the 60000 ms retry listed the persisted Task successfully.
+
+The same configured reviewer confirmed the original Finding is resolved and reported no remaining blocking Finding. Its follow-up typecheck and focused lint passed; its own test attempt hit sandbox cleanup restrictions and its escalated rerun was canceled while waiting for a lock, so those attempts are not counted as regression passes. The Lead’s escalated four-file run completed all 31 tests successfully.

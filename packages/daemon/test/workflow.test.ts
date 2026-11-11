@@ -6,6 +6,7 @@ import {
   resolveAgentChoices,
   resolveWorkflow,
 } from '../src/workflow/index.ts'
+import { subAgentPrompt, tedSubAgentPrompt } from '../src/workflow/workflow.ts'
 
 const defaults = () => readDefaultLayer()
 
@@ -13,6 +14,18 @@ const library = (files: LayerFiles) => checkLayer({ kind: 'library', files })
 const factory = (files: LayerFiles) => checkLayer({ kind: 'factory', files })
 
 describe('TED defaults', () => {
+  test('sub-agent instructions carry writing guidance for delegated work and TED reviews', async () => {
+    for (const prompt of [
+      await subAgentPrompt('NB-1', 'Investigate login failures.'),
+      await tedSubAgentPrompt('Review the change.'),
+    ]) {
+      expect(prompt).toContain('## Write clearly for the user')
+      expect(prompt).toContain(
+        'Plain language must preserve technical meaning, risks and uncertainty.',
+      )
+    }
+  })
+
   test('run every built-in Stage in order, Backlog first and Done last', async () => {
     const workflow = resolveWorkflow([await defaults()])
 
@@ -539,4 +552,38 @@ test('Task Gates override inheritance without enabling Stages, and mandatory Gat
   ])
   expect(withTaskGates(changed, {}).settings.stages.design?.gate).toBe(false)
   expect(withTaskGates(changed, { design: true }).settings.stages.design?.gate).toBe(true)
+})
+
+describe('Stage effort', () => {
+  test('inherits by Stage and overrides only the chosen Stage', async () => {
+    const workflow = resolveWorkflow([
+      await defaults(),
+      library({
+        'workflow.yaml':
+          'version: 1\nstages:\n  design: { effort: high }\n  work: { effort: medium }\n',
+      }),
+      factory({ 'workflow.yaml': 'version: 1\nstages:\n  design: { effort: ultra }\n' }),
+    ])
+    expect(workflow.settings.stages.design?.effort).toBe('ultra')
+    expect(workflow.settings.stages.work?.effort).toBe('medium')
+    expect(workflow.settings.stages.intake?.effort).toBeUndefined()
+  })
+
+  test('rejects invalid effort values and effort on holding Stages', () => {
+    for (const [id, value] of [
+      ['work', 'huge'],
+      ['work', 'null'],
+      ['backlog', 'high'],
+      ['done', 'medium'],
+    ]) {
+      expect(
+        factory({ 'workflow.yaml': `version: 1\nstages:\n  ${id}: { effort: ${value} }\n` }).valid,
+      ).toBe(false)
+    }
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']) {
+      expect(
+        factory({ 'workflow.yaml': `version: 1\nstages:\n  work: { effort: ${effort} }\n` }).valid,
+      ).toBe(true)
+    }
+  })
 })

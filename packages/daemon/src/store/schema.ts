@@ -69,6 +69,12 @@ export const tasks = State.SQLite.table({
     leadAgent: State.SQLite.text({ nullable: true }),
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
+    snoozedUntil: State.SQLite.text({ nullable: true }),
+    leadEffortMode: State.SQLite.text({ nullable: true }),
+    stageEffort: State.SQLite.text({ nullable: true }),
+    pendingLeadMessage: State.SQLite.text({ nullable: true }),
+    pendingLeadDeliveries: State.SQLite.text({ nullable: true }),
+    leadRestartPending: State.SQLite.boolean({ default: false }),
     startRequested: State.SQLite.boolean({ default: false }),
     waitsForBlockers: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
@@ -160,6 +166,19 @@ export const taskAttachments = State.SQLite.table({
   },
 })
 
+export const taskBrowserCaptures = State.SQLite.table({
+  name: 'taskBrowserCaptures',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const commentAttachments = State.SQLite.table({
   name: 'commentAttachments',
   columns: {
@@ -213,6 +232,7 @@ export const runs = State.SQLite.table({
     revivedAt: State.SQLite.text({ nullable: true }),
     ended: State.SQLite.text({ nullable: true }),
     retrying: State.SQLite.boolean({ default: false }),
+    steeringRelease: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -710,6 +730,11 @@ export const automationComments = State.SQLite.table({
   },
 })
 
+export const sideChats = State.SQLite.table({
+  name: 'sideChats',
+  columns: { sourceRunId: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
+})
+
 export const coordinators = State.SQLite.table({
   name: 'coordinators',
   columns: {
@@ -820,6 +845,14 @@ export const events = {
   taskExecutionForgotten: Events.synced({
     name: 'v1.TaskExecutionForgotten',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  sideChatChanged: Events.synced({
+    name: 'v1.SideChatChanged',
+    schema: Schema.Struct({ sourceRunId: Schema.String, data: Schema.String }),
+  }),
+  sideChatRemoved: Events.synced({
+    name: 'v1.SideChatRemoved',
+    schema: Schema.Struct({ sourceRunId: Schema.String, runId: Schema.String }),
   }),
   coordinatorChanged: Events.synced({
     name: 'v1.CoordinatorChanged',
@@ -972,6 +1005,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskSnoozed: Events.synced({
+    name: 'v1.TaskSnoozed',
+    schema: Schema.Struct({ taskId: Schema.String, until: Schema.String, at: Schema.String }),
+  }),
+  taskSnoozeCleared: Events.synced({
+    name: 'v1.TaskSnoozeCleared',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   taskStartRequestChanged: Events.synced({
     name: 'v1.TaskStartRequestChanged',
     schema: Schema.Struct({
@@ -1075,6 +1116,17 @@ export const events = {
   }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskBrowserCaptureAdded: Events.synced({
+    name: 'v1.TaskBrowserCaptureAdded',
     schema: Schema.Struct({
       taskId: Schema.String,
       hash: Schema.String,
@@ -1741,6 +1793,38 @@ export const events = {
     name: 'v1.TaskStageEntered',
     schema: Schema.Struct(stageEnteredFields),
   }),
+  taskStageEnteredV3: Events.synced({
+    name: 'v3.TaskStageEntered',
+    schema: Schema.Struct({
+      ...stageEnteredFields,
+      order: Schema.String,
+      effort: Schema.NullOr(Schema.String),
+    }),
+  }),
+  taskLeadEffortModeSet: Events.synced({
+    name: 'v1.TaskLeadEffortModeSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      mode: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskLeadRestartPendingSet: Events.synced({
+    name: 'v1.TaskLeadRestartPendingSet',
+    schema: Schema.Struct({ taskId: Schema.String, pending: Schema.Boolean, at: Schema.String }),
+  }),
+  taskLeadMessageHeld: Events.synced({
+    name: 'v1.TaskLeadMessageHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      text: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskLeadMessagesHeld: Events.synced({
+    name: 'v1.TaskLeadMessagesHeld',
+    schema: Schema.Struct({ taskId: Schema.String, messages: Schema.String, at: Schema.String }),
+  }),
   taskStageEnteredV2: Events.synced({
     name: 'v2.TaskStageEntered',
     schema: Schema.Struct({ ...stageEnteredFields, order: Schema.String }),
@@ -2115,6 +2199,10 @@ export const events = {
   runMessageDeleted: Events.synced({
     name: 'v1.RunMessageDeleted',
     schema: Schema.Struct({ id: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  runSteeringReleased: Events.synced({
+    name: 'v1.RunSteeringReleased',
+    schema: Schema.Struct({ runId: Schema.String, release: Schema.String }),
   }),
   runTurnInterrupted: Events.synced({
     name: 'v1.RunTurnInterrupted',
@@ -2564,6 +2652,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     at: String(args.createdAt),
     data: { clarifyDepth: args.clarifyDepth },
   }),
+  'v1.TaskSnoozed': (args) => task(args, { until: args.until }),
+  'v1.TaskSnoozeCleared': (args) => task(args),
   'v1.TaskGatesChanged': (args) => task(args, { overrides: args.overrides }),
   'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
@@ -2614,6 +2704,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskPlanEnded': (args) => task(args, { planId: args.planId, outcome: args.outcome }),
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
+  'v3.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
     task(args, { from: args.from, to: args.to, findings: args.findings }),
   'v2.TaskSentBack': (args) =>
@@ -2703,6 +2794,13 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       reviewer: args.reviewer,
     }),
   'v1.LoopCheckStarted': (args) => task(args, { runId: args.runId, round: args.round }),
+  'v1.SendBackAsked': (args) =>
+    task(args, {
+      from: args.from,
+      to: args.to,
+      findings: args.findings,
+      checkRunId: args.checkRunId,
+    }),
   'v1.LoopCheckFinished': (args) =>
     task(args, { runId: args.runId, verdict: args.verdict, reason: args.reason }),
   'v1.RunMessageSent': (args) => ({
@@ -2801,6 +2899,10 @@ const materializers = counted(
           .onConflict('id', 'replace'),
       'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
         taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
+      'v1.TaskSnoozed': ({ taskId, until }) =>
+        tasks.update({ snoozedUntil: until, startRequested: false }).where({ id: taskId }),
+      'v1.TaskSnoozeCleared': ({ taskId }) =>
+        tasks.update({ snoozedUntil: null }).where({ id: taskId }),
       'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
         tasks.update({ startRequested }).where({ id: taskId }),
       'v1.TaskWaitingForBlockers': ({ taskId }) => [
@@ -2865,6 +2967,10 @@ const materializers = counted(
       'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
+          .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
+          .onConflict('id', 'ignore'),
+      'v1.TaskBrowserCaptureAdded': ({ taskId, hash, name, ...rest }) =>
+        taskBrowserCaptures
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
       'v1.CommentAttachmentAdded': ({ commentId, hash, name, ...rest }) =>
@@ -2987,6 +3093,7 @@ const materializers = counted(
         taskQueue.delete().where({ taskId }),
         taskBlockers.delete().where({ taskId }),
         taskAttachments.delete().where({ taskId }),
+        taskBrowserCaptures.delete().where({ taskId }),
         commentAttachments.delete().where({ taskId }),
         lineComments.delete().where({ taskId }),
         taskSources.delete().where({ taskId }),
@@ -3167,6 +3274,8 @@ const materializers = counted(
       'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
       'v1.RunMessageDeleted': ({ id, at }) =>
         runMessages.update({ deletedAt: at, queued: false }).where({ id }),
+      'v1.RunSteeringReleased': ({ runId, release }) =>
+        runs.update({ steeringRelease: release }).where({ id: runId }),
       'v1.RunTurnInterrupted': ({ id, runId, hold, at }) =>
         runInterrupts.insert({ id, runId, hold, at }),
       'v1.ConversationTabOpened': ({ taskId, runId, at }) =>
@@ -3208,6 +3317,20 @@ const materializers = counted(
         runs.update({ sessionId }).where({ id: runId }),
       'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
       'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
+      'v3.TaskStageEntered': ({ effort, ...entry }) => [
+        stageEntries.insert(entry),
+        tasks.update({ stageEffort: effort }).where({ id: entry.taskId }),
+      ],
+      'v1.TaskLeadEffortModeSet': ({ taskId, mode }) =>
+        tasks.update({ leadEffortMode: mode }).where({ id: taskId }),
+      'v1.TaskLeadRestartPendingSet': ({ taskId, pending }) =>
+        tasks.update({ leadRestartPending: pending }).where({ id: taskId }),
+      'v1.TaskLeadMessageHeld': ({ taskId, text }) =>
+        tasks.update({ pendingLeadMessage: text }).where({ id: taskId }),
+      'v1.TaskLeadMessagesHeld': ({ taskId, messages }) =>
+        tasks
+          .update({ pendingLeadDeliveries: messages, pendingLeadMessage: null })
+          .where({ id: taskId }),
       'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
         tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
       'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
@@ -3460,6 +3583,13 @@ const materializers = counted(
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
       ],
+      'v1.SideChatChanged': (row) => sideChats.insert(row).onConflict('sourceRunId', 'replace'),
+      'v1.SideChatRemoved': ({ sourceRunId, runId }) => [
+        sideChats.delete().where({ sourceRunId }),
+        runs.delete().where({ id: runId }),
+        runMessages.delete().where({ runId }),
+        runInterrupts.delete().where({ runId }),
+      ],
       'v1.CoordinatorChanged': (row) => coordinators.insert(row).onConflict('factoryId', 'replace'),
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
         coordinators.delete().where({ factoryId }),
@@ -3533,6 +3663,7 @@ const state = State.SQLite.makeState({
     taskBlockers,
     deletedTasks,
     taskAttachments,
+    taskBrowserCaptures,
     commentAttachments,
     taskSources,
     runs,
@@ -3575,6 +3706,7 @@ const state = State.SQLite.makeState({
     planRequests,
     planTasks,
     coordinators,
+    sideChats,
   },
   materializers,
 })

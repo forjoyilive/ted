@@ -135,7 +135,9 @@ describe('Planning chats', () => {
     await row.waitFor()
     expect(await row.textContent()).toContain('Plan notebook sharing')
     await row.click()
-    await roundCard.getByRole('button', { name: 'Accept all recommended' }).click()
+    expect(await roundCard.getByRole('button', { name: 'Accept all recommended' }).count()).toBe(0)
+    expect(await roundCard.getByRole('radio', { name: /The owner only/ }).isChecked()).toBe(true)
+    await roundCard.getByRole('button', { name: 'Submit answers' }).click()
     await chat.getByText(/answered by you at/).waitFor()
     await writeFile(go, '')
 

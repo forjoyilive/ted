@@ -43,7 +43,7 @@
   overflow: hidden;
   color: var(--text-primary);
   font-size: var(--text-13);
-  line-height: 18px;
+  line-height: var(--leading-18);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -55,5 +55,5 @@
 .detail {
   color: var(--text-caption);
   font-size: var(--text-12);
-  line-height: 17px;
+  line-height: var(--leading-17);
 }

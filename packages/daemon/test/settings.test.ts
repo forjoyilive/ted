@@ -50,39 +50,7 @@ describe('machine settings in the store', () => {
 
   test('machine settings start at their defaults and keep every change across a reopen', async () => {
     const first = await openStore({ directory: dir })
-    expect(first.settings()).toEqual({
-      timeFormat: 'system',
-      timeZone: 'system',
-      appearance: 'system',
-      terminalFontSize: 13,
-      profilePicture: null,
-      developerMode: false,
-      overnightMode: false,
-      maxWorkingRuns: 6,
-      adjustRunsToLoad: false,
-      maxBootedSimulators: 3,
-      runOutputDays: 7,
-      quitWithWorkRunning: 'ask',
-      showTrayIcon: true,
-      startAtLogin: true,
-      stayAwake: true,
-      restartIdleRuns: true,
-      notifyInboxItems: true,
-      notifyProblems: true,
-      notifyTaskMerged: false,
-      notifySound: false,
-      listViews: {},
-      billing: { claude: 'subscription', codex: 'subscription' },
-      firstLaunchDone: false,
-      editor: null,
-      editorCommand: '',
-      linearSync: true,
-      linearSyncTeams: {},
-      linearSyncDeclined: {},
-      appsOutsideSandbox: {},
-      lowPriorityWork: true,
-      maxChecksAtOnce: 2,
-    })
+    expect(first.settings()).toEqual(defaultMachineSettings)
     first.updateSettings({ terminalFontSize: 16, developerMode: true, overnightMode: true })
     first.updateSettings({ profilePicture: picture })
     first.updateSettings({ appearance: 'light' })
@@ -213,6 +181,37 @@ describe('settings and Factories over the daemon API', () => {
     expect(await reopened.getSettings()).toMatchObject({ timeFormat: 'system', timeZone: 'system' })
   })
 
+  test('text size defaults, broadcasts, and persists without changing terminal font size', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const ted = await client()
+    expect((await ted.getSettings()).textSize).toBe(100)
+    const seen: DaemonEvent[] = []
+    const subscription = await ted.subscribe((event) => seen.push(event))
+    try {
+      for (const textSize of [80, 105, 150, 200]) {
+        expect(await ted.updateSettings({ textSize })).toMatchObject({
+          textSize,
+          terminalFontSize: 13,
+        })
+      }
+      await expect
+        .poll(() =>
+          seen.some(
+            (event) => event.type === 'settings-changed' && event.settings.textSize === 200,
+          ),
+        )
+        .toBe(true)
+    } finally {
+      subscription.close()
+    }
+    await daemon.stop()
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    expect(await (await client()).getSettings()).toMatchObject({
+      textSize: 200,
+      terminalFontSize: 13,
+    })
+  })
+
   test('a client reads and changes Appearance, and subscribers hear the change', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const ted = await client()
@@ -233,6 +232,12 @@ describe('settings and Factories over the daemon API', () => {
     ['an unknown time zone', { timeZone: 'Mars/Olympus' }],
     ['a non-string time zone', { timeZone: 12 }],
     ['an unknown Appearance', { appearance: 'sepia' }],
+    ['text size below 80%', { textSize: 75 }],
+    ['text size above 200%', { textSize: 205 }],
+    ['text size off the 5% step', { textSize: 101 }],
+    ['fractional text size', { textSize: 100.5 }],
+    ['non-numeric text size', { textSize: '100' }],
+    ['null text size', { textSize: null }],
     ['an unknown setting', { fontSize: 20 }],
     ['a terminal font size below 10', { terminalFontSize: 9 }],
     ['a terminal font size above 20', { terminalFontSize: 21 }],

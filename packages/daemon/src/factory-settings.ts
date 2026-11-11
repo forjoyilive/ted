@@ -40,6 +40,7 @@ import type { Factories } from './factory-setup.ts'
 import { exists } from './files.ts'
 import * as git from './git.ts'
 import type { Gh } from './github/gh.ts'
+import { factoryPermissions } from './permissions.ts'
 import { redactSecrets } from './redact.ts'
 import type { StoredFactory, StoredFactoryRepo, TedStore } from './store/index.ts'
 import {
@@ -211,6 +212,12 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     factory: StoredFactory,
     changes: FactorySettingsChanges,
   ): { problems: WorkflowProblem[]; files: Record<string, string | null> } {
+    if (changes.permissions !== undefined) {
+      throw new RequestError(
+        400,
+        'Permission mode is local to this computer; use Factory settings permissions',
+      )
+    }
     const problems = [
       ...inputProblems(changes, base.repos),
       ...removalProblems(base, factory, changes),
@@ -284,10 +291,6 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     })
   }
 
-  function turnsOnBypass(base: Base, changes: FactorySettingsChanges): boolean {
-    return changes.permissions === 'bypass' && base.settings?.permissions !== 'bypass'
-  }
-
   function fileChanges(base: Base, files: Record<string, string | null>): FileChange[] {
     return Object.entries(files).map(([file, text]) => {
       const before = base.current[file.slice('.ted/'.length)]
@@ -316,6 +319,17 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         inOrder,
         enabled: inOrder && (id === 'done' || stage?.enabled !== false),
         gate: stage?.gate === true,
+        ...(agent && {
+          effort: (own.settings.stages[id]?.effort ?? null) as Effort | null,
+          ...(inherited.settings.stages[id]?.effort !== undefined && {
+            inheritedEffort: inherited.settings.stages[id]?.effort as Effort,
+          }),
+          inheritedEffortFrom:
+            base.inherited
+              .slice()
+              .reverse()
+              .find((layer) => layer.settings.stages[id]?.effort !== undefined)?.kind ?? 'ted',
+        }),
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
@@ -508,7 +522,8 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         checks,
         tries: await options.checkTries.list(factory.id),
         agents: agentRows(base),
-        permissions: base.settings?.permissions === 'bypass' ? 'bypass' : 'auto',
+        permissions: factoryPermissions(store, factory.id),
+        repoPermissions: base.settings?.permissions === 'bypass' ? 'bypass' : 'auto',
         ...(base.settings?.max_working_runs !== undefined && {
           maxWorkingRuns: base.settings.max_working_runs,
         }),
@@ -527,11 +542,11 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         problems,
         sideEffects: sideEffects(base, changes),
         valid: problems.length === 0 && Object.keys(files).length > 0,
-        turnsOnBypass: turnsOnBypass(base, changes),
+        turnsOnBypass: false,
       }
     },
 
-    async save(factoryId, { changes, mode, version, confirmBypass }) {
+    async save(factoryId, { changes, mode, version }) {
       const factory = find(factoryId)
       const account = await github()
       if (!account.ready) throw new RequestError(409, account.problem ?? 'GitHub isn’t ready.')
@@ -554,12 +569,6 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           throw new RequestError(400, `${first.message}${at}`)
         }
         if (Object.keys(files).length === 0) throw new RequestError(400, 'There’s nothing to save.')
-        if (turnsOnBypass(base, changes) && confirmBypass !== true) {
-          throw new RequestError(
-            409,
-            'This save turns on Bypass for every Run in the Factory. Confirm it in the Save dialog.',
-          )
-        }
         const added = changes.repos.filter((r) => r.was === undefined).map((r) => r.repo)
         for (const repo of added) {
           const check = await options.factories.checkRepo({
@@ -592,7 +601,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             '--body-file',
             '-',
           ],
-          { input: pullRequestBody(sideEffects(base, changes), turnsOnBypass(base, changes)) },
+          { input: pullRequestBody(sideEffects(base, changes)) },
         )
         const pullRequest = parsePullRequestUrl(out)
         if (!pullRequest) throw new RequestError(502, 'GitHub didn’t return the pull request.')
@@ -680,14 +689,9 @@ export function storedRepos(
   return wanted
 }
 
-function pullRequestBody(effects: string[], bypass: boolean): string {
+function pullRequestBody(effects: string[]): string {
   return [
     'TED settings changed from Factory settings.',
-    ...(bypass
-      ? [
-          '**This turns on Bypass:** every Run in this Factory runs without permission prompts, except Automation Runs, which always run in Auto permissions. Only for Factories whose Runs happen in an isolated machine or VM.',
-        ]
-      : []),
     ...effects.map((e) => `- ${e}`),
     '---',
     'Opened by TED.',

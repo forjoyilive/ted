@@ -110,12 +110,16 @@ describe('Stop and Resume', () => {
     const first = menu.getByRole('menuitem').first()
     expect(await first.textContent()).toContain('Stop Task')
     expect(await first.getAttribute('aria-describedby')).toBeTruthy()
+    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).isDisabled()).toBe(
+      true,
+    )
     await first.click()
 
     await header.getByText(/^Stopped by you · /).waitFor()
     await header.getByText('· Worktree and Apps kept. 1 Run stopped.').waitFor()
     await header.getByRole('button', { name: 'Task actions' }).click()
     expect(await menu.getByRole('menuitem').first().textContent()).toContain('Resume')
+    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(0)
     await header.page().keyboard.press('Escape')
     await header.getByRole('button', { name: 'Resume' }).waitFor()
 

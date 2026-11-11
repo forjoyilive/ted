@@ -36,6 +36,31 @@ export function hasPassed(commit: string): boolean {
   return existsSync(file) && checkedCommits(readFileSync(file, 'utf8')).has(commit)
 }
 
+const appTests = 'packages/app/test'
+
+export function onlyAppChanged(files: readonly string[]): boolean {
+  return (
+    files.some((file) => file.startsWith('packages/app/')) &&
+    files.every(
+      (file) => /^packages\/app\/(src|test)\//.test(file) || /^(docs\/|[^/]+\.md$)/.test(file),
+    )
+  )
+}
+
+function changedSinceMain(): string[] {
+  try {
+    if (git('branch', '--show-current') === 'main') return []
+    const lines = (text: string) => text.split('\n').filter((line) => line !== '')
+    return [
+      ...lines(git('diff', '--name-only', git('merge-base', 'HEAD', 'origin/main'), 'HEAD')),
+      ...lines(git('diff', '--name-only', 'HEAD')),
+      ...lines(git('ls-files', '--others', '--exclude-standard')),
+    ]
+  } catch {
+    return []
+  }
+}
+
 type Step = { title: string; ok: boolean; output: string }
 
 function run(
@@ -280,21 +305,26 @@ function readReport(project: string, exitedOk: boolean): ProjectReport {
   return parseReport(text, project, exitedOk)
 }
 
-function recordTimes(reports: JsonReport[]): void {
+function recordTimes(reports: JsonReport[], save: boolean): void {
   const times = fileTimes(reports)
   const files = Object.entries(times).sort(([, a], [, b]) => b - a)
   if (files.length === 0) return
-  writeFileSync(
-    timesFile,
-    `${JSON.stringify({ at: new Date().toISOString(), files: Object.fromEntries(files) }, null, 2)}\n`,
+  if (save)
+    writeFileSync(
+      timesFile,
+      `${JSON.stringify({ at: new Date().toISOString(), files: Object.fromEntries(files) }, null, 2)}\n`,
+    )
+  console.log(
+    save
+      ? `\n== Slowest test files (all times in ${path.relative(root, timesFile)})`
+      : '\n== Slowest test files',
   )
-  console.log(`\n== Slowest test files (all times in ${path.relative(root, timesFile)})`)
   for (const [file, ms] of files.slice(0, 10)) {
     console.log(`${(ms / 1000).toFixed(1).padStart(7)} s  ${file}`)
   }
 }
 
-export async function runChecks(): Promise<boolean> {
+export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
   console.log('\n== Install')
   if (spawnSync('pnpm', ['install', '--frozen-lockfile'], { cwd: root, stdio: 'inherit' }).status) {
     console.error('check: Install failed')
@@ -303,13 +333,13 @@ export async function runChecks(): Promise<boolean> {
   mkdirSync(cacheDir, { recursive: true })
   const unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
   try {
-    return await checkInParallel()
+    return await checkInParallel(appOnly)
   } finally {
     await unlock()
   }
 }
 
-async function checkInParallel(): Promise<boolean> {
+async function checkInParallel(appOnly: boolean): Promise<boolean> {
   for (const group of testGroups) {
     rmSync(reportFile(group.project), { force: true })
     rmSync(retryFile(group.project), { force: true })
@@ -342,6 +372,7 @@ async function checkInParallel(): Promise<boolean> {
         path.join(root, 'scripts', 'retry-reporter.ts'),
         '--outputFile.json',
         reportFile(group.project),
+        ...(appOnly ? [appTests] : []),
       ],
       (line) => console.log(`${tag} ${line}`),
       { TED_RETRY_REPORT: retryFile(group.project) },
@@ -373,7 +404,10 @@ async function checkInParallel(): Promise<boolean> {
     .filter((step, index) => !step.ok || (index >= 2 && !reports[index - 2]?.ok))
     .map((step) => step.title)
   try {
-    recordTimes(reports.map((result) => result.report))
+    recordTimes(
+      reports.map((result) => result.report),
+      !appOnly,
+    )
   } catch (error) {
     console.error(`check: Could not save test timings: ${String(error)}`)
     failed.push('Timing reporting')
@@ -400,11 +434,20 @@ async function checkInParallel(): Promise<boolean> {
   return failed.length === 0
 }
 
-export async function checkAndRecord(): Promise<boolean> {
+export async function checkAndRecord({ all = false } = {}): Promise<boolean> {
   const clean = git('status', '--porcelain') === ''
   const commit = git('rev-parse', 'HEAD')
-  if (!(await runChecks())) return false
-  if (clean && git('status', '--porcelain') === '' && git('rev-parse', 'HEAD') === commit) {
+  const appOnly = !all && onlyAppChanged(changedSinceMain())
+  if (appOnly)
+    console.log(
+      `\n== Only packages/app/src and packages/app/test changed since origin/main: running the tests in ${appTests} alone. pnpm check --all runs every test.`,
+    )
+  if (!(await runChecks({ appOnly }))) return false
+  if (appOnly) {
+    console.log(
+      '\nThe app’s checks passed. The daemon, CLI, protocol and script tests did not run, so nothing was recorded.',
+    )
+  } else if (clean && git('status', '--porcelain') === '' && git('rev-parse', 'HEAD') === commit) {
     appendFileSync(checkedFile(), `${commit}\n`)
     console.log(
       `\nAll checks passed on ${commit.slice(0, 7)}. A release of this commit can skip them.`,
@@ -417,4 +460,5 @@ export async function checkAndRecord(): Promise<boolean> {
   return true
 }
 
-if (import.meta.main) process.exit((await checkAndRecord()) ? 0 : 1)
+if (import.meta.main)
+  process.exit((await checkAndRecord({ all: process.argv.includes('--all') })) ? 0 : 1)

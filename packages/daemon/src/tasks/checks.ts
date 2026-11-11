@@ -8,7 +8,7 @@ import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
 import type { CheckSettings } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
-import { type CommandSandbox, runTaskCommand } from './command.ts'
+import { type CommandLaunch, runTaskCommand } from './command.ts'
 import { durationMs } from './worktree.ts'
 
 export const defaultCheckTimeout = '10m'
@@ -98,7 +98,7 @@ export async function runChecks(input: {
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
-  sandbox?: CommandSandbox
+  prepareLaunch: () => Promise<CommandLaunch>
   signal?: AbortSignal
   lowPriority: boolean
   onStart: (position: number) => void
@@ -126,7 +126,7 @@ export async function runChecks(input: {
             shell: [loginShell(input.env), '-lc'],
             lowPriority: input.lowPriority,
             ...(input.signal !== undefined && { signal: input.signal }),
-            ...(input.sandbox !== undefined && { sandbox: input.sandbox }),
+            prepareLaunch: input.prepareLaunch,
           })
     if (result.outcome === 'interrupted') return { outcome: 'interrupted', notFound }
     const state: CheckState = result.outcome

@@ -9,7 +9,7 @@ import type {
   ThreadEventTone,
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
-import type { LoggedEvent } from '../store/index.ts'
+import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
@@ -149,6 +149,14 @@ export function appExitLine(name: string, code: unknown, signal: unknown): strin
   return `${name} stopped running`
 }
 
+export function taskThreadEvents(
+  store: Pick<TedStore, 'taskLog'>,
+  taskId: string,
+  context: ThreadContext,
+): ThreadEvent[] {
+  return threadEvents(taskId, store.taskLog(taskId), context)
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -279,6 +287,12 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.TaskSnoozed':
+        add(entry, 'edit', 'Task snoozed')
+        break
+      case 'v1.TaskSnoozeCleared':
+        add(entry, 'edit', 'Snooze cleared')
+        break
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break
@@ -462,6 +476,15 @@ export function threadEvents(
           { judgments: judgmentsIn(data), validate: 'passed' },
         )
         break
+      case 'v1.SendBackAsked':
+        add(
+          entry,
+          'failure',
+          `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          text(data.findings).trim(),
+          text(data.checkRunId) || undefined,
+        )
+        break
       case 'v1.LoopCheckStarted':
         add(
           entry,
@@ -484,7 +507,8 @@ export function threadEvents(
         break
       }
       case 'v1.TaskStageEntered':
-      case 'v2.TaskStageEntered': {
+      case 'v2.TaskStageEntered':
+      case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
         if (sentBackTo === stage) {
