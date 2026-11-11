@@ -78,6 +78,7 @@ beforeEach(async () => {
       return port.find(taskId)
     },
     backMessage: (_workflow, _to, _from, sendBack) => sendBack.findings,
+    leaveWorkToDiagnose: unexpected,
     settleDependents: () => {
       effects.push('unblocked')
     },
@@ -443,7 +444,7 @@ test('a Linear team answer rejects missing metadata before any lifecycle effect'
   expect(effects).toEqual([])
 })
 
-const stage = (id: 'clarify' | 'validate' | 'merge') =>
+const stage = (id: 'clarify' | 'work' | 'validate' | 'merge') =>
   store.changeStage(taskId, id, {
     stageFile: { layer: 'ted', path: `${id}.md` },
     layers: [],
@@ -716,6 +717,51 @@ test('send-back missing metadata is rejected, and non-loop choices are delivered
   const comment = sendBackQuestion(false)
   await answer(comment, { action: 'answer', choice: 'Try again' })
   expect(effects).toEqual(['delivered'])
+})
+
+test('Diagnose in Validate on the failing-Checks question answers only after the guards pass, then moves the Task', async () => {
+  stage('work')
+  const comment = post({ kind: 'send-back' }, { choices: ['Try again', 'Diagnose in Validate'] })
+  store.askAboutSendBack({
+    commentId: comment.id,
+    taskId,
+    from: 'work',
+    to: 'work',
+    findings: 'Tests failed',
+    loop: false,
+  })
+  port.leaveWorkToDiagnose = async () => {
+    throw new Error('the branch conflicts with main')
+  }
+  await expect(
+    answer(comment, { action: 'answer', choice: 'Diagnose in Validate' }),
+  ).rejects.toThrow('conflicts with main')
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+
+  const told: string[] = []
+  port.leaveWorkToDiagnose = async (task) => {
+    effects.push('guards')
+    return async (message) => {
+      effects.push('move:validate')
+      told.push(message)
+      return task
+    }
+  }
+  await answer(comment, {
+    action: 'answer',
+    choice: 'Diagnose in Validate',
+    text: 'Broken on main',
+  })
+  expect(effects).toEqual(['guards', 'move:validate'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Diagnose in Validate',
+    text: 'Broken on main',
+  })
+  expect(told[0]).toContain('with Diagnose in Validate')
+  expect(told[0]).toContain('The human added:\n\nBroken on main')
+  expect(store.listSendBacks(taskId)).toEqual([])
 })
 
 const simulatorQuestion = () =>

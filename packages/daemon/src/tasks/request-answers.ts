@@ -81,6 +81,7 @@ export interface RequestAnswerPort {
     from: AgentStageId,
     sendBack: SendBack,
   ): string
+  leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
   settleDependents(id: string, choice: 'unblock'): void
   archiveNow(task: StoredTask, close: boolean): Task
   wake(): void
@@ -118,6 +119,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     pullRequestWork,
     move,
     backMessage,
+    leaveWorkToDiagnose,
     settleDependents,
     archiveNow,
     wake,
@@ -329,6 +331,24 @@ export function createRequestAnswers(port: RequestAnswerPort) {
   ): Promise<Comment | undefined> {
     const ask = store.sendBackAsk(comment.id)
     if (!ask) throw new RequestError(409, 'this send-back request has no recorded decision')
+    if (ask.from === 'work' && ask.to === 'work' && choice === diagnoseChoice) {
+      const current = find(task.id)
+      const enterValidate = await leaveWorkToDiagnose(current)
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      if (!liveLead(current)) store.holdAnswer(comment.id)
+      await enterValidate(
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so TED moved this Task to Validate although the Checks didn’t pass in Work. TED runs the Checks at entry. A Check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    }
     if (!ask.loop || choice === undefined) return undefined
     const current = find(task.id)
     if (current.stage !== 'validate') return undefined
@@ -778,6 +798,7 @@ function oneLine(text: string, max = 200): string {
 
 export const tryAgainChoice = 'Try again'
 export const backToDesignChoice = 'Back to Design'
+export const diagnoseChoice = 'Diagnose in Validate'
 
 export function loopChoices(workflow: ResolvedWorkflow): string[] {
   const next = workflow.next('validate')

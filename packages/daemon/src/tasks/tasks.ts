@@ -269,6 +269,7 @@ import {
   backToDesignChoice,
   checkBack,
   createRequestAnswers,
+  diagnoseChoice,
   loopChoices,
   tryAgainChoice,
 } from './request-answers.ts'
@@ -1799,6 +1800,53 @@ export function createTasks(options: {
     await store.persisted()
   }
 
+  async function leaveWorkToDiagnose(
+    task: StoredTask,
+  ): Promise<(message: string) => Promise<Task>> {
+    if (leftWork(task)) throw new RequestError(409, `${task.displayId} has left Work`)
+    if (task.stopped || task.status?.kind === 'failed') {
+      throw new RequestError(
+        409,
+        `${task.displayId} is stopped or Failed; resume it, then answer this request`,
+      )
+    }
+    if (checking.has(task.id)) {
+      throw new RequestError(
+        409,
+        `TED is running ${task.displayId}’s Checks; answer when they finish`,
+      )
+    }
+    await execution.local(task.id)
+    const resolution = await gateWorkflow(task)
+    const { workflow } = resolution
+    if (workflow.next('work') !== 'validate' || gateOn(task, workflow, 'work')) {
+      throw new RequestError(
+        409,
+        `${task.displayId}’s Workflow no longer goes from Work straight to Validate; choose ${tryAgainChoice}`,
+      )
+    }
+    await requireObligations(task, undefined, 'validate')
+    const conflict = await baseConflict(task)
+    if (conflict) {
+      store.recordBaseConflict(task.id, foundConflict(task, conflict))
+      throw new RequestError(
+        409,
+        `${task.displayId}’s branch conflicts with ${clean(conflict.base, 200)}, so it can’t leave Work yet. Choose ${tryAgainChoice} and the Task Lead resolves the conflict in Work.`,
+      )
+    }
+    return (message) => {
+      if (workflow.overnightGates?.includes('work') && !gateSkipped(task)) {
+        store.gateSkippedOvernight(task.id, 'work')
+      }
+      return move(
+        task,
+        resolution,
+        'validate',
+        `${message}\n\n${nextStageMessage(workflow, 'validate')}`,
+      )
+    }
+  }
+
   async function handOffChecks(
     taskId: string,
     begun?: {
@@ -1880,8 +1928,12 @@ export function createTasks(options: {
           author: { kind: 'ted' },
           purpose: { kind: 'send-back' },
           title: `Checks have failed ${failures} times as ${current.displayId} tried to leave Work`,
-          body: `Each time the Task Lead reported Work finished, TED ran the Factory’s Checks and one failed, so the Task stayed in Work. The last failure’s output is in the Task’s thread. Answer to let the Task Lead try again, and add guidance if you have any.`,
-          choices: [tryAgainChoice],
+          body: [
+            'Each time the Task Lead reported Work finished, TED ran the Factory’s Checks and one failed, so the Task stayed in Work. The last failure’s output is in the Task’s thread.',
+            `**${tryAgainChoice}** keeps the Task in Work: the Task Lead repairs what the Check reports and reports again. Add guidance if you have any.`,
+            `**${diagnoseChoice}** moves the Task to Validate with the Check still failing. TED runs the Checks there and the failure becomes a failure case you can retry, send back to be fixed in this Task, or accept. Choose it when the Check fails for a reason outside this Task, such as a test that is already broken on the base branch.`,
+          ].join('\n\n'),
+          choices: [tryAgainChoice, diagnoseChoice],
         })
         store.askAboutSendBack({
           commentId: request.id,
@@ -1894,13 +1946,13 @@ export function createTasks(options: {
         })
         await deliver(
           current,
-          `${head} That is ${failures} failures in this visit to Work, so TED asked the human what to do (request ${request.id}). TED refuses an outcome until they answer and sends you their answer. You can keep fixing what the Check reports meanwhile.\n\n${findings}`,
+          `${head} That is ${failures} failures in this visit to Work, so TED asked the human what to do (request ${request.id}). They can let you try again, or move the Task to Validate with the Check still failing, where the failure is diagnosed and can be accepted. TED refuses an outcome until they answer and sends you their answer. You can keep fixing what the Check reports meanwhile.\n\n${findings}`,
         )
         return
       }
       await deliver(
         current,
-        `${head} Fix what the Check reports and nothing else, commit, then report \`ted outcome advance\` again. This is failure ${failures} of ${handOffCheckLimit} in this visit to Work; at ${handOffCheckLimit} TED asks the human.\n\n${findings}`,
+        `${head} Fix what the Check reports and nothing else, commit, then report \`ted outcome advance\` again. This is failure ${failures} of ${handOffCheckLimit} in this visit to Work; at ${handOffCheckLimit} TED asks the human, who can keep the Task in Work or move it to Validate to diagnose the failure there. If the Check fails for a reason outside this Task, don’t change unrelated code to make it pass: say so in the Task brief with what shows it, and report again.\n\n${findings}`,
       )
     } finally {
       if (!handedOver) setChecking(taskId, false)
@@ -3853,6 +3905,7 @@ export function createTasks(options: {
       pullRequestWork,
       move,
       backMessage,
+      leaveWorkToDiagnose,
       settleDependents,
       archiveNow,
       wake,

@@ -206,7 +206,7 @@ describe('Checks before a Task leaves Work', () => {
     expect(output.text).not.toContain('ghp_abcdefghij')
   }, 90_000)
 
-  test('after three failures in one Work visit TED asks the human and refuses an outcome until they answer', async () => {
+  test('after three failures in one Work visit TED asks the human and refuses an outcome until they answer; Diagnose in Validate moves the Task and the failure becomes a failure case', async () => {
     await workflow('      - { name: Tests, run: "echo nope; exit 1" }')
     const client = await startTed()
     const task = await startTask(
@@ -216,12 +216,20 @@ describe('Checks before a Task leaves Work', () => {
       }),
     )
 
+    const questions = () =>
+      client.ok<
+        {
+          id: string
+          kind: string
+          title?: string
+          body: string
+          author: { kind: string }
+          answer?: unknown
+        }[]
+      >('GET', `/tasks/${task.id}/comments`)
     const question = await waitUntil(
       async () => {
-        const comments = await client.ok<
-          { id: string; kind: string; title?: string; author: { kind: string } }[]
-        >('GET', `/tasks/${task.id}/comments`)
-        return comments.find((c) => c.kind === 'question')
+        return (await questions()).find((c) => c.kind === 'question')
       },
       'the question to the human',
       60_000,
@@ -229,8 +237,11 @@ describe('Checks before a Task leaves Work', () => {
     expect(question).toMatchObject({
       author: { kind: 'ted' },
       title: 'Checks have failed 3 times as NB-1 tried to leave Work',
-      choices: ['Try again'],
+      choices: ['Try again', 'Diagnose in Validate'],
+      purpose: { kind: 'send-back' },
     })
+    expect(question.body).toContain('**Try again** keeps the Task in Work')
+    expect(question.body).toContain('**Diagnose in Validate** moves the Task to Validate')
     expect((await finishedRuns(client, task, 3)).map((r) => [r.trigger, r.outcome])).toEqual([
       ['hand-off', 'failed'],
       ['hand-off', 'failed'],
@@ -262,7 +273,39 @@ describe('Checks before a Task leaves Work', () => {
       'the count to start over after the answer',
     )
     expect((await getTask(client, task.id))?.stage).toBe('work')
-  }, 120_000)
+
+    const second = await waitUntil(
+      async () => (await questions()).find((c) => c.kind === 'question' && c.answer === undefined),
+      'the second question to the human',
+      60_000,
+    )
+    await client.ok('POST', `/comments/${second.id}/answer`, {
+      action: 'answer',
+      choice: 'Diagnose in Validate',
+      text: 'Tests are broken on main',
+    })
+    const runs = await finishedRuns(client, task, 7)
+    expect(runs.slice(3).map((r) => [r.trigger, r.stage, r.outcome])).toEqual([
+      ['hand-off', 'work', 'failed'],
+      ['hand-off', 'work', 'failed'],
+      ['hand-off', 'work', 'failed'],
+      ['validate', 'validate', 'failed'],
+    ])
+    const failure = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`))[0],
+      'the failure case in Validate',
+    )
+    expect(failure.evidence).toContain('nope')
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+    const chosen = await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).find((m) => m.includes('with Diagnose in Validate')),
+      'the Task Lead to hear what the human chose',
+    )
+    expect(chosen).toContain('The human added:\n\nTests are broken on main')
+    expect(chosen).toContain(failure.id)
+  }, 180_000)
 })
 
 describe('Checks at Validate', () => {
