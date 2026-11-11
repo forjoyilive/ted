@@ -269,3 +269,31 @@ test('Review opens repo-specific file and full diffs, then returns with the answ
   )
   expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
 })
+
+test('Task history formats agent and user Comments and still formats them after reopening', async () => {
+  const a = appState()
+  a.handle('markCommentsRead', () => ({ read: 2 }))
+  a.handle('listComments', () => [
+    comment({
+      kind: 'note',
+      body: '## Result\n\n**Agent note**\n\n```sh\necho "**literal**"\n```',
+      author: { kind: 'run', runId: 'r1' },
+    }),
+    comment({
+      id: 'c2',
+      kind: 'note',
+      body: '> User quote\n\n*User note*',
+      author: { kind: 'human' },
+    }),
+  ])
+  const thread = await openTask(a)
+  expect(within(thread).getByRole('heading', { name: 'Result' })).toBeTruthy()
+  expect(within(thread).getByText('Agent note').tagName).toBe('STRONG')
+  expect(within(thread).getByText('User note').tagName).toBe('EM')
+  expect(within(thread).getByText('User quote').closest('blockquote')).toBeTruthy()
+  expect(within(thread).getByText('echo "**literal**"').tagName).toBe('CODE')
+  await user().click(screen.getByRole('button', { name: '← All Tasks' }))
+  await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
+  expect(await screen.findByRole('heading', { name: 'Result' })).toBeTruthy()
+  expect(screen.getByText('Agent note').tagName).toBe('STRONG')
+})

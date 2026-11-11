@@ -48,6 +48,7 @@ import {
   useLineComments,
 } from '../components/LineComments.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { Markdown } from '../components/Markdown.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import {
   AnsweredCard,
@@ -163,7 +164,7 @@ function NoteRow({
           {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
-        {comment.body !== '' && <p className={styles.commentBody}>{comment.body}</p>}
+        {comment.body !== '' && <Markdown className={styles.commentBody} text={comment.body} />}
         {comment.attachments && <CommentFiles files={comment.attachments} />}
         {comment.lineComments && (
           <SentLineComments

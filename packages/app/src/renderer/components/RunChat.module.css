@@ -242,8 +242,6 @@
   margin: 2px 0 0;
   font-size: var(--text-14);
   line-height: var(--leading-body);
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .human {
@@ -253,6 +251,7 @@
 }
 
 .bubble {
+  min-width: 0;
   max-width: 75%;
   padding: 8px 12px;
   border-radius: var(--radius-control);

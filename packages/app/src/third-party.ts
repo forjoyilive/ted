@@ -27,6 +27,8 @@ const workspacePackages = ['app', 'daemon', 'protocol', 'cli']
 const windowOnly = new Set([
   'react',
   'react-dom',
+  'react-markdown',
+  'remark-gfm',
   '@fontsource-variable/geist',
   '@fontsource-variable/geist-mono',
 ])
