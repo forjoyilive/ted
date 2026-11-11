@@ -124,6 +124,7 @@ import type { LoginItemState } from '../login-item.ts'
 import type { UpdateStatus } from '../updates.ts'
 
 export type TedEvent =
+  | { type: 'browser-open'; taskId: string; app: { repo: string; name: string; browser: true } }
   | DaemonEvent
   | { type: 'menu-command'; command: MenuCommand }
   | { type: 'connection'; connection: DaemonConnection }
@@ -325,6 +326,20 @@ export const ted = {
     window.ted.request('discardLineComments', taskId) as Promise<void>,
   sendLineComments: (taskId: string) =>
     window.ted.request('sendLineComments', taskId) as Promise<Comment>,
+  browserCommand: (taskId: string, request: import('@ted/protocol').BrowserRequest) =>
+    window.ted.request('browserCommand', taskId, request) as Promise<
+      import('@ted/protocol').BrowserResult
+    >,
+  presentBrowser: (
+    taskId: string,
+    repo: string,
+    name: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => window.ted.request('presentBrowser', taskId, repo, name, bounds),
+  hideBrowser: (temporary = false) => window.ted.request('hideBrowser', temporary),
+  browserState: (taskId: string) =>
+    window.ted.request('browserState', taskId) as Promise<{ url: string; text: string }>,
+  externalBrowser: (taskId: string) => window.ted.request('externalBrowser', taskId),
   listApps: (taskId: string) => window.ted.request('listApps', taskId) as Promise<TaskApp[]>,
   startApp: (taskId: string, repo: string, name: string, shutDown?: string) =>
     window.ted.request('startApp', taskId, repo, name, shutDown) as Promise<TaskApp>,

@@ -28,6 +28,7 @@ import { RequestError as HttpError } from './errors.ts'
 import { redactSecrets } from './redact.ts'
 import { appRoutes } from './routes/apps.ts'
 import { automationRoutes } from './routes/automations.ts'
+import { browserRoutes } from './routes/browser.ts'
 import { coordinatorRoutes } from './routes/coordinators.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
@@ -146,6 +147,7 @@ const routes: Route[] = [
   ...peerRoutes,
   ...shellRoutes,
   ...appRoutes,
+  ...browserRoutes,
   ...factoryRoutes,
   ...machineRoutes,
   ...libraryRoutes,
@@ -293,7 +295,10 @@ const appAuthWindowMs = 60_000
 const signedResponses = new WeakMap<http.ServerResponse, { key: string; nonce: string }>()
 
 async function readSignedBody(req: http.IncomingMessage, url: string): Promise<Buffer> {
-  const limit = url === '/attachments' ? maxAttachmentBytes : maxBodyBytes
+  const limit =
+    url === '/attachments' || /^\/browser\/[^/]+\/[^/]+\/capture$/.test(url)
+      ? maxAttachmentBytes
+      : maxBodyBytes
   if (Number(req.headers['content-length']) > limit) throw new HttpError(413, 'body too large')
   const chunks: Buffer[] = []
   let size = 0
