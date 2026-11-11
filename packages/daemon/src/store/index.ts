@@ -1466,6 +1466,7 @@ export async function openStore({
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
+      testActivity: testInvocationStore.active(row.id),
       ...(checksWaiting.has(row.id) && {
         checksWaiting: { place: checksWaiting.get(row.id) ?? 1 },
       }),
@@ -2447,6 +2448,9 @@ export async function openStore({
 
   const testInvocationStore = createTestInvocationStore({
     store,
+    changed: (id) => {
+      if (taskRow(id)) updatedTask(id)
+    },
     commit,
     checks: (taskId) =>
       checkRunRows(taskId).map((row) => {
@@ -4856,6 +4860,7 @@ export async function openStore({
         await persisted()
       } finally {
         shutDown = true
+        testInvocationStore.close()
         await store.shutdownPromise()
       }
     },

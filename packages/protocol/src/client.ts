@@ -190,8 +190,8 @@ import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
-  TestInvocationReport,
   TestInvocationSummary,
+  TestInvocationUpdate,
 } from './test-invocations.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
@@ -665,7 +665,7 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/test-invocations`)
   }
 
-  async reportTestInvocation(id: string, input: TestInvocationReport): Promise<boolean> {
+  async reportTestInvocation(id: string, input: TestInvocationUpdate): Promise<boolean> {
     try {
       const res = await this.#send(
         'POST',
