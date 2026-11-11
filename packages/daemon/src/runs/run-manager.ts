@@ -66,6 +66,7 @@ import { createRunOutput, type RunOutputReader } from './run-output.ts'
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
 const pollMs = 150
+const lockCheckMs = 1000
 const batchBytes = 1024 * 1024
 
 export interface RunManagerOptions {
@@ -249,6 +250,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     )
     generations.set(runId, generation)
     let awaitingStart = revived || offset === 0 ? Date.now() + stopGraceMs : undefined
+    let lockCheckedAt = 0
     const last = await lastStartRecord(path.join(runsDir, runId))
     if (last?.permissions !== undefined) store.setRunPermissions(runId, last.permissions)
     if (last !== undefined && !(last.v >= oldestHost)) {
@@ -256,8 +258,21 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (store.getRun(runId)?.state === 'idle') void replaceWhenIdle(runId)
     }
     while (!closed) {
-      const hostGone = awaitingStart === undefined && !isLockHeld(files.lock)
-      const batch = await readRecords(files.log, offset)
+      const started = awaitingStart === undefined
+      let batch = await readRecords(files.log, offset)
+      let hostGone = false
+      if (
+        started &&
+        batch.toOffset === offset &&
+        (replacing.has(runId) || Date.now() - lockCheckedAt >= lockCheckMs)
+      ) {
+        lockCheckedAt = Date.now()
+        if (!isLockHeld(files.lock)) {
+          hostGone = true
+          lockCheckedAt = 0
+          batch = await readRecords(files.log, offset)
+        }
+      }
       if (
         awaitingStart !== undefined &&
         (batch.records.some(({ record }) => record.t === 'start') || Date.now() > awaitingStart)
