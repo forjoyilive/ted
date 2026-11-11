@@ -40,7 +40,7 @@ export async function collect(args: string[]) {
   const git = (...argv: string[]) =>
     execFileSync('git', argv, { cwd: root, encoding: 'utf8' }).trim()
   if (git('status', '--porcelain')) throw new Error('Commit all changes before measuring.')
-  const folder = path.join(root, 'node_modules/.cache/suite-measurements', label)
+  const folder = path.join(root, '.suite-measurements', label)
   mkdirSync(path.dirname(folder), { recursive: true })
   mkdirSync(folder)
   const logicalCpus = cpus().length
@@ -107,7 +107,7 @@ export async function collect(args: string[]) {
     check = spawn('pnpm', ['check'], {
       cwd: root,
       detached: true,
-      env: { ...process.env, TED_CHECK_EVIDENCE_DIR: folder },
+      env: { ...process.env, CI: 'true', TED_CHECK_EVIDENCE_DIR: folder },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     for (const stream of [check.stdout, check.stderr]) {
@@ -159,6 +159,7 @@ export async function collect(args: string[]) {
           node: process.version,
           pnpm,
           command: ['pnpm', 'check'],
+          commandEnvironment: { CI: 'true' },
           workloadCommand,
           workers,
           workloadFailed: workloadFailed || !loadWasAlive,

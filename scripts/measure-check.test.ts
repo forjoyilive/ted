@@ -90,7 +90,10 @@ test('collects an isolated stub Check and refuses dirty trees and reused labels'
   for (const file of ['measure-check.ts', 'check-load.ts', 'check-measurement.ts']) {
     copyFileSync(path.join(import.meta.dirname, file), path.join(scripts, file))
   }
-  writeFileSync(path.join(root, '.gitignore'), 'node_modules/\ncache/\nevidence/\n')
+  writeFileSync(
+    path.join(root, '.gitignore'),
+    'node_modules/\ncache/\nevidence/\n.suite-measurements/\n',
+  )
   const git = (...args: string[]) => execFileSync('git', args, { cwd: root, stdio: 'pipe' })
   git('init')
   git('add', '.')
@@ -100,6 +103,10 @@ test('collects an isolated stub Check and refuses dirty trees and reused labels'
     `#!${process.execPath}
     const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto')
     if (process.argv[2] === '--version') { console.log('fixture'); process.exit(0) }
+    if (process.env.CI !== 'true') {
+      console.error('ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY'); process.exit(1)
+    }
+    fs.rmSync(path.join(process.cwd(), 'node_modules', '.cache'), { recursive: true, force: true })
     const dir = process.env.TED_CHECK_EVIDENCE_DIR
     const artifacts = Object.fromEntries(${JSON.stringify(evidenceFiles)}.map(name => {
       fs.writeFileSync(path.join(dir, name), JSON.stringify({ passedOnRetry: [] }))
@@ -112,6 +119,7 @@ test('collects an isolated stub Check and refuses dirty trees and reused labels'
   )
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    CI: 'false',
     PATH: `${bin}${path.delimiter}${process.env.PATH}`,
   }
   for (const key of [
@@ -131,12 +139,13 @@ test('collects an isolated stub Check and refuses dirty trees and reused labels'
   const result = invoke('quiet-1')
   expect(result.status, result.stderr).toBe(0)
   expect(result.stdout).toContain('STUB CHECK ONLY')
-  const folder = path.join(root, 'node_modules/.cache/suite-measurements/quiet-1')
+  const folder = path.join(root, '.suite-measurements/quiet-1')
   expect(assessEvidence(folder)).toMatchObject({ reliablePass: true, withinTarget: true })
   const run = JSON.parse(readFileSync(path.join(folder, 'run.json'), 'utf8'))
   expect(run.commit).toBe(run.endCommit)
   expect(run.dirtyAtEnd).toBe(false)
   expect(run.workers).toBe(0)
+  expect(run.commandEnvironment).toEqual({ CI: 'true' })
   expect(run.samples.length).toBeGreaterThan(0)
   expect(invoke('quiet-1').status).toBe(1)
   writeFileSync(path.join(root, 'dirty'), 'changed')

@@ -51,7 +51,7 @@ context variables to defeat that refusal; use your own normal terminal.
 From this repo’s root, run each command separately and wait for it to finish:
 
 ```sh
-TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-1
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-1-retry
 TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-2
 TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-3
 TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-1
@@ -59,7 +59,7 @@ TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loade
 TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-3
 ```
 
-Each invocation starts exactly one `pnpm check`. Loaded mode starts its own
+Each invocation starts exactly one `pnpm check` with `CI=true` so pnpm’s installation step can run without an interactive terminal. This environment override is recorded in `run.json`. Loaded mode starts its own
 separate `node scripts/check-load.ts <worker-count>` process, waits for readiness,
 and stops that workload on completion or interruption. It never stops another
 Task’s App. Ctrl-C terminates the collector’s own Check process group and CPU
@@ -68,7 +68,7 @@ machine failure cannot guarantee cleanup or complete artifacts; report that
 attempt and inspect any surviving owned processes before continuing.
 
 Every run has a new directory under
-`node_modules/.cache/suite-measurements/<label>/`. A used label is refused to
+`.suite-measurements/<label>/`. A used label is refused to
 preserve the previous evidence. If a run fails, preserve it and report why. A
 fresh loaded passing streak requires additional human-run commands with new
 labels; the initial six attempts must remain in the report.
@@ -113,6 +113,25 @@ new identical empty retry reports are still preserved. Artifact copying also
 happens under the lock, before another suite can overwrite them. Installation
 failure or interruption before tests cannot borrow another run’s cached reports.
 
+## Initial failed attempt
+
+The human’s `quiet-1` on `76601d748dfad217b32cd497caa907c4f484c37c`
+stopped before tests: pnpm reported
+`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`. The collector captured output
+without telling pnpm to run noninteractively. The corrected collector explicitly
+sets `CI=true`; a stub regression models this refusal even when the parent sets
+`CI=false`. Evidence now lives outside `node_modules`, which installation may
+refresh. The original attempt was preserved and copied to
+`.suite-measurements/quiet-1/`. Its reserved label must not be reused.
+
+This was an installation failure, not a test failure or a completed measurement.
+The recorded Mac was an Apple M3 Pro with 12 logical CPUs and 36 GiB memory,
+Darwin 27.0.0 arm64, Node v24.7.0 and pnpm 10.28.0. Collector wall time was
+754.6 ms and installation ran for 234.8 ms. Lock wait and test execution are
+absent. The sampled 1-minute load was 58.44, so it also provides no quiet-machine
+baseline. All six valid runs remain pending on the corrected clean commit;
+start with `quiet-1-retry` using the commands above.
+
 ## Results to post in KRI-256
 
 Include the acceptance adjustment, full commit, machine identity/configuration,
@@ -124,7 +143,7 @@ explanation; a zero exit alone does not prove full coverage ran.
 
 | Attempt | Commit / Mac | Total s | Lock wait s | Check work s | Test-process envelope s | Exit / failures / retries | CPU load observations |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| quiet-1 | Pending | — | — | — | — | Pending | Pending |
+| quiet-1-retry | Pending | — | — | — | — | Pending | Pending |
 | quiet-2 | Pending | — | — | — | — | Pending | Pending |
 | quiet-3 | Pending | — | — | — | — | Pending | Pending |
 | loaded-1 | Pending | — | — | — | — | Pending | Pending |
