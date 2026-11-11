@@ -36,7 +36,7 @@ export type NavigationAction =
   | { type: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { type: 'open-factory'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
-  | { type: 'open-plan'; factoryId: string; planId?: string; from?: string }
+  | { type: 'open-plan'; factoryId: string; planId?: string; from?: string; requestId?: string }
   | { type: 'close-task' }
   | {
       type: 'open-automation'
@@ -93,6 +93,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       return {
         ...opened,
         planId: action.planId ?? newPlan,
+        ...(action.requestId !== undefined && { requestId: action.requestId }),
         ...(action.planId === undefined && action.from !== undefined && { planFrom: action.from }),
       }
     }

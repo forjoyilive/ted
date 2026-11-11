@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
-import type { RunChat, RunSummary } from '@ted/protocol'
+import type { PlanDetail, RunChat, RunSummary } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
-import { RunChat as Conversation } from '../src/renderer/components/RunChat.tsx'
+import { ChatBody, RunChat as Conversation } from '../src/renderer/components/RunChat.tsx'
 import { RunsSection } from '../src/renderer/components/RunsSection.tsx'
 import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
+import { PlanChatView } from '../src/renderer/views/PlanChat.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, required, user } from './support/component.ts'
-import { createdAt, task } from './support/fixtures.ts'
+import { createdAt, factory, task } from './support/fixtures.ts'
 
 const lead: RunSummary & { role: 'lead' } = {
   id: 'r1',
@@ -300,4 +301,152 @@ test('opening a sub-agent from Task details selects its actual Conversation and 
   await screen.findByText('I reviewed the offline queue.')
   expect(screen.getByRole('tab', { name: /Reviewer/ }).getAttribute('aria-selected')).toBe('true')
   expect(a.request).toHaveBeenCalledWith('getRunChat', 'r2')
+})
+
+test('Planning requests stay inline and keep drafts while the chat updates', async () => {
+  const detail: PlanDetail = {
+    plan: {
+      id: 'p1',
+      factoryId: 'f1',
+      factoryKey: 'NB',
+      title: 'Plan sync',
+      message: 'Plan sync',
+      agent: 'claude',
+      status: 'waiting',
+      runId: 'p1',
+      createdAt,
+      createdTasks: 0,
+    },
+    requests: [
+      {
+        id: 'round1',
+        planId: 'p1',
+        runId: 'p1',
+        kind: 'round',
+        author: 'run',
+        title: 'Retry behavior',
+        body: '',
+        createdAt,
+        round: {
+          number: 1,
+          questions: [{ question: 'When should sync retry?', recommended: 'On reconnect' }],
+        },
+      },
+      {
+        id: 'proposal1',
+        planId: 'p1',
+        runId: 'p1',
+        kind: 'proposal',
+        author: 'run',
+        title: 'Sync work',
+        body: '',
+        createdAt,
+        proposal: {
+          rows: [
+            {
+              title: 'Retry offline work',
+              scope: 'Resume sync on reconnect.',
+              priority: 'medium',
+              blockedBy: [],
+            },
+          ],
+        },
+      },
+    ],
+    tasks: [],
+  }
+  let chat: RunChat = { run: { ...lead, id: 'p1' }, items: [] }
+  const api = bridge({
+    getPlan: () => detail,
+    getRunChat: () => chat,
+    answerPlanRequest: (id, answer) => {
+      const request = required(detail.requests.find((r) => r.id === id))
+      request.answer = {
+        kind: 'answered',
+        at: createdAt,
+        answers: (answer as { answers: { answer: string }[] }).answers.map((answer) => ({
+          ...answer,
+          changed: true,
+        })),
+      }
+      api.emit({ type: 'plan-updated', planId: 'p1' })
+      return request
+    },
+  })
+  render(
+    <PlanChatView
+      factory={factory()}
+      planId="p1"
+      requestId="proposal1"
+      onBack={vi.fn()}
+      onOpenTask={vi.fn()}
+      onOpenPlan={vi.fn()}
+      onPlanMore={vi.fn()}
+      onDeleted={vi.fn()}
+    />,
+  )
+  const round = await screen.findByRole('region', { name: 'Round 1 from the planner' })
+  const proposal = screen.getByRole('region', { name: 'Proposal from the planner' })
+  expect(document.activeElement?.contains(proposal)).toBe(true)
+  const scroller = required(round.closest('[data-scroller]'))
+  expect(scroller.contains(proposal)).toBe(true)
+  const answer = within(round).getByRole('textbox', { name: 'Answer 1' }) as HTMLTextAreaElement
+  await user().clear(answer)
+  await user().type(answer, 'After I confirm')
+  await user().click(screen.getByRole('button', { name: /Jump to Proposal/ }))
+  await user().click(screen.getByRole('button', { name: /Jump to Round 1/ }))
+  expect(document.activeElement?.contains(round)).toBe(true)
+  await act(async () => {
+    chat = {
+      ...chat,
+      items: [{ kind: 'agent', id: 'later', text: 'A later planner message.', at: createdAt }],
+    }
+    api.emit({ type: 'run-output', runId: 'p1' })
+    api.emit({ type: 'plan-updated', planId: 'p1' })
+  })
+  await screen.findByText('A later planner message.')
+  expect(answer.value).toBe('After I confirm')
+  await user().click(within(round).getByRole('button', { name: 'Submit answers' }))
+  expect(api.request).toHaveBeenCalledWith('answerPlanRequest', 'round1', {
+    action: 'answer-round',
+    answers: [{ answer: 'After I confirm' }],
+  })
+  await screen.findByText(/answered by you at/)
+  expect(screen.queryByRole('button', { name: /Jump to Round 1/ })).toBeNull()
+  expect(screen.getByRole('button', { name: /Jump to Proposal/ })).toBeTruthy()
+})
+
+test('new chat output does not scroll away from a request being edited', async () => {
+  bridge({})
+  const extra = [
+    {
+      id: 'question',
+      at: createdAt,
+      node: <textarea aria-label="Request answer" defaultValue="Still deciding" />,
+    },
+  ]
+  const chat: RunChat = { run: lead, items: [] }
+  const view = render(
+    <ChatBody chat={chat} onStopTask={undefined} options={{ bar: false, extra }} />,
+  )
+  const answer = screen.getByRole('textbox', { name: 'Request answer' })
+  const scroller = required(answer.closest('[data-scroller]'))
+  Object.defineProperties(scroller, {
+    scrollHeight: { value: 1000, configurable: true },
+    clientHeight: { value: 300 },
+  })
+  scroller.scrollTop = 700
+  fireEvent.scroll(scroller)
+  await user().click(answer)
+  Object.defineProperty(scroller, 'scrollHeight', { value: 1200 })
+  view.rerender(
+    <ChatBody
+      chat={{ ...chat, items: [{ kind: 'agent', id: 'new', text: 'New output.', at: createdAt }] }}
+      onStopTask={undefined}
+      options={{ bar: false, extra }}
+    />,
+  )
+  expect(scroller.scrollTop).toBe(700)
+  expect(document.activeElement).toBe(answer)
+  expect(screen.getByRole('button', { name: 'New messages ↓' })).toBeTruthy()
 })

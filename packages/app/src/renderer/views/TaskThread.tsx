@@ -49,16 +49,12 @@ import {
 } from '../components/LineComments.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
-import {
-  AnsweredCard,
-  OpenRequestLine,
-  RequestCard,
-  WaitingRow,
-} from '../components/RequestCard.tsx'
+import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
+import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
-import { ScrollMemory } from '../components/ScrollMemory.tsx'
+import { ScrollMemory, type ScrollReveal } from '../components/ScrollMemory.tsx'
 import { RunWithSideChat } from '../components/SideChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
@@ -88,7 +84,7 @@ import {
   middlePaneStep,
 } from '../middle-pane.ts'
 import { useProfile } from '../profile.tsx'
-import { ago, useNow } from '../requests.ts'
+import { ago, headline, requestLabel, useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
@@ -637,10 +633,12 @@ export function TaskThread({
   const sentBackRuns = new Set(events.flatMap((e) => (e.checkRunId ? [e.checkRunId] : [])))
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
+  const [reveal, setReveal] = useState<ScrollReveal>()
   useEffect(() => {
-    if (answeredId !== undefined) setFilter(undefined)
-  }, [answeredId])
-  const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
+    setFilter(undefined)
+    const id = requestId ?? answeredId
+    setReveal(id === undefined ? undefined : { id })
+  }, [requestId, answeredId])
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
     ...comments.map((comment) => ({
@@ -661,12 +659,13 @@ export function TaskThread({
     }
   }, [unread, task.id, shownRun])
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
-  const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
-  const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
   const headerAction = statusAction(task)
   const now = useNow()
   const activity = mergedLine(task, now) ?? task.activity
-  const pin = (id: string) => setChosen({ from: requestId, id })
+  const jumpToRequest = (id: string) => {
+    setFilter(undefined)
+    setReveal({ id })
+  }
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
 
   if (talk && shownRun !== undefined && shownApp === undefined) {
@@ -817,8 +816,17 @@ export function TaskThread({
               </button>
             </p>
           )}
+          <RequestJumpBar
+            requests={open.map((request) => ({
+              id: request.id,
+              label: requestLabel(request),
+              title: headline(request),
+            }))}
+            onJump={jumpToRequest}
+          />
           <ScrollMemory
             list
+            reveal={reveal}
             spot={`thread:${task.id}`}
             count={shown.length}
             active={!hidden}
@@ -888,7 +896,13 @@ export function TaskThread({
                       ? comments.find((c) => c.id === answer.by)
                       : undefined
                   return (
-                    <li key={comment.id} className={styles.requestItem}>
+                    <li
+                      key={comment.id}
+                      className={styles.requestItem}
+                      data-chat-item={comment.id}
+                      tabIndex={-1}
+                      data-nav-item
+                    >
                       <AnsweredCard
                         key={comment.id === answeredId ? 'shown' : 'collapsed'}
                         request={comment}
@@ -909,46 +923,34 @@ export function TaskThread({
                   )
                 }
                 return (
-                  <li key={comment.id} className={styles.requestItem}>
-                    <OpenRequestLine
+                  <li
+                    key={comment.id}
+                    className={styles.requestItem}
+                    data-chat-item={comment.id}
+                    tabIndex={-1}
+                    data-nav-item
+                  >
+                    <RequestCard
+                      taskChanges={taskChanges}
+                      onOpenFile={onOpenFile}
+                      onAllChanges={onAllChanges}
                       request={comment}
                       task={task}
-                      pinned={comment.id === pinned?.id}
-                      others={open.length - 1}
-                      onPin={() => pin(comment.id)}
+                      onOpenRun={onOpenRun}
+                      onOpenApp={onOpenApp}
+                      onOpenPlan={onOpenPlan}
                     />
                   </li>
                 )
               })}
           </ScrollMemory>
-          {pinned ? (
-            <div className={styles.pinned}>
-              <UnsentChip
-                drafts={(lines?.current ?? []).filter(isDraft)}
-                onOpen={(c) => lines?.onOpen(c)}
-              />
-              {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
-              <RequestCard
-                key={pinned.id}
-                taskChanges={taskChanges}
-                onOpenFile={onOpenFile}
-                onAllChanges={onAllChanges}
-                request={pinned}
-                task={task}
-                onOpenRun={onOpenRun}
-                onOpenApp={onOpenApp}
-                onOpenPlan={onOpenPlan}
-              />
-            </div>
-          ) : (
-            <div className={styles.pinned}>
-              <UnsentChip
-                drafts={(lines?.current ?? []).filter(isDraft)}
-                onOpen={(c) => lines?.onOpen(c)}
-              />
-              <CommentBox key={task.id} task={task} onFollowedUp={onFollowedUp} />
-            </div>
-          )}
+          <div className={styles.threadComposer}>
+            <UnsentChip
+              drafts={(lines?.current ?? []).filter(isDraft)}
+              onOpen={(c) => lines?.onOpen(c)}
+            />
+            <CommentBox key={task.id} task={task} onFollowedUp={onFollowedUp} />
+          </div>
         </>
       )}
       {output && (

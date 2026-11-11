@@ -13,9 +13,10 @@ import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import { LoadingError, Skeleton } from './Loading.tsx'
+import { type RequestJump, RequestJumpBar } from './RequestJumpBar.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
-import { ScrollMemory } from './ScrollMemory.tsx'
+import { ScrollMemory, type ScrollReveal } from './ScrollMemory.tsx'
 
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -535,6 +536,8 @@ export interface ChatOptions {
   bar?: boolean
   extra?: readonly ChatExtra[]
   pinned?: ReactNode
+  requests?: readonly RequestJump[]
+  requestId?: string | undefined
   label?: string
   placeholder?: string
   endedPlaceholder?: string
@@ -728,6 +731,10 @@ export function ChatBody({
   options?: ChatOptions
 }) {
   const { run, items } = chat
+  const [requestReveal, setRequestReveal] = useState<ScrollReveal>()
+  useEffect(() => {
+    setRequestReveal(options.requestId === undefined ? undefined : { id: options.requestId })
+  }, [options.requestId])
   const rows = withExtras(items, options.extra ?? [])
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
   const ticking = useTicking(running)
@@ -742,9 +749,10 @@ export function ChatBody({
           : options.bar !== false && (
               <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
             ))}
+      <RequestJumpBar requests={options.requests ?? []} onJump={(id) => setRequestReveal({ id })} />
       <ScrollMemory
         spot={options.inspect ? `search:${run.id}:${options.matchItemId}` : `run:${run.id}`}
-        reveal={options.matchItemId}
+        reveal={options.matchItemId ?? requestReveal}
         count={rows.length}
         grows={lastText}
         className={styles.items}
@@ -765,7 +773,16 @@ export function ChatBody({
               />
             </div>
           ) : (
-            <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
+            <div
+              key={`extra:${row.extra.id}`}
+              data-chat-item={row.extra.id}
+              tabIndex={-1}
+              data-nav-item={
+                options.requests?.some((request) => request.id === row.extra.id) || undefined
+              }
+            >
+              {row.extra.node}
+            </div>
           ),
         )}
       </ScrollMemory>

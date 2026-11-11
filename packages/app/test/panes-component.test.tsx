@@ -113,7 +113,7 @@ test('Inbox resolution selects the next request and clears Task panes after the 
   a.mount()
   const inbox = await screen.findByRole('region', { name: 'Inbox' })
   await user().click(within(inbox).getByText('First question?'))
-  await screen.findByRole('region', { name: 'Question' })
+  await screen.findAllByRole('region', { name: 'Question' })
   a.state.inbox = [{ task: task(), request: second }]
   comments = [second]
   await act(async () =>
@@ -130,33 +130,65 @@ test('Inbox resolution selects the next request and clears Task panes after the 
   expect(screen.queryByRole('complementary', { name: 'Task details' })).toBeNull()
 })
 
-test('multiple requests pin one card and chips switch the pinned request', async () => {
+test('requests stay in the conversation and repeated jumps preserve answer drafts', async () => {
   const a = appState()
-  a.state.tasks = [task()]
+  const current = task({
+    stage: 'work',
+    track: [
+      { stage: 'intake', state: 'past' },
+      { stage: 'work', state: 'current' },
+    ],
+  })
+  a.state.tasks = [current]
   const first = comment({ body: 'Where should sync status show?', choices: ['Header'] })
-  const second = comment({ id: 'c2', body: 'Can the queue retry offline?', choices: ['Yes'] })
-  a.state.inbox = [first, second].map((request) => ({ task: task(), request }))
+  const second = comment({
+    id: 'c2',
+    body: 'Can the queue retry offline?',
+    choices: ['Yes'],
+    createdAt: '2026-11-09T12:02:00.000Z',
+  })
+  a.state.inbox = [first, second].map((request) => ({ task: current, request }))
   a.handle('listComments', () => [first, second])
+  a.handle('listStageEntries', () => [
+    { stage: 'intake', at: createdAt },
+    { stage: 'work', at: '2026-11-09T12:01:00.000Z' },
+  ])
   a.handle('markCommentsRead', () => ({ read: 1 }))
   a.mount()
   const inbox = await screen.findByRole('region', { name: 'Inbox' })
   await user().click(within(inbox).getByText('Can the queue retry offline?'))
   const thread = screen.getByRole('region', { name: 'Task thread' })
-  const chips = within(
-    within(thread).getByRole('group', { name: '2 waiting on you' }),
-  ).getAllByRole('button')
-  expect(chips).toHaveLength(2)
-  expect(within(thread).getAllByRole('button', { name: /waiting ·/ })).toHaveLength(2)
-  expect(within(thread).getByRole('button', { name: /waiting · shown below/ })).toBeTruthy()
-  expect(chips[1]?.getAttribute('aria-pressed')).toBe('true')
-  expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
-  await user().click(required(chips[0]))
-  expect(chips[0]?.getAttribute('aria-pressed')).toBe('true')
+  const cards = within(thread).getAllByRole('region', { name: 'Question' })
+  expect(cards).toHaveLength(2)
+  const firstCard = required(cards[0])
+  const secondCard = required(cards[1])
+  const conversation = required(firstCard.closest('ol'))
+  expect(conversation.contains(secondCard)).toBe(true)
+  expect(within(firstCard).getByText(first.body)).toBeTruthy()
+  expect(within(secondCard).getByText(second.body)).toBeTruthy()
+  expect(document.activeElement?.contains(secondCard)).toBe(true)
+  await user().type(
+    within(secondCard).getByRole('textbox', { name: 'Your answer' }),
+    'Keep retrying',
+  )
+  const jumps = within(thread).getByRole('navigation', { name: 'Requests waiting for you' })
+  const firstJump = within(jumps).getByRole('button', { name: /Where should sync status show/ })
+  const secondJump = within(jumps).getByRole('button', { name: /Can the queue retry offline/ })
+  await user().click(firstJump)
+  expect(document.activeElement?.contains(firstCard)).toBe(true)
+  await user().click(secondJump)
+  expect(document.activeElement?.contains(secondCard)).toBe(true)
   expect(
-    within(within(thread).getByRole('region', { name: 'Question' })).getByText(
-      'Where should sync status show?',
-    ),
-  ).toBeTruthy()
+    (within(secondCard).getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value,
+  ).toBe('Keep retrying')
+  const scrolls = vi.mocked(Element.prototype.scrollIntoView).mock.calls.length
+  await user().click(secondJump)
+  expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(scrolls + 1)
+  await user().click(within(thread).getByRole('button', { name: 'Work, now' }))
+  expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
+  await user().click(firstJump)
+  expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(2)
+  expect(within(thread).queryByText('Showing Work only ·')).toBeNull()
 })
 
 test('S starts the open Task and its menu moves a queued Task back to Backlog', async () => {

@@ -691,8 +691,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         <Inbox
           items={inbox}
           plans={planInbox}
-          onOpenPlan={({ plan }) =>
-            dispatch({ type: 'open-plan', factoryId: plan.factoryId, planId: plan.id })
+          onOpenPlan={({ plan, request }) =>
+            dispatch({
+              type: 'open-plan',
+              factoryId: plan.factoryId,
+              planId: plan.id,
+              requestId: request.id,
+            })
           }
           answered={answered}
           factories={factories}
@@ -861,6 +866,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
                 key={navigation.planId}
                 factory={factory}
                 planId={navigation.planId === newPlan ? undefined : navigation.planId}
+                requestId={navigation.requestId}
                 onBack={backToPlans}
                 {...(navigation.planFrom !== undefined && { from: navigation.planFrom })}
                 onOpenPlan={(planId) =>
