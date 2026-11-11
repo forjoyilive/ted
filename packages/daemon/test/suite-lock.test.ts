@@ -198,11 +198,10 @@ describe('test slots', () => {
     await release?.()
   })
 
-  test('a full run whose turn comes lets the small runs already waiting go first', async () => {
-    const held = [liveProcess(), liveProcess()]
+  test('when a full run ends, the small runs already waiting go before the next full run', async () => {
+    const running = liveProcess()
     await mkdir(path.join(dir, 'slots'))
-    await writeFile(slot(0), `${held[0]}\n`)
-    await writeFile(slot(1), `${held[1]}\n`)
+    for (const held of [file, slot(0), slot(1)]) await writeFile(held, `${running}\n`)
     const order: string[] = []
     const firstSmall = liveProcess()
     const full = liveProcess()
@@ -223,10 +222,9 @@ describe('test slots', () => {
     })
     await pause(200)
     expect(order).toEqual([])
-    await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(file, 'utf8')).toBe(`${running}\n`)
 
     children[0]?.kill()
-    children[1]?.kill()
     const releaseSmall = await small
     const releaseLate = await late
     await pause(200)
