@@ -378,6 +378,7 @@ export interface Tasks {
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
+  setTaskSnooze(ref: string, until: string | null): Task
   setPriority(ref: string, priority: Priority): Task
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
@@ -504,6 +505,7 @@ export function createTasks(options: {
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
+  snoozes?: { now?: () => Date; checkEveryMs?: number }
   load?: { ratio?: () => number; checkEveryMs?: number }
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
@@ -1184,6 +1186,7 @@ export function createTasks(options: {
   function backlogEligible(task: StoredTask, preparing = false): boolean {
     return (
       task.stage === 'backlog' &&
+      (!task.snoozedUntil || Date.parse(task.snoozedUntil) <= snoozeNow()) &&
       !task.archived &&
       !task.setup &&
       !task.stopped &&
@@ -1194,7 +1197,8 @@ export function createTasks(options: {
       !deleting.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
-      (store.settings().overnightMode ||
+      (task.snoozedUntil !== undefined ||
+        store.settings().overnightMode ||
         store.getFactory(task.factoryId)?.autoStartBacklog === true) &&
       unmergedBlockers(task.id).length === 0
     )
@@ -6204,7 +6208,7 @@ export function createTasks(options: {
       if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
       if (task.archived || task.stopped) continue
       if (unmergedBlockers(id).length > 0) continue
-      if (task.stage === 'backlog' && task.startRequested) {
+      if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
         inBackground(`start ${task.displayId}`, async () => {
           await start(id)
         })
@@ -6792,7 +6796,36 @@ export function createTasks(options: {
     inBackground('wait for a loop check', () => awaitLoopCheck(check))
   }
 
+  function snoozeNow(): number {
+    return options.snoozes?.now?.().getTime() ?? clock.now()
+  }
+  let snoozeTimer: Timer | undefined
+  let releaseSnoozeIdle: (() => void) | undefined
+  function refreshSnoozes(): void {
+    const pending = store
+      .listTasks()
+      .some((task) => task.stage === 'backlog' && !task.archived && task.snoozedUntil)
+    if (pending && !snoozeTimer) {
+      releaseSnoozeIdle = options.idle?.hold()
+      snoozeTimer = clock.interval(() => void pump(), options.snoozes?.checkEveryMs ?? 30_000)
+      snoozeTimer.unref()
+    } else if (!pending && snoozeTimer) {
+      snoozeTimer.cancel()
+      snoozeTimer = undefined
+      releaseSnoozeIdle?.()
+      releaseSnoozeIdle = undefined
+    }
+  }
+  refreshSnoozes()
   const stopPumping = store.subscribe((event) => {
+    if (
+      event.type === 'task-created' ||
+      event.type === 'task-updated' ||
+      event.type === 'task-deleted' ||
+      event.type === 'factory-removed'
+    )
+      refreshSnoozes()
+
     if (event.type === 'settings-changed') {
       options.checkSlots.recheck()
       overnightChangedAt = new Date().toISOString()
@@ -7274,6 +7307,23 @@ export function createTasks(options: {
       return store.rankTask(task.id, placed.rank, placed.priority)
     },
 
+    setTaskSnooze(ref, until) {
+      const task = live(ref)
+      if (task.stage !== 'backlog' || task.archived || task.setup || starting.has(task.id)) {
+        throw new RequestError(409, 'Only an unstarted Backlog Task can be snoozed')
+      }
+      if (
+        until !== null &&
+        (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(until) ||
+          !Number.isFinite(Date.parse(until)) ||
+          new Date(until).toISOString() !== until ||
+          Date.parse(until) <= snoozeNow())
+      ) {
+        throw new RequestError(400, 'Choose a future date and time')
+      }
+      autoStartFailures.delete(task.id)
+      return store.setTaskSnooze(task.id, until)
+    },
     setPriority(ref, priority) {
       return store.setPriority(live(ref).id, priority)
     },
@@ -8160,6 +8210,8 @@ export function createTasks(options: {
       closed = true
       subAgents.close()
       silenceTimer.cancel()
+      snoozeTimer?.cancel()
+      releaseSnoozeIdle?.()
       stopLoadTimer()
       for (const timer of nudgeTimers.values()) timer.cancel()
       nudgeTimers.clear()

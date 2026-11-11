@@ -287,6 +287,12 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.TaskSnoozed':
+        add(entry, 'edit', 'Task snoozed')
+        break
+      case 'v1.TaskSnoozeCleared':
+        add(entry, 'edit', 'Snooze cleared')
+        break
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break

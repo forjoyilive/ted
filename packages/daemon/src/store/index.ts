@@ -594,6 +594,7 @@ export interface TedStore extends TaskHistory {
     options?: { runId?: string; then?: AfterBlocking },
   ): Task
   removeBlocker(taskId: string, blockerId: string, runId?: string): Task
+  setTaskSnooze(taskId: string, until: string | null): Task
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
   requeueAfterBlockers(taskId: string): Task
@@ -1202,6 +1203,7 @@ export async function openStore({
       .some((p) => p.state !== 'ended' && p.fromTaskGone === null)
 
   const toTask = ({
+    snoozedUntil,
     clarifyDepthBy,
     branch,
     worktree,
@@ -1293,6 +1295,7 @@ export async function openStore({
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
     const facts: TaskFacts = {
+      ...(snoozedUntil !== null && { snoozedUntil }),
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
       ...(partlyMerged && { partlyMerged }),
@@ -1408,6 +1411,7 @@ export async function openStore({
     const linearSync = linearSyncOf(row, source)
     return {
       ...row,
+      ...(snoozedUntil !== null && { snoozedUntil }),
       priority: row.priority as Priority,
       clarifyDepth: row.clarifyDepth as ClarifyDepth,
       ...(clarifyDepthBy !== null
@@ -2061,6 +2065,12 @@ export async function openStore({
             return value.phase === 'queued'
           }).length,
       },
+      scheduledTasks: store
+        .query(allTasks)
+        .filter(
+          (task) =>
+            task.stage === 'backlog' && task.archivedAt === null && task.snoozedUntil !== null,
+        ).length,
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
       checksRunning: [
@@ -2485,6 +2495,7 @@ export async function openStore({
       const rank = nextRank()
       const at = new Date().toISOString()
       commit(
+        ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         events.taskRanked({ taskId, rank, at }),
         events.taskQueued({ taskId, stage, rank, at }),
       )
@@ -2517,6 +2528,7 @@ export async function openStore({
       const at = new Date().toISOString()
       const rank = nextRank()
       commit(
+        ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
         stageEntered(taskId, stage, entry, at),
@@ -2570,6 +2582,7 @@ export async function openStore({
       const withdrawn = openRequestRows(taskId)
       const answer: CommentAnswer = { kind: 'withdrawn', at, archived: true }
       commit(
+        ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         why === undefined
           ? events.taskArchivedV2({ taskId, closing, branches, at })
           : events.taskArchivedV3({ taskId, closing, branches, why, at }),
@@ -2651,8 +2664,20 @@ export async function openStore({
       )
       return updatedTask(taskId)
     },
+    setTaskSnooze(taskId, until) {
+      const at = new Date().toISOString()
+      commit(
+        until === null
+          ? events.taskSnoozeCleared({ taskId, at })
+          : events.taskSnoozed({ taskId, until, at }),
+      )
+      return updatedTask(taskId)
+    },
     setStartRequested(taskId, startRequested) {
       commit(
+        ...(startRequested && taskRow(taskId)?.snoozedUntil
+          ? [events.taskSnoozeCleared({ taskId, at: new Date().toISOString() })]
+          : []),
         events.taskStartRequestChanged({ taskId, startRequested, at: new Date().toISOString() }),
       )
       return updatedTask(taskId)
