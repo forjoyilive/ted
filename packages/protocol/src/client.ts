@@ -77,6 +77,7 @@ import type {
   LibraryChanges,
   LibraryPreview,
   LibraryView,
+  MergeSettingsRequest,
   RenameFactoryRequest,
   SaveLibraryRequest,
   SaveSettingsRequest,
@@ -1114,6 +1115,17 @@ export class DaemonClient {
     return this.#request(
       'POST',
       `/factories/${encodeURIComponent(factoryId)}/settings/save`,
+      request,
+    )
+  }
+
+  mergeFactorySettings(
+    factoryId: string,
+    request: MergeSettingsRequest,
+  ): Promise<SaveSettingsResult> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/settings/merge`,
       request,
     )
   }

@@ -15,7 +15,15 @@ import type {
   Task,
 } from '@ted/protocol'
 import { appKinds } from '@ted/protocol/factory-settings'
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
@@ -93,12 +101,21 @@ export function FactorySettings({
   const [tries, setTries] = useState<CheckTry[]>([])
   const [reviewing, setReviewing] = useState(false)
   const [saved, setSaved] = useState<SaveSettingsResult>()
+  const [merging, setMerging] = useState(false)
+  const [mergeError, setMergeError] = useState<string>()
+  const mergeBusy = useRef(false)
   const [home, setHome] = useState<string>()
   const [setupError, setSetupError] = useState<string>()
   const pendingFolders = useRef(new Map<string, string>())
   const { epoch } = useConnection()
   const scroller = useRef<HTMLDivElement>(null)
   const started = useRef(false)
+  const savedNotice = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!saved) return
+    savedNotice.current?.focus({ preventScroll: true })
+    if (scroller.current) scroller.current.scrollTop = 0
+  }, [saved])
 
   const load = useCallback(async () => {
     try {
@@ -180,11 +197,14 @@ export function FactorySettings({
     })
 
   async function afterSave(result: SaveSettingsResult) {
-    setSaved(result)
     const next = await load()
-    if (!next) return
+    if (!next) {
+      setSaved(result)
+      return
+    }
     if (!result.merged) {
       restart(next)
+      setSaved(result)
       return
     }
     for (const [name, folder] of pendingFolders.current) {
@@ -194,6 +214,24 @@ export function FactorySettings({
     }
     pendingFolders.current.clear()
     restart((await load()) ?? next)
+    setSaved(result)
+  }
+
+  async function mergeSaved() {
+    if (!saved?.receipt || count > 0 || mergeBusy.current) return
+    mergeBusy.current = true
+    setMerging(true)
+    setMergeError(undefined)
+    try {
+      const result = await ted.mergeFactorySettings(factory.id, { receipt: saved.receipt })
+      if (result.merged) await afterSave(result)
+      else setSaved(result)
+    } catch (failure) {
+      setMergeError(readableError(failure))
+    } finally {
+      mergeBusy.current = false
+      setMerging(false)
+    }
   }
 
   const scrollTo = (id: string) =>
@@ -244,59 +282,95 @@ export function FactorySettings({
         </nav>
         <div className={styles.scroller} ref={scroller}>
           <div className={styles.column}>
-            {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
-            {!view && !loadError && <Skeleton shape="settings" label="Loading Factory settings…" />}
-            {view?.invalid && <InvalidNotice invalid={view.invalid} />}
-            <GeneralSection factory={factory} />
-            <LinearIntakeSection key={factory.id} factoryId={factory.id} />
-            {loadError !== undefined && (
-              <p className={styles.loadError} role="alert">
-                {loadError}
-              </p>
-            )}
-            {view && draft && base && (
-              <ReposSection
-                view={view}
-                draft={draft.repos}
-                loaded={loaded}
-                home={home}
-                onRepo={updateRepo}
-                onDraft={setRepos}
-                onFolder={async (repo, folder) => {
-                  if (folder === undefined) await ted.clearRepoLocalFolder(factory.id, repo.was)
-                  else await ted.setRepoLocalFolder(factory.id, repo.was, folder)
-                  await load()
+            {saved && (
+              <SavedNotice
+                notice={savedNotice}
+                result={saved}
+                merging={merging}
+                hasEdits={count > 0}
+                error={mergeError}
+                onMerge={() => void mergeSaved()}
+                onDismiss={() => {
+                  setSaved(undefined)
+                  setMergeError(undefined)
                 }}
-                onNewRepoFolder={(name, folder) => pendingFolders.current.set(name, folder)}
-                onRemoveRepo={removeRepo}
-                onUndoRemove={undoRemove}
-                factoryId={factory.id}
-                onOpenFactory={onOpenFactory}
-                onOpenGitHubSettings={onOpenGitHubSettings}
               />
             )}
-            {view && draft && base && (
-              <>
-                <WorkflowSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
-                <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
-                <AgentsSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
-                <PermissionsSection
+            <fieldset className={styles.settingsFields} disabled={merging}>
+              <legend className={styles.visuallyHidden}>Factory settings</legend>
+              {view && (
+                <div className={styles.repoGuide}>
+                  <strong>How repo settings are saved</strong>
+                  <p>
+                    Edit settings marked “In the repo”, then choose{' '}
+                    <strong>Review and save…</strong>. TED creates a pull request: a proposed change
+                    to your repo. The changes must merge before TED can use them.
+                  </p>
+                </div>
+              )}
+              {!view && !loadError && (
+                <Skeleton shape="settings" label="Loading Factory settings…" />
+              )}
+              {view?.invalid && <InvalidNotice invalid={view.invalid} />}
+              <GeneralSection factory={factory} />
+              <LinearIntakeSection key={factory.id} factoryId={factory.id} />
+              {loadError !== undefined && (
+                <p className={styles.loadError} role="alert">
+                  {loadError}
+                </p>
+              )}
+              {view && draft && base && (
+                <ReposSection
                   view={view}
-                  draft={draft}
-                  loaded={base.draft}
-                  onDraft={onDraft}
+                  draft={draft.repos}
+                  loaded={loaded}
+                  home={home}
+                  onRepo={updateRepo}
+                  onDraft={setRepos}
+                  onFolder={async (repo, folder) => {
+                    if (folder === undefined) await ted.clearRepoLocalFolder(factory.id, repo.was)
+                    else await ted.setRepoLocalFolder(factory.id, repo.was, folder)
+                    await load()
+                  }}
+                  onNewRepoFolder={(name, folder) => pendingFolders.current.set(name, folder)}
+                  onRemoveRepo={removeRepo}
+                  onUndoRemove={undoRemove}
+                  factoryId={factory.id}
+                  onOpenFactory={onOpenFactory}
+                  onOpenGitHubSettings={onOpenGitHubSettings}
                 />
-                <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
-              </>
-            )}
-            <DangerZoneSection onRemove={onRemoveFactory} />
+              )}
+              {view && draft && base && (
+                <>
+                  <WorkflowSection
+                    view={view}
+                    draft={draft}
+                    loaded={base.draft}
+                    onDraft={onDraft}
+                  />
+                  <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
+                  <AgentsSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
+                  <PermissionsSection
+                    view={view}
+                    draft={draft}
+                    loaded={base.draft}
+                    onDraft={onDraft}
+                  />
+                  <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
+                </>
+              )}
+              <DangerZoneSection onRemove={onRemoveFactory} />
+            </fieldset>
           </div>
         </div>
       </div>
       {count > 0 && view && (
         <footer className={styles.saveBar}>
           <span className={styles.unsavedDot} aria-hidden />
-          <span>{unsavedSummary(unsaved)}</span>
+          <div>
+            <span>{unsavedSummary(unsaved)}</span>
+            <p className={styles.saveHint}>Review your changes before creating a pull request.</p>
+          </div>
           <span className={views.headerSpacer} />
           <Button size="small" onClick={() => restart(view)}>
             Discard
@@ -323,21 +397,67 @@ export function FactorySettings({
   )
 }
 
-function SavedNotice({ result, onDismiss }: { result: SaveSettingsResult; onDismiss: () => void }) {
+function SavedNotice({
+  notice,
+  result,
+  onDismiss,
+  onMerge,
+  merging,
+  hasEdits,
+  error,
+}: {
+  notice: RefObject<HTMLDivElement | null>
+  result: SaveSettingsResult
+  onDismiss: () => void
+  onMerge: () => void
+  merging: boolean
+  hasEdits: boolean
+  error: string | undefined
+}) {
   const { number, url } = result.pullRequest
   return (
-    <div className={result.merged ? styles.savedNotice : styles.openNotice} role="status">
-      <span className={styles.noticeText}>
-        {result.merged
-          ? `Saved and merged pull request #${number}.`
-          : result.reason !== undefined
-            ? `Pull request #${number} is open. ${result.reason}`
-            : `Pull request #${number} is open for review.`}
-      </span>
-      <Button size="small" onClick={() => void ted.openOnGitHub(url)}>
-        Open on GitHub
-      </Button>
-      <button type="button" className={styles.iconButton} aria-label="Dismiss" onClick={onDismiss}>
+    <div
+      ref={notice}
+      tabIndex={-1}
+      className={result.merged ? styles.savedNotice : styles.openNotice}
+      role="status"
+    >
+      <div className={styles.noticeText}>
+        <strong>
+          {result.merged
+            ? `Pull request #${number} merged. Settings saved to the repo.`
+            : `Pull request #${number} ${result.receipt ? 'is open' : 'has not merged'}. These changes are not in use yet.`}
+        </strong>
+        <p>
+          {result.merged
+            ? 'Tasks use updated Workflow settings when they next enter a Stage.'
+            : result.receipt
+              ? 'Merge it here when it’s ready, or open it on GitHub to review it.'
+              : 'Open it on GitHub to review its status.'}
+        </p>
+        {!result.merged && result.reason && <p>{result.reason}</p>}
+        {!result.merged && result.receipt && hasEdits && (
+          <p>Save or discard your new edits before merging this pull request.</p>
+        )}
+        {error && <p role="alert">{error}</p>}
+        <div className={styles.noticeActions}>
+          {!result.merged && result.receipt && (
+            <Button size="small" variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
+              {merging ? 'Merging…' : 'Merge pull request'}
+            </Button>
+          )}
+          <Button size="small" onClick={() => void ted.openOnGitHub(url)}>
+            Open on GitHub
+          </Button>
+        </div>
+      </div>
+      <button
+        type="button"
+        className={styles.iconButton}
+        aria-label="Dismiss"
+        disabled={merging}
+        onClick={onDismiss}
+      >
         <CloseIcon size={12} />
       </button>
     </div>
@@ -348,7 +468,7 @@ function Chip({ where }: { where: 'machine' | 'repo' }) {
   return where === 'machine' ? (
     <span className={styles.machineChip}>Saved on {machine}</span>
   ) : (
-    <span className={styles.repoChip}>Saved to the repo · pull request</span>
+    <span className={styles.repoChip}>In the repo</span>
   )
 }
 

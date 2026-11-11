@@ -31,6 +31,8 @@ const settings = {
   maxWorkingRuns: 2,
   notes: '# Notes',
 } satisfies Required<P.FactorySettingsChanges>
+roundTrip(P.parseMergeSettingsRequest, { receipt: 'a'.repeat(32) })
+rejects(P.parseMergeSettingsRequest, { receipt: '../bad' }, 'receipt must be')
 roundTrip(P.parseAutoStartBacklogRequest, { enabled: true })
 roundTrip(P.parseCreateFactoryRequest, {
   name: 'TED',

@@ -196,7 +196,7 @@ describe('Factory settings', () => {
     expect(after.repos[0]?.env).toContainEqual({ name: 'NODE_ENV', value: 'development' })
   })
 
-  test('Save as pull request leaves the pull request open', async () => {
+  test('Save as pull request can merge the same saved pull request later', async () => {
     const client = await start()
     const view = await client.settings()
     const changes = edit(view, ([primary]) => {
@@ -214,6 +214,28 @@ describe('Factory settings', () => {
     expect(branch).toMatch(/^ted\/settings-/)
     expect(await originFile('.ted/workflow.yaml', branch)).toContain('base_branch: develop')
     expect((await ghCalls()).some((args) => args[1] === 'merge')).toBe(false)
+    const otherOrigin = path.join(scratch, 'acme', 'api.git')
+    await run('git', ['clone', '--bare', origin, otherOrigin])
+    const other = await client.ok<Factory>('POST', '/dev/factories', {
+      repo: otherOrigin,
+      key: 'API',
+    })
+    expect(
+      (
+        await client.call('POST', `/factories/${other.id}/settings/merge`, {
+          receipt: result.receipt,
+        })
+      ).status,
+    ).toBe(409)
+    const merged = await client.ok<SaveSettingsResult>(
+      'POST',
+      `/factories/${client.factory.id}/settings/merge`,
+      { receipt: result.receipt },
+    )
+    expect(merged.merged).toBe(true)
+    expect(merged.pullRequest).toEqual(result.pullRequest)
+    expect(await originFile('.ted/workflow.yaml')).toContain('base_branch: develop')
+    expect((await ghCalls()).filter((args) => args[1] === 'create')).toHaveLength(1)
   })
 
   test('a default branch that needs a review leaves the pull request open and says why', async () => {
@@ -232,6 +254,79 @@ describe('Factory settings', () => {
     expect(result.merged).toBe(false)
     expect(result.reason).toMatch(/review/)
     expect(await originFile('.ted/workflow.yaml')).not.toContain('master.key')
+    const route = `/factories/${client.factory.id}/settings/merge`
+    const blocked = await client.ok<SaveSettingsResult>('POST', route, { receipt: result.receipt })
+    expect(blocked).toMatchObject({ merged: false, receipt: result.receipt })
+    expect(blocked.reason).toMatch(/review/)
+    expect((await ghCalls()).some((args) => args[1] === 'merge')).toBe(false)
+    expect((await client.call('POST', route, { receipt: 'a'.repeat(32) })).status).toBe(409)
+    expect((await client.call('POST', route, { receipt: '../bad' })).status).toBe(400)
+    const savedState = JSON.parse(await readFile(ghState, 'utf8'))
+    const entered = path.join(scratch, 'merge-entered')
+    const release = path.join(scratch, 'merge-release')
+    savedState.graphqlGate = { entered, release }
+    await writeFile(ghState, JSON.stringify(savedState))
+    const pending = client.ok<SaveSettingsResult>('POST', route, { receipt: result.receipt })
+    try {
+      await waitUntil(
+        () =>
+          stat(entered).then(
+            () => true,
+            () => false,
+          ),
+        'merge to reach GitHub',
+      )
+      expect((await client.call('POST', route, { receipt: result.receipt })).status).toBe(409)
+      expect(
+        (
+          await client.call('POST', `/factories/${client.factory.id}/settings/save`, {
+            changes,
+            mode: 'merge',
+            version: view.version,
+          })
+        ).status,
+      ).toBe(409)
+    } finally {
+      await writeFile(release, '')
+    }
+    expect((await pending).merged).toBe(false)
+    delete savedState.graphqlGate
+
+    savedState.merge.closed = true
+    await writeFile(ghState, JSON.stringify(savedState))
+    const closed = await client.ok<SaveSettingsResult>('POST', route, { receipt: result.receipt })
+    expect(closed.reason).toMatch(/closed/)
+    expect(closed.receipt).toBeUndefined()
+    savedState.merge.closed = false
+    savedState.merge.baseRefName = 'other'
+    await writeFile(ghState, JSON.stringify(savedState))
+    const retargeted = await client.ok<SaveSettingsResult>('POST', route, {
+      receipt: result.receipt,
+    })
+    expect(retargeted.reason).toMatch(/target branch changed/)
+    expect(retargeted.receipt).toBeUndefined()
+    delete savedState.merge.baseRefName
+    const branch = (await originBranches()).find((b) => b.startsWith('ted/settings-')) ?? ''
+    const { stdout: savedHead } = await run('git', ['rev-parse', branch], { cwd: origin })
+    const { stdout: baseHead } = await run('git', ['rev-parse', 'main'], { cwd: origin })
+    await run('git', ['update-ref', `refs/heads/${branch}`, baseHead.trim()], { cwd: origin })
+    await writeFile(ghState, JSON.stringify(savedState))
+    const changed = await client.ok<SaveSettingsResult>('POST', route, { receipt: result.receipt })
+    expect(changed.reason).toMatch(/Someone pushed/)
+    expect(changed.receipt).toBeUndefined()
+    expect((await ghCalls()).some((args) => args[1] === 'merge')).toBe(false)
+    await run('git', ['update-ref', `refs/heads/${branch}`, savedHead.trim()], { cwd: origin })
+
+    savedState.merge.reviewDecision = null
+    savedState.merge.mergeState = 'CLEAN'
+    savedState.merge.updateBase = true
+    await writeFile(ghState, JSON.stringify(savedState))
+    const merged = await client.ok<SaveSettingsResult>('POST', route, { receipt: result.receipt })
+    expect(merged.merged).toBe(true)
+    expect(await originFile('.ted/workflow.yaml')).toContain('master.key')
+    expect(
+      (await client.ok<SaveSettingsResult>('POST', route, { receipt: result.receipt })).merged,
+    ).toBe(true)
   })
 
   test('the panel never writes an invalid workflow.yaml', async () => {
@@ -552,6 +647,9 @@ describe('Factory settings', () => {
     expect(await fileToken.call('POST', `/factories/${id}/settings/preview`, changes)).toEqual(
       refused,
     )
+    expect(
+      await fileToken.call('POST', `/factories/${id}/settings/merge`, { receipt: 'a'.repeat(32) }),
+    ).toEqual(refused)
     expect(await fileToken.call('PUT', `/factories/${id}/name`, { name: 'X' })).toEqual(refused)
     expect(
       await fileToken.call('PUT', `/factories/${id}/repos/widgets/local-folder`, { path: scratch }),

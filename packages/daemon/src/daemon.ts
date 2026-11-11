@@ -526,6 +526,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
       })
       const factoryRemovals = createFactoryRemovals({
+        factorySettings,
         sideChats,
         coordinators,
         store,
