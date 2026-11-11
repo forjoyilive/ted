@@ -31,8 +31,12 @@ interface StubHealth {
   version?: string
   signedIn?: boolean
   autoUnavailable?: boolean
+  resumeSteps?: Step[]
   resumeFails?: boolean
+  stopWaitsFor?: string
   resumeWaitsFor?: string
+  resumeInputWaitsFor?: string
+  inputWaitsFor?: string
   apiKeySource?: string
   authMethod?: string
   interruptEndsAfterMs?: number
@@ -80,6 +84,16 @@ const flag = (name: string) => {
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
 appendFileSync('stub-starts.jsonl', `${JSON.stringify({ argv, pid: process.pid })}\n`)
 
+process.on('SIGTERM', async () => {
+  const gate = stubHealth().stopWaitsFor
+  if (gate !== undefined) {
+    writeFileSync(`${gate}.waiting`, '')
+    while (!existsSync(gate)) await sleep(20)
+  }
+  process.removeAllListeners('SIGTERM')
+  process.kill(process.pid, 'SIGTERM')
+})
+
 const resumeGate = flag('--resume') !== undefined ? stubHealth().resumeWaitsFor : undefined
 while (resumeGate !== undefined && !existsSync(resumeGate)) {
   await sleep(20)
@@ -118,8 +132,11 @@ const hook = (name: string) => {
     emit({ type: 'system', subtype: 'hook_started', hook_name: name, hook_event: event })
 }
 
-let everyMessage: Step[] = []
-let inputGate: string | undefined
+let everyMessage: Step[] = flag('--resume') !== undefined ? (stubHealth().resumeSteps ?? []) : []
+let inputGate =
+  stubHealth().inputWaitsFor ??
+  (flag('--resume') !== undefined ? stubHealth().resumeInputWaitsFor : undefined)
+if (inputGate !== undefined) emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
 let interrupted = false
 let gating = false
 let gate: ReturnType<typeof spawn> | undefined

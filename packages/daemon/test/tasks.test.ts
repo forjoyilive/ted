@@ -212,6 +212,8 @@ describe('Tasks', () => {
     }, 'the first message')
     const content = (JSON.parse(first.line) as { message: { content: string } }).message.content
     expect(content).toContain('ted help')
+    expect(content).toContain('## Write clearly for the user')
+    expect(content).toContain('proposed Task titles, scopes and descriptions')
     expect(content).toContain('ted comment')
     expect(content).toContain('ted outcome advance')
     expect(content).toContain('# Intake')

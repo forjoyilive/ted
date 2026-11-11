@@ -32,6 +32,7 @@ import {
   type DaemonClient,
   type DaemonEvent,
   DaemonRequestError,
+  type DraftAutomationPromptRequest,
   type DraftLineCommentRequest,
   defaultMachineSettings,
   downloadUrl,
@@ -52,6 +53,7 @@ import {
   type SaveLibraryRequest,
   type SaveSettingsRequest,
   type StartPlanRequest,
+  tedEnv,
   tedHome,
   tedPaths,
   tedVersion,
@@ -92,6 +94,8 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import { saveFactoryExport } from './export.ts'
+import { openIntegrationInstructions } from './integration-instructions.ts'
 import {
   createLoginItem,
   type LoginItem,
@@ -145,10 +149,13 @@ function shellSize(value: unknown): { cols: number; rows: number } {
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   getCoordinator: (client, id) => client.coordinator(String(id)),
+  getCoordinatorChat: (client, id) => client.coordinatorChat(String(id)),
+  coordinatorStatuses: (client) => client.coordinatorStatuses(),
   messageCoordinator: (client, id, input) =>
     client.messageCoordinator(String(id), input as CoordinatorMessage),
   stopCoordinator: (client, id) => client.stopCoordinator(String(id)),
   retryCoordinator: (client, id) => client.retryCoordinator(String(id)),
+  resetCoordinator: (client, id) => client.resetCoordinator(String(id)),
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body, attachments) =>
@@ -179,6 +186,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   talkThrough: (client, commentId) => client.talkThrough(String(commentId)),
   doneTalking: (client, commentId) => client.doneTalking(String(commentId)),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
+  getSideChat: (client, id) => client.getSideChat(String(id)),
+  openSideChat: (client, id) => client.openSideChat(String(id)),
+  sendSideChat: (client, id, text) => client.sendSideChat(String(id), String(text)),
+  stopSideChat: (client, id) => client.stopSideChat(String(id)),
+  retrySideChat: (client, id) => client.retrySideChat(String(id)),
   getRunChat: (client, runId) => client.getRunChat(String(runId)),
   sendRunMessage: (client, runId, text, interrupt) =>
     client.sendRunMessage(String(runId), String(text), { interrupt: interrupt === true }),
@@ -220,6 +232,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.saveTaskDraft(String(factoryId), draft as NewTaskDraft),
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   factoryBoard: (client, factoryId) => client.factoryBoard(String(factoryId)),
+  setTaskSnooze: (client, taskId, until) =>
+    client.setTaskSnooze(String(taskId), until === null ? null : String(until)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
   stopTask: (client, taskId) => client.stopTask(String(taskId)),
@@ -291,31 +305,69 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   readAttachment: (client, hash, name) =>
     client.readAttachment({ hash: String(hash), name: String(name) }),
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
-  openShell: (client, taskId, repo, size) =>
-    client.openShell(String(taskId), String(repo), shellSize(size)),
-  restartShell: (client, taskId, repo, size) =>
-    client.restartShell(String(taskId), String(repo), shellSize(size)),
-  writeShell: (client, taskId, repo, data) =>
-    client.writeShell(String(taskId), String(repo), String(data)),
-  resizeShell: (client, taskId, repo, size) =>
-    client.resizeShell(String(taskId), String(repo), shellSize(size)),
-  readShell: (client, taskId, repo, query) => {
+  shellWorkspace: (client, taskId, repo) => client.shellWorkspace(String(taskId), String(repo)),
+  openShellWorkspace: (client, taskId, repo, size, create) =>
+    client.openShellWorkspace(String(taskId), String(repo), shellSize(size), create === true),
+  changeShellWorkspace: (client, taskId, repo, change) =>
+    client.changeShellWorkspace(
+      String(taskId),
+      String(repo),
+      change as import('@ted/protocol').ShellChange,
+    ),
+  openShell: (client, taskId, repo, size, id) =>
+    client.openShell(
+      String(taskId),
+      String(repo),
+      shellSize(size),
+      typeof id === 'string' ? id : undefined,
+    ),
+  restartShell: (client, taskId, repo, size, id) =>
+    client.restartShell(
+      String(taskId),
+      String(repo),
+      shellSize(size),
+      typeof id === 'string' ? id : undefined,
+    ),
+  writeShell: (client, taskId, repo, data, id) =>
+    client.writeShell(
+      String(taskId),
+      String(repo),
+      String(data),
+      typeof id === 'string' ? id : undefined,
+    ),
+  resizeShell: (client, taskId, repo, size, id) =>
+    client.resizeShell(
+      String(taskId),
+      String(repo),
+      shellSize(size),
+      typeof id === 'string' ? id : undefined,
+    ),
+  readShell: (client, taskId, repo, query, id) => {
     const given = (query ?? {}) as Record<string, unknown>
-    return client.readShell(String(taskId), String(repo), {
-      generation: Number(given.generation),
-      from: Number(given.from),
-      waitMs: Number(given.waitMs ?? 0),
-    })
+    return client.readShell(
+      String(taskId),
+      String(repo),
+      {
+        generation: Number(given.generation),
+        from: Number(given.from),
+        waitMs: Number(given.waitMs ?? 0),
+      },
+      typeof id === 'string' ? id : undefined,
+    )
   },
   listEditors: (client) => client.listEditors(),
   openInEditor: (client, taskId, repo, at) => {
     const given = (at ?? {}) as Record<string, unknown>
     return client.openInEditor(String(taskId), String(repo), {
+      ...(typeof given.snapshot === 'boolean' && { snapshot: given.snapshot }),
       ...(typeof given.file === 'string' && { file: given.file }),
       ...(typeof given.line === 'number' && { line: given.line }),
       ...(typeof given.column === 'number' && { column: given.column }),
     })
   },
+  taskFiles: (client, taskId) => client.taskFiles(String(taskId)),
+  taskFile: (client, taskId, repo, file) =>
+    client.taskFile(String(taskId), String(repo), String(file)),
   taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
   fileDiffs: (client, taskId, repo, file) =>
     client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
@@ -361,6 +413,18 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
+  exportFactory: (client, factoryId, format) =>
+    saveFactoryExport(client, factoryId, format, async (filename, extension) => {
+      const options = {
+        title: 'Export Factory',
+        defaultPath: filename,
+        filters: [{ name: extension === 'json' ? 'JSON' : 'Markdown', extensions: [extension] }],
+      }
+      const chosen = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      return chosen.canceled ? undefined : chosen.filePath
+    }),
   chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
       title: String(title),
@@ -376,6 +440,12 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
   createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
   retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
+  setFactoryPermissions: (client, factoryId, mode, confirmBypass) =>
+    client.setFactoryPermissions(
+      String(factoryId),
+      mode as 'auto' | 'bypass',
+      confirmBypass === true,
+    ),
   factorySettings: (client, factoryId) => client.factorySettings(String(factoryId)),
   previewFactorySettings: (client, factoryId, changes) =>
     client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),
@@ -488,7 +558,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
-  runFix: (client, request) => client.runFix(request as RunFixRequest),
+  runFix: async (client, request) => {
+    const result = await client.runFix(request as RunFixRequest)
+    if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
+    return result
+  },
   getLinear: (client) => client.getLinear(),
   saveLinearKey: (client, key, inFile) =>
     client.saveLinearKey({ key: String(key), inFile: inFile === true }),
@@ -500,7 +574,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   listAutomations: (client, factory) =>
     client.listAutomations(factory === undefined ? undefined : String(factory)),
-  getAutomation: (client, id) => client.getAutomation(String(id)),
+  getAutomation: (client, id) =>
+    client.getAutomation(String(id)).catch((error: unknown) => {
+      if (error instanceof DaemonRequestError && error.status === 404) return null
+      throw error
+    }),
+  draftAutomationPrompt: (client, input) =>
+    client.draftAutomationPrompt(input as DraftAutomationPromptRequest),
+  getAutomationPromptDraft: (client, id) => client.getAutomationPromptDraft(String(id)),
+  cancelAutomationPromptDraft: (client, id) => client.cancelAutomationPromptDraft(String(id)),
   automationTemplates: (client) => client.automationTemplates(),
   automationRequests: (client) => client.automationRequests(),
   previewSchedule: (client, schedule) => client.previewSchedule(schedule as AutomationSchedule),
@@ -543,9 +625,9 @@ async function choosePicture(): Promise<string | undefined> {
 }
 
 const platform = process.platform as Platform
-const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
+const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1'
 
-const testLaunch = hiddenWindow || process.env.TED_EXIT_WITH_PID !== undefined
+const testLaunch = hiddenWindow || tedEnv('TED_EXIT_WITH_PID') !== undefined
 const logUncaught = fileLog(path.join(tedPaths(tedHome()).logs, 'app.log'))
 
 watchExitWith(() => app.exit(0))
@@ -563,18 +645,18 @@ process.on('uncaughtException', (error) => {
   })
 })
 
-const testAppToken = app.isPackaged ? undefined : process.env.TED_APP_TOKEN
+const testAppToken = app.isPackaged ? undefined : tedEnv('TED_APP_TOKEN')
 delete process.env.TED_APP_TOKEN
-const skipFirstLaunch = !app.isPackaged && process.env.TED_SKIP_FIRST_LAUNCH === '1'
+const skipFirstLaunch = !app.isPackaged && tedEnv('TED_SKIP_FIRST_LAUNCH') === '1'
 delete process.env.TED_SKIP_FIRST_LAUNCH
-const testUpdateFeed = app.isPackaged ? undefined : process.env.TED_UPDATE_FEED
-const testUpdateLog = process.env.TED_UPDATE_LOG
+const testUpdateFeed = app.isPackaged ? undefined : tedEnv('TED_UPDATE_FEED')
+const testUpdateLog = tedEnv('TED_UPDATE_LOG')
 delete process.env.TED_UPDATE_FEED
 delete process.env.TED_UPDATE_LOG
 const updateCheckEveryMs = 4 * 60 * 60_000
 const firstUpdateCheckMs = 10_000
 
-const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
+const restartDelaysMs = tedEnv('TED_RESTART_DELAYS_MS')?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
 ]
 const keepsStopping = 'TED’s background process keeps stopping'
@@ -617,8 +699,8 @@ function applyLoginItem(enabled: boolean): Promise<void> {
 }
 
 function makeLoginItem(): LoginItem {
-  const log = process.env.TED_LOGIN_ITEM_LOG
-  if (log) return recordLoginItem(log, process.env.TED_LOGIN_ITEM_STATUS)
+  const log = tedEnv('TED_LOGIN_ITEM_LOG')
+  if (log) return recordLoginItem(log, tedEnv('TED_LOGIN_ITEM_STATUS'))
   return createLoginItem({
     platform: process.platform,
     packaged: app.isPackaged && edition === 'release',
@@ -724,9 +806,9 @@ function electronNotifier(): Notifier {
 }
 
 function makeNotifier(): Notifier {
-  const log = process.env.TED_NOTIFY_LOG
+  const log = tedEnv('TED_NOTIFY_LOG')
   if (log) {
-    const failing = process.env.TED_NOTIFY_STATUS === 'off'
+    const failing = tedEnv('TED_NOTIFY_STATUS') === 'off'
     return recordingNotifier(log, () => saveNotificationState({ off: true }), failing)
   }
   return hiddenWindow ? silentNotifier : electronNotifier()
@@ -1112,7 +1194,7 @@ async function start(): Promise<void> {
 app.setName(appName)
 registerPrototypeScheme()
 if (app.isPackaged) process.env.TED_APP_EXECUTABLE = process.env.APPIMAGE || process.execPath
-if (process.env.TED_HOME || edition !== 'release') {
+if (tedEnv('TED_HOME') || edition !== 'release') {
   app.setPath('userData', path.join(tedHome(), 'electron'))
 }
 

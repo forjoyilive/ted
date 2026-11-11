@@ -108,29 +108,45 @@
   --font-sans: -apple-system, BlinkMacSystemFont, 'Geist Variable', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Geist Mono Variable', monospace;
 
-  --text-8: 8px;
-  --text-10: 10px;
-  --text-10-5: 10.5px;
-  --text-11: 11px;
-  --text-11-5: 11.5px;
-  --text-12: 12px;
-  --text-12-5: 12.5px;
-  --text-13: 13px;
-  --text-13-5: 13.5px;
-  --text-14: 14px;
-  --text-15: 15px;
-  --text-16: 16px;
-  --text-17: 17px;
-  --text-21: 21px;
-  --text-22: 22px;
-  --text-28: 28px;
+  --text-scale: 1;
+  --text-8: calc(8px * var(--text-scale));
+  --text-9: calc(9px * var(--text-scale));
+  --text-10: calc(10px * var(--text-scale));
+  --text-10-5: calc(10.5px * var(--text-scale));
+  --text-11: calc(11px * var(--text-scale));
+  --text-11-5: calc(11.5px * var(--text-scale));
+  --text-12: calc(12px * var(--text-scale));
+  --text-12-5: calc(12.5px * var(--text-scale));
+  --text-13: calc(13px * var(--text-scale));
+  --text-13-5: calc(13.5px * var(--text-scale));
+  --text-14: calc(14px * var(--text-scale));
+  --text-15: calc(15px * var(--text-scale));
+  --text-16: calc(16px * var(--text-scale));
+  --text-17: calc(17px * var(--text-scale));
+  --text-19: calc(19px * var(--text-scale));
+  --text-21: calc(21px * var(--text-scale));
+  --text-22: calc(22px * var(--text-scale));
+  --text-28: calc(28px * var(--text-scale));
+
+  --leading-16: calc(16px * var(--text-scale));
+  --leading-17: calc(17px * var(--text-scale));
+  --leading-18: calc(18px * var(--text-scale));
+  --leading-19: calc(19px * var(--text-scale));
+  --leading-20: calc(20px * var(--text-scale));
+
+  --glyph-10: 10px;
+  --glyph-11: 11px;
+  --glyph-12: 12px;
+  --glyph-12-5: 12.5px;
+  --glyph-15: 15px;
+  --glyph-9: 9px;
 
   --leading-tight: 1.42;
   --leading-body: 1.5;
   --leading-snug: 1.55;
   --leading-relaxed: 1.6;
   --leading-loose: 1.7;
-  --leading-row: 20px;
+  --leading-row: calc(20px * var(--text-scale));
 
   --weight-regular: 400;
   --weight-medium: 500;
@@ -142,7 +158,8 @@
 
   --sidebar-width: 210px;
   --list-pane-width: 330px;
-  --details-pane-width: 260px;
+  --details-pane-width: 320px;
+  --changes-index-width: 260px;
   --settings-column-width: 720px;
 
   --terminal-font-size: 13px;

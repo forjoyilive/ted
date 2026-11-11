@@ -27,6 +27,7 @@ import { Select } from '../components/Select.tsx'
 import { useAutomationTemplates, useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './AutomationDialog.module.css'
+import { AutomationPromptDraft } from './AutomationPromptDraft.tsx'
 import { LeadFields } from './NewTaskDialog.tsx'
 
 export type TemplateChoice = AutomationTemplateId | 'blank'
@@ -103,6 +104,7 @@ export function AutomationDialog({
   const [on, setOn] = useState(editing?.on ?? true)
   const [preview, setPreview] = useState<SchedulePreview>()
   const [busy, setBusy] = useState(false)
+  const [draftBusy, setDraftBusy] = useState(false)
   const [error, setError] = useState<string>()
   const applied = useRef<TemplateChoice | undefined>(undefined)
 
@@ -117,8 +119,9 @@ export function AutomationDialog({
     ted.taskDefaults(factory).then(
       (defaults) => {
         if (!current) return
-        setFactoryLead(defaults.lead)
-        if (!editing) setLead(defaults.lead)
+        const { effortMode: _, ...lead } = defaults.lead
+        setFactoryLead(lead)
+        if (!editing) setLead(lead)
       },
       () => undefined,
     )
@@ -182,7 +185,8 @@ export function AutomationDialog({
     name.trim() !== '' &&
     prompt.trim() !== '' &&
     scheduleError === undefined &&
-    !busy
+    !busy &&
+    !draftBusy
 
   async function save(runNow: boolean) {
     if (!canSave || typeof schedule === 'string' || !chosenFactory) return
@@ -251,6 +255,7 @@ export function AutomationDialog({
         </h2>
         {!editing && (
           <Select
+            disabled={draftBusy}
             aria-label="Factory"
             value={factory}
             onChange={(event) => setFactory(event.target.value)}
@@ -270,7 +275,7 @@ export function AutomationDialog({
 
       <div className={styles.body}>
         {!editing && (
-          <fieldset className={styles.fieldset}>
+          <fieldset className={styles.fieldset} disabled={draftBusy}>
             <legend className={styles.labelRow}>
               <span className={styles.label}>Template</span>
               <Help>Picking one fills the name, prompt and schedule. You can change them all.</Help>
@@ -333,6 +338,17 @@ export function AutomationDialog({
           <span className={styles.note}>
             Whether new Tasks start is up to the prompt (--start).
           </span>
+          {lead && (
+            <AutomationPromptDraft
+              key={JSON.stringify([factory, template, lead])}
+              factory={factory}
+              name={name}
+              prompt={prompt}
+              lead={lead}
+              onApply={setPrompt}
+              onBusy={setDraftBusy}
+            />
+          )}
         </div>
 
         <fieldset className={`${styles.fieldset} ${styles.field}`}>
@@ -426,14 +442,16 @@ export function AutomationDialog({
         <p className={styles.note}>Time zone: {timeZone} · App-wide in General settings</p>
 
         {lead && (
-          <LeadFields
-            id={id}
-            lead={lead}
-            factoryLead={factoryLead}
-            onChange={setLead}
-            label="Agent · model · effort"
-            help="The agent each firing starts. Filled from the Factory’s lead."
-          />
+          <fieldset className={styles.fieldset} disabled={draftBusy}>
+            <LeadFields
+              id={id}
+              lead={lead}
+              factoryLead={factoryLead}
+              onChange={setLead}
+              label="Agent · model · effort"
+              help="The agent used for drafting and each firing. Filled from the Factory’s lead."
+            />
+          </fieldset>
         )}
 
         <div className={styles.on}>

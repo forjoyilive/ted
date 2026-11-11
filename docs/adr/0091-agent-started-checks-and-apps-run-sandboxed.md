@@ -41,7 +41,7 @@ Everything else is read-only, including the user’s own caches (`~/Library/Cach
 
 **No sandbox, no run.** TED never falls back to running unsandboxed. If `sandbox-exec` or `bwrap` is missing or fails a test run, `ted checks` is refused with the reason, an App start is refused and the App shows as failed with the reason, and a Validate or Merge Check fails with “TED didn’t run this Check: …” in its log. The Factory gets a `sandbox-unavailable` banner, cleared the next time the sandbox works. `TED_SANDBOX_BIN` names the sandbox program; tests point it at a missing file.
 
-**What stays as it was.** Worktree setup and teardown (ADR 0025) run the Factory’s own commands from the default branch; setup runs on a worktree TED has just made. Run now in Factory settings runs in a scratch worktree of the default branch (ADR 0066). The TED settings Check runs inside the daemon. Simulator tools (`xcrun simctl`) are TED’s own calls.
+**Worktree lifecycle.** ADR 0096 extends this sandbox to Task setup and teardown (ADR 0025), including recovered setup and agent-requested repo removal. Run now in Factory settings runs in a scratch worktree of the default branch (ADR 0066). The TED settings Check runs inside the daemon. Simulator tools (`xcrun simctl`) are TED’s own calls.
 
 ## Considered Options
 
@@ -56,8 +56,8 @@ Everything else is read-only, including the user’s own caches (`~/Library/Cach
 
 - A Check or App that writes outside its worktree now fails there: one that writes `~/.config`, commits or stashes with git (the git folder lives in `TED_HOME`), downloads a new Corepack version, or uses a tool that writes `~/Library/Caches` without honouring the variables above. A Factory that needs more can use Bypass.
 - Remaining risk: an App the human starts runs the Task’s branch outside the sandbox, including anything it loads later from the worktree the agent keeps editing (a dev server that reloads, a script it reads on demand). The confirmation names this; Always skips it for that App in that Factory.
-- Remaining risk: teardown runs unsandboxed in the worktree the agent edited, and an agent can trigger it with `ted task repos remove`. A teardown that runs repo code (`pnpm run clean`) is still a way out. KRI-164 asks whether TED should ask first.
-- Remaining risk: pnpm’s `node_modules` files are hard links into the store that setup used, which is the user’s own, so writing a file in the worktree’s `node_modules` writes the user’s store. That holds for the agent in its own sandbox too.
+- ADR 0096 closes the teardown escape through agent-edited repo scripts, including `ted task repos remove`.
+- Remaining risk: existing `node_modules` files may be hard links into the user’s package store. ADR 0096 gives new Task setup installs private caches; it does not migrate existing worktrees.
 - Remaining risk: on Linux, `bwrap` resolves its bind paths when it starts. In a multi-repo Factory the Task Lead, in its own sandbox, can write the Task folder that holds the worktrees, so one that swaps a worktree for a link in the moment between TED’s check and `bwrap`’s start could still widen what a Check can write. The sandboxed Check itself can’t, since it holds no parent of what it was given. `--bind-fd` would close this where `bwrap` has it.
 - Remaining risk: sockets and the network are open. A sandboxed command can ask a Docker daemon, an ssh-agent, a tmux server or another local service to run something, and that runs outside the sandbox. The agent’s own sandbox has the same gap when it has network access.
 - Remaining risk: an iOS simulator App runs its built app in the simulator through CoreSimulator, outside the sandbox, and Xcode’s DerivedData isn’t writable, so building inside the App command fails.

@@ -8,10 +8,13 @@
 .sidebar {
   box-sizing: border-box;
   display: flex;
-  flex: 0 0 var(--sidebar-width);
+  flex: 1;
+  min-width: 0;
+  width: 100%;
   flex-direction: column;
   gap: 2px;
   padding: 14px 10px;
+  overflow-x: hidden;
   overflow-y: auto;
   border-right: 1px solid var(--border-subtle);
   background: var(--surface-sidebar);
@@ -175,6 +178,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
   min-height: 44px;
   box-sizing: border-box;
   padding: 12px 16px;
@@ -191,11 +195,11 @@
 }
 
 .rowText {
+  min-width: min(220px, 100%);
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
 }
 
 .titleLine {
@@ -219,6 +223,8 @@
 }
 
 .rowControls {
+  max-width: 100%;
+  flex-wrap: wrap;
   display: flex;
   flex-shrink: 0;
   align-items: center;
@@ -226,6 +232,9 @@
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 3px 9px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -307,6 +316,7 @@
 }
 
 .segmented {
+  flex-wrap: wrap;
   position: relative;
   display: inline-flex;
   gap: 2px;

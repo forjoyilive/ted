@@ -5,6 +5,7 @@ import { readableError, ted } from '../ted.ts'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import styles from './EditorPicker.module.css'
+import { Loading } from './Loading.tsx'
 
 export const customCommandHelp =
   'TED fills in {path}, {line} and {column} and starts the command without a shell. With no {path}, the path goes last.'
@@ -65,7 +66,9 @@ function EditorPicker({ onPick }: { onPick: (pick: EditorPick | undefined) => vo
             General.
           </p>
           {editors === undefined ? (
-            <p className={styles.body}>Looking for editors…</p>
+            <p className={styles.body}>
+              <Loading label="Looking for editors…" />
+            </p>
           ) : (
             <fieldset className={styles.choices}>
               <legend className={styles.legend}>Editor</legend>

@@ -115,3 +115,12 @@ export function planRequestLabel(request: PlanRequest): string {
 export function openPlanRequest(requests: readonly PlanRequest[]): PlanRequest | undefined {
   return requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
 }
+
+export interface RenamePlanRequest {
+  title: string
+}
+export interface PostPlanRequest {
+  round?: import('./task.ts').RoundInput
+  proposal?: import('./task.ts').ProposalInput
+  supersedes?: string
+}

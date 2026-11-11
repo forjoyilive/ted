@@ -4,7 +4,9 @@ import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
 import { GeneralPage } from '../src/renderer/settings/GeneralPage.tsx'
+import { LimitsPage } from '../src/renderer/settings/LimitsPage.tsx'
 import { NotificationsPage } from '../src/renderer/settings/NotificationsPage.tsx'
+import { StoragePage } from '../src/renderer/settings/StoragePage.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 
@@ -17,6 +19,30 @@ test('terminal font size saves and immediately applies the CSS variable', async 
   await user().selectOptions(screen.getByRole('combobox', { name: 'Terminal font size' }), '16')
   expect(a.request).toHaveBeenCalledWith('updateSettings', { terminalFontSize: 16 })
   expect(document.documentElement.style.getPropertyValue('--terminal-font-size')).toBe('16px')
+})
+
+test('text size steps by 5%, resets, and leaves terminal sizing independent', async () => {
+  const a = appState()
+  a.mount()
+  await a.settings()
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+  await user().click(screen.getByRole('button', { name: 'Increase text size' }))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 105 })
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1.05')
+  expect(screen.getByText('105%')).toBeTruthy()
+  expect(document.documentElement.style.getPropertyValue('--terminal-font-size')).toBe('13px')
+  await user().click(screen.getByRole('button', { name: /^Default$/ }))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 100 })
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+})
+
+test.each([80, 200])('text size disables the button at %s%%', async (textSize) => {
+  const a = appState()
+  a.state.settings.textSize = textSize
+  a.mount()
+  await a.settings()
+  const name = textSize === 80 ? 'Decrease text size' : 'Increase text size'
+  expect(screen.getByRole<HTMLButtonElement>('button', { name }).disabled).toBe(true)
 })
 
 test('source command row explains that installation requires an installed copy', async () => {
@@ -73,6 +99,68 @@ test('quit choice, login and Stay Awake switches send machine settings', async (
   ])
 })
 
+test('Limits changes how many Checks run at once and turns low priority off', async () => {
+  const update = vi.fn()
+  bridge({
+    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    simulators: () => ({ supported: false }),
+    updateSettings: update,
+  })
+  render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  await screen.findByText('Now: 0 of 6 Runs working')
+  const toggle = screen.getByRole('switch', { name: 'Run agents and Checks at low priority' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  expect(screen.getByText(/Applies to work started after you change it/)).toBeTruthy()
+  await user().click(toggle)
+  expect(screen.getByText('Checks running at once')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'More Checks at once' }))
+  await user().click(screen.getByRole('button', { name: 'Fewer Checks at once' }))
+  expect(update.mock.calls).toEqual([
+    [{ lowPriorityWork: false }],
+    [{ maxChecksAtOnce: 3 }],
+    [{ maxChecksAtOnce: 1 }],
+  ])
+})
+
+test('Storage sets how long Run output is kept after a Task is done', async () => {
+  const update = vi.fn()
+  bridge({
+    listFactories: () => [],
+    getStorage: () => ({
+      home: '~/.ted/',
+      usedBytes: 2e9,
+      freeBytes: 80e9,
+      volume: 'Macintosh HD',
+      categories: [{ id: 'conversations-and-logs', label: 'Conversations and logs', bytes: 1e9 }],
+      largestWorktrees: [],
+      removableClones: { count: 0, bytes: 0 },
+      simulators: { count: 0, bytes: 0 },
+      backups: [],
+      backupsDir: '~/.ted/backups/',
+    }),
+    updateSettings: update,
+  })
+  const { rerender } = render(<StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const group = await screen.findByRole('group', { name: 'Run output' })
+  const days = within(group).getByRole<HTMLSelectElement>('combobox', {
+    name: 'Keep Run output after a Task is done',
+  })
+  expect(days.value).toBe('7')
+  expect(
+    within(days)
+      .getAllByRole('option')
+      .map((o) => o.textContent),
+  ).toEqual(['1 day', '3 days', '7 days', '14 days', '30 days', '90 days', '365 days'])
+  await user().selectOptions(days, '30')
+  expect(update.mock.calls).toEqual([[{ runOutputDays: 30 }]])
+
+  rerender(
+    <StoragePage settings={{ ...defaultMachineSettings, runOutputDays: 45 }} dispatch={vi.fn()} />,
+  )
+  expect(days.value).toBe('45')
+  expect(within(days).getByRole('option', { name: '45 days' })).toBeTruthy()
+})
+
 test('login approval opens the fixed system-settings bridge action', async () => {
   const open = vi.fn()
   bridge({
@@ -125,12 +213,21 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
           runId: 'run-123456',
           agent: 'claude',
           state: 'idle',
-          cpuPercent: 0,
-          memoryBytes: 100,
+          cpuPercent: 12.5,
+          memoryBytes: 128 * 1024 * 1024,
           tokens: { input: 1, output: 2 },
         },
       ],
-      processes: [],
+      processes: [
+        {
+          pid: 123,
+          ppid: 1,
+          command: 'node',
+          owner: 'daemon',
+          cpuPercent: 2.4,
+          memoryBytes: 64 * 1024 * 1024,
+        },
+      ],
     }),
     readDaemonLog: () => ({ text: 'TED daemon 123 listening', truncated: false }),
     readRunOutput: () => ({ text: 'from the stub', truncated: false }),
@@ -138,6 +235,7 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+  expect(api.request).not.toHaveBeenCalledWith('getDiagnostics')
   await user().click(screen.getByRole('switch', { name: 'Developer mode' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: true })
   view.rerender(
@@ -147,6 +245,8 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
     />,
   )
   await screen.findByText('TED daemon 123 listening')
+  for (const reading of ['12.5%', '128 MB', '2.4%', '64 MB', 'System memory usage'])
+    expect(screen.getByText(reading)).toBeTruthy()
   expect(
     within(screen.getByRole('region', { name: 'Diagnostics' })).getByRole('cell', {
       name: 'run-1234',
@@ -159,6 +259,54 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: false })
   view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+})
+
+test('resource readings refresh while Developer mode is visible and stop when hidden', async () => {
+  const { DeveloperPage } = await import('../src/renderer/settings/DeveloperPage.tsx')
+  let cpuPercent = 12.5
+  const diagnostics = vi.fn(() => ({
+    memory: { totalBytes: 1024 ** 3, availableBytes: 512 * 1024 ** 2 },
+    runs: [
+      {
+        runId: 'live-run',
+        agent: 'codex',
+        state: 'working',
+        cpuPercent,
+        memoryBytes: 128 * 1024 ** 2,
+        tokens: { input: 0, output: 0 },
+      },
+    ],
+    processes: [],
+  }))
+  bridge({
+    tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    getDiagnostics: diagnostics,
+    readDaemonLog: () => ({ text: '', truncated: false }),
+  })
+  vi.useFakeTimers()
+  try {
+    const view = render(
+      <DeveloperPage
+        settings={{ ...defaultMachineSettings, developerMode: true }}
+        dispatch={vi.fn()}
+      />,
+    )
+    await act(async () => {})
+    expect(screen.getByText('12.5%')).toBeTruthy()
+    expect(screen.getByText('128 MB')).toBeTruthy()
+    cpuPercent = 37.8
+    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    expect(screen.getByText('37.8%')).toBeTruthy()
+    expect(screen.queryByText('12.5%')).toBeNull()
+    expect(diagnostics).toHaveBeenCalledTimes(2)
+
+    view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+    await act(async () => vi.advanceTimersByTimeAsync(4_000))
+    expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
+    expect(diagnostics).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('Settings shell lists all sections and opens a Factory’s settings', async () => {

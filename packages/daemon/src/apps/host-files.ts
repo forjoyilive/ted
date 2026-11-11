@@ -1,6 +1,8 @@
 import path from 'node:path'
+import type { LaunchAuthority } from '../runs/launch-authority.ts'
 
 export interface AppLaunchFile {
+  authority?: LaunchAuthority
   run: string
   cwd: string
   logBytes: number

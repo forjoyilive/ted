@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { AgentHealth, IntegrationsHealth } from '@ted/protocol'
+import { type AgentHealth, type IntegrationsHealth, integrationInstallPages } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
@@ -161,3 +161,52 @@ test('signed-out GitHub does not block Continue and Sign in opens its fix comman
   expect(a.request).toHaveBeenCalledWith('runFix', { fix: 'gh-login', host: 'github.com' })
   expect(github.getByText(/Opened gh auth login/)).toBeTruthy()
 })
+
+test.each(['not-installed', 'too-old'] as const)(
+  'Linux %s tools offer browser instructions without command controls',
+  async (state) => {
+    const a = open()
+    a.handle('runFix', () => ({ url: integrationInstallPages.gh }))
+    a.handle('checkIntegrations', () => integrations)
+    await screen.findAllByText('Ready')
+    await act(async () =>
+      a.emit({
+        type: 'integrations-checked',
+        health: {
+          ...integrations,
+          github: {
+            ...integrations.github,
+            cli: {
+              state,
+              version: '2.40.1',
+              fix: {
+                label:
+                  state === 'too-old' ? 'Update instructions ↗' : 'Installation instructions ↗',
+                url: integrationInstallPages.gh,
+              },
+            },
+          },
+          git: {
+            state: 'not-installed',
+            fix: { label: 'Installation instructions ↗', url: integrationInstallPages.git },
+          },
+        },
+      }),
+    )
+    const github = within(screen.getByRole('group', { name: 'GitHub' }))
+    const git = within(screen.getByRole('group', { name: 'Git' }))
+    for (const row of [github, git]) {
+      expect(row.queryByRole('button', { name: 'Copy command' })).toBeNull()
+      expect(row.queryByRole('button', { name: 'Open Terminal' })).toBeNull()
+    }
+    await user().click(github.getByRole('button', { name: /instructions ↗/ }))
+    expect(a.request).toHaveBeenCalledWith('runFix', {
+      fix: state === 'too-old' ? 'gh-update' : 'gh-install',
+    })
+    expect(github.getByText(/Opened instructions in your browser/)).toBeTruthy()
+    a.handle('runFix', () => ({ url: integrationInstallPages.git }))
+    await user().click(git.getByRole('button', { name: 'Installation instructions ↗' }))
+    expect(a.request).toHaveBeenCalledWith('runFix', { fix: 'git-install' })
+    expect(git.getByText(/Opened instructions in your browser/)).toBeTruthy()
+  },
+)
