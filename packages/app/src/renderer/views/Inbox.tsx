@@ -5,6 +5,7 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
+import { InboxRequestsContext } from '../inbox-requests.ts'
 import {
   answerConfirmation,
   type InboxConfirmation,
@@ -59,7 +60,7 @@ export function Inbox({
   const now = useNow()
   const manyFactories = factories.length > 1
   const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set())
-  const [confirmation, setConfirmation] = useState<InboxConfirmation>()
+  const [confirmation, setConfirmation] = useState<InboxConfirmation & { order: number }>()
   const known = useRef(new Map<string, string>())
   for (const item of items) known.current.set(item.request.id, item.task.displayId)
   for (const item of plans) known.current.set(item.request.id, item.plan.title)
@@ -78,7 +79,7 @@ export function Inbox({
         resolve([...known.current.keys()].filter((id) => !waiting.has(id)))
       }
     })
-    const stopAnswers = onRequestAnswered(({ source, request }) => {
+    const stopAnswers = onRequestAnswered(({ source, request, order }) => {
       const owner = known.current.get(request.id)
       if (owner === undefined || !request.answer) return
       resolve([request.id])
@@ -86,7 +87,10 @@ export function Inbox({
         source === 'automation'
           ? { text: `Answered ${owner}’s question` }
           : answerConfirmation(request, owner)
-      if (message) setConfirmation(message)
+      if (message)
+        setConfirmation((current) =>
+          current && current.order > order ? current : { ...message, order },
+        )
     })
     return () => {
       unsubscribe()
@@ -197,6 +201,7 @@ export function Inbox({
                     type="button"
                     className={styles.row}
                     data-plan-request={request.id}
+                    aria-current={request.id === selected ? 'true' : undefined}
                     onClick={() => onOpenPlan?.(item)}
                   >
                     <span className={styles.top}>
@@ -282,9 +287,19 @@ export function Inbox({
           </ul>
         )}
       </section>
-      {(next === undefined ? children : undefined) ?? (
-        <section className={views.pane} aria-label="Nothing open" />
-      )}
+      <InboxRequestsContext
+        value={
+          showAnswered
+            ? undefined
+            : {
+                selected,
+                resolved,
+                select: (id) => rows.find((row) => row.request.id === id)?.open(),
+              }
+        }
+      >
+        {children ?? <section className={views.pane} aria-label="Nothing open" />}
+      </InboxRequestsContext>
     </>
   )
 }

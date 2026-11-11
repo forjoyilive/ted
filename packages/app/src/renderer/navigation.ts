@@ -36,7 +36,7 @@ export type NavigationAction =
   | { type: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { type: 'open-factory'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
-  | { type: 'open-plan'; factoryId: string; planId?: string; from?: string }
+  | { type: 'open-plan'; factoryId: string; planId?: string; from?: string; requestId?: string }
   | { type: 'close-task' }
   | {
       type: 'open-automation'
@@ -86,6 +86,18 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       })
     }
     case 'open-plan': {
+      if (
+        state.screen.kind === 'inbox' &&
+        action.planId !== undefined &&
+        action.requestId !== undefined
+      ) {
+        return {
+          ...navigate(state, { type: 'open', screen: state.screen }),
+          planId: action.planId,
+          requestId: action.requestId,
+          lastFactoryId: action.factoryId,
+        }
+      }
       const opened = navigate(state, {
         type: 'open',
         screen: { kind: 'factory', factoryId: action.factoryId, view: 'plans' },
@@ -105,8 +117,9 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       })
     case 'open-task': {
       const { requestId: _, automation: __, ...rest } = state
+      const { planId: ___, planFrom: ____, ...withoutPlan } = rest
       return {
-        ...rest,
+        ...(state.screen.kind === 'inbox' ? withoutPlan : rest),
         taskId: action.taskId,
         ...(action.requestId !== undefined && { requestId: action.requestId }),
         ...(action.factoryId !== undefined && { lastFactoryId: action.factoryId }),
@@ -122,7 +135,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         ...(action.runId !== undefined && { runId: action.runId }),
       }
       if (state.screen.kind === 'inbox' && action.runId !== undefined) {
-        const { taskId: _, requestId: __, ...rest } = state
+        const { taskId: _, requestId: __, planId: ___, planFrom: ____, ...rest } = state
         return {
           ...rest,
           automation,
@@ -164,7 +177,10 @@ export function currentFactoryId(
   return state.lastFactoryId
 }
 
-type Place = Pick<Navigation, 'screen' | 'taskId' | 'requestId' | 'settings'>
+type Place = Pick<
+  Navigation,
+  'screen' | 'taskId' | 'requestId' | 'settings' | 'planId' | 'lastFactoryId'
+>
 
 export interface History {
   now: Navigation
@@ -180,12 +196,20 @@ export function startHistory(now: Navigation): History {
   return { now, back: [], forward: [] }
 }
 
-function placeOf({ screen, taskId, requestId, settings }: Navigation): Place {
+function placeOf({
+  screen,
+  taskId,
+  requestId,
+  settings,
+  planId,
+  lastFactoryId,
+}: Navigation): Place {
   return {
     screen,
     ...(taskId !== undefined && { taskId }),
     ...(requestId !== undefined && { requestId }),
     ...(settings !== undefined && { settings }),
+    ...(planId !== undefined && { planId, ...(lastFactoryId !== undefined && { lastFactoryId }) }),
   }
 }
 
@@ -194,7 +218,7 @@ function samePlace(a: Place, b: Place): boolean {
 }
 
 function goTo(state: Navigation, place: Place): Navigation {
-  const { taskId: _, requestId: __, settings: ___, ...rest } = state
+  const { taskId: _, requestId: __, settings: ___, planId: ____, ...rest } = state
   const { screen } = place
   return {
     ...rest,

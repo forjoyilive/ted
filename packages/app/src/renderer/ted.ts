@@ -53,10 +53,13 @@ function request<K extends keyof CustomRequests>(
   return customRequest(invoke, name, ...args)
 }
 
-export type AnsweredRequest =
+export type AnsweredRequest = { order: number } & (
   | { source: 'task'; request: Comment }
   | { source: 'plan'; request: PlanRequest }
   | { source: 'automation'; request: AutomationRequest }
+)
+
+let answerOrder = 0
 
 const answerListeners = new Set<(answer: AnsweredRequest) => void>()
 
@@ -76,18 +79,21 @@ const daemon = daemonRequests(invoke)
 export const ted = {
   ...daemon,
   answerRequest: async (...args: Parameters<typeof daemon.answerRequest>) => {
+    const order = ++answerOrder
     const request = await daemon.answerRequest(...args)
-    answered({ source: 'task', request })
+    answered({ source: 'task', request, order })
     return request
   },
   answerPlanRequest: async (...args: Parameters<typeof daemon.answerPlanRequest>) => {
+    const order = ++answerOrder
     const request = await daemon.answerPlanRequest(...args)
-    answered({ source: 'plan', request })
+    answered({ source: 'plan', request, order })
     return request
   },
   answerAutomationRequest: async (...args: Parameters<typeof daemon.answerAutomationRequest>) => {
+    const order = ++answerOrder
     const request = await daemon.answerAutomationRequest(...args)
-    answered({ source: 'automation', request })
+    answered({ source: 'automation', request, order })
     return request
   },
   getAutomation: (id: string) => request('getAutomation', id),

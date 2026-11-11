@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { Comment, InboxItem, PlanDetail, PlanInboxItem, RunChat } from '@ted/protocol'
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
@@ -347,3 +348,217 @@ test('Review opens repo-specific file and full diffs, then returns with the answ
   )
   expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
 })
+
+test.each(['response-first', 'event-first'] as const)(
+  'answering a thread-chip selection closes that request without remounting the thread (%s)',
+  async (order) => {
+    const a = appState()
+    a.state.tasks = [task()]
+    const first = comment({ body: 'Keep the settings?', choices: ['Yes'] })
+    const second = comment({
+      id: 'c2',
+      kind: 'permission',
+      body: 'Build the preview?',
+      permission: { command: 'pnpm build' },
+    })
+    const comments = [first, second]
+    a.state.inbox = comments.map((request) => ({ task: task(), request }))
+    a.handle('listComments', () => comments)
+    a.handle('markCommentsRead', () => ({ read: 1 }))
+    const reply = deferred<Comment>()
+    a.handle('answerRequest', (id) => {
+      expect(id).toBe(second.id)
+      return reply.promise
+    })
+    a.mount()
+    const inbox = await screen.findByRole('region', { name: 'Inbox' })
+    await user().click(await within(inbox).findByText('Keep the settings?'))
+    const thread = await screen.findByRole('region', { name: 'Task thread' })
+    const chips = await within(thread).findByRole('group', { name: '2 waiting on you' })
+    await user().click(within(chips).getByRole('button', { name: /^Permission/ }))
+    expect(
+      required(within(inbox).getByText('Build the preview?').closest('button')).getAttribute(
+        'aria-current',
+      ),
+    ).toBe('true')
+    await user().click(
+      within(screen.getByRole('region', { name: 'Permission', exact: true })).getByRole('button', {
+        name: 'Deny',
+      }),
+    )
+    const refresh = deferred<InboxItem[]>()
+    a.handle('listInbox', () => refresh.promise)
+    const answered: Comment = { ...second, answer: { kind: 'denied', at: createdAt } }
+    if (order === 'response-first') await act(async () => reply.resolve(answered))
+    else await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
+    expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
+    const remaining = await screen.findByRole('region', { name: 'Question', exact: true })
+    expect(within(remaining).getByText('Keep the settings?')).toBeTruthy()
+    expect(within(thread).queryByRole('region', { name: 'Permission', exact: true })).toBeNull()
+    expect(within(thread).queryByText('You denied')).toBeNull()
+    const draft = within(remaining).getByRole('textbox', { name: 'Your answer' })
+    await user().type(draft, 'Keep this unfinished answer')
+    if (order === 'response-first')
+      await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
+    else await act(async () => reply.resolve(answered))
+    expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
+    expect(draft).toBe(
+      within(screen.getByRole('region', { name: 'Question', exact: true })).getByRole('textbox', {
+        name: 'Your answer',
+      }),
+    )
+    expect(within(remaining).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
+    expect(within(inbox).getByRole('status').textContent).toBe('Denied NB-1’s permission request')
+    await act(async () => refresh.resolve([{ task: task(), request: first }]))
+    expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
+    expect(within(remaining).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
+  },
+)
+
+test('a delayed earlier response does not replace the newest answer confirmation', async () => {
+  const a = appState()
+  const nextTask = task({ id: 'NB-2', displayId: 'NB-2', number: 2 })
+  a.state.tasks = [task(), nextTask]
+  const first = comment({ body: 'Keep the settings?', choices: ['Yes'] })
+  const second = comment({
+    id: 'c2',
+    taskId: nextTask.id,
+    kind: 'permission',
+    body: 'Build the preview?',
+    permission: { command: 'pnpm build' },
+  })
+  const comments = [first, second]
+  a.state.inbox = comments.map((request) => ({
+    task: request.taskId === nextTask.id ? nextTask : task(),
+    request,
+  }))
+  a.handle('listComments', (id) => comments.filter((request) => request.taskId === id))
+  a.handle('markCommentsRead', () => ({ read: 1 }))
+  const reply = deferred<Comment>()
+  const answered: Comment = { ...first, answer: { kind: 'answered', at: createdAt, choice: 'Yes' } }
+  a.handle('answerRequest', (id) => {
+    if (id === first.id) {
+      a.emit({ type: 'comment-updated', comment: answered })
+      return reply.promise
+    }
+    return { ...second, answer: { kind: 'approved', at: createdAt } }
+  })
+  a.mount()
+  const inbox = await screen.findByRole('region', { name: 'Inbox' })
+  await user().click(await within(inbox).findByText('Keep the settings?'))
+  const refresh = deferred<never[]>()
+  a.handle('listInbox', () => refresh.promise)
+  await user().click(
+    within(await screen.findByRole('region', { name: 'Question', exact: true })).getByRole(
+      'button',
+      { name: 'Yes' },
+    ),
+  )
+  const card = await screen.findByRole('region', { name: 'Permission', exact: true })
+  await user().click(within(card).getByRole('button', { name: /^Approve/ }))
+  await screen.findByText('Nothing waiting on you')
+  const status = within(inbox).getByRole('status')
+  expect(status.textContent).toBe('Approved NB-2’s permission requestThis request only')
+  await act(async () => reply.resolve(answered))
+  expect(status.textContent).toBe('Approved NB-2’s permission requestThis request only')
+  await act(async () => refresh.resolve([]))
+})
+
+test.each(['response-first', 'event-first'] as const)(
+  'automatically opening a Planning request keeps Inbox confirmation (%s)',
+  async (order) => {
+    const a = appState()
+    a.state.tasks = [task()]
+    const first = comment({ body: 'Keep the settings?', choices: ['Yes'] })
+    a.state.inbox = [{ task: task(), request: first }]
+    a.handle('listComments', () => [first])
+    a.handle('markCommentsRead', () => ({ read: 1 }))
+    const detail: PlanDetail = {
+      plan: {
+        id: 'p1',
+        factoryId: 'f1',
+        factoryKey: 'NB',
+        title: 'Plan the settings update',
+        message: 'Make settings clearer.',
+        agent: 'claude',
+        status: 'waiting',
+        createdAt,
+        createdTasks: 0,
+        runId: 'planner',
+      },
+      requests: [
+        {
+          id: 'round1',
+          planId: 'p1',
+          runId: 'planner',
+          kind: 'round',
+          author: 'run',
+          title: 'Next settings change',
+          body: '',
+          createdAt,
+          round: {
+            number: 1,
+            questions: [{ question: 'What should change?', recommended: 'Keep it simple' }],
+          },
+        },
+      ],
+      tasks: [],
+    }
+    let plans: PlanInboxItem[] = [{ plan: detail.plan, request: required(detail.requests[0]) }]
+    a.handle('planInbox', () => plans)
+    a.handle('getPlan', () => detail)
+    const chat: RunChat = {
+      run: {
+        id: 'planner',
+        name: 'Planner',
+        role: 'run',
+        agent: 'claude',
+        state: 'waiting',
+        startedAt: createdAt,
+        current: true,
+      },
+      items: [],
+    }
+    a.handle('getRunChat', () => chat)
+    const reply = deferred<Comment>()
+    a.handle('answerRequest', () => reply.promise)
+    a.handle('answerPlanRequest', () => {
+      plans = []
+      return { ...required(detail.requests[0]), answer: { kind: 'answered', at: createdAt } }
+    })
+    a.mount()
+    const inbox = await screen.findByRole('region', { name: 'Inbox' })
+    await within(inbox).findByText('Next settings change')
+    await user().click(await within(inbox).findByText('Keep the settings?'))
+    const refresh = deferred<never[]>()
+    a.handle('listInbox', () => refresh.promise)
+    await user().click(
+      within(await screen.findByRole('region', { name: 'Question', exact: true })).getByRole(
+        'button',
+        { name: 'Yes' },
+      ),
+    )
+    const answered: Comment = {
+      ...first,
+      answer: { kind: 'answered', at: createdAt, choice: 'Yes' },
+    }
+    if (order === 'response-first') await act(async () => reply.resolve(answered))
+    else await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
+    const planning = await screen.findByRole('region', { name: 'Planning chat' })
+    await within(planning).findByRole('button', { name: 'Submit answers' })
+    expect(screen.getByRole('region', { name: 'Inbox' })).toBe(inbox)
+    expect(within(planning).getByRole('button', { name: '← Inbox' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
+    if (order === 'response-first')
+      await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
+    else await act(async () => reply.resolve(answered))
+    expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+    await user().click(within(planning).getByRole('button', { name: 'Submit answers' }))
+    await screen.findByText('Nothing waiting on you')
+    expect(within(inbox).getByRole('status').textContent).toBe(
+      'Answered Plan the settings update’s Clarify round',
+    )
+    expect(screen.queryByRole('region', { name: 'Planning chat' })).toBeNull()
+    await act(async () => refresh.resolve([]))
+  },
+)

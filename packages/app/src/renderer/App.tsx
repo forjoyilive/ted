@@ -687,12 +687,37 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           },
         })
       }
+      const planFactory =
+        navigation.planId === undefined
+          ? undefined
+          : factories.find((factory) => factory.id === navigation.lastFactoryId)
+      const planned =
+        planFactory && navigation.planId ? (
+          <PlanChatView
+            key={navigation.planId}
+            factory={planFactory}
+            planId={navigation.planId}
+            backLabel="← Inbox"
+            onBack={() => dispatch({ type: 'open', screen })}
+            onDeleted={() => dispatch({ type: 'open', screen })}
+            onOpenTask={openTaskByRef}
+            onOpenPlan={(planId) =>
+              dispatch({ type: 'open-plan', factoryId: planFactory.id, planId })
+            }
+            onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: planFactory.id, from })}
+          />
+        ) : undefined
       return (
         <Inbox
           items={inbox}
           plans={planInbox}
-          onOpenPlan={({ plan }) =>
-            dispatch({ type: 'open-plan', factoryId: plan.factoryId, planId: plan.id })
+          onOpenPlan={({ plan, request }) =>
+            dispatch({
+              type: 'open-plan',
+              factoryId: plan.factoryId,
+              planId: plan.id,
+              requestId: request.id,
+            })
           }
           answered={answered}
           factories={factories}
@@ -724,6 +749,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onNewTask={() => openNewTask()}
         >
           {opened ??
+            planned ??
             (navigation.automation?.runId === undefined
               ? undefined
               : automationRun(navigation.automation.id, navigation.automation.runId))}
