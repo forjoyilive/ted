@@ -257,11 +257,12 @@ describe('test slots', () => {
       return release
     })
     await pause(30)
-    const full = acquireFullRun({ ...slots(), pid: 4242, yieldMs: 100 })
+    const big = liveProcess()
+    const full = acquireFullRun({ ...slots(), pid: big, yieldMs: 100 })
     await pause(60)
     await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
     await pause(200)
-    expect(await readFile(file, 'utf8')).toBe('4242\n')
+    expect(await readFile(file, 'utf8')).toBe(`${big}\n`)
     expect(small).toBe(false)
 
     children[0]?.kill()
