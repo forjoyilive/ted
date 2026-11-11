@@ -24,7 +24,9 @@ import {
   type Effort,
   efforts,
   type Factory,
+  type FindingSeverity,
   filterTedEnv,
+  findingSeverities,
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
@@ -979,6 +981,10 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {
         throw new UsageError(`--cause takes ${declaredSendBackCauses.join(', ')}`)
       }
+      const severity = options.severity?.toLowerCase()
+      if (severity !== undefined && !findingSeverities.includes(severity as FindingSeverity)) {
+        throw new UsageError(`--severity takes ${findingSeverities.join(', ')}`)
+      }
       const result = await withDaemon(home, (client) =>
         client.reportOutcome(ref, {
           outcome: 'back',
@@ -986,6 +992,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           findings,
           ...(judged && { judged }),
           ...(cause !== undefined && { cause: cause as DeclaredSendBackCause }),
+          ...(severity !== undefined && { severity: severity as FindingSeverity }),
         }),
       )
       console.log(result.message)

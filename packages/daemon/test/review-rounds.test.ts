@@ -188,6 +188,7 @@ describe('Validate rounds', () => {
       )
       expect(output).toMatch(/SECOND: .*this Validate visit already has its reviewer \(Run /)
       expect(output).toContain('PLAIN: ted: in Validate the only sub-agent is TED’s reviewer')
+      expect(output).toContain('`stages.validate.sub_agents: true`')
 
       const messages = userMessages(await leadRun(client, task))
       const back = messages.find((m) => m.startsWith('TED moved this Task back to Work.'))

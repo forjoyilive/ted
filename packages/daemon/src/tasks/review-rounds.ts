@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { SendBackCause } from '@ted/protocol'
+import { p1Meaning, p1OnlyLeadRule, p1OnlyReviewerRule } from './validate-settings.ts'
 
 const findingsCap = 8_000
 const filesCap = 100
@@ -37,8 +38,7 @@ export interface ConflictSendBack {
   findings: string
 }
 
-const p1 =
-  'P1 means the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for.'
+const p1 = p1Meaning
 
 function quoted(rounds: readonly EarlierRound[]): string {
   const fence = `<<<FINDINGS ${randomUUID()}>>>`
@@ -71,12 +71,15 @@ export function validateRoundText(input: {
   rounds: readonly EarlierRound[]
   scoped: boolean
   baseConflict?: boolean
+  p1OnlyFrom?: number
+  subAgents?: boolean
 }): string {
-  const { round, limit, rounds, scoped, baseConflict } = input
+  const { round, limit, rounds, scoped, baseConflict, p1OnlyFrom, subAgents } = input
   const back = round - 1
   const sentBack = `This is round ${round} of Validate for this Task: Validate has sent it back ${back} ${back === 1 ? 'time' : 'times'}${limit === undefined ? '' : `, and the limit is ${limit}`}.`
-  const oneReview =
-    '- Don’t review this diff any other way: no second reviewer, no other sub-agent, no `/codex-review`, no other review tool or service. TED refuses a second reviewer and any other sub-agent in Validate.'
+  const oneReview = subAgents
+    ? '- Don’t review this diff any other way: no second reviewer, no sub-agent that reviews it, no `/codex-review`, no other review tool or service. TED refuses a second reviewer in Validate.'
+    : '- Don’t review this diff any other way: no second reviewer, no other sub-agent, no `/codex-review`, no other review tool or service. TED refuses a second reviewer and any other sub-agent in Validate.'
   if (baseConflict) {
     return [
       `# Validate round ${round}`,
@@ -84,7 +87,9 @@ export function validateRoundText(input: {
       [
         '- Start one reviewer with `ted run start --reviewer --prompt-file <file>` and give it the diff against the base branch and the earlier Findings. Ask it to check that each earlier Finding is still fixed and that the conflict resolution kept both sides’ behaviour.',
         oneReview,
-        '- Sort Findings as in a first round: a problem anywhere in the change can be blocking.',
+        p1OnlyFrom === undefined
+          ? '- Sort Findings as in a first round: a problem anywhere in the change can be blocking.'
+          : p1OnlyLeadRule(p1OnlyFrom),
       ].join('\n'),
       ...(rounds.length > 0 ? [quoted(rounds)] : []),
     ].join('\n\n')
@@ -100,9 +105,11 @@ export function validateRoundText(input: {
         ? '- Start one reviewer with `ted run start --reviewer --prompt-file <file>`. TED gives it the earlier Findings and the diff since the commit the last round reviewed, and tells it to check only those. Your prompt file adds context, such as the Task and its acceptance criteria. It can’t widen the review.'
         : '- Start one reviewer with `ted run start --reviewer --prompt-file <file>` and give it the diff against the base branch and the earlier Findings.',
       oneReview,
-      scoped
-        ? `- A new Finding about code the fixes didn’t touch is a note, not a blocking Finding, unless it is P1. ${p1} List those notes in your note so the human sees them at Review.`
-        : '- Sort Findings as in a first round: a problem anywhere in the change can be blocking.',
+      p1OnlyFrom !== undefined
+        ? p1OnlyLeadRule(p1OnlyFrom)
+        : scoped
+          ? `- A new Finding about code the fixes didn’t touch is a note, not a blocking Finding, unless it is P1. ${p1} List those notes in your note so the human sees them at Review.`
+          : '- Sort Findings as in a first round: a problem anywhere in the change can be blocking.',
     ].join('\n'),
     ...(rounds.length > 0 ? [quoted(rounds)] : []),
   ].join('\n\n')
@@ -136,8 +143,9 @@ export function scopedReviewPrompt(input: {
   repos: readonly FixesSince[]
   multiRepo: boolean
   added: string
+  p1OnlyFrom?: number
 }): string {
-  const { displayId, round, rounds, repos, multiRepo, added } = input
+  const { displayId, round, rounds, repos, multiRepo, added, p1OnlyFrom } = input
   const fence = `<<<TASK LEAD ${randomUUID()}>>>`
   const changed = repos.map((repo) => {
     const files = changedFiles(repo)
@@ -160,6 +168,7 @@ export function scopedReviewPrompt(input: {
       '2. Check that the fixes broke nothing in the lines they changed or in code that depends directly on those lines.',
       `3. Don’t review the rest of the branch again. If you see a problem in code this diff didn’t change, report it under “Outside the fixes”. It is a note, not a blocking Finding, unless it is P1. ${p1}`,
     ].join('\n'),
+    ...(p1OnlyFrom === undefined ? [] : [p1OnlyReviewerRule(p1OnlyFrom)]),
     `## What changed since the last review\n\n${changed.join('\n')}\n\nRun the command to read the diff. Don’t change any files.`,
     `## Earlier Findings\n\n${quoted(rounds)}`,
     '## Your report\n\nEnd with three lists: each earlier Finding as fixed or not fixed; new blocking Findings in the changed lines, each with its file, line and effect; notes, with the ones outside the fixes marked.',

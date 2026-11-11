@@ -35,6 +35,8 @@ export interface StageSettings {
   depth?: string
   checks?: CheckSettings[]
   loop_check?: number | false
+  p1_only_from?: number | false
+  sub_agents?: boolean
 }
 
 export interface WorktreeCommand {
@@ -373,6 +375,18 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             else if (scalar(node) !== false && !wholeNumber(node, 1)) {
               error(node, `\`${path}\` must be a whole number above 0, or false`)
             } else stage.loop_check = scalar(node) as number | false
+            break
+          case 'p1_only_from':
+            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            else if (scalar(node) !== false && !wholeNumber(node, 2)) {
+              error(node, `\`${path}\` must be a round number, 2 or more, or false`)
+            } else stage.p1_only_from = scalar(node) as number | false
+            break
+          case 'sub_agents':
+            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            else if (typeof scalar(node) !== 'boolean') {
+              error(node, `\`${path}\` must be true or false`)
+            } else stage.sub_agents = scalar(node) as boolean
             break
           case 'checks':
             if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)

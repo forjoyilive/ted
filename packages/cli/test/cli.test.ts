@@ -811,6 +811,30 @@ describe('ted workflow check', () => {
     ])
   })
 
+  test('accepts the Validate round settings and rejects a P1-only round below 2', async () => {
+    await writeLayer({
+      'workflow.yaml': 'version: 1\nstages:\n  validate: { p1_only_from: 3, sub_agents: true }\n',
+    })
+    expect((await ted(['workflow', 'check'])).stdout.trim()).toBe('No problems in .ted')
+
+    await writeLayer({
+      'workflow.yaml':
+        'version: 1\nstages:\n  validate:\n    p1_only_from: 1\n    sub_agents: sure\n',
+    })
+    const failure = await ted(['workflow', 'check']).then(
+      () => undefined,
+      (error: { code: number; stdout: string }) => error,
+    )
+
+    expect(failure?.code).toBe(1)
+    expect(failure?.stdout.split('\n')).toEqual([
+      '.ted/workflow.yaml:4:19: error: `stages.validate.p1_only_from` must be a round number, 2 or more, or false',
+      '.ted/workflow.yaml:5:17: error: `stages.validate.sub_agents` must be true or false',
+      '2 errors',
+      '',
+    ])
+  })
+
   test('reports YAML that doesn’t parse, for a file named on the command line', async () => {
     await writeLayer({ 'workflow.yaml': 'order: [intake, work\n' })
 

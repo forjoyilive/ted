@@ -60,6 +60,10 @@ _Avoid_: Test (when meaning the command), CI job
 Something Validate found wrong with a Task’s work. A blocking Finding sends the Task back to Work; a note carries forward to Review.
 _Avoid_: Issue, bug, comment
 
+**P1**:
+The highest severity of a Finding: the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. From Validate’s second round a new Finding about code the fixes didn’t touch is blocking only if it is P1, and a Factory can set a round from which only P1 Findings send a Task back.
+_Avoid_: Critical, blocker, severity 1
+
 **Failure case**:
 A record of one failure, its evidence, the Task Lead’s assessment and the human’s decision. Accepting a failure case allows that failure in its tested context; the original result stays failed.
 _Avoid_: Passed failure, ignored Check

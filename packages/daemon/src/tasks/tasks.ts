@@ -38,6 +38,7 @@ import type {
   FailureCase,
   FailureContext,
   FileDiff,
+  FindingSeverity,
   InboxItem,
   LinearFile,
   LinearIssue,
@@ -302,6 +303,12 @@ import {
 } from './split.ts'
 import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
+import {
+  p1OnlyAt,
+  p1OnlyRefusal,
+  p1OnlyReviewPrompt,
+  subAgentsInValidate,
+} from './validate-settings.ts'
 import { type CommandResult, copyFiles, outputTail } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
@@ -2645,6 +2652,8 @@ export function createTasks(options: {
     reviewerFor: (task) => reviewerFor(task),
     visitStart: (task) => visitStart(task),
     planReview: (task, prompt) => planReview(task, prompt),
+    validateSubAgents: async (task) =>
+      subAgentsInValidate((await taskWorkflow(task, { fetch: false })).workflow),
     async envFor(task, repo) {
       const appVars = await apps.envFor(task.id)
       const recorded = store.recordedSetup(task.id, repo.name)?.env
@@ -4993,8 +5002,22 @@ export function createTasks(options: {
 
   async function planReview(task: StoredTask, prompt: string): Promise<PlannedReview> {
     const { round, commits, rounds, fixes, conflict } = await reviewRound(task)
+    const p1OnlyFrom = p1OnlyAt((await taskWorkflow(task, { fetch: false })).workflow, round)
+    const p1Only = p1OnlyFrom === undefined ? {} : { p1OnlyFrom }
     if (fixes === undefined) {
-      return { prompt, scope: { taskId: task.id, scope: 'full', round, commits } }
+      return {
+        prompt:
+          p1OnlyFrom === undefined
+            ? prompt
+            : p1OnlyReviewPrompt({
+                displayId: task.displayId,
+                round,
+                from: p1OnlyFrom,
+                added: prompt,
+              }),
+        scope: { taskId: task.id, scope: 'full', round, commits },
+        ...p1Only,
+      }
     }
     const since = fixes.map(({ name, since }) => ({ name, commit: since }))
     if (conflict !== undefined) {
@@ -5011,6 +5034,7 @@ export function createTasks(options: {
       }
     }
     return {
+      ...p1Only,
       prompt: scopedReviewPrompt({
         displayId: task.displayId,
         round,
@@ -5018,6 +5042,7 @@ export function createTasks(options: {
         repos: fixes,
         multiRepo: fixes.length > 1,
         added: prompt,
+        ...p1Only,
       }),
       scope: {
         taskId: task.id,
@@ -5045,7 +5070,30 @@ export function createTasks(options: {
       scoped: fixes !== undefined,
       ...(baseConflict && { baseConflict }),
       ...(limit !== undefined && { limit }),
+      ...validateRoundSettings(workflow, round),
     })
+  }
+
+  function validateRoundSettings(workflow: ResolvedWorkflow, round: number) {
+    const p1OnlyFrom = p1OnlyAt(workflow, round)
+    return {
+      ...(p1OnlyFrom !== undefined && { p1OnlyFrom }),
+      ...(subAgentsInValidate(workflow) && { subAgents: true }),
+    }
+  }
+
+  function declareSeverity(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+    runId: string,
+    severity: FindingSeverity | undefined,
+  ): void {
+    const round = store.sendBackCount(task.id, 'validate') + 1
+    const from = p1OnlyAt(workflow, round)
+    if (from !== undefined && severity !== 'p1' && lastChangesRequested(task) === '') {
+      throw new RequestError(409, p1OnlyRefusal(round, from))
+    }
+    if (severity !== undefined) store.declareSeverity({ taskId: task.id, runId, round, severity })
   }
 
   function backMessage(
@@ -7750,6 +7798,13 @@ export function createTasks(options: {
         if (outcome.judged !== undefined && task.stage !== 'validate') {
           throw new RequestError(400, 'only Validate reports the review and visual results')
         }
+        if (
+          outcome.outcome === 'back' &&
+          outcome.severity !== undefined &&
+          task.stage !== 'validate'
+        ) {
+          throw new RequestError(400, 'only Validate declares a Finding’s severity')
+        }
         if (outcome.outcome === 'advance' && outcome.design) {
           if (task.stage !== 'design') {
             throw new RequestError(400, 'only Design posts a design review')
@@ -7826,6 +7881,7 @@ export function createTasks(options: {
           const conflict = declared ? await baseConflict(current) : undefined
           if (stage === 'validate') {
             checkBack(workflow, stage, outcome.to)
+            if (!conflict) declareSeverity(current, workflow, runId, outcome.severity)
             judge(current, 'sent-back', outcome.judged)
           }
           if (conflict) {

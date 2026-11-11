@@ -2,6 +2,8 @@ import { stripVTControlCharacters } from 'node:util'
 import {
   type DeclaredSendBackCause,
   declaredSendBackCauses,
+  type FindingSeverity,
+  findingSeverities,
   type RunChecksRequest,
 } from './checks.ts'
 import { proposalCycle } from './proposal.ts'
@@ -405,12 +407,17 @@ export function parseReportOutcomeRequest(body: unknown): ReportOutcomeRequest {
     if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {
       throw new HttpError(400, `cause must be one of ${declaredSendBackCauses.join(', ')}`)
     }
+    const severity = request.severity
+    if (severity !== undefined && !findingSeverities.includes(severity as FindingSeverity)) {
+      throw new HttpError(400, `severity must be one of ${findingSeverities.join(', ')}`)
+    }
     return {
       outcome: 'back',
       to: to as AgentStageId,
       findings,
       ...(judged && { judged }),
       ...(cause !== undefined && { cause: cause as DeclaredSendBackCause }),
+      ...(severity !== undefined && { severity: severity as FindingSeverity }),
     }
   }
   if (request.outcome === 'ask') {

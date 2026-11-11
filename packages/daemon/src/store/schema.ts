@@ -291,6 +291,31 @@ export const baseConflicts = State.SQLite.table({
   },
 })
 
+export const p1OnlyReviews = State.SQLite.table({
+  name: 'p1OnlyReviews',
+  indexes: [{ name: 'idx_p1OnlyReviews_taskId', columns: ['taskId'] }],
+  columns: {
+    runId: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    round: State.SQLite.integer(),
+    from: State.SQLite.integer(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const severityDeclarations = State.SQLite.table({
+  name: 'severityDeclarations',
+  indexes: [{ name: 'idx_severityDeclarations_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    round: State.SQLite.integer(),
+    severity: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const loopChecks = State.SQLite.table({
   name: 'loopChecks',
   indexes: [{ name: 'idx_loopChecks_taskId', columns: ['taskId'] }],
@@ -2379,6 +2404,27 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  p1OnlyReviewRecorded: Events.synced({
+    name: 'v1.SeverityRuleReviewRecorded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      round: Schema.Number,
+      from: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  sendBackSeverityDeclared: Events.synced({
+    name: 'v1.SendBackSeverityDeclared',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      runId: Schema.String,
+      round: Schema.Number,
+      severity: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   validateJudged: Events.synced({
     name: 'v1.ValidateJudged',
     schema: Schema.Struct({
@@ -2795,6 +2841,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       fileCount: args.fileCount,
       sendBackId: args.sendBackId,
     }),
+  'v1.SendBackSeverityDeclared': (args) =>
+    task(args, { runId: args.runId, round: args.round, severity: args.severity }),
+  'v1.SeverityRuleReviewRecorded': (args) =>
+    task(args, { runId: args.runId, round: args.round, from: args.from }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
   'v4.RunStarted': (args) => {
@@ -3182,6 +3232,8 @@ const materializers = counted(
         sendBacks.delete().where({ taskId }),
         reviewScopes.delete().where({ taskId }),
         baseConflicts.delete().where({ taskId }),
+        p1OnlyReviews.delete().where({ taskId }),
+        severityDeclarations.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
@@ -3276,6 +3328,8 @@ const materializers = counted(
         sendBacks.update({ cause }).where({ id: sendBackId }),
       'v1.BaseConflictFound': ({ files, ...row }) =>
         baseConflicts.insert({ ...row, files: JSON.stringify(files) }),
+      'v1.SeverityRuleReviewRecorded': (row) => p1OnlyReviews.insert(row),
+      'v1.SendBackSeverityDeclared': (row) => severityDeclarations.insert(row),
       'v1.ValidateJudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.LoopCheckStarted': ({ to, ...row }) =>
@@ -3755,6 +3809,8 @@ const state = State.SQLite.makeState({
     reviewers,
     reviewScopes,
     baseConflicts,
+    p1OnlyReviews,
+    severityDeclarations,
     loopChecks,
     sendBackAsks,
     runMessages,
