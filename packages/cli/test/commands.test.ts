@@ -216,7 +216,7 @@ describe('importable CLI execution', () => {
       requests.push({
         url: req.url ?? '',
         authorization: req.headers.authorization,
-        body: JSON.parse(text),
+        body: text === '' ? undefined : JSON.parse(text),
       })
       res.setHeader('content-type', 'application/json')
       res.end(
@@ -323,7 +323,7 @@ describe('commands merged from the latest base', () => {
     const server = createServer(async (req, res) => {
       let text = ''
       for await (const chunk of req) text += chunk
-      requests.push({ url: req.url ?? '', body: JSON.parse(text) })
+      requests.push({ url: req.url ?? '', body: text === '' ? undefined : JSON.parse(text) })
       res.setHeader('content-type', 'application/json')
       res.end('{}')
     })
@@ -429,10 +429,145 @@ describe('commands merged from the latest base', () => {
         ),
       ).toBe(2)
       expect(requests).toHaveLength(4)
+      for (const args of [
+        ['peers', '--offset', '3'],
+        ['peers', 'inbox', '--offset', '4'],
+        ['coordinator', 'tasks', '--offset', '5'],
+        ['coordinator', 'task', 'NB-1', '--offset', '6'],
+        ['coordinator', 'move', ...common, '--after', 'NB-0', '--neighbours', '{"NB-0":"rank"}'],
+      ])
+        expect(await runCli(args, runtime)).toBe(0)
+      expect(
+        await runCli(['coordinator', 'tell', ...common], {
+          ...runtime,
+          stdin: async () => '  Keep going  ',
+        }),
+      ).toBe(0)
+      expect(requests.slice(4)).toEqual([
+        { url: '/peers?offset=3', body: undefined },
+        { url: '/peers/inbox?offset=4', body: undefined },
+        { url: '/coordinator/tasks?offset=5', body: undefined },
+        { url: '/coordinator/tasks/NB-1?offset=6', body: undefined },
+        {
+          url: '/coordinator/tasks/NB-1/move',
+          body: {
+            operation: 'op',
+            version: 'version',
+            after: 'NB-0',
+            neighbours: { 'NB-0': 'rank' },
+          },
+        },
+        {
+          url: '/coordinator/tasks/NB-1/tell',
+          body: { operation: 'op', version: 'version', message: 'Keep going' },
+        },
+      ])
     } finally {
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       )
     }
+  })
+})
+
+describe('invalid command input is rejected before connecting', () => {
+  test.each([
+    ['peers', '--offset=-1'],
+    ['peers', 'inbox', '--offset', 'NaN'],
+    ['coordinator', 'tasks', '--offset=-1'],
+    ['coordinator', 'task', 'NB-1', '--offset', '0.5'],
+    ['coordinator', 'start', 'NB-1'],
+    ['coordinator', 'move', 'NB-1', '--operation', 'op', '--version', 'v', '--neighbours', '{'],
+    ['coordinator', 'tell', 'NB-1', '--operation', 'op'],
+    ['coordinator', 'tell', 'NB-1', '--operation', 'op', '--version', 'v', '--message', ' '],
+    ['coordinator', 'answer', 'NB-1', '--operation', 'op', '--version', 'v'],
+    [
+      'coordinator',
+      'answer',
+      'NB-1',
+      '--operation',
+      'op',
+      '--version',
+      'v',
+      '--request',
+      'r',
+      '--choice',
+      'A',
+      '--choice',
+      'B',
+    ],
+    [
+      'coordinator',
+      'answer',
+      'NB-1',
+      '--operation',
+      'op',
+      '--version',
+      'v',
+      '--request',
+      'r',
+      '--approve',
+      '--request-changes',
+    ],
+    [
+      'coordinator',
+      'answer',
+      'NB-1',
+      '--operation',
+      'op',
+      '--version',
+      'v',
+      '--request',
+      'r',
+      '--answers',
+      '{',
+    ],
+    [
+      'coordinator',
+      'answer',
+      'NB-1',
+      '--operation',
+      'op',
+      '--version',
+      'v',
+      '--request',
+      'r',
+      '--approve',
+      '--skip-rows',
+      '{',
+    ],
+    [
+      'coordinator',
+      'answer',
+      'NB-1',
+      '--operation',
+      'op',
+      '--version',
+      'v',
+      '--request',
+      'r',
+      '--request-changes',
+      '--message',
+      ' ',
+    ],
+    ['coordinator', 'resume', 'NB-1', '--operation', 'op'],
+    ['peers', 'watch', '--timeout', '26'],
+  ])('usage error without connecting: %j', async (...args) => {
+    let connections = 0
+    let error = ''
+    const code = await runCli(args, {
+      env: {},
+      stdout: () => {},
+      stderr: (text) => {
+        error += text
+      },
+      stdin: async () => '',
+      connect: async () => {
+        connections++
+        throw new Error('connector must not be reached')
+      },
+    })
+    expect({ code, connections }).toEqual({ code: 2, connections: 0 })
+    expect(error).not.toContain('connector must not be reached')
   })
 })

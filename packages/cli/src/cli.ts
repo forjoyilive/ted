@@ -11,6 +11,7 @@ import {
   agentKinds,
   type Banner,
   type ClarifyDepth,
+  type CoordinatorAction,
   DaemonClient,
   DaemonUnreachableError,
   type DesignFileInput,
@@ -646,82 +647,76 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     return value
   }
 
+  function jsonOption(name: 'answers' | 'skip-rows' | 'neighbours'): unknown {
+    const raw = options[name]
+    if (raw === undefined) return undefined
+    try {
+      return JSON.parse(raw) as unknown
+    } catch {
+      throw new UsageError(`--${name} must be JSON`)
+    }
+  }
+
   async function coordinatorAct(command: 'start' | 'move'): Promise<void> {
-    await withDaemon(home, async (client) => {
-      if (!options.operation || !options.version)
-        throw new UsageError('operation and version are required')
-      console.log(
-        JSON.stringify(
-          await client.coordinatorAct(args[0] ?? '', command, {
-            operation: options.operation,
-            version: options.version,
-            ...(options.after && { after: options.after }),
-            ...(options.before && { before: options.before }),
-            ...(options.neighbours && {
-              neighbours: JSON.parse(options.neighbours) as Record<string, string>,
-            }),
-          }),
-        ),
-      )
-    })
+    const { operation, version } = options
+    if (!operation || !version) throw new UsageError('operation and version are required')
+    const neighbours = options.neighbours ? jsonOption('neighbours') : undefined
+    const input: CoordinatorAction = {
+      operation,
+      version,
+      ...(options.after && { after: options.after }),
+      ...(options.before && { before: options.before }),
+      ...(neighbours !== undefined && { neighbours: neighbours as Record<string, string> }),
+    }
+    const receipt = await withDaemon(home, (client) =>
+      client.coordinatorAct(args[0] ?? '', command, input),
+    )
+    console.log(JSON.stringify(receipt))
   }
 
   async function coordinatorMessage(command: 'tell' | 'answer'): Promise<void> {
-    await withDaemon(home, async (client) => {
-      if (!options.operation || !options.version)
-        throw new UsageError('operation and version are required')
-      const choices = options.choice ?? []
-      const decided = options.approve || options['request-changes']
-      const round = options.answers !== undefined || options.recommended
-      if (command === 'tell' && (options.request || choices.length > 0 || decided || round))
-        throw new UsageError('tell takes only --message')
-      if (command === 'answer' && !options.request)
-        throw new UsageError('name the request with --request <comment-id>')
-      if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
-      if (options.approve && options['request-changes'])
-        throw new UsageError('give --approve or --request-changes, not both')
-      const given = choices.length > 0 || options.approve || round
-      const typed = options.message ?? (command === 'tell' || !given ? await readStdin() : '')
-      const message = typed.trim() === '' ? undefined : typed.trim()
-      if (message === undefined && (command === 'tell' || !given))
-        throw new UsageError(
-          command === 'tell'
-            ? 'give the message with --message "<text>" or on stdin'
-            : options['request-changes']
-              ? 'give the changes to ask for with --message "<text>" or on stdin'
-              : 'give --choice, --approve, --request-changes, --answers, --recommended or --message',
-        )
-      const json = (name: 'answers' | 'skip-rows') => {
-        const raw = options[name]
-        if (raw === undefined) return undefined
-        try {
-          return JSON.parse(raw) as unknown
-        } catch {
-          throw new UsageError(`--${name} must be JSON`)
-        }
-      }
-      const answers = json('answers')
-      const skipRows = json('skip-rows')
-      console.log(
-        JSON.stringify(
-          await client.coordinatorAct(args[0] ?? '', command, {
-            operation: options.operation,
-            version: options.version,
-            ...(message !== undefined && { message }),
-            ...(command === 'answer' && { request: options.request }),
-            ...(choices[0] !== undefined && { choice: choices[0] }),
-            ...(options.approve && { decision: 'approve' as const }),
-            ...(options['request-changes'] && { decision: 'request-changes' as const }),
-            ...(answers !== undefined && {
-              answers: answers as { answer: string; note?: string }[],
-            }),
-            ...(options.recommended && { recommended: true }),
-            ...(skipRows !== undefined && { skipRows: skipRows as number[] }),
-            ...(options['start-unblocked'] && { startUnblocked: true }),
-          }),
-        ),
+    const { operation, version } = options
+    if (!operation || !version) throw new UsageError('operation and version are required')
+    const choices = options.choice ?? []
+    const decided = options.approve || options['request-changes']
+    const round = options.answers !== undefined || options.recommended
+    if (command === 'tell' && (options.request || choices.length > 0 || decided || round))
+      throw new UsageError('tell takes only --message')
+    if (command === 'answer' && !options.request)
+      throw new UsageError('name the request with --request <comment-id>')
+    if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
+    if (options.approve && options['request-changes'])
+      throw new UsageError('give --approve or --request-changes, not both')
+    const given = choices.length > 0 || options.approve || round
+    const typed = options.message ?? (command === 'tell' || !given ? await readStdin() : '')
+    const message = typed.trim() === '' ? undefined : typed.trim()
+    if (message === undefined && (command === 'tell' || !given))
+      throw new UsageError(
+        command === 'tell'
+          ? 'give the message with --message "<text>" or on stdin'
+          : options['request-changes']
+            ? 'give the changes to ask for with --message "<text>" or on stdin'
+            : 'give --choice, --approve, --request-changes, --answers, --recommended or --message',
       )
-    })
+    const answers = jsonOption('answers')
+    const skipRows = jsonOption('skip-rows')
+    const input: CoordinatorAction = {
+      operation,
+      version,
+      ...(message !== undefined && { message }),
+      ...(command === 'answer' && { request: options.request }),
+      ...(choices[0] !== undefined && { choice: choices[0] }),
+      ...(options.approve && { decision: 'approve' as const }),
+      ...(options['request-changes'] && { decision: 'request-changes' as const }),
+      ...(answers !== undefined && { answers: answers as { answer: string; note?: string }[] }),
+      ...(options.recommended && { recommended: true }),
+      ...(skipRows !== undefined && { skipRows: skipRows as number[] }),
+      ...(options['start-unblocked'] && { startUnblocked: true }),
+    }
+    const receipt = await withDaemon(home, (client) =>
+      client.coordinatorAct(args[0] ?? '', command, input),
+    )
+    console.log(JSON.stringify(receipt))
   }
 
   const handlers = {
@@ -1171,13 +1166,15 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       await taskRepos('remove', args)
     },
     peers: async () => {
-      console.log(JSON.stringify(await withDaemon(home, (client) => client.peers(offset()))))
+      const page = offset()
+      console.log(JSON.stringify(await withDaemon(home, (client) => client.peers(page))))
     },
     peerShow: async () => {
       console.log(JSON.stringify(await withDaemon(home, (client) => client.peer(args[0] ?? ''))))
     },
     peerInbox: async () => {
-      console.log(JSON.stringify(await withDaemon(home, (client) => client.peerInbox(offset()))))
+      const page = offset()
+      console.log(JSON.stringify(await withDaemon(home, (client) => client.peerInbox(page))))
     },
     peerWatch: async () => {
       const timeout = Number(options.timeout ?? '25')
@@ -1199,14 +1196,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
     },
     coordinatorTasks: async () => {
-      console.log(
-        JSON.stringify(await withDaemon(home, (client) => client.coordinatorTasks(offset()))),
-      )
+      const page = offset()
+      console.log(JSON.stringify(await withDaemon(home, (client) => client.coordinatorTasks(page))))
     },
     coordinatorTask: async () => {
+      const page = offset()
       console.log(
         JSON.stringify(
-          await withDaemon(home, (client) => client.coordinatorTask(args[0] ?? '', offset())),
+          await withDaemon(home, (client) => client.coordinatorTask(args[0] ?? '', page)),
         ),
       )
     },
