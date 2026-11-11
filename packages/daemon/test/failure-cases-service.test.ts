@@ -336,7 +336,17 @@ test('a stale ask is still posted when no new context could be attached or read'
   s.worktree.readable = true
   s.endRun()
   const asked = await s.request(ended)
-  expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.changed)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('This failure can’t be accepted'),
+  })
+  const unread = s.comment(first.decisions.at(-1)?.commentId)
+  expect(unread?.choices).toContain('Accept this failure')
+  expect(unread?.body).not.toContain('can’t be accepted')
+  const refused = await refusalText(() => s.resolve(asked))
+  expect(refused).toBe(acceptRefusals.changedForGood(false))
+  expect(refused).toContain('choose Fixed or No longer applicable')
+  expect(refused).not.toContain('assess it again')
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
   expect((await s.resolve(asked, 'fixed', 'A later commit repaired it.')).resolutions).toHaveLength(
     1,
@@ -346,12 +356,17 @@ test('a stale ask is still posted when no new context could be attached or read'
 test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
   const s = await setup()
   const asked = await s.request(await s.record())
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('TED has no record it can verify of what was tested'),
+  })
   expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.unknown)
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
 })
 
 test('stored contexts are compared by what was tested, not by their fingerprint or base tip', async () => {
   const s = await setup()
+  const changed = acceptRefusals.changedForGood(false)
   const current = await s.capture()
   s.endRun()
   const stored = (id: string, change: Partial<FailureContext>): FailureContext =>
@@ -365,22 +380,20 @@ test('stored contexts are compared by what was tested, not by their fingerprint 
   const accept = async (context: FailureContext) =>
     refusalText(async () => s.resolve(await s.request(await s.record(context.id))))
   expect(await accept(stored('version-2', {}))).toBeUndefined()
-  expect(await accept(stored('version-1', { version: 1 }))).toBe(acceptRefusals.changed)
+  expect(await accept(stored('version-1', { version: 1 }))).toBe(changed)
   expect(
     await accept(
       stored('other-merge-base', {
         repos: current.repos.map((r) => ({ ...r, mergeBase: 'merge-base-0' })),
       }),
     ),
-  ).toBe(acceptRefusals.changed)
+  ).toBe(changed)
   expect(
     await accept(
       stored('other-tree', { repos: current.repos.map((r) => ({ ...r, tree: 'tree-0' })) }),
     ),
-  ).toBe(acceptRefusals.changed)
-  expect(await accept(stored('other-ci', { ci: 'CI-A' }))).toBe(acceptRefusals.changed)
-  expect(await accept(stored('other-ci-failures', { ciFailures: ['x'] }))).toBe(
-    acceptRefusals.changed,
-  )
-  expect(await accept(stored('other-checks', { checks: 'B' }))).toBe(acceptRefusals.changed)
+  ).toBe(changed)
+  expect(await accept(stored('other-ci', { ci: 'CI-A' }))).toBe(changed)
+  expect(await accept(stored('other-ci-failures', { ciFailures: ['x'] }))).toBe(changed)
+  expect(await accept(stored('other-checks', { checks: 'B' }))).toBe(changed)
 })

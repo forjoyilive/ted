@@ -37,6 +37,7 @@ export interface StageSettings {
   loop_check?: number | false
   p1_only_from?: number | false
   sub_agents?: boolean
+  lead_closes_failures?: boolean
 }
 
 export interface WorktreeCommand {
@@ -387,6 +388,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             else if (typeof scalar(node) !== 'boolean') {
               error(node, `\`${path}\` must be true or false`)
             } else stage.sub_agents = scalar(node) as boolean
+            break
+          case 'lead_closes_failures':
+            if (id !== 'work') warn(entry.key, `unknown key \`${path}\``)
+            else if (typeof scalar(node) !== 'boolean') {
+              error(node, `\`${path}\` must be true or false`)
+            } else stage.lead_closes_failures = scalar(node) as boolean
             break
           case 'checks':
             if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)

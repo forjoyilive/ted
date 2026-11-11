@@ -203,21 +203,31 @@ describe('Factory settings: Workflow', () => {
     expect(view.stages.find((s) => s.id === 'work')).not.toHaveProperty('p1OnlyFrom')
 
     await client.save(
-      { ...unchanged(view), stages: { validate: { p1OnlyFrom: 3, subAgents: true } } },
+      {
+        ...unchanged(view),
+        stages: {
+          validate: { p1OnlyFrom: 3, subAgents: true },
+          work: { leadClosesFailures: true },
+        },
+      },
       view.version,
     )
     const yaml = await originFile('.ted/workflow.yaml')
     expect(yaml).toMatch(/p1_only_from: 3/)
     expect(yaml).toMatch(/sub_agents: true/)
+    expect(yaml).toMatch(/lead_closes_failures: true/)
     expect(yaml).toContain('- { name: Typecheck, run: npm run typecheck }')
     const on = await client.settings()
     expect(validate(on)).toMatchObject({ p1OnlyFrom: 3, subAgents: true, maxBack: 5 })
+    expect(view.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
+    expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
 
     for (const stages of [
       { validate: { p1OnlyFrom: 1 } },
       { validate: { subAgents: 'yes' } },
       { work: { p1OnlyFrom: 3 } },
       { work: { subAgents: true } },
+      { validate: { leadClosesFailures: true } },
     ]) {
       const refused = await client.call(
         'POST',

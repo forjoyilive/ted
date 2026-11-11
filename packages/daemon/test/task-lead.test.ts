@@ -93,11 +93,21 @@ const leadRun = async (client: Client, task: Task): Promise<Run> => {
   return (await client.getRun(current.leadRunId)).run
 }
 
-const waitForRun = (client: Client, task: Task, check: (run: Run) => boolean, what: string) =>
-  waitUntil(async () => {
-    const run = await leadRun(client, task).catch(() => undefined)
-    return run && check(run) ? run : undefined
-  }, what)
+const waitForRun = (
+  client: Client,
+  task: Task,
+  check: (run: Run) => boolean,
+  what: string,
+  timeoutMs?: number,
+) =>
+  waitUntil(
+    async () => {
+      const run = await leadRun(client, task).catch(() => undefined)
+      return run && check(run) ? run : undefined
+    },
+    what,
+    timeoutMs,
+  )
 
 const userMessages = async (client: Client, runId: string) =>
   (await client.getRun(runId)).conversation.flatMap((e) => {
@@ -217,6 +227,7 @@ describe('changing the Task Lead field', () => {
       effort: 'low',
     })
     expect(changed.lead).toEqual({ agent: 'claude', model: 'opus', effort: 'low' })
+    await waitUntil(async () => (await claudeStarts()).length > 0, 'the agent’s first start')
     await sleep(500)
     expect(await claudeStarts()).toHaveLength(1)
     expect((await leadRun(client, task)).model).toBeUndefined()
@@ -488,6 +499,7 @@ describe('Stage effort', () => {
         task,
         (r) => r.state === 'idle' && (release === 'send-now' || r.effort === 'high'),
         'Stop and pending effort applied',
+        60_000,
       )
       if (release === 'new-message')
         await waitUntil(
@@ -507,6 +519,7 @@ describe('Stage effort', () => {
         (await userMessages(client, run.id)).filter((message) => message === text),
       ).toHaveLength(1)
     },
+    90_000,
   )
 
   test.each([

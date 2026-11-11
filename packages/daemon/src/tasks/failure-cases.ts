@@ -14,6 +14,7 @@ import { failureChoices, validateFailureChoices } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
+import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
 export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' }>): string {
   return createHash('sha256')
@@ -40,9 +41,23 @@ const testedInputs = (context: FailureContext) =>
 export const sameTested = (a: FailureContext, b: FailureContext) =>
   testedInputs(a) === testedInputs(b)
 
+const otherChoices = (validation: boolean) =>
+  validation
+    ? 'Choose Retry or Fix in this Task instead.'
+    : 'Type a reason and choose Fixed or No longer applicable instead.'
+
+const cantAccept = {
+  changed:
+    'This failure can’t be accepted: the Task’s code or Checks changed since it was tested, and TED can’t tie a later test run to it.',
+  unknown:
+    'This failure can’t be accepted: TED has no record it can verify of what was tested when it happened.',
+}
+
 export const acceptRefusals = {
   changed:
     'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.',
+  changedForGood: (validation: boolean) =>
+    `The Task’s code or Checks changed since this failure was tested, and TED can’t tie a later test run to it, so it can’t be accepted any more. ${otherChoices(validation)}`,
   unverified:
     'TED couldn’t read the Task’s current code, Checks and CI to compare them with what was tested, so this failure can’t be accepted right now. Try again in a moment.',
   unknown:
@@ -55,7 +70,14 @@ const freshContextSteps = (id: string) =>
 const newCaseSteps =
   'A newly captured context can’t be attached to this failure, because TED can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory Check); a failure that happens again is a new case to record, assess and ask about.'
 
-function acceptedResolution(value: FailureCase): boolean {
+export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
+  return workflow.settings.stages.work?.lead_closes_failures === true
+}
+
+export const leadClosesRefusal =
+  'only the human closes a failure recorded outside Validate: assess it with a recommendation of Fixed and run `ted failure ask <id>`. A Factory lets the Task Lead close its own Finding with passing evidence with `stages.work.lead_closes_failures: true` in its `.ted/workflow.yaml`; only the human changes that'
+
+export function acceptedResolution(value: FailureCase): boolean {
   const resolution = value.resolutions.at(-1)
   return (
     resolution?.resolution === 'accepted' &&
@@ -553,11 +575,17 @@ export function createFailureCases(options: {
         )
       const bound = tested(task, assessment.contextId)
       const current = verifiedContext(task, observed)
-      if (bound && current && !sameTested(bound, current) && attachable(task, value, current))
+      const stale = !!bound && !!current && !sameTested(bound, current)
+      if (stale && attachable(task, value, current))
         throw new RequestError(
           409,
           `The Task’s code, Checks or CI changed since tested context ${bound.id}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
+      const unknown =
+        !bound ||
+        !sourceContext(value.source, tested(task, value.contextId)) ||
+        !sourceContext(value.source, bound)
+      const why = unknown ? cantAccept.unknown : stale ? cantAccept.changed : undefined
       return store.postFailureDecision(
         value,
         [
@@ -571,10 +599,15 @@ export function createFailureCases(options: {
               `Evidence added ${addition.at} (context ${addition.contextId ?? 'unknown'}):\n${addition.evidence}`,
           ),
           `Assessment: ${assessment.assessment}\nRecommendation: ${assessment.recommendation}`,
-          value.validation
-            ? 'Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. Accept this failure allows only this execution in its tested context and resumes remaining Checks and validation. Acceptance never means passed or grants merge approval.'
-            : 'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
+          why
+            ? value.validation
+              ? `Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. ${why}`
+              : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
+            : value.validation
+              ? 'Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. Accept this failure allows only this execution in its tested context and resumes remaining Checks and validation. Acceptance never means passed or grants merge approval.'
+              : 'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
         ].join('\n\n'),
+        !why,
       )
     },
     findDecision(commentId: string) {
@@ -624,7 +657,12 @@ export function createFailureCases(options: {
               value,
               why: 'the Task’s code, Checks or CI changed since the tested context this decision is bound to.',
             }
-            throw new RequestError(409, acceptRefusals.changed)
+            throw new RequestError(
+              409,
+              attachable(task, value, current)
+                ? acceptRefusals.changed
+                : acceptRefusals.changedForGood(value.validation === true),
+            )
           }
         }
         const at = new Date().toISOString()

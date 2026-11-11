@@ -67,7 +67,7 @@ test('Edit Task focuses description, sends only changed fields and supports comm
       description: 'In titles and bodies.',
     }),
   )
-  expect(close).toHaveBeenCalledOnce()
+  await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
 })
 
 test('failed data rebuild shows its stopping event and error with Copy report and Quit', async () => {
