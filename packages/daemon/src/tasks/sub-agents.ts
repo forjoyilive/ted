@@ -421,6 +421,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
             'the reviewer’s agent, model and effort come from the `reviewer` setting; leave them out',
           )
         }
+        if (task.stage === 'validate') await deps.prepareExecution(task)
         const planned =
           task.stage === 'validate' ? await deps.planReview(task, input.prompt) : undefined
         const choice = await deps.reviewerFor(task)

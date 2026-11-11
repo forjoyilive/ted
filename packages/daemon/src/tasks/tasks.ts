@@ -4811,6 +4811,7 @@ export function createTasks(options: {
     conflict?: { sendBacks: ConflictSendBack[]; found: RecordedConflict[] }
     baseConflict?: boolean
   }> {
+    await execution.local(task.id)
     const series = countedValidateSendBacks(task.id)
     const live = task.repos.filter((r) => !r.removed)
     const heads = await Promise.all(
@@ -8106,8 +8107,8 @@ export function createTasks(options: {
         }
         const gate = gateOn(current, workflow, stage) && outcome.skip !== true
         if (!gate && stage === 'work' && workflow.next(stage) === 'validate') {
-          const heads = await liveHeads(current)
           await execution.local(task.id)
+          const heads = await liveHeads(current)
           const coverage = await validation.coverage(current)
           const started = await validation.begin(current, resolution, 'hand-off')
           if (started) {

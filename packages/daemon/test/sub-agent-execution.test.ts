@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { executionIds } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
 import { addWorktree } from '../src/git.ts'
@@ -139,3 +140,84 @@ test.each([false, true])(
     }
   },
 )
+
+test('a reviewer request in Validate checks who owns the Task before TED plans the review', async () => {
+  const task = await store.createTask({ title: 'Owned elsewhere' })
+  store.execution.assign({
+    taskId: task.id,
+    machineId: executionIds.machine('other-mac'),
+    assignmentId: executionIds.assignment(randomUUID()),
+    reservationId: executionIds.reservation(randomUUID()),
+    operationId: executionIds.operation(randomUUID()),
+    expectedGeneration: 0,
+  })
+  const cwd = path.join(dir, 'stale-worktree')
+  store.startTask({
+    taskId: task.id,
+    stage: 'validate',
+    branch: 'stale',
+    worktree: cwd,
+    entry: { layers: [], order: [{ stage: 'validate', enabled: true }] },
+    repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+  })
+  const lead = store.startRun({
+    id: randomUUID(),
+    agent: 'claude',
+    taskId: task.id,
+    cwd,
+    prompt: 'Lead',
+  })
+  const execution = createTaskExecution(store)
+  const planReview = vi.fn<SubAgentDeps['planReview']>(async (found, prompt) => ({
+    prompt,
+    scope: { taskId: found.id, scope: 'full', round: 1, commits: [] },
+  }))
+  const reviewerFor = vi.fn<SubAgentDeps['reviewerFor']>(async () => ({
+    lead: { agent: 'claude' },
+  }))
+  children = createSubAgents({
+    store,
+    runs: {
+      start: async () => {
+        throw new Error('no Run should start')
+      },
+      stop: async () => {},
+      send: async () => {},
+      observe: () => () => {},
+      output: { entries: () => [] },
+    },
+    agents: createAgents({}),
+    find(ref) {
+      const found = store.getTask(ref)
+      if (!found) throw new Error('missing Task')
+      return found
+    },
+    leadFor: async () => ({ agent: 'claude' }),
+    reviewerFor,
+    visitStart: () => '',
+    planReview,
+    validateSubAgents: async () => false,
+    envFor: async () => ({}),
+    permissionsFor: async () => 'auto',
+    clonePathFor: () => cwd,
+    runFolder: async () => cwd,
+    prepareExecution: async (found) => {
+      await execution.local(found.id)
+    },
+    worktreesDir: path.join(dir, 'worktrees'),
+    pump() {},
+    inBackground() {},
+  })
+
+  await expect(
+    children.request(
+      task.id,
+      { kind: 'run', runId: lead.id },
+      { prompt: 'Review', reviewer: true },
+    ),
+  ).rejects.toThrow('Task execution belongs to another machine')
+  expect(planReview).not.toHaveBeenCalled()
+  expect(reviewerFor).not.toHaveBeenCalled()
+  expect(store.subAgentRequests()).toEqual([])
+  expect(store.reviewScopes(task.id)).toEqual([])
+})
