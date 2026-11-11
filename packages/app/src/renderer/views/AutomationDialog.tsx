@@ -119,8 +119,9 @@ export function AutomationDialog({
     ted.taskDefaults(factory).then(
       (defaults) => {
         if (!current) return
-        setFactoryLead(defaults.lead)
-        if (!editing) setLead(defaults.lead)
+        const { effortMode: _, ...lead } = defaults.lead
+        setFactoryLead(lead)
+        if (!editing) setLead(lead)
       },
       () => undefined,
     )

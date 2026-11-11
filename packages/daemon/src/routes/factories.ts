@@ -12,6 +12,8 @@ import {
   type ClarifyDepth,
   type CreateFactoryRequest,
   clarifyDepths,
+  type Effort,
+  efforts,
   type FactorySettingsChanges,
   type NewFactoryRepo,
   permissionModes,
@@ -26,10 +28,16 @@ import {
   type WorktreeCommandInput,
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
+import { factoryExport } from '../export.ts'
 import { addFactory } from '../factories.ts'
 import { agentChoice, bodyObject, optionalText, type Route, readJson, text } from './route.ts'
 
 export const factoryRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/export$/,
+    handle: async ({ params: [id = ''] }, { store }) => [200, factoryExport(store, id)],
+  },
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/auto-start-backlog$/,
@@ -297,6 +305,13 @@ export function stageSettings(given: unknown): Partial<Record<StageId, StageSett
     ) {
       throw new HttpError(400, `${id}.maxBack must be a whole number, 0 or more`)
     }
+    const effort = stage.effort
+    if (
+      effort !== undefined &&
+      (id === 'backlog' || id === 'done' || (effort !== null && !efforts.some((e) => e === effort)))
+    ) {
+      throw new HttpError(400, `${id}.effort must be an effort level or null on a working Stage`)
+    }
     const depth = stage.depth
     if (depth !== undefined && !clarifyDepths.some((d) => d === depth)) {
       throw new HttpError(400, `${id}.depth must be one of ${clarifyDepths.join(', ')}`)
@@ -304,6 +319,7 @@ export function stageSettings(given: unknown): Partial<Record<StageId, StageSett
     const enabled = flag('enabled')
     const gate = flag('gate')
     stages[id as StageId] = {
+      ...(effort !== undefined && { effort: effort as Effort | null }),
       ...(enabled !== undefined && { enabled }),
       ...(gate !== undefined && { gate }),
       ...(typeof maxBack === 'number' && { maxBack }),

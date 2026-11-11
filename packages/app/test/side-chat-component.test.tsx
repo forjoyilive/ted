@@ -59,8 +59,10 @@ test('opens and reopens a separate exchange and sends only to side-chat controls
       return current
     },
   })
-  render(<RunWithSideChat runId="source" />)
+  render(<RunWithSideChat runId="source" bar={false} />)
   await user().click(await screen.findByRole('button', { name: 'Side chat' }))
+  expect(screen.queryByRole('button', { name: 'Restart' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Stop Task' })).toBeNull()
   const panel = await screen.findByRole('region', { name: 'Side chat' })
   expect(within(panel).getByText('Snapshot answer.')).toBeTruthy()
   expect(within(panel).getByText(/Earlier context omitted/)).toBeTruthy()

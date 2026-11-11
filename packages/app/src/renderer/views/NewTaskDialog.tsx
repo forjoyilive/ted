@@ -242,12 +242,12 @@ function NewTaskForm({
         if (!current) return
         setHealth(health)
         const fallback = health.find((entry) => entry.state !== 'not-installed')
-        const availableDefault = health.some(
+        const availableDefault: TaskLead = health.some(
           (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
         )
           ? defaults.lead
           : fallback
-            ? { agent: fallback.agent }
+            ? { agent: fallback.agent, effortMode: 'stage' }
             : defaults.lead
         setDefaultLead(availableDefault)
         setDefaultDepth(defaults.clarifyDepth)
@@ -663,6 +663,7 @@ function NewTaskForm({
               </div>
               {lead && (
                 <LeadFields
+                  stageEffort
                   id={headingId}
                   lead={lead}
                   factoryLead={defaultLead}
@@ -944,6 +945,7 @@ export function LeadFields({
   lead,
   factoryLead,
   onChange,
+  stageEffort = false,
   label = 'Task Lead',
   help = 'The agent that carries this Task through its Stages. Filled from the Factory’s lead.',
 }: {
@@ -951,6 +953,7 @@ export function LeadFields({
   lead: TaskLead
   factoryLead: TaskLead | undefined
   onChange: (lead: TaskLead) => void
+  stageEffort?: boolean
   label?: string
   help?: string
 }) {
@@ -965,7 +968,14 @@ export function LeadFields({
     onChange({
       agent,
       ...(model !== '' && { model }),
-      ...(effort !== '' && { effort: effort as Effort }),
+      ...(effort === 'stage'
+        ? {
+            effortMode: 'stage' as const,
+            ...(lead.effort !== undefined && { effort: lead.effort }),
+          }
+        : effort !== ''
+          ? { effort: effort as Effort }
+          : {}),
     })
 
   return (
@@ -981,7 +991,11 @@ export function LeadFields({
           onChange={(event) => {
             const agent = event.target.value as AgentKind
             const same = factoryLead?.agent === agent ? factoryLead : undefined
-            set(agent, same?.model ?? '', lead.effort ?? '')
+            set(
+              agent,
+              same?.model ?? '',
+              lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''),
+            )
           }}
         >
           {agentKinds.map((agent) => (
@@ -994,7 +1008,13 @@ export function LeadFields({
           aria-label="Model"
           id={`${id}-model`}
           value={lead.model ?? ''}
-          onChange={(event) => set(lead.agent, event.target.value, lead.effort ?? '')}
+          onChange={(event) =>
+            set(
+              lead.agent,
+              event.target.value,
+              lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''),
+            )
+          }
         >
           <option value="">Default model</option>
           {models.map((model) => (
@@ -1005,10 +1025,11 @@ export function LeadFields({
         </Select>
         <Select
           aria-label="Effort"
-          value={lead.effort ?? ''}
+          value={lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? '')}
           onChange={(event) => set(lead.agent, lead.model ?? '', event.target.value)}
         >
-          <option value="">Default effort</option>
+          {stageEffort && <option value="stage">Follow Stage settings</option>}
+          <option value="">{stageEffort ? 'CLI default · for this Task' : 'Default effort'}</option>
           {efforts.map((effort) => (
             <option key={effort} value={effort}>
               {effort}

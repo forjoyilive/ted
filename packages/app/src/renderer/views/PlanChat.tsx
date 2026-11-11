@@ -13,7 +13,9 @@ import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
+import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
+import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
 import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
 import { RunIcon } from '../components/RunIcon.tsx'
@@ -21,7 +23,7 @@ import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
-import { usePlan, useRunChat } from '../data.ts'
+import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import {
   planEnded,
   planStartedLine,
@@ -283,7 +285,7 @@ function NewPlanChat({
           </div>
         </div>
       </section>
-      <aside className={views.detailsPane} aria-label="Planning chat details">
+      <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
         <Section title="Started from">
           {earlier ? (
             <FromPlan
@@ -297,7 +299,7 @@ function NewPlanChat({
         <Section title="Proposed Tasks">
           <p className={styles.paneMuted}>None yet.</p>
         </Section>
-      </aside>
+      </DetailsPane>
     </>
   )
 }
@@ -792,12 +794,19 @@ function PlanChat({
   onPlanMore: (planId: string) => void
   onDeleted: () => void
 }) {
-  const detail = usePlan(planId)
+  const resource = usePlanState(planId)
+  const detail = resource.value
   const [, setAnswered] = useState(0)
   if (!detail) {
     return (
       <section className={views.pane} aria-label="Planning chat">
-        <p className={views.empty}>Loading the planning chat…</p>
+        <div className={views.empty}>
+          {resource.error ? (
+            <LoadingError error={resource.error} retry={resource.retry} />
+          ) : (
+            <Skeleton shape="history" label="Loading the planning chat…" />
+          )}
+        </div>
       </section>
     )
   }
@@ -870,7 +879,7 @@ function PlanPane({
   const { plan, requests, tasks } = detail
   const proposal = requests.findLast((r) => r.kind === 'proposal')
   return (
-    <aside className={views.detailsPane} aria-label="Planning chat details">
+    <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
       <Section title="Started from">
         {plan.fromPlan ? (
           <FromPlan plan={plan} onOpenPlan={onOpenPlan} />
@@ -921,7 +930,7 @@ function PlanPane({
         </Section>
       )}
       {plan.runId !== undefined && <RunsSection plan={plan} runId={plan.runId} />}
-    </aside>
+    </DetailsPane>
   )
 }
 

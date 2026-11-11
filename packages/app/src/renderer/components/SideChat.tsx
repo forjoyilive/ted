@@ -1,6 +1,6 @@
 import type { SideChat as Chat } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
-import { useConnection, useRunChat } from '../data.ts'
+import { useConnection, useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
@@ -18,7 +18,8 @@ function RunSideChat({
   onStopTask,
   ...options
 }: { runId: string; onStopTask?: (() => void) | undefined } & ChatOptions) {
-  const chat = useRunChat(runId)
+  const resource = useRunChatState(runId)
+  const chat = resource.value
   const [side, setSide] = useState<Chat | null>()
   const [open, setOpen] = useState(false)
   const [which, setWhich] = useState<'source' | 'side'>('source')
@@ -93,8 +94,17 @@ function RunSideChat({
       )}
       <div className={styles.panes} data-open={open}>
         <div className={styles.source} data-hidden={open && which !== 'source'}>
+          {eligible && options.bar === false && (
+            <div className={styles.actions}>
+              <Button size="small" disabled={busy} onClick={show}>
+                {side ? 'Open side chat' : 'Side chat'}
+              </Button>
+            </div>
+          )}
           <ChatSection
             chat={chat}
+            error={resource.error}
+            retry={resource.retry}
             onStopTask={onStopTask}
             options={{
               ...options,

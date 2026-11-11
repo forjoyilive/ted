@@ -35,15 +35,19 @@ function editorRequest(body: unknown): OpenInEditorRequest {
     throw new HttpError(400, 'body must be an object')
   }
   const given = body as Record<string, unknown>
+  if (given.snapshot !== undefined && typeof given.snapshot !== 'boolean') {
+    throw new HttpError(400, 'snapshot must be a boolean')
+  }
   if (given.file === undefined) {
-    if (given.line !== undefined || given.column !== undefined) {
-      throw new HttpError(400, 'line and column need a file')
+    if (given.line !== undefined || given.column !== undefined || given.snapshot === true) {
+      throw new HttpError(400, 'line, column and snapshot need a file')
     }
     return {}
   }
   if (typeof given.file !== 'string') throw new HttpError(400, 'file must be a path')
   return {
     file: given.file,
+    ...(given.snapshot !== undefined && { snapshot: given.snapshot }),
     ...(given.line !== undefined && { line: whole('line', given.line, 1, maxPosition) }),
     ...(given.column !== undefined && { column: whole('column', given.column, 1, maxPosition) }),
   }
@@ -124,8 +128,8 @@ export const shellRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/open-in-editor$/,
     async handle({ req, params: [ref = '', repo = ''] }, { tasks, editors }) {
       const request = editorRequest(await readOptionalJson(req))
-      const { worktree } = await tasks.worktreeAccess(ref, repo)
-      await editors.open({ worktree }, request)
+      const { worktree, fileScope } = await tasks.worktreeAccess(ref, repo)
+      await editors.open({ worktree, fileScope }, request)
       return [200, {}]
     },
   },
