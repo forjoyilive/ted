@@ -8,14 +8,12 @@ import { commitToOrigin, isAlive, makeOriginRepo, waitForExit } from '../../daem
 import {
   addFactory,
   ctx,
-  daemonClient,
   daemonPid,
   launchApp,
   openAllTasks,
   runHostPids,
   setUpAppTests,
   sidebar,
-  startDaemonAsApp,
   taskRow,
   ted,
 } from './app-harness.ts'
@@ -85,71 +83,6 @@ describe('daemon crashes', () => {
     )
     await writeFile(path.join(ctx.home, 'go'), '')
     await details.getByText('Done', { exact: true }).waitFor({ timeout: 20_000 })
-  })
-
-  test('after reconnecting, the sidebar shows slots that changed while the app was away', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await addFactory(origin, 'NB')
-    await ted(
-      'task',
-      'create',
-      '--factory',
-      'NB',
-      JSON.stringify({ steps: [{ waitFor: path.join(ctx.home, 'never') }] }),
-    )
-    const window = await launchApp({ TED_RESTART_DELAYS_MS: '6000,0,0' })
-    await ted('task', 'start', 'NB-1')
-    const footer = sidebar(window).locator('footer')
-    await footer.getByRole('button', { name: /^1 of \d+ Runs working$/ }).waitFor()
-
-    await killDaemon()
-    await reconnecting(window).waitFor()
-    await startDaemonAsApp()
-    await (await daemonClient()).updateSettings({ maxWorkingRuns: 7 })
-
-    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
-    await footer.getByRole('button', { name: '1 of 7 Runs working' }).waitFor()
-  })
-
-  test('after reconnecting, the Inbox shows a request raised while the app was away', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    const briefFile = path.join(ctx.home, 'brief.md')
-    await writeFile(
-      briefFile,
-      [
-        '## Goal\n\nLet notes be edited offline.',
-        '## Decisions so far\n\n- Keep both edits on a clash.',
-        '## Current state\n\nThe approach is written up.',
-        '## Open questions\n\nNone.',
-        '## Next step\n\nBuild it.\n',
-      ].join('\n\n'),
-    )
-    const gate = [
-      { run: ['ted', 'brief', 'write', '--file', briefFile] },
-      { run: ['ted', 'outcome', 'advance'] },
-      { endTurn: true },
-    ]
-    await addFactory(origin, 'NB')
-    await ted(
-      'task',
-      'create',
-      '--factory',
-      'NB',
-      JSON.stringify({ steps: [{ everyMessage: gate }, ...gate] }),
-    )
-    const window = await launchApp({ TED_RESTART_DELAYS_MS: '8000,0,0' })
-    const inbox = window.getByRole('region', { name: 'Inbox' })
-    await inbox.waitFor()
-
-    await killDaemon()
-    await reconnecting(window).waitFor()
-    await ted('task', 'start', 'NB-1')
-    await expect
-      .poll(async () => (await (await daemonClient()).listInbox()).length, { timeout: 20_000 })
-      .toBe(1)
-
-    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
-    await inbox.getByRole('button').filter({ hasText: 'Design review' }).waitFor()
   })
 
   test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {

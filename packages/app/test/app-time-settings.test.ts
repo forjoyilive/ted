@@ -13,14 +13,18 @@ test('General time preferences apply immediately and survive reloading the app',
   )
   await format.getByText('12-hour', { exact: true }).click()
   await window.getByRole('combobox', { name: 'Time zone', exact: true }).selectOption('Asia/Tokyo')
-  await expect.poll(() => window.locator('output').textContent()).toMatch(/\d{2}:\d{2} [ap]m/i)
+  await expect
+    .poll(() => window.locator('output', { hasText: ':' }).textContent())
+    .toMatch(/\d{2}:\d{2} [ap]m/i)
   await window.getByText('Fixed zone · Asia/Tokyo', { exact: true }).waitFor()
   const ted = await daemonClient()
   await expect
     .poll(() => ted.getSettings())
     .toMatchObject({ timeFormat: '12-hour', timeZone: 'Asia/Tokyo' })
   await format.getByText('24-hour', { exact: true }).click()
-  await expect.poll(() => window.locator('output').textContent()).toMatch(/^\d{2}:\d{2}$/)
+  await expect
+    .poll(() => window.locator('output', { hasText: ':' }).textContent())
+    .toMatch(/^\d{2}:\d{2}$/)
   await window.reload()
   await sidebar(window).waitFor()
   await openSettings(window)

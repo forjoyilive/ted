@@ -16,7 +16,7 @@
   background: none;
   color: var(--text-tertiary);
   font: inherit;
-  font-size: 9px;
+  font-size: var(--glyph-9);
   font-weight: var(--weight-semibold);
   line-height: 1;
   cursor: default;
@@ -40,7 +40,7 @@
   color: var(--text-on-inverse);
   font-size: var(--text-12);
   font-weight: var(--weight-regular);
-  line-height: 17px;
+  line-height: var(--leading-17);
   box-shadow: 0 4px 6px var(--shadow-popover);
   white-space: normal;
 }

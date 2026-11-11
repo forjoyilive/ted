@@ -31,6 +31,7 @@ export interface SubAgents {
   queued(): QueueEntry[]
   begin(id: string): void
   starting(taskId: string): number
+  startingTasks(): string[]
   wait(runId: string, caller: Caller, timeoutMs: number): Promise<SubAgentWait>
   send(runId: string, caller: Caller, text: string): Promise<SubAgent>
   stop(runId: string, caller: Caller): Promise<SubAgent>
@@ -46,7 +47,9 @@ export interface ReviewerChoice {
 
 export interface SubAgentDeps {
   store: TedStore
-  runs: RunManager
+  runs: Pick<RunManager, 'start' | 'stop' | 'send' | 'observe'> & {
+    output: Pick<RunManager['output'], 'entries'>
+  }
   agents: Agents
   find(ref: string): StoredTask
   leadFor(task: StoredTask): Promise<TaskLead>
@@ -55,6 +58,7 @@ export interface SubAgentDeps {
   permissionsFor(task: StoredTask): Promise<PermissionMode>
   clonePathFor(repo: TaskRepo): string
   runFolder(task: StoredTask): Promise<string | undefined>
+  prepareExecution(task: StoredTask): Promise<void>
   worktreesDir: string
   pump(): void
   inBackground(what: string, work: () => Promise<void>): void
@@ -132,7 +136,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const since = awaitingTurn.get(run.id) ?? 0
     const agent = agents.get(run.agent)
     let started = false
-    const ended = store.conversation(run.id).some((e) => {
+    const ended = runs.output.entries(run.id).some((e) => {
       if (e.offset < since) return false
       const state = agent.stateFrom(e.line)
       if (state === 'working' || state === 'waiting' || agent.acceptedTextFrom(e.line)) {
@@ -149,7 +153,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   }
 
   function finalMessage(run: Run): string | undefined {
-    const entries = agents.get(run.agent).chat(store.conversation(run.id), run.cwd)
+    const entries = agents.get(run.agent).chat(runs.output.entries(run.id), run.cwd)
     return entries.findLast((e) => e.kind === 'agent')?.text
   }
 
@@ -181,6 +185,17 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const parent = store.getRun(request.parentRunId)
     const repo = task.repos.find((r) => !r.removed)
     if (!parent || parent.state === 'finished' || !repo || task.archived) {
+      drop(request.id)
+      return
+    }
+    await deps.prepareExecution(task)
+    const current = find(task.id)
+    if (
+      cancelled.has(request.id) ||
+      current.stopped ||
+      current.archived ||
+      store.getRun(parent.id)?.state === 'finished'
+    ) {
       drop(request.id)
       return
     }
@@ -224,6 +239,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       return
     }
     waits.delete(leadRunId)
+    if (closed) return
     lingering.set(
       leadRunId,
       setTimeout(() => {
@@ -447,6 +463,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     starting(taskId) {
       return [...startingNow.values()].filter((id) => id === taskId).length
     },
+    startingTasks: () => [...startingNow.values()],
     async wait(runId, caller, timeoutMs) {
       ownSubAgent(runId, caller)
       const leadRunId = caller.kind === 'run' ? caller.runId : ''

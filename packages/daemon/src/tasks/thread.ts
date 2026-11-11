@@ -7,9 +7,10 @@ import type {
   LayerUse,
   ThreadEvent,
   ThreadEventTone,
+  ValidationSnapshot,
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
-import type { LoggedEvent } from '../store/index.ts'
+import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
@@ -149,6 +150,14 @@ export function appExitLine(name: string, code: unknown, signal: unknown): strin
   return `${name} stopped running`
 }
 
+export function taskThreadEvents(
+  store: Pick<TedStore, 'taskLog'>,
+  taskId: string,
+  context: ThreadContext,
+): ThreadEvent[] {
+  return threadEvents(taskId, store.taskLog(taskId), context)
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -180,7 +189,7 @@ export function threadEvents(
     line: string,
     findings?: string,
     checkRunId?: string,
-    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'changes' | 'planId'>,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'validation' | 'changes' | 'planId'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -193,6 +202,7 @@ export function threadEvents(
       ...(extra?.judgments !== undefined &&
         extra.judgments.length > 0 && { judgments: extra.judgments }),
       ...(extra?.validate !== undefined && { validate: extra.validate }),
+      ...(extra?.validation !== undefined && { validation: extra.validation }),
       ...(extra?.changes !== undefined && { changes: extra.changes }),
       ...(extra?.planId !== undefined && { planId: extra.planId }),
     })
@@ -279,6 +289,12 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.TaskSnoozed':
+        add(entry, 'edit', 'Task snoozed')
+        break
+      case 'v1.TaskSnoozeCleared':
+        add(entry, 'edit', 'Snooze cleared')
+        break
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break
@@ -448,6 +464,7 @@ export function threadEvents(
         break
       }
       case 'v1.ValidateJudged':
+      case 'v2.ValidateJudged':
         if (data.outcome === 'sent-back') {
           judged = data
           break
@@ -459,7 +476,22 @@ export function threadEvents(
           `Validate passed${reviewedBy(data)}`,
           undefined,
           text(data.checkRunId) || undefined,
-          { judgments: judgmentsIn(data), validate: 'passed' },
+          {
+            judgments: judgmentsIn(data),
+            validate: 'passed',
+            ...(typeof data.validation === 'string' && {
+              validation: JSON.parse(data.validation) as ValidationSnapshot,
+            }),
+          },
+        )
+        break
+      case 'v1.SendBackAsked':
+        add(
+          entry,
+          'failure',
+          `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          text(data.findings).trim(),
+          text(data.checkRunId) || undefined,
         )
         break
       case 'v1.LoopCheckStarted':
@@ -484,7 +516,8 @@ export function threadEvents(
         break
       }
       case 'v1.TaskStageEntered':
-      case 'v2.TaskStageEntered': {
+      case 'v2.TaskStageEntered':
+      case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
         if (sentBackTo === stage) {
@@ -525,6 +558,27 @@ export function threadEvents(
         else add(entry, 'run', `Task Lead set Repos to ${names}`)
         break
       }
+      case 'v1.TaskGatesChanged':
+        add(entry, 'edit', 'You changed this Task’s Gates')
+        break
+      case 'v1.GateKeptOvernight':
+        add(
+          entry,
+          'quiet',
+          `Overnight mode is on, but ${
+            data.reason === 'unreadable'
+              ? 'TED couldn’t read this Task’s changes'
+              : 'this Task changes .ted/'
+          }, so its ${stageTitle(text(data.stage))} Gate stays on`,
+        )
+        break
+      case 'v1.GateSkippedOvernight':
+        add(
+          entry,
+          'quiet',
+          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} Gate`,
+        )
+        break
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break

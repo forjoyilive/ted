@@ -6,6 +6,7 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { _electron as electron } from 'playwright'
 import { buildRenderer } from '../test/build-renderer.ts'
 import { closeApp } from '../test/close-app.ts'
+import { loadedWindow } from '../test/first-window.ts'
 import { installedElectron } from './electron-path.ts'
 
 const home = demoHome()
@@ -23,7 +24,7 @@ const app = await electron.launch({
   timeout: 120_000,
 })
 try {
-  const window = await app.firstWindow({ timeout: 120_000 })
+  const window = await loadedWindow(app)
   await window.setViewportSize({ width: 1600, height: 1000 })
   const nav = () => window.getByRole('navigation', { name: 'Sidebar' })
   await nav().waitFor({ timeout: 120_000 })

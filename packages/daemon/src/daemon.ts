@@ -1,16 +1,17 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
+import { type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
+import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
-import { createData } from './data.ts'
+import { createData, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
 import { RequestError } from './errors.ts'
@@ -28,7 +29,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
-import { pruneRunOutput } from './retention.ts'
+import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
@@ -37,9 +38,11 @@ import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
 import { createShells } from './shells.ts'
+import { createSideChats } from './side-chats/side-chats.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
+import { createCheckSlots } from './tasks/check-slots.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import type { WorkflowSettings } from './workflow/check.ts'
@@ -58,14 +61,18 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   linear?: { apiUrl?: string; keyring?: Keyring }
+  snoozes?: { now?: () => Date; checkEveryMs?: number }
   linearSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
+  clock?: Clock
+  load?: DaemonLoadOptions
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
+  beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   settingsMergeWaitMs?: number
   stallAfterMs?: number
@@ -75,8 +82,10 @@ export interface DaemonOptions {
   limitProbeMs?: number
   scratchMaxAgeMs?: number
   automations?: DaemonAutomationsOptions
+  retention?: DaemonRetentionOptions
   oldestHost?: number
   editors?: DaemonEditorsOptions
+  compaction?: DataOptions['compaction']
 }
 
 export interface DaemonEditorsOptions {
@@ -85,16 +94,28 @@ export interface DaemonEditorsOptions {
 }
 
 export interface DaemonAutomationsOptions {
+  clock?: Clock
+  draftTimeoutMs?: number
   systemTimeZone?: () => string
   now?: () => number
   checkEveryMs?: number
   graceMs?: number
 }
 
+export interface DaemonRetentionOptions {
+  now?: () => Date
+  checkEveryMs?: number
+}
+
 export interface DaemonOnlineOptions {
   isOnline?: () => Promise<boolean>
   onlineEveryMs?: number
   offlineEveryMs?: number
+}
+
+export interface DaemonLoadOptions {
+  ratio?: () => number
+  checkEveryMs?: number
 }
 
 export interface DaemonDiskOptions {
@@ -127,6 +148,9 @@ async function readFakeFree(file: string): Promise<number> {
 }
 
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
+  const xcrun = tedEnv('TED_XCRUN_BIN')
+  const open = tedEnv('TED_OPEN_BIN')
+  const sandboxProgram = tedEnv('TED_SANDBOX_BIN')
   const paths = tedPaths(options.home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
   const attachments = createAttachments(paths.attachments)
@@ -140,7 +164,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.linear?.apiUrl !== undefined && { apiUrl: options.linear.apiUrl }),
   })
   const lock = acquireLock(paths.daemonLock)
-  const idle = options.idleExit && startIdleTimer(options.idleExit)
+  const idle =
+    options.idleExit &&
+    startIdleTimer({ ...options.idleExit, ...(options.clock && { clock: options.clock }) })
   const runTokens = await loadRunTokens(paths.runTokenKey).catch((error: unknown) => {
     lock.release()
     throw error
@@ -158,6 +184,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     home: paths.home,
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
+    ...(options.compaction && { compaction: options.compaction }),
     async startServices(store, emit) {
       await environmentRead
       const runs = await startRunManager({
@@ -171,7 +198,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       const banners = createBanners({ store, emit })
       const diskOptions = options.disk ?? {}
-      const fakeFree = process.env.TED_FREE_BYTES_FILE
+      const fakeFree = tedEnv('TED_FREE_BYTES_FILE')
       let wake: () => void = () => undefined
       const disk = createDiskWatch({
         storeDir: paths.store,
@@ -203,7 +230,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.limitProbeMs !== undefined && { probeAfterMs: options.limitProbeMs }),
       })
       const onlineOptions = options.online ?? {}
-      const fakeOnline = process.env.TED_ONLINE_FILE
+      const fakeOnline = tedEnv('TED_ONLINE_FILE')
       const online = watchOnline({
         isOnline:
           onlineOptions.isOnline ??
@@ -219,7 +246,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       void online.check()
       runs.observe({ retrying: () => void online.check() })
-      const ghBin = given.ghBin ?? process.env.TED_GH_BIN
+      const ghBin = given.ghBin ?? tedEnv('TED_GH_BIN')
       const integrations = createIntegrations({
         store,
         banners,
@@ -278,8 +305,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           console.error(`couldn’t update ${factory.name}’s repos:`, error)
         })
       }
+      const checkSlots = createCheckSlots({ limit: () => store.settings().maxChecksAtOnce })
       const checkTries = createCheckTries({
         store,
+        checkSlots,
         banners,
         workflows,
         reposDir: paths.repos,
@@ -327,6 +356,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
       await workflows.inherited().catch(() => undefined)
       let coordinators: Coordinators | undefined
+      let taskDeliveryAllowed = (_runId: string) => true
       const steering = createSteering({
         home: paths.home,
         store,
@@ -335,11 +365,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
         deliveryFinished: (runId, error) => coordinators?.deliveryFinished(runId, error),
         canDeliver: (runId, admitted) =>
-          !store.coordinators.forRun(runId) ||
-          coordinators?.deliveryAllowed(runId, admitted) === true,
+          !store.sideChats.forRun(runId) &&
+          taskDeliveryAllowed(runId) &&
+          (!store.coordinators.forRun(runId) ||
+            coordinators?.deliveryAllowed(runId, admitted) === true),
       })
       let plans: Plans | undefined
       const tasks = createTasks({
+        ...(options.clock && { clock: options.clock }),
         steering,
         planning: () => plans,
         store,
@@ -352,6 +385,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
+        ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,
@@ -362,24 +396,29 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
+        ...(options.beforeMerge !== undefined && { beforeMerge: options.beforeMerge }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
+        ...(options.load !== undefined && { load: options.load }),
         appsDir: paths.apps,
         ...(options.apps !== undefined && { apps: options.apps }),
         simulators: {
           dir: paths.simulators,
-          ...(process.env.TED_XCRUN_BIN && { xcrun: process.env.TED_XCRUN_BIN }),
-          ...(process.env.TED_OPEN_BIN && { open: process.env.TED_OPEN_BIN }),
+          ...(xcrun && { xcrun }),
+          ...(open && { open }),
           ...options.simulators,
         },
         saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+        checkSlots,
         sandbox: createSandbox({
           tedHome: paths.home,
           env: environment.current,
-          ...(process.env.TED_SANDBOX_BIN && { program: process.env.TED_SANDBOX_BIN }),
+          ...(sandboxProgram && { program: sandboxProgram }),
         }),
       })
+      taskDeliveryAllowed = (runId) => tasks.deliveryAllowed(runId)
       const shells = createShells({
+        env: environment.current,
         async target(ref, repo) {
           const access = await tasks.worktreeAccess(ref, repo)
           return { ...access, env: { ...access.env, TED_HOME: paths.home } }
@@ -407,6 +446,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         workflows,
         queue: tasks,
         ...(idle && { idle }),
+        ...(options.clock && { clock: options.clock }),
         ...automationOptions,
       })
       plans = createPlans({
@@ -443,7 +483,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       ]
       const excludeFromBackups =
         diskOptions.excludeFromBackups ??
-        (process.env.TED_TIME_MACHINE === 'off' ? async () => undefined : excludeFromTimeMachine)
+        (tedEnv('TED_TIME_MACHINE') === 'off' ? async () => undefined : excludeFromTimeMachine)
       Promise.all(backupless.map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })))
         .then(() => excludeFromBackups(backupless))
         .catch((error: unknown) =>
@@ -452,13 +492,21 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const prune = () =>
         pruneRunOutput({
           runsDir: paths.runs,
-          isLive: (runId) => {
-            const run = store.getRun(runId)
-            return run !== undefined && run.state !== 'finished'
-          },
+          keepDays: store.settings().runOutputDays,
+          endOf: (runId) => runOutputEnd(store, runId),
+          ...(options.retention?.now && { now: options.retention.now() }),
         }).catch((error: unknown) => console.error('pruning Run output failed:', error))
       void prune()
-      const pruneTimer = setInterval(() => void prune(), pruneEveryMs)
+      let keptDays = store.settings().runOutputDays
+      const stopPruningOnChange = store.subscribe((event) => {
+        if (event.type !== 'settings-changed' || event.settings.runOutputDays === keptDays) return
+        keptDays = event.settings.runOutputDays
+        void prune()
+      })
+      const pruneTimer = setInterval(
+        () => void prune(),
+        options.retention?.checkEveryMs ?? pruneEveryMs,
+      )
       pruneTimer.unref()
       storage = createStorage({
         home: paths.home,
@@ -468,7 +516,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
       })
       started = tasks
+      const sideChats = createSideChats({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        tasks,
+        ...(idle && { idle }),
+      })
       const factoryRemovals = createFactoryRemovals({
+        sideChats,
         coordinators,
         store,
         banners,
@@ -501,6 +559,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        sideChats,
         coordinators,
         automations,
         plans,
@@ -521,9 +580,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         async close() {
-          shells.close()
+          const shellsClosed = shells.close()
+          await sideChats.close()
           await coordinators.close()
-          automations.close()
+          await automations.close()
           plans.close()
           libraryWatch.close()
           versionRestarts.close()
@@ -531,6 +591,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           stayAwake?.close()
           disk.close()
           clearInterval(pruneTimer)
+          stopPruningOnChange()
           stopWatchingWrites()
           online.close()
           health.close()
@@ -538,6 +599,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           await factories.close()
           await tasks.close()
           await runs.close()
+          await shellsClosed
         },
       }
     },

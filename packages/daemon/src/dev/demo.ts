@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { DaemonClient, readDaemonInfo, tedVersion } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo, tedEnv, tedVersion } from '@ted/protocol'
 import { withDaemon } from '../launch.ts'
 import { makeDemoOrigins, prepareDemoBinaries } from './fixtures.ts'
 import { checkDemoHome, type DemoManifest, demoVersion, markDemo } from './home.ts'
@@ -69,6 +69,10 @@ export async function prepareDemo(home: string, reset = false): Promise<DemoMani
       await withDaemon(
         home,
         async (client) => {
+          const current = await readDaemonInfo(home)
+          if (!current || !Number.isInteger(current.pid) || current.pid <= 1)
+            throw new Error('Unexpected demo daemon pid.')
+          pids.add(current.pid)
           try {
             for (const task of await client.listTasks()) {
               for (const app of await client.listApps(task.id)) {
@@ -90,7 +94,7 @@ export async function prepareDemo(home: string, reset = false): Promise<DemoMani
         }
         return true
       },
-      'demo Run hosts to exit before reset',
+      'demo processes to exit before reset',
       10_000,
     )
     await checkDemoHome(home)
@@ -141,6 +145,9 @@ export async function seedDemoFromCli(home: string, reset = false): Promise<Demo
   const { DaemonAlreadyRunningError } = await import('../lock.ts')
   const { startStubLinear } = await import('../../test/fixtures/stub-linear.ts')
   const linear = await startStubLinear()
+  const claudeBin = tedEnv('TED_CLAUDE_BIN')
+  const codexBin = tedEnv('TED_CODEX_BIN')
+  const ghBin = tedEnv('TED_GH_BIN')
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
   try {
     daemon = await until(
@@ -150,18 +157,18 @@ export async function seedDemoFromCli(home: string, reset = false): Promise<Demo
             home,
             version: tedVersion,
             checkAgentsOnStart: true,
-            ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
-            ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),
+            ...(claudeBin && { claudeBin }),
+            ...(codexBin && { codexBin }),
             integrations: {
               checkOnStart: true,
               loginShell: false,
-              ...(process.env.TED_GH_BIN && { ghBin: process.env.TED_GH_BIN }),
+              ...(ghBin && { ghBin }),
             },
             mergePollMs: 500,
             simulators: { supported: true },
             linear: { apiUrl: linear.url },
-            nudgeAfterMs: Number(process.env.TED_NUDGE_AFTER_MS),
-            stallAfterMs: Number(process.env.TED_STALL_AFTER_MS),
+            nudgeAfterMs: Number(tedEnv('TED_NUDGE_AFTER_MS')),
+            stallAfterMs: Number(tedEnv('TED_STALL_AFTER_MS')),
           })
         } catch (error) {
           if (error instanceof DaemonAlreadyRunningError) return false

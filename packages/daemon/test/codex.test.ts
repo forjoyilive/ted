@@ -114,8 +114,8 @@ describe('Codex Runs', () => {
     )
     const done = await waitUntil(async () => {
       const r = await client.getRun(run.id)
-      return r.run.state === 'idle' ? r : undefined
-    }, 'the Run to go idle')
+      return r.run.state === 'idle' && assistantTexts(r.conversation).length >= 2 ? r : undefined
+    }, 'the Run to answer both approvals and go idle')
     expect(assistantTexts(done.conversation).map((t) => JSON.parse(t))).toEqual([
       { decision: 'decline' },
       { decision: 'decline' },

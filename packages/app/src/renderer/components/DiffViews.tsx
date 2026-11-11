@@ -7,6 +7,7 @@ import { ChangeList, DiffCounts } from './ChangesSection.tsx'
 import { FileDiffBody, type Gutter, type RowExtra } from './DiffTable.tsx'
 import styles from './DiffViews.module.css'
 import { ChevronIcon } from './icons.tsx'
+import { Loading } from './Loading.tsx'
 
 export interface DiffSeams {
   after?: (file: ChangedFile) => RowExtra | undefined
@@ -104,6 +105,7 @@ export function DiffView({
   focus,
   footer,
   onBack,
+  backLabel = '← Thread',
   onOpen,
 }: {
   taskId: string
@@ -112,6 +114,7 @@ export function DiffView({
   seams?: DiffSeams
   focus?: LineFocus | undefined
   footer?: ReactNode
+  backLabel?: string
   onBack: () => void
   onOpen: (file: ChangedFile) => void
 }) {
@@ -134,7 +137,7 @@ export function DiffView({
     <section className={styles.pane} aria-label="Diff">
       <header className={styles.header}>
         <button type="button" className={styles.back} onClick={onBack}>
-          ← Thread
+          {backLabel}
         </button>
         <div className={styles.titleRow}>
           <FilePath path={current.path} />
@@ -175,7 +178,10 @@ export function DiffView({
           branch, including uncommitted work
         </p>
       </header>
-      <div className={styles.body} ref={body}>
+      <div
+        className={`${styles.body} ${diffs === undefined && error === undefined ? styles.pending : ''}`}
+        ref={body}
+      >
         {error !== undefined ? (
           <p className={styles.error}>{error}</p>
         ) : diff ? (
@@ -187,7 +193,9 @@ export function DiffView({
           />
         ) : diffs ? (
           <p className={styles.note}>This file no longer differs from its base.</p>
-        ) : null}
+        ) : (
+          <Loading label="Loading diff…" />
+        )}
       </div>
       {footer}
     </section>
@@ -200,11 +208,13 @@ export function AllChanges({
   seams = {},
   footer,
   onCollapse,
+  backLabel = 'Collapse',
 }: {
   taskId: string
   changes: TaskChanges
   seams?: DiffSeams
   footer?: ReactNode
+  backLabel?: string
   onCollapse: () => void
 }) {
   const sections = useRef(new Map<string, HTMLElement>())
@@ -221,7 +231,7 @@ export function AllChanges({
         </h2>
         <span className={styles.spacer} />
         <Button size="small" onClick={onCollapse}>
-          Collapse
+          {backLabel}
         </Button>
       </header>
       <div className={styles.allBody}>
@@ -270,6 +280,7 @@ function RepoDiffs({
 }) {
   const { diffs, error } = useFileDiffs(taskId, repo, undefined, changes)
   if (error !== undefined) return <p className={styles.error}>{error}</p>
+  if (diffs === undefined) return <Loading label="Loading diffs…" />
   return files.map((file) => {
     const diff = diffs?.find((d) => d.path === file.path)
     return (

@@ -2,7 +2,7 @@ import type { AgentKind } from './run.ts'
 import type { AutomationSchedule } from './schedule.ts'
 import type { Effort, StageId } from './task.ts'
 
-export const automationTemplateIds = ['linear', 'sentry', 'github'] as const
+export const automationTemplateIds = ['linear', 'sentry', 'github', 'architecture'] as const
 
 export type AutomationTemplateId = (typeof automationTemplateIds)[number]
 
@@ -129,4 +129,31 @@ export interface SchedulePreview {
 export interface AnswerAutomationRequest {
   choice?: string
   text?: string
+}
+
+export interface DraftAutomationPromptRequest {
+  factory: string
+  request: string
+  name?: string
+  prompt?: string
+  agent?: AgentKind
+  model?: string
+  effort?: Effort
+}
+
+export interface AutomationPromptDraft {
+  id: string
+  factoryId: string
+  state: 'queued' | 'working' | 'ready' | 'failed' | 'canceled'
+  prompt?: string
+  error?: string
+  paused?: string
+}
+
+export interface SchedulePreviewRequest {
+  schedule: AutomationSchedule
+}
+export interface AutomationCommentRequest {
+  body: string
+  choices?: string[]
 }

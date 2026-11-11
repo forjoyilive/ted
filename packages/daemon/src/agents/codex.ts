@@ -3,8 +3,6 @@ import {
   type Billing,
   isModelName,
   type PermissionMode,
-  type PlanWindow,
-  type PlanWindowKind,
   type RunState,
   tedVersion,
 } from '@ted/protocol'
@@ -20,6 +18,7 @@ import {
 } from './agent.ts'
 import { codexChat } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
+import { codexPlanWindows, readCodexPlanUsage } from './codex-usage.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
 
@@ -33,6 +32,35 @@ const sandbox: Record<PermissionMode, string[]> = {
   ],
   bypass: ['sandbox_mode="danger-full-access"', 'approval_policy="never"'],
 }
+
+// Codex still exposes apply_patch without shell tools; read-only with no approvals denies it.
+const textOnly = [
+  'sandbox_mode="read-only"',
+  'approval_policy="never"',
+  'web_search="disabled"',
+  'notify=[]',
+  'tools.experimental_request_user_input.enabled=false',
+  'tools.update_plan.enabled=false',
+  ...[
+    'goals',
+    'shell_tool',
+    'shell_snapshot',
+    'shell_snapshot_v2',
+    'js_repl',
+    'apps',
+    'plugins',
+    'hooks',
+    'codex_hooks',
+    'plugin_hooks',
+    'multi_agent',
+    'multi_agent_v2',
+    'image_generation',
+    'memory_tool',
+    'view_image',
+    'tool_suggest',
+    'skill_mcp_dependency_install',
+  ].map((feature) => `features.${feature}=false`),
+]
 
 const environmentPolicy = [
   'shell_environment_policy.inherit="all"',
@@ -94,23 +122,6 @@ function usageLimitIn(error: unknown): UsageSignal | undefined {
         : undefined),
   )
   return { limited: true, ...(reset !== undefined && { resetsAt: reset }) }
-}
-
-const windowByMinutes: Record<number, PlanWindowKind> = { 300: 'five-hour', 10080: 'weekly' }
-
-function planWindow(value: unknown, fallback: PlanWindowKind): PlanWindow | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const { usedPercent, windowDurationMins, resetsAt } = value as Record<string, unknown>
-  if (typeof usedPercent !== 'number') return undefined
-  const window =
-    typeof windowDurationMins === 'number' ? windowByMinutes[windowDurationMins] : fallback
-  if (window === undefined) return undefined
-  const reset = fromEpoch(resetsAt)
-  return {
-    window,
-    percent: Math.min(100, Math.max(0, usedPercent)),
-    ...(reset !== undefined && { resetsAt: reset }),
-  }
 }
 
 function rateLimitsIn(message: CodexLine | undefined): unknown {
@@ -433,7 +444,7 @@ export function codexAgent(binary: string): Agent {
   return {
     kind: 'codex',
     binary,
-    launch({ prompt, env, resume, model, effort, permissions, billing }) {
+    launch({ prompt, env, resume, model, effort, permissions, billing, tools }) {
       if (model !== undefined && !isModelName(model)) {
         throw new Error(`“${model}” isn’t a model name`)
       }
@@ -442,6 +453,7 @@ export function codexAgent(binary: string): Agent {
           resume === undefined
             ? { method: 'thread/start', params: {} }
             : { method: 'thread/resume', params: { threadId: resume } },
+        ...(tools === 'none' && { textOnly: true }),
         prompt,
         clientVersion: tedVersion,
         ...(model !== undefined && { model }),
@@ -451,7 +463,10 @@ export function codexAgent(binary: string): Agent {
         command: binary,
         args: [
           'app-server',
-          ...[...sandbox[permissions], ...environmentPolicy].flatMap((c) => ['-c', c]),
+          ...[
+            ...(tools === 'none' ? textOnly : sandbox[permissions]),
+            ...environmentPolicy,
+          ].flatMap((c) => ['-c', c]),
         ],
         env: codexEnvironment(env, billing ?? 'subscription'),
         input: JSON.stringify(plan),
@@ -500,6 +515,12 @@ export function codexAgent(binary: string): Agent {
         return flags.length > 0 ? 'waiting' : 'working'
       }
       return stateByMethod[message.method]
+    },
+    turnFrom(line) {
+      const message = parse(line)
+      if (message?.method === 'turn/started') return 'started'
+      if (message?.method === 'turn/completed') return 'completed'
+      return undefined
     },
     acceptedTextFrom(line) {
       const message = parse(line)
@@ -574,14 +595,10 @@ export function codexAgent(binary: string): Agent {
       if (type === 'chatgpt' || type === 'chatgptAuthTokens') return { billing: 'subscription' }
       return undefined
     },
+    readPlanUsage: readCodexPlanUsage,
     planUsageFrom(line) {
-      const limits = rateLimitsIn(parse(line))
-      if (typeof limits !== 'object' || limits === null) return undefined
-      const { primary, secondary } = limits as { primary?: unknown; secondary?: unknown }
-      const windows = [planWindow(primary, 'five-hour'), planWindow(secondary, 'weekly')].filter(
-        (w): w is PlanWindow => w !== undefined,
-      )
-      return windows.length > 0 ? windows : undefined
+      const windows = codexPlanWindows(rateLimitsIn(parse(line)))
+      return windows?.length ? windows : undefined
     },
     costOf(lines, model) {
       let last: { input: number; cached: number; output: number } | undefined

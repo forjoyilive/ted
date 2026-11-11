@@ -9,6 +9,7 @@ import { killAppHosts, killRunHosts, stopDaemonIn } from '../../daemon/test/help
 import { installedElectron } from '../scripts/electron-path.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 let home: string
 let app: ElectronApplication | undefined
@@ -55,7 +56,7 @@ test('opens the populated demo and reuses it when reopened', async () => {
     return launched
   }
   app = await launch()
-  let window = await app.firstWindow({ timeout: 180_000 })
+  let window = await loadedWindow(app)
   let nav = window.getByRole('navigation', { name: 'Sidebar' })
   await nav.waitFor({ timeout: 180_000 })
   await nav.getByRole('button', { name: 'Garden', exact: true }).click()
@@ -70,7 +71,7 @@ test('opens the populated demo and reuses it when reopened', async () => {
   const before = await readFile(path.join(home, 'demo.json'), 'utf8')
   await closeApp(app)
   app = await launch()
-  window = await app.firstWindow({ timeout: 180_000 })
+  window = await loadedWindow(app)
   nav = window.getByRole('navigation', { name: 'Sidebar' })
   await nav.waitFor()
   expect(await readFile(path.join(home, 'demo.json'), 'utf8')).toBe(before)

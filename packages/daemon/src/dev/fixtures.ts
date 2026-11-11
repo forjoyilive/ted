@@ -97,6 +97,7 @@ export async function makeDemoOrigins(home: string): Promise<void> {
       path.join(cwd, 'check.js'),
       "import { writeFileSync } from 'node:fs'\nwriteFileSync('stub-check-passed', 'ok')\nconsole.log('All smoke checks passed')\n",
     )
+    await writeFile(path.join(cwd, '.gitignore'), 'stub-check-passed\n')
     await writeFile(
       path.join(cwd, 'server.js'),
       "import http from 'node:http'\nhttp.createServer((_req, res) => res.end('Garden demo')).listen(Number(process.env.PORT || 4310), '127.0.0.1')\n",

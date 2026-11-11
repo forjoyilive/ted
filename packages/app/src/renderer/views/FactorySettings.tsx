@@ -20,6 +20,7 @@ import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
 import {
   editedFields,
@@ -44,11 +45,13 @@ import {
   Toggle,
   WorkflowSection,
 } from './FactorySettingsSections.tsx'
+import { LinearIntakeSection } from './LinearIntakeSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
 
 const sections = [
+  ['linear-intake', 'Linear intake'],
   ['repos', 'Repos'],
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
@@ -242,8 +245,10 @@ export function FactorySettings({
         <div className={styles.scroller} ref={scroller}>
           <div className={styles.column}>
             {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
+            {!view && !loadError && <Skeleton shape="settings" label="Loading Factory settings…" />}
             {view?.invalid && <InvalidNotice invalid={view.invalid} />}
             <GeneralSection factory={factory} />
+            <LinearIntakeSection key={factory.id} factoryId={factory.id} />
             {loadError !== undefined && (
               <p className={styles.loadError} role="alert">
                 {loadError}

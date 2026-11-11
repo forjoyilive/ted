@@ -120,6 +120,7 @@ export interface Agent {
     model?: string
     effort?: Effort
     permissions: PermissionMode
+    tools?: 'none'
     billing?: Billing
   }): AgentLaunch
   message(text: string): string
@@ -127,6 +128,7 @@ export interface Agent {
   interrupt(): string[]
   boundaryFrom(line: string): boolean
   stateFrom(line: string): RunState | undefined
+  turnFrom(line: string): 'started' | 'completed' | undefined
   permissionPromptFrom(line: string, earlier: EarlierLine): PermissionPrompt | undefined
   permissionClosedFrom(line: string): string | undefined
   autoModeFrom(line: string): AutoModeSignal | undefined
@@ -142,6 +144,12 @@ export interface Agent {
   usageFrom(line: string): UsageSignal | undefined
   retryingFrom(line: string): boolean | undefined
   credentialFrom(line: string): CredentialReport | undefined
+  readPlanUsage?(options: {
+    binary: string
+    env: NodeJS.ProcessEnv
+    cwd: string
+    signal: AbortSignal
+  }): Promise<PlanWindow[] | undefined>
   planUsageFrom(line: string): PlanWindow[] | undefined
   costOf(lines: readonly string[], model: string | undefined): number | undefined
   keyHelp(source: string | undefined): string

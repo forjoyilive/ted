@@ -1,13 +1,14 @@
 import type {
-  FixCommand,
   GitHealth,
   GitHubCli,
   GitHubHost,
   IntegrationFix,
+  IntegrationRemedy,
   IntegrationsHealth,
 } from '@ted/protocol'
 import { minGhVersion } from '@ted/protocol/integrations'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { ted } from '../ted.ts'
 import { Button, SettingsGroup, SettingsPage } from './controls.tsx'
@@ -73,10 +74,13 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
   const runFix = (key: string, fix: IntegrationFix, host?: string) => {
     setOpened(undefined)
     ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
-      ({ command }) =>
+      (result) =>
         setOpened({
           key,
-          text: `Opened ${command} ${inTerminal}. Checking again every 5 seconds…`,
+          text:
+            'url' in result
+              ? 'Opened instructions in your browser. Follow them, then choose Check again.'
+              : `Opened ${result.command} ${inTerminal}. Checking again every 5 seconds…`,
         }),
       (error: unknown) => setOpened({ key, text: message(error) }),
     )
@@ -85,19 +89,21 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
   const note = (key: string) => (opened?.key === key ? opened.text : undefined)
   const checkButton = (
     <Button onClick={checkAgain} disabled={checking}>
-      {checking ? 'Checking…' : 'Check again'}
+      {checking ? <Loading compact label="Checking…" /> : 'Check again'}
     </Button>
   )
 
   return (
     <SettingsPage title="Integrations">
-      {problem !== undefined && <p className={styles.problem}>{problem}</p>}
+      {problem !== undefined && <LoadingError error={problem} retry={checkAgain} />}
       <SettingsGroup
         label="GitHub"
         help="TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use."
       >
         {!health ? (
-          <LoadingRow />
+          problem ? null : (
+            <LoadingRow />
+          )
         ) : health.github.cli.state !== 'ready' ? (
           <CliRow
             cli={health.github.cli}
@@ -120,7 +126,9 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
       </SettingsGroup>
       <SettingsGroup label="Git">
         {!health ? (
-          <LoadingRow />
+          problem ? null : (
+            <LoadingRow />
+          )
         ) : (
           <GitRow
             git={health.git}
@@ -140,11 +148,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
 }
 
 function LoadingRow() {
-  return (
-    <div className={styles.row}>
-      <p className={styles.detail}>Checking…</p>
-    </div>
-  )
+  return <Skeleton shape="settings" rows={1} framed={false} label="Loading integrations…" />
 }
 
 function HealthRow({
@@ -182,13 +186,15 @@ function FixButtons({
   kind,
   onFix,
 }: {
-  fix: FixCommand
+  fix: IntegrationRemedy
   kind: IntegrationFix
   onFix: (fix: IntegrationFix) => void
 }) {
   return (
     <>
-      <Button onClick={() => void ted.copyText(fix.command)}>Copy command</Button>
+      {'command' in fix && (
+        <Button onClick={() => void ted.copyText(fix.command)}>Copy command</Button>
+      )}
       <Button onClick={() => onFix(kind)}>{fix.label}</Button>
     </>
   )
@@ -375,7 +381,14 @@ function CliRow({
               : 'TED reaches GitHub through the GitHub CLI, gh'}
           </p>
           <p className={styles.danger}>Needed to add a Factory and to merge.</p>
-          {cli.fix && <code className={styles.command}>{cli.fix.command}</code>}
+          {cli.fix &&
+            ('command' in cli.fix ? (
+              <code className={styles.command}>{cli.fix.command}</code>
+            ) : (
+              <p className={styles.detail}>
+                Follow the official Linux instructions, then choose Check again.
+              </p>
+            ))}
           {cli.path !== undefined && <p className={styles.meta}>{cli.path}</p>}
           <Note text={note} />
         </>
@@ -410,7 +423,14 @@ function GitRow({
         lines={
           <>
             <p className={styles.detail}>TED needs Git to clone repos and make worktrees.</p>
-            {git.fix && <code className={styles.command}>{git.fix.command}</code>}
+            {git.fix &&
+              ('command' in git.fix ? (
+                <code className={styles.command}>{git.fix.command}</code>
+              ) : (
+                <p className={styles.detail}>
+                  Follow the official Linux instructions, then choose Check again.
+                </p>
+              ))}
             <Note text={note} />
           </>
         }

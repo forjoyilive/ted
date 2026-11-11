@@ -97,6 +97,7 @@ function NewTaskForm({
   const headingId = useId()
   const [draft, showDraft] = useState(emptyTaskDraft)
   const [ready, setReady] = useState(false)
+  const [heldFiles, setHeldFiles] = useState<File[]>([])
   const [draftError, setDraftError] = useState<string>()
   const [session] = useState(() =>
     taskDraftSession(factory ?? '', {
@@ -241,12 +242,12 @@ function NewTaskForm({
         if (!current) return
         setHealth(health)
         const fallback = health.find((entry) => entry.state !== 'not-installed')
-        const availableDefault = health.some(
+        const availableDefault: TaskLead = health.some(
           (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
         )
           ? defaults.lead
           : fallback
-            ? { agent: fallback.agent }
+            ? { agent: fallback.agent, effortMode: 'stage' }
             : defaults.lead
         setDefaultLead(availableDefault)
         setDefaultDepth(defaults.clarifyDepth)
@@ -294,8 +295,8 @@ function NewTaskForm({
   }, [factory, ready, session])
 
   useEffect(() => {
-    if (ready && defaultsReady) descriptionField.current?.focus()
-  }, [ready, defaultsReady])
+    if (ready && defaultsReady && !busy) descriptionField.current?.focus()
+  }, [ready, defaultsReady, busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
   const fetching = source !== undefined && source.lookup === undefined
@@ -400,7 +401,11 @@ function NewTaskForm({
   }
 
   function attach(files: readonly File[]) {
-    if (!ready || busy) return Promise.resolve()
+    if (busy) return Promise.resolve()
+    if (!ready) {
+      setHeldFiles((held) => [...held, ...files])
+      return Promise.resolve()
+    }
     const pending = upload(files)
     uploads.current.add(pending)
     void pending.finally(() => uploads.current.delete(pending))
@@ -430,6 +435,12 @@ function NewTaskForm({
       }
     }
   }
+
+  useEffect(() => {
+    if (!ready || heldFiles.length === 0) return
+    setHeldFiles([])
+    void attach(heldFiles)
+  })
 
   function onDrop(event: DragEvent) {
     event.preventDefault()
@@ -560,7 +571,9 @@ function NewTaskForm({
               </button>
             </span>
           ))}
-          {uploading > 0 && <span className={styles.chipMeta}>Attaching…</span>}
+          {(uploading > 0 || heldFiles.length > 0) && (
+            <span className={styles.chipMeta}>Attaching…</span>
+          )}
           <button
             type="button"
             className={styles.attach}
@@ -650,6 +663,7 @@ function NewTaskForm({
               </div>
               {lead && (
                 <LeadFields
+                  stageEffort
                   id={headingId}
                   lead={lead}
                   factoryLead={defaultLead}
@@ -844,7 +858,7 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
     setSaving(true)
     setProblem(undefined)
     try {
-      const status = await ted.saveLinearKey(key)
+      const status = await ted.saveLinearKey({ key })
       if (!mounted.current) return
       if (status.storedIn !== undefined) {
         onSaved()
@@ -931,6 +945,7 @@ export function LeadFields({
   lead,
   factoryLead,
   onChange,
+  stageEffort = false,
   label = 'Task Lead',
   help = 'The agent that carries this Task through its Stages. Filled from the Factory’s lead.',
 }: {
@@ -938,6 +953,7 @@ export function LeadFields({
   lead: TaskLead
   factoryLead: TaskLead | undefined
   onChange: (lead: TaskLead) => void
+  stageEffort?: boolean
   label?: string
   help?: string
 }) {
@@ -952,7 +968,14 @@ export function LeadFields({
     onChange({
       agent,
       ...(model !== '' && { model }),
-      ...(effort !== '' && { effort: effort as Effort }),
+      ...(effort === 'stage'
+        ? {
+            effortMode: 'stage' as const,
+            ...(lead.effort !== undefined && { effort: lead.effort }),
+          }
+        : effort !== ''
+          ? { effort: effort as Effort }
+          : {}),
     })
 
   return (
@@ -968,7 +991,11 @@ export function LeadFields({
           onChange={(event) => {
             const agent = event.target.value as AgentKind
             const same = factoryLead?.agent === agent ? factoryLead : undefined
-            set(agent, same?.model ?? '', lead.effort ?? '')
+            set(
+              agent,
+              same?.model ?? '',
+              lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''),
+            )
           }}
         >
           {agentKinds.map((agent) => (
@@ -981,7 +1008,13 @@ export function LeadFields({
           aria-label="Model"
           id={`${id}-model`}
           value={lead.model ?? ''}
-          onChange={(event) => set(lead.agent, event.target.value, lead.effort ?? '')}
+          onChange={(event) =>
+            set(
+              lead.agent,
+              event.target.value,
+              lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''),
+            )
+          }
         >
           <option value="">Default model</option>
           {models.map((model) => (
@@ -992,10 +1025,11 @@ export function LeadFields({
         </Select>
         <Select
           aria-label="Effort"
-          value={lead.effort ?? ''}
+          value={lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? '')}
           onChange={(event) => set(lead.agent, lead.model ?? '', event.target.value)}
         >
-          <option value="">Default effort</option>
+          {stageEffort && <option value="stage">Follow Stage settings</option>}
+          <option value="">{stageEffort ? 'CLI default · for this Task' : 'Default effort'}</option>
           {efforts.map((effort) => (
             <option key={effort} value={effort}>
               {effort}

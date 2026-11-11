@@ -256,7 +256,7 @@ export function groupTasks(
     const extra = [...new Set(sorted.map(keyOf))].filter((k) => !keys.includes(k))
     return [...keys, ...extra].flatMap((key) => {
       const inGroup = sorted.filter((t) => keyOf(t) === key)
-      return inGroup.length === 0 && !keep.includes(key)
+      return inGroup.length === 0 && !view.showEmptyGroups && !keep.includes(key)
         ? []
         : [{ key, label: labelOf(key), tasks: inGroup, collapsed: collapsed(key) }]
     })

@@ -1,7 +1,16 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, TaskBrief } from '@ted/protocol'
+import type {
+  Comment,
+  Factory,
+  InboxItem,
+  Run,
+  Task,
+  TaskBrief,
+  TaskGates,
+  ThreadEvent,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -133,7 +142,7 @@ const waitForRequest = (client: Client) =>
   waitUntil(async () => (await inbox(client)).at(0), 'a request in the Inbox')
 
 describe('Gates', () => {
-  test('a Task with default settings stops at the end of Design with a design review in the Inbox', async () => {
+  test('a Task with default settings stops at the end of Design with a design review in the Inbox; the token in daemon.json can’t answer it; Approve with the app’s token moves the Task on and tells the Task Lead', async () => {
     const client = await start()
     const advance = ['ted', 'outcome', 'advance']
     const task = await startTask(
@@ -150,6 +159,7 @@ describe('Gates', () => {
     )
 
     const item = await waitForRequest(client)
+    const { request } = item
     expect(item.task).toMatchObject({ id: task.id, stage: 'design' })
     expect(item.request).toMatchObject({
       kind: 'review',
@@ -166,6 +176,30 @@ describe('Gates', () => {
       stdout: 'Waiting for the human at the Design Gate. TED sends you their answer.\n',
     })
     expect((await getTask(client, task.id)).stage).toBe('design')
+
+    for (const action of [{ action: 'approve' }, { action: 'request-changes', text: 'No.' }]) {
+      const res = await client.fileToken.call('POST', `/comments/${request.id}/answer`, action)
+      expect(res).toEqual({ status: 403, body: { error: 'only the TED app can do this' } })
+    }
+    expect((await inbox(client)).map((i) => i.request.id)).toEqual([request.id])
+
+    const answered = await client.ok<Comment>('POST', `/comments/${request.id}/answer`, {
+      action: 'approve',
+      text: 'Use the existing sync queue.',
+    })
+
+    expect(answered.answer).toMatchObject({ kind: 'approved' })
+    await waitForStage(client, task, 'work')
+    expect(await inbox(client)).toEqual([])
+    const work = await waitUntil(
+      async () =>
+        (await userMessages(client, task)).find((m) => m.startsWith('The human approved')),
+      'the Work instructions to reach the Task Lead',
+    )
+    expect(work).toMatch(
+      /^The human approved the Design Gate and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
+    )
+    expect(work).toContain('# Work')
   })
 
   test('with no .ted/, the Task stops at the Design Gate and again at the Review Gate', async () => {
@@ -239,35 +273,23 @@ describe('Gates', () => {
     ])
   })
 
-  test('a Stage that has posted its Gate request can’t skip itself afterwards', async () => {
+  test('at Design the Task Lead can’t pass the Gate without writing the Task brief in that Stage, can’t go back without a Findings file or to a Stage that isn’t earlier, and can’t skip once the Gate request is posted', async () => {
     const client = await start()
+    const go = path.join(scratch, 'go')
+    const back = ['ted', 'outcome', 'back', '--to']
     const task = await startTask(
       client,
       { everyMessage: [{ endTurn: true }] },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
       { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { waitFor: go },
+      { run: [...back, 'intake'] },
+      { run: [...back, 'work', '--findings', client.findingsFile] },
+      { run: [...back, 'design', '--findings', client.findingsFile] },
       { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
       { run: ['ted', 'outcome', 'advance'] },
       { run: ['ted', 'outcome', 'advance', '--skip'] },
-      { endTurn: true },
-    )
-    await waitUntil(async () => (await commandResults(client, task)).length === 4, 'four commands')
-
-    expect((await commandResults(client, task)).at(-1)).toEqual({
-      code: 1,
-      stdout: '',
-      stderr: 'ted: Design has already posted its Gate request, so it can’t skip itself\n',
-    })
-    expect((await getTask(client, task.id)).stage).toBe('design')
-    expect(await inbox(client)).toHaveLength(1)
-  })
-
-  test('the Task Lead can’t pass a Gate without writing the Task brief in that Stage', async () => {
-    const client = await start()
-    const task = await startTask(
-      client,
-      { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }, { endTurn: true }] },
-      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
-      { run: ['ted', 'outcome', 'advance'] },
       { endTurn: true },
     )
 
@@ -280,67 +302,37 @@ describe('Gates', () => {
     })
     expect(await inbox(client)).toEqual([])
     expect((await getTask(client, task.id)).stage).toBe('design')
-  })
-
-  test('Approve moves the Task on and tells the Task Lead', async () => {
-    const client = await start()
-    const task = await startTask(
-      client,
-      {
-        everyMessage: [
-          { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
-          { run: ['ted', 'outcome', 'advance'] },
-          { endTurn: true },
-        ],
-      },
-      { run: ['ted', 'outcome', 'advance'] },
-      { endTurn: true },
-    )
-    const { request } = await waitForRequest(client)
-
-    const answered = await client.ok<Comment>('POST', `/comments/${request.id}/answer`, {
-      action: 'approve',
-      text: 'Use the existing sync queue.',
+    const res = await client.call('POST', `/tasks/${task.id}/outcome`, {
+      outcome: 'back',
+      to: 'intake',
+      findings: ' ',
     })
+    expect(res.status).toBe(400)
 
-    expect(answered.answer).toMatchObject({ kind: 'approved' })
-    await waitForStage(client, task, 'work')
-    expect(await inbox(client)).toEqual([])
-    const work = await waitUntil(
-      async () =>
-        (await userMessages(client, task)).find((m) => m.startsWith('The human approved')),
-      'the Work instructions to reach the Task Lead',
-    )
-    expect(work).toMatch(
-      /^The human approved the Design Gate and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
-    )
-    expect(work).toContain('# Work')
-  })
+    await writeFile(go, '')
+    await waitUntil(async () => (await commandResults(client, task)).length === 9, 'nine commands')
 
-  test('the token in daemon.json can’t approve a Gate; the app’s token can', async () => {
-    const client = await start()
-    const task = await startTask(
-      client,
+    const results = await commandResults(client, task)
+    expect(results.slice(3, 6)).toEqual([
+      { code: 2, stdout: '', stderr: 'ted: give the Findings file with --findings <file>\n' },
       {
-        everyMessage: [
-          { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
-          { run: ['ted', 'outcome', 'advance'] },
-          { endTurn: true },
-        ],
+        code: 1,
+        stdout: '',
+        stderr: 'ted: `back` goes only to an earlier Stage; Work isn’t before Design\n',
       },
-      { run: ['ted', 'outcome', 'advance'] },
-      { endTurn: true },
-    )
-    const { request } = await waitForRequest(client)
-
-    for (const action of [{ action: 'approve' }, { action: 'request-changes', text: 'No.' }]) {
-      const res = await client.fileToken.call('POST', `/comments/${request.id}/answer`, action)
-      expect(res).toEqual({ status: 403, body: { error: 'only the TED app can do this' } })
-    }
-    expect((await inbox(client)).map((i) => i.request.id)).toEqual([request.id])
-
-    await client.ok('POST', `/comments/${request.id}/answer`, { action: 'approve' })
-    await waitForStage(client, task, 'work')
+      {
+        code: 1,
+        stdout: '',
+        stderr: 'ted: `back` goes only to an earlier Stage; Design isn’t before Design\n',
+      },
+    ])
+    expect(results.at(-1)).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'ted: Design has already posted its Gate request, so it can’t skip itself\n',
+    })
+    expect((await getTask(client, task.id)).stage).toBe('design')
+    expect(await inbox(client)).toHaveLength(1)
   })
 
   test('an approval while the Task Lead is paused reaches the resumed Run', async () => {
@@ -494,61 +486,9 @@ describe('Gates', () => {
     expect(open.request.id).not.toBe(withdrawn.id)
     expect((await getTask(client, task.id)).stage).toBe('design')
   })
-
-  test('only the human answers: a Run can’t, and a note has nothing to answer', async () => {
-    const client = await start()
-    const task = await startTask(
-      client,
-      { run: ['ted', 'comment', 'Just a note'] },
-      { endTurn: true },
-    )
-    await waitForIdle(client, task)
-    const [note] = await comments(client, task)
-    if (!note) throw new Error('no note')
-    expect(note).toMatchObject({ kind: 'note', author: { kind: 'run' }, stage: 'intake' })
-
-    const res = await client.call('POST', `/comments/${note.id}/answer`, { action: 'approve' })
-    expect(res).toEqual({ status: 400, body: { error: 'a note has nothing to answer' } })
-  })
 })
 
 describe('outcomes', () => {
-  test('back without a Findings file, or to a Stage that isn’t earlier, is refused', async () => {
-    const client = await start()
-    const back = ['ted', 'outcome', 'back', '--to']
-    const task = await startTask(
-      client,
-      { everyMessage: [{ endTurn: true }] },
-      { run: ['ted', 'outcome', 'advance'] },
-      { run: [...back, 'intake'] },
-      { run: [...back, 'work', '--findings', client.findingsFile] },
-      { run: [...back, 'design', '--findings', client.findingsFile] },
-      { endTurn: true },
-    )
-    await waitUntil(async () => (await commandResults(client, task)).length === 4, 'four commands')
-
-    expect((await commandResults(client, task)).slice(1)).toEqual([
-      { code: 2, stdout: '', stderr: 'ted: give the Findings file with --findings <file>\n' },
-      {
-        code: 1,
-        stdout: '',
-        stderr: 'ted: `back` goes only to an earlier Stage; Work isn’t before Design\n',
-      },
-      {
-        code: 1,
-        stdout: '',
-        stderr: 'ted: `back` goes only to an earlier Stage; Design isn’t before Design\n',
-      },
-    ])
-    expect((await getTask(client, task.id)).stage).toBe('design')
-    const res = await client.call('POST', `/tasks/${task.id}/outcome`, {
-      outcome: 'back',
-      to: 'intake',
-      findings: ' ',
-    })
-    expect(res.status).toBe(400)
-  })
-
   test('the Task Lead’s send-backs over max_back turn into a question; answering resets the count', async () => {
     const client = await start(
       'version: 1\norder: [intake, design, work, merge]\nstages:\n  work: { max_back: 1 }\n  design: { gate: false }\n',
@@ -573,7 +513,12 @@ describe('outcomes', () => {
       title: 'Work wants to send this Task back to Design again',
       choices: ['Send it back to Design', 'Keep it in Work'],
     })
-    expect(request.body).toContain('The sync test fails on a clash.')
+    expect(request.body).not.toContain('The sync test fails on a clash.')
+    expect(request.body).toContain('history')
+    const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(
+      history.find((e) => e.text === 'Work wants to send this Task back to Design')?.findings,
+    ).toContain('The sync test fails on a clash.')
     expect((await getTask(client, task.id)).stage).toBe('work')
     const backMessage = (await userMessages(client, task)).find((m) =>
       m.startsWith('TED moved this Task back to Design.'),
@@ -608,15 +553,20 @@ describe('outcomes', () => {
 })
 
 describe('the Task brief', () => {
-  test('a Run reads only its own Task’s brief', async () => {
+  test('ted brief write stores a new version each time and needs the fixed headings; a Run reads only its own Task’s brief; a note has nothing to answer', async () => {
     const client = await start()
+    const go = path.join(scratch, 'go')
     const task = await startTask(
       client,
       { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
       { run: ['ted', 'brief', 'show'] },
+      { waitFor: go },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'brief', 'write', '--file', client.findingsFile] },
+      { run: ['ted', 'comment', 'Just a note'] },
       { endTurn: true },
     )
-    await waitForIdle(client, task)
+    await waitUntil(async () => (await commandResults(client, task)).length === 2, 'two commands')
     expect((await commandResults(client, task)).at(-1)).toEqual({
       code: 0,
       stdout: brief,
@@ -625,7 +575,7 @@ describe('the Task brief', () => {
     const cwd = await mkdtemp(path.join(scratch, 'dev-run-'))
 
     const other = await client.startRun(
-      [{ run: ['ted', 'brief', 'show', '--task', 'NB-1'] }, { endTurn: true }],
+      [{ run: ['ted', 'brief', 'show', '--task', task.displayId] }, { endTurn: true }],
       cwd,
     )
 
@@ -633,25 +583,19 @@ describe('the Task brief', () => {
     const [result] = assistantTexts((await client.getRun(other.id)).conversation).map(
       (text) => JSON.parse(text) as { code: number; stderr: string },
     )
-    expect(result).toMatchObject({ code: 1, stderr: 'ted: this Run doesn’t belong to NB-1\n' })
+    expect(result).toMatchObject({
+      code: 1,
+      stderr: `ted: this Run doesn’t belong to ${task.displayId}\n`,
+    })
     expect((await client.ok<TaskBrief>('GET', `/tasks/${task.id}/brief`)).version).toBe(1)
-  })
 
-  test('ted brief write stores a new version each time and needs the fixed headings', async () => {
-    const client = await start()
-    const task = await startTask(
-      client,
-      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
-      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
-      { run: ['ted', 'brief', 'write', '--file', client.findingsFile] },
-      { endTurn: true },
-    )
+    await writeFile(go, '')
     await waitForIdle(client, task)
 
     const results = await commandResults(client, task)
-    expect(results.map((r) => r.code)).toEqual([0, 0, 1])
-    expect(results[1]?.stdout).toBe('Wrote version 2 of the Task brief\n')
-    expect(results[2]?.stderr).toBe(
+    expect([results[0], results[2], results[3]].map((r) => r?.code)).toEqual([0, 0, 1])
+    expect(results[2]?.stdout).toBe('Wrote version 2 of the Task brief\n')
+    expect(results[3]?.stderr).toBe(
       'ted: the Task brief needs these headings, in order: Goal, Decisions so far, Current state, Open questions, Next step\n',
     )
     expect(await client.ok<TaskBrief>('GET', `/tasks/${task.id}/brief`)).toMatchObject({
@@ -659,5 +603,71 @@ describe('the Task brief', () => {
       stage: 'intake',
       text: brief,
     })
+
+    const [note] = await comments(client, task)
+    if (!note) throw new Error('no note')
+    expect(note).toMatchObject({ kind: 'note', author: { kind: 'run' }, stage: 'intake' })
+
+    const res = await client.call('POST', `/comments/${note.id}/answer`, { action: 'approve' })
+    expect(res).toEqual({ status: 400, body: { error: 'a note has nothing to answer' } })
   })
+})
+
+test('Task Gate overrides keep Stage work, enforce new Gates and cannot bypass posted requests', async () => {
+  const client = await start()
+  const go = path.join(scratch, 'start-with-gates')
+  const task = await client.ok<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: steps(
+      { everyMessage: [{ endTurn: true }] },
+      { waitFor: go },
+      {
+        run: [
+          'node',
+          '-e',
+          `fetch('http://127.0.0.1:${daemon?.port}/tasks/own-task/gates', {method:'PUT', headers:{authorization:'Bearer '+(process.env.TED_RUN_CAPABILITY || process.env.TED_RUN_TOKEN),'content-type':'application/json'},body:'{}'}).then(r=>console.log(r.status))`,
+        ],
+      },
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    ),
+  })
+  const route = `/tasks/${task.id}/gates`
+  const initial = await client.ok<TaskGates>('GET', route)
+  await client.ok('PUT', route, {
+    overrides: { design: false, work: true },
+    revision: initial.revision,
+  })
+  await client.ok('POST', `/tasks/${task.id}/start`)
+  await writeFile(go, '')
+  const item = await waitForRequest(client)
+  expect(item.task.stage).toBe('work')
+  expect(item.request.stage).toBe('work')
+  const posted = await comments(client, task)
+  expect(posted.some((comment) => comment.gate && comment.stage === 'design')).toBe(false)
+  expect(posted.filter((comment) => comment.gate && comment.stage === 'work')).toHaveLength(1)
+  const gates = await client.ok<TaskGates>('GET', route)
+  expect(gates.rows.find((row) => row.stage === 'design')?.locked).toBe('Stage already passed')
+  expect(gates.rows.find((row) => row.stage === 'work')?.locked).toContain(
+    'Sign-off has been requested',
+  )
+  expect(
+    (
+      await client.call('PUT', route, {
+        overrides: { design: false, work: false },
+        revision: gates.revision,
+      })
+    ).status,
+  ).toBe(409)
+  expect(
+    (await client.call('PUT', route, { overrides: { work: true }, revision: gates.revision }))
+      .status,
+  ).toBe(409)
+  expect((await inbox(client)).some((entry) => entry.request.id === item.request.id)).toBe(true)
+  await waitUntil(async () => (await commandResults(client, task)).length === 6, 'Gate commands')
+  expect((await commandResults(client, task))[0]?.stdout.trim()).toBe('403')
 })

@@ -19,6 +19,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { StageEffort } from '../components/StageEffort.tsx'
 import {
   agentEdited,
   driftLine,
@@ -28,6 +29,7 @@ import {
   stageEdited,
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
+import { OvernightNotice } from '../overnight.tsx'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import styles from './FactorySettingsSections.module.css'
@@ -138,10 +140,12 @@ function SectionHeading({
   id,
   title: heading,
   help,
+  where = 'repo',
 }: {
   id: string
   title: string
   help: ReactNode
+  where?: 'repo' | 'machine'
 }) {
   return (
     <div className={base.sectionHeading}>
@@ -149,7 +153,11 @@ function SectionHeading({
         {heading}
       </h2>
       <Help>{help}</Help>
-      <span className={base.repoChip}>Saved to the repo · pull request</span>
+      {where === 'repo' ? (
+        <span className={base.repoChip}>Saved to the repo · pull request</span>
+      ) : (
+        <span className={base.machineChip}>Saved on {machine}</span>
+      )}
     </div>
   )
 }
@@ -190,15 +198,23 @@ export function WorkflowSection({
       <SectionHeading
         id="workflow"
         title="Workflow"
-        help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory."
+        help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort."
       />
-      <div className={styles.table}>
+      <OvernightNotice />
+      <div className={`${styles.table} ${styles.workflowTable}`}>
         <div className={`${styles.workflowRow} ${styles.headRow}`}>
           <span>Stage</span>
           <span>On</span>
-          <span>Gate</span>
+          <span className={styles.gateHeading}>
+            Gate
+            <Help>
+              A Gate makes the Task wait for your sign-off at the end of this Stage before moving
+              on. If the Stage skips itself, its Gate is skipped too.
+            </Help>
+          </span>
           <span>Send-backs</span>
           <span>Clarify depth</span>
+          <span>Task Lead effort</span>
           <span>From</span>
           <span className={base.visuallyHidden}>Actions</span>
         </div>
@@ -341,6 +357,19 @@ function StageRow({
                 </option>
               ))}
             </select>
+          ) : (
+            dash
+          )}
+        </span>
+        <span>
+          {agent ? (
+            <StageEffort
+              stage={name}
+              value={stage?.effort}
+              inherited={row.inheritedEffort}
+              source={row.inheritedEffortFrom}
+              onChange={(effort) => onStage({ effort })}
+            />
           ) : (
             dash
           )}
@@ -886,76 +915,174 @@ export function PermissionsSection({
   onDraft: Update
 }) {
   const id = useId()
-  const bypass = draft.permissions === 'bypass'
+  const [mode, setMode] = useState(view.permissions)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const dialog = useRef<HTMLDialogElement>(null)
+  const bypass = mode === 'bypass'
+  useEffect(() => setMode(view.permissions), [view])
+  useEffect(() => {
+    if (confirming) dialog.current?.showModal()
+  }, [confirming])
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type === 'settings-changed') {
+          setMode(
+            event.settings.factoryPermissions[view.factoryId] === 'bypass' ? 'bypass' : 'auto',
+          )
+        }
+      }),
+    [view.factoryId],
+  )
+  const save = async (next: 'auto' | 'bypass') => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const saved = await ted.setFactoryPermissions(view.factoryId, next, confirmed)
+      setMode(saved.mode)
+      setConfirming(false)
+    } catch (failure) {
+      setError(readableError(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <section className={base.section} aria-labelledby="permissions">
-      <SectionHeading
-        id="permissions"
-        title="Permissions and limits"
-        help="Applies to Task Leads, sub-agents, reviewers and Planning Runs. Automations always run in Auto permissions."
-      />
-      <fieldset className={styles.radios}>
-        <legend className={base.visuallyHidden}>Permission mode</legend>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name={`${id}-permissions`}
-            checked={!bypass}
-            onChange={() => onDraft((d) => ({ ...d, permissions: 'auto' }))}
-          />
-          Auto
-          <Help>Agents ask before risky actions, and TED sends you each permission request.</Help>
-          <Edited when={draft.permissions !== loaded.permissions && !bypass} />
-        </label>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name={`${id}-permissions`}
-            checked={bypass}
-            onChange={() => onDraft((d) => ({ ...d, permissions: 'bypass' }))}
-          />
-          Bypass
-          <Help>
-            Only for Factories whose Runs happen in an isolated machine or VM. Can’t be set in the
-            Library.
-          </Help>
-          <Edited when={draft.permissions !== loaded.permissions && bypass} />
-        </label>
-      </fieldset>
-      {bypass && (
-        <p className={styles.bypass} role="note">
-          <span className={styles.bypassMark} aria-hidden>
-            ●
-          </span>{' '}
-          <span>
-            <strong>Bypass is on.</strong> Every Run in this Factory acts without asking: it can run
-            any command, change any file and use the network on {machine}. Use it only when Runs
-            happen in an isolated machine or VM. Automations always run in Auto permissions.
-          </span>
+    <>
+      <section className={base.section} aria-labelledby="permissions">
+        <SectionHeading
+          id="permissions"
+          title="Permission mode"
+          where="machine"
+          help="Permission mode is saved only on this computer, separately for each Factory."
+        />
+        <p className={base.caption}>
+          Saved here immediately. Applies to new and restarted Task Leads, sub-agents and reviewers,
+          and new Checks and agent-started Apps. Running processes keep their current permissions;
+          stop them to end existing access. Planning, Automation and Coordinator Runs always use
+          Auto.
         </p>
-      )}
-      <div className={base.field}>
-        <label className={base.label} htmlFor={`${id}-limit`}>
-          Limit on working Runs{' '}
-          <Edited when={draft.maxWorkingRuns.trim() !== loaded.maxWorkingRuns.trim()} />
-        </label>
-        <span className={styles.limitLine}>
-          <input
-            id={`${id}-limit`}
-            className={styles.limitInput}
-            inputMode="numeric"
-            value={draft.maxWorkingRuns}
-            onChange={(event) =>
-              onDraft((d) => ({ ...d, maxWorkingRuns: event.target.value.replace(/\D/g, '') }))
-            }
-          />
-          <span className={base.caption}>
-            of {machineShort} {view.machineMaxWorkingRuns}
+        {view.repoPermissions === 'bypass' && !bypass && (
+          <p className={styles.bypass}>
+            The repo requests Bypass. This computer uses Auto until you enable Bypass here.
+          </p>
+        )}
+        <p>
+          <strong>{bypass ? 'Bypass is on.' : 'Auto is on.'}</strong>
+        </p>
+        {bypass ? (
+          <>
+            <p className={styles.bypass}>
+              Agents act without asking: they can run any command, change any file and use the
+              network on {machine}. Agent-started Checks and Apps run outside TED’s sandbox.
+            </p>
+            <Button disabled={busy} onClick={() => void save('auto')}>
+              Use Auto
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className={base.caption}>
+              Agents use Auto permissions and requests reach your Inbox.
+            </p>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setConfirmed(false)
+                setError(undefined)
+                setConfirming(true)
+              }}
+            >
+              Enable Bypass…
+            </Button>
+          </>
+        )}
+        {error && !confirming && (
+          <p role="alert" className={base.fieldError}>
+            {error}
+          </p>
+        )}
+        {confirming && (
+          <dialog
+            ref={dialog}
+            className={base.dialog}
+            aria-labelledby={`${id}-confirm`}
+            onCancel={(event) => {
+              event.preventDefault()
+              if (!busy) setConfirming(false)
+            }}
+          >
+            <div className={base.dialogBody}>
+              <h2 id={`${id}-confirm`} className={base.dialogHeading}>
+                Enable Bypass on this computer?
+              </h2>
+              <p className={styles.bypass}>
+                Agents can run any command, change any file and use the network without asking.
+                Agent-started Checks and Apps also run outside TED’s sandbox. Use only on an
+                isolated machine or VM. This choice applies only to this Factory on {machine}.
+              </p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  disabled={busy}
+                  onChange={(event) => setConfirmed(event.target.checked)}
+                />{' '}
+                I understand and want to enable Bypass.
+              </label>
+              {error && (
+                <p role="alert" className={base.fieldError}>
+                  {error}
+                </p>
+              )}
+            </div>
+            <div className={base.dialogFooter}>
+              <Button disabled={busy} onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy || !confirmed}
+                onClick={() => void save('bypass')}
+              >
+                Enable Bypass
+              </Button>
+            </div>
+          </dialog>
+        )}
+      </section>
+      <section className={base.section} aria-labelledby={`${id}-limits`}>
+        <SectionHeading
+          id={`${id}-limits`}
+          title="Working Run limit"
+          help="This Factory’s limit follows its Workflow."
+        />
+        <div className={base.field}>
+          <label className={base.label} htmlFor={`${id}-limit`}>
+            Limit on working Runs{' '}
+            <Edited when={draft.maxWorkingRuns.trim() !== loaded.maxWorkingRuns.trim()} />
+          </label>
+          <span className={styles.limitLine}>
+            <input
+              id={`${id}-limit`}
+              className={styles.limitInput}
+              inputMode="numeric"
+              value={draft.maxWorkingRuns}
+              onChange={(event) =>
+                onDraft((d) => ({ ...d, maxWorkingRuns: event.target.value.replace(/\D/g, '') }))
+              }
+            />
+            <span className={base.caption}>
+              of {machineShort} {view.machineMaxWorkingRuns}
+            </span>
+            <Help>Leave empty to use only the Mac’s limit.</Help>
           </span>
-          <Help>Leave empty to use only the Mac’s limit.</Help>
-        </span>
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   )
 }
 

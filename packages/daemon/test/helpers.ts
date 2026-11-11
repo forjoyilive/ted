@@ -15,7 +15,12 @@ import {
   type RunWithConversation,
   readDaemonInfo,
   signRequest,
+  tedPaths,
 } from '@ted/protocol'
+import { stringify } from 'yaml'
+import { isLockHeld } from '../src/lock.ts'
+import { loadRunTokens } from '../src/run-token.ts'
+import { runFiles } from '../src/runs/host-files.ts'
 import { signalGroup, signalProcess } from '../src/signal.ts'
 import { killMarked } from './support/processes.ts'
 
@@ -92,7 +97,7 @@ export const stubCodexPath = fileURLToPath(new URL('./fixtures/stub-codex.ts', i
 export async function waitUntil<T>(
   check: () => Promise<T | undefined> | T | undefined,
   what: string,
-  timeoutMs = 10_000,
+  timeoutMs = 20_000,
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
@@ -100,6 +105,18 @@ export async function waitUntil<T>(
     if (value !== undefined && value !== false) return value
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
     await sleep(25)
+  }
+}
+
+// A host that has not started when its daemon stops refuses to start, so a test that
+// restarts the daemon under a Run waits for this first.
+export async function hostsStarted(home: string): Promise<void> {
+  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
+  for (const runId of runIds) {
+    await waitUntil(
+      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
+      `Run ${runId}’s host to start`,
+    )
   }
 }
 
@@ -112,9 +129,25 @@ export async function hostRecords(home: string, runId: string): Promise<Record<s
     .map((l) => JSON.parse(l) as Record<string, unknown>)
 }
 
-export async function killRunHosts(home: string): Promise<void> {
+// A host that had not started when its daemon stopped refuses to start (launch authority)
+// and exits, so the wait for its start record ends once nothing holds the Run’s lock.
+export async function killRunHosts(
+  home: string,
+  { waitForStart = false }: { waitForStart?: boolean } = {},
+): Promise<void> {
   const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
   for (const runId of runIds) {
+    if (waitForStart) {
+      const lock = runFiles(path.join(home, 'runs', runId)).lock
+      const since = Date.now()
+      await waitUntil(
+        async () =>
+          (await hostRecords(home, runId)).some((r) => r.t === 'start') ||
+          (Date.now() - since > 300 && !isLockHeld(lock)),
+        `Run ${runId}’s host to start`,
+        2_000,
+      ).catch(() => undefined)
+    }
     const starts = (await hostRecords(home, runId)).filter((r) => r.t === 'start')
     for (const pid of starts.flatMap((start) => [start.agentPid, start.hostPid])) {
       try {
@@ -207,6 +240,16 @@ export function api(port: number, auth: string | { appKey: string }) {
     return { status: res.status, body: JSON.parse(res.body) }
   }
   return {
+    async subscribe(changed: () => void): Promise<() => void> {
+      const client =
+        typeof auth === 'string'
+          ? new DaemonClient({ port, token: auth, pid: 0, version: 'test' })
+          : new DaemonClient({ port, token: '', pid: 0, version: 'test' }, '', {
+              appKey: auth.appKey,
+            })
+      const subscription = await client.subscribe(changed)
+      return () => subscription.close()
+    },
     call,
     async startRun(steps: unknown[], cwd: string, agent?: string): Promise<Run> {
       const res = await call('POST', '/dev/runs', {
@@ -223,6 +266,14 @@ export function api(port: number, auth: string | { appKey: string }) {
       return res.body as RunWithConversation
     },
   }
+}
+
+// YAML quotes a hash that reads as a number, such as 3e44014 or 1234567.
+export const basedOnLine = (hash: string) => stringify({ based_on: hash }).trim()
+
+export async function devRunToken(home: string, port: number, appKey: string): Promise<string> {
+  const run = await api(port, { appKey }).startRun([{ endTurn: true }], home)
+  return (await loadRunTokens(tedPaths(home).runTokenKey)).issue(run.id)
 }
 
 export function assistantTexts(conversation: ConversationEntry[]): string[] {

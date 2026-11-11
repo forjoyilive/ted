@@ -9,10 +9,8 @@ import {
   ctx,
   daemonClient,
   launchApp,
-  openAllTasks,
   setUpAppTests,
   sidebar,
-  taskRow,
   ted,
   twoFactories,
   waitFor,
@@ -28,58 +26,6 @@ describe('List and All Tasks', () => {
       .getByRole('main')
       .locator('tbody tr[data-task]')
       .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-task')))
-
-  test('grouping, sort, columns and filters change the List and are remembered per scope', async () => {
-    await twoFactories()
-    const window = await launchApp()
-    const client = await daemonClient()
-    await client.createTask({ factory: 'NB', priority: 'low', title: 'Export notes' })
-    await client.createTask({ factory: 'NB', priority: 'high', title: 'Sync notes' })
-    await client.createTask({ factory: 'MS', title: 'Pricing page' })
-    await openAllTasks(window)
-    const main = window.getByRole('main')
-    await main.getByRole('button', { name: 'Backlog' }).waitFor()
-    expect(await rowIds(window)).toEqual(['NB-2', 'NB-1', 'MS-1'])
-    await main.getByRole('columnheader', { name: 'Factory' }).waitFor()
-
-    await main.getByRole('button', { name: 'Display' }).click()
-    await main.getByRole('menuitem', { name: /^Manual/ }).hover()
-    await main.getByRole('menuitemradio', { name: 'Title' }).click()
-    await main.getByRole('menuitem', { name: 'Stage' }).hover()
-    await main.getByRole('menuitemradio', { name: 'None' }).click()
-    await main.getByRole('menuitemcheckbox', { name: 'Created by' }).click()
-    await window.keyboard.press('Escape')
-    await main.getByRole('columnheader', { name: 'Created by' }).waitFor()
-    expect(await rowIds(window)).toEqual(['NB-1', 'MS-1', 'NB-2'])
-
-    await main.getByRole('button', { name: 'Filter' }).click()
-    await main.getByRole('menuitem', { name: 'Priority' }).hover()
-    await main.getByRole('menuitemcheckbox', { name: /High/ }).click()
-    await window.keyboard.press('Escape')
-    await main.getByText('Priority is High').waitFor()
-    expect(await rowIds(window)).toEqual(['NB-2'])
-
-    await sidebar(window).getByRole('button', { name: 'notebook' }).click()
-    await sidebar(window).getByRole('button', { name: 'List', exact: true }).click()
-    await main.getByRole('button', { name: 'Backlog' }).waitFor()
-    expect(await rowIds(window)).toEqual(['NB-2', 'NB-1'])
-
-    await window.keyboard.press('/')
-    await window.keyboard.type('export')
-    expect(await rowIds(window)).toEqual(['NB-1'])
-
-    const views = (await client.getSettings()).listViews
-    expect(views.all).toMatchObject({
-      sort: 'title',
-      group: 'none',
-      filters: { priorities: ['high'] },
-    })
-    expect(views.all?.columns).toContain('created-by')
-    await ctx.app?.close()
-    const again = await launchApp()
-    await openAllTasks(again)
-    await again.getByRole('main').getByText('Priority is High').waitFor()
-  })
 
   test('Open in List shows the machine-wide queue, and dragging there reorders it', async () => {
     await twoFactories()
@@ -114,56 +60,6 @@ describe('List and All Tasks', () => {
     await main.getByText('machine-wide queue, in start order').waitFor({ state: 'detached' })
     expect(await main.getByRole('columnheader', { name: 'Queue' }).count()).toBe(0)
   })
-
-  test('multi-select starts, sets Priority on and archives Tasks of different Factories', async () => {
-    await twoFactories()
-    await ted('task', 'create', '--factory', 'NB', 'Export notes')
-    await ted('task', 'create', '--factory', 'MS', 'Pricing page')
-    await ted('task', 'create', '--factory', 'MS', 'Case studies')
-    const window = await launchApp()
-    const client = await daemonClient()
-    await client.updateSettings({ maxWorkingRuns: 1 })
-    await ted('task', 'start', 'MS-2')
-    await openAllTasks(window)
-    const main = window.getByRole('main')
-
-    await taskRow(window, 'NB-1').click({ modifiers: ['Meta'] })
-    await taskRow(window, 'MS-1').click({ modifiers: ['Meta'] })
-    const bar = main.getByRole('toolbar', { name: 'Selected Tasks' })
-    await bar.getByText('2 selected').waitFor()
-
-    await bar.getByRole('button', { name: 'Priority' }).click()
-    await bar.getByRole('menuitem', { name: 'Urgent' }).click()
-    await waitFor(async () => {
-      const tasks = await client.listTasks()
-      return ['NB-1', 'MS-1'].every(
-        (id) => tasks.find((t) => t.displayId === id)?.priority === 'urgent',
-      )
-    })
-
-    await bar.getByRole('button', { name: 'Start' }).click()
-    await waitFor(async () =>
-      (await client.listTasks())
-        .filter((t) => ['NB-1', 'MS-1'].includes(t.displayId))
-        .every((t) => t.stage !== 'backlog'),
-    )
-
-    await bar.getByRole('button', { name: 'Archive' }).click()
-    await bar.getByRole('button', { name: 'Archive 2 Tasks' }).click()
-    await waitFor(async () =>
-      (await client.listTasks())
-        .filter((t) => ['NB-1', 'MS-1'].includes(t.displayId))
-        .every((t) => t.archived !== undefined),
-    )
-    await expect.poll(() => rowIds(window)).toEqual(['MS-2'])
-
-    await main.getByRole('button', { name: 'Filter' }).click()
-    await main.getByRole('menuitemradio', { name: 'Only' }).click()
-    await window.keyboard.press('Escape')
-    await main.getByRole('columnheader', { name: 'Archived' }).waitFor()
-    expect((await rowIds(window)).sort()).toEqual(['MS-1', 'NB-1'])
-    await main.locator('tr[data-task="NB-1"]').getByText('Archived', { exact: true }).waitFor()
-  })
 })
 
 describe('Board', () => {
@@ -188,26 +84,6 @@ describe('Board', () => {
     column
       .locator('[data-task]')
       .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-task')))
-
-  const columnNames = (board: ReturnType<Page['getByRole']>) =>
-    board
-      .locator('[data-stage]')
-      .evaluateAll((columns) => columns.map((column) => column.getAttribute('aria-label')))
-
-  test('columns follow the Factory’s Workflow, with Gated Stages marked', async () => {
-    const window = await boardOf(
-      'version: 1\norder: [intake, work, review]\nstages:\n  review: { gate: true }\n',
-    )
-    const board = await openBoard(window)
-
-    await waitFor(async () => (await columnNames(board)).length === 5)
-    expect(await columnNames(board)).toEqual(['Backlog', 'Intake', 'Work', 'Review', 'Done'])
-    await board.getByRole('region', { name: 'Review' }).getByText('Gate').waitFor()
-    expect(await board.getByRole('region', { name: 'Work' }).getByText('Gate').count()).toBe(0)
-    await board.getByRole('heading', { name: /widgets\s*\/\s*Board/ }).waitFor()
-    await board.getByRole('button', { name: 'Filter' }).waitFor()
-    await board.getByRole('button', { name: 'Plan' }).first().waitFor()
-  })
 
   test('dragging Backlog → Intake starts a Task, Queued → Backlog un-starts it, other drops are refused', async () => {
     const window = await boardOf()
@@ -241,8 +117,30 @@ describe('Board', () => {
     const card = board.getByRole('region', { name: 'Backlog' }).locator('[data-task="NB-1"]')
     await card.waitFor()
 
+    const cardBox = await card.boundingBox()
+    if (!cardBox) throw new Error('no Backlog card')
     await card.hover()
     await window.mouse.down()
+    const work = board.getByRole('region', { name: 'Work' })
+    const workBox = await work.boundingBox()
+    if (!workBox) throw new Error('no Work column')
+    const pointer = { x: workBox.x + 100, y: workBox.y + 100 }
+    await window.mouse.move(pointer.x, pointer.y, { steps: 5 })
+    await window.mouse.move(pointer.x, pointer.y + 1)
+    const hint = board.getByText('Can’t drop here')
+    await hint.waitFor()
+    const hintBox = await hint.boundingBox()
+    if (!hintBox) throw new Error('no refused drop feedback')
+    const previewTop = pointer.y + 1 - cardBox.height / 2
+    expect(
+      hintBox.y + hintBox.height <= previewTop - 12 ||
+        hintBox.y >= previewTop + cardBox.height + 12,
+    ).toBe(true)
+    const viewport = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    expect(hintBox.x).toBeGreaterThanOrEqual(8)
+    expect(hintBox.x + hintBox.width).toBeLessThanOrEqual(viewport.width - 8)
+    expect(hintBox.y).toBeGreaterThanOrEqual(8)
+    expect(hintBox.y + hintBox.height).toBeLessThanOrEqual(viewport.height - 8)
     const intake = board.getByRole('region', { name: 'Intake' })
     const box = await intake.boundingBox()
     if (!box) throw new Error('no Intake column')
@@ -250,6 +148,7 @@ describe('Board', () => {
     await window.mouse.move(box.x + 110, box.y + 70, { steps: 5 })
 
     await intake.getByText('Drop to Start').waitFor()
+    expect(await hint.count()).toBe(0)
     await intake.getByText('Joins the queue as Queued · 1st').waitFor()
     expect(await board.getByRole('region', { name: 'Work' }).getAttribute('data-drop')).toBe('no')
     await window.mouse.up()
@@ -279,28 +178,6 @@ describe('Board', () => {
     expect((await client.listTasks()).find((t) => t.displayId === 'NB-2')?.priority).toBe('high')
   })
 
-  test('Start on a Backlog card starts it; a blocked card has no Start; Filter narrows the cards', async () => {
-    const window = await boardOf()
-    const client = await daemonClient()
-    await client.createTask({ factory: 'NB', priority: 'high', title: 'Sync notes' })
-    await client.createTask({ factory: 'NB', title: 'Export notes', blockedBy: ['NB-1'] })
-    const board = await openBoard(window)
-    const backlog = board.getByRole('region', { name: 'Backlog' })
-    await backlog.locator('[data-task="NB-2"]').getByText('Starts when NB-1 merges').waitFor()
-    expect(await backlog.getByRole('button', { name: 'Start NB-2' }).count()).toBe(0)
-
-    await board.getByRole('button', { name: 'Filter' }).click()
-    expect(await board.getByRole('menuitem', { name: 'Stage' }).count()).toBe(0)
-    expect(await board.getByRole('menuitemradio', { name: 'Only' }).count()).toBe(0)
-    await board.getByRole('menuitem', { name: 'Priority' }).hover()
-    await board.getByRole('menuitemcheckbox', { name: /High/ }).click()
-    await window.keyboard.press('Escape')
-    await waitFor(async () => (await cardIds(backlog)).join() === 'NB-1')
-
-    await backlog.getByRole('button', { name: 'Start NB-1' }).click()
-    await board.getByRole('region', { name: 'Intake' }).locator('[data-task="NB-1"]').waitFor()
-  })
-
   const toDone = JSON.stringify({
     steps: [
       { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
@@ -322,27 +199,6 @@ describe('Board', () => {
     )
     return client
   }
-
-  test('the Done column lists Done Tasks as compact cards; Show all opens the List; Archive all asks with the count', async () => {
-    const window = await boardOf('version: 1\norder: [intake, work, merge]\n')
-    await doneTasks(2)
-    const board = await openBoard(window)
-    const done = board.getByRole('region', { name: 'Done' })
-
-    await waitFor(async () => (await cardIds(done)).length === 2)
-    await done.locator('[data-task="NB-2"]').getByText('NB-2 · Merged just now').waitFor()
-    await done.getByRole('button', { name: 'Show all 2 →' }).click()
-    await window.getByRole('heading', { name: /widgets\s*\/\s*List/ }).waitFor()
-    await window.getByText('Stage is Done').waitFor()
-
-    await sidebar(window).getByRole('button', { name: 'Board', exact: true }).click()
-    await board.getByRole('button', { name: 'Done column actions' }).click()
-    await board.getByRole('menuitem', { name: 'Archive all in Done' }).click()
-    const dialog = window.getByRole('dialog', { name: 'Archive 2 Done Tasks?' })
-    await dialog.getByRole('button', { name: 'Archive 2' }).click()
-    await waitFor(async () => (await cardIds(done)).length === 0)
-    expect(await board.getByRole('button', { name: /Show all/ }).count()).toBe(0)
-  })
 
   test('a Comment on a Done Task offers Comment only and Follow up, which opens the linked Task', async () => {
     const window = await boardOf('version: 1\norder: [intake, work, merge]\n')

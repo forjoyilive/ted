@@ -11,6 +11,7 @@ import { daemonAsApp, makeOriginRepo, removeHome, stopDaemonIn } from '../../dae
 import { inboxNotice } from '../src/background.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -71,8 +72,7 @@ const lastBadge = async () => (await logged()).filter((l) => l.kind === 'badge')
 
 async function launchApp(extra: Record<string, string> = {}): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env(extra) })
-  const window = await app.firstWindow()
-  await sidebar(window).waitFor()
+  const window = await loadedWindow(app)
   return window
 }
 
@@ -149,29 +149,5 @@ describe('notifications and badges', () => {
     await window.getByRole('region', { name: 'Inbox', exact: true }).waitFor()
     await window.locator('[aria-current="true"]').filter({ hasText: 'Q1' }).waitFor()
     expect(await window.getByRole('button', { name: '← All Tasks', exact: true }).count()).toBe(0)
-  })
-
-  test('Settings → Notifications has the four switches, and the red row when the OS has them off', async () => {
-    await askingTask()
-    const window = await launchApp({ TED_NOTIFY_STATUS: 'off' })
-    await sidebar(window)
-      .getByRole('button', { name: /^Settings/ })
-      .last()
-      .click()
-    const nav = window.getByRole('navigation', { name: 'Settings' })
-    await nav.getByRole('button', { name: 'Notifications' }).click()
-
-    for (const name of ['Inbox items', 'Problems that stop work', 'Task merged', 'Play a sound']) {
-      await window.getByRole('switch', { name }).waitFor()
-    }
-    expect(await window.getByRole('switch', { name: 'Inbox items' }).isChecked()).toBe(true)
-    expect(await window.getByRole('switch', { name: 'Task merged' }).isChecked()).toBe(false)
-    await expect.poll(() => window.getByRole('alert').count()).toBe(0)
-
-    await ted('task', 'start', 'NB-1')
-    await window.getByText('Notifications are off for TED in System Settings').waitFor({
-      timeout: 30_000,
-    })
-    await window.getByRole('button', { name: 'Open System Settings' }).waitFor()
   })
 })

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -74,14 +74,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
-  await killRunHosts(home)
+  await killRunHosts(home, { waitForStart: true })
   process.env = { ...savedEnv }
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
@@ -100,7 +93,7 @@ async function makeSecondOrigin(name: string): Promise<void> {
   await execFileAsync('git', ['push', bare, 'main'], { cwd: seed, env: gitEnv })
 }
 
-const torn = () => path.join(scratch, 'torn-down')
+const torn = () => path.join(home, 'logs', 'worktrees', 'NB-1-widgets-teardown.log')
 
 const twoRepos = () =>
   commitToOrigin(scratch, {
@@ -110,7 +103,7 @@ const twoRepos = () =>
       'repos:',
       '  - name: widgets',
       '    worktree:',
-      `      teardown: touch ${torn()}`,
+      '      teardown: echo torn-down',
       '  - name: api',
       '    remote: https://github.com/acme/api.git',
       'stages:',
@@ -273,17 +266,23 @@ describe('Remove Factory', () => {
       sharedClones: ['acme/api'],
     })
 
-    await client.ok('POST', `/factories/${factory.id}/remove`, {
-      key: 'NB',
-      closePullRequests: true,
-    })
+    await mkdir(path.dirname(torn()), { recursive: true })
+    const teardownLog = await open(torn(), 'w+')
+    try {
+      await client.ok('POST', `/factories/${factory.id}/remove`, {
+        key: 'NB',
+        closePullRequests: true,
+      })
+      expect(await teardownLog.readFile('utf8')).toBe('torn-down\n')
+    } finally {
+      await teardownLog.close()
+    }
 
     expect((await client.ok<Factory[]>('GET', '/factories')).map((f) => f.id)).toEqual([other.id])
     expect((await getTasks(client)).filter((t) => t.factoryId === factory.id)).toEqual([])
     expect(await exists(path.join(home, 'worktrees', 'NB-1'))).toBe(false)
     expect(await exists(path.join(home, 'repos', 'acme', 'widgets'))).toBe(false)
     expect(await exists(path.join(home, 'repos', 'acme', 'api', '.git'))).toBe(true)
-    expect(await exists(torn())).toBe(true)
     expect(await exists(localFolder)).toBe(true)
     if (Number.isInteger(agentPid) && agentPid > 0) await waitForExit(agentPid)
     expect(Number.isInteger(agentPid) && agentPid > 0 && isAlive(agentPid)).toBe(false)

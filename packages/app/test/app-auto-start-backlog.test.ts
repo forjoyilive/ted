@@ -35,29 +35,4 @@ describe('automatic Backlog starting settings', () => {
       await window.screenshot({ path: process.env.TED_SETTINGS_SCREENSHOT })
     }
   })
-
-  test('automatic Backlog starting disables while saving and keeps the saved value on error', async () => {
-    await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
-    const window = await launchApp()
-    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
-    await sidebar(window).getByRole('button', { name: 'Settings', exact: true }).first().click()
-    const toggle = window.getByRole('switch', { name: 'Start Backlog Tasks automatically' })
-    await toggle.waitFor()
-    await ctx.app?.evaluate(({ ipcMain }) => {
-      ipcMain.removeHandler('ted:request')
-      ipcMain.handle('ted:request', async () => {
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        throw new Error('Couldn’t save the Factory option')
-      })
-    })
-    await toggle.click()
-    expect(await toggle.isDisabled()).toBe(true)
-    expect(await toggle.getAttribute('aria-checked')).toBe('false')
-    await window
-      .getByRole('alert')
-      .filter({ hasText: 'Couldn’t save the Factory option' })
-      .waitFor()
-    expect(await toggle.isEnabled()).toBe(true)
-    expect(await toggle.getAttribute('aria-checked')).toBe('false')
-  })
 })

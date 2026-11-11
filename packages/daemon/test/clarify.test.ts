@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, ThreadEvent } from '@ted/protocol'
+import type { Comment, Factory, InboxItem, Run, Task, TaskGates, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -339,6 +339,29 @@ describe('Clarify rounds', () => {
     expect(changes).toContain('ted ask --round')
   })
 
+  test('overnight mode leaves the grilling sign-off on', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      { waitFor: client.waitFile('overnight') },
+      advance,
+      depth('grilling', 'sync conflicts touch both repos'),
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      advance,
+      { endTurn: true },
+    )
+    await client.ok('PATCH', '/settings', { overnightMode: true })
+    await client.go('overnight')
+
+    const signoff = await openRequest(client, 'signoff')
+    expect(signoff.request).toMatchObject({ stage: 'clarify', gate: { approveLabel: 'Approve' } })
+    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    const row = rows.find((r) => r.stage === 'clarify')
+    expect(row).toMatchObject({ effective: true, required: true })
+    expect(row?.overnight).toBeUndefined()
+  })
+
   test('the Task Lead can switch from Few to grilling, and says why', async () => {
     const client = await start()
     const task = await startTask(
@@ -495,7 +518,7 @@ describe('Clarify rounds', () => {
       return found.length >= 4 ? found : undefined
     }, 'every command to finish')
     expect(results[2]).toMatchObject({
-      code: 1,
+      code: 2,
       stderr: expect.stringContaining('question 1’s recommended answer must be one of its choices'),
     })
 

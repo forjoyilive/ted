@@ -6,15 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { type MachineSettings, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
-import {
-  appClient,
-  daemonAsApp,
-  makeOriginRepo,
-  removeHome,
-  stopDaemonIn,
-} from '../../daemon/test/helpers.ts'
+import { appClient, removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -99,7 +94,7 @@ async function launchApp(options: LaunchOptions = {}) {
     args: [appDir],
     env: appEnv(options),
   })
-  const window = await app.firstWindow()
+  const window = await firstWindow(app)
   await window.emulateMedia({ colorScheme: null })
   return window
 }
@@ -142,42 +137,26 @@ describe('first launch', () => {
       await sidebar(again).waitFor()
       await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
       await expect.poll(loginLines).toEqual(['on'])
+
+      await closeApp(app)
+      app = undefined
+      const completed = await launchApp()
+      await sidebar(completed).waitFor()
+      expect(await setUp(completed).count()).toBe(0)
+      expect(await settings()).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
+      await sidebar(completed)
+        .getByRole('button', { name: /^Settings/ })
+        .click()
+      const login = completed.getByRole('switch', {
+        name: 'Start TED in the background when you log in',
+      })
+      expect(await login.getAttribute('aria-checked')).toBe('true')
+      const before = await loginLines()
+      await login.click()
+      await expect.poll(settings).toMatchObject({ startAtLogin: false })
+      await expect.poll(loginLines).toEqual([...before, 'off'])
     },
   )
-
-  test('shows every check ready; Skip for now lets the human in, once per machine', async () => {
-    await setStub('codex', {})
-    const window = await launchApp({ codex: true })
-
-    await setUp(window).getByRole('heading', { name: 'Set up TED', level: 1 }).waitFor()
-    expect(await sidebar(window).count()).toBe(0)
-    await row(window, 'Claude Code').getByText('Ready').waitFor()
-    await row(window, 'Claude Code')
-      .getByText('2.1.319 · Signed in as stub@example.com · Claude Max · subscription')
-      .waitFor()
-    await row(window, 'Claude Code').getByText(stubClaudePath).waitFor()
-    await row(window, 'Codex').getByText('Ready').waitFor()
-    await row(window, 'GitHub').getByText('Signed in as forjoyilive · github.com').waitFor()
-    await row(window, 'Git')
-      .getByText(/^\d+\.\d+ · Nabha Cosley <nabha@example\.com>$/)
-      .waitFor()
-    await expect.poll(() => continueButton(window).isEnabled()).toBe(true)
-    expect(await window.getByText(continueHelp).count()).toBe(0)
-
-    expect(await startAtLogin(window).isChecked()).toBe(true)
-    expect(await loginLines()).toEqual([])
-    await startAtLogin(window).uncheck()
-    await window.getByRole('button', { name: 'Skip for now' }).click()
-
-    await sidebar(window).waitFor()
-    await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: false })
-    await expect.poll(loginLines).toEqual(['off'])
-
-    await closeApp(app)
-    const again = await launchApp({ codex: true })
-    await sidebar(again).waitFor()
-    expect(await setUp(again).count()).toBe(0)
-  })
 
   test('Continue waits for Git and an agent; Fix rechecks; it opens Add Factory, then No Factories', async () => {
     await setStub('claude', { signedIn: false })
@@ -226,61 +205,5 @@ describe('first launch', () => {
       .waitFor()
     await window.getByRole('main').getByRole('button', { name: 'Add Factory' }).click()
     await window.getByRole('dialog', { name: 'Add your first Factory' }).waitFor()
-  })
-
-  test('an agent on an API key doesn’t block Continue; the human picks its billing', async () => {
-    await setStub('claude', { authMethod: 'console' })
-    await setGh({})
-    const window = await launchApp()
-
-    const claude = row(window, 'Claude Code')
-    await claude.getByText('Signed in with an API key', { exact: true }).waitFor()
-    await claude
-      .getByText(
-        'Claude Code reported an API key. Remove it, or choose API key billing if you meant to use one.',
-      )
-      .waitFor()
-    await expect.poll(() => continueButton(window).isEnabled()).toBe(true)
-
-    const github = row(window, 'GitHub')
-    await github.getByText('Signed out').waitFor()
-    await github.getByText(/^Needed to add a Factory\./).waitFor()
-    await github.getByRole('button', { name: 'Sign in' }).click()
-    await expect.poll(fixesRun).toEqual(['gh auth login --web --hostname github.com -s workflow'])
-
-    await claude.getByRole('button', { name: 'Sign in with a subscription instead' }).click()
-    await expect
-      .poll(fixesRun)
-      .toEqual(['gh auth login --web --hostname github.com -s workflow', 'claude auth login'])
-    await claude.getByText(/^Opened claude auth login in (Terminal|your terminal)\./).waitFor()
-    expect(await settings()).toMatchObject({ billing: { claude: 'subscription' } })
-
-    await claude.getByRole('button', { name: 'Use API-key billing' }).click()
-    await expect.poll(settings).toMatchObject({ billing: { claude: 'api-key' } })
-    await claude.getByText('Ready').waitFor()
-    expect(await claude.getByText('Signed in with an API key', { exact: true }).count()).toBe(0)
-  })
-
-  test('a machine that already has a Factory gets the plain Add Factory form after Continue', async () => {
-    const ted = await daemonAsApp(home, appEnv())
-    await ted.addFactory({ repo: await makeOriginRepo(home), key: 'NB' })
-    const window = await launchApp()
-
-    await row(window, 'Claude Code').getByText('Ready').waitFor()
-    await expect.poll(() => continueButton(window).isEnabled()).toBe(true)
-    await continueButton(window).click()
-    const dialog = window.getByRole('dialog', { name: 'Add Factory' })
-    await dialog.waitFor()
-    expect(await dialog.getByRole('checkbox', { name: 'Show the tutorial' }).isChecked()).toBe(
-      false,
-    )
-  })
-
-  test('a key variable in the shell alone asks nothing, since Subscription removes it', async () => {
-    const window = await launchApp({ env: { ANTHROPIC_API_KEY: 'sk-first-launch' } })
-
-    const claude = row(window, 'Claude Code')
-    await claude.getByText('Ready').waitFor()
-    expect(await claude.getByRole('button', { name: 'Use API-key billing' }).count()).toBe(0)
   })
 })

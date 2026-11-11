@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import type { DiffHunk } from '@ted/protocol'
 import { gitEnv, worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
+import { openRegularFile } from './regular-file.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -471,6 +472,8 @@ export interface WorkingDiff extends WorkingFile {
 }
 
 export interface WorkingChanges {
+  tree: string
+  base: string
   head: string
   mergeBase: string
   files: WorkingFile[]
@@ -586,7 +589,7 @@ export async function workingChanges(
         ...((now.truncated || before?.truncated) && { truncated: true as const }),
       })
     }
-    return { head, mergeBase, files, diffs }
+    return { head, base: baseTip, tree, mergeBase, files, diffs }
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
@@ -760,6 +763,122 @@ export async function commitAndPush(
       .join('\n')
     throw new GitError(redactSecrets(`saving TED settings failed${reason ? `: ${reason}` : ''}`))
   } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+async function copyLocalExcludes(common: string, gitDir: string): Promise<void> {
+  const handle = await openRegularFile({ root: common, directory: 'info' }, 'exclude').catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    },
+  )
+  if (!handle) return
+  try {
+    const limit = 1024 * 1024
+    const bytes = Buffer.alloc(limit + 1)
+    let length = 0
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length)
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    if (length > limit) throw new GitError('Repository exclusion rules exceed the 1 MB limit.')
+    await writeFile(path.join(gitDir, 'info', 'exclude'), bytes.subarray(0, length))
+  } finally {
+    await handle.close()
+  }
+}
+
+export async function* worktreeFiles(worktree: string): AsyncGenerator<string> {
+  const head = await headCommit(worktree)
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const commonDir = path.resolve(worktree, common)
+  const objects = path.join(commonDir, 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-files-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const fileEnv = worktreeCommandEnv(
+    {},
+    {
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_DIR: gitDir,
+      GIT_INDEX_FILE: path.join(scratch, 'index'),
+    },
+  )
+  let stop: (() => Promise<void>) | undefined
+  const run = (args: string[]) =>
+    execFileAsync('git', [...readOnly, ...args], { cwd: scratch, env: fileEnv, timeout: 30_000 })
+  try {
+    await run(['init', '--bare', '--quiet', gitDir])
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    await copyLocalExcludes(commonDir, gitDir)
+    await run(['read-tree', head])
+    const child = spawn(
+      'git',
+      [
+        ...readOnly,
+        '-c',
+        'core.bare=false',
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+        '-z',
+      ],
+      {
+        cwd: scratch,
+        env: { ...fileEnv, GIT_WORK_TREE: worktree },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 60_000,
+      },
+    )
+    let failure: Error | undefined
+    let stderr = ''
+    child.once('error', (error) => {
+      failure = error
+    })
+    const ended = new Promise<number | null>((resolve) => child.once('close', resolve))
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => {
+      stderr = (stderr + chunk).slice(-8192)
+    })
+    stop = async () => {
+      child.stdout.destroy()
+      child.kill()
+      const timer = setTimeout(() => child.kill('SIGKILL'), 1000)
+      try {
+        await ended
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    child.stdout.setEncoding('utf8')
+    let tail = ''
+    let oversized = false
+    for await (const chunk of child.stdout) {
+      const pieces = (chunk as string).split('\0')
+      for (const [i, piece] of pieces.entries()) {
+        if (!oversized) {
+          tail += piece
+          if (tail.length > 4096) {
+            tail = ''
+            oversized = true
+          }
+        }
+        if (i < pieces.length - 1) {
+          if (!oversized && tail !== '') yield tail
+          tail = ''
+          oversized = false
+        }
+      }
+    }
+    const code = await ended
+    if (failure || code !== 0 || tail !== '' || oversized)
+      throw new GitError(redactSecrets(`listing files failed${stderr ? `: ${stderr.trim()}` : ''}`))
+  } finally {
+    await stop?.()
     await rm(scratch, { recursive: true, force: true })
   }
 }

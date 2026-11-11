@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -9,7 +9,6 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   commitToOrigin,
-  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -34,14 +33,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
-  await killRunHosts(home)
+  await killRunHosts(home, { waitForStart: true })
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
 })

@@ -29,6 +29,7 @@ export interface BoardStage {
   id: StageId
   enabled: boolean
   gate: boolean
+  overnight?: true
 }
 
 export interface FactoryBoard {

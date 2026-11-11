@@ -19,6 +19,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -109,9 +110,8 @@ async function openTaskWithChanges(): Promise<Page> {
   })
 
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await app.firstWindow()
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
   await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
   await window.getByRole('region', { name: 'Task thread' }).waitFor()
@@ -165,27 +165,26 @@ describe('Changes in Task details', () => {
     await thread.waitFor()
     await diff.waitFor({ state: 'detached' })
     expect(await thread.getByRole('textbox').first().inputValue()).toBe('Half-written note')
-  })
 
-  test('Expand all shows every diff in one column with the file list as an index', async () => {
-    const window = await openTaskWithChanges()
-    const changes = window
-      .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Changes' })
-    await changes.getByRole('button', { name: 'Expand all' }).click()
+    {
+      const changes = window
+        .getByRole('complementary', { name: 'Task details' })
+        .getByRole('region', { name: 'Changes' })
+      await changes.getByRole('button', { name: 'Expand all' }).click()
 
-    const all = window.getByRole('region', { name: 'All changes' })
-    await all.getByRole('navigation', { name: 'Changed files' }).waitFor()
-    await expect
-      .poll(() => all.getByRole('heading', { level: 3 }).allTextContents())
-      .toEqual(['README.md', 'src/search/SearchPanel.tsx', 'src/search/useSearch.ts'])
-    await all.getByRole('row', { name: /THREE/ }).waitFor()
-    const index = all.getByRole('navigation', { name: 'Changed files' })
-    expect(await index.evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+      const all = window.getByRole('region', { name: 'All changes' })
+      await all.getByRole('navigation', { name: 'Changed files' }).waitFor()
+      await expect
+        .poll(() => all.getByRole('heading', { level: 3 }).allTextContents())
+        .toEqual(['README.md', 'src/search/SearchPanel.tsx', 'src/search/useSearch.ts'])
+      await all.getByRole('row', { name: /THREE/ }).waitFor()
+      const index = all.getByRole('navigation', { name: 'Changed files' })
+      expect(await index.evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
 
-    await all.getByRole('button', { name: 'Collapse' }).click()
-    await window.getByRole('region', { name: 'Task thread' }).waitFor()
-    await window.getByRole('complementary', { name: 'Task details' }).waitFor()
+      await all.getByRole('button', { name: 'Collapse' }).click()
+      await window.getByRole('region', { name: 'Task thread' }).waitFor()
+      await window.getByRole('complementary', { name: 'Task details' }).waitFor()
+    }
   })
 
   test('new uncommitted work shows up when the window is focused again', async () => {

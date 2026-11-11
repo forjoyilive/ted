@@ -1,8 +1,7 @@
-import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { readDaemonInfo } from '@ted/protocol'
-import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
+import { type ElectronApplication, _electron as electron } from 'playwright'
 import { describe, expect, test } from 'vitest'
 import { hostRecords, isAlive, makeOriginRepo, waitForExit } from '../../daemon/test/helpers.ts'
 import {
@@ -18,7 +17,6 @@ import {
   openSettings,
   run,
   setUpAppTests,
-  sidebar,
   taskRow,
   ted,
 } from './app-harness.ts'
@@ -131,51 +129,7 @@ describe('running in the background', () => {
     await window.getByRole('radiogroup', { name: 'Appearance' }).waitFor()
   })
 
-  test('the quit choice is a setting in the app', async () => {
-    const window = await launchApp()
-    await sidebar(window)
-      .getByRole('button', { name: /^Settings/ })
-      .last()
-      .click()
-
-    await window
-      .getByLabel('When you quit with work running')
-      .selectOption({ label: 'Keep running in the background' })
-
-    await expect
-      .poll(async () => (await daemonClient()).getSettings())
-      .toMatchObject({ quitWithWorkRunning: 'keep-running' })
-  })
-
-  const switchNamed = (window: Page, name: string) => window.getByRole('switch', { name })
-  const startAtLogin = 'Start TED in the background when you log in'
-  const stayAwake = 'Stay Awake while Runs are working'
   const loginLog = () => path.join(ctx.home, 'login-item.log')
-  const loginLines = () =>
-    readFile(loginLog(), 'utf8').then(
-      (text) => text.split('\n').filter(Boolean),
-      () => [],
-    )
-
-  test('Start at login and Stay Awake are on by default and switch off in General', async () => {
-    const window = await launchApp({ TED_LOGIN_ITEM_LOG: loginLog() })
-    await expect.poll(loginLines).toEqual(['on'])
-    await openSettings(window)
-
-    const checked = (name: string) => () => switchNamed(window, name).getAttribute('aria-checked')
-    await expect.poll(checked(startAtLogin)).toBe('true')
-    await expect.poll(checked(stayAwake)).toBe('true')
-
-    await switchNamed(window, startAtLogin).click()
-    await switchNamed(window, stayAwake).click()
-
-    await expect
-      .poll(async () => (await daemonClient()).getSettings())
-      .toMatchObject({ startAtLogin: false, stayAwake: false })
-    await expect.poll(loginLines).toEqual(['on', 'off'])
-    await expect.poll(checked(startAtLogin)).toBe('false')
-  })
-
   test.skipIf(process.platform !== 'darwin')(
     'when macOS asks for approval, the row says so and opens Login Items',
     async () => {

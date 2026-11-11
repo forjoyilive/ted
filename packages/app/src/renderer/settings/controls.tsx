@@ -136,7 +136,11 @@ export function Stepper({
   lessLabel,
   moreLabel,
   onChange,
+  step = 1,
+  format = String,
 }: {
+  step?: number
+  format?: (value: number) => string
   value: number
   min: number
   max: number
@@ -151,19 +155,19 @@ export function Stepper({
         className={styles.step}
         aria-label={lessLabel}
         disabled={value <= min}
-        onClick={() => onChange(value - 1)}
+        onClick={() => onChange(Math.max(min, value - step))}
       >
         −
       </button>
       <output className={styles.stepValue} aria-live="polite">
-        {value}
+        {format(value)}
       </output>
       <button
         type="button"
         className={styles.step}
         aria-label={moreLabel}
         disabled={value >= max}
-        onClick={() => onChange(value + 1)}
+        onClick={() => onChange(Math.min(max, value + step))}
       >
         +
       </button>
@@ -174,10 +178,12 @@ export function Stepper({
 export function Switch({
   label,
   checked,
+  disabled = false,
   onChange,
 }: {
   label: string
   checked: boolean
+  disabled?: boolean
   onChange: (checked: boolean) => void
 }) {
   return (
@@ -186,6 +192,7 @@ export function Switch({
       role="switch"
       aria-label={label}
       aria-checked={checked}
+      disabled={disabled}
       className={styles.switch}
       onClick={() => onChange(!checked)}
     >
@@ -200,16 +207,19 @@ export function Select<T extends string | number>({
   options,
   onChange,
   width,
+  disabled,
 }: {
   id: string
   value: T
   options: readonly { value: T; label: string }[]
   onChange: (value: T) => void
   width?: number
+  disabled?: boolean
 }) {
   return (
     <select
       id={id}
+      disabled={disabled}
       className={styles.select}
       style={width !== undefined ? { width } : undefined}
       value={String(value)}

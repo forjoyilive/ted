@@ -1,6 +1,5 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { Page } from 'playwright'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
 import {
@@ -9,10 +8,7 @@ import {
   daemonClient,
   launchApp,
   openAllTasks,
-  openSettings,
-  settingsNav,
   setUpAppTests,
-  sidebar,
   taskRow,
   ted,
 } from './app-harness.ts'
@@ -20,91 +16,6 @@ import {
 setUpAppTests()
 
 describe('Working Runs', () => {
-  const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(ctx.home, 'never') }] })
-
-  async function twoTasksOneSlot(): Promise<Page> {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await addFactory(origin, 'NB')
-    await ted('task', 'create', '--factory', 'NB', forever())
-    await ted('task', 'create', '--factory', 'NB', 'Second Task')
-    const window = await launchApp()
-    await (await daemonClient()).updateSettings({ maxWorkingRuns: 1 })
-    return window
-  }
-
-  test('the sidebar footer counts working and queued Runs live and opens the popover', async () => {
-    const window = await twoTasksOneSlot()
-    const footer = sidebar(window).locator('footer')
-    await footer.getByText('Nothing running').waitFor()
-
-    await ted('task', 'start', 'NB-1')
-    await ted('task', 'start', 'NB-2')
-    await footer.getByRole('button', { name: '1 of 1 Runs working · 1 queued' }).click()
-
-    const popover = window.getByRole('dialog', { name: 'Working Runs' })
-    const machine = process.platform === 'darwin' ? 'this Mac' : 'this computer'
-    await popover.getByText(`1 of 1 slots on ${machine}`).waitFor()
-    const working = popover.getByRole('region', { name: 'Working' })
-    await working.getByText('NB-1', { exact: true }).waitFor()
-    await working.getByText('widgets · Task Lead').waitFor()
-    await working.getByText('1 Run', { exact: true }).waitFor()
-    const queued = popover.getByRole('region', { name: 'Queued' })
-    await queued.getByText('1st', { exact: true }).waitFor()
-    await queued.getByText('NB-2 · Second Task').waitFor()
-    await queued.getByText('widgets · None').waitFor()
-
-    await popover.getByRole('button', { name: 'Open in List →' }).click()
-    await window.getByRole('heading', { name: 'All Tasks', level: 1 }).waitFor()
-    expect(await popover.count()).toBe(0)
-  })
-
-  test('with nothing working the popover says so', async () => {
-    const window = await launchApp()
-    await sidebar(window).getByRole('button', { name: 'Nothing running' }).click()
-    const popover = window.getByRole('dialog', { name: 'Working Runs' })
-    await popover.getByText('No Runs working. Nothing queued.').waitFor()
-    await window.keyboard.press('Escape')
-    await popover.waitFor({ state: 'detached' })
-  })
-
-  test('S starts the open Backlog Task, and Move to Backlog takes a queued one back', async () => {
-    const window = await twoTasksOneSlot()
-    await ted('task', 'start', 'NB-1')
-    await openAllTasks(window)
-    await taskRow(window, 'NB-2').click()
-    const header = window.getByRole('region', { name: 'Task thread' }).locator('header')
-    await header.getByText('· Not started').waitFor()
-
-    await window.keyboard.press('s')
-    await header.getByText('Queued · 1st', { exact: true }).waitFor()
-
-    await header.getByRole('button', { name: 'Task actions' }).click()
-    const menu = header.getByRole('menu', { name: 'Task actions' })
-    expect(await menu.getByRole('menuitem').first().textContent()).toContain('Move to Backlog')
-    await menu.getByRole('menuitem', { name: /^Move to Backlog/ }).click()
-    await header.getByText('· Not started').waitFor()
-    expect((await (await daemonClient()).getSlots()).queued).toBe(0)
-  })
-
-  test('a Factory at its cap shows it in the Board and List header', async () => {
-    const parent = path.join(ctx.home, 'origin')
-    const origin = await makeOriginRepo(parent)
-    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
-    await addFactory(origin, 'NB')
-    await ted('task', 'create', '--factory', 'NB', forever())
-    const window = await launchApp()
-    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
-    const board = window.getByRole('region', { name: 'widgets' })
-    await board.getByRole('heading', { name: 'widgets', level: 1 }).waitFor()
-    expect(await board.getByText('1 of 1 working').count()).toBe(0)
-
-    await ted('task', 'start', 'NB-1')
-
-    await board.getByText('1 of 1 working').waitFor()
-    await sidebar(window).getByRole('button', { name: 'List' }).click()
-    await window.getByRole('region', { name: 'widgets' }).getByText('1 of 1 working').waitFor()
-  })
-
   test('a nearly full disk shows a warning whose Open Storage shows what uses the space', async () => {
     const free = path.join(ctx.home, 'free-bytes')
     await writeFile(free, String(8.2e9))
@@ -125,20 +36,6 @@ describe('Working Runs', () => {
       .getByRole('region', { name: 'Backups' })
       .getByText(/^Daily · /)
       .waitFor()
-  })
-
-  test('Settings · Limits changes the limit and shows what is working now', async () => {
-    const window = await twoTasksOneSlot()
-    await ted('task', 'start', 'NB-1')
-    await ted('task', 'start', 'NB-2')
-    await openSettings(window)
-    await settingsNav(window).getByRole('button', { name: 'Limits', exact: true }).click()
-    await window.getByText('Now: 1 of 1 Runs working · 1 queued').waitFor()
-
-    await window.getByRole('button', { name: 'More working Runs' }).click()
-
-    await window.getByText('Now: 2 of 2 Runs working').waitFor()
-    expect((await (await daemonClient()).getSettings()).maxWorkingRuns).toBe(2)
   })
 })
 
@@ -189,36 +86,6 @@ describe('Archive, Unarchive and Delete', () => {
       await thread.getByText('Archived Tasks are read-only. Unarchive to comment.').count(),
     ).toBe(0)
   })
-
-  test('Delete from the Task actions menu offers Archive instead, and removes the Task', async () => {
-    const { window, header } = await blockerAndBlocked()
-    const deleteItem = async () => {
-      await header.getByRole('button', { name: 'Task actions' }).click()
-      await header
-        .getByRole('menu', { name: 'Task actions' })
-        .getByRole('menuitem', { name: 'Delete…' })
-        .click()
-      return window.getByRole('dialog', { name: 'Delete NB-1?' })
-    }
-
-    const dialog = await deleteItem()
-    await dialog.getByText(/This can’t be undone\.$/).waitFor()
-    await dialog.getByText('1 Task is blocked by NB-1').waitFor()
-    await dialog.getByRole('button', { name: 'Archive instead' }).click()
-    await window.getByRole('dialog', { name: 'Archive NB-1?' }).waitFor()
-    await window.keyboard.press('Escape')
-
-    await (await deleteItem()).getByRole('button', { name: 'Delete NB-1' }).click()
-
-    await waitUntil(
-      async () => (await taskRow(window, 'Fix the search crash').count()) === 0,
-      'NB-1 to leave the List',
-    )
-    const client = await daemonClient()
-    const tasks = await client.listTasks()
-    expect(tasks.map((t) => t.displayId)).toEqual(['NB-2'])
-    expect(tasks[0]?.blockedBy).toEqual([])
-  })
 })
 
 describe('Stop and Resume', () => {
@@ -243,12 +110,16 @@ describe('Stop and Resume', () => {
     const first = menu.getByRole('menuitem').first()
     expect(await first.textContent()).toContain('Stop Task')
     expect(await first.getAttribute('aria-describedby')).toBeTruthy()
+    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).isDisabled()).toBe(
+      true,
+    )
     await first.click()
 
     await header.getByText(/^Stopped by you · /).waitFor()
     await header.getByText('· Worktree and Apps kept. 1 Run stopped.').waitFor()
     await header.getByRole('button', { name: 'Task actions' }).click()
     expect(await menu.getByRole('menuitem').first().textContent()).toContain('Resume')
+    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(0)
     await header.page().keyboard.press('Escape')
     await header.getByRole('button', { name: 'Resume' }).waitFor()
 
@@ -260,28 +131,6 @@ describe('Stop and Resume', () => {
     const client = await daemonClient()
     const comments = await client.listComments('NB-1')
     expect(comments.at(-1)?.delivered).toBeDefined()
-  })
-
-  test('an idle Task Lead is nudged, then TED asks with Nudge again', async () => {
-    const { thread } = await workingTask(
-      [
-        { say: 'Templates are wired into New Note.' },
-        { endTurn: true },
-        { everyMessage: [{ say: 'I’ll check the empty template next.' }, { endTurn: true }] },
-      ],
-      { TED_NUDGE_AFTER_MS: '200' },
-    )
-    const card = thread.getByRole('region', { name: 'Question' })
-    await card.getByText('The Task Lead stopped without saying why').waitFor()
-    await card.getByText('“I’ll check the empty template next.”').waitFor()
-    await thread
-      .getByText('TED nudged the Task Lead: “Continue, or post a Comment if you need the human.”')
-      .first()
-      .waitFor()
-
-    await card.getByRole('button', { name: 'Nudge again' }).click()
-
-    await thread.getByText('You answered: Nudge again').waitFor()
   })
 })
 

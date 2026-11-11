@@ -16,6 +16,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
+import type { ManualClock } from './support/manual-clock.ts'
 
 export const run = promisify(execFile)
 
@@ -76,11 +78,16 @@ Merge it.
 
 export interface GhMerge {
   disableAutoFails?: boolean
+  rollup?: 'empty' | 'missing' | 'truncated'
   title?: string
   origin?: string
   mergeState?: string
   reviewDecision?: string | null
   checks?: {
+    id?: string
+    startedAt?: string
+    completedAt?: string
+    createdAt?: string
     name: string
     status?: string
     conclusion?: string | null
@@ -138,6 +145,7 @@ export async function start(
     workflow?: string[]
     order?: string
     ciStuckMs?: { noChecks: number; pending: number }
+    mergePollMs?: number
     daemon?: Partial<DaemonOptions>
   } = {},
 ) {
@@ -156,7 +164,7 @@ export async function start(
     home: ctx.home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
-    mergePollMs: 100,
+    mergePollMs: options.mergePollMs ?? 100,
     ...(options.ciStuckMs && { ciStuckMs: options.ciStuckMs }),
     ...options.daemon,
   })
@@ -186,11 +194,11 @@ export const commitStep = {
   ],
 }
 
-export function leadSteps(client: Client) {
+export function leadSteps(client: Client, commit = commitStep.run[2]) {
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [
     `[ -e '${client.mergingFile}' ] && exit 0`,
-    commitStep.run[2],
+    commit,
     `ted brief write --file '${client.briefFile}'`,
     outcome,
   ].join('\n')
@@ -200,7 +208,11 @@ export function leadSteps(client: Client) {
   })
 }
 
-export async function toSignoff(client: Client, extra: Record<string, unknown> = {}) {
+export async function toSignoff(
+  client: Client,
+  extra: Record<string, unknown> = {},
+  clock?: ManualClock,
+) {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: leadSteps(client),
     factory: 'NB',
@@ -209,7 +221,9 @@ export async function toSignoff(client: Client, extra: Record<string, unknown> =
   await client.ok('POST', `/tasks/${task.id}/start`)
   const item = await waitUntil(async () => {
     const items = await client.ok<InboxItem[]>('GET', '/inbox')
-    return items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
+    const item = items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
+    if (!item && clock?.pending.includes(100)) clock.advance(100)
+    return item
   }, 'the Review sign-off')
   await waitUntil(
     async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.state === 'ready',
@@ -230,10 +244,14 @@ export async function approve(client: Client, signoff: Comment) {
 }
 
 export const waitForStage = (client: Client, task: Task, stage: string) =>
-  waitUntil(async () => {
-    const current = await getTask(client, task.id)
-    return current.stage === stage ? current : undefined
-  }, `${task.displayId} to reach ${stage}`)
+  eventWait(
+    client.subscribe,
+    async () => {
+      const current = await getTask(client, task.id)
+      return current.stage === stage ? current : undefined
+    },
+    `${task.displayId} to reach ${stage}`,
+  )
 
 export const ghCalls = async () =>
   (await readFile(ctx.ghLog, 'utf8').catch(() => ''))

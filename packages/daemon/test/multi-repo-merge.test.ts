@@ -3,9 +3,19 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Banner, Comment, Factory, InboxItem, Task, ThreadEvent } from '@ted/protocol'
+import {
+  type Banner,
+  type Comment,
+  type Factory,
+  type FailureCase,
+  type InboxItem,
+  type Task,
+  type ThreadEvent,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   commitToOrigin,
@@ -94,6 +104,7 @@ Merge it.
 `
 
 interface PrState {
+  merged?: boolean
   mergeState?: string
   reviewDecision?: string | null
   autoMergeAllowed?: boolean
@@ -344,3 +355,38 @@ describe('Merging a multi-repo Task', () => {
     )
   }, 60_000)
 })
+
+test('external partial merges remain visible while a failure case holds further merging', async () => {
+  const client = await start({ 7: { mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' } })
+  const { task, signoff } = await toSignoff(client)
+  await approve(client, signoff)
+  const current = await waitForStage(client, task, 'merge')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const lead = api(daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
+  const recorded = await lead.call('POST', `/tasks/${task.id}/failures`, {
+    source: { kind: 'finding', runId: current.leadRunId, finding: 'Hold all remaining repos' },
+    evidence: 'Unresolved issue',
+  })
+  expect(recorded.status).toBe(201)
+  const value = recorded.body as FailureCase
+  await setPr(7, { merged: true })
+  const partly = await waitUntil(async () => {
+    const t = await getTask(client, task.id)
+    return t.statuses.includes('partly-merged') ? t : undefined
+  }, 'Partly merged during failure hold')
+  expect(partly.stage).toBe('merge')
+  expect(partly.repos.find((r) => r.name === 'widgets')?.pullRequest?.state).toBe('merged')
+  expect(
+    partly.repos
+      .filter((r) => r.name !== 'widgets')
+      .every((r) => r.pullRequest?.state !== 'merged'),
+  ).toBe(true)
+  expect(await client.ok('GET', `/tasks/${task.id}/validation-obligations`)).toMatchObject({
+    satisfied: false,
+    blockers: [value.id],
+  })
+  expect(await merges()).toEqual([])
+  expect(
+    (await events(client, task)).filter((event) => event.text.startsWith('Merge stopped partway')),
+  ).toHaveLength(1)
+}, 60_000)

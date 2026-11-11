@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -45,8 +45,12 @@ interface StubHealth {
   version?: string
   signedIn?: boolean
   autoUnavailable?: boolean
+  resumeSteps?: Step[]
   resumeFails?: boolean
+  stopWaitsFor?: string
   resumeWaitsFor?: string
+  resumeInputWaitsFor?: string
+  inputWaitsFor?: string
   apiKeySource?: string
   authMethod?: string
   interruptEndsAfterMs?: number
@@ -94,6 +98,36 @@ const flag = (name: string) => {
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
 appendFileSync('stub-starts.jsonl', `${JSON.stringify({ argv, pid: process.pid })}\n`)
 
+// Not spawnSync: a blocked event loop would hold the SIGTERM handler below until the command ends.
+function runCommand(
+  command: string,
+  args: string[],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { env: commandEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8').on('data', (text: string) => {
+      stdout += text
+    })
+    child.stderr.setEncoding('utf8').on('data', (text: string) => {
+      stderr += text
+    })
+    child.on('error', (error) => resolve({ code: null, stdout, stderr: stderr + String(error) }))
+    child.on('close', (code) => resolve({ code, stdout, stderr }))
+  })
+}
+
+process.on('SIGTERM', async () => {
+  const gate = stubHealth().stopWaitsFor
+  if (gate !== undefined) {
+    writeFileSync(`${gate}.waiting`, '')
+    while (!existsSync(gate)) await sleep(20)
+  }
+  process.removeAllListeners('SIGTERM')
+  process.kill(process.pid, 'SIGTERM')
+})
+
 const resumeGate = flag('--resume') !== undefined ? stubHealth().resumeWaitsFor : undefined
 while (resumeGate !== undefined && !existsSync(resumeGate)) {
   await sleep(20)
@@ -132,8 +166,15 @@ const hook = (name: string) => {
     emit({ type: 'system', subtype: 'hook_started', hook_name: name, hook_event: event })
 }
 
-let everyMessage: Step[] = process.env.TED_DEMO === '1' ? [{ endTurn: true }] : []
-let inputGate: string | undefined
+const defaultMessageSteps: Step[] = process.env.TED_DEMO === '1' ? [{ endTurn: true }] : []
+let everyMessage: Step[] =
+  flag('--resume') !== undefined
+    ? (stubHealth().resumeSteps ?? defaultMessageSteps)
+    : defaultMessageSteps
+let inputGate =
+  stubHealth().inputWaitsFor ??
+  (flag('--resume') !== undefined ? stubHealth().resumeInputWaitsFor : undefined)
+if (inputGate !== undefined) emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
 let interrupted = false
 let gating = false
 let gate: ReturnType<typeof spawn> | undefined
@@ -282,8 +323,7 @@ async function runStep(step: Step): Promise<void> {
     inputGate = step.readNextAfter
   } else if ('run' in step) {
     const [command = '', ...args] = step.run
-    const result = spawnSync(command, args, { encoding: 'utf8', env: commandEnv() })
-    say(JSON.stringify({ code: result.status, stdout: result.stdout, stderr: result.stderr }))
+    say(JSON.stringify(await runCommand(command, args)))
   } else if ('endTurn' in step) {
     hook('Stop')
     emit({

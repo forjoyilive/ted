@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { TestProject } from 'vitest/node'
 import { killMarked } from './processes.ts'
-import { lockFullRun } from './suite-lock.ts'
+import { lockRun } from './suite-lock.ts'
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -10,7 +10,7 @@ declare module 'vitest' {
 }
 
 export default async function setup(project: TestProject) {
-  const unlock = await lockFullRun(project.vitest.state.getPaths().length)
+  const unlock = await lockRun(project.vitest.state.getPaths().length)
   const run = process.env.TED_TEST_RUN_ID || randomUUID()
   project.provide('tedTestRun', run)
   return async () => {

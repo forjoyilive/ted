@@ -1,9 +1,15 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { acquireSuiteLock, lockFullRun, pidAlive } from './support/suite-lock.ts'
+import {
+  acquireFullRun,
+  acquireSlot,
+  acquireSuiteLock,
+  lockRun,
+  pidAlive,
+} from './support/suite-lock.ts'
 
 let dir: string
 let file: string
@@ -80,7 +86,107 @@ describe('the test suite lock', () => {
     expect(waited).toEqual([first])
   })
 
-  test('a run of a few files doesn’t take the lock', async () => {
-    expect(await lockFullRun(3)).toBeUndefined()
+  test('a run of a few files takes a slot and leaves the suite lock alone', async () => {
+    const slots = { dir: path.join(dir, 'slots'), suiteLock: file, slots: 2 }
+    const release = await lockRun(3, slots)
+    expect(await readFile(path.join(slots.dir, '0.lock'), 'utf8')).toBe(`${process.pid}\n`)
+    await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await release?.()
+    await expect(readFile(path.join(slots.dir, '0.lock'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+})
+
+describe('test slots', () => {
+  const slots = () => ({ dir: path.join(dir, 'slots'), suiteLock: file, slots: 2, pollMs: 20 })
+  const slot = (index: number) => path.join(dir, 'slots', `${index}.lock`)
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  test('small runs take one slot each, and the same process keeps its slot', async () => {
+    const first = liveProcess()
+    await acquireSlot({ ...slots(), pid: first })
+    await acquireSlot({ ...slots(), pid: process.pid })
+    await acquireSlot({ ...slots(), pid: process.pid })
+    expect(await readFile(slot(0), 'utf8')).toBe(`${first}\n`)
+    expect(await readFile(slot(1), 'utf8')).toBe(`${process.pid}\n`)
+  })
+
+  test('a small run waits while every slot is held and starts when one is free', async () => {
+    const first = liveProcess()
+    const second = liveProcess()
+    await mkdir(path.join(dir, 'slots'))
+    await writeFile(slot(0), `${first}\n`)
+    await writeFile(slot(1), `${second}\n`)
+    const waited: number[] = []
+    let taken = false
+    const third = acquireSlot({ ...slots(), pid: 4242, onWait: (pid) => waited.push(pid) }).then(
+      () => {
+        taken = true
+      },
+    )
+    await pause(200)
+    expect(taken).toBe(false)
+    expect(waited).toEqual([second])
+
+    children[0]?.kill()
+    await third
+    expect(await readFile(slot(0), 'utf8')).toBe('4242\n')
+  })
+
+  test('a full run takes the suite lock and every slot, and waits for small runs to end', async () => {
+    const small = liveProcess()
+    await mkdir(path.join(dir, 'slots'))
+    await writeFile(slot(1), `${small}\n`)
+    let taken = false
+    const full = acquireFullRun({ ...slots(), pid: 4242 }).then((release) => {
+      taken = true
+      return release
+    })
+    await pause(200)
+    expect(taken).toBe(false)
+    expect(await readFile(file, 'utf8')).toBe('4242\n')
+
+    children[0]?.kill()
+    const release = await full
+    expect(await readFile(slot(0), 'utf8')).toBe('4242\n')
+    expect(await readFile(slot(1), 'utf8')).toBe('4242\n')
+    await release()
+    for (const held of [file, slot(0), slot(1)]) {
+      await expect(readFile(held, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  })
+
+  test('a small run doesn’t take a free slot while a full run holds the suite lock', async () => {
+    const full = liveProcess()
+    await writeFile(file, `${full}\n`)
+    const waited: number[] = []
+    let taken = false
+    const small = acquireSlot({ ...slots(), pid: 4242, onWait: (pid) => waited.push(pid) }).then(
+      () => {
+        taken = true
+      },
+    )
+    await pause(200)
+    expect(taken).toBe(false)
+    expect(waited).toEqual([full])
+
+    children[0]?.kill()
+    await small
+    expect(await readFile(slot(0), 'utf8')).toBe('4242\n')
+  })
+
+  test('a run that holds a slot keeps it when a full run takes the suite lock, as its second Vitest project does', async () => {
+    const release = await acquireSlot({ ...slots(), pid: process.pid })
+    await writeFile(file, `${liveProcess()}\n`)
+    const again = await acquireSlot({ ...slots(), pid: process.pid })
+    expect(again).toBeDefined()
+    expect(await readFile(slot(0), 'utf8')).toBe(`${process.pid}\n`)
+    await release?.()
+  })
+
+  test('a slot folder that can’t be made runs without a slot', async () => {
+    await writeFile(path.join(dir, 'slots'), '')
+    expect(await acquireSlot({ ...slots(), pid: 4242 })).toBeUndefined()
   })
 })

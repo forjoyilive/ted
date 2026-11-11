@@ -16,6 +16,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -58,8 +59,7 @@ const ted = (...args: string[]) => run(process.execPath, [cliPath, ...args], { e
 
 async function launchApp(): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await app.firstWindow()
-  await window.getByRole('navigation', { name: 'Sidebar' }).waitFor()
+  const window = await loadedWindow(app)
   return window
 }
 

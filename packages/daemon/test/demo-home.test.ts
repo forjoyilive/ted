@@ -56,6 +56,8 @@ test('demo children receive only local fixtures and no inherited credentials or 
     GITHUB_TOKEN: 'secret',
     GIT_CONFIG_COUNT: '99',
     TED_CLAUDE_BIN: '/real/claude',
+    TED_LOAD_FILE: '/host/load',
+    TED_LOW_PRIORITY: 'on',
     NODE_OPTIONS: '--require=real-code',
   })
   expect(Object.values(env)).not.toContain('secret')
@@ -64,6 +66,8 @@ test('demo children receive only local fixtures and no inherited credentials or 
   expect(env.TED_CODEX_BIN).toBe(path.join(folder, 'bin', 'stub-codex.mjs'))
   expect(env.TED_GH_BIN).toBe(path.join(folder, 'bin', 'stub-gh.mjs'))
   expect(env.TED_KEYRING_MODULE).toMatch(/stub-keyring.ts$/)
+  expect(env.TED_LOAD_FILE).toMatch(/test\/fixtures\/load.txt$/)
+  expect(env.TED_LOW_PRIORITY).toBe('off')
   expect(env.GIT_ALLOW_PROTOCOL).toBe('file')
   expect(env.NODE_OPTIONS).toBeUndefined()
 })

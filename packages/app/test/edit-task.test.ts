@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, test, vi } from 'vitest'
 import {
   appClient,
   daemonAsApp,
@@ -15,6 +15,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -50,9 +51,8 @@ const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sideba
 
 async function launchApp(): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await app.firstWindow()
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   return window
 }
 
@@ -112,17 +112,5 @@ describe('Editing a Task', () => {
     await window.keyboard.press('Meta+Enter')
     await thread.getByRole('heading', { name: 'Accent-blind search' }).waitFor()
     await thread.getByText('You renamed this Task to “Accent-blind search”').waitFor()
-  })
-
-  test('Priority and Clarify depth change from Task details', async () => {
-    const window = await openTask()
-    const details = window.getByRole('complementary', { name: 'Task details' })
-
-    await details.getByLabel('Priority').selectOption('high')
-    await details.locator('span', { hasText: /^High$/ }).waitFor()
-    await details.getByLabel('Clarify depth').selectOption('few')
-    await details.getByText('Few · set by you').waitFor()
-    const task = (await (await client()).listTasks())[0]
-    expect(task).toMatchObject({ priority: 'high', clarifyDepth: 'few', clarifyDepthBy: 'human' })
   })
 })

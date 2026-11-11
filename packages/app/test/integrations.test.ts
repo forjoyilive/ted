@@ -3,11 +3,13 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { integrationInstallPages } from '@ted/protocol/integrations'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -61,9 +63,8 @@ async function launchApp(): Promise<Page> {
       TED_FIX_LOG: fixLog,
     },
   })
-  const window = await app.firstWindow()
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await window.getByRole('navigation', { name: 'Sidebar' }).waitFor()
   return window
 }
 
@@ -131,4 +132,50 @@ describe('the GitHub banner', () => {
     await banner.waitFor({ state: 'detached', timeout: 15_000 })
     await window.getByRole('group', { name: 'GitHub' }).getByText('Ready').waitFor()
   })
+})
+
+test('page remedies cross the renderer IPC bridge and open only official instructions', async () => {
+  await setGh({ 'github.com': [signedIn] })
+  const window = await launchApp()
+  if (!app) throw new Error('Expected launched app')
+  await app.evaluate(
+    async ({ shell }, { moduleUrl, pages }) => {
+      const { DaemonClient } = process.getBuiltinModule('module').createRequire(moduleUrl)(
+        './client.ts',
+      )
+      const opened: string[] = []
+      Object.assign(globalThis, { instructionPages: opened })
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+      DaemonClient.prototype.runFix = async ({ fix }: { fix: string }) => ({
+        url: fix === 'git-install' ? pages.git : pages.gh,
+      })
+    },
+    {
+      moduleUrl: new URL('../../protocol/src/client.ts', import.meta.url).href,
+      pages: integrationInstallPages,
+    },
+  )
+  for (const fix of ['gh-install', 'gh-update', 'git-install']) {
+    await window.evaluate(async (fix) => globalThis.window.ted.request('runFix', { fix }), fix)
+  }
+  expect(await app.evaluate(() => Reflect.get(globalThis, 'instructionPages'))).toEqual([
+    integrationInstallPages.gh,
+    integrationInstallPages.gh,
+    integrationInstallPages.git,
+  ])
+  await app.evaluate(
+    async (_, moduleUrl) => {
+      const { DaemonClient } = process.getBuiltinModule('module').createRequire(moduleUrl)(
+        './client.ts',
+      )
+      DaemonClient.prototype.runFix = async () => ({ url: 'https://example.com/install' })
+    },
+    new URL('../../protocol/src/client.ts', import.meta.url).href,
+  )
+  await expect(
+    window.evaluate(async () => globalThis.window.ted.request('runFix', { fix: 'gh-install' })),
+  ).rejects.toThrow('Unknown integration instructions page')
+  expect(await app.evaluate(() => Reflect.get(globalThis, 'instructionPages'))).toHaveLength(3)
 })

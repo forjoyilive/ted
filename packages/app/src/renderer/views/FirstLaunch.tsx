@@ -1,9 +1,9 @@
 import type {
   AgentHealth,
   AgentKind,
-  FixCommand,
   GitHealth,
   IntegrationFix,
+  IntegrationRemedy,
   IntegrationsHealth,
   MachineSettings,
 } from '@ted/protocol'
@@ -12,6 +12,7 @@ import { minGhVersion } from '@ted/protocol/integrations'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
+import { Loading } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { useAgentHealth } from '../data.ts'
 import { useIntegrations } from '../settings/IntegrationsPage.tsx'
@@ -104,10 +105,10 @@ function Row({
   return (
     <fieldset className={styles.row} aria-label={name} data-tone={tone}>
       <div className={styles.head}>
-        <StatusIcon tone={tone} />
+        {tone === 'checking' ? <Loading compact label={chip} /> : <StatusIcon tone={tone} />}
         <span className={styles.name}>{name}</span>
         {help !== undefined && <Help>{help}</Help>}
-        <StatusChip tone={chipTones[tone]}>{chip}</StatusChip>
+        {tone !== 'checking' && <StatusChip tone={chipTones[tone]}>{chip}</StatusChip>}
         <span className={styles.spacer} />
         {actions !== undefined && <div className={styles.actions}>{actions}</div>}
       </div>
@@ -292,11 +293,13 @@ function GitHubRow({
   const { cli } = health.github
   const host = health.github.hosts.find((h) => h.host === firstLaunchHost) ?? health.github.hosts[0]
   const meta = join(cli.version && `gh ${cli.version}`, cli.path)
-  const buttons = (fix: FixCommand, kind: IntegrationFix, hostName?: string) => (
+  const buttons = (fix: IntegrationRemedy, kind: IntegrationFix, hostName?: string) => (
     <>
-      <Button size="small" onClick={() => actions.copy(fix.command)}>
-        Copy command
-      </Button>
+      {'command' in fix && (
+        <Button size="small" onClick={() => actions.copy(fix.command)}>
+          Copy command
+        </Button>
+      )}
       <Button size="small" variant="primary" onClick={() => onFix(kind, hostName)}>
         {fix.label}
       </Button>
@@ -310,16 +313,21 @@ function GitHubRow({
         chip="GitHub CLI not installed"
         detail="Needed to add a Factory. TED reaches GitHub through the GitHub CLI, gh."
         below={
-          cli.fix && (
+          cli.fix &&
+          ('url' in cli.fix ? (
+            <Button size="small" onClick={() => onFix('gh-install')}>
+              {cli.fix.label}
+            </Button>
+          ) : (
             <CommandLine
               command={cli.fix.command}
-              onCopy={() => actions.copy(cli.fix?.command ?? '')}
+              onCopy={() => actions.copy(cli.fix && 'command' in cli.fix ? cli.fix.command : '')}
             >
               <Button size="small" onClick={() => onFix('gh-install')}>
                 Open Terminal
               </Button>
             </CommandLine>
-          )
+          ))
         }
         note={note}
       />
@@ -401,16 +409,21 @@ function GitRow({
         chip="Not installed"
         detail="TED needs Git to clone repos and make worktrees."
         below={
-          git.fix && (
+          git.fix &&
+          ('url' in git.fix ? (
+            <Button size="small" onClick={() => onFix('git-install')}>
+              {git.fix.label}
+            </Button>
+          ) : (
             <CommandLine
               command={git.fix.command}
-              onCopy={() => actions.copy(git.fix?.command ?? '')}
+              onCopy={() => actions.copy(git.fix && 'command' in git.fix ? git.fix.command : '')}
             >
               <Button size="small" onClick={() => onFix('git-install')}>
                 Open Terminal
               </Button>
             </CommandLine>
-          )
+          ))
         }
         note={note}
       />
@@ -509,8 +522,13 @@ export function FirstLaunch({
   function runFix(key: string, fix: IntegrationFix, host?: string) {
     setFor(key)
     ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
-      ({ command }) => {
-        setFor(key, opened(command))
+      (result) => {
+        setFor(
+          key,
+          'url' in result
+            ? 'Opened instructions in your browser. Follow them, then return to TED. Checking again every 5 seconds…'
+            : opened(result.command),
+        )
         watch()
       },
       (error: unknown) => setFor(key, message(error)),
@@ -531,7 +549,9 @@ export function FirstLaunch({
 
   const agentFor = (agent: AgentKind) => agents.find((h) => h.agent === agent)
   const noteFor = (key: string) =>
-    key === 'github' && integrations?.github.hosts.every((h) => h.state === 'ready')
+    key === 'github' &&
+    integrations?.github.cli.state === 'ready' &&
+    integrations.github.hosts.every((h) => h.state === 'ready')
       ? undefined
       : notes[key]
 

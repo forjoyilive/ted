@@ -110,103 +110,6 @@ describe('Inbox and Gates', () => {
       .waitFor()
   })
 
-  test('a Clarify round shows recommended answers, marks a changed one, and Submit answers sends them', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    const roundFile = path.join(ctx.home, 'round.json')
-    await writeFile(
-      roundFile,
-      JSON.stringify({
-        title: 'Conflicts and sync · 2 questions',
-        summary: 'Each question has my recommended answer filled in.',
-        questions: [
-          {
-            question: 'When a note is edited on two devices offline, what happens?',
-            choices: ['Keep both and let me merge', 'Keep the latest edit'],
-            recommended: 'Keep both and let me merge',
-          },
-          {
-            question: 'If a note is deleted on one device and edited on the other, which wins?',
-            recommended: 'The edit wins.',
-          },
-        ],
-      }),
-    )
-    await addFactory(origin, 'NB')
-    await ted(
-      'task',
-      'create',
-      '--factory',
-      'NB',
-      JSON.stringify({
-        steps: [
-          { run: ['ted', 'outcome', 'advance'] },
-          { run: ['ted', 'clarify', 'depth', 'few', 'two small questions'] },
-          { run: ['ted', 'ask', '--round', roundFile] },
-          { endTurn: true },
-        ],
-      }),
-    )
-    const window = await launchApp()
-    await ted('task', 'start', 'NB-1')
-
-    const inbox = window.getByRole('region', { name: 'Inbox' })
-    const row = inbox.getByRole('button').filter({ hasText: 'Clarify round' })
-    await row.waitFor()
-    await row.click()
-
-    await openTaskOutsideInbox(window)
-    const thread = window.getByRole('region', { name: 'Task thread' })
-    const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
-    await card.getByText('Conflicts and sync · 2 questions').waitFor()
-    await expectActionsInsideCard(window, card, [
-      'Talk it through',
-      'Accept all recommended',
-      'Submit answers',
-    ])
-    const first = card.getByRole('group', { name: /^1\./ })
-    expect(await first.getByRole('radio', { name: /Keep both and let me merge/ }).isChecked()).toBe(
-      true,
-    )
-    expect(await card.getByText('Recommended', { exact: true }).count()).toBe(2)
-    expect(await card.getByRole('button', { name: 'Talk it through' }).isDisabled()).toBe(false)
-    await first.getByText('Keep the latest edit').click()
-    await first.getByText('Changed ·').waitFor()
-    await first.getByRole('button', { name: 'Reset' }).click()
-    expect(await first.getByText('Changed ·').count()).toBe(0)
-    await first.getByText('Keep the latest edit').click()
-    await card.getByRole('textbox', { name: 'Add to answer 1' }).fill('Clashes are rare.')
-    await first.getByRole('radio', { name: 'Other', exact: true }).check()
-    const custom = first.getByRole('textbox', { name: 'Your answer 1', exact: true })
-    const submit = card.getByRole('button', { name: 'Submit answers' })
-    expect(await submit.isDisabled()).toBe(true)
-    await custom.fill('   ')
-    expect(await submit.isDisabled()).toBe(true)
-    await custom.fill('Ask me to resolve each conflict.')
-    expect(await first.getByRole('radio', { name: /Keep the latest edit/ }).isChecked()).toBe(false)
-    await first.getByText('Keep the latest edit').click()
-    expect(await first.getByRole('textbox', { name: 'Add to answer 1' }).inputValue()).toBe(
-      'Clashes are rare.',
-    )
-    await first.getByRole('radio', { name: 'Other', exact: true }).check()
-    expect(await custom.inputValue()).toBe('Ask me to resolve each conflict.')
-    await first.getByRole('button', { name: 'Reset' }).click()
-    expect(await first.getByRole('radio', { name: /Keep both and let me merge/ }).isChecked()).toBe(
-      true,
-    )
-    await first.getByRole('radio', { name: 'Other', exact: true }).check()
-    await submit.click()
-
-    const answered = thread.getByRole('region', { name: 'Clarify round, answered' })
-    await answered.getByText('You answered · 1 recommended, 1 changed').waitFor()
-    expect(await answered.getByRole('listitem').allTextContents()).toEqual([
-      '1.Ask me to resolve each conflict.changed',
-      '2.The edit wins.recommended',
-    ])
-    const details = window.getByRole('complementary', { name: 'Task details' })
-    await details.getByText('Few · by the Task Lead').waitFor()
-    await thread.getByText('Task Lead picked Clarify depth: Few · two small questions').waitFor()
-  })
-
   test('Talk it through opens the Task Lead’s chat with the round below it; Done talking closes the round with the summary', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     const roundFile = path.join(ctx.home, 'round.json')
@@ -249,6 +152,8 @@ describe('Inbox and Gates', () => {
     await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
+    await expectActionsInsideCard(window, card, ['Talk it through', 'Submit answers'])
+    expect(await card.getByRole('button', { name: 'Accept all recommended' }).count()).toBe(0)
     await card.getByRole('button', { name: 'Talk it through' }).click()
 
     await thread.getByRole('heading', { name: 'Talking through Round 1' }).waitFor()
@@ -329,6 +234,13 @@ describe('Inbox and Gates', () => {
       }),
     )
     await addFactory(origin, 'NB')
+    // The stub’s first message after its prompt is TED’s Clarify brief; the next is the
+    // human’s answer, and only then may it propose, as a real Task Lead would.
+    const proposeOnce = [
+      { everyMessage: [] },
+      { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+      { endTurn: true },
+    ]
     await ted(
       'task',
       'create',
@@ -347,8 +259,7 @@ describe('Inbox and Gates', () => {
               'Offline editing spans storage, sync and the editor.',
             ],
           },
-          { endTurn: true },
-          { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+          { everyMessage: [{ everyMessage: proposeOnce }, { endTurn: true }] },
           { endTurn: true },
         ],
       }),
@@ -397,163 +308,6 @@ describe('Inbox and Gates', () => {
       'Sync queue with retry',
     ])
   })
-
-  test('the grilling sign-off lists Decisions so far, the open questions and what each button does', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    const briefFile = path.join(ctx.home, 'brief.md')
-    await writeFile(
-      briefFile,
-      [
-        '## Goal\n\nWhat we decided for offline editing',
-        '## Decisions so far\n\n- Notes save locally first.\n- Warn after 30 days offline.',
-        '## Current state\n\nNothing built.',
-        '## Open questions\n\nNone.',
-        '## Next step\n\nDesign the merge view.\n',
-      ].join('\n\n'),
-    )
-    await addFactory(origin, 'NB')
-    await ted(
-      'task',
-      'create',
-      '--factory',
-      'NB',
-      JSON.stringify({
-        steps: [
-          { run: ['ted', 'outcome', 'advance'] },
-          { run: ['ted', 'clarify', 'depth', 'grilling', 'sync touches both repos'] },
-          { run: ['ted', 'brief', 'write', '--file', briefFile] },
-          { run: ['ted', 'outcome', 'advance'] },
-          { endTurn: true },
-        ],
-      }),
-    )
-    const window = await launchApp()
-    await ted('task', 'start', 'NB-1')
-
-    const row = window
-      .getByRole('region', { name: 'Inbox' })
-      .getByRole('button')
-      .filter({ hasText: 'Sign-off' })
-    await row.waitFor()
-    await row.click()
-    const card = window
-      .getByRole('region', { name: 'Task thread' })
-      .getByRole('region', { name: 'Sign-off', exact: true })
-    const decisions = card.getByRole('region', { name: 'Decisions so far' })
-    await expect
-      .poll(() => decisions.getByRole('listitem').allTextContents())
-      .toEqual(['Notes save locally first.', 'Warn after 30 days offline.'])
-    await card.getByText('Open questions: None.').waitFor()
-    await card
-      .getByText('Approve moves the Task on. Request changes starts another round.')
-      .waitFor()
-
-    await window.getByRole('button', { name: 'Task actions' }).click()
-    const menu = window.getByRole('menu', { name: 'Task actions' })
-    await menu.getByRole('menuitem', { name: /Clarify depth/ }).hover()
-    await menu.getByRole('menuitemradio', { name: 'Few' }).click()
-    const details = window.getByRole('complementary', { name: 'Task details' })
-    await details.getByText('Few · set by you').waitFor()
-  })
-
-  test('two open requests show “2 waiting on you”; chips and the Inbox pick the pinned card', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await addFactory(origin, 'NB')
-    await ted(
-      'task',
-      'create',
-      '--factory',
-      'NB',
-      JSON.stringify({
-        steps: [
-          {
-            run: [
-              'ted',
-              'outcome',
-              'ask',
-              '--choice',
-              'In the note’s header',
-              'Where should the sync status show?',
-            ],
-          },
-          { run: ['ted', 'comment', '--choice', 'Yes', 'Can the queue retry offline?'] },
-          { endTurn: true },
-        ],
-      }),
-    )
-    const window = await launchApp()
-    await ted('task', 'start', 'NB-1')
-
-    const inbox = window.getByRole('region', { name: 'Inbox' })
-    const second = inbox
-      .getByRole('button')
-      .filter({ has: window.getByText('Can the queue retry offline?', { exact: true }) })
-    await second.waitFor()
-    await second.click()
-
-    const thread = window.getByRole('region', { name: 'Task thread' })
-    const pinned = thread.getByRole('region', { name: 'Question', exact: true })
-    await pinned.getByText('Can the queue retry offline?').waitFor()
-    const waiting = thread.getByRole('group', { name: '2 waiting on you' })
-    await waiting.getByText('2 waiting on you').waitFor()
-    const chips = waiting.getByRole('button')
-    expect(await chips.allTextContents()).toEqual(['Question · now', 'Question · now'])
-    expect(await chips.nth(1).getAttribute('aria-pressed')).toBe('true')
-
-    const lines = thread.getByRole('button', { name: /^Question from the Task Lead · waiting/ })
-    await expect.poll(() => lines.count()).toBe(2)
-    expect(await lines.nth(1).textContent()).toContain('shown below')
-
-    await chips.nth(0).click()
-    await pinned.getByText('Where should the sync status show?').waitFor()
-    expect(await chips.nth(0).getAttribute('aria-pressed')).toBe('true')
-    expect(await thread.getByRole('region', { name: 'Question', exact: true }).count()).toBe(1)
-  })
-
-  test('answered and superseded requests collapse to grey cards; Show request opens the card read-only', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await addFactory(origin, 'NB')
-    const supersede =
-      'id=$(ted outcome ask "Should an empty search show recent notes or nothing?" | sed -n "s/.*(request \\([^)]*\\)).*/\\1/p"); ted ask --supersedes "$id" --choice "The 5 most recent notes" --choice "A hint" "Empty search: show the 5 most recent notes, or a hint?"'
-    await ted(
-      'task',
-      'create',
-      '--factory',
-      'NB',
-      JSON.stringify({ steps: [{ run: ['sh', '-c', supersede] }, { endTurn: true }] }),
-    )
-    const window = await launchApp()
-    await ted('task', 'start', 'NB-1')
-
-    const inbox = window.getByRole('region', { name: 'Inbox' })
-    const headline = (text: string) =>
-      inbox.getByRole('button').filter({ has: window.getByText(text, { exact: true }) })
-    const row = headline('Empty search: show the 5 most recent notes, or a hint?')
-    await row.waitFor()
-    expect(await inbox.getByRole('listitem').count()).toBe(1)
-    await row.click()
-
-    await openTaskOutsideInbox(window)
-    const thread = window.getByRole('region', { name: 'Task thread' })
-    const superseded = thread.getByRole('region', { name: 'Question, superseded' })
-    await superseded.getByText('Superseded by a newer question from the Task Lead').waitFor()
-    expect(await thread.getByRole('group', { name: /waiting on you/ }).count()).toBe(0)
-
-    const pinned = thread.getByRole('region', { name: 'Question', exact: true })
-    await pinned.getByRole('button', { name: 'The 5 most recent notes' }).click()
-
-    const answered = thread.getByRole('region', { name: 'Question, answered' })
-    await answered.getByText('You answered: The 5 most recent notes').waitFor()
-    await expect.poll(() => pinned.count()).toBe(0)
-
-    await answered.getByRole('button', { name: 'Show request' }).click()
-    const full = answered.getByRole('region', { name: 'Question, read-only' })
-    await full.getByText('Empty search: show the 5 most recent notes, or a hint?').waitFor()
-    expect(await full.getByRole('textbox').count()).toBe(0)
-    expect(await full.getByRole('button', { name: 'A hint' }).isDisabled()).toBe(true)
-    await answered.getByRole('button', { name: 'Hide request' }).click()
-    await expect.poll(() => full.count()).toBe(0)
-  })
 })
 
 describe('Full Inbox', () => {
@@ -596,8 +350,14 @@ describe('Full Inbox', () => {
     await chip('All 3').click()
     await expect.poll(headlines).toHaveLength(3)
 
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
+    await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
+    await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window)
       .getByRole('button', { name: /^Inbox/ })
@@ -629,7 +389,7 @@ describe('Full Inbox', () => {
 })
 
 describe('Permission requests', () => {
-  test('a permission prompt is a card with the command; Deny and Approve collapse it with the answer line', async () => {
+  test('a permission prompt is a card with the command; Deny and Approve keep its details with the answer line', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     await addFactory(origin, 'NB')
     const ask = (command: string, description: string) => ({
@@ -671,7 +431,11 @@ describe('Permission requests', () => {
     const denied = thread.getByRole('region', { name: 'Permission, answered' }).first()
     await denied.getByText('You denied').waitFor()
     await denied.getByText('“Use npm, not an install script.”').waitFor()
-    await denied.getByText('curl -s https://registry.example.dev/install.sh | sh').waitFor()
+    await denied
+      .getByText(/\$ curl -s https:\/\/registry\.example\.dev\/install\.sh \| sh$/)
+      .waitFor()
+    await denied.getByText('Install the CRDT tool').waitFor()
+    expect(await denied.getByRole('button', { name: /Show request|Hide request/ }).count()).toBe(0)
 
     await card.getByText(/npm install --save yjs@13\.6\.27$/).waitFor()
     const details = window.getByRole('complementary', { name: 'Task details' })

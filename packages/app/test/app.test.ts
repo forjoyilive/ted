@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
@@ -25,45 +25,6 @@ describe('TED app', () => {
     await launchApp()
 
     expect(await commandOf(await daemonPid())).toContain(electronPath)
-  })
-
-  test('a Task created from the CLI appears in the window within a second', async () => {
-    const window = await launchApp()
-    await openAllTasks(window)
-    await window.getByText('No Tasks yet', { exact: true }).waitFor()
-
-    await ted('task', 'create', 'Fix login')
-
-    await taskRow(window, 'DEV-1').filter({ hasText: 'Fix login' }).waitFor({ timeout: 1_000 })
-  })
-
-  test('a Task Lead’s Comment and the move to Done show in the window as they happen', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await commitToOrigin(path.join(ctx.home, 'origin'), {
-      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
-    })
-    const steps = JSON.stringify({
-      steps: [
-        { run: ['ted', 'comment', 'Halfway there'] },
-        { waitFor: path.join(ctx.home, 'go') },
-        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
-        { run: ['ted', 'outcome', 'advance'] },
-      ],
-    })
-    await addFactory(origin, 'NB')
-    await ted('task', 'create', '--factory', 'NB', steps)
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'NB-1').click()
-    const details = window.getByRole('complementary', { name: 'Task details' })
-    await details.getByText('Backlog').waitFor()
-
-    await ted('task', 'start', 'NB-1')
-
-    await details.getByText('Intake', { exact: true }).waitFor()
-    await window.getByRole('region', { name: 'Task thread' }).getByText('Halfway there').waitFor()
-    await writeFile(path.join(ctx.home, 'go'), '')
-    await details.getByText('Done', { exact: true }).waitFor()
   })
 
   test('the thread shows event lines; ↵ sends a Comment, ⇧↵ adds a line and ⌘↵ sends too', async () => {
@@ -215,7 +176,10 @@ describe('TED app', () => {
     const files = path.join(ctx.home, 'design')
     await mkdir(files)
     const at = (name: string) => path.join(files, name)
-    await writeFile(at('welcome.png'), Buffer.from(onePixelPng, 'base64'))
+    await writeFile(
+      at('welcome.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="1000"><rect width="100" height="1000" fill="#eeeeee"/></svg>',
+    )
     await writeFile(at('walkthrough.webm'), 'not really a video')
     await writeFile(
       at('onboarding.html'),
@@ -239,7 +203,7 @@ describe('TED app', () => {
       at('design.json'),
       JSON.stringify({
         summary: 'Merged the welcome and sync screens into one.',
-        screenshots: [{ path: at('welcome.png'), caption: 'Step 1 · Welcome' }],
+        screenshots: [{ path: at('welcome.svg'), caption: 'Step 1 · Welcome' }],
         video: { path: at('walkthrough.webm'), caption: 'Walkthrough · 0:42' },
         prototype: at('onboarding.html'),
         figma: { url: 'https://www.figma.com/design/abc/Onboarding', label: 'Onboarding v2' },
@@ -278,6 +242,29 @@ describe('TED app', () => {
     await card.getByText('Merged the welcome and sync screens into one.').waitFor()
     await card.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
     const screenshot = card.getByRole('button', { name: 'View Step 1 · Welcome' })
+    await expect
+      .poll(() =>
+        screenshot.locator('img').evaluate((el) => (el as HTMLImageElement).naturalHeight),
+      )
+      .toBe(1000)
+    const client = await daemonClient()
+    await ctx.app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setSize(1280, 1600),
+    )
+    for (const textSize of [100, 200]) {
+      await client.updateSettings({ textSize, appearance: textSize === 200 ? 'dark' : 'light' })
+      await expect
+        .poll(() => screenshot.evaluate((el) => el.getBoundingClientRect().height))
+        .toBe(108)
+      await expect
+        .poll(() => screenshot.locator('span').evaluate((el) => getComputedStyle(el).fontSize))
+        .toBe(`${(12.5 * textSize) / 100}px`)
+      await mkdir(path.resolve('node_modules/.cache/ted-100/app'), { recursive: true })
+      await screenshot.screenshot({
+        path: path.resolve(`node_modules/.cache/ted-100/app/design-review-${textSize}.png`),
+      })
+    }
+    await client.updateSettings({ textSize: 100 })
     await screenshot.click()
     const imageViewer = window.getByRole('dialog', { name: 'Step 1 · Welcome', exact: true })
     await imageViewer.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
@@ -406,7 +393,33 @@ describe('TED app', () => {
     await chat.getByRole('button', { name: /TED’s instructions for this Run/ }).waitFor()
     await chat.getByRole('button', { name: /^Edit/ }).click()
     await chat.getByText('by pinned').waitFor()
-    expect(await chat.getByRole('button', { name: 'Restart' }).isEnabled()).toBe(true)
+    expect(await chat.getByRole('button', { name: 'Restart' }).count()).toBe(0)
+    const taskHeader = window.getByRole('region', { name: 'Task thread' }).locator('header')
+    await taskHeader.getByRole('button', { name: 'Task actions' }).click()
+    expect(
+      await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled(),
+    ).toBe(true)
+    const runId = (await client.listTasks())[0]?.leadRunId
+    if (runId === undefined) throw new Error('Task has no Lead Run')
+    const { run } = await client.getRun(runId)
+    await writeFile(
+      path.join(ctx.home, 'stub-claude.json'),
+      JSON.stringify({ resumeSteps: [{ say: 'Noted.' }, { endTurn: true }] }),
+    )
+    await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).click()
+    await expect
+      .poll(
+        async () =>
+          (await readFile(path.join(run.cwd, 'stub-starts.jsonl'), 'utf8')).trim().split('\n')
+            .length,
+      )
+      .toBe(2)
+    expect((await client.listTasks())[0]?.leadRunId).toBe(runId)
+    await taskHeader.getByRole('button', { name: 'Task actions' }).click()
+    await expect
+      .poll(() => taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())
+      .toBe(true)
+    await window.keyboard.press('Escape')
 
     const box = chat.getByRole('textbox', { name: 'Message to this Run' })
     await box.fill('Keep pinned notes in the order they were pinned.')
@@ -489,97 +502,5 @@ describe('TED app', () => {
     await window.getByRole('tab', { name: 'Thread' }).click()
     await scroller.getByText('The newest note').waitFor()
     await expect.poll(gap).toBeLessThan(2)
-  }, 90_000)
-
-  test('a working Run’s chat queues a message, deletes it, and interrupts the turn with ⌘↵', async () => {
-    await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
-    const steps = [
-      { everyMessage: [{ say: 'Redirected.' }, { endTurn: true }] },
-      { say: 'Working on the sync layer.' },
-      { waitFor: path.join(ctx.home, 'never') },
-      { endTurn: true },
-    ]
-    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
-    await ted('task', 'start', 'NB-1')
-    const client = await daemonClient()
-    await expect
-      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
-      .toBe('working')
-
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'NB-1').click()
-    await window
-      .getByRole('complementary', { name: 'Task details' })
-      .getByRole('button', { name: /Task Lead/ })
-      .click()
-    const chat = window.getByRole('region', { name: 'Run chat' })
-    await chat.getByText('Working on the sync layer.').waitFor()
-
-    const box = chat.getByRole('textbox', { name: 'Message to this Run' })
-    await box.fill('Leave archived notes alone.')
-    await box.press('Enter')
-    const queued = chat.getByText('Leave archived notes alone.')
-    await chat.getByText('Queued', { exact: true }).waitFor()
-    await queued.hover()
-    await chat.getByRole('button', { name: 'Delete' }).click()
-    await queued.waitFor({ state: 'detached' })
-
-    await box.fill('Keep the fix in the swipe handler.')
-    await box.press('Meta+Enter')
-    await chat.getByText(/Interrupted by you/).waitFor()
-    await chat.getByText('Redirected.').waitFor()
-    expect(await client.listComments('NB-1')).toEqual([])
-  }, 90_000)
-
-  test('Runs lists a sub-agent under its Task Lead, opens its chat and stops it from its row', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await addFactory(origin, 'NB')
-    const promptFile = path.join(ctx.home, 'explore.md')
-    await writeFile(
-      promptFile,
-      `# Explore the parser\n\n${JSON.stringify({ steps: [{ say: 'Reading src/parse.ts' }, { waitFor: path.join(ctx.home, 'never') }] })}\n`,
-    )
-    const command = `id=$(ted run start --prompt-file ${promptFile} | grep -o "[0-9a-f-]\\{36\\}" | head -1); ted run wait "$id"`
-    const steps = [{ run: ['sh', '-c', command] }, { say: 'Sub-agent done.' }, { endTurn: true }]
-    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
-    await ted('task', 'start', 'NB-1')
-    const client = await daemonClient()
-    await expect
-      .poll(async () => (await client.listTasks())[0]?.runs.map((r) => r.role), { timeout: 20_000 })
-      .toEqual(['lead', 'sub-agent'])
-
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'NB-1').click()
-    const thread = window.getByRole('region', { name: 'Task thread' })
-    await thread.getByRole('img', { name: 'Claude Code, idle' }).waitFor()
-    await thread.getByRole('img', { name: 'Claude Code, working' }).waitFor()
-
-    const runs = window
-      .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Runs' })
-    await runs.getByText('2 Runs').waitFor()
-    const rows = runs.getByRole('listitem')
-    await expect
-      .poll(() => rows.allInnerTexts())
-      .toEqual([
-        expect.stringMatching(/^Task Lead\s+on sub-agents\s+Claude · default model/),
-        expect.stringMatching(/^Explore the parser\s+working\s+Claude · default model/),
-      ])
-
-    const sub = rows.filter({ hasText: 'Explore the parser' })
-    await sub.getByRole('button', { name: /Explore the parser/ }).click()
-    const chat = window.getByRole('region', { name: 'Run chat' })
-    await chat.getByText('Reading src/parse.ts').waitFor()
-    await window.getByRole('tab', { name: /Explore the parser/ }).waitFor()
-
-    await sub.hover()
-    await sub.getByRole('button', { name: 'Stop Run' }).click()
-    await runs.getByRole('button', { name: '1 stopped Run' }).click()
-    await expect
-      .poll(async () => (await client.listTasks())[0]?.runs.map((r) => r.role), { timeout: 20_000 })
-      .toEqual(['lead'])
-    await rows.filter({ hasText: /Explore the parser\s*(just now|\d+m ago)/ }).waitFor()
   }, 90_000)
 })

@@ -152,7 +152,7 @@ function Restore({
         disabled={restoring}
         onClick={() => {
           setRestoring(true)
-          ted.restoreBackup(backup.name).catch(() => setRestoring(false))
+          ted.restoreBackup({ name: backup.name }).catch(() => setRestoring(false))
         }}
       >
         Restore the backup from before the update

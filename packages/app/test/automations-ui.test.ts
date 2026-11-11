@@ -16,6 +16,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -58,9 +59,8 @@ async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
   await ted.updateSettings({ timeFormat: '24-hour', timeZone: 'Europe/London' })
   await ted.addFactory({ repo: origin, key: 'NB' })
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await app.firstWindow()
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   return { window, ted }
 }
 
@@ -80,13 +80,23 @@ async function openFirstFactory(window: Page) {
     .first()
   for (let tries = 0; tries < 30; tries++) {
     await window.keyboard.press('Meta+1')
-    if (await entry.isVisible()) return
-    await window.waitForTimeout(500)
+    const shown = await entry.waitFor({ timeout: 500 }).then(
+      () => true,
+      () => false,
+    )
+    if (shown) return
   }
   await entry.waitFor()
 }
 
 describe('Automations in the app', () => {
+  test('a missing Automation crosses the bridge as deleted rather than a request failure', async () => {
+    const { window } = await launch()
+    expect(
+      await window.evaluate(() => globalThis.window.ted.request('getAutomation', 'missing')),
+    ).toBeNull()
+  })
+
   test('the empty page offers templates; a template fills the form and the schedule checks itself', async () => {
     const { window, ted } = await launch()
     await openAutomations(window)
@@ -160,6 +170,187 @@ describe('Automations in the app', () => {
       .first()
       .click()
     await dialog(window).getByRole('heading', { name: 'New Automation in' }).waitFor()
+  })
+
+  test('the architecture template fills a weekly review and saves without starting Tasks', async () => {
+    const { window, ted } = await launch()
+    await openAutomations(window)
+    await window.getByRole('button', { name: 'Use template: Review codebase architecture' }).click()
+    const form = dialog(window)
+    await expect
+      .poll(() => form.getByLabel('Name').inputValue())
+      .toBe('Review codebase architecture')
+    expect(await form.getByRole('textbox', { name: 'Prompt' }).inputValue()).toContain(
+      'up to three',
+    )
+    expect(
+      await form.getByRole('radio', { name: /Review codebase architecture/ }).isChecked(),
+    ).toBe(true)
+    expect(await form.getByLabel('Repeat').inputValue()).toBe('weekly')
+    expect(
+      await form.getByRole('button', { name: 'Monday', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      await form.getByRole('button', { name: 'Tuesday', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('false')
+    expect(await form.getByLabel('Hour', { exact: true }).inputValue()).toBe('9')
+    expect(await form.getByLabel('Minute', { exact: true }).inputValue()).toBe('0')
+    await form.getByText(/^Next: .+ · .+ · .+/).waitFor()
+    if (process.env.TED_ARCHITECTURE_SCREENSHOT) {
+      await window.screenshot({ path: process.env.TED_ARCHITECTURE_SCREENSHOT })
+    }
+    await form.getByRole('button', { name: 'Save', exact: true }).click()
+    await form.waitFor({ state: 'detached' })
+    await window
+      .getByRole('region', { name: 'Automation' })
+      .getByRole('heading', { name: 'Review codebase architecture' })
+      .waitFor()
+    const [saved] = await ted.listAutomations()
+    expect(saved).toMatchObject({
+      template: 'architecture',
+      on: true,
+      schedule: { kind: 'weekly', days: ['mon'], at: '09:00' },
+    })
+    expect((await ted.getAutomation(saved?.id ?? '')).history).toEqual([])
+    expect(await ted.listTasks()).toEqual([])
+  })
+
+  test('drafts a new Automation Prompt, lets the human edit it and saves only on request', async () => {
+    const { window, ted } = await launch()
+    await openAutomations(window)
+    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    const form = dialog(window)
+    await form.getByLabel('Name').fill('Bug intake')
+    await form.getByRole('button', { name: 'Draft with AI', exact: true }).click()
+    await form
+      .getByLabel('What should this Automation do?')
+      .fill(steps({ say: 'Find new bugs and create Tasks in Backlog.' }, { endTurn: true }))
+    await form.getByRole('button', { name: 'Generate draft', exact: true }).click()
+    await form.getByLabel('Suggested Prompt', { exact: true }).waitFor()
+    expect(await form.getByRole('textbox', { name: 'Prompt', exact: true }).inputValue()).toBe('')
+    expect(await ted.listAutomations()).toEqual([])
+    await form
+      .getByLabel('Suggested Prompt', { exact: true })
+      .fill('Find actionable bugs and create Tasks in Backlog. Skip sources already tracked.')
+    if (process.env.TED_DRAFT_SCREENSHOT) {
+      await form
+        .getByLabel('What should this Automation do?')
+        .fill(
+          'Find unassigned bugs in Linear and create Tasks in Backlog. Skip issues TED already tracks.',
+        )
+      await window.setViewportSize({ width: 1200, height: 1450 })
+      await window.screenshot({ path: process.env.TED_DRAFT_SCREENSHOT })
+    }
+    await form.getByRole('button', { name: 'Use draft', exact: true }).click()
+    await form
+      .getByRole('textbox', { name: 'Prompt', exact: true })
+      .fill('Final reviewed instructions.')
+    await form.getByLabel('On', { exact: true }).uncheck()
+    await form.getByRole('button', { name: 'Save', exact: true }).click()
+    await form.waitFor({ state: 'detached' })
+    const saved = (await ted.listAutomations())[0]
+    expect(saved).toMatchObject({
+      name: 'Bug intake',
+      prompt: 'Final reviewed instructions.',
+      on: false,
+    })
+    expect((await ted.getAutomation(saved?.id ?? '')).history).toEqual([])
+  })
+
+  test('drafting a revision preserves current edits, supports discard and retries failed generation', async () => {
+    const { window, ted } = await launch()
+    const automation = await ted.createAutomation({
+      factory: 'NB',
+      name: 'Existing intake',
+      prompt: 'Original Prompt',
+      schedule: { kind: 'daily', at: '09:00' },
+      on: false,
+    })
+    await openAutomations(window)
+    await window.getByRole('button', { name: 'Existing intake', exact: true }).click()
+    await window
+      .getByRole('region', { name: 'Automation', exact: true })
+      .getByRole('button', { name: 'Edit', exact: true })
+      .click()
+    const form = dialog(window)
+    const prompt = form.getByRole('textbox', { name: 'Prompt', exact: true })
+    await prompt.fill('Unsaved human revision')
+    await form.getByRole('button', { name: 'Draft with AI', exact: true }).click()
+    const request = form.getByLabel('What should this Automation do?')
+    await request.fill(steps({ exit: 1 }))
+    await form.getByRole('button', { name: 'Generate draft', exact: true }).click()
+    await form.getByRole('alert').filter({ hasText: 'Your Prompt is unchanged.' }).waitFor()
+    expect(await prompt.inputValue()).toBe('Unsaved human revision')
+    await request.fill(steps({ say: 'Suggested revision' }, { endTurn: true }))
+    await form.getByRole('button', { name: 'Try again', exact: true }).click()
+    await form.getByLabel('Suggested Prompt', { exact: true }).waitFor()
+    await prompt.fill('Edit made while reviewing')
+    await form.getByRole('button', { name: 'Discard draft', exact: true }).click()
+    expect(await prompt.inputValue()).toBe('Edit made while reviewing')
+    expect((await ted.getAutomation(automation.id)).automation.prompt).toBe('Original Prompt')
+    await form.getByRole('button', { name: 'Generate draft', exact: true }).click()
+    await form.getByLabel('Suggested Prompt', { exact: true }).waitFor()
+    await form.getByRole('button', { name: 'Use draft', exact: true }).click()
+    expect(await prompt.inputValue()).toBe('Suggested revision')
+    await form.getByRole('button', { name: 'Save', exact: true }).click()
+    await form.waitFor({ state: 'detached' })
+    expect((await ted.getAutomation(automation.id)).automation.prompt).toBe('Suggested revision')
+    expect((await ted.getAutomation(automation.id)).history).toEqual([])
+  })
+
+  test('cancel and closing the editor stop drafting and ignore a delayed start response', async () => {
+    const { window, ted } = await launch()
+    await openAutomations(window)
+    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    let form = dialog(window)
+    await form.getByLabel('Name').fill('Canceled draft')
+    await form.getByRole('textbox', { name: 'Prompt', exact: true }).fill('Keep these instructions')
+    await form.getByRole('button', { name: 'Draft with AI', exact: true }).click()
+    await form
+      .getByLabel('What should this Automation do?')
+      .fill(
+        steps(
+          { waitFor: path.join(home, 'draft-release') },
+          { say: 'Late suggestion' },
+          { endTurn: true },
+        ),
+      )
+    await form.getByRole('button', { name: 'Generate draft', exact: true }).click()
+    await form.getByText('Drafting…', { exact: true }).waitFor()
+    expect(await form.getByRole('button', { name: 'Save', exact: true }).isDisabled()).toBe(true)
+    expect(await form.getByLabel('Agent', { exact: true }).isDisabled()).toBe(true)
+    await form.getByRole('button', { name: 'Cancel drafting', exact: true }).click()
+    await expect
+      .poll(() => form.getByRole('button', { name: 'Generate draft', exact: true }).isEnabled())
+      .toBe(true)
+    await writeFile(path.join(home, 'draft-release'), '')
+    expect(await form.getByRole('textbox', { name: 'Prompt', exact: true }).inputValue()).toBe(
+      'Keep these instructions',
+    )
+    await form.getByRole('button', { name: 'Close', exact: true }).click()
+
+    await window.evaluate(() => {
+      const original = globalThis.window.ted.request.bind(globalThis.window.ted)
+      globalThis.window.ted.request = async (method, ...args) => {
+        const result = await original(method, ...args)
+        if (method === 'draftAutomationPrompt')
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+        return result
+      }
+    })
+    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    form = dialog(window)
+    await form.getByRole('button', { name: 'Draft with AI', exact: true }).click()
+    await form
+      .getByLabel('What should this Automation do?')
+      .fill(steps({ waitFor: path.join(home, 'never-release') }))
+    await form.getByRole('button', { name: 'Generate draft', exact: true }).click()
+    await form.getByRole('button', { name: 'Close', exact: true }).click()
+    await waitUntil(async () => {
+      const slots = await ted.getSlots()
+      return slots.working === 0 && slots.queued === 0
+    }, 'closed editor to cancel its drafting Run')
+    expect(await ted.listAutomations()).toEqual([])
   })
 
   test('a question shows in the Inbox under the Automation’s name and is answered in its Run', async () => {

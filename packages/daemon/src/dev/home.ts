@@ -3,7 +3,7 @@ import { lstat, mkdir, readdir, readFile, realpath, rename, writeFile } from 'no
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { edition } from '@ted/protocol'
+import { edition, tedEnv } from '@ted/protocol'
 
 export const demoVersion = 1
 export const demoMarker = 'demo.json'
@@ -16,7 +16,7 @@ export interface DemoManifest {
 }
 
 export function demoHome(env: NodeJS.ProcessEnv = process.env): string {
-  return path.resolve(env.TED_HOME || path.join(homedir(), '.ted-dev-demo'))
+  return path.resolve(tedEnv('TED_HOME', env) || path.join(homedir(), '.ted-dev-demo'))
 }
 
 async function canonicalPath(file: string): Promise<string> {
@@ -135,10 +135,14 @@ export function demoEnvironment(
     fileURLToPath(new URL(`../../test/fixtures/${name}`, import.meta.url))
   return {
     ...env,
-    ...(base.TED_TEST_RUN && { TED_TEST_RUN: base.TED_TEST_RUN }),
-    ...(base.TED_TEST_FILE && { TED_TEST_FILE: base.TED_TEST_FILE }),
-    ...(base.TED_EXIT_WITH_PID && { TED_EXIT_WITH_PID: base.TED_EXIT_WITH_PID }),
-    ...(base.TED_HIDDEN_WINDOW && { TED_HIDDEN_WINDOW: base.TED_HIDDEN_WINDOW }),
+    ...(tedEnv('TED_TEST_RUN', base) && { TED_TEST_RUN: tedEnv('TED_TEST_RUN', base) }),
+    ...(tedEnv('TED_TEST_FILE', base) && { TED_TEST_FILE: tedEnv('TED_TEST_FILE', base) }),
+    ...(tedEnv('TED_EXIT_WITH_PID', base) && {
+      TED_EXIT_WITH_PID: tedEnv('TED_EXIT_WITH_PID', base),
+    }),
+    ...(tedEnv('TED_HIDDEN_WINDOW', base) && {
+      TED_HIDDEN_WINDOW: tedEnv('TED_HIDDEN_WINDOW', base),
+    }),
     SHELL: fixture('stub-shell.sh'),
     TED_HOME: home,
     TED_DEMO: '1',
@@ -154,6 +158,8 @@ export function demoEnvironment(
     TED_LOGIN_SHELL: 'off',
     TED_FREE_BYTES_FILE: fixture('free-bytes.txt'),
     TED_ONLINE_FILE: fixture('online.txt'),
+    TED_LOAD_FILE: fixture('load.txt'),
+    TED_LOW_PRIORITY: 'off',
     TED_STAY_AWAKE: 'off',
     TED_TIME_MACHINE: 'off',
     TED_SKIP_FIRST_LAUNCH: '1',

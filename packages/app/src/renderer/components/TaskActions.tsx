@@ -17,6 +17,7 @@ import {
 } from './ArchiveDialogs.tsx'
 import { Tooltip } from './Help.tsx'
 import { ChevronIcon } from './icons.tsx'
+import { SnoozeTaskDialog, snoozeTaskEvent } from './SnoozeTaskDialog.tsx'
 import styles from './TaskActions.module.css'
 
 export const pickBlockerEvent = 'ted:pick-blocker'
@@ -112,7 +113,7 @@ function Choice({
   )
 }
 
-export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up'
+export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up' | 'snooze'
 
 export function TaskDialog({
   task,
@@ -126,6 +127,7 @@ export function TaskDialog({
   onFollowedUp?: (followUp: Task) => void
 }) {
   const close = () => onKind(undefined)
+  if (kind === 'snooze') return <SnoozeTaskDialog task={task} onClose={close} />
   if (kind === 'archive') return <ArchiveDialog task={task} onClose={close} />
   if (kind === 'edit') return <EditTaskDialog task={task} onClose={close} />
   if (kind === 'delete') {
@@ -195,11 +197,24 @@ export function TaskActionsMenu({
         setDialog('follow-up')
       }
     }
+    const onSnooze = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        event.detail === task.id &&
+        task.stage === 'backlog' &&
+        !task.archived
+      ) {
+        setOpen(false)
+        setDialog('snooze')
+      }
+    }
+    window.addEventListener(snoozeTaskEvent, onSnooze)
     window.addEventListener(archiveTaskEvent, onArchive)
     window.addEventListener(editTaskEvent, onEdit)
     window.addEventListener(deleteTaskEvent, onDelete)
     window.addEventListener(followUpTaskEvent, onFollowUp)
     return () => {
+      window.removeEventListener(snoozeTaskEvent, onSnooze)
       window.removeEventListener(archiveTaskEvent, onArchive)
       window.removeEventListener(editTaskEvent, onEdit)
       window.removeEventListener(deleteTaskEvent, onDelete)
@@ -208,6 +223,8 @@ export function TaskActionsMenu({
   }, [task.id, task.archived, task.stage])
 
   const action = statusAction(task)
+  const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
+  const [restarting, setRestarting] = useState(false)
   const linear = task.source?.linear
 
   const act = (work: () => Promise<unknown>) => {
@@ -303,6 +320,51 @@ export function TaskActionsMenu({
                     : act(() => runStatusAction(action.kind, task))
                 }
               />
+              {lead !== undefined && lead.state !== 'finished' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.item}
+                  disabled={restarting || lead.state === 'working'}
+                  title={
+                    lead.state === 'working' ? 'Restart works when the Run is idle' : undefined
+                  }
+                  onClick={() =>
+                    act(() => {
+                      setRestarting(true)
+                      return ted.restartRun(lead.id).finally(() => setRestarting(false))
+                    })
+                  }
+                >
+                  <span className={styles.label}>Restart</span>
+                </button>
+              )}
+              <hr className={styles.separator} />
+            </>
+          )}
+          {task.stage === 'backlog' && !task.setup && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => choose('snooze')}
+              >
+                <span className={styles.label}>
+                  {task.snoozedUntil ? 'Change snooze…' : 'Snooze…'}
+                </span>
+              </button>
+              {task.snoozedUntil && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.item}
+                  title="Restores normal Backlog behavior. Automatic starts or Overnight mode may start it immediately."
+                  onClick={() => act(() => ted.setTaskSnooze(task.id, null))}
+                >
+                  <span className={styles.label}>Cancel snooze</span>
+                </button>
+              )}
               <hr className={styles.separator} />
             </>
           )}
@@ -353,7 +415,7 @@ export function TaskActionsMenu({
                     key={depth}
                     label={clarifyDepthLabels[depth]}
                     checked={task.clarifyDepth === depth}
-                    onChoose={() => act(() => ted.setClarifyDepth(task.id, depth))}
+                    onChoose={() => act(() => ted.setClarifyDepth(task.id, { depth: depth }))}
                   />
                 ))}
               </Submenu>

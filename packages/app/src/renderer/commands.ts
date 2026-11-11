@@ -6,8 +6,10 @@ import {
   deleteTaskEvent,
   followUpTaskEvent,
 } from './components/ArchiveDialogs.tsx'
+import { snoozeTaskEvent } from './components/SnoozeTaskDialog.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
 import { openInEditor } from './editor.ts'
+import { openTaskFiles } from './files.ts'
 import type { Direction } from './key-targets.ts'
 import { keysFor } from './keymap.ts'
 import type { FactoryView, NavigationAction } from './navigation.ts'
@@ -203,6 +205,21 @@ export function taskCommands(task: Task): Command[] {
   }
   const action = statusAction(task)
   const list: Command[] = []
+  if (task.stage === 'backlog' && !task.setup) {
+    list.push({
+      id: 'snooze',
+      label: task.snoozedUntil ? 'Change snooze…' : 'Snooze…',
+      scope: 'task',
+      run: () => taskEvent(snoozeTaskEvent, task),
+    })
+    if (task.snoozedUntil)
+      list.push({
+        id: 'cancel-snooze',
+        label: 'Cancel snooze',
+        scope: 'task',
+        run: () => ted.setTaskSnooze(task.id, null),
+      })
+  }
   if (action) {
     list.push({
       id: action.kind,
@@ -238,7 +255,7 @@ export function taskCommands(task: Task): Command[] {
           id: depth,
           label: clarifyDepthLabels[depth],
           checked: task.clarifyDepth === depth,
-          run: () => ted.setClarifyDepth(task.id, depth),
+          run: () => ted.setClarifyDepth(task.id, { depth: depth }),
         })),
     })
   }
@@ -252,6 +269,18 @@ export function taskCommands(task: Task): Command[] {
     })
   }
   if (hasWorktree(task)) {
+    list.push({
+      id: 'quick-open',
+      label: 'Open a file…',
+      scope: 'task',
+      shortcuts: keysFor('quick-open'),
+      keywords: 'files quick open worktree',
+      run: ({ task: open, dispatch }) => {
+        if (open?.id !== task.id)
+          dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+        openTaskFiles(task.id)
+      },
+    })
     list.push({
       id: 'shell',
       label: 'Open shell',
@@ -349,7 +378,6 @@ export const keyCommands: readonly Command[] = [
   keyCommand('column-right', 'Column to the right', (k) => k.move('right')),
   keyCommand('reply', 'Reply', (k) => k.reply()),
   keyCommand('approve', 'Approve', (k) => k.arm('approve')),
-  keyCommand('accept-recommended', 'Accept all recommended', (k) => k.arm('accept-recommended')),
   keyCommand('request-changes', 'Request changes', (k) => k.requestChanges()),
   keyCommand('send', 'Send', (k) => k.pressDialogPrimary(), { inDialogs: true }),
   keyCommand('move-up', 'Move up in rank', (k) => k.moveInRank('up')),

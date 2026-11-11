@@ -16,6 +16,7 @@ import { keyringService, linearKeyAccount } from '../src/linear/keyring.ts'
 import { readStubKeyring, stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from './fixtures/stub-linear.ts'
 import {
+  api,
   appClient,
   hostRecords,
   killRunHosts,
@@ -66,13 +67,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
   await killRunHosts(home)
   await linear.close()
   await cleanup()
@@ -734,5 +728,66 @@ describe('discussion on a Linear issue', () => {
     expect(task.source?.linear?.description).toContain(storedPath)
     expect(task.source?.linear?.description).not.toContain(linear.uploadUrl('reply.png'))
     expect(await readFile(storedPath)).toEqual(png)
+  })
+})
+
+describe('local Factory Linear intake scope', () => {
+  test('lists all choices, saves a canonical target locally and retains it after restart', async () => {
+    const account = linear.accounts.get(key)
+    if (!account) throw new Error('no account')
+    account.teams = [{ id: 'team-NOTE', key: 'NOTE', name: 'Notebook' }]
+    account.projects = Array.from({ length: 101 }, (_, i) => ({
+      id: `project-${i}`,
+      name: `Product ${i}`,
+    }))
+    const client = await start({ secret: key })
+    const origin = await makeOriginRepo(scratch)
+    const factory = await client.addFactory({ repo: origin, key: 'NB' })
+    const choices = await client.getLinearIntakeChoices()
+    expect(choices.projects).toHaveLength(101)
+    expect(choices.teams).toEqual(account.teams)
+    const scope = {
+      kind: 'project' as const,
+      id: 'project-100',
+      name: 'Wrong client name',
+      workspaceId: 'workspace-kriyadesign',
+      workspace: 'kriyadesign',
+    }
+    const settings = await client.setFactoryLinearIntake(factory.id, scope)
+    expect(settings.linearIntakeScopes[factory.id]).toEqual({ ...scope, name: 'Product 100' })
+    await daemon?.stop()
+    daemon = undefined
+    const again = await start({ secret: key })
+    expect((await again.getSettings()).linearIntakeScopes).toEqual(settings.linearIntakeScopes)
+    expect(
+      await failure(again.setFactoryLinearIntake(factory.id, { ...scope, workspaceId: 'another' })),
+    ).toMatchObject({ status: 409 })
+    await again.removeLinearKey()
+    expect((await again.setFactoryLinearIntake(factory.id, null)).linearIntakeScopes).toEqual({})
+  })
+
+  test('rejects incomplete pagination and scope saves without app authentication', async () => {
+    const account = linear.accounts.get(key)
+    if (!account) throw new Error('no account')
+    account.projects = Array.from({ length: 101 }, (_, i) => ({
+      id: `project-${i}`,
+      name: `Product ${i}`,
+    }))
+    account.intakeMissingCursor = true
+    const client = await start({ secret: key })
+    expect(await failure(client.getLinearIntakeChoices())).toMatchObject({ status: 409 })
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const { DaemonClient } = await import('@ted/protocol')
+    const file = new DaemonClient(info)
+    expect(await failure(file.setFactoryLinearIntake('missing', null))).toMatchObject({
+      status: 403,
+    })
+    if (!daemon) throw new Error('no daemon')
+    const raw = api(info.port, { appKey: daemon.appToken })
+    expect(
+      (await raw.call('PATCH', '/settings', { linearIntakeScopes: { bad: { kind: 'both' } } }))
+        .status,
+    ).toBe(400)
   })
 })

@@ -36,7 +36,12 @@ function stubHealth(): {
   signedIn?: boolean
   account?: 'chatgpt' | 'apiKey'
   rateLimits?: Record<string, unknown>
+  rateLimitsDelayMs?: number
+  rateLimitsError?: boolean
+  rateLimitsHang?: boolean
+  resumeSteps?: Step[]
   turnStartDelayMs?: number
+  turnStartWaitFor?: string
 } {
   try {
     return JSON.parse(
@@ -65,12 +70,14 @@ if (reply) {
   await new Promise(() => {})
 }
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
+appendFileSync('stub-starts.jsonl', `${JSON.stringify({ argv, pid: process.pid })}\n`)
 
 const send = (message: Message) => process.stdout.write(`${JSON.stringify(message)}\n`)
 const notify = (method: string, params: Record<string, unknown>) => send({ method, params })
 
 let threadId = ''
 let threadModel = ''
+let resumed = false
 
 const models = [
   { model: 'gpt-6-astra', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true },
@@ -206,6 +213,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     answers.get(message.id)?.(message)
     continue
   }
+  appendFileSync(
+    path.join(process.env.TED_HOME ?? '', 'stub-usage-methods.jsonl'),
+    `${JSON.stringify(message.method)}\n`,
+  )
   const id = message.id ?? 0
   if (message.method === 'initialize') {
     initialized = true
@@ -224,14 +235,25 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     })
   } else if (message.method === 'account/rateLimits/read') {
-    const limits = stubHealth().rateLimits
-    send({ id, result: { rateLimits: limits ?? { primary: null, secondary: null } } })
+    const health = stubHealth()
+    appendFileSync(
+      path.join(process.env.TED_HOME ?? '', 'stub-usage-reads.jsonl'),
+      `${JSON.stringify({ pid: process.pid, cwd: process.cwd(), env: process.env })}\n`,
+    )
+    if (health.rateLimitsHang) continue
+    if (health.rateLimitsDelayMs) await sleep(health.rateLimitsDelayMs)
+    if (health.rateLimitsError) send({ id, error: { code: -1, message: 'Usage unavailable' } })
+    else
+      send({ id, result: { rateLimits: health.rateLimits ?? { primary: null, secondary: null } } })
   } else if (message.method === 'model/list') {
     send({ id, result: { data: models, nextCursor: null } })
+  } else if (message.method === 'config/read') {
+    send({ id, result: { config: { mcp_servers: { external: { command: 'must-not-run' } } } } })
   } else if (message.method === 'thread/start') {
     threadModel = String(message.params?.model ?? '')
     openThread(id, `0199a000-0000-7000-8000-${randomUUID().slice(-12)}`)
   } else if (message.method === 'thread/resume') {
+    resumed = true
     threadModel = String(message.params?.model ?? '')
     openThread(id, String(message.params?.threadId))
   } else if (
@@ -284,6 +306,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
   } else if (message.method === 'turn/start') {
     await sleep(stubHealth().turnStartDelayMs ?? 0)
+    const waitFor = stubHealth().turnStartWaitFor
+    while (waitFor && !existsSync(waitFor)) await sleep(25)
     turnActive = true
     interrupted = false
     const turn = ++turnNumber
@@ -298,7 +322,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       item: { type: 'userMessage', id: randomUUID(), content: input },
     })
     void (async () => {
-      for (const step of stepsIn(text)) {
+      const steps = stepsIn(text)
+      for (const step of steps.length > 0
+        ? steps
+        : resumed
+          ? (stubHealth().resumeSteps ?? [])
+          : []) {
         if (interrupted || turn !== turnNumber) break
         await runStep(step, turn)
       }

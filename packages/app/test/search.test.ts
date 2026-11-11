@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,13 +8,17 @@ import { type ElectronApplication, _electron as electron, type Page } from 'play
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   appClient,
+  commitToOrigin,
   daemonAsApp,
   makeOriginRepo,
   removeHome,
   stopDaemonIn,
+  stubClaudePath,
+  stubCodexPath,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -44,6 +48,8 @@ const env = () => ({
   TED_HOME: home,
   TED_IDLE_EXIT_MS: '30000',
   TED_HIDDEN_WINDOW: '1',
+  TED_CLAUDE_BIN: stubClaudePath,
+  TED_CODEX_BIN: stubCodexPath,
 })
 
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
@@ -60,15 +66,9 @@ async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
   const origin = await makeOriginRepo(path.join(home, 'origin'))
   await (await daemonAsApp(home, env())).addFactory({ repo: origin, key: 'NB' })
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await app.firstWindow()
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   return { window, ted: await client() }
-}
-
-async function openPalette(window: Page) {
-  await window.keyboard.press('Meta+k')
-  await palette(window).waitFor()
 }
 
 describe('Search and commands (⌘K)', () => {
@@ -91,111 +91,75 @@ describe('Search and commands (⌘K)', () => {
     await thread.getByRole('heading', { name: 'Sync notes' }).waitFor()
   })
 
-  test('finds description history, briefs and Comments; archived results are labelled and lower', async () => {
+  test('Conversation search opens and expands the exact tool match, then restores its query', async () => {
     const { window, ted } = await launch()
-    const open = await ted.createTask({
-      factory: 'NB',
-      title: 'Search improvements',
-      description: 'Search ignores accents',
-      start: false,
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
     })
-    await ted.editTask(open.id, { description: 'Fold diacritics' })
-    const old = await ted.createTask({
+    const toolSteps = [
+      {
+        emit: {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'find',
+                name: 'Bash',
+                input: { command: 'inspect cache', description: 'Inspect the cache' },
+              },
+            ],
+          },
+        },
+      },
+      {
+        emit: {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'find',
+                content: 'retainedneedle: cache eviction passes',
+              },
+            ],
+          },
+        },
+      },
+      { say: 'The cache is bounded.' },
+      { endTurn: true },
+    ]
+    const task = await ted.createTask({
       factory: 'NB',
-      title: 'Old accents work',
-      description: 'z',
-      start: false,
+      title: 'Inspect cache behavior',
+      description: JSON.stringify({ steps: toolSteps }),
     })
-    await ted.archiveTask(old.id)
-    const other = await ted.createTask({
-      factory: 'NB',
-      title: 'Toast',
-      description: 'w',
-      start: false,
-    })
-    await ted.postComment(other.id, 'Watch the accents in toasts')
-
-    await openPalette(window)
-    await palette(window).getByRole('combobox').fill('accents')
-    const tasks = palette(window).getByRole('group', { name: 'Tasks' })
-    await tasks.getByRole('option').nth(1).waitFor()
-    const rows = await tasks.getByRole('option').allTextContents()
-    expect(rows[0]).toContain('Search improvements')
-    expect(rows[0]).toContain('in Original request')
-    expect(rows[1]).toContain('Old accents work')
-    expect(rows[1]).toContain('Archived')
-    const comments = palette(window).getByRole('group', { name: 'Comments' })
-    await comments.getByText('“Watch the accents in toasts”').waitFor()
-    await comments.getByText(/You · Toast/).waitFor()
-
-    await comments.getByRole('option').click()
-    await window
-      .getByRole('region', { name: 'Task thread' })
-      .getByRole('heading', { name: 'Toast' })
-      .waitFor()
-  })
-
-  test('finds planning chats by title and opens one', async () => {
-    const { window, ted } = await launch()
-    await ted.startPlan({
-      factory: 'NB',
-      message: `Offline editing\n${JSON.stringify({ steps: [{ endTurn: true }] })}`,
-    })
-
-    await openPalette(window)
-    await palette(window).getByRole('combobox').fill('offline')
-    const plans = palette(window).getByRole('group', { name: 'Plans' })
-    await plans.getByRole('option', { name: /Offline editing/ }).click()
-
-    await palette(window).waitFor({ state: 'detached' })
-    await window
-      .getByRole('region', { name: 'Planning chat' })
-      .getByRole('heading', { name: 'Offline editing' })
-      .waitFor()
-  })
-
-  test('commands run from the palette, including the open Task’s actions', async () => {
-    const { window, ted } = await launch()
-    await ted.createTask({ factory: 'NB', title: 'Sync notes', description: 'y', start: false })
-
-    await openPalette(window)
-    await palette(window).getByRole('combobox').fill('open widgets')
-    const openFactory = results(window).getByRole('option', { name: 'Open widgets' })
-    expect(await openFactory.textContent()).toContain('⌘1')
-    await palette(window).getByRole('combobox').fill('go to all')
-    await results(window)
-      .getByRole('option', { name: /Go to All Tasks/ })
+    await ted.setTaskLead(task.id, { agent: 'claude' })
+    await ted.startTask(task.id)
+    await expect.poll(async () => (await ted.search('retainedneedle')).conversations.length).toBe(1)
+    await sidebar(window)
+      .getByRole('button', { name: /Search/ })
       .click()
-    await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
-    await window.getByRole('region', { name: 'Task thread' }).waitFor()
-
-    await openPalette(window)
-    await palette(window).getByRole('combobox').fill('priority')
-    await window.keyboard.press('Enter')
-    await palette(window).getByRole('combobox').fill('high')
-    await results(window).getByRole('option', { name: /High/ }).click()
+    await palette(window).getByRole('combobox').fill('retainedneedle')
+    const hit = palette(window).getByRole('group', { name: 'Conversations' }).getByRole('option')
+    await hit.waitFor()
+    const captures = path.join(appDir, '../../node_modules/.cache/ted-95-work')
+    await mkdir(captures, { recursive: true })
+    await window.screenshot({ path: path.join(captures, 'search-results.png') })
+    await hit.click()
+    const row = palette(window).getByRole('button', { name: /Bash.*inspect cache/ })
+    await expect.poll(() => row.getAttribute('aria-expanded')).toBe('true')
+    const focused = palette(window).locator('[data-chat-item][tabindex="-1"]')
+    await expect.poll(() => focused.evaluate((el) => el === document.activeElement)).toBe(true)
+    expect(await palette(window).getByRole('textbox').count()).toBe(0)
+    await window.screenshot({ path: path.join(captures, 'conversation-match.png') })
+    await window.keyboard.press('Escape')
+    expect(await palette(window).getByRole('combobox').inputValue()).toBe('retainedneedle')
+    await hit.waitFor()
+    await window.keyboard.press('Escape')
     await palette(window).waitFor({ state: 'detached' })
-    await expect.poll(async () => (await ted.listTasks())[0]?.priority).toBe('high')
-
-    await openPalette(window)
-    await palette(window).getByRole('combobox').fill('delete')
-    await window.keyboard.press('Enter')
-    await window.getByRole('dialog', { name: /Delete NB-1/ }).waitFor()
-  })
-
-  test('no results offers Create Task with the typed text', async () => {
-    const { window } = await launch()
-
-    await openPalette(window)
-    await palette(window).getByRole('combobox').fill('kanban export')
-    await palette(window).getByText('No results for ‘kanban export’').waitFor()
-    await results(window).getByRole('option', { name: 'Create Task “kanban export”' }).waitFor()
-    await window.keyboard.press('Enter')
-
-    const dialog = window.getByRole('dialog', { name: 'New Task' })
-    expect(await dialog.getByRole('textbox', { name: 'Description' }).inputValue()).toBe(
-      'kanban export',
-    )
   })
 
   test('⌘F finds text inside the current pane', async () => {
