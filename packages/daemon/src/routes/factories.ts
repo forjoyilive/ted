@@ -15,10 +15,16 @@ import {
   parseStopCheckTryRequest,
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
+import { factoryExport } from '../export.ts'
 import { addFactory } from '../factories.ts'
 import { jsonRoute, type Route } from './route.ts'
 
 export const factoryRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/export$/,
+    handle: async ({ params: [id = ''] }, { store }) => [200, factoryExport(store, id)],
+  },
   jsonRoute(parseAutoStartBacklogRequest, {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/auto-start-backlog$/,

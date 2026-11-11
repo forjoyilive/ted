@@ -79,8 +79,8 @@ export const shellRoutes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/open-in-editor$/,
     async handle({ body, params: [ref = '', repo = ''] }, { tasks, editors }) {
-      const { worktree } = await tasks.worktreeAccess(ref, repo)
-      await editors.open({ worktree }, body)
+      const { worktree, fileScope } = await tasks.worktreeAccess(ref, repo)
+      await editors.open({ worktree, fileScope }, body)
       return [200, {}]
     },
   }),

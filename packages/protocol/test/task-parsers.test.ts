@@ -3,7 +3,7 @@ import * as P from '../src/index.ts'
 import { rejects, roundTrip, variant, variants } from './parser-cases.ts'
 
 const file = { hash: 'a'.repeat(64), name: 'image.png', mediaType: 'image/png' }
-const lead = { agent: 'codex', model: 'gpt-5.5', effort: 'high' } as const
+const lead = { agent: 'codex', model: 'gpt-5.5', effort: 'high', effortMode: 'stage' } as const
 const question = { question: 'Which?', choices: ['This', 'That'], recommended: 'This' }
 const round = { title: 'Options', summary: 'Choose one.', questions: [question] }
 const proposal = {
@@ -238,3 +238,5 @@ test('legacy defaults, normalization and unknown fields remain explicit', () => 
     text: '',
   })
 })
+
+rejects(P.parseTaskLead, { agent: 'codex', effortMode: 'other' }, 'effortMode must be stage')

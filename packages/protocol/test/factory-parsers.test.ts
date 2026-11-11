@@ -18,7 +18,7 @@ const repos = [
   },
 ] satisfies P.RepoSettingsInput[]
 const library = {
-  stages: { work: { enabled: true, gate: false, maxBack: 2, depth: 'few' } },
+  stages: { work: { enabled: true, gate: false, maxBack: 2, depth: 'few', effort: 'high' } },
   stageFiles: { work: '# Work', review: null },
   keepStageFiles: ['work'],
   agents: { lead: { agent: 'codex', model: 'gpt-5.5', effort: 'high' }, reviewer: null },
@@ -118,4 +118,13 @@ test('legacy Factory normalization and defaults', () => {
   expect(
     P.parseSaveSettingsRequest({ mode: 'merge', version: 'v', changes: settings }).confirmBypass,
   ).toBe(false)
+})
+
+test('Stage effort keeps null and rejects effort on a nonworking Stage', () => {
+  expect(P.parseLibraryChanges({ stages: { work: { effort: null } } })).toEqual({
+    stages: { work: { effort: null } },
+  })
+  expect(() => P.parseLibraryChanges({ stages: { backlog: { effort: 'high' } } })).toThrow(
+    'effort must be an effort level or null on a working Stage',
+  )
 })

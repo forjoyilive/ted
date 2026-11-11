@@ -265,3 +265,8 @@ button.open {
 .dot[data-state='waiting'] {
   border-color: var(--status-working-fg);
 }
+
+.pending {
+  display: grid;
+  place-items: center;
+}

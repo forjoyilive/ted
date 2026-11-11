@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -20,6 +21,7 @@ import {
   type Effort,
   efforts,
   type Factory,
+  filterTedEnv,
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
@@ -38,11 +40,13 @@ import {
   runTokenFrom,
   type SetTaskReposRequest,
   type TaskLead,
+  tedEnv,
   tedHome,
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
 import { AutomationUsageError, automationCommand, automationUsage } from './automation.ts'
+import { exportCommand } from './export.ts'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
@@ -130,13 +134,17 @@ const usage = `Usage:
                                              (Coordinator only)
   ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>
                          [--choice "<answer>"] [--message "<text>"]
-                                             Answer an open question a Run asked, or one TED
-                                             asked that has choices (--choice required), on
-                                             the human’s instruction; never a Gate, sign-off,
-                                             permission prompt, round, proposal, size check,
-                                             Linear team ask or failure decision; reads the
-                                             message from stdin if neither --choice nor
-                                             --message is given
+                         [--approve | --request-changes] [--skip-rows <json>] [--start-unblocked]
+                         [--answers <json> | --recommended]
+                                             Answer an open request on a Task, on the human’s
+                                             instruction: a question (--choice, --message), a
+                                             Gate request, sign-off or proposal (--approve or
+                                             --request-changes), or a Clarify round (--answers
+                                             or --recommended); never a permission prompt,
+                                             simulator ask or the Linear team ask
+                                             (Coordinator only)
+  ted coordinator resume <id> --operation <id> --version <version> [--message "<text>"]
+                                             Resume a stopped or failed Task through the queue
                                              (Coordinator only)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
@@ -150,9 +158,11 @@ const usage = `Usage:
   ted task repos set <name> …                Set which of the Factory’s repos the Task changes
   ted task repos add <name>                  Add a repo; prints its setup output when done
   ted task repos remove <name> [--yes]       Remove a repo (--yes: even if it has commits)
+  ted export --factory <key> [--format json|markdown] --output <path>
+                                             Export a Factory’s retained Tasks and history
   ted backup list                            List backups of TED’s data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
-  ted task lead <id> claude|codex [--model <name>] [--effort <level>]
+  ted task lead <id> claude|codex [--model <name>] [--effort <level> | --stage-effort]
                                              Set the Task Lead’s agent, model and effort
   ted task lead <id> --default-model         Run this Task Lead on the CLI’s default model
                                              when its model isn’t available
@@ -179,6 +189,12 @@ function parse() {
         neighbours: { type: 'string' },
         message: { type: 'string' },
         request: { type: 'string' },
+        approve: { type: 'boolean' },
+        'request-changes': { type: 'boolean' },
+        answers: { type: 'string' },
+        recommended: { type: 'boolean' },
+        'skip-rows': { type: 'string' },
+        'start-unblocked': { type: 'boolean' },
         after: { type: 'string' },
         before: { type: 'string' },
         choice: { type: 'string', multiple: true },
@@ -188,6 +204,7 @@ function parse() {
         design: { type: 'string' },
         tutorial: { type: 'boolean' },
         effort: { type: 'string' },
+        'stage-effort': { type: 'boolean' },
         model: { type: 'string' },
         name: { type: 'string' },
         description: { type: 'string' },
@@ -196,6 +213,8 @@ function parse() {
         template: { type: 'string' },
         off: { type: 'boolean' },
         factory: { type: 'string' },
+        format: { type: 'string' },
+        output: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
         'own-worktree': { type: 'boolean' },
@@ -235,11 +254,11 @@ const options = parsed?.values ?? {}
 const home = tedHome()
 
 function inPlan(): boolean {
-  return options.task === undefined && !process.env.TED_TASK && !!process.env.TED_PLAN
+  return options.task === undefined && !tedEnv('TED_TASK') && !!tedEnv('TED_PLAN')
 }
 
 function taskRef(given?: string): string {
-  const ref = given ?? options.task ?? process.env.TED_TASK
+  const ref = given ?? options.task ?? tedEnv('TED_TASK')
   if (!ref) throw new UsageError('outside a Run, name the Task with --task <id>')
   return ref
 }
@@ -282,6 +301,8 @@ try {
     throw new UsageError('')
   } else if (group === 'help' && command === undefined) {
     console.log(usage)
+  } else if (group === 'export' && command === undefined) {
+    console.log(await exportCommand(home, options))
   } else if (group === 'status' && command === undefined) {
     await status()
   } else if (group === 'doctor' && command === undefined) {
@@ -343,24 +364,54 @@ try {
             }),
           ),
         )
+      } else if (command === 'resume' && rest.length === 1) {
+        if (!options.operation || !options.version)
+          throw new UsageError('operation and version are required')
+        const message = options.message?.trim()
+        console.log(
+          JSON.stringify(
+            await client.coordinatorAct(rest[0] ?? '', command, {
+              operation: options.operation,
+              version: options.version,
+              ...(message && { message }),
+            }),
+          ),
+        )
       } else if ((command === 'tell' || command === 'answer') && rest.length === 1) {
         if (!options.operation || !options.version)
           throw new UsageError('operation and version are required')
         const choices = options.choice ?? []
-        if (command === 'tell' && (options.request || choices.length > 0))
+        const decided = options.approve || options['request-changes']
+        const round = options.answers !== undefined || options.recommended
+        if (command === 'tell' && (options.request || choices.length > 0 || decided || round))
           throw new UsageError('tell takes only --message')
         if (command === 'answer' && !options.request)
-          throw new UsageError('name the question with --request <comment-id>')
+          throw new UsageError('name the request with --request <comment-id>')
         if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
-        const typed =
-          options.message ?? (command === 'tell' || choices.length === 0 ? await readStdin() : '')
+        if (options.approve && options['request-changes'])
+          throw new UsageError('give --approve or --request-changes, not both')
+        const given = choices.length > 0 || options.approve || round
+        const typed = options.message ?? (command === 'tell' || !given ? await readStdin() : '')
         const message = typed.trim() === '' ? undefined : typed.trim()
-        if (message === undefined && (command === 'tell' || choices.length === 0))
+        if (message === undefined && (command === 'tell' || !given))
           throw new UsageError(
             command === 'tell'
               ? 'give the message with --message "<text>" or on stdin'
-              : 'give --choice, --message, or both',
+              : options['request-changes']
+                ? 'give the changes to ask for with --message "<text>" or on stdin'
+                : 'give --choice, --approve, --request-changes, --answers, --recommended or --message',
           )
+        const json = (name: 'answers' | 'skip-rows') => {
+          const raw = options[name]
+          if (raw === undefined) return undefined
+          try {
+            return JSON.parse(raw) as unknown
+          } catch {
+            throw new UsageError(`--${name} must be JSON`)
+          }
+        }
+        const answers = json('answers')
+        const skipRows = json('skip-rows')
         console.log(
           JSON.stringify(
             await client.coordinatorAct(rest[0] ?? '', command, {
@@ -369,18 +420,27 @@ try {
               ...(message !== undefined && { message }),
               ...(command === 'answer' && { request: options.request }),
               ...(choices[0] !== undefined && { choice: choices[0] }),
+              ...(options.approve && { decision: 'approve' as const }),
+              ...(options['request-changes'] && { decision: 'request-changes' as const }),
+              ...(answers !== undefined && {
+                answers: answers as { answer: string; note?: string }[],
+              }),
+              ...(options.recommended && { recommended: true }),
+              ...(skipRows !== undefined && { skipRows: skipRows as number[] }),
+              ...(options['start-unblocked'] && { startUnblocked: true }),
             }),
           ),
         )
-      } else throw new UsageError('Use coordinator tasks, task, start, move, tell or answer')
+      } else
+        throw new UsageError('Use coordinator tasks, task, start, move, tell, answer or resume')
     })
   } else if (group === 'automation') {
     await automationCommand(home, command, rest, options)
   } else if (
     group === 'comment' &&
     options.task === undefined &&
-    !process.env.TED_TASK &&
-    process.env.TED_AUTOMATION
+    !tedEnv('TED_TASK') &&
+    tedEnv('TED_AUTOMATION')
   ) {
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
     if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
@@ -596,7 +656,7 @@ try {
       `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
     )
   } else if (group === 'run' && command === 'boundary' && rest.length === 0) {
-    const runId = process.env.TED_RUN
+    const runId = tedEnv('TED_RUN')
     if (!runId) throw new UsageError('ted run boundary only works inside a Run')
     await withDaemon(home, (client) => client.reachedBoundary(runId))
   } else if (group === 'run' && command === 'stop' && rest.length === 1) {
@@ -735,6 +795,8 @@ try {
   } else if (group === 'task' && command === 'lead' && rest.length === 2) {
     const [ref = '', agent = ''] = rest
     const { model, effort } = options
+    if (options['stage-effort'] && effort !== undefined)
+      throw new UsageError('choose --stage-effort or --effort')
     if (!agentKinds.includes(agent as AgentKind))
       throw new UsageError('agent must be claude or codex')
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
@@ -742,10 +804,20 @@ try {
     }
     const lead: TaskLead = {
       agent: agent as AgentKind,
+      ...(options['stage-effort'] && { effortMode: 'stage' as const }),
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort: effort as Effort }),
     }
-    const task = await withDaemon(home, (client) => client.setTaskLead(ref, lead))
+    const task = await withDaemon(home, async (client) => {
+      const saved = options['stage-effort']
+        ? (await client.listTasks()).find((task) => task.id === ref || task.displayId === ref)?.lead
+            ?.effort
+        : undefined
+      return client.setTaskLead(ref, {
+        ...lead,
+        ...(saved !== undefined && { effort: saved }),
+      })
+    })
     console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
@@ -963,7 +1035,7 @@ async function openApp(): Promise<void> {
     },
   )
   if (result?.opened) return void console.log('Opened TED')
-  const app = process.env.TED_APP_EXECUTABLE
+  const app = tedEnv('TED_APP_EXECUTABLE')
   if (!app) {
     console.error('ted: TED isn’t open. Open it from your app launcher.')
     process.exitCode = 1
@@ -974,7 +1046,7 @@ async function openApp(): Promise<void> {
 }
 
 function launchApp(executable: string): void {
-  const { ELECTRON_RUN_AS_NODE: _, ...env } = process.env
+  const { ELECTRON_RUN_AS_NODE: _, ...env } = filterTedEnv(process.env)
   const bundle = /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(executable)?.[1]
   const [command, args] = bundle ? ['/usr/bin/open', [bundle]] : [executable, []]
   spawn(command, args, { detached: true, stdio: 'ignore', env }).unref()
@@ -1081,8 +1153,12 @@ async function workflowCheck(target: string): Promise<void> {
   if (errors > 0) process.exitCode = 1
 }
 
-function describeLead({ agent, model, effort }: TaskLead): string {
-  return [agent, model ?? 'default model', effort ?? 'default effort'].join(' · ')
+function describeLead({ agent, model, effort, effortMode }: TaskLead): string {
+  return [
+    agent,
+    model ?? 'default model',
+    effortMode === 'stage' ? 'Follow Stage settings' : (effort ?? 'default effort'),
+  ].join(' · ')
 }
 
 function formatRun({ run, conversation }: RunWithConversation): string {

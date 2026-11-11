@@ -16,7 +16,7 @@ const context = (value: unknown) => {
     context: `<<<TASK CONTEXT ${nonce}>>>\n${JSON.stringify(value)}\n<<<END TASK CONTEXT ${nonce}>>>`,
   }
 }
-const operations: readonly string[] = ['start', 'move', 'tell', 'answer']
+const operations: readonly string[] = ['start', 'move', 'tell', 'answer', 'resume']
 export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
@@ -50,6 +50,14 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'POST',
+    path: /^\/factories\/([^/]+)\/coordinator\/reset$/,
+    async handle({ params: [id = ''] }, { coordinators }) {
+      await coordinators.reset(id)
+      return [200, null]
+    },
+  },
+  {
+    method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/retry$/,
     handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.retry(id)],
   },
@@ -76,7 +84,7 @@ export const coordinatorRoutes: Route[] = [
       parseCoordinatorAction(value, kind as CoordinatorOperation),
     {
       method: 'POST',
-      path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer)$/,
+      path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer|resume)$/,
       runToken: true,
       async handle({ caller, body, params: [ref = '', kind = ''] }, { coordinators }) {
         if (!operations.includes(kind)) throw new RequestError(400, 'unknown action')
@@ -93,5 +101,11 @@ function redactedAction(action: CoordinatorAction): CoordinatorAction {
   return {
     ...action,
     ...(action.message !== undefined && { message: redactSecrets(action.message) }),
+    ...(action.answers !== undefined && {
+      answers: action.answers.map(({ answer, note }) => ({
+        answer: redactSecrets(answer),
+        ...(note !== undefined && { note: redactSecrets(note) }),
+      })),
+    }),
   }
 }

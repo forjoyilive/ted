@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
-import { tedHome, tedPaths, tedVersion } from '@ted/protocol'
+import { tedEnv, tedHome, tedPaths, tedVersion } from '@ted/protocol'
 import { watchExitWith } from './exit-with.ts'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
@@ -40,6 +40,12 @@ async function shutdown(): Promise<void> {
   process.exit(0)
 }
 
+const claudeBin = tedEnv('TED_CLAUDE_BIN')
+const codexBin = tedEnv('TED_CODEX_BIN')
+const ghBin = tedEnv('TED_GH_BIN')
+const linearApi = tedEnv('TED_LINEAR_API')
+const fixLog = tedEnv('TED_FIX_LOG')
+
 try {
   daemon = await startDaemon({
     home: tedHome(),
@@ -47,27 +53,26 @@ try {
     onShutdown: () => void shutdown(),
     checkAgentsOnStart: true,
     ...(appToken !== undefined && { appToken }),
-    ...(process.env.TED_STAY_AWAKE !== 'off' && { holdAwake: holdAwakeWithOs() }),
-    ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
-    ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),
+    ...(tedEnv('TED_STAY_AWAKE') !== 'off' && { holdAwake: holdAwakeWithOs() }),
+    ...(claudeBin && { claudeBin }),
+    ...(codexBin && { codexBin }),
     integrations: {
       checkOnStart: true,
-      loginShell: process.env.TED_LOGIN_SHELL !== 'off',
-      ...(process.env.TED_GH_BIN && { ghBin: process.env.TED_GH_BIN }),
-      ...(process.env.TED_FIX_LOG && {
-        openTerminal: (command: string) =>
-          appendFile(process.env.TED_FIX_LOG as string, `${command}\n`),
+      loginShell: tedEnv('TED_LOGIN_SHELL') !== 'off',
+      ...(ghBin && { ghBin }),
+      ...(fixLog && {
+        openTerminal: (command: string) => appendFile(fixLog, `${command}\n`),
       }),
     },
-    ...(process.env.TED_LINEAR_API && { linear: { apiUrl: process.env.TED_LINEAR_API } }),
-    ...(Number(process.env.TED_NUDGE_AFTER_MS) > 0 && {
-      nudgeAfterMs: Number(process.env.TED_NUDGE_AFTER_MS),
+    ...(linearApi && { linear: { apiUrl: linearApi } }),
+    ...(Number(tedEnv('TED_NUDGE_AFTER_MS')) > 0 && {
+      nudgeAfterMs: Number(tedEnv('TED_NUDGE_AFTER_MS')),
     }),
-    ...(Number(process.env.TED_STALL_AFTER_MS) > 0 && {
-      stallAfterMs: Number(process.env.TED_STALL_AFTER_MS),
+    ...(Number(tedEnv('TED_STALL_AFTER_MS')) > 0 && {
+      stallAfterMs: Number(tedEnv('TED_STALL_AFTER_MS')),
     }),
     ...(values['exit-when-idle'] && {
-      idleExit: { afterMs: Number(process.env.TED_IDLE_EXIT_MS) || 60_000, onIdle: shutdown },
+      idleExit: { afterMs: Number(tedEnv('TED_IDLE_EXIT_MS')) || 60_000, onIdle: shutdown },
     }),
   })
   console.log(`TED daemon ${tedVersion} listening on 127.0.0.1:${daemon.port}`)

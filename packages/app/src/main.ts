@@ -53,6 +53,7 @@ import {
   type SaveLibraryRequest,
   type SaveSettingsRequest,
   type StartPlanRequest,
+  tedEnv,
   tedHome,
   tedPaths,
   tedVersion,
@@ -93,6 +94,7 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import { saveFactoryExport } from './export.ts'
 import { openIntegrationInstructions } from './integration-instructions.ts'
 import {
   createLoginItem,
@@ -153,6 +155,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.messageCoordinator(String(id), input as CoordinatorMessage),
   stopCoordinator: (client, id) => client.stopCoordinator(String(id)),
   retryCoordinator: (client, id) => client.retryCoordinator(String(id)),
+  resetCoordinator: (client, id) => client.resetCoordinator(String(id)),
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body, attachments) =>
@@ -315,11 +318,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openInEditor: (client, taskId, repo, at) => {
     const given = (at ?? {}) as Record<string, unknown>
     return client.openInEditor(String(taskId), String(repo), {
+      ...(typeof given.snapshot === 'boolean' && { snapshot: given.snapshot }),
       ...(typeof given.file === 'string' && { file: given.file }),
       ...(typeof given.line === 'number' && { line: given.line }),
       ...(typeof given.column === 'number' && { column: given.column }),
     })
   },
+  taskFiles: (client, taskId) => client.taskFiles(String(taskId)),
+  taskFile: (client, taskId, repo, file) =>
+    client.taskFile(String(taskId), String(repo), String(file)),
   taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
   fileDiffs: (client, taskId, repo, file) =>
     client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
@@ -365,6 +372,18 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
+  exportFactory: (client, factoryId, format) =>
+    saveFactoryExport(client, factoryId, format, async (filename, extension) => {
+      const options = {
+        title: 'Export Factory',
+        defaultPath: filename,
+        filters: [{ name: extension === 'json' ? 'JSON' : 'Markdown', extensions: [extension] }],
+      }
+      const chosen = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      return chosen.canceled ? undefined : chosen.filePath
+    }),
   chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
       title: String(title),
@@ -508,7 +527,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   listAutomations: (client, factory) =>
     client.listAutomations(factory === undefined ? undefined : String(factory)),
-  getAutomation: (client, id) => client.getAutomation(String(id)),
+  getAutomation: (client, id) =>
+    client.getAutomation(String(id)).catch((error: unknown) => {
+      if (error instanceof DaemonRequestError && error.status === 404) return null
+      throw error
+    }),
   draftAutomationPrompt: (client, input) =>
     client.draftAutomationPrompt(input as DraftAutomationPromptRequest),
   getAutomationPromptDraft: (client, id) => client.getAutomationPromptDraft(String(id)),
@@ -555,9 +578,9 @@ async function choosePicture(): Promise<string | undefined> {
 }
 
 const platform = process.platform as Platform
-const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
+const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1'
 
-const testLaunch = hiddenWindow || process.env.TED_EXIT_WITH_PID !== undefined
+const testLaunch = hiddenWindow || tedEnv('TED_EXIT_WITH_PID') !== undefined
 const logUncaught = fileLog(path.join(tedPaths(tedHome()).logs, 'app.log'))
 
 watchExitWith(() => app.exit(0))
@@ -575,18 +598,18 @@ process.on('uncaughtException', (error) => {
   })
 })
 
-const testAppToken = app.isPackaged ? undefined : process.env.TED_APP_TOKEN
+const testAppToken = app.isPackaged ? undefined : tedEnv('TED_APP_TOKEN')
 delete process.env.TED_APP_TOKEN
-const skipFirstLaunch = !app.isPackaged && process.env.TED_SKIP_FIRST_LAUNCH === '1'
+const skipFirstLaunch = !app.isPackaged && tedEnv('TED_SKIP_FIRST_LAUNCH') === '1'
 delete process.env.TED_SKIP_FIRST_LAUNCH
-const testUpdateFeed = app.isPackaged ? undefined : process.env.TED_UPDATE_FEED
-const testUpdateLog = process.env.TED_UPDATE_LOG
+const testUpdateFeed = app.isPackaged ? undefined : tedEnv('TED_UPDATE_FEED')
+const testUpdateLog = tedEnv('TED_UPDATE_LOG')
 delete process.env.TED_UPDATE_FEED
 delete process.env.TED_UPDATE_LOG
 const updateCheckEveryMs = 4 * 60 * 60_000
 const firstUpdateCheckMs = 10_000
 
-const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
+const restartDelaysMs = tedEnv('TED_RESTART_DELAYS_MS')?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
 ]
 const keepsStopping = 'TED’s background process keeps stopping'
@@ -629,8 +652,8 @@ function applyLoginItem(enabled: boolean): Promise<void> {
 }
 
 function makeLoginItem(): LoginItem {
-  const log = process.env.TED_LOGIN_ITEM_LOG
-  if (log) return recordLoginItem(log, process.env.TED_LOGIN_ITEM_STATUS)
+  const log = tedEnv('TED_LOGIN_ITEM_LOG')
+  if (log) return recordLoginItem(log, tedEnv('TED_LOGIN_ITEM_STATUS'))
   return createLoginItem({
     platform: process.platform,
     packaged: app.isPackaged && edition === 'release',
@@ -736,9 +759,9 @@ function electronNotifier(): Notifier {
 }
 
 function makeNotifier(): Notifier {
-  const log = process.env.TED_NOTIFY_LOG
+  const log = tedEnv('TED_NOTIFY_LOG')
   if (log) {
-    const failing = process.env.TED_NOTIFY_STATUS === 'off'
+    const failing = tedEnv('TED_NOTIFY_STATUS') === 'off'
     return recordingNotifier(log, () => saveNotificationState({ off: true }), failing)
   }
   return hiddenWindow ? silentNotifier : electronNotifier()
@@ -1124,7 +1147,7 @@ async function start(): Promise<void> {
 app.setName(appName)
 registerPrototypeScheme()
 if (app.isPackaged) process.env.TED_APP_EXECUTABLE = process.env.APPIMAGE || process.execPath
-if (process.env.TED_HOME || edition !== 'release') {
+if (tedEnv('TED_HOME') || edition !== 'release') {
   app.setPath('userData', path.join(tedHome(), 'electron'))
 }
 

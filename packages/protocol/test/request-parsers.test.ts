@@ -60,14 +60,19 @@ const completeAction: Required<P.CoordinatorAction> = {
   message: 'Continue',
   request: 'comment-1',
   choice: 'Yes',
+  decision: 'approve',
+  answers: [{ answer: 'Yes', note: 'Reason' }],
+  recommended: true,
+  skipRows: [2],
+  startUnblocked: true,
 }
-for (const kind of ['start', 'move', 'tell', 'answer'] as const) {
+for (const kind of ['start', 'move', 'tell', 'resume'] as const) {
   test(`parseCoordinatorAction keeps every ${kind} field`, () => {
     const base = { operation: 'unique', version }
     const body =
       kind === 'start' || kind === 'move'
         ? { ...base, after: 'TED-1', before: 'TED-3', neighbours: { 'TED-1': version } }
-        : kind === 'tell'
+        : kind === 'tell' || kind === 'resume'
           ? { ...base, message: 'Continue' }
           : { ...base, request: 'comment-1', choice: 'Yes', message: 'Continue' }
     expect(P.parseCoordinatorAction(completeAction, kind)).toEqual(body)
@@ -75,7 +80,7 @@ for (const kind of ['start', 'move', 'tell', 'answer'] as const) {
 }
 roundTrip(P.parseShellSize, { cols: 80, rows: 24 })
 roundTrip(P.parseShellInputRequest, { data: 'ls\n' })
-roundTrip(P.parseOpenInEditorRequest, { file: 'src/main.ts', line: 10, column: 2 })
+roundTrip(P.parseOpenInEditorRequest, { file: 'src/main.ts', line: 10, column: 2, snapshot: true })
 roundTrip(P.parseRunFixRequest, { fix: 'gh-login', host: 'github.com' })
 roundTrip(P.parseSaveLinearKeyRequest, { key: 'test-key', inFile: true })
 roundTrip(P.parseLinearLookupRequest, { url: 'https://linear.app/team/issue/ENG-1/title' })
@@ -125,7 +130,7 @@ rejects(
 )
 rejects(P.parseShellSize, { cols: 1, rows: 24 }, 'whole number from 2 to 1000')
 rejects(P.parseShellInputRequest, { data: '' }, 'data must be text')
-rejects(P.parseOpenInEditorRequest, { line: 2 }, 'line and column need a file')
+rejects(P.parseOpenInEditorRequest, { line: 2 }, 'line, column and snapshot need a file')
 rejects(P.parseRunFixRequest, { fix: 'other' }, 'fix must be')
 rejects(P.parseSaveLinearKeyRequest, { key: 'key', inFile: 2 }, 'inFile must be')
 rejects(P.parseLinearLookupRequest, { url: 2 }, 'url must be text')
@@ -155,3 +160,37 @@ test('permissive optional bodies retain defaults', () => {
     500,
   )
 })
+
+test('Coordinator answer variants keep every request field', () => {
+  const base = {
+    operation: completeAction.operation,
+    version,
+    request: completeAction.request,
+    message: completeAction.message,
+    skipRows: completeAction.skipRows,
+    startUnblocked: completeAction.startUnblocked,
+  }
+  const inputs = [
+    { ...base, choice: completeAction.choice },
+    { ...base, decision: completeAction.decision },
+    { ...base, answers: completeAction.answers },
+    { ...base, recommended: completeAction.recommended },
+  ]
+  for (const body of inputs) expect(P.parseCoordinatorAction(body, 'answer')).toEqual(body)
+})
+rejects(
+  (value) => P.parseCoordinatorAction(value, 'answer'),
+  { operation: 'id', version, request: 'comment', choice: 'Yes', decision: 'approve' },
+  'give one of:',
+)
+rejects(
+  (value) => P.parseCoordinatorAction(value, 'answer'),
+  { operation: 'id', version, request: 'comment', answers: [] },
+  'answers must be a list',
+)
+rejects(
+  (value) => P.parseCoordinatorAction(value, 'answer'),
+  { operation: 'id', version, request: 'comment', decision: 'approve', skipRows: [0] },
+  'skipRows must be',
+)
+rejects(P.parseOpenInEditorRequest, { file: 'file', snapshot: 'yes' }, 'snapshot must be a boolean')
