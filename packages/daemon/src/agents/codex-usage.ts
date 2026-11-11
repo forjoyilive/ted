@@ -52,6 +52,7 @@ export function readCodexPlanUsage(options: {
       env: options.env,
       cwd: options.cwd,
       stdio: ['pipe', 'pipe', 'ignore'],
+      detached: true,
     })
     let result: PlanWindow[] | undefined
     let finished = false
@@ -59,7 +60,13 @@ export function readCodexPlanUsage(options: {
       if (finished) return
       finished = true
       result = windows
-      child.kill('SIGKILL')
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
+      } catch {
+        child.kill('SIGKILL')
+      }
+      child.stdin.destroy()
+      child.stdout.destroy()
     }
     const abort = () => finish()
     const timer = setTimeout(abort, options.timeoutMs ?? 10_000)

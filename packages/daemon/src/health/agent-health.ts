@@ -260,9 +260,11 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const timer = setTimeout(
       () => {
         usageTimers.delete(kind)
-        void checkOne(kind).catch((error: unknown) =>
-          console.error('agent health check failed:', error),
-        )
+        const active = checking.get(kind)
+        void (async () => {
+          if (active) await active.catch(() => undefined)
+          if (!closed) await checkOne(kind)
+        })().catch((error: unknown) => console.error('agent health check failed:', error))
       },
       Math.max(1, delay),
     )

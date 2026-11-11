@@ -94,3 +94,55 @@ test('empty successful snapshots differ from missing or malformed snapshots', ()
     codexPlanWindows({ primary: { usedPercent: 22, windowDurationMins: 15 }, secondary: null }),
   ).toEqual([])
 })
+
+test.each(['response', 'timeout', 'abort'] as const)(
+  'a launcher wrapper cleans up descendants on %s',
+  async (mode) => {
+    await state(
+      mode === 'response'
+        ? { rateLimits: { primary: { usedPercent: 0 } } }
+        : { rateLimitsHang: true },
+    )
+    const wrapper = path.join(home, 'codex-wrapper.mjs')
+    await writeFile(
+      wrapper,
+      `#!/usr/bin/env node
+import { spawn } from 'node:child_process'
+const child = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(`setInterval(() => {}, 1000); await import(${JSON.stringify(stubCodexPath)})`)}], {stdio:'inherit'})
+child.on('exit', code => process.exit(code ?? 0))
+`,
+      { mode: 0o755 },
+    )
+    const controller = new AbortController()
+    const reading = readCodexPlanUsage({
+      binary: wrapper,
+      cwd: home,
+      env: { ...process.env, TED_HOME: home },
+      signal: controller.signal,
+      timeoutMs: 500,
+    })
+    let childPid: number | undefined
+    let deadline: NodeJS.Timeout | undefined
+    try {
+      childPid = (await waitUntil(() => record().catch(() => undefined), 'native child')).pid
+      if (mode === 'abort') controller.abort()
+      const result = await Promise.race([
+        reading,
+        new Promise<'pending'>((resolve) => {
+          deadline = setTimeout(() => resolve('pending'), 1500)
+        }),
+      ])
+      expect(result).not.toBe('pending')
+      expect(result).toEqual(
+        mode === 'response' ? [{ window: 'five-hour', percent: 0 }] : undefined,
+      )
+      const pid = childPid
+      await waitUntil(() => !alive(pid), 'native child exit')
+    } finally {
+      clearTimeout(deadline)
+      controller.abort()
+      if (childPid && alive(childPid)) process.kill(childPid, 'SIGKILL')
+      await reading
+    }
+  },
+)

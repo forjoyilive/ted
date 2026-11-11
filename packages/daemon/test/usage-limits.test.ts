@@ -555,6 +555,29 @@ describe('Tokens, dollars, plan usage and retries', () => {
     )
   })
 
+  test('a reset overlapping a pre-reset read queues a fresh zero reading', async () => {
+    const resetsAt = Math.floor(Date.now() / 1000) + 1
+    const rateLimits = { primary: { usedPercent: 94, windowDurationMins: 300, resetsAt } }
+    await setStub('codex', { rateLimits })
+    const client = await start()
+    await waitUntil(async () => (await healthOf(client, 'codex'))?.planUsage, 'initial usage')
+    await setStub('codex', { rateLimits, rateLimitsDelayMs: 6500 })
+    const checking = client.ok('POST', '/agents/health/check')
+    await waitUntil(
+      async () =>
+        (await readFile(path.join(home, 'stub-usage-reads.jsonl'), 'utf8')).trim().split('\n')
+          .length >= 2,
+      'pre-reset read',
+    )
+    await setStub('codex', { rateLimits: { primary: { usedPercent: 0, windowDurationMins: 300 } } })
+    await checking
+    await waitUntil(
+      async () => (await healthOf(client, 'codex'))?.planUsage?.windows[0]?.percent === 0,
+      'fresh read after the overlapping reset',
+      2000,
+    )
+  })
+
   test('failed Codex usage reads retain their timestamp and do not pause work', async () => {
     await setStub('codex', { rateLimits: { primary: { usedPercent: 94 } } })
     const client = await start()
