@@ -454,6 +454,37 @@ export function createTasks(options: {
     health,
     attachmentFile,
   } = options
+  let taskSnapshots: Map<string, Task> | undefined
+  const changedRuns = new Set<string>()
+  const stopTaskSnapshots = store.subscribe((event) => {
+    if (!taskSnapshots) return
+    if (event.type === 'task-created' || event.type === 'task-updated') {
+      taskSnapshots.set(event.task.id, event.task)
+      changedRuns.delete(event.task.id)
+    }
+    if (event.type === 'task-deleted') {
+      taskSnapshots.delete(event.taskId)
+      changedRuns.delete(event.taskId)
+    }
+    if (event.type === 'run-updated' && event.run.taskId) changedRuns.add(event.run.taskId)
+    if (event.type === 'factory-removed') {
+      for (const [id, task] of taskSnapshots) {
+        if (task.factoryId !== event.factoryId) continue
+        taskSnapshots.delete(id)
+        changedRuns.delete(id)
+      }
+    }
+  })
+  function currentTasks(): Task[] {
+    taskSnapshots ??= new Map(store.listTasks().map((task) => [task.id, task]))
+    for (const id of changedRuns) {
+      const task = store.getTask(id)
+      if (task) taskSnapshots.set(id, task)
+      else taskSnapshots.delete(id)
+    }
+    changedRuns.clear()
+    return [...taskSnapshots.values()].sort((a, b) => a.number - b.number)
+  }
   const starting = new Set<string>()
   const relaunching = new Set<string>()
   const interrupted = new Set<string>()
@@ -734,7 +765,7 @@ export function createTasks(options: {
   }
 
   async function slotUse(factoryIds: readonly string[]) {
-    const all = store.listTasks()
+    const all = currentTasks()
     const holders = all.flatMap((task) => {
       const working = task.runs.filter(
         (r) => r.state === 'working' && r.paused === undefined && !r.onSubAgents,
@@ -1456,7 +1487,7 @@ export function createTasks(options: {
   }
 
   function watchedPullRequests(): PullRequestRef[] {
-    return store.listTasks().flatMap((task) =>
+    return currentTasks().flatMap((task) =>
       task.archived
         ? []
         : task.repos.flatMap((repo) => {
@@ -1475,7 +1506,7 @@ export function createTasks(options: {
   }
 
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
-    for (const { id } of store.listTasks()) {
+    for (const { id } of currentTasks()) {
       if (closed) return
       const task = store.getTask(id)
       if (!task || task.archived) continue
@@ -7130,6 +7161,9 @@ export function createTasks(options: {
       stopping.abort()
       await Promise.all(background)
       await apps.close()
+      stopTaskSnapshots()
+      taskSnapshots?.clear()
+      changedRuns.clear()
     },
     listApps(ref, caller) {
       return apps.list(appCaller(ref, caller).task.id)

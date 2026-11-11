@@ -2299,8 +2299,16 @@ export async function openStore({
     },
     listTasks: () => listTasks().map(toPublicTask),
     getTask(ref) {
-      const row = taskRow(ref)
-      return row ? toTask(row) : listTasks().find((t) => t.displayId === ref)
+      const row =
+        taskRow(ref) ??
+        store
+          .query(allTasks)
+          .find(
+            (task) =>
+              ref.endsWith(`-${task.number}`) &&
+              `${factoryKey(task.factoryId)}-${task.number}` === ref,
+          )
+      return row ? toTask(row) : undefined
     },
     startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
