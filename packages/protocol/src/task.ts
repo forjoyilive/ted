@@ -3,6 +3,7 @@ import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import { RequestValidationError } from './validation.ts'
 
 export const agentStageIds = [
   'intake',
@@ -46,6 +47,7 @@ export function isModelName(value: unknown): value is string {
 }
 
 export interface TaskLead {
+  effortMode?: 'stage'
   agent: AgentKind
   model?: string
   effort?: Effort
@@ -118,6 +120,7 @@ export type BlockerEnded = 'archived' | 'deleted'
 
 export type TaskMarker =
   | { kind: 'blocked-by'; by: string; ended?: BlockerEnded }
+  | { kind: 'snoozed'; until: string }
   | { kind: 'needs-planning' }
 
 export type TrackState = 'past' | 'current' | 'skipped' | 'future'
@@ -158,7 +161,29 @@ export interface TaskSource {
   sentry?: { shortId: string }
 }
 
+export interface SetTaskSnoozeRequest {
+  snoozedUntil: string | null
+}
+
+export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new RequestValidationError(400, 'body must be a JSON object')
+  }
+  const until = (value as Record<string, unknown>).snoozedUntil
+  if (until === null) return { snoozedUntil: null }
+  if (
+    typeof until !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(until) ||
+    !Number.isFinite(Date.parse(until)) ||
+    new Date(until).toISOString() !== until
+  ) {
+    throw new RequestValidationError(400, 'snoozedUntil must be an ISO instant or null')
+  }
+  return { snoozedUntil: until }
+}
+
 export interface Task {
+  snoozedUntil?: string
   gateOverrides?: import('./task-gates.ts').TaskGateOverrides
   id: string
   factoryId: string
@@ -170,6 +195,7 @@ export interface Task {
   clarifyDepth: ClarifyDepth
   clarifyDepthBy?: ClarifyDepthChooser
   lead?: TaskLead
+  stageEffort?: Effort
   blockedBy: string[]
   attachments: Attachment[]
   source?: TaskSource
@@ -762,3 +788,19 @@ export interface WriteBriefRequest {
 }
 
 export type SetTaskLeadRequest = TaskLead
+
+export type SaveTaskDraftRequest = Omit<NewTaskDraft, 'attachments'> & {
+  attachments: AttachmentRef[]
+}
+
+export interface DesignFileSpec {
+  path: string
+  caption?: string
+}
+
+export interface LocalDesignReviewInput
+  extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
+  screenshots?: DesignFileSpec[]
+  video?: DesignFileSpec
+  prototype?: DesignFileSpec
+}

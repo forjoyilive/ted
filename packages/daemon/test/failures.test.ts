@@ -1,18 +1,23 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Task, ThreadEvent } from '@ted/protocol'
+import type { Comment, Factory, InboxItem, RunSlots, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
+  assistantTexts,
   commitToOrigin,
+  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -34,13 +39,14 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startTed(options: { stallAfterMs?: number } = {}) {
+async function startTed(options: { stallAfterMs?: number; clock?: Clock } = {}) {
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
   })
   daemon = await startDaemon({
     home,
     version: '9.9.9',
+    ...(options.clock && { clock: options.clock }),
     claudeBin: stubClaudePath,
     nudgeAfterMs: 600_000,
     ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
@@ -66,10 +72,14 @@ const getTask = async (client: Client, id: string) => {
 }
 
 const waitFor = (client: Client, task: Task, check: (t: Task) => boolean, what: string) =>
-  waitUntil(async () => {
-    const current = await getTask(client, task.id)
-    return check(current) ? current : undefined
-  }, `${task.displayId} ${what}`)
+  eventWait(
+    client.subscribe,
+    async () => {
+      const current = await getTask(client, task.id)
+      return check(current) ? current : undefined
+    },
+    `${task.displayId} ${what}`,
+  )
 
 const startTask = async (client: Client, title: string) => {
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB', start: true })
@@ -151,7 +161,9 @@ describe('resuming takes a working slot', () => {
         (await threadEvents(client, task)).some((e) => e.text.endsWith('resuming the session')),
       'the failure to be recorded',
     )
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    const slots = await client.ok<RunSlots>('GET', '/slots')
+    expect(slots.working).toBe(1)
+    expect(slots.holders).toEqual([expect.objectContaining({ kind: 'task', taskId: other.id })])
     expect(await agentStarts()).toHaveLength(count)
     expect((await getTask(client, task.id)).runs).toEqual([])
 
@@ -237,10 +249,17 @@ describe('when TED can’t resume', () => {
 
     const count = await killAgent()
     await startsAfter(count)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    const exits = (await hostRecords(home, task.leadRunId ?? '')).filter(
+      (r) => r.t === 'exit',
+    ).length
     await daemon?.stop()
     await writeFile(gate, '')
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await waitUntil(
+      async () =>
+        (await hostRecords(home, task.leadRunId ?? '')).filter((r) => r.t === 'exit').length >
+        exits,
+      'the detached resume attempt to exit while the daemon is stopped',
+    )
 
     daemon = await startDaemon({
       home,
@@ -350,7 +369,8 @@ describe('Failed', () => {
   })
 
   test('thirty minutes with no output while Working counts as a failure', async () => {
-    const client = await startTed({ stallAfterMs: 1_500 })
+    const clock = new ManualClock()
+    const client = await startTed({ stallAfterMs: 1_500, clock })
     const task = await client.ok<Task>('POST', '/tasks', {
       title: steps({ say: 'thinking' }, { waitFor: '/never' }),
       factory: 'NB',
@@ -358,7 +378,17 @@ describe('Failed', () => {
     })
     const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
 
-    await waitUntil(
+    const heard = await eventWait(
+      client.subscribe,
+      async () => {
+        const { conversation } = await client.getRun(working.leadRunId ?? '')
+        return conversation.find((entry) => assistantTexts([entry]).includes('thinking'))
+      },
+      'the Run’s output before starting its silence window',
+    )
+    clock.advance(Date.parse(heard.at ?? '') + 3_000 - clock.now())
+    await eventWait(
+      client.subscribe,
       async () =>
         (await threadEvents(client, task)).some(
           (e) => e.text === 'Task Lead Run sent no output for 2 seconds · resuming the session',
@@ -375,7 +405,11 @@ describe('Failed', () => {
 
     await client.ok('POST', `/tasks/${task.id}/stop`)
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await eventWait(
+      client.subscribe,
+      async () => (await client.getRun(task.leadRunId ?? '')).run.state === 'finished',
+      'the stopped Run to finish',
+    )
     expect((await threadEvents(client, task)).some((e) => e.tone === 'failure')).toBe(false)
     expect((await getTask(client, task.id)).status?.kind).toBe('stopped')
   })

@@ -1,11 +1,14 @@
 import type { StorageSummary, StoredBackup } from '@ted/protocol'
+import { runOutputDayLimits } from '@ted/protocol/settings'
 import { formatBytes } from '@ted/protocol/storage'
 import { useCallback, useEffect, useState } from 'react'
+import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { plural } from '../words.ts'
-import { Button, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
+import { Button, Select, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
+import { ExportGroup } from './ExportGroup.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 import styles from './storage.module.css'
 
@@ -23,6 +26,16 @@ const day = {
   format: (at: Date) => formatDate(at, { day: 'numeric', month: 'short', year: 'numeric' }),
 }
 
+const runOutputChoices = [1, 3, 7, 14, 30, 90, 365]
+
+function runOutputOptions(current: number) {
+  const { min, max } = runOutputDayLimits
+  return [...new Set([...runOutputChoices, current])]
+    .filter((days) => days >= min && days <= max)
+    .sort((a, b) => a - b)
+    .map((days) => ({ value: days, label: plural(days, 'day') }))
+}
+
 function backupTitle(backup: StoredBackup): string {
   const at = new Date(backup.takenAt)
   switch (backup.kind) {
@@ -35,7 +48,7 @@ function backupTitle(backup: StoredBackup): string {
   }
 }
 
-export function StoragePage({ dispatch }: SettingsPageProps) {
+export function StoragePage({ settings, dispatch }: SettingsPageProps) {
   const { epoch } = useConnection()
   const [storage, setStorage] = useState<StorageSummary>()
   const [error, setError] = useState<string>()
@@ -69,13 +82,16 @@ export function StoragePage({ dispatch }: SettingsPageProps) {
 
   const subtitle = storage
     ? `${formatBytes(storage.usedBytes)} used under ${storage.home} · ${formatBytes(storage.freeBytes)} free${storage.volume === '' ? '' : ` on ${storage.volume}`}`
-    : 'Measuring…'
+    : error
+      ? undefined
+      : 'Measuring…'
   const shown = storage?.categories.filter((c) => c.bytes > 0) ?? []
   const largest = Math.max(1, ...shown.map((c) => c.bytes))
 
   return (
     <SettingsPage title="Storage" subtitle={subtitle}>
       {error !== undefined && <p className={styles.error}>{error}</p>}
+      {!storage && !error && <Skeleton shape="settings" label="Loading storage…" />}
       {storage && (
         <>
           <SettingsGroup label="Space used">
@@ -153,6 +169,24 @@ export function StoragePage({ dispatch }: SettingsPageProps) {
               </Button>
             </SettingRow>
           </SettingsGroup>
+
+          <SettingsGroup label="Run output">
+            <SettingRow
+              title="Keep Run output after a Task is done"
+              labelFor="run-output-days"
+              help="A Run’s chat is kept for as long as its Task is open. TED deletes it this long after the Task is done or archived. A Run without a Task, such as a planning chat or an Automation Run, is deleted this long after it finishes."
+            >
+              <Select
+                id="run-output-days"
+                value={settings.runOutputDays}
+                options={runOutputOptions(settings.runOutputDays)}
+                width={110}
+                onChange={(runOutputDays) => void ted.updateSettings({ runOutputDays })}
+              />
+            </SettingRow>
+          </SettingsGroup>
+
+          <ExportGroup />
 
           <section className={styles.backups} aria-label="Backups">
             <h2 className={styles.backupsLabel}>Backups</h2>

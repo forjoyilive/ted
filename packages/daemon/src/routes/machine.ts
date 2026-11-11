@@ -3,8 +3,8 @@ import {
   agentStageIds,
   appearances,
   archivedFilters,
-  type BannerActionInput,
   billings,
+  checkLimits,
   createdByKinds,
   editorIds,
   isLinearTeamKey,
@@ -15,19 +15,22 @@ import {
   listGroups,
   listSorts,
   type MachineSettings,
+  parseBannerActionInput,
   priorities,
   quitChoices,
+  runOutputDayLimits,
   type StatusFilter,
   simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
+  textSizeLimits,
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
-import { type Route, readJson, readOptionalJson } from './route.ts'
+import { jsonRoute, type Route, readJson } from './route.ts'
 
 export const machineRoutes: Route[] = [
   {
@@ -52,7 +55,10 @@ export const machineRoutes: Route[] = [
     path: /^\/update\/work$/,
     handle: async (_, { store, tasks }) => [
       200,
-      { checks: store.activity().checksRunning, merges: tasks.mergesInFlight() },
+      {
+        checks: store.activity().checksRunning + store.activity().checksWaiting,
+        merges: tasks.mergesInFlight(),
+      },
     ],
   },
   {
@@ -70,16 +76,15 @@ export const machineRoutes: Route[] = [
     path: /^\/banners\/([^/]+)\/dismiss$/,
     handle: async ({ params: [id = ''] }, { banners }) => [200, banners.dismiss(id)],
   },
-  {
+  jsonRoute(parseBannerActionInput, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/banners\/([^/]+)\/action$/,
-    async handle({ req, params: [id = ''] }, { banners }) {
-      const body = (await readOptionalJson(req)) as Partial<BannerActionInput> | null
-      const folder = typeof body?.folder === 'string' ? body.folder : undefined
-      await banners.act(id, folder === undefined ? {} : { folder })
+    async handle({ body, params: [id = ''] }, { banners }) {
+      await banners.act(id, body)
       return [200, {}]
     },
-  },
+  }),
   {
     method: 'GET',
     path: /^\/storage$/,
@@ -201,6 +206,19 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
     return appearance
   },
+  textSize(value) {
+    const { min, max, step } = textSizeLimits
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < min ||
+      value > max ||
+      value % step !== 0
+    ) {
+      throw new HttpError(400, `textSize must be from ${min} to ${max} in steps of ${step}`)
+    }
+    return value
+  },
   terminalFontSize(value) {
     const { min, max } = terminalFontSizes
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
@@ -236,12 +254,20 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return value
   },
+  runOutputDays(value) {
+    const { min, max } = runOutputDayLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `runOutputDays must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
   quitWithWorkRunning(value) {
     const choice = quitChoices.find((c) => c === value)
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
     return choice
   },
   overnightMode: onOff('overnightMode'),
+  adjustRunsToLoad: onOff('adjustRunsToLoad'),
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
@@ -252,8 +278,19 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
   linearSync: onOff('linearSync'),
+  lowPriorityWork: onOff('lowPriorityWork'),
+  maxChecksAtOnce(value) {
+    const { min, max } = checkLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `maxChecksAtOnce must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
+  factoryPermissions() {
+    throw new HttpError(400, 'Change permission mode through Factory settings on this computer')
+  },
   appsOutsideSandbox(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'appsOutsideSandbox must be an object of App names by Factory ID')

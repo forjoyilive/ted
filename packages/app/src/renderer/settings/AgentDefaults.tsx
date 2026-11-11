@@ -6,12 +6,15 @@ import type {
   LibraryView,
 } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { Button } from '../components/Button.tsx'
+import { Skeleton } from '../components/Loading.tsx'
+import { Select } from '../components/Select.tsx'
 import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import sections from '../views/FactorySettingsSections.module.css'
 import { FromChip } from '../views/FactorySettingsSections.tsx'
 import styles from './AgentsPage.module.css'
-import { Button, SettingRow, SettingsGroup } from './controls.tsx'
+import { SettingRow, SettingsGroup } from './controls.tsx'
 
 const roleNames: Record<AgentRole, string> = {
   lead: 'Task Lead',
@@ -69,6 +72,9 @@ export function AgentDefaults() {
       label="Defaults for all Factories"
       help="Saved in your Library’s workflow.yaml. A Factory can override each one in its own settings."
     >
+      {!view && !error && (
+        <Skeleton shape="settings" framed={false} label="Loading agent defaults…" />
+      )}
       {view?.agents.map((row) => (
         <AgentDefault
           key={`${row.role}:${view.version}`}
@@ -126,9 +132,9 @@ function AgentDefault({
         </span>
       }
     >
-      <select
+      <Select
         aria-label={`${name} agent`}
-        className={`${sections.cellSelect} ${styles.agentSelect}`}
+        className={`${styles.defaultSelect} ${styles.agentSelect}`}
         disabled={busy}
         value={shown.agent ?? 'claude'}
         onChange={(event) => update({ agent: event.target.value })}
@@ -138,7 +144,7 @@ function AgentDefault({
             {label}
           </option>
         ))}
-      </select>
+      </Select>
       <input
         aria-label={`${name} model`}
         className={`${sections.cellInput} ${styles.modelInput}`}
@@ -151,9 +157,9 @@ function AgentDefault({
           if (event.key === 'Enter') commitModel()
         }}
       />
-      <select
+      <Select
         aria-label={`${name} effort`}
-        className={sections.cellSelect}
+        className={styles.defaultSelect}
         disabled={busy}
         value={shown.effort ?? ''}
         onChange={(event) => {
@@ -171,9 +177,14 @@ function AgentDefault({
             {effort}
           </option>
         ))}
-      </select>
+      </Select>
       {row.from === 'library' && (
-        <Button disabled={busy} onClick={() => onChange(null)}>
+        <Button
+          size="small"
+          className={styles.resetButton}
+          disabled={busy}
+          onClick={() => onChange(null)}
+        >
           Reset to TED default
         </Button>
       )}

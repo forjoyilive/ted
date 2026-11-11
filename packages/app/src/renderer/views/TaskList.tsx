@@ -29,6 +29,7 @@ import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icon
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
+import { useListCollapsed } from '../list-collapse.ts'
 import {
   activeFilterCount,
   columnLabels,
@@ -486,7 +487,7 @@ export function TaskList({
     setDraft((current) => (current && viewKey(current.view) === savedKey ? undefined : current))
   }, [savedKey])
   const [text, setText] = useState('')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const collapse = useListCollapsed(scope, view.group)
   const [selected, setSelected] = useState<string[]>([])
   const [anchor, setAnchor] = useState<string>()
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
@@ -500,7 +501,6 @@ export function TaskList({
     void scope
     setSelected([])
     setAnchor(undefined)
-    setCollapsed({})
     setText('')
   }, [scope])
 
@@ -522,7 +522,7 @@ export function TaskList({
   const columns = shownColumns(view)
   const archivedOnly = view.filters.archived === 'only'
   const canDrag = view.sort === 'manual' && !archivedOnly
-  const isCollapsed = (group: TaskGroup) => collapsed[group.key] ?? group.collapsed
+  const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
   const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : g.tasks))
   const grid = [...(queueMode ? (['queue'] as const) : []), ...columns]
     .map((c) => columnWidths[c])
@@ -939,7 +939,7 @@ export function TaskList({
                           type="button"
                           className={styles.groupHead}
                           aria-expanded={!closed}
-                          onClick={() => setCollapsed((c) => ({ ...c, [group.key]: !closed }))}
+                          onClick={() => collapse.change(group.key, !closed)}
                           onDragOver={(event) => onDragOver(event, group, group.tasks.length)}
                           onDrop={(event) => {
                             event.preventDefault()

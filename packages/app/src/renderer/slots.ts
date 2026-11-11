@@ -1,9 +1,11 @@
 import type { RunSlots, SimulatorSlots } from '@ted/protocol'
+import { busyHold } from '@ted/protocol/slots'
 import { plural } from './words.ts'
 
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''
-  return `${slots.working} of ${slots.limit} Runs working${queued}`
+  const busy = slots.heldForLoad ? ` · ${busyHold}` : ''
+  return `${slots.working} of ${slots.limit} Runs working${queued}${busy}`
 }
 
 export function runsLine(slots: RunSlots): string {

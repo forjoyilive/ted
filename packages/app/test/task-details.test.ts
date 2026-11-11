@@ -14,7 +14,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const briefText = [
   '## Goal\n\nStop the TypeError in SearchPanel.',
@@ -60,10 +60,9 @@ describe('Task details in the app', () => {
 
   async function launch(): Promise<Page> {
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await firstWindow(app)
+    const window = await loadedWindow(app)
     await window.emulateMedia({ colorScheme: null })
     const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
-    await sidebar.waitFor()
     await sidebar.getByRole('button', { name: 'All Tasks' }).click()
     await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
     await window.getByRole('region', { name: 'Task thread' }).waitFor()

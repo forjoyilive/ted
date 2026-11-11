@@ -17,6 +17,7 @@ import {
   signRequest,
   tedPaths,
 } from '@ted/protocol'
+import { stringify } from 'yaml'
 import { loadRunTokens } from '../src/run-token.ts'
 import { signalGroup, signalProcess } from '../src/signal.ts'
 import { killMarked } from './support/processes.ts'
@@ -209,6 +210,16 @@ export function api(port: number, auth: string | { appKey: string }) {
     return { status: res.status, body: JSON.parse(res.body) }
   }
   return {
+    async subscribe(changed: () => void): Promise<() => void> {
+      const client =
+        typeof auth === 'string'
+          ? new DaemonClient({ port, token: auth, pid: 0, version: 'test' })
+          : new DaemonClient({ port, token: '', pid: 0, version: 'test' }, '', {
+              appKey: auth.appKey,
+            })
+      const subscription = await client.subscribe(changed)
+      return () => subscription.close()
+    },
     call,
     async startRun(steps: unknown[], cwd: string, agent?: string): Promise<Run> {
       const res = await call('POST', '/dev/runs', {
@@ -226,6 +237,9 @@ export function api(port: number, auth: string | { appKey: string }) {
     },
   }
 }
+
+// YAML quotes a hash that reads as a number, such as 3e44014 or 1234567.
+export const basedOnLine = (hash: string) => stringify({ based_on: hash }).trim()
 
 export async function devRunToken(home: string, port: number, appKey: string): Promise<string> {
   const run = await api(port, { appKey }).startRun([{ endTurn: true }], home)

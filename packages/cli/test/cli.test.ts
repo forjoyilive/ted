@@ -210,6 +210,63 @@ describe('ted task', () => {
     })
   })
 
+  test.each(['stage', 'fixed', 'default'] as const)(
+    'lead keeps the %s baseline across configured and unconfigured Stages',
+    async (mode) => {
+      const originDir = path.join(home, 'origin')
+      const origin = await makeOriginRepo(originDir)
+      await commitToOrigin(originDir, {
+        '.ted/workflow.yaml':
+          'version: 1\norder: [intake, work, merge]\nlead: { agent: claude, effort: low }\nstages:\n  intake: { effort: high }\n',
+      })
+      await writeFile(
+        path.join(home, 'stub-claude.json'),
+        JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+      )
+      const app = await startAsApp()
+      await app.addFactory({ repo: origin, key: 'NB' })
+      const go = path.join(home, 'advance')
+      const task = await app.createTask({
+        factory: 'NB',
+        title: JSON.stringify({
+          steps: [
+            { everyMessage: [{ endTurn: true }] },
+            { waitFor: go },
+            { run: ['ted', 'outcome', 'advance'] },
+            { endTurn: true },
+          ],
+        }),
+      })
+      await ted(['task', 'lead', task.displayId, 'claude', '--effort', 'medium'])
+      if (mode === 'stage') await ted(['task', 'lead', task.id, 'claude', '--stage-effort'])
+      else if (mode === 'default') await ted(['task', 'lead', task.displayId, 'claude'])
+      const baseline = mode === 'default' ? undefined : 'medium'
+      const chosen = (await app.listTasks()).find((entry) => entry.id === task.id)?.lead
+      expect(chosen).toEqual({
+        agent: 'claude',
+        ...(baseline !== undefined && { effort: baseline }),
+        ...(mode === 'stage' && { effortMode: 'stage' }),
+      })
+      await ted(['task', 'start', task.displayId])
+      const initial = await waitUntil(async () => {
+        const current = (await app.listTasks()).find((entry) => entry.id === task.id)
+        if (!current?.leadRunId) return undefined
+        const { run } = await app.getRun(current.leadRunId)
+        return run.state === 'working' && run.sessionId ? run : undefined
+      }, 'the Intake session')
+      expect(initial.effort).toBe(mode === 'stage' ? 'high' : baseline)
+      await writeFile(go, '')
+      const next = await waitUntil(async () => {
+        const current = (await app.listTasks()).find((entry) => entry.id === task.id)
+        if (current?.stage !== 'work' || !current.leadRunId) return undefined
+        const { run } = await app.getRun(current.leadRunId)
+        return run.state === 'idle' && run.effort === baseline ? run : undefined
+      }, 'the unconfigured Work Stage with its saved baseline')
+      expect(next.id).toBe(initial.id)
+      expect(next.sessionId).toBe(initial.sessionId)
+    },
+  )
+
   test('list says so when there are no Tasks', async () => {
     const listed = await ted(['task', 'list'])
     expect(listed.stdout.trim()).toBe('No Tasks yet.')
@@ -485,17 +542,35 @@ describe('ted automation', () => {
     expect((await ted(['automation', 'list'])).stdout).toContain('Off')
   })
 
-  test('the Sentry template carries the release rules', async () => {
+  test('the template catalog carries release and unattended architecture review rules', async () => {
     await ted(['task', 'list'])
     const templates = await (await client()).automationTemplates()
     expect(templates.map((t) => t.name)).toEqual([
       'Pull new Linear issues assigned to me',
       'Turn new Sentry issues into Tasks',
       'Daily GitHub issue triage',
+      'Review codebase architecture',
     ])
     const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
     expect(sentry).toContain('events from a release that contains that commit')
     expect(sentry).toContain('--sentry-id')
+    const architecture = templates.find((t) => t.id === 'architecture')
+    expect(architecture?.schedule).toEqual({ kind: 'weekly', days: ['mon'], at: '09:00' })
+    for (const instruction of [
+      'GLOSSARY.md',
+      'ADRs',
+      'deletion test',
+      'GitHub',
+      'default branch',
+      'up to three',
+      'before/after',
+      'Do not pass `--start`',
+      'query strings or fragments',
+      'Do not use `--follow-up`',
+      'Do not clone',
+    ]) {
+      expect(architecture?.prompt).toContain(instruction)
+    }
   })
 })
 

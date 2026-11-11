@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -516,16 +516,39 @@ describe('the Apps’ sandbox', () => {
     expect((await appNamed(client, task, 'Web'))?.confirmOutsideSandbox).toBe(true)
   })
 
-  test('in a Bypass Factory an App runs as before', async () => {
-    const outside = path.join(scratch, 'outside')
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': `permissions: bypass\n${appsYaml(toucher(outside))}`,
-    })
-    const client = await start()
-    const task = await taskWithWorktree(client)
-    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Toucher' })
-    expect(await logOf(client, task, outside)).toContain(`wrote ${outside}`)
-  })
+  test.each([false, true])(
+    'repo Bypass only removes an agent’s App sandbox with local consent: %s',
+    async (consent) => {
+      const outside = path.join(scratch, 'outside')
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml': `permissions: bypass\n${appsYaml(toucher(outside))}`,
+      })
+      const client = await start()
+      const task = await taskWithWorktree(client)
+      if (consent)
+        await client.ok('PUT', `/factories/${task.factoryId}/permissions`, {
+          mode: 'bypass',
+          confirmBypass: true,
+        })
+      const asRun = api(
+        daemon?.port ?? 0,
+        (await loadRunTokens(tedPaths(home).runTokenKey)).issue(
+          task.leadRunId ??
+            (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId ??
+            '',
+        ),
+      )
+      expect(
+        (await asRun.call('POST', `/tasks/${task.id}/apps/start`, { name: 'Toucher' })).status,
+      ).toBe(200)
+      const log = await logOf(client, task, outside)
+      if (consent) expect(log).toContain(`wrote ${outside}`)
+      else {
+        expect(log).not.toContain(`wrote ${outside}`)
+        await expect(readFile(outside)).rejects.toThrow()
+      }
+    },
+  )
 
   test('without a working sandbox a Run’s App doesn’t start and says why, but the human’s does', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })

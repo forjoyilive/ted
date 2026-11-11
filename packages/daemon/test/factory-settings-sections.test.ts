@@ -25,6 +25,7 @@ import type {
 } from '@ted/protocol'
 import { settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
@@ -217,8 +218,8 @@ describe('Factory settings: Workflow', () => {
       view.version,
     )
     expect(await originFile('.ted/stages/review.md')).toBe(`${inherited}\nAlso check the docs.\n`)
-    expect(await originFile('.ted/workflow.yaml')).toMatch(
-      new RegExp(`review:\\s*\\n\\s+based_on: ${blobHash(inherited)}`),
+    expect(parse((await originFile('.ted/workflow.yaml')) ?? '').stages.review.based_on).toBe(
+      blobHash(inherited),
     )
     const overridden = await client.settings()
     expect(overridden.stages.find((s) => s.id === 'review')).toMatchObject({
@@ -293,33 +294,32 @@ describe('Factory settings: Agents, Permissions and notes', () => {
     })
   })
 
-  test('turning on Bypass needs confirming, and the limit on working Runs saves', async () => {
+  test('permission mode saves locally after confirmation; repo settings only save the Run limit', async () => {
     const client = await start()
     const view = await client.settings()
     expect(view.permissions).toBe('auto')
-    expect(view.machineMaxWorkingRuns).toBe(6)
-    const changes = { ...unchanged(view), permissions: 'bypass' as const, maxWorkingRuns: 3 }
-    expect((await client.preview(changes)).turnsOnBypass).toBe(true)
-    const refused = await client.call('POST', `/factories/${client.factory.id}/settings/save`, {
-      changes,
-      mode: 'merge',
-      version: view.version,
-    })
-    expect(refused.status).toBe(409)
+    const route = `/factories/${client.factory.id}/permissions`
+    expect((await client.call('PUT', route, { mode: 'bypass' })).status).toBe(409)
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    expect((await client.settings()).permissions).toBe('bypass')
     expect(await originFile('.ted/workflow.yaml')).not.toContain('bypass')
-    await client.save(changes, view.version, { confirmBypass: true })
-    const yaml = await originFile('.ted/workflow.yaml')
-    expect(yaml).toContain('permissions: bypass')
-    expect(yaml).toContain('max_working_runs: 3')
+    const changes = { ...unchanged(view), maxWorkingRuns: 3 }
+    expect((await client.preview(changes)).turnsOnBypass).toBe(false)
+    expect(
+      (
+        await client.call('POST', `/factories/${client.factory.id}/settings/save`, {
+          changes: { ...changes, permissions: 'bypass' },
+          mode: 'merge',
+          version: view.version,
+          confirmBypass: true,
+        })
+      ).status,
+    ).toBe(400)
+    await client.save(changes, view.version)
     const after = await client.settings()
     expect(after).toMatchObject({ permissions: 'bypass', maxWorkingRuns: 3 })
-    await client.save(
-      { ...unchanged(after), permissions: 'auto', maxWorkingRuns: null },
-      after.version,
-    )
-    const back = await originFile('.ted/workflow.yaml')
-    expect(back).toContain('permissions: auto')
-    expect(back).not.toContain('max_working_runs')
+    await client.ok('PUT', route, { mode: 'auto' })
+    expect((await client.settings()).permissions).toBe('auto')
   })
 
   test('Factory notes save to .ted/notes.md', async () => {
@@ -548,5 +548,34 @@ describe('Factory settings: an invalid file', () => {
     await until(async () =>
       (await client.ok<Banner[]>('GET', '/banners')).every((b) => b.problem !== 'workflow-invalid'),
     )
+  })
+})
+
+test('Stage effort overrides Library effort and Inherit removes only the Factory value', async () => {
+  const client = await start()
+  await mkdir(path.join(home, 'library'), { recursive: true })
+  await writeFile(
+    path.join(home, 'library', 'workflow.yaml'),
+    'version: 1\nstages:\n  work: { effort: medium }\n',
+  )
+  const before = await client.settings()
+  expect(before.stages.find((s) => s.id === 'work')).toMatchObject({
+    effort: null,
+    inheritedEffort: 'medium',
+    inheritedEffortFrom: 'library',
+  })
+  const changes = { ...unchanged(before), stages: { work: { effort: 'high' as const } } }
+  await client.save(changes, before.version)
+  expect(await originFile('.ted/workflow.yaml')).toContain('effort: high')
+  const after = await client.settings()
+  expect(after.stages.find((s) => s.id === 'work')).toMatchObject({
+    effort: 'high',
+    inheritedEffort: 'medium',
+  })
+  const preview = await client.preview({ ...unchanged(after), stages: { work: { effort: null } } })
+  expect(preview.valid).toBe(true)
+  expect(preview.files.find((f) => f.path === '.ted/workflow.yaml')?.lines).toContainEqual({
+    kind: 'removed',
+    text: '    effort: high',
   })
 })

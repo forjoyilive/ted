@@ -95,3 +95,8 @@ export function parseLinearUrl(text: string): LinearUrl | undefined {
   const rest = trimmed.slice(found.url.length)
   return rest === '' || /^[?#]\S*$/.test(rest) ? found : undefined
 }
+
+export interface AllowLinearTeamRequest {
+  factoryId: string
+  team: string
+}

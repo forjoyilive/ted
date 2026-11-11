@@ -80,3 +80,54 @@ test('usage resets follow the app clock format and calendar day in the selected 
     ),
   ).toBe('Claude 90% · resets 04:15 pm')
 })
+
+test('the tracker selects the fullest valid window, breaking ties with the 5-hour window', async () => {
+  const { fullestWindow, usageWindows } = await import('../src/renderer/plan-usage.ts')
+  const data = health({
+    planUsage: {
+      at: now.toISOString(),
+      from: 'run',
+      windows: [
+        { window: 'weekly', percent: 20 },
+        { window: 'five-hour', percent: 20 },
+      ],
+    },
+  })
+  expect(fullestWindow(usageWindows(data, 'subscription'))?.window).toBe('five-hour')
+  expect(
+    fullestWindow([
+      { window: 'weekly', percent: 92 },
+      { window: 'five-hour', percent: 8 },
+    ])?.percent,
+  ).toBe(92)
+  expect(usageWindows(data, 'api-key')).toEqual([])
+  expect(fullestWindow(usageWindows(undefined, 'subscription'))).toBeUndefined()
+  expect(
+    usageWindows(
+      health({
+        planUsage: {
+          at: '',
+          from: 'read',
+          windows: [
+            { window: 'weekly', percent: Number.NaN },
+            { window: 'five-hour', percent: -1 },
+          ],
+        },
+      }),
+      'subscription',
+    ),
+  ).toEqual([])
+})
+
+test('tracker reset countdowns stop at expiration and tolerate absent or invalid dates', async () => {
+  const { usageReset } = await import('../src/renderer/plan-usage.ts')
+  const time = now.getTime()
+  expect(usageReset(new Date(time + 35 * 60_000).toISOString(), time)).toBe('35m')
+  expect(usageReset(new Date(time + 90 * 60_000).toISOString(), time)).toBe('1h 30m')
+  expect(usageReset(new Date(time + 49 * 60 * 60_000).toISOString(), time)).toBe('2d 1h')
+  expect(usageReset(new Date(time + 1).toISOString(), time)).toBe('1m')
+  expect(usageReset(now.toISOString(), time)).toBe('Awaiting update')
+  expect(usageReset(new Date(time - 1).toISOString(), time)).toBe('Awaiting update')
+  expect(usageReset('invalid', time)).toBeUndefined()
+  expect(usageReset(undefined, time)).toBeUndefined()
+})

@@ -8,6 +8,7 @@ import type {
 } from '@ted/protocol'
 import { minGhVersion } from '@ted/protocol/integrations'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { ted } from '../ted.ts'
 import { Button, SettingsGroup, SettingsPage } from './controls.tsx'
@@ -88,19 +89,21 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
   const note = (key: string) => (opened?.key === key ? opened.text : undefined)
   const checkButton = (
     <Button onClick={checkAgain} disabled={checking}>
-      {checking ? 'Checking…' : 'Check again'}
+      {checking ? <Loading compact label="Checking…" /> : 'Check again'}
     </Button>
   )
 
   return (
     <SettingsPage title="Integrations">
-      {problem !== undefined && <p className={styles.problem}>{problem}</p>}
+      {problem !== undefined && <LoadingError error={problem} retry={checkAgain} />}
       <SettingsGroup
         label="GitHub"
         help="TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use."
       >
         {!health ? (
-          <LoadingRow />
+          problem ? null : (
+            <LoadingRow />
+          )
         ) : health.github.cli.state !== 'ready' ? (
           <CliRow
             cli={health.github.cli}
@@ -123,7 +126,9 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
       </SettingsGroup>
       <SettingsGroup label="Git">
         {!health ? (
-          <LoadingRow />
+          problem ? null : (
+            <LoadingRow />
+          )
         ) : (
           <GitRow
             git={health.git}
@@ -143,11 +148,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
 }
 
 function LoadingRow() {
-  return (
-    <div className={styles.row}>
-      <p className={styles.detail}>Checking…</p>
-    </div>
-  )
+  return <Skeleton shape="settings" rows={1} framed={false} label="Loading integrations…" />
 }
 
 function HealthRow({

@@ -34,7 +34,13 @@ export const modelChoices: Record<AgentKind, readonly string[]> = {
 }
 
 export function leadSummary(lead: TaskLead): string {
-  return [agentLabels[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ')
+  return [
+    agentLabels[lead.agent],
+    lead.model,
+    lead.effortMode === 'stage' ? 'Follow Stage settings' : lead.effort,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 export function formatSize(bytes: number): string {

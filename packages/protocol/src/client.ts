@@ -36,7 +36,14 @@ import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
-import type { Coordinator, CoordinatorAction, CoordinatorMessage } from './coordinator.ts'
+import type {
+  Coordinator,
+  CoordinatorAction,
+  CoordinatorMessage,
+  CoordinatorOperation,
+  CoordinatorReceipt,
+  CoordinatorStatus,
+} from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -47,6 +54,7 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
   CheckRepoRequest,
@@ -86,7 +94,14 @@ import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
-import type { Plan, PlanDetail, PlanInboxItem, PlanRequest, StartPlanRequest } from './plan.ts'
+import type {
+  Plan,
+  PlanDetail,
+  PlanInboxItem,
+  PlanRequest,
+  PostPlanRequest,
+  StartPlanRequest,
+} from './plan.ts'
 import type {
   AgentKind,
   Run,
@@ -102,11 +117,14 @@ import type { MachineSettings, Profile } from './settings.ts'
 import type {
   FoundEditor,
   OpenInEditorRequest,
+  ShellChange,
   ShellOutput,
   ShellOutputQuery,
   ShellSize,
+  ShellWorkspace,
   TaskShell,
 } from './shell.ts'
+import type { SideChat } from './side-chat.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
@@ -127,15 +145,13 @@ import type {
   FollowUpRequest,
   InboxItem,
   MoveTaskRequest,
-  NewTaskDraft,
   OutcomeResult,
   PostCommentRequest,
   Priority,
-  ProposalInput,
   ReportOutcomeRequest,
   RepoSetupReport,
   ResumeTaskRequest,
-  RoundInput,
+  SaveTaskDraftRequest,
   SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
@@ -147,6 +163,7 @@ import type {
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
+import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
@@ -291,6 +308,14 @@ export class DaemonClient {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator`)
   }
 
+  coordinatorChat(factoryId: string): Promise<RunChat | null> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator/chat`)
+  }
+
+  coordinatorStatuses(): Promise<CoordinatorStatus[]> {
+    return this.#request('GET', '/coordinators')
+  }
+
   messageCoordinator(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
     return this.#request(
       'POST',
@@ -307,6 +332,10 @@ export class DaemonClient {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/retry`)
   }
 
+  resetCoordinator(factoryId: string): Promise<null> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
+  }
+
   coordinatorTasks(offset = 0): Promise<{ context: string }> {
     return this.#request('GET', `/coordinator/tasks?offset=${offset}`)
   }
@@ -317,9 +346,9 @@ export class DaemonClient {
 
   coordinatorAct(
     id: string,
-    action: 'start' | 'move',
+    action: CoordinatorOperation,
     input: CoordinatorAction,
-  ): Promise<import('./coordinator.ts').CoordinatorReceipt> {
+  ): Promise<CoordinatorReceipt> {
     return this.#request('POST', `/coordinator/tasks/${encodeURIComponent(id)}/${action}`, input)
   }
 
@@ -351,11 +380,7 @@ export class DaemonClient {
     return this.#request('GET', '/plan-requests')
   }
 
-  postPlanRequest(input: {
-    round?: RoundInput
-    proposal?: ProposalInput
-    supersedes?: string
-  }): Promise<PlanRequest> {
+  postPlanRequest(input: PostPlanRequest): Promise<PlanRequest> {
     return this.#request('POST', '/plan-runs/requests', input)
   }
 
@@ -394,12 +419,16 @@ export class DaemonClient {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/task-draft`)
   }
 
-  saveTaskDraft(factoryId: string, draft: NewTaskDraft): Promise<TaskDraftState> {
+  saveTaskDraft(factoryId: string, draft: SaveTaskDraftRequest): Promise<TaskDraftState> {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/task-draft`, draft)
   }
 
   createTask(input: CreateTaskRequest): Promise<Task> {
     return this.#request('POST', '/tasks', input)
+  }
+
+  setTaskSnooze(ref: string, snoozedUntil: string | null): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/snooze`, { snoozedUntil })
   }
 
   startTask(ref: string): Promise<Task> {
@@ -650,6 +679,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
   }
 
+  exportFactory(id: string): Promise<FactoryExport> {
+    return this.#request('GET', `/factories/${encodeURIComponent(id)}/export`)
+  }
+
   listFactories(): Promise<Factory[]> {
     return this.#request('GET', '/factories')
   }
@@ -711,29 +744,46 @@ export class DaemonClient {
     )
   }
 
-  openShell(ref: string, repo: string, size: ShellSize): Promise<TaskShell> {
-    return this.#request('POST', shellRoute(ref, repo), size)
+  shellWorkspace(ref: string, repo: string): Promise<ShellWorkspace> {
+    return this.#request('GET', `${shellRoute(ref, repo)}s`)
   }
 
-  restartShell(ref: string, repo: string, size: ShellSize): Promise<TaskShell> {
-    return this.#request('POST', shellRoute(ref, repo, '/restart'), size)
+  openShellWorkspace(
+    ref: string,
+    repo: string,
+    size: ShellSize,
+    create = false,
+  ): Promise<ShellWorkspace> {
+    return this.#request('POST', `${shellRoute(ref, repo)}s`, { ...size, create })
   }
 
-  async writeShell(ref: string, repo: string, data: string): Promise<void> {
-    await this.#request('POST', shellRoute(ref, repo, '/input'), { data })
+  changeShellWorkspace(ref: string, repo: string, change: ShellChange): Promise<ShellWorkspace> {
+    return this.#request('POST', `${shellRoute(ref, repo)}s/change`, change)
   }
 
-  async resizeShell(ref: string, repo: string, size: ShellSize): Promise<void> {
-    await this.#request('POST', shellRoute(ref, repo, '/resize'), size)
+  openShell(ref: string, repo: string, size: ShellSize, id?: string): Promise<TaskShell> {
+    return this.#request('POST', shellRoute(ref, repo, '', id), size)
   }
 
-  readShell(ref: string, repo: string, query: ShellOutputQuery): Promise<ShellOutput> {
+  restartShell(ref: string, repo: string, size: ShellSize, id?: string): Promise<TaskShell> {
+    return this.#request('POST', shellRoute(ref, repo, '/restart', id), size)
+  }
+
+  async writeShell(ref: string, repo: string, data: string, id?: string): Promise<void> {
+    await this.#request('POST', shellRoute(ref, repo, '/input', id), { data })
+  }
+
+  async resizeShell(ref: string, repo: string, size: ShellSize, id?: string): Promise<void> {
+    await this.#request('POST', shellRoute(ref, repo, '/resize', id), size)
+  }
+
+  readShell(ref: string, repo: string, query: ShellOutputQuery, id?: string): Promise<ShellOutput> {
     const params = new URLSearchParams({
       generation: String(query.generation),
       from: String(query.from),
       waitMs: String(query.waitMs ?? 0),
     })
-    return this.#request('GET', shellRoute(ref, repo, `/output?${params}`))
+    return this.#request('GET', shellRoute(ref, repo, `/output?${params}`, id))
   }
 
   listEditors(): Promise<FoundEditor[]> {
@@ -745,6 +795,17 @@ export class DaemonClient {
       'POST',
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/open-in-editor`,
       request,
+    )
+  }
+
+  taskFiles(ref: string): Promise<TaskFiles> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/files`)
+  }
+
+  taskFile(ref: string, repo: string, file: string): Promise<TaskFileContent> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/file?path=${encodeURIComponent(file)}`,
     )
   }
 
@@ -955,6 +1016,17 @@ export class DaemonClient {
     return this.#request('POST', '/factories', input)
   }
 
+  setFactoryPermissions(
+    factoryId: string,
+    mode: 'auto' | 'bypass',
+    confirmBypass = false,
+  ): Promise<{ mode: 'auto' | 'bypass' }> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/permissions`, {
+      mode,
+      confirmBypass,
+    })
+  }
+
   factorySettings(factoryId: string): Promise<FactorySettingsView> {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
   }
@@ -1087,6 +1159,22 @@ export class DaemonClient {
 
   getRun(id: string): Promise<RunWithConversation> {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}`)
+  }
+
+  getSideChat(id: string): Promise<SideChat | null> {
+    return this.#request('GET', `/runs/${encodeURIComponent(id)}/side-chat`)
+  }
+  openSideChat(id: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat`)
+  }
+  sendSideChat(id: string, text: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat/messages`, { text })
+  }
+  stopSideChat(id: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat/stop`)
+  }
+  retrySideChat(id: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat/retry`)
   }
 
   getRunChat(id: string): Promise<RunChat> {
@@ -1351,6 +1439,6 @@ function factoryQuery(factory: string | undefined): string {
   return factory === undefined ? '' : `?factory=${encodeURIComponent(factory)}`
 }
 
-function shellRoute(ref: string, repo: string, rest = ''): string {
-  return `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/shell${rest}`
+function shellRoute(ref: string, repo: string, rest = '', id?: string): string {
+  return `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/shell${id === undefined ? '' : `/panes/${encodeURIComponent(id)}`}${rest}`
 }

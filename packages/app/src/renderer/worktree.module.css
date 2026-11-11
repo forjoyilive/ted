@@ -41,7 +41,7 @@
 .branch,
 .path {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-12);
   overflow-wrap: anywhere;
 }
 
@@ -86,7 +86,7 @@
   border-radius: 6px;
   background: var(--surface-inset);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-12);
   white-space: pre-wrap;
 }
 

@@ -4,10 +4,42 @@ import { effectiveTimeZone, formatClockTime, timeOptions, uses12HourTime } from 
 import { afterEach, describe, expect, test } from 'vitest'
 import { firingDate } from '../src/renderer/automations.ts'
 import { when } from '../src/renderer/plans.ts'
-import { clockTime } from '../src/renderer/requests.ts'
+import { age, ago, clockTime } from '../src/renderer/requests.ts'
 import { formatDate, setTimePreferences } from '../src/renderer/time.ts'
 
 afterEach(() => setTimePreferences(defaultMachineSettings))
+
+describe('relative ages', () => {
+  const now = Date.parse('2026-11-10T12:00:00Z')
+
+  test.each([
+    [-1, 'now'],
+    [0, 'now'],
+    [59_999, 'now'],
+    [60_000, '1m'],
+    [32 * 60_000, '32m'],
+    [60 * 60_000 - 1, '59m'],
+    [60 * 60_000, '1h'],
+    [61 * 60_000, '1h 1m'],
+    [92 * 60_000, '1h 32m'],
+    [120 * 60_000 - 1, '1h 59m'],
+    [120 * 60_000, '2h'],
+    [152 * 60_000, '2h'],
+    [212 * 60_000, '3h'],
+    [24 * 60 * 60_000 - 1, '23h'],
+    [24 * 60 * 60_000, '1d'],
+    [24 * 60 * 60_000 + 59 * 60_000, '1d'],
+    [25 * 60 * 60_000, '1d 1h'],
+    [29 * 60 * 60_000, '1d 5h'],
+    [48 * 60 * 60_000 - 1, '1d 23h'],
+    [48 * 60 * 60_000, '2d'],
+    [53 * 60 * 60_000, '2d'],
+  ])('%i milliseconds old reads %s', (elapsed, expected) => {
+    const at = new Date(now - elapsed).toISOString()
+    expect(age(at, now)).toBe(expected)
+    expect(ago(at, now)).toBe(expected === 'now' ? 'just now' : `${expected} ago`)
+  })
+})
 
 describe('app-wide time preferences', () => {
   test('system mode follows the system clock convention and zone', () => {

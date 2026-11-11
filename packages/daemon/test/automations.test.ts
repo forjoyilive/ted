@@ -6,6 +6,7 @@ import type {
   Automation,
   AutomationDetail,
   AutomationRun,
+  AutomationTemplate,
   Banner,
   Factory,
   RunSlots,
@@ -15,6 +16,7 @@ import type {
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { openStore } from '../src/store/index.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
@@ -32,6 +34,8 @@ import {
   tokenFor,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -59,6 +63,7 @@ let free = 500e9
 
 async function startTed(
   options: {
+    timers?: Clock
     addFactory?: boolean
     resetSettings?: boolean
     systemTimeZone?: () => string
@@ -71,6 +76,7 @@ async function startTed(
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
     automations: {
+      ...(options.timers && { clock: options.timers }),
       now: () => clock,
       checkEveryMs: 50,
       ...(options.systemTimeZone && { systemTimeZone: options.systemTimeZone }),
@@ -121,7 +127,8 @@ const waitForHistory = (
   check: (rows: AutomationRun[]) => boolean,
   what: string,
 ) =>
-  waitUntil(
+  eventWait(
+    client.subscribe,
     async () => {
       const rows = await history(client, id)
       return check(rows) ? rows : undefined
@@ -252,7 +259,8 @@ describe('app-wide Automation time zone', () => {
 
 describe('Automations', () => {
   test('an Automation fires at its clock time in the app-wide time zone and the Run finishes', async () => {
-    const client = await startTed()
+    const timers = new ManualClock()
+    const client = await startTed({ timers })
     const automation = await create(client, {})
     expect(automation).toMatchObject({
       name: 'Sentry crash intake',
@@ -265,10 +273,11 @@ describe('Automations', () => {
         '2026-11-11T09:00:00.000Z',
       ],
     })
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    timers.advance(300)
     expect(await history(client, automation.id)).toEqual([])
 
     clock = Date.parse('2026-11-09T09:00:10Z')
+    timers.advance(50)
     const [row] = await waitForHistory(
       client,
       automation.id,
@@ -287,11 +296,130 @@ describe('Automations', () => {
     expect(run.run).toMatchObject({ name: 'Sentry crash intake', state: 'finished' })
     expect(run.run.taskId).toBeUndefined()
     expect(run.run.prompt).toContain('# You are an Automation Run in TED')
+    expect(run.run.prompt).toContain('## Write clearly for the user')
     expect(run.run.prompt).toContain('## Tasks this Automation has created\n\nNone yet.')
     expect(await said(client, row?.runId ?? '')).toEqual(['Nothing new'])
     const after = (await detail(client, automation.id)).automation
     expect(after.last?.result.kind).toBe('no-new-tasks')
     expect(after.nextFirings[0]).toBe('2026-11-10T09:00:00.000Z')
+  })
+
+  test('weekly architecture reviews queue and create distinct, deduplicated Backlog Tasks', async () => {
+    const client = await startTed()
+    const templates = await client.ok<AutomationTemplate[]>('GET', '/automations/templates')
+    const template = templates.find((t) => t.id === 'architecture')
+    if (!template) throw new Error('missing architecture template')
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const blocker = await create(client, {
+      name: 'Holding the slot',
+      on: false,
+      prompt: steps(hold(), { endTurn: true }),
+    })
+    await client.ok('POST', `/automations/${blocker.id}/run`)
+    await waitUntil(
+      async () => (await detail(client, blocker.id)).automation.now?.kind === 'working',
+      'the slot holder',
+    )
+    const source = 'https://github.com/acme/widgets/tree/main/src/parser'
+    const other = 'https://github.com/acme/widgets/blob/main/src/queue.ts'
+    const automation = await create(client, {
+      template: template.id,
+      name: template.name,
+      schedule: template.schedule,
+      prompt: `${template.prompt}\n${steps(
+        {
+          run: [
+            'ted',
+            'task',
+            'create',
+            '--source',
+            source,
+            '--description',
+            'Evidence at abc123; verify through the parser API.',
+            'Deepen the parser boundary',
+          ],
+        },
+        {
+          run: [
+            'ted',
+            'task',
+            'create',
+            '--source',
+            `${source}?scan=2#finding`,
+            'Duplicate parser finding',
+          ],
+        },
+        { run: ['ted', 'task', 'create', '--source', other, 'Concentrate queue ownership'] },
+        { run: ['ted', 'task', 'create', '--factory', 'XX', '--source', other, 'Wrong Factory'] },
+        { endTurn: true },
+      )}`,
+    })
+    expect(automation).toMatchObject({
+      template: 'architecture',
+      nextFirings: [
+        '2026-11-09T09:00:00.000Z',
+        '2026-11-16T09:00:00.000Z',
+        '2026-11-23T09:00:00.000Z',
+      ],
+    })
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'queued',
+      'the architecture review to queue',
+    )
+    expect(await client.ok<Task[]>('GET', '/tasks')).toEqual([])
+    await release()
+    const [row] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'created',
+      'the architecture review to finish',
+    )
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(tasks).toHaveLength(2)
+    expect(tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Deepen the parser boundary',
+          description: 'Evidence at abc123; verify through the parser API.',
+          source: expect.objectContaining({ url: source }),
+        }),
+        expect.objectContaining({
+          title: 'Concentrate queue ownership',
+          source: expect.objectContaining({ url: other }),
+        }),
+      ]),
+    )
+    for (const task of tasks) {
+      expect(task).toMatchObject({
+        stage: 'backlog',
+        createdBy: 'automation',
+        factoryId: automation.factoryId,
+      })
+      expect(task.leadRunId).toBeUndefined()
+    }
+    expect(row?.result).toMatchObject({ kind: 'created', tasks: expect.any(Array) })
+    expect(row?.created).toHaveLength(2)
+    const results = await commandResults(client, row?.runId ?? '')
+    expect(results.map((r) => r.code)).toEqual([0, 1, 0, 1])
+    expect(results[1]?.stderr).toContain('Already tracked as NB-1 · Backlog')
+    expect(results[3]?.stderr).toContain('only in NB, its own Factory')
+    const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
+    expect(run.run.prompt).toContain(template.prompt)
+
+    clock = Date.parse('2026-11-16T09:00:05Z')
+    const [next] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows.length === 2 && rows[0]?.result.kind === 'no-new-tasks',
+      'the repeat review to skip existing sources',
+    )
+    expect(await client.ok<Task[]>('GET', '/tasks')).toHaveLength(2)
+    const repeated = await client.ok<RunWithConversation>('GET', `/runs/${next?.runId}`)
+    expect(repeated.run.prompt).toContain(`source ${source}`)
+    expect(repeated.run.prompt).toContain(`source ${other}`)
   })
 
   test('an edit sending null for model or effort clears it back to the default', async () => {
@@ -712,7 +840,8 @@ describe('Automations', () => {
   })
 
   test('a full disk holds firings, and held firings are made up once', async () => {
-    const client = await startTed()
+    const timers = new ManualClock()
+    const client = await startTed({ timers })
     const automation = await create(client, {
       schedule: { kind: 'every', every: 15, unit: 'minutes' },
     })
@@ -723,11 +852,18 @@ describe('Automations', () => {
       'the disk-full hold',
     )
     clock = Date.parse('2026-11-09T09:40:00Z')
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    timers.advance(400)
     expect(await history(client, automation.id)).toEqual([])
     const refused = await client.call('POST', `/automations/${automation.id}/run`, {})
     expect(refused.status).toBe(409)
     free = 500e9
+    await eventWait(
+      client.subscribe,
+      async () =>
+        !(await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'disk-full'),
+      'the disk-full hold to clear',
+    )
+    timers.advance(50)
     const rows = await waitForHistory(
       client,
       automation.id,
@@ -805,6 +941,11 @@ describe('Automations', () => {
 test('Automation Runs use auto permissions even when the Factory is set to bypass', async () => {
   await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\npermissions: bypass\n' })
   const client = await startTed()
+  const [factory] = await client.ok<Factory[]>('GET', '/factories')
+  await client.ok('PUT', `/factories/${factory?.id}/permissions`, {
+    mode: 'bypass',
+    confirmBypass: true,
+  })
   for (const agent of ['claude', 'codex'] as const) {
     const automation = await create(client, { name: `Intake ${agent}`, agent })
     await client.ok('POST', `/automations/${automation.id}/run`)
@@ -855,11 +996,13 @@ test('removing a Factory deletes its Automations and stops their Runs', async ()
 })
 
 test('an Automation that is on keeps a daemon started by ted from exiting when idle', async () => {
+  const timers = new ManualClock()
   let idled = 0
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    clock: timers,
     idleExit: { afterMs: 300, onIdle: () => idled++ },
     automations: { now: () => clock, checkEveryMs: 50 },
   })
@@ -875,10 +1018,11 @@ test('an Automation that is on keeps a daemon started by ted from exiting when i
     schedule: { kind: 'daily', at: '02:00' },
   })
   idled = 0
-  await new Promise((resolve) => setTimeout(resolve, 800))
+  timers.advance(800)
   expect(idled).toBe(0)
   await client.call('POST', `/automations/${created.body.id}/disable`, {})
-  await waitUntil(() => idled > 0, 'the idle exit once the Automation is off')
+  timers.advance(300)
+  expect(idled).toBe(1)
 })
 
 describe('Tasks an Automation Run starts', () => {
@@ -949,9 +1093,13 @@ describe('Tasks an Automation Run starts', () => {
       '.ted/workflow.yaml': 'version: 1\npermissions: bypass\norder: [intake, work, merge]\n',
     })
     const client = await startTed()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    await client.ok('PUT', `/factories/${factory?.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
     const done = await doneTask(client)
     const { automation, created, followUp } = await fire(client, done)
-    await new Promise((resolve) => setTimeout(resolve, 500))
     for (const task of [created, followUp]) {
       const now = await getTask(client, task.id)
       expect(now.stage).toBe('backlog')

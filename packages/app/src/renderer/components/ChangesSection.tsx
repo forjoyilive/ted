@@ -1,4 +1,4 @@
-import type { TaskChanges } from '@ted/protocol'
+import type { SignOffChanges, TaskChanges } from '@ted/protocol'
 import { type ChangedFile, splitPath } from '../changes.ts'
 import styles from './ChangesSection.module.css'
 import { DetailsSection } from './DetailsSection.tsx'
@@ -61,7 +61,9 @@ export function ChangeList({
   selected,
   onOpen,
   drafts,
+  since,
 }: {
+  since?: SignOffChanges | undefined
   changes: TaskChanges
   selected?: ChangedFile | undefined
   onOpen: (file: ChangedFile) => void
@@ -91,6 +93,7 @@ export function ChangeList({
                 <li key={file.path}>
                   <button
                     type="button"
+                    data-nav-item
                     className={`${styles.file} ${current ? styles.current : ''}`}
                     aria-current={current || undefined}
                     title={file.path}
@@ -99,6 +102,9 @@ export function ChangeList({
                     <span className={styles.name}>{name}</span>
                     {folder !== '' && <span className={styles.folder}>{folder}</span>}
                     <span className={styles.spacer} />
+                    {since?.repos.some(
+                      (r) => r.name === repo.name && r.files.some((f) => f.path === file.path),
+                    ) && <span className={styles.binary}>Changed since approval</span>}
                     {count > 0 && <span className={styles.drafts}>{count}</span>}
                     {file.binary ? (
                       <span className={styles.binary}>binary</span>

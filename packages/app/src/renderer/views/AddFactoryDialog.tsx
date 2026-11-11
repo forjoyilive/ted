@@ -196,7 +196,7 @@ export function AddFactoryDialog({
         </h2>
         <Help>
           A Factory carries Tasks from creation to merge for one product. TED works in its own
-          clones of these repos and never writes to your folders.
+          clones of these repos and never writes directly to your folders.
         </Help>
       </header>
 
