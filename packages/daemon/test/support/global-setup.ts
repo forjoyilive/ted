@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { TestProject } from 'vitest/node'
 import { killMarked } from './processes.ts'
-import { lockRun } from './suite-lock.ts'
+import { heldLockEnv, lockRun } from './suite-lock.ts'
 
 declare module 'vitest' {
   export interface ProvidedContext {
     tedTestRun: string
+    tedTestLockPid: number
   }
 }
 
@@ -13,6 +14,7 @@ export default async function setup(project: TestProject) {
   const unlock = await lockRun(project.vitest.state.getPaths().length)
   const run = process.env.TED_TEST_RUN_ID || randomUUID()
   project.provide('tedTestRun', run)
+  project.provide('tedTestLockPid', Number(process.env[heldLockEnv]) || process.pid)
   return async () => {
     const killed = await killMarked('TED_TEST_RUN', run)
     if (killed.length > 0)

@@ -2,11 +2,12 @@ import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   acquireFullRun,
   acquireSlot,
   acquireSuiteLock,
+  heldLockEnv,
   lockRun,
   pidAlive,
 } from './support/suite-lock.ts'
@@ -21,6 +22,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   for (const child of children.splice(0)) child.kill()
   await rm(dir, { recursive: true, force: true })
 })
@@ -110,6 +112,15 @@ describe('test slots', () => {
     await acquireSlot({ ...slots(), pid: process.pid })
     expect(await readFile(slot(0), 'utf8')).toBe(`${first}\n`)
     expect(await readFile(slot(1), 'utf8')).toBe(`${process.pid}\n`)
+  })
+
+  test('a nested run borrows its parent’s slot without taking or releasing another slot', async () => {
+    const release = await acquireSlot(slots())
+    vi.stubEnv(heldLockEnv, String(process.pid))
+    expect(await lockRun(1, slots())).toBeUndefined()
+    expect(await readFile(slot(0), 'utf8')).toBe(`${process.pid}\n`)
+    await expect(readFile(slot(1), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await release?.()
   })
 
   test('a small run waits while every slot is held and starts when one is free', async () => {
