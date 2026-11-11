@@ -1252,6 +1252,25 @@ export function createTasks(options: {
     )
   }
 
+  function preparedEligible(task: StoredTask): boolean {
+    const agent = task.lead?.agent ?? store.getRun(task.leadRunId ?? '')?.agent
+    return (
+      store.settings().overnightMode &&
+      task.preparation === 'ready' &&
+      !task.archived &&
+      task.runs.length === 0 &&
+      !stoppingByHand.has(task.id) &&
+      !advancing.has(task.id) &&
+      !starting.has(task.id) &&
+      !holds.has(task.id) &&
+      !deleting.has(task.id) &&
+      !removingFactories.has(task.factoryId) &&
+      cloned(task.factoryId) &&
+      (agent === undefined || store.agentPauses()[agent] === undefined) &&
+      unmergedBlockers(task.id).length === 0
+    )
+  }
+
   function checkLoad(waiting: boolean): void {
     const ratio = waiting && store.settings().adjustRunsToLoad ? loadRatio() : undefined
     const was = heldAtLoad !== undefined
@@ -1278,23 +1297,13 @@ export function createTasks(options: {
         stopPreparedLead(task)
         continue
       }
-      if (
-        store.settings().overnightMode &&
-        !stoppingByHand.has(task.id) &&
-        !advancing.has(task.id) &&
-        !holds.has(task.id) &&
-        unmergedBlockers(task.id).length === 0
-      ) {
-        store.resumeTask(task.id, { waitForBlockers: false, overnight: true })
-      }
     }
     const version = backlogVersion
-    const backlog = queueOrder<QueueEntry>(
-      store
-        .backlogTasks()
+    const automatic = queueOrder<QueueEntry>(
+      [...store.backlogTasks(), ...store.preparedTasks().map((id) => ({ id }))]
         .flatMap(({ id }) => {
           const stored = store.getTask(id)
-          return stored && backlogEligible(stored) ? [stored] : []
+          return stored && (backlogEligible(stored) || preparedEligible(stored)) ? [stored] : []
         })
         .map((task) => ({
           id: task.id,
@@ -1307,11 +1316,11 @@ export function createTasks(options: {
     const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    const waiting = queued.length + held.length + revives.length + backlog.length > 0
+    const waiting = queued.length + held.length + revives.length + automatic.length > 0
     checkLoad(waiting)
     if (!waiting) return
     const { use } = await slotUse(
-      [...revives, ...held, ...queued, ...backlog].flatMap((q) => q.factoryId ?? []),
+      [...revives, ...held, ...queued, ...automatic].flatMap((q) => q.factoryId ?? []),
     )
     if (closed || store.newWorkHold() !== undefined) return
     const heldIds = new Set(held.map((h) => h.id))
@@ -1328,15 +1337,23 @@ export function createTasks(options: {
       else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
-    for (const entry of backlog) {
+    for (const entry of automatic) {
       if (closed || store.newWorkHold() !== undefined) return
       const task = store.getTask(entry.id)
-      if (!task || !backlogEligible(task)) continue
+      if (!task || !(backlogEligible(task) || preparedEligible(task))) continue
       try {
         const { use } = await slotUse([task.factoryId])
         if (version !== backlogVersion) return
         const before = [...revivesReady(), ...heldReady(), ...ready()]
         if (!startsNow([...before, entry], use).some((q) => q.id === entry.id)) continue
+        const current = find(task.id)
+        if (current.preparation === 'ready') {
+          if (!preparedEligible(current)) continue
+          store.resumeTask(task.id, { waitForBlockers: false, overnight: true })
+          begin(task.id)
+          again = true
+          return
+        }
         if (await queueStart(task.id, version)) {
           begin(task.id)
           again = true

@@ -127,6 +127,25 @@ test('Design approval durably holds before Work; Resume and Overnight release on
   await daemon?.stop()
   client = await start()
   expect((await get(c.id))?.preparation).toBe('ready')
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const occupant = await client.ok<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: JSON.stringify({ steps: [{ waitFor: path.join(scratch, 'release-slot') }] }),
+  })
+  await client.ok('POST', `/tasks/${occupant.id}/start`)
+  await waitUntil(
+    async () => (await get(occupant.id))?.runs.some((r) => r.state === 'working'),
+    'occupied Run slot',
+  )
+  await client.ok('PATCH', '/settings', { overnightMode: true })
+  await client.ok('PATCH', '/settings', { overnightMode: false })
+  expect((await get(c.id))?.preparation).toBe('ready')
+  await client.ok('POST', `/tasks/${occupant.id}/stop`)
+  expect(await get(c.id)).toMatchObject({
+    preparation: 'ready',
+    leadRunId: c.leadRunId,
+    runs: [],
+  })
   await client.ok('PATCH', '/settings', { overnightMode: true })
   await waitUntil(async () => (await get(c.id))?.leadRunId !== c.leadRunId, 'Overnight Work Lead')
   expect((await get(c.id))?.preparation).toBeUndefined()
