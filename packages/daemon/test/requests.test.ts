@@ -195,7 +195,7 @@ describe('ted ask --supersedes', () => {
     expect(after.find((c) => c.id === second.id)?.answer).toBeUndefined()
   })
 
-  test('a Gate request can’t be superseded', async () => {
+  test('a sign-off request can’t be superseded', async () => {
     const client = await start('version: 1\norder: [intake, design, work, merge]\n')
     const task = await startTask(
       client,
@@ -221,7 +221,7 @@ describe('ted ask --supersedes', () => {
       }),
     ).toEqual({
       status: 409,
-      body: { error: 'a Gate request can’t be superseded' },
+      body: { error: 'a sign-off request can’t be superseded' },
     })
   })
 })

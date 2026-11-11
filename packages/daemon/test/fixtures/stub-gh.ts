@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -103,13 +104,40 @@ const readyHosts = {
 }
 
 const statePath = process.env.TED_STUB_GH
-const state: StubState = statePath ? JSON.parse(readFileSync(statePath, 'utf8')) : {}
 const args = process.argv.slice(2)
 const stdin =
   args.includes('--input') || args.includes('--body-file') ? readFileSync(0, 'utf8') : undefined
+const mutation =
+  (args[0] === 'pr' && (args[1] === 'create' || args[1] === 'merge')) ||
+  (args[0] === 'api' && args[1] === 'graphql' && stdin?.includes('updatePullRequestBranch'))
+if (statePath && process.env.TED_DEMO === '1' && mutation) {
+  const { DatabaseSync } = await import('node:sqlite')
+  const lock = new DatabaseSync(`${statePath}.lock.sqlite`, { timeout: 0 })
+  process.once('exit', () => lock.close())
+  const started = Date.now()
+  for (;;) {
+    try {
+      lock.exec('BEGIN EXCLUSIVE')
+      break
+    } catch (error) {
+      if ((error as { errcode?: number }).errcode !== 5) throw error
+      if (Date.now() - started > 60_000) throw new Error('Demo GitHub fixture lock timed out.')
+      await sleep(10)
+    }
+  }
+}
+
+const state: StubState = statePath ? JSON.parse(readFileSync(statePath, 'utf8')) : {}
 
 const save = () => {
-  if (statePath) writeFileSync(statePath, JSON.stringify(state))
+  if (!statePath) return
+  if (process.env.TED_DEMO !== '1') {
+    writeFileSync(statePath, JSON.stringify(state))
+    return
+  }
+  const temporary = `${statePath}.${process.pid}.tmp`
+  writeFileSync(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
+  renameSync(temporary, statePath)
 }
 
 const gitEnv = {

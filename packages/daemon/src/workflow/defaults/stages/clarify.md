@@ -60,7 +60,7 @@ Read the Task, its sources and the relevant code before asking. Use the repo to 
 Use the Task brief’s existing headings: put observable acceptance criteria under Goal, agreed decisions and exclusions under Decisions so far, and unresolved questions under Open questions. Carry forward only decisions supported by the request or the human’s answers; label proposals as proposals.
 
 - **Few:** the one round is answered. Write the brief, then run `ted outcome advance`.
-- **Grilling:** nothing is left open. Write the brief, then run `ted outcome advance`. At grilling depth Clarify has a Gate: TED posts the brief to the human as the sign-off. Approve moves the Task on; Request changes means another round.
+- **Grilling:** nothing is left open. Write the brief, then run `ted outcome advance`. At grilling depth Clarify has a sign-off: TED posts the brief to the human as the sign-off. Approve moves the Task on; Request changes means another round.
 
 ## Ask the human when
 

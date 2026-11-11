@@ -5,6 +5,7 @@ import { readableError, ted } from '../ted.ts'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { CommentFiles } from './CommentFiles.tsx'
+import { Select } from './Select.tsx'
 import styles from './TaskBrowserView.module.css'
 
 export function TaskBrowserView({
@@ -161,7 +162,7 @@ export function TaskBrowserView({
         <Button size="small" onClick={onBack}>
           ← Thread
         </Button>
-        <select
+        <Select
           aria-label="Web App"
           value={`${shown.repo}/${shown.name}`}
           onChange={(event) => {
@@ -178,7 +179,7 @@ export function TaskBrowserView({
               {task.repos.length > 1 ? ` · ${a.repo}` : ''}
             </option>
           ))}
-        </select>
+        </Select>
         <Button
           size="small"
           disabled={busy || !ready}

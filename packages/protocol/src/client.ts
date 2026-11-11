@@ -41,7 +41,14 @@ import type {
   TaskChanges,
 } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
-import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
+import type {
+  BaseConflictFound,
+  CheckOutput,
+  CheckRun,
+  CheckRunReport,
+  RunChecksRequest,
+  SendBack,
+} from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
 import type {
   Coordinator,
@@ -446,8 +453,8 @@ export class DaemonClient {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/snooze`, { snoozedUntil })
   }
 
-  startTask(ref: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
+  startTask(ref: string, request?: import('./task.ts').StartTaskRequest): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`, request)
   }
 
   blockTask(ref: string, by: string): Promise<Task> {
@@ -642,6 +649,10 @@ export class DaemonClient {
 
   listSendBacks(ref: string): Promise<SendBack[]> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/send-backs`)
+  }
+
+  listBaseConflicts(ref: string): Promise<BaseConflictFound[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/base-conflicts`)
   }
 
   listThreadEvents(ref: string): Promise<ThreadEvent[]> {

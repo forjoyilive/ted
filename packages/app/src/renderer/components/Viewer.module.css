@@ -35,10 +35,32 @@
 
 .viewerTitle {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin: 0;
   font-size: var(--text-15);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
+}
+
+.navigation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.count {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.previous {
+  transform: rotate(180deg);
 }
 
 .close {

@@ -34,6 +34,31 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+test('Task first-start time survives later Stages, resume and reopening', async () => {
+  const task = () => store.listTasks().find((task) => task.id === id)
+  expect(task()?.startedAt).toBeUndefined()
+  store.queueTask(id, 'intake')
+  expect(task()?.startedAt).toBeUndefined()
+  vi.setSystemTime(initial + 60_000)
+  store.startTask({
+    taskId: id,
+    stage: 'intake',
+    branch: 'task',
+    worktree: dir,
+    entry,
+    repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+  })
+  expect(task()?.startedAt).toBe('2026-11-01T12:01:00.000Z')
+  vi.setSystemTime(initial + 120_000)
+  store.changeStage(id, 'work', entry)
+  store.stopTask(id, { runs: 0, why: 'human' })
+  store.resumeTask(id, { waitForBlockers: false })
+  expect(task()?.startedAt).toBe('2026-11-01T12:01:00.000Z')
+  await store.close()
+  store = await openStore({ directory: dir })
+  expect(task()?.startedAt).toBe('2026-11-01T12:01:00.000Z')
+})
+
 test('merge history shares pending/canceled facts and isolates Stage visits', () => {
   store.startTask({
     taskId: id,
@@ -129,6 +154,8 @@ test('fresh Run requests use event order when timestamps match and preserve reas
   store.archiveTask(id)
   store.unarchiveTask(id, { queue: true, waitForBlockers: false })
   expect(store.freshRunRequest(id)).toEqual({ kind: 'unarchived', pending: true })
+  store.resumeTask(id, { waitForBlockers: false, overnight: true })
+  expect(store.freshRunRequest(id)).toEqual({ kind: 'overnight', pending: true })
 })
 
 test('failure history preserves resume failures for explanation but excludes them from the limit', () => {
@@ -196,4 +223,31 @@ test('Overnight Gate history respects Stage and inclusive visit boundaries', () 
   store.gateKeptOvernight(id, 'merge', 'unreadable')
   expect(store.overnightGateHistory(id, 'merge', at)).toEqual({ kept: true, skipped: true })
   expect(store.overnightGateHistory(id, 'merge', '2099')).toEqual({ kept: false, skipped: false })
+})
+
+test('preparation intent and ready holds survive reopening and are consumed on Resume', async () => {
+  store.queueTask(id, 'intake', { prepare: true })
+  expect(store.getTask(id)?.preparation).toBe('preparing')
+  store.stopTask(id, { runs: 0, why: 'human' })
+  store.resumeTask(id, { waitForBlockers: false })
+  expect(store.getTask(id)?.preparation).toBe('preparing')
+  store.changeStage(id, 'work', entry, { prepare: true })
+  expect(store.getTask(id)).toMatchObject({
+    preparation: 'ready',
+    stopped: true,
+    status: { kind: 'stopped', prepared: true },
+    activity: 'Ready for Work · Resume or turn on Overnight mode.',
+  })
+  await store.close()
+  store = await openStore({ directory: dir })
+  expect(store.getTask(id)?.preparation).toBe('ready')
+  store.archiveTask(id)
+  store.unarchiveTask(id, { queue: true, waitForBlockers: false })
+  expect(store.getTask(id)?.status).toMatchObject({ kind: 'stopped', prepared: true })
+  expect(store.queue().some((entry) => entry.id === id)).toBe(false)
+  store.resumeTask(id, { waitForBlockers: false })
+  expect(store.getTask(id)?.preparation).toBeUndefined()
+  expect(store.getTask(id)?.stopped).toBe(false)
+  store.changeStage(id, 'work', entry)
+  expect(store.getTask(id)?.stopped).toBe(false)
 })

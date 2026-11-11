@@ -1,5 +1,6 @@
 import { type ReactNode, useId } from 'react'
 import { Help } from '../components/Help.tsx'
+import { Select as Dropdown } from '../components/Select.tsx'
 import styles from './settings.module.css'
 
 export function SettingsPage({
@@ -217,10 +218,10 @@ export function Select<T extends string | number>({
   disabled?: boolean
 }) {
   return (
-    <select
+    <Dropdown
       id={id}
       disabled={disabled}
-      className={styles.select}
+      controlClassName={styles.select}
       style={width !== undefined ? { width } : undefined}
       value={String(value)}
       onChange={(event) => {
@@ -233,7 +234,7 @@ export function Select<T extends string | number>({
           {option.label}
         </option>
       ))}
-    </select>
+    </Dropdown>
   )
 }
 

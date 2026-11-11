@@ -42,6 +42,7 @@ let cleanup: () => Promise<void>
 let scratch: string
 let daemon: RunningDaemon | undefined
 let clock: number
+let load = 0
 
 beforeEach(async () => {
   ;({ home, cleanup } = await makeTempHome())
@@ -49,6 +50,7 @@ beforeEach(async () => {
   await makeOriginRepo(scratch)
   clock = Date.parse('2026-11-09T08:55:00Z')
   free = 500e9
+  load = 0
 })
 
 afterEach(async () => {
@@ -82,6 +84,7 @@ async function startTed(
       ...(options.systemTimeZone && { systemTimeZone: options.systemTimeZone }),
     },
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
+    load: { ratio: () => load, checkEveryMs: 30 },
     ...(options.linear && { linear: options.linear }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -146,6 +149,7 @@ describe('app-wide Automation time zone', () => {
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const working = await create(client, {
       name: 'Held Run',
+      agent: 'claude',
       schedule: { kind: 'every', every: 15, unit: 'minutes' },
       prompt: steps(hold()),
     })
@@ -156,7 +160,10 @@ describe('app-wide Automation time zone', () => {
       (rows) => rows.some((r) => r.result.kind === 'running'),
       'the held Run',
     )
+    await writeFile(path.join(home, 'stub-codex.json'), JSON.stringify({ signedIn: false }))
+    await client.ok('POST', '/agents/health/check')
     const queued = await create(client, {
+      agent: 'codex',
       name: 'Queued daily',
       schedule: { kind: 'daily', at: '09:15' },
     })
@@ -304,7 +311,7 @@ describe('Automations', () => {
     expect(after.nextFirings[0]).toBe('2026-11-10T09:00:00.000Z')
   })
 
-  test('weekly architecture reviews queue and create distinct, deduplicated Backlog Tasks; the Run can list Automations but not change them, and the next Run sees the Tasks', async () => {
+  test('weekly architecture reviews start over the slot limit and create distinct, deduplicated Backlog Tasks; the Run can list Automations but not change them, and the next Run sees the Tasks', async () => {
     const client = await startTed()
     const templates = await client.ok<AutomationTemplate[]>('GET', '/automations/templates')
     const template = templates.find((t) => t.id === 'architecture')
@@ -365,20 +372,14 @@ describe('Automations', () => {
       ],
     })
     clock = Date.parse('2026-11-09T09:00:05Z')
-    await waitForHistory(
-      client,
-      automation.id,
-      (rows) => rows[0]?.result.kind === 'queued',
-      'the architecture review to queue',
-    )
-    expect(await client.ok<Task[]>('GET', '/tasks')).toEqual([])
-    await release()
     const [row] = await waitForHistory(
       client,
       automation.id,
       (rows) => rows[0]?.result.kind === 'created',
       'the architecture review to finish',
     )
+    expect((await detail(client, blocker.id)).automation.now?.kind).toBe('working')
+    await release()
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(tasks).toHaveLength(2)
     expect(tasks).toEqual(
@@ -851,7 +852,8 @@ describe('Automations', () => {
     expect(rows[0]).toMatchObject({ trigger: 'made-up', slotAt: '2026-11-09T09:30:00.000Z' })
   })
 
-  test('Automation Runs wait as Queued for a slot, ahead of Tasks', async () => {
+  test('Automation Runs start over slot limits and load holds while Tasks stay queued', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
     const client = await startTed()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const busy = await client.ok<Task>('POST', '/tasks', {
@@ -863,25 +865,32 @@ describe('Automations', () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === busy.id)
       return found?.leadRunId
     }, 'the Task to hold the slot')
-    const automation = await create(client, {})
-    await client.ok<Task>('POST', '/tasks', { factory: 'NB', start: true, title: 'Second' })
+    const automation = await create(client, { prompt: steps(hold(), { endTurn: true }) })
+    load = 2
+    await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
+    const second = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: 'Second',
+    })
     clock = Date.parse('2026-11-09T09:00:05Z')
     await waitUntil(
-      async () => (await detail(client, automation.id)).automation.now?.kind === 'queued',
-      'the firing to queue',
+      async () => (await detail(client, automation.id)).automation.now?.kind === 'working',
+      'the firing to start despite the occupied slot',
     )
     const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots.queue.map((q) => q.kind)).toEqual(['automation', 'task'])
-    expect((await detail(client, automation.id)).automation.now).toEqual({
-      kind: 'queued',
-      place: 1,
-    })
+    expect(slots).toMatchObject({ working: 2, heldForLoad: true })
+    expect(slots.queue.map((q) => q.kind)).toEqual(['task'])
+    expect(slots.holders.map((h) => h.kind)).toContain('automation')
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(tasks.find((t) => t.id === second.id)?.leadRunId).toBeUndefined()
+    expect(tasks.find((t) => t.id === busy.id)?.leadRunId).toBeDefined()
     await release()
     await waitForHistory(
       client,
       automation.id,
       (rows) => rows[0]?.result.kind === 'no-new-tasks',
-      'the queued Run to run',
+      'the Automation Run to finish',
     )
   })
 

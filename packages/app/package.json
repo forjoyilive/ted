@@ -1,12 +1,12 @@
 {
   "name": "@ted/app",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "main": "src/main.ts",
   "scripts": {
     "build": "vite build",
-    "start": "vite build && electron .",
+    "start": "node scripts/start.ts",
     "package": "node scripts/package.ts",
     "smoke": "node scripts/smoke.ts",
     "icons": "node scripts/icons.ts"
