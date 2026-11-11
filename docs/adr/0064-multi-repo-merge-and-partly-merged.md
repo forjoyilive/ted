@@ -1,6 +1,6 @@
 # A multi-repo Task merges in `repos` order, and a failure partway shows Partly merged
 
-A Task with pull requests in several repos merges them one by one (spec 9.9 rule 8). The merge watcher (ADR 0056-ted-merges-pull-requests-at-the-merge-stage) already reads every open pull request in one query and merges only when every one is ready; this ADR adds the order, the failure partway and what “merged” means for blockers.
+A Task with pull requests in several repos merges them one by one (spec 9.9 rule 8). The merge watcher in `packages/daemon/src/tasks/merge-watcher.ts` (ADR 0056-ted-merges-pull-requests-at-the-merge-stage) consumes the poller’s read of every open pull request and merges only when every one is ready; this ADR adds the order, the failure partway and what “merged” means for blockers.
 
 **Order.** `mergeTargets` sorts the Task’s open pull requests by the Factory’s `repos` order from `factoryRepos`, not by the order the Task gained its repos. A repo no longer listed goes last. Each pull request keeps its own repo’s CI detection (from its push) and `merge_method`.
 

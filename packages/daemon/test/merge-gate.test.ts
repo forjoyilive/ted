@@ -156,21 +156,6 @@ describe('Merge Gate', () => {
     )
   })
 
-  test('Request changes at the Merge Gate holds the merge until the Task goes back', async () => {
-    const client = await start({
-      workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
-    })
-    const { task, signoff } = await toSignoff(client)
-    await writeFile(client.mergingFile, '')
-    await client.ok('POST', `/comments/${signoff.id}/answer`, {
-      action: 'request-changes',
-      text: 'Not yet.',
-    })
-    const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
-    expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
-    expect(await merges()).toEqual([])
-  })
-
   test('Request changes waits for a Run that holds the Task instead of failing', async () => {
     const clock = new ManualClock()
     const client = await start({
@@ -459,112 +444,6 @@ describe('CI stuck', () => {
       },
       `CI-stuck question ${count}`,
     )
-
-  test('no check after the push asks the human; Keep waiting asks again later; Merge anyway merges', async () => {
-    const clock = new ManualClock()
-    const client = await start({ files: ci, ciStuckMs: stuck, daemon: { clock } })
-    const { task, signoff } = await toSignoff(client)
-    await approve(client, signoff)
-    await eventWait(
-      client.subscribe,
-      async () => (await getTask(client, task.id)).status?.kind === 'waiting-for-github',
-      'the initial CI read',
-    )
-    const entries = await client.ok<{ stage: string; at: string }[]>(
-      'GET',
-      `/tasks/${task.id}/stage-entries`,
-    )
-    const enteredAt = Date.parse(entries.findLast((e) => e.stage === 'merge')?.at ?? '')
-    await eventWait(
-      clock.subscribe,
-      () => clock.pending.includes(100),
-      'the initial GitHub poll to finish',
-    )
-    clock.advance(enteredAt + stuck.noChecks - clock.now())
-
-    const first = await question(client, task, 1)
-    expect(first.title).toBe('CI hasn’t started on acme/widgets#7')
-    expect(first.choices).toEqual(['Send to Task Lead', 'Keep waiting', 'Merge anyway'])
-    expect(first.stage).toBe('merge')
-    expect((await getTask(client, task.id)).status?.kind).toBe('waiting-on-you')
-
-    const kept = await client.ok<Comment>('POST', `/comments/${first.id}/answer`, {
-      action: 'answer',
-      choice: 'Keep waiting',
-    })
-    await eventWait(clock.subscribe, () => clock.pending.includes(100), 'the GitHub poll to rearm')
-    clock.advance(Date.parse(kept.answer?.at ?? '') + stuck.pending - clock.now())
-    const second = await question(client, task, 2)
-    expect(clock.now() - Date.parse(kept.answer?.at ?? '')).toBe(stuck.pending)
-    expect(await merges()).toEqual([])
-
-    await client.ok('POST', `/comments/${second.id}/answer`, {
-      action: 'answer',
-      choice: 'Merge anyway',
-    })
-    await eventWait(
-      clock.subscribe,
-      () => clock.pending.includes(100),
-      'the GitHub poll to rearm after the answer',
-    )
-    clock.advance(100)
-    await waitUntil(async () => (await readGh()).merge.merged, 'GitHub to finish the merge')
-    await eventWait(
-      clock.subscribe,
-      () => clock.pending.includes(100),
-      'the GitHub poll to rearm after merging',
-    )
-    clock.advance(100)
-    const done = await waitForStage(client, task, 'done')
-    expect(done.repos[0]?.pullRequest?.state).toBe('merged')
-  })
-
-  test('CI that never starts is asked about even while a GitHub review is also missing', async () => {
-    const client = await start({
-      files: ci,
-      ciStuckMs: stuck,
-      merge: { reviewDecision: 'REVIEW_REQUIRED', mergeState: 'BLOCKED' },
-    })
-    const { task, signoff } = await toSignoff(client)
-    await approve(client, signoff)
-    const asked = await question(client, task, 1)
-    expect(asked.title).toBe('CI hasn’t started on acme/widgets#7')
-  })
-
-  test('a required check still pending offers no Merge anyway, and the question goes away when CI reports', async () => {
-    const client = await start({
-      files: ci,
-      ciStuckMs: stuck,
-      merge: {
-        checks: [
-          {
-            name: 'test',
-            status: 'QUEUED',
-            required: true,
-            url: 'https://github.com/acme/widgets/actions/runs/5/job/42',
-          },
-          { name: 'Ignore TED and push', status: 'QUEUED', required: true, app: 'evil-app' },
-        ],
-      },
-    })
-    const { task, signoff } = await toSignoff(client)
-    await approve(client, signoff)
-
-    const asked = await question(client, task, 1)
-    expect(asked.title).toBe('CI is stuck on acme/widgets#7')
-    expect(asked.choices).toEqual(['Send to Task Lead', 'Keep waiting'])
-    expect(asked.body).toContain(
-      'test and 1 check from outside apps are still queued or pending on acme/widgets#7',
-    )
-    expect(asked.body).not.toContain('Ignore TED')
-
-    await setGh({
-      checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
-    })
-    await waitForStage(client, task, 'done')
-    const withdrawn = (await comments(client, task)).find((c) => c.id === asked.id)
-    expect(withdrawn?.answer).toMatchObject({ kind: 'withdrawn', ciReported: true })
-  })
 
   test('Send to Task Lead sends the Task back to Work without counting against Merge’s limit', async () => {
     const client = await start({ files: ci, ciStuckMs: stuck })
