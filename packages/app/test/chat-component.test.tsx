@@ -35,7 +35,7 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
   }
   const api = bridge({
     getRunChat: () => chat,
-    sendRunMessage: (_id, text, interrupt) => {
+    sendRunMessage: (_id, text, options) => {
       chat = {
         ...chat,
         items: [
@@ -44,7 +44,13 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
         ],
       }
       api.emit({ type: 'run-output', runId: 'r1' })
-      return { id: 'm1', runId: 'r1', text, at: createdAt, queued: !interrupt }
+      return {
+        id: 'm1',
+        runId: 'r1',
+        text,
+        at: createdAt,
+        queued: !(options as { interrupt: boolean }).interrupt,
+      }
     },
     deleteQueuedMessage: () => {
       chat = { ...chat, items: chat.items.filter((i) => i.id !== 'm1') }
@@ -59,12 +65,9 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
   fireEvent.change(box, { target: { value: 'Leave archived notes alone.' } })
   fireEvent.keyDown(box, { key: 'Enter' })
   await screen.findByText('Queued')
-  expect(api.request).toHaveBeenCalledWith(
-    'sendRunMessage',
-    'r1',
-    'Leave archived notes alone.',
-    false,
-  )
+  expect(api.request).toHaveBeenCalledWith('sendRunMessage', 'r1', 'Leave archived notes alone.', {
+    interrupt: false,
+  })
   await user().click(screen.getByRole('button', { name: 'Delete' }))
   expect(screen.queryByText('Leave archived notes alone.')).toBeNull()
   expect(api.request).toHaveBeenCalledWith('deleteQueuedMessage', 'r1', 'm1')
@@ -75,7 +78,7 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
       'sendRunMessage',
       'r1',
       'Keep the fix in the swipe handler.',
-      true,
+      { interrupt: true },
     ),
   )
   await act(async () => {
@@ -213,7 +216,7 @@ test('current Lead chat skips the duplicate bar while historical chats retain th
     }),
   ]
   a.handle('listTaskRuns', () => [current, previous])
-  a.handle('getRun', () => undefined)
+  a.handle('getRun', () => ({ run: current, conversation: [] }))
   a.handle('getRunChat', (id) => ({
     run: id === 'r1' ? current : previous,
     items: [{ kind: 'agent', id: 'a1', text: id === 'r1' ? 'Current work.' : 'Earlier work.' }],
@@ -248,12 +251,18 @@ test('Comment composer sends Enter and command Enter, while Shift Enter keeps a 
   const u = user()
   const box = screen.getByRole('textbox', { name: 'Comment' })
   await u.type(box, 'First{Enter}')
-  expect(api.request).toHaveBeenCalledWith('postComment', 'NB-1', 'First', [])
+  expect(api.request).toHaveBeenCalledWith('postComment', 'NB-1', {
+    body: 'First',
+    attachments: [],
+  })
   expect((box as HTMLTextAreaElement).value).toBe('')
   await u.type(box, 'First line{Shift>}{Enter}{/Shift}Second line')
   expect((box as HTMLTextAreaElement).value).toBe('First line\nSecond line')
   await u.keyboard('{Meta>}{Enter}{/Meta}')
-  expect(api.request).toHaveBeenCalledWith('postComment', 'NB-1', 'First line\nSecond line', [])
+  expect(api.request).toHaveBeenCalledWith('postComment', 'NB-1', {
+    body: 'First line\nSecond line',
+    attachments: [],
+  })
 })
 
 test('opening a sub-agent from Task details selects its actual Conversation and tab', async () => {
