@@ -68,9 +68,12 @@ function BulkTaskMenu({
     items.push({
       label: 'Restart',
       disabled: leads.some((lead) => lead?.state === 'working'),
-      action: async () => {
-        for (const lead of leads) if (lead) await ted.restartRun(lead.id)
-      },
+      action: () =>
+        each((task) => {
+          const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
+          if (!lead) throw new Error('No Task Lead Run is available to restart.')
+          return ted.restartRun(lead.id)
+        }),
     })
   if (active && tasks.every((t) => t.stage === 'backlog' && !t.setup)) {
     items.push({ label: 'Snooze…', action: () => setSnoozing(true) })
@@ -166,7 +169,7 @@ function BulkTaskMenu({
       {snoozing && tasks[0] && (
         <SnoozeTaskDialog task={tasks[0]} tasks={tasks} onClose={() => setSnoozing(false)} />
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && !confirmation && <p role="alert">{error}</p>}
       {confirmation && (
         <Dialog
           onClose={() => {
@@ -179,6 +182,11 @@ function BulkTaskMenu({
                 {confirmation === 'archive' ? 'Archive' : 'Delete'} {tasks.length} Tasks?
               </h2>
               <p className={dialogStyles.body}>{tasks.map((t) => t.displayId).join(', ')}</p>
+              {error && (
+                <p role="alert" className={dialogStyles.error}>
+                  {error}
+                </p>
+              )}
               <p className={dialogStyles.body}>
                 {confirmation === 'delete'
                   ? 'This removes the selected Tasks, their Runs and Conversations, Comments and briefs. This can’t be undone. Pull requests and branches stay on GitHub.'

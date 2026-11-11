@@ -105,6 +105,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       return {
         ...opened,
         planId: action.planId ?? newPlan,
+        ...(action.requestId !== undefined && { requestId: action.requestId }),
         ...(action.planId === undefined && action.from !== undefined && { planFrom: action.from }),
       }
     }

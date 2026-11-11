@@ -209,33 +209,77 @@ test('external resolution clears an Inbox request without claiming the user answ
   await act(async () => refresh.resolve([]))
 })
 
-test('multiple requests pin one card and chips switch the pinned request', async () => {
+test('requests stay in the conversation and repeated jumps preserve answer drafts', async () => {
   const a = appState()
-  a.state.tasks = [task()]
+  const current = task({
+    stage: 'work',
+    track: [
+      { stage: 'intake', state: 'past' },
+      { stage: 'work', state: 'current' },
+    ],
+  })
+  a.state.tasks = [current]
   const first = comment({ body: 'Where should sync status show?', choices: ['Header'] })
-  const second = comment({ id: 'c2', body: 'Can the queue retry offline?', choices: ['Yes'] })
-  a.state.inbox = [first, second].map((request) => ({ task: task(), request }))
+  const second = comment({
+    id: 'c2',
+    body: 'Can the queue retry offline?',
+    choices: ['Yes'],
+    createdAt: '2026-11-09T12:02:00.000Z',
+  })
+  a.state.inbox = [first, second].map((request) => ({ task: current, request }))
   a.handle('listComments', () => [first, second])
+  a.handle('listStageEntries', () => [
+    { stage: 'intake', at: createdAt },
+    { stage: 'work', at: '2026-11-09T12:01:00.000Z' },
+  ])
   a.handle('markCommentsRead', () => ({ read: 1 }))
   a.mount()
   const inbox = await screen.findByRole('region', { name: 'Inbox' })
   await user().click(within(inbox).getByText('Can the queue retry offline?'))
   const thread = screen.getByRole('region', { name: 'Task thread' })
-  const chips = within(
-    within(thread).getByRole('group', { name: '2 waiting on you' }),
-  ).getAllByRole('button')
-  expect(chips).toHaveLength(2)
-  expect(within(thread).getAllByRole('button', { name: /waiting ·/ })).toHaveLength(2)
-  expect(within(thread).getByRole('button', { name: /waiting · shown below/ })).toBeTruthy()
-  expect(chips[1]?.getAttribute('aria-pressed')).toBe('true')
-  expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
-  await user().click(required(chips[0]))
-  expect(chips[0]?.getAttribute('aria-pressed')).toBe('true')
+  const cards = within(thread).getAllByRole('region', { name: 'Question' })
+  expect(cards).toHaveLength(2)
+  const firstCard = required(cards[0])
+  const secondCard = required(cards[1])
+  const conversation = required(firstCard.closest('ol'))
+  expect(conversation.contains(secondCard)).toBe(true)
+  expect(within(firstCard).getByText(first.body)).toBeTruthy()
+  expect(within(secondCard).getByText(second.body)).toBeTruthy()
+  expect(document.activeElement?.contains(secondCard)).toBe(true)
+  await user().type(
+    within(secondCard).getByRole('textbox', { name: 'Your answer' }),
+    'Keep retrying',
+  )
+  const jumps = within(thread).getByRole('navigation', { name: 'Requests waiting for you' })
+  const firstJump = within(jumps).getByRole('button', { name: /Where should sync status show/ })
+  const secondJump = within(jumps).getByRole('button', { name: /Can the queue retry offline/ })
+  await user().click(firstJump)
+  expect(document.activeElement?.contains(firstCard)).toBe(true)
+  await user().click(within(inbox).getByText(second.body))
+  expect(document.activeElement?.contains(secondCard)).toBe(true)
+  await user().click(secondJump)
+  expect(document.activeElement?.contains(secondCard)).toBe(true)
   expect(
-    within(within(thread).getByRole('region', { name: 'Question' })).getByText(
-      'Where should sync status show?',
-    ),
-  ).toBeTruthy()
+    (within(secondCard).getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value,
+  ).toBe('Keep retrying')
+  const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+  scrollIntoView.mockClear()
+  await user().click(secondJump)
+  const target = required(secondCard.closest('[data-chat-item]'))
+  expect(document.activeElement).toBe(target)
+  expect(scrollIntoView.mock.contexts).toContain(target)
+  expect(within(secondCard).getByDisplayValue('Keep retrying')).toBeTruthy()
+  await user().type(
+    within(firstCard).getByRole('textbox', { name: 'Your answer' }),
+    'Keep the header draft',
+  )
+  await user().click(within(thread).getByRole('button', { name: 'Work, now' }))
+  expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
+  await user().click(firstJump)
+  expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(2)
+  expect(within(thread).queryByText('Showing Work only ·')).toBeNull()
+  expect(within(firstCard).getByDisplayValue('Keep the header draft')).toBeTruthy()
+  expect(firstCard.isConnected).toBe(true)
 })
 
 test('S starts the open Task and its menu moves a queued Task back to Backlog', async () => {
@@ -374,8 +418,10 @@ test.each(['response-first', 'event-first'] as const)(
     const inbox = await screen.findByRole('region', { name: 'Inbox' })
     await user().click(await within(inbox).findByText('Keep the settings?'))
     const thread = await screen.findByRole('region', { name: 'Task thread' })
-    const chips = await within(thread).findByRole('group', { name: '2 waiting on you' })
-    await user().click(within(chips).getByRole('button', { name: /^Permission/ }))
+    const chips = await within(thread).findByRole('navigation', {
+      name: 'Requests waiting for you',
+    })
+    await user().click(within(chips).getByRole('button', { name: /^Jump to Permission/ }))
     expect(
       required(within(inbox).getByText('Build the preview?').closest('button')).getAttribute(
         'aria-current',
@@ -587,4 +633,123 @@ test('Task history formats agent and user Comments and still formats them after 
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   expect(await screen.findByRole('heading', { name: 'Result' })).toBeTruthy()
   expect(screen.getByText('Agent note').tagName).toBe('STRONG')
+})
+
+test('Inbox reveals its request after delayed history and after other panes cover the thread', async () => {
+  const a = appState()
+  const run: RunChat['run'] = {
+    id: 'r1',
+    name: 'Task Lead',
+    role: 'lead',
+    agent: 'claude',
+    state: 'idle',
+    startedAt: createdAt,
+    current: true,
+  }
+  const current = task({
+    tabs: [{ runId: run.id, name: run.name, agent: run.agent, state: run.state }],
+  })
+  a.state.tasks = [current]
+  const request = comment({ body: 'Keep the retry?', choices: ['Yes'] })
+  a.state.inbox = [{ task: current, request }]
+  const checks = deferred<never[]>()
+  a.handle('listCheckRuns', () => checks.promise)
+  a.handle('listComments', () => [
+    request,
+    comment({ id: 'later', kind: 'note', body: 'Later output.' }),
+  ])
+  a.handle('markCommentsRead', () => ({ read: 1 }))
+  a.handle('taskBrief', () => ({
+    taskId: current.id,
+    version: 1,
+    stage: 'work',
+    createdAt,
+    text: '## Goal\n\nKeep drafts.',
+  }))
+  a.handle('getRunChat', () => ({
+    run,
+    items: [{ kind: 'agent', id: 'message', text: 'Working on it.' }],
+  }))
+  a.mount()
+  const inbox = await screen.findByRole('region', { name: 'Inbox' })
+  await user().click(await within(inbox).findByText(request.body))
+  await screen.findByLabelText('Loading Task history…')
+  expect(screen.queryByRole('region', { name: 'Question' })).toBeNull()
+  await act(async () => checks.resolve([]))
+  const card = await screen.findByRole('region', { name: 'Question' })
+  expect(document.activeElement?.contains(card)).toBe(true)
+  const answer = within(card).getByRole('textbox', { name: 'Your answer' })
+  await user().type(answer, 'Keep this draft')
+  await user().click(await screen.findByRole('button', { name: 'Full brief' }))
+  await screen.findByRole('region', { name: 'Full brief' })
+  await user().click(within(inbox).getByText(request.body))
+  expect(screen.queryByRole('region', { name: 'Full brief' })).toBeNull()
+  expect(document.activeElement?.contains(card)).toBe(true)
+  expect(within(card).getByDisplayValue('Keep this draft')).toBe(answer)
+  await user().click(screen.getByRole('tab', { name: /Task Lead/ }))
+  await screen.findByText('Working on it.')
+  await user().click(within(inbox).getByText(request.body))
+  const revealed = await screen.findByRole('region', { name: 'Question' })
+  expect(document.activeElement?.contains(revealed)).toBe(true)
+  expect(screen.queryByRole('region', { name: 'Run chat' })).toBeNull()
+  expect(revealed).toBe(card)
+  expect(within(revealed).getByDisplayValue('Keep this draft')).toBe(answer)
+})
+
+test('request shortcuts target the focused request and do not guess between open requests', async () => {
+  vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.closest('[hidden]') ? null : document.body
+  })
+  const a = appState()
+  const first = comment({
+    kind: 'permission',
+    body: 'First command',
+    permission: { command: 'cat first.txt' },
+  })
+  const second = comment({
+    id: 'second',
+    kind: 'permission',
+    body: 'Second command',
+    permission: { command: 'cat second.txt' },
+  })
+  const review = comment({
+    id: 'review',
+    kind: 'review',
+    body: 'Review the draft',
+    gate: { approveLabel: 'Approve' },
+  })
+  a.handle('listComments', () => [first, second, review])
+  a.handle('markCommentsRead', () => ({ read: 1 }))
+  a.handle('answerRequest', () => ({ ...second, answer: { kind: 'approved', at: createdAt } }))
+  const thread = await openTask(a)
+  await within(thread).findByRole('region', { name: 'Design review' })
+  const u = user()
+  await u.click(within(thread).getByRole('heading', { name: 'Sync notes' }))
+  await u.keyboard('a{Enter}')
+  expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
+  const secondCard = required(within(thread).getAllByRole('region', { name: 'Permission' })[1])
+  const jump = within(thread).getByRole('button', { name: 'Jump to Permission: Second command' })
+  await u.click(jump)
+  await u.keyboard('r')
+  const answer = within(secondCard).getByRole('textbox', { name: 'Your answer' })
+  expect(document.activeElement).toBe(answer)
+  await u.type(answer, 'Allow this one')
+  await u.click(jump)
+  await u.keyboard('a{Enter}')
+  expect(a.request).toHaveBeenCalledWith('answerRequest', second.id, {
+    action: 'approve',
+    text: 'Allow this one',
+  })
+  expect(a.request.mock.calls.filter(([name]) => name === 'answerRequest')).toHaveLength(1)
+  await u.click(
+    within(thread).getByRole('button', { name: 'Jump to Design review: Review the draft' }),
+  )
+  await u.keyboard('{Shift>}r{/Shift}')
+  expect(document.activeElement).toBe(
+    within(screen.getByRole('region', { name: 'Design review' })).getByRole('textbox', {
+      name: 'Your answer',
+    }),
+  )
 })

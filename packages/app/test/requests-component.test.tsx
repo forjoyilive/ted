@@ -1142,6 +1142,7 @@ test('previous Review retains its recorded Check plan and acceptance after later
 })
 
 test('Inbox right-click opens the clicked request and copies its full message without answering', async () => {
+  requestApi()
   const props = inboxProps()
   const request = comment({ body: 'First line\nSecond line' })
   const item = { task: task(), request }

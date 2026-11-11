@@ -22,6 +22,23 @@ function after(...actions: Parameters<typeof navigate>[1][]): Navigation {
 }
 
 describe('navigation', () => {
+  test('opening a Planning request retains its target and clears it on ordinary navigation', () => {
+    const targeted = navigate(initialNavigation, {
+      type: 'open-plan',
+      factoryId: 'nb',
+      planId: 'p1',
+      requestId: 'round2',
+    })
+    expect(targeted).toMatchObject({
+      planId: 'p1',
+      requestId: 'round2',
+      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+    })
+    expect(
+      navigate(targeted, { type: 'open-plan', factoryId: 'nb', planId: 'p1' }).requestId,
+    ).toBeUndefined()
+  })
+
   test('starts on the Inbox with no current Factory', () => {
     expect(initialNavigation.screen).toEqual({ kind: 'inbox' })
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()

@@ -415,3 +415,73 @@ test('selected Ready for Work Tasks offer both Resume and Stop in their context 
     expect(a.request).toHaveBeenCalledWith('stopTask', 'NB-2')
   })
 })
+
+test.each(['Archive', 'Delete'])(
+  'bulk %s keeps a later Task failure visible inside its confirmation',
+  async (label) => {
+    const a = await list()
+    const method = label === 'Archive' ? 'archiveTask' : 'deleteTask'
+    a.handle(
+      method,
+      vi.fn(async (id: unknown) => {
+        if (id === 'MS-1') throw new Error('Request refused')
+      }),
+    )
+    for (const id of ['NB-1', 'MS-1'])
+      fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+    fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+    await user().click(
+      within(await screen.findByRole('menu', { name: '2 selected Tasks' })).getByRole('menuitem', {
+        name: `${label}…`,
+      }),
+    )
+    const dialog = await screen.findByRole('dialog', { name: `${label} 2 Tasks?` })
+    await user().click(within(dialog).getByRole('button', { name: `${label} 2 Tasks` }))
+    const error = await within(dialog).findByRole('alert')
+    expect(error.textContent).toContain('MS-1: Request refused')
+    expect(error.textContent).toContain('Some selected Tasks may already have changed.')
+    expect(a.request).toHaveBeenCalledWith(method, 'NB-1', expect.anything())
+    expect(a.request).toHaveBeenCalledWith(method, 'MS-1', expect.anything())
+  },
+)
+
+test('bulk Restart identifies a later Task failure and stops before the next Task', async () => {
+  const a = await list()
+  a.handle(
+    'restartRun',
+    vi.fn(async (id: unknown) => {
+      if (id === 'lead-NB-2') throw new Error('Restart refused')
+    }),
+  )
+  for (const current of [...a.state.tasks]) {
+    await a.emitTask({
+      ...current,
+      stage: 'work',
+      leadRunId: `lead-${current.id}`,
+      runs: [
+        {
+          id: `lead-${current.id}`,
+          agent: 'codex',
+          role: 'lead',
+          name: 'Task Lead',
+          state: 'idle',
+        },
+      ],
+    })
+    fireEvent.click(required(document.querySelector(`[data-task="${current.id}"]`)), {
+      metaKey: true,
+    })
+  }
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+  await user().click(
+    within(await screen.findByRole('menu', { name: '3 selected Tasks' })).getByRole('menuitem', {
+      name: 'Restart',
+    }),
+  )
+  const error = await screen.findByRole('alert')
+  expect(error.textContent).toContain('NB-2: Restart refused')
+  expect(error.textContent).toContain('Some selected Tasks may already have changed.')
+  expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-1')
+  expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-2')
+  expect(a.request).not.toHaveBeenCalledWith('restartRun', 'lead-MS-1')
+})
