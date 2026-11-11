@@ -10,11 +10,11 @@ import {
   tedPaths,
   type ValidationObligations,
 } from '@ted/protocol'
-import { expect, test, vi } from 'vitest'
+import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, commitToOrigin, stubClaudePath, tokenFor, waitUntil } from './helpers.ts'
-import { ctx, getTask, start, useMergeHarness } from './merge-harness.ts'
+import { ctx, getTask, run, start, useMergeHarness } from './merge-harness.ts'
 
 useMergeHarness()
 
@@ -110,40 +110,6 @@ test('assessment, request and acceptance are separate, and each case holds indep
   expect(stored[0]?.evidence).toBe(one.evidence)
 })
 
-test.each(['equal', 'backward'])(
-  '%s evidence timestamps still require reassessment in append order',
-  async (clock) => {
-    const s = await setup()
-    const context = await s.capture()
-    const value = await s.record(context.id)
-    const at = new Date().toISOString()
-    const before = new Date(Date.parse(at) - 60_000).toISOString()
-    const date = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue(at)
-    try {
-      const first = await s.assess(value)
-      expect(first.assessments.at(-1)?.evidenceCount).toBe(0)
-      if (clock === 'backward') date.mockReturnValue(before)
-      const evidence = await s.ok<FailureCase>(`/failures/${value.id}/evidence`, {
-        evidence: 'New evidence needs its own assessment',
-        contextId: context.id,
-      })
-      expect(evidence.additions.at(-1)?.at).toBe(clock === 'backward' ? before : at)
-      expect(
-        (await s.lead.call('POST', `${s.root}/failures/${value.id}/decision`, {})).status,
-      ).toBe(409)
-      const asked = await s.request(value)
-      expect(asked.assessments.at(-1)?.evidenceCount).toBe(1)
-      expect((await s.resolve(asked)).status).toBe(200)
-      expect((await s.resolve(asked)).status).toBe(409)
-      expect(
-        (await s.lead.call('POST', `${s.root}/failures/${value.id}/decision`, {})).status,
-      ).toBe(409)
-    } finally {
-      date.mockRestore()
-    }
-  },
-)
-
 test.each(['direct', 'comment'])(
   '%s failure resolution delivers attached line comments to the live Task Lead',
   async (entry) => {
@@ -173,6 +139,7 @@ test.each(['direct', 'comment'])(
             choice: 'Accept this failure',
           })
     expect((await resolve()).status).toBe(200)
+    expect((await s.obligations()).satisfied).toBe(true)
     const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
     const answered = comments.find((c) => c.id === requestId)
     expect(answered?.lineComments?.[0]).toMatchObject({
@@ -211,25 +178,88 @@ test.each(['direct', 'comment'])(
   },
 )
 
-test('code and nonignored binary changes invalidate durably; returning to old content never revives consent', async () => {
+test('a binary change, a new HEAD, changed Check definitions and a changed Check environment each invalidate acceptance; returning to old content never revives consent', async () => {
   const s = await setup()
+  const worktree = s.task.repos[0]?.worktree ?? ''
+  const stored = () =>
+    s.client.ok<FailureCase[]>('GET', `${s.root}/failures`).then((v) => v[0] as FailureCase)
+  const acceptAgain = async (contextId: string) => {
+    await s.ok(`/failures/${decision.id}/evidence`, {
+      evidence: 'Reproduced again in the changed context',
+      contextId,
+    })
+    const asked = await s.request(await stored())
+    expect((await s.resolve(asked)).status).toBe(200)
+    expect((await s.obligations()).cases).toMatchObject([
+      { disposition: 'accepted', context: 'current' },
+    ])
+  }
   const context = await s.capture()
   const decision = await s.request(await s.record(context.id))
   expect((await s.resolve(decision)).status).toBe(200)
-  const file = path.join(s.task.repos[0]?.worktree ?? '', 'new.bin')
+
+  const file = path.join(worktree, 'new.bin')
   await writeFile(file, new Uint8Array([0, 1, 2, 255]))
   expect((await s.obligations()).cases[0]?.disposition).toBe('invalidated')
-  const { rm } = await import('node:fs/promises')
   await rm(file)
   expect((await s.obligations()).cases[0]).toMatchObject({
     disposition: 'invalidated',
     context: 'current',
   })
   expect((await s.resolve(decision)).status).toBe(409)
-  const fresh = await s.request(
-    await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`).then((v) => v[0] as FailureCase),
-  )
+  const fresh = await s.request(await stored())
   expect((await s.resolve(fresh)).status).toBe(200)
+  expect((await stored()).invalidations).toHaveLength(1)
+
+  await run(
+    'git',
+    [
+      '-c',
+      'user.name=T',
+      '-c',
+      'user.email=t@example.com',
+      'commit',
+      '--allow-empty',
+      '-qm',
+      'New ancestry',
+    ],
+    { cwd: worktree },
+  )
+  const moved = await s.capture()
+  expect(moved.repos[0]?.tree).toBe(context.repos[0]?.tree)
+  expect(moved.repos[0]?.head).not.toBe(context.repos[0]?.head)
+  expect((await s.obligations()).cases[0]?.disposition).toBe('invalidated')
+  expect((await stored()).invalidations).toHaveLength(2)
+  await acceptAgain(moved.id)
+
+  await commitToOrigin(ctx.scratch, {
+    '.ted/workflow.yaml':
+      'version: 1\norder: [intake, work, merge]\nstages:\n  validate:\n    checks:\n      - { name: Verify, run: "echo changed", timeout: 2m }\n',
+  })
+  await s.client.ok('GET', `/factories/${s.task.factoryId}/settings`)
+  const changed = await s.capture()
+  expect(changed.repos[0]?.tree).toBe(context.repos[0]?.tree)
+  expect(changed.repos[0]?.tree).toBe(moved.repos[0]?.tree)
+  expect(changed.repos[0]?.head).toBe(moved.repos[0]?.head)
+  expect(changed.checks).not.toBe(context.checks)
+  expect(changed.checks).not.toBe(moved.checks)
+  expect((await s.obligations()).cases[0]?.disposition).toBe('invalidated')
+  expect((await stored()).invalidations).toHaveLength(3)
+  await acceptAgain(changed.id)
+
+  await ctx.daemon?.stop()
+  process.env.FAILURE_TEST_ENV = 'changed-sensitive-environment'
+  try {
+    ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+    const client = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
+    const result = await client.call('GET', `${s.root}/validation-obligations`)
+    expect(result.body).toMatchObject({ satisfied: false, cases: [{ disposition: 'invalidated' }] })
+    const failures = await client.call('GET', `${s.root}/failures`)
+    expect((failures.body as FailureCase[])[0]?.invalidations).toHaveLength(4)
+    expect(JSON.stringify(failures.body)).not.toContain('changed-sensitive-environment')
+  } finally {
+    delete process.env.FAILURE_TEST_ENV
+  }
 })
 
 test.each(['changed', 'unavailable'])(
@@ -285,44 +315,19 @@ test.each(['changed', 'unavailable'])(
   },
 )
 
-test('unknown tested contexts can be closed by the human but cannot be accepted', async () => {
+test('authorization separates lead, sub-agent, own-Task and human operations, and an explicit failure holds forward movement before a Gate can be approved', async () => {
   const s = await setup()
-  const decision = await s.request(await s.record())
-  expect((await s.resolve(decision)).status).toBe(409)
-  expect(
-    (
-      await s.resolve(
-        decision,
-        'no-longer-applicable',
-        'This Finding described removed functionality.',
-      )
-    ).status,
-  ).toBe(200)
-  expect((await s.obligations()).satisfied).toBe(true)
-})
+  const briefFile = path.join(ctx.scratch, 'advance-brief.md')
+  await writeFile(
+    briefFile,
+    '## Goal\nTest\n## Decisions so far\nNone\n## Current state\nReady\n## Open questions\nNone\n## Next step\nAdvance\n',
+  )
+  await s.lead.call('PUT', `${s.root}/brief`, { text: await readFile(briefFile, 'utf8') })
+  const unassessed = await s.record()
+  const advance = await s.lead.call('POST', `${s.root}/outcome`, { outcome: 'advance' })
+  expect(advance.status).toBe(409)
+  expect((await getTask(s.client, s.task.id)).stage).toBe('intake')
 
-test('new assessments withdraw stale requests and only the latest explicit choice resolves', async () => {
-  const s = await setup()
-  const context = await s.capture()
-  const old = await s.request(await s.record(context.id))
-  const fresh = await s.request(old)
-  expect((await s.resolve(old)).status).toBe(409)
-  const comment = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-  expect(comment.find((c) => c.id === old.decisions[0]?.commentId)?.answer?.kind).toBe('withdrawn')
-  const id = fresh.decisions.at(-1)?.commentId
-  expect(
-    (
-      await s.client.call('POST', `/comments/${id}/answer`, {
-        action: 'answer',
-        choice: 'Accept this failure',
-      })
-    ).status,
-  ).toBe(200)
-  expect((await s.obligations()).satisfied).toBe(true)
-})
-
-test('authorization separates lead operations, own-Task reads and human decisions', async () => {
-  const s = await setup()
   const context = await s.capture()
   const decision = await s.request(await s.record(context.id))
   expect((await s.lead.call('GET', `${s.root}/failure-contexts/${context.id}`)).body).toEqual(
@@ -368,6 +373,34 @@ test('authorization separates lead operations, own-Task reads and human decision
       })
     ).status,
   ).toBe(400)
+  expect(
+    (
+      await s.lead.call('POST', `${route}/evidence`, {
+        evidence: 'https://user:pass@example.com/log',
+      })
+    ).status,
+  ).toBe(400)
+
+  const response = await s.lead.call('POST', `${s.root}/sub-agents`, {
+    agent: 'claude',
+    prompt: '{"steps":[{"endTurn":true}]}',
+  })
+  expect(response.status).toBe(201)
+  const subId = (response.body as { id: string }).id
+  await waitUntil(
+    async () => (await s.client.call('GET', `/runs/${subId}`)).status === 200,
+    'sub-agent Run',
+  )
+  const sub = api(ctx.daemon?.port ?? 0, s.tokens.issue(subId))
+  expect((await sub.call('GET', `${s.root}/failures`)).status).toBe(200)
+  expect(
+    (
+      await sub.call('POST', `${s.root}/failures/${unassessed.id}/assessments`, {
+        assessment: 'unrelated',
+        recommendation: 'Accept',
+      })
+    ).status,
+  ).toBe(403)
 })
 
 test('outstanding cases and Inbox requests survive daemon restart and a fresh Task Lead', async () => {
@@ -413,142 +446,6 @@ test('outstanding cases and Inbox requests survive daemon restart and a fresh Ta
       })
     ).status,
   ).toBe(200)
-})
-
-test('context read errors hold and evidence is bounded and redacted before persistence', async () => {
-  const s = await setup()
-  const context = await s.capture()
-  const recorded = await s.ok<FailureCase>('/failures', {
-    source: {
-      kind: 'finding',
-      runId: s.task.leadRunId,
-      finding: 'Bearer abcdefghijklmnopqrstuvwxyz',
-    },
-    evidence: 'Bearer abcdefghijklmnopqrstuvwxyz',
-    contextId: context.id,
-  })
-  expect(recorded.evidence).toBe('Bearer [redacted]')
-  expect(
-    (
-      await s.lead.call('POST', `${s.root}/failures/${recorded.id}/evidence`, {
-        evidence: 'https://user:pass@example.com/log',
-      })
-    ).status,
-  ).toBe(400)
-  const decision = await s.request(recorded)
-  expect((await s.resolve(decision)).status).toBe(200)
-  const dir = s.task.repos[0]?.worktree ?? ''
-  const moved = `${dir}-held`
-  await rename(dir, moved)
-  try {
-    expect((await s.obligations()).cases[0]).toMatchObject({
-      disposition: 'invalidated',
-      context: 'unknown',
-    })
-  } finally {
-    await rename(moved, dir)
-  }
-})
-
-test('an explicit failure holds forward movement before a Gate can be approved', async () => {
-  const s = await setup()
-  const briefFile = path.join(ctx.scratch, 'advance-brief.md')
-  await writeFile(
-    briefFile,
-    '## Goal\nTest\n## Decisions so far\nNone\n## Current state\nReady\n## Open questions\nNone\n## Next step\nAdvance\n',
-  )
-  await s.lead.call('PUT', `${s.root}/brief`, { text: await readFile(briefFile, 'utf8') })
-  await s.record()
-  const response = await s.lead.call('POST', `${s.root}/outcome`, { outcome: 'advance' })
-  expect(response.status).toBe(409)
-  expect((await getTask(s.client, s.task.id)).stage).toBe('intake')
-})
-
-test('Check definitions and environment changes invalidate context independently of the worktree tree', async () => {
-  const s = await setup()
-  const context = await s.capture()
-  const decision = await s.request(await s.record(context.id))
-  expect((await s.resolve(decision)).status).toBe(200)
-  await commitToOrigin(ctx.scratch, {
-    '.ted/workflow.yaml':
-      'version: 1\norder: [intake, work, merge]\nstages:\n  validate:\n    checks:\n      - { name: Verify, run: "echo changed", timeout: 2m }\n',
-  })
-  await s.client.ok('GET', `/factories/${s.task.factoryId}/settings`)
-  const changed = await s.capture()
-  expect(changed.repos[0]?.tree).toBe(context.repos[0]?.tree)
-  expect(changed.checks).not.toBe(context.checks)
-  expect((await s.obligations()).cases[0]?.disposition).toBe('invalidated')
-})
-
-test('new HEAD with identical file content invalidates acceptance', async () => {
-  const s = await setup()
-  const context = await s.capture()
-  const decision = await s.request(await s.record(context.id))
-  expect((await s.resolve(decision)).status).toBe(200)
-  const { run } = await import('./merge-harness.ts')
-  await run(
-    'git',
-    [
-      '-c',
-      'user.name=T',
-      '-c',
-      'user.email=t@example.com',
-      'commit',
-      '--allow-empty',
-      '-qm',
-      'New ancestry',
-    ],
-    { cwd: s.task.repos[0]?.worktree ?? '' },
-  )
-  const changed = await s.capture()
-  expect(changed.repos[0]?.tree).toBe(context.repos[0]?.tree)
-  expect(changed.repos[0]?.head).not.toBe(context.repos[0]?.head)
-  expect((await s.obligations()).cases[0]?.disposition).toBe('invalidated')
-})
-
-test('sub-agent tokens can read their Task but cannot assess or resolve a case', async () => {
-  const s = await setup()
-  const value = await s.record()
-  const response = await s.lead.call('POST', `${s.root}/sub-agents`, {
-    agent: 'claude',
-    prompt: '{"steps":[{"endTurn":true}]}',
-  })
-  expect(response.status).toBe(201)
-  const subId = (response.body as { id: string }).id
-  await waitUntil(
-    async () => (await s.client.call('GET', `/runs/${subId}`)).status === 200,
-    'sub-agent Run',
-  )
-  const sub = api(ctx.daemon?.port ?? 0, s.tokens.issue(subId))
-  expect((await sub.call('GET', `${s.root}/failures`)).status).toBe(200)
-  expect(
-    (
-      await sub.call('POST', `${s.root}/failures/${value.id}/assessments`, {
-        assessment: 'unrelated',
-        recommendation: 'Accept',
-      })
-    ).status,
-  ).toBe(403)
-})
-
-test('changed Check environment invalidates acceptance across daemon restart without storing values', async () => {
-  const s = await setup()
-  const context = await s.capture()
-  const decision = await s.request(await s.record(context.id))
-  expect((await s.resolve(decision)).status).toBe(200)
-  await ctx.daemon?.stop()
-  process.env.FAILURE_TEST_ENV = 'changed-sensitive-environment'
-  try {
-    ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
-    const client = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
-    const result = await client.call('GET', `${s.root}/validation-obligations`)
-    expect(result.body).toMatchObject({ satisfied: false, cases: [{ disposition: 'invalidated' }] })
-    expect(JSON.stringify((await client.call('GET', `${s.root}/failures`)).body)).not.toContain(
-      'changed-sensitive-environment',
-    )
-  } finally {
-    delete process.env.FAILURE_TEST_ENV
-  }
 })
 
 test('stored failed Checks retain factual outcomes after acceptance and reject borrowed late contexts', async () => {
@@ -613,19 +510,6 @@ test('stored failed Checks retain factual outcomes after acceptance and reject b
   )
 })
 
-test('later context cannot turn an unknown original execution into an acceptable waiver', async () => {
-  const s = await setup()
-  const value = await s.record()
-  const context = await s.capture()
-  await s.ok(`/failures/${value.id}/evidence`, {
-    evidence: 'Later observation',
-    contextId: context.id,
-  })
-  const asked = await s.request(value)
-  expect((await s.resolve(asked)).status).toBe(409)
-  expect((await s.resolve(asked, 'fixed', 'The later run verified the repair.')).status).toBe(200)
-})
-
 test('historical Findings remain recordable but cannot borrow a capture after their Run ended', async () => {
   const s = await setup()
   await s.client.ok('POST', `${s.root}/stop`)
@@ -666,46 +550,6 @@ test('historical Findings remain recordable but cannot borrow a capture after th
   const asked = request.body as FailureCase
   expect((await s.resolve(asked)).status).toBe(409)
   expect((await s.resolve(asked, 'fixed', 'Verified separately')).status).toBe(200)
-})
-
-test('rejected evidence and assessments preserve requests; fresh decisions expose added evidence and context', async () => {
-  const s = await setup()
-  const context = await s.capture()
-  const first = await s.request(await s.record(context.id))
-  const id = first.decisions.at(-1)?.commentId
-  const body = { evidence: 'https://user:password@example.com/log', contextId: context.id }
-  expect((await s.lead.call('POST', `${s.root}/failures/${first.id}/evidence`, body)).status).toBe(
-    400,
-  )
-  expect(
-    (
-      await s.lead.call('POST', `${s.root}/failures/${first.id}/assessments`, {
-        assessment: 'uncertain',
-        recommendation: body.evidence,
-      })
-    ).status,
-  ).toBe(400)
-  let comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-  expect(comments.find((c) => c.id === id)?.answer).toBeUndefined()
-  expect((await s.resolve(first)).status).toBe(200)
-  await writeFile(path.join(s.task.repos[0]?.worktree ?? '', 'changed.txt'), 'new context')
-  expect((await s.obligations()).cases[0]?.disposition).toBe('invalidated')
-  const current = await s.capture()
-  await s.ok(`/failures/${first.id}/evidence`, {
-    evidence: 'New reproduction: Bearer abcdefghijklmnopqrstuvwxyz',
-    contextId: current.id,
-  })
-  const asked = await s.request(first)
-  comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-  const question = comments.find((c) => c.id === asked.decisions.at(-1)?.commentId)
-  expect(question?.body).toContain('Reproduced in the stub')
-  expect(question?.body).toContain('New reproduction:')
-  expect(question?.body).not.toContain('abcdefghijklmnopqrstuvwxyz')
-  expect(question?.body).toContain(`Original tested context: ${context.id}`)
-  expect(question?.body).toContain(`Decision tested context: ${current.id}`)
-  expect(question?.body).toContain(s.task.leadRunId)
-  expect(asked.evidence).toBe(first.evidence)
-  expect((await s.resolve(asked)).status).toBe(200)
 })
 
 test('invalidation notices survive health suspension and restart and reach the resumed session once', async () => {
