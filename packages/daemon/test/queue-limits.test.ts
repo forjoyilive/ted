@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
+  type Activity,
   DaemonClient,
   type DaemonEvent,
   type Factory,
@@ -104,6 +105,9 @@ describe('the queue', () => {
 
     const slots = await client.ok<RunSlots>('GET', '/slots')
     expect(slots).toMatchObject({ limit: 1, working: 1, queued: 2 })
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { active: 1, queued: 2 } })
     expect(slots.holders.map((h) => (h.kind === 'task' ? h.displayId : h.name))).toEqual(['NB-1'])
     expect(slots.queue.map((q) => [q.place, 'displayId' in q ? q.displayId : q.name])).toEqual([
       [1, 'NB-2'],
@@ -114,6 +118,9 @@ describe('the queue', () => {
     const started = await waitForLead(client, b)
     expect(started.branch).toMatch(/^ted\/nb-2/)
     expect((await getTask(client, c.id)).status).toEqual({ kind: 'queued', place: 1 })
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { active: 2, queued: 1 } })
   })
 
   test('raising the limit starts queued Tasks', async () => {
@@ -183,6 +190,9 @@ describe('the queue', () => {
       `${steps({ hook: 'PermissionRequest' }, { waitFor: answered }, { hook: 'PreToolUse' }, { waitFor: path.join(scratch, 'never') })}`,
     )
     await waitForRunState(client, a, 'waiting')
+    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
+      runs: { working: 0, active: 1, queued: 0 },
+    })
 
     const b = await startTask(client, `${workingUntil(path.join(scratch, 'never'))}`)
     expect(b.leadRunId).toBeDefined()
@@ -193,6 +203,9 @@ describe('the queue', () => {
     await waitForRunState(client, a, 'working')
     const slots = await client.ok<RunSlots>('GET', '/slots')
     expect(slots).toMatchObject({ limit: 1, working: 2, queued: 1 })
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { working: 2, active: 2, queued: 1 } })
     expect((await getTask(client, c.id)).status?.kind).toBe('queued')
   })
 
@@ -249,6 +262,9 @@ describe('the queue', () => {
       expect(b.status).toEqual({ kind: 'queued', place: 1 })
       const slots = await client.ok<RunSlots>('GET', '/slots')
       expect(slots).toMatchObject({ working: 1, queued: 1 })
+      await expect
+        .poll(() => client.ok<Activity>('GET', '/activity'))
+        .toMatchObject({ runs: { active: 0, queued: 1 }, startingWork: 1 })
       if (limit === 'Factory') {
         expect(slots.factories).toEqual([expect.objectContaining({ cap: 1, working: 1 })])
       }

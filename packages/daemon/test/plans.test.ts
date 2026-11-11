@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
+  Activity,
   Factory,
   Plan,
   PlanDetail,
@@ -317,9 +318,15 @@ describe('Planning chats', () => {
     await waitForPlan(client, first.id, (d) => d.plan.status === 'working', 'the first to work')
     const second = await start(client, `Second plan\n${steps({ say: 'Hello' }, { endTurn: true })}`)
     expect(second).toMatchObject({ status: 'queued', queuePlace: 1 })
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { active: 1, queued: 1 } })
     await open('go')
     await waitForPlan(client, first.id, (d) => d.plan.status === 'waiting', 'the first to wait')
     await waitForPlan(client, second.id, (d) => d.plan.status === 'idle', 'the second to start')
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { working: 0, active: 2, queued: 0 } })
   })
 
   test('only the human starts, renames and deletes chats, and only a Planning Run posts rounds', async () => {

@@ -188,6 +188,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     }
   }
   const source: QueueSource = {
+    starting: () => [...starting.keys()],
     queued: () =>
       saved
         .list()

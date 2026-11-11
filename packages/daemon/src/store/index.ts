@@ -109,7 +109,6 @@ import {
   commentAttachments,
   comments,
   conversationTabs,
-  coordinators,
   deletedTasks,
   events,
   factories,
@@ -134,7 +133,6 @@ import {
   sendBackAsks,
   sendBackResets,
   sendBacks,
-  sideChats,
   stageEntries,
   stageFileTexts,
   subAgentRequests,
@@ -203,6 +201,12 @@ export interface LeadFailure {
   recovery: 'resume' | 'fresh' | 'failed'
   resumeFailed: boolean
   ask?: { title: string; body: string }
+}
+
+export interface QueueActivity {
+  queuedRuns: readonly string[]
+  startingRuns: readonly string[]
+  startingTasks: readonly string[]
 }
 
 export interface NewPermissionPrompt {
@@ -782,6 +786,7 @@ export interface TedStore extends TaskHistory {
   settings(): MachineSettings
   activity(): Activity
   waiting(): WaitingRequest[]
+  setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
@@ -2011,6 +2016,7 @@ export async function openStore({
 
   const updatedQueue = (except?: string) => {
     for (const { id } of queue()) if (id !== except) updatedTask(id)
+    noteActivity()
   }
 
   const updatedDependents = (blockerId: string) => {
@@ -2075,26 +2081,40 @@ export async function openStore({
     }
   }
 
+  let queueActivity: QueueActivity = { queuedRuns: [], startingRuns: [], startingTasks: [] }
   let shellsRunning = 0
   const activity = (): Activity => {
     const active = store.query(liveRuns)
-    const held = store.query(queryDb(heldRuns)).length
+    const runIds = new Set(active.map((run) => run.id))
+    const taskIds = new Set(
+      active.filter((run) => run.parentRunId === null).flatMap((run) => run.taskId ?? []),
+    )
+    const startingTasks = new Set(queueActivity.startingTasks.filter((id) => !taskIds.has(id)))
+    const startingRuns = new Set(queueActivity.startingRuns.filter((id) => !runIds.has(id)))
+    const queuedTasks = new Set(
+      [
+        ...queue().map((entry) => entry.id),
+        ...store.query(queryDb(heldRuns)).map((held) => held.taskId),
+      ].filter((id) => !taskIds.has(id) && !startingTasks.has(id)),
+    )
+    const queuedRuns = new Set(queueActivity.queuedRuns.filter((id) => !startingRuns.has(id)))
+    const startingWork = startingTasks.size + startingRuns.size
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveAutomations = store
       .query(queryDb(automations.select()))
       .filter((a) => factoryIds.has(a.factoryId))
     return {
       runs: {
-        working: active.filter((run) => run.state === 'working').length,
-        active: active.length + held,
-        queued:
-          store.query(queryDb(sideChats)).filter((row) => JSON.parse(row.data).state === 'queued')
-            .length +
-          store.query(queryDb(coordinators)).filter((row) => {
-            const value = JSON.parse(row.data) as { phase: string }
-            return value.phase === 'queued'
-          }).length,
+        working: active.filter(
+          (run) =>
+            run.state === 'working' &&
+            pauses()[run.agent as AgentKind] === undefined &&
+            !waitingOnSubAgents.has(run.id),
+        ).length,
+        active: active.length,
+        queued: queuedTasks.size + queuedRuns.size,
       },
+      ...(startingWork > 0 && { startingWork }),
       scheduledTasks: store
         .query(allTasks)
         .filter(
@@ -4173,6 +4193,10 @@ export async function openStore({
     settings,
     activity,
     waiting,
+    setQueueActivity(value) {
+      queueActivity = value
+      noteActivity()
+    },
     setShellsRunning(count) {
       shellsRunning = count
       noteActivity()
@@ -4256,6 +4280,7 @@ export async function openStore({
           .map((q) => q.id),
       ])
       for (const taskId of affected) updatedTask(taskId)
+      noteActivity()
     },
     agentPauses: pauses,
     holdTaskRun({ taskId, agent, sessionId }) {

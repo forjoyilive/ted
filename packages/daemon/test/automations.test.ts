@@ -872,6 +872,9 @@ describe('Automations', () => {
     )
     const slots = await client.ok<RunSlots>('GET', '/slots')
     expect(slots.queue.map((q) => q.kind)).toEqual(['automation', 'task'])
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { active: 1, queued: 2 } })
     expect((await detail(client, automation.id)).automation.now).toEqual({
       kind: 'queued',
       place: 1,

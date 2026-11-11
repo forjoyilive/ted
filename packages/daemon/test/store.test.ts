@@ -96,6 +96,67 @@ describe('TedStore', () => {
     }
   })
 
+  test('activity counts actual unfinished Runs, not held Task launches', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Waiting for an agent' })
+      store.holdTaskRun({ taskId: task.id, agent: 'claude' })
+      expect(store.activity().runs.active).toBe(0)
+      store.startRun({
+        id: 'run-1',
+        taskId: task.id,
+        agent: 'claude',
+        prompt: 'Hello',
+        cwd: '/tmp',
+      })
+      expect(store.activity().runs.active).toBe(1)
+      store.pauseAgent('claude', 'Usage limit')
+      expect(store.activity().runs).toMatchObject({ working: 0, active: 1 })
+      store.pauseAgent('claude', undefined)
+      store.recordRunOutput('run-1', { toOffset: 1, state: 'idle' })
+      expect(store.activity().runs).toMatchObject({ working: 0, active: 1 })
+      store.recordRunOutput('run-1', { toOffset: 2, state: 'finished' })
+      expect(store.activity().runs.active).toBe(0)
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('queued work and start holds count once and disappear as real Runs start', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Queued' })
+      store.queueTask(task.id, 'intake')
+      store.holdTaskRun({ taskId: task.id, agent: 'claude' })
+      expect(store.activity().runs).toMatchObject({ active: 0, queued: 1 })
+      const seen: DaemonEvent[] = []
+      const unsubscribe = store.subscribe((event) => seen.push(event))
+      store.setQueueActivity({
+        queuedRuns: ['plan', 'plan', 'sub'],
+        startingRuns: ['draft'],
+        startingTasks: [task.id],
+      })
+      expect(store.activity()).toMatchObject({ runs: { active: 0, queued: 2 }, startingWork: 2 })
+      store.startRun({ id: 'draft', agent: 'claude', prompt: 'Draft', cwd: '/tmp' })
+      store.startRun({ id: 'plan', agent: 'claude', prompt: 'Plan', cwd: '/tmp' })
+      store.startRun({ id: 'lead', taskId: task.id, agent: 'claude', prompt: 'Lead', cwd: '/tmp' })
+      store.setQueueActivity({ queuedRuns: ['sub'], startingRuns: [], startingTasks: [] })
+      expect(store.activity().runs).toMatchObject({ active: 3, queued: 1 })
+      expect(store.activity().startingWork).toBeUndefined()
+      store.setQueueActivity({ queuedRuns: [], startingRuns: [], startingTasks: [] })
+      expect(store.activity().runs.queued).toBe(0)
+      expect(seen.filter((event) => event.type === 'activity-changed').at(-1)).toMatchObject({
+        activity: { runs: { active: 3, queued: 0 } },
+      })
+      unsubscribe()
+      store.recordRunOutput('draft', { toOffset: 1, state: 'finished' })
+      store.setQueueActivity({ queuedRuns: [], startingRuns: ['draft'], startingTasks: [] })
+      expect(store.activity().startingWork).toBe(1)
+    } finally {
+      await store.close()
+    }
+  })
+
   test('records a Run with its session ID, read offset, last output time and state', async () => {
     const first = await openStore({ directory: dir })
     const run = first.startRun({

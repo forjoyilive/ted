@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { AutomationPromptDraft, RunSlots, RunWithConversation } from '@ted/protocol'
+import type { Activity, AutomationPromptDraft, RunSlots, RunWithConversation } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -262,6 +262,9 @@ describe('Automation Prompt drafting', () => {
     const second = await request(client)
     await new Promise((resolve) => setTimeout(resolve, 200))
     expect((await read(client, second.id)).state).toBe('queued')
+    await expect
+      .poll(async () => (await client.call('GET', '/activity')).body as Activity)
+      .toMatchObject({ runs: { active: 1, queued: 1 } })
     const slots = (await client.call('GET', '/slots')).body as RunSlots
     expect(slots.holders.some((h) => h.kind === 'automation-draft')).toBe(true)
     expect(slots.queue.some((q) => q.kind === 'automation-draft' && q.runId === second.id)).toBe(
