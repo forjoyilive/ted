@@ -225,6 +225,7 @@ export interface Task {
   fromPlan?: { id: string; title: string; deleted?: boolean }
   merged?: TaskMerged
   createdAt: string
+  startedAt?: string
   updatedAt: string
   archived?: TaskArchive
 }

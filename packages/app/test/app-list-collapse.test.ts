@@ -28,6 +28,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
     })
     const daemon = await daemonAsApp(home, env)
+    await daemon.updateSettings({ appearance: 'light' })
     await daemon.addFactory({ repo: origin, key: 'NB' })
     const task = await daemon.createTask({
       factory: 'NB',
@@ -81,6 +82,19 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     expect(await actions.count()).toBe(0)
     await daemon.startTask(task.id, { prepare: true })
     await window.getByText('Ready for Work', { exact: true }).waitFor()
+    await daemon.createTask({ factory: 'NB', title: 'Not started yet' })
+    const headers = await window.locator('thead th').allTextContents()
+    expect(headers.slice(-2)).toEqual(['Updated', 'Started'])
+    const started = window
+      .getByRole('row', { name: /Remember collapsed groups/ })
+      .locator('td')
+      .last()
+    await expect.poll(() => started.textContent()).toBe('now')
+    const neverStarted = window
+      .getByRole('row', { name: /Not started yet/ })
+      .locator('td')
+      .last()
+    await expect.poll(() => neverStarted.textContent()).toBe('—')
     if (captures) await window.screenshot({ path: path.join(captures, 'ready-for-work.png') })
   } finally {
     await closeApp(app)
