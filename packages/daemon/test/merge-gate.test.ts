@@ -244,13 +244,12 @@ describe('Merge sign-off', () => {
             : undefined,
       ])
       if (action === 'approve') {
-        await eventWait(
-          clock.subscribe,
-          () => clock.pending.includes(100),
-          'the GitHub poll to rearm',
-        )
-        clock.advance(100)
-        await waitForStage(client, task, 'done')
+        await waitUntil(async () => {
+          const current = await getTask(client, task.id)
+          if (current.stage === 'done') return current
+          if (clock.pending.includes(100)) clock.advance(100)
+          return undefined
+        }, `${task.displayId} to reach done`)
         expect(await merges()).toHaveLength(1)
       } else {
         expect(await merges()).toEqual([])
