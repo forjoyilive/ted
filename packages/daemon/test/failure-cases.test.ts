@@ -110,10 +110,9 @@ test('assessment, request and acceptance are separate, and each case holds indep
   expect(stored[0]?.evidence).toBe(one.evidence)
 })
 
-test.each(['direct', 'comment'])(
-  '%s failure resolution delivers attached line comments to the live Task Lead',
-  async (entry) => {
-    const s = await setup()
+test('direct and Comment failure resolutions deliver attached line comments to the live Task Lead', async () => {
+  const s = await setup()
+  for (const entry of ['direct', 'comment']) {
     const repo = s.task.repos[0]
     if (!repo) throw new Error('missing Task repo')
     await writeFile(path.join(repo.worktree, 'steering.txt'), 'new line\n')
@@ -175,8 +174,8 @@ test.each(['direct', 'comment'])(
     expect(message).not.toContain('user:password')
     expect((await resolve()).status).toBe(409)
     expect(await resolutionMessages()).toHaveLength(1)
-  },
-)
+  }
+})
 
 test('a binary change, a new HEAD, changed Check definitions and a changed Check environment each invalidate acceptance; returning to old content never revives consent', async () => {
   const s = await setup()
@@ -403,7 +402,7 @@ test('authorization separates lead, sub-agent, own-Task and human operations, an
   ).toBe(403)
 })
 
-test('outstanding cases and Inbox requests survive daemon restart and a fresh Task Lead', async () => {
+test('outstanding cases and Inbox requests survive restart; a fresh Task Lead rejects borrowed contexts for historical Findings', async () => {
   const s = await setup()
   const context = await s.capture()
   const decision = await s.request(await s.record(context.id))
@@ -446,6 +445,43 @@ test('outstanding cases and Inbox requests survive daemon restart and a fresh Ta
       })
     ).status,
   ).toBe(200)
+  const capture = await lead.call('POST', `${s.root}/failure-contexts`, {})
+  expect(capture.status).toBe(201)
+  const historicalContext = capture.body as FailureContext
+  const source = { kind: 'finding', runId: s.task.leadRunId, finding: 'Historical observation' }
+  expect(
+    (
+      await lead.call('POST', `${s.root}/failures`, {
+        source,
+        evidence: 'Original',
+        contextId: historicalContext.id,
+      })
+    ).status,
+  ).toBe(409)
+  const recorded = await lead.call('POST', `${s.root}/failures`, { source, evidence: 'Original' })
+  expect(recorded.status).toBe(201)
+  const value = recorded.body as FailureCase
+  expect(value.source).toEqual(source)
+  expect(value.contextId).toBeUndefined()
+  expect(
+    (
+      await lead.call('POST', `${s.root}/failures/${value.id}/assessments`, {
+        assessment: 'uncertain',
+        recommendation: 'Resolve explicitly',
+      })
+    ).status,
+  ).toBe(200)
+  const request = await lead.call('POST', `${s.root}/failures/${value.id}/decision`, {})
+  expect(request.status).toBe(201)
+  const asked = request.body as FailureCase
+  const resolveHistorical = (resolution: string, reason?: string) =>
+    client.call('POST', `${s.root}/failures/${value.id}/resolve`, {
+      requestId: asked.decisions.at(-1)?.commentId,
+      resolution,
+      ...(reason && { reason }),
+    })
+  expect((await resolveHistorical('accepted')).status).toBe(409)
+  expect((await resolveHistorical('fixed', 'Verified separately')).status).toBe(200)
 })
 
 test('stored failed Checks retain factual outcomes after acceptance and reject borrowed late contexts', async () => {
@@ -508,48 +544,6 @@ test('stored failed Checks retain factual outcomes after acceptance and reject b
   expect((await s.obligations()).checkRuns.find((r) => r.id === report.checkRun.id)?.outcome).toBe(
     'failed',
   )
-})
-
-test('historical Findings remain recordable but cannot borrow a capture after their Run ended', async () => {
-  const s = await setup()
-  await s.client.ok('POST', `${s.root}/stop`)
-  await s.client.ok('POST', `${s.root}/resume`, {})
-  const fresh = await waitUntil(async () => {
-    const task = await getTask(s.client, s.task.id)
-    return task.leadRunId !== s.task.leadRunId && task.runs[0]?.state === 'idle' ? task : undefined
-  }, 'fresh lead after historical Finding')
-  const lead = api(ctx.daemon?.port ?? 0, s.tokens.issue(fresh.leadRunId ?? ''))
-  const capture = await lead.call('POST', `${s.root}/failure-contexts`, {})
-  expect(capture.status).toBe(201)
-  const context = capture.body as FailureContext
-  const source = { kind: 'finding', runId: s.task.leadRunId, finding: 'Historical observation' }
-  expect(
-    (
-      await lead.call('POST', `${s.root}/failures`, {
-        source,
-        evidence: 'Original',
-        contextId: context.id,
-      })
-    ).status,
-  ).toBe(409)
-  const recorded = await lead.call('POST', `${s.root}/failures`, { source, evidence: 'Original' })
-  expect(recorded.status).toBe(201)
-  const value = recorded.body as FailureCase
-  expect(value.source).toEqual(source)
-  expect(value.contextId).toBeUndefined()
-  expect(
-    (
-      await lead.call('POST', `${s.root}/failures/${value.id}/assessments`, {
-        assessment: 'uncertain',
-        recommendation: 'Resolve explicitly',
-      })
-    ).status,
-  ).toBe(200)
-  const request = await lead.call('POST', `${s.root}/failures/${value.id}/decision`, {})
-  expect(request.status).toBe(201)
-  const asked = request.body as FailureCase
-  expect((await s.resolve(asked)).status).toBe(409)
-  expect((await s.resolve(asked, 'fixed', 'Verified separately')).status).toBe(200)
 })
 
 test('invalidation notices survive health suspension and restart and reach the resumed session once', async () => {
