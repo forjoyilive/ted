@@ -19,7 +19,7 @@ function connected(epoch: number) {
 test('a reconnect epoch reloads slots changed while the renderer was away', async () => {
   const a = appState()
   const view = render(connected(0))
-  await screen.findByRole('button', { name: '0 slots in use · limit 6' })
+  await screen.findByRole('button', { name: '0 slots in use · limit 3' })
   a.state.slots = { ...a.state.slots, limit: 7, working: 1 }
   view.rerender(connected(1))
   await screen.findByRole('button', { name: '1 slot in use · limit 7' })

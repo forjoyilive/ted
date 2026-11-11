@@ -39,7 +39,7 @@ function working(a: ReturnType<typeof appState>) {
 test('live slot updates populate Working Runs and Open in List opens the queue', async () => {
   const a = appState()
   a.mount()
-  await screen.findByRole('button', { name: '0 slots in use · limit 6' })
+  await screen.findByRole('button', { name: '0 slots in use · limit 3' })
   working(a)
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
   await user().click(screen.getByRole('button', { name: '1 slot in use · limit 1 · 1 queued' }))
@@ -61,7 +61,7 @@ test('live slot updates populate Working Runs and Open in List opens the queue',
 test('empty Working Runs explains no work and Escape closes it', async () => {
   const a = appState()
   a.mount()
-  await user().click(await screen.findByRole('button', { name: '0 slots in use · limit 6' }))
+  await user().click(await screen.findByRole('button', { name: '0 slots in use · limit 3' }))
   const dialog = screen.getByRole('dialog', { name: 'Working Runs' })
   expect(within(dialog).getByText('No Runs working. Nothing queued.')).toBeTruthy()
   fireEvent.keyDown(window, { key: 'Escape' })
