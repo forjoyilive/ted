@@ -38,6 +38,7 @@ export function createWorkflows(options: {
   const { store, banners, libraryDir, reposDir } = options
   const factoryLayers = new Map<string, CheckedLayer | undefined>()
   const factoryFiles = new Map<string, { commit: string; read: ReturnType<typeof readGitLayer> }>()
+  const factoryRefs = new Map<string, { key: string; read: Promise<string | undefined> }>()
   const counts = new Map<string, number>()
   let libraryCount = 0
 
@@ -143,12 +144,22 @@ export function createWorkflows(options: {
   }
 
   async function factoryFilesAt(factory: StoredFactory, clone: string) {
-    const commit = await git
-      .revParse(clone, `origin/${factory.defaultBranch}`)
-      .catch(async (error: unknown) => {
+    const ref = `origin/${factory.defaultBranch}`
+    const key = `${clone}\0${ref}`
+    let pending = factoryRefs.get(factory.id)
+    if (!pending || pending.key !== key) {
+      const read = git.revParse(clone, ref).catch(async (error: unknown) => {
         if (await git.hasCommits(clone)) throw error
         return undefined
       })
+      pending = { key, read }
+      if (store.getFactory(factory.id)) factoryRefs.set(factory.id, pending)
+      const forget = () => {
+        if (factoryRefs.get(factory.id)?.read === read) factoryRefs.delete(factory.id)
+      }
+      void read.then(forget, forget)
+    }
+    const commit = await pending.read
     if (!commit) return undefined
     let cached = factoryFiles.get(factory.id)
     if (!cached || cached.commit !== commit) {
@@ -176,6 +187,7 @@ export function createWorkflows(options: {
     },
     drift,
     forget(factoryId) {
+      factoryRefs.delete(factoryId)
       factoryFiles.delete(factoryId)
       factoryLayers.delete(factoryId)
       counts.delete(factoryId)

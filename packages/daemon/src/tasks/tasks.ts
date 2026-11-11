@@ -1506,9 +1506,19 @@ export function createTasks(options: {
   }
 
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
-    for (const { id } of currentTasks()) {
+    for (const snapshot of currentTasks()) {
       if (closed) return
-      const task = store.getTask(id)
+      if (
+        snapshot.archived ||
+        !snapshot.repos.some(
+          (repo) =>
+            !repo.removed &&
+            repo.pullRequest?.state !== 'merged' &&
+            read.pulls.has(`${snapshot.id}:${repo.name}`),
+        )
+      )
+        continue
+      const task = store.getTask(snapshot.id)
       if (!task || task.archived) continue
       try {
         recordPullRequests(task, read)

@@ -5,13 +5,11 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
-import {
+import type {
   DaemonClient,
-  type PostCommentRequest,
-  type ReportOutcomeRequest,
-  readDaemonInfo,
-  runTokenFrom,
-  type SetClarifyDepthRequest,
+  PostCommentRequest,
+  ReportOutcomeRequest,
+  SetClarifyDepthRequest,
 } from '@ted/protocol'
 
 type DemoRequest =
@@ -163,6 +161,7 @@ async function runStep(step: Step): Promise<void> {
   if ('demoRequest' in step) {
     if (process.env.TED_DEMO !== '1') throw new Error('Demo requests require an isolated demo.')
     if (!process.env.TED_HOME) throw new Error('A demo request needs a home.')
+    const { DaemonClient, readDaemonInfo, runTokenFrom } = await import('@ted/protocol')
     const info = await readDaemonInfo(process.env.TED_HOME)
     const token = runTokenFrom(process.env)
     const task = process.env.TED_TASK

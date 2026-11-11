@@ -21,7 +21,7 @@ afterEach(async () => {
   if (scratch) await rm(scratch, { recursive: true, force: true })
 })
 
-test('repeated Board reads reuse committed Workflow files and notice a new commit', async () => {
+test('Board reads share concurrent ref checks, reuse Workflow files and notice a new commit', async () => {
   const temporary = await makeTempHome()
   cleanup = temporary.cleanup
   scratch = await mkdtemp(path.join(tmpdir(), 'ted-workflow-cache-'))
@@ -33,6 +33,8 @@ test('repeated Board reads reuse committed Workflow files and notice a new commi
   const bin = path.join(scratch, 'bin')
   const log = path.join(scratch, 'git-reads.jsonl')
   const failure = path.join(scratch, 'fail-next-blob')
+  const refs = path.join(scratch, 'ref-reads.jsonl')
+  const slowRefs = path.join(scratch, 'slow-refs')
   await mkdir(bin)
   await writeFile(
     path.join(bin, 'git'),
@@ -40,6 +42,10 @@ test('repeated Board reads reuse committed Workflow files and notice a new commi
 import { appendFileSync, existsSync, unlinkSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 const args = process.argv.slice(2)
+if (args[0] === 'rev-parse' && args.includes('origin/main^{commit}') && existsSync(${JSON.stringify(slowRefs)})) {
+  appendFileSync(${JSON.stringify(refs)}, 'read\\n')
+  await new Promise(resolve => setTimeout(resolve, 100))
+}
 if (args[0] === 'cat-file' || args[0] === 'ls-tree') appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n')
 if (args[0] === 'cat-file' && existsSync(${JSON.stringify(failure)})) {
   unlinkSync(${JSON.stringify(failure)})
@@ -64,6 +70,13 @@ process.exit(result.status ?? 1)
   await writeFile(log, '')
   for (let i = 0; i < 3; i++) expect(await client.factoryBoard(factory.id)).toEqual(before)
   expect(await readFile(log, 'utf8')).toBe('')
+  await writeFile(slowRefs, '')
+  const concurrent = await Promise.all(
+    Array.from({ length: 8 }, () => client.factoryBoard(factory.id)),
+  )
+  for (const board of concurrent) expect(board).toEqual(before)
+  expect((await readFile(refs, 'utf8')).trim().split('\n')).toHaveLength(1)
+  await rm(slowRefs)
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, design, work]\n',
   })
