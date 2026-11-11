@@ -262,9 +262,13 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   expect(
     (within(secondCard).getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value,
   ).toBe('Keep retrying')
-  const scrolls = vi.mocked(Element.prototype.scrollIntoView).mock.calls.length
+  const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+  scrollIntoView.mockClear()
   await user().click(secondJump)
-  expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(scrolls + 1)
+  const target = required(secondCard.closest('[data-chat-item]'))
+  expect(document.activeElement).toBe(target)
+  expect(scrollIntoView.mock.contexts).toContain(target)
+  expect(within(secondCard).getByDisplayValue('Keep retrying')).toBeTruthy()
   await user().type(
     within(firstCard).getByRole('textbox', { name: 'Your answer' }),
     'Keep the header draft',
