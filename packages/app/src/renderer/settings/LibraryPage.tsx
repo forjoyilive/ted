@@ -6,13 +6,13 @@ import type {
   StageId,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
-import { useConnection } from '../data.ts'
+import { useEventValue } from '../data.ts'
 import { type SettingsDraft, type StageDraft, stageEdited } from '../factory-settings.ts'
 import {
   libraryChanges,
@@ -61,7 +61,6 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   const [error, setError] = useState<string>()
   const [changedOnDisk, setChangedOnDisk] = useState(false)
   const [saving, setSaving] = useState(false)
-  const { epoch } = useConnection()
   const count = draft && loaded ? unsavedLibrary(draft, loaded) : 0
 
   const show = useCallback((next: LibraryView) => {
@@ -70,33 +69,24 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
     setLoaded(fresh)
     setDraft(fresh)
     setChangedOnDisk(false)
+    shown.current = { count: 0, version: next.version }
   }, [])
 
   const shown = useRef({ count, version: view?.version })
   shown.current = { count, version: view?.version }
 
-  useEffect(() => {
-    void epoch
-    let active = true
-    const refresh = () =>
-      ted.library().then(
-        (next) => {
-          if (!active || next.version === shown.current.version) return
-          setError(undefined)
-          if (shown.current.count === 0) show(next)
-          else setChangedOnDisk(true)
-        },
-        (failure: unknown) => active && setError(readableError(failure)),
-      )
-    void refresh()
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'library-changed') void refresh()
-    })
-    return () => {
-      active = false
-      unsubscribe()
-    }
-  }, [epoch, show])
+  const { update, refresh } = useEventValue<LibraryView | undefined>({
+    initial: undefined,
+    load: ted.library,
+    event: (event) => (event.type === 'library-changed' ? 'reload' : undefined),
+    changed: (next) => {
+      if (!next || next.version === shown.current.version) return
+      setError(undefined)
+      if (shown.current.count === 0) show(next)
+      else setChangedOnDisk(true)
+    },
+    error: (failure) => setError(readableError(failure)),
+  })
 
   const setStage = (id: StageId, fields: Partial<StageDraft>) =>
     setDraft((d) => {
@@ -112,7 +102,12 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
     setSaving(true)
     setError(undefined)
     try {
-      show(await ted.saveLibrary({ changes: libraryChanges(draft, loaded), version: view.version }))
+      const next = await ted.saveLibrary({
+        changes: libraryChanges(draft, loaded),
+        version: view.version,
+      })
+      show(next)
+      update(() => next)
       setEditing(undefined)
     } catch (failure) {
       setError(readableError(failure))
@@ -255,7 +250,10 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
               setDraft(loaded)
               setEditing(undefined)
               setError(undefined)
-              if (changedOnDisk) void ted.library().then(show)
+              if (changedOnDisk)
+                void refresh().then((next) => {
+                  if (next) show(next)
+                })
             }}
           >
             Discard

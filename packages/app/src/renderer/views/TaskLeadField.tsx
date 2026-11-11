@@ -3,6 +3,7 @@ import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
 import { type FormEvent, useEffect, useId, useState } from 'react'
 import { Select } from '../components/Select.tsx'
+import { useEventValue } from '../data.ts'
 import { agentLabels, leadSummary } from '../task-fields.ts'
 import { ted } from '../ted.ts'
 import styles from './TaskLeadField.module.css'
@@ -12,7 +13,16 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 export function TaskLeadField({ task }: { task: Task }) {
   const id = useId()
   const lead = task.lead
-  const [run, setRun] = useState<Run | undefined>()
+  const runId = task.leadRunId
+  const { value: run } = useEventValue<Run | undefined>({
+    initial: undefined,
+    key: runId ?? '',
+    enabled: runId !== undefined,
+    load: () =>
+      runId === undefined ? Promise.resolve(undefined) : ted.getRun(runId).then(({ run }) => run),
+    event: (event) =>
+      event.type === 'run-updated' && event.run.id === runId ? () => event.run : undefined,
+  })
   const [agent, setAgent] = useState<AgentKind>(lead?.agent ?? 'claude')
   const [model, setModel] = useState(lead?.model ?? '')
   const [effort, setEffort] = useState<Effort | '' | 'stage'>(
@@ -25,16 +35,6 @@ export function TaskLeadField({ task }: { task: Task }) {
     setModel(lead?.model ?? '')
     setEffort(lead?.effortMode === 'stage' ? 'stage' : (lead?.effort ?? ''))
   }, [lead?.agent, lead?.model, lead?.effort, lead?.effortMode])
-
-  useEffect(() => {
-    const runId = task.leadRunId
-    if (runId === undefined) return setRun(undefined)
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'run-updated' && event.run.id === runId) setRun(event.run)
-    })
-    void ted.getRun(runId).then(({ run }) => setRun(run))
-    return unsubscribe
-  }, [task.leadRunId])
 
   const save = (event: FormEvent) => {
     event.preventDefault()
