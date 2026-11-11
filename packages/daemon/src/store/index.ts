@@ -77,6 +77,7 @@ import {
   type TaskRepo,
   type TaskSource,
   type TrackStage,
+  validateFailureChoices,
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -95,6 +96,7 @@ import {
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
@@ -485,6 +487,7 @@ export interface HeldRun {
 }
 
 export interface TedStore extends TaskHistory {
+  execution: ExecutionStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
@@ -2334,7 +2337,26 @@ export async function openStore({
     },
   })
 
+  const execution = createExecutionStore({
+    store,
+    commit,
+    task(id) {
+      const row = taskRow(id)
+      return (
+        row && {
+          started:
+            row.branch !== null ||
+            row.worktree !== null ||
+            taskRuns(id).length > 0 ||
+            store.query(queryDb(taskRepos.where({ taskId: id }))).length > 0,
+        }
+      )
+    },
+  })
+  await persisted()
+
   return {
+    execution,
     sideChats: createSideChatStore({
       store,
       commit,
@@ -2393,7 +2415,10 @@ export async function openStore({
           taskId: value.taskId,
           kind: 'question',
           body,
-          choices: Object.values(failureChoices),
+          ...(value.validation && {
+            title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
+          }),
+          choices: Object.values(value.validation ? validateFailureChoices : failureChoices),
           author: { kind: 'ted' },
         },
         at,
@@ -2710,6 +2735,7 @@ export async function openStore({
       checkingTasks.delete(taskId)
       const at = new Date().toISOString()
       commit(
+        events.taskExecutionForgotten({ taskId, at }),
         events.taskDeleted({
           taskId,
           factoryId: row.factoryId,
@@ -3895,11 +3921,18 @@ export async function openStore({
       const judged = (j: { passed: boolean; notes?: number } | undefined) =>
         j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }
       commit(
-        events.validateJudged({
+        events.validateJudgedV2({
           id: randomUUID(),
           taskId,
           outcome,
           checkRunId: checkRunId ?? null,
+          validation:
+            outcome === 'passed'
+              ? JSON.stringify({
+                  progress: failureStore.progress(taskId),
+                  failures: failureStore.list(taskId).filter((failure) => failure.validation),
+                })
+              : null,
           review: judged(review),
           visual: judged(visual),
           reviewer:

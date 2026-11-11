@@ -1,6 +1,6 @@
 # Base conflicts found at hand-off are recorded
 
-ADR 0108 refuses `ted outcome advance` while the branch conflicts with its base. At Work that refusal is the whole story: the Task Lead resolves the conflict in place and no send-back exists, so nothing in the store said the conflict happened. A Factory dashboard could count conflicts that became send-backs and not the ones caught earlier.
+ADR 0110 refuses `ted outcome advance` while the branch conflicts with its base. At Work that refusal is the whole story: the Task Lead resolves the conflict in place and no send-back exists, so nothing in the store said the conflict happened. A Factory dashboard could count conflicts that became send-backs and not the ones caught earlier.
 
 ## Decision
 
@@ -17,15 +17,15 @@ The event has a Task log entry without the file names. The thread shows a refusa
 
 A dashboard counts conflicts caught at Work as rows with `stage: 'work'`, and conflicts that became send-backs as rows with a `sendBackId`. A conflict at Validate or Review usually has both a refusal row and a send-back row.
 
-ADR 0110 reads these rows for the base tips it trusts and for the files a send-back’s conflict named.
+ADR 0112 reads these rows for the base tips it trusts and for the files a send-back’s conflict named.
 
 ## Considered Options
 
 - **A field on `v2.TaskSentBack` or `v1.SendBackCauseRecorded`.** Rejected: shipped events aren’t edited (ADR 0010), and a refusal at Work has no send-back to carry it.
-- **Only a count of files.** Rejected: the next review names the files (ADR 0110), and the names are already in the Findings and the refusal message.
+- **Only a count of files.** Rejected: the next review names the files (ADR 0112), and the names are already in the Findings and the refusal message.
 - **Record the merge watcher’s conflicts too.** Not done: GitHub reports those, without a base commit or file list. They are counted as `base-conflict` send-backs from Merge.
 
 ## Consequences
 
 - A Task Lead that reports `advance` again without resolving the conflict adds a row each time.
-- Nothing records a conflict when the fetch or the test-merge itself fails; the outcome goes through, as in ADR 0108.
+- Nothing records a conflict when the fetch or the test-merge itself fails; the outcome goes through, as in ADR 0110.

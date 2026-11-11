@@ -1,6 +1,6 @@
 # Checks run in the daemon as Check runs, not Runs
 
-_When Checks run changed in ADR 0109: a Task leaving Work has them run before the Stage changes, and a failure there is not a send-back. The rest of this ADR stands, and Validate entered any other way still runs them at entry._
+_When Checks run changed in ADR 0111: a Task leaving Work has them run before the Stage changes, and a failure there is not a send-back. The rest of this ADR stands, and Validate entered any other way still runs them at entry._
 
 When a Task enters Validate, or an agent runs `ted checks`, the daemon runs the Factory’s Checks itself through one runner, `runChecks` in `packages/daemon/src/tasks/checks.ts`. Each set of results is a **Check run** in the store (`v1.ChecksStarted`, `v1.CheckStarted`, `v1.CheckFinished`, `v1.ChecksFinished`), with one row per Check. A Check run is not a Run: it has no agent and never takes a working slot, but the Task shows Working with “Running Checks · Tests (2 of 3)” while one is unfinished.
 

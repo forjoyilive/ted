@@ -1,6 +1,6 @@
 # From round two, TED scopes Validate’s reviewer to the fixes
 
-_ADR 0110 adds a third scope: after send-backs that are all for a base conflict, the reviewer checks the conflict resolution, not the whole change. It also changes the `fixes` command when Work merged the base in between rounds. ADR 0109 means a Check failure straight after Work is no longer a send-back._
+_ADR 0112 adds a third scope: after send-backs that are all for a base conflict, the reviewer checks the conflict resolution, not the whole change. It also changes the `fixes` command when Work merged the base in between rounds. ADR 0111 means a Check failure straight after Work is no longer a send-back._
 
 In two days of history, 17 Tasks had three or more send-backs and made up 102 of 137. Their rounds didn’t converge: each round’s Findings were a new edge case in different code, because the Task Lead ran a fresh full-branch review every round. The Stage file already said to give the reviewer the earlier Findings and ask only whether they were fixed. An instruction the Task Lead may skip wasn’t enough, so TED now writes the reviewer’s scope itself.
 
@@ -9,7 +9,7 @@ In two days of history, 17 Tasks had three or more send-backs and made up 102 of
 **When a round is scoped.** `reviewRound` in `tasks/tasks.ts` takes the newest reviewer of an earlier Validate visit that finished a review (it has a final message and didn’t fail). The round is `fixes` only when all of these hold:
 
 - every send-back recorded after that reviewer is a counted send-back from Validate to Work in the current series, and at least one of them is not a Check failure;
-- none of them has the cause `base-conflict` (ADR 0108);
+- none of them has the cause `base-conflict` (ADR 0110);
 - the Task has the same repos, and in each one the commit that reviewer started at is an ancestor of HEAD.
 
 Anything else is a `full` round with the Task Lead’s prompt, as before: the first round, a round after a Check failure with no review before it, a send-back from Review or from the human at a Gate (both reset the series or sit outside it), Back to Design, a send-back for a conflict with the base branch, a rebased or rewritten branch, a changed Repos field.
@@ -36,6 +36,6 @@ The first round is unchanged, so a first review catches what it caught before.
 
 ## Consequences
 
-- TED can’t stop a Task Lead that reviews the whole branch itself or runs a review tool from its shell. The Validate entry text tells it not to; ADR 0106 closes the `ted run start` path.
+- TED can’t stop a Task Lead that reviews the whole branch itself or runs a review tool from its shell. The Validate entry text tells it not to; ADR 0108 closes the `ted run start` path.
 - A serious bug the first review missed in untouched code is found in a later round only if the reviewer notices it and it is P1. That is the intended trade: later rounds check fixes.
 - Anything new that sends a Task back from Validate, or changes history under a Task’s branch, must keep `reviewRound`’s conditions true or the next round falls back to a full review.

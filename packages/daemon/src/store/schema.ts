@@ -106,6 +106,27 @@ export const tasks = State.SQLite.table({
   },
 })
 
+export const executionMachine = State.SQLite.table({
+  name: 'executionMachine',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    machineId: State.SQLite.text(),
+  },
+})
+
+export const executionAssignments = State.SQLite.table({
+  name: 'executionAssignments',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    machineId: State.SQLite.text(),
+    assignmentId: State.SQLite.text(),
+    generation: State.SQLite.integer(),
+    reservationId: State.SQLite.text(),
+    operationId: State.SQLite.text(),
+    assignedAt: State.SQLite.text(),
+  },
+})
+
 export const taskQueue = State.SQLite.table({
   name: 'taskQueue',
   columns: {
@@ -526,6 +547,13 @@ export const failureCases = State.SQLite.table({
     at: State.SQLite.text(),
   },
 })
+export const validationProgress = State.SQLite.table({
+  name: 'validationProgress',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    data: State.SQLite.text(),
+  },
+})
 export const failureContexts = State.SQLite.table({
   name: 'failureContexts',
   columns: {
@@ -903,6 +931,26 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  localMachineIdentified: Events.synced({
+    name: 'v1.LocalMachineIdentified',
+    schema: Schema.Struct({ machineId: Schema.String, at: Schema.String }),
+  }),
+  taskExecutionAssigned: Events.synced({
+    name: 'v1.TaskExecutionAssigned',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      machineId: Schema.String,
+      assignmentId: Schema.String,
+      generation: Schema.Number,
+      reservationId: Schema.String,
+      operationId: Schema.String,
+      assignedAt: Schema.String,
+    }),
+  }),
+  taskExecutionForgotten: Events.synced({
+    name: 'v1.TaskExecutionForgotten',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   sideChatChanged: Events.synced({
     name: 'v1.SideChatChanged',
     schema: Schema.Struct({ sourceRunId: Schema.String, data: Schema.String }),
@@ -918,6 +966,19 @@ export const events = {
   coordinatorRemoved: Events.synced({
     name: 'v1.CoordinatorRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, runIds: Schema.Array(Schema.String) }),
+  }),
+  validationProgressed: Events.synced({
+    name: 'v1.ValidationProgressed',
+    schema: Schema.Struct({ taskId: Schema.String, data: Schema.String }),
+  }),
+  failureVerified: Events.synced({
+    name: 'v1.FailureVerified',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
   }),
   failureContextCaptured: Events.synced({
     name: 'v1.FailureContextCaptured',
@@ -2444,6 +2505,26 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  validateJudgedV2: Events.synced({
+    name: 'v2.ValidateJudged',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      outcome: Schema.String,
+      checkRunId: Schema.NullOr(Schema.String),
+      review: Schema.NullOr(
+        Schema.Struct({ passed: Schema.Boolean, notes: Schema.NullOr(Schema.Number) }),
+      ),
+      visual: Schema.NullOr(
+        Schema.Struct({ passed: Schema.Boolean, notes: Schema.NullOr(Schema.Number) }),
+      ),
+      reviewer: Schema.NullOr(
+        Schema.Struct({ agent: Schema.String, unavailable: Schema.NullOr(Schema.String) }),
+      ),
+      validation: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   loopCheckStarted: Events.synced({
     name: 'v1.LoopCheckStarted',
     schema: Schema.Struct({
@@ -2922,6 +3003,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       visual: args.visual,
       reviewer: args.reviewer,
     }),
+  'v2.ValidateJudged': (args) =>
+    task(args, {
+      outcome: args.outcome,
+      validation: args.validation,
+      checkRunId: args.checkRunId,
+      review: args.review,
+      visual: args.visual,
+      reviewer: args.reviewer,
+    }),
   'v1.LoopCheckStarted': (args) => task(args, { runId: args.runId, round: args.round }),
   'v1.SendBackAsked': (args) =>
     task(args, {
@@ -3011,6 +3101,11 @@ const materializers = counted(
       ],
       'v1.FactoryCloned': ({ factoryId, at }) =>
         factories.update({ clonedAt: at }).where({ id: factoryId }),
+      'v1.LocalMachineIdentified': ({ machineId }) =>
+        executionMachine.insert({ id: 'local', machineId }).onConflict('id', 'ignore'),
+      'v1.TaskExecutionAssigned': (assignment) =>
+        executionAssignments.insert(assignment).onConflict('taskId', 'ignore'),
+      'v1.TaskExecutionForgotten': ({ taskId }) => executionAssignments.delete().where({ taskId }),
       'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
@@ -3237,6 +3332,7 @@ const materializers = counted(
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
+        validationProgress.delete().where({ taskId }),
         failureContexts.delete().where({ taskId }),
         stageEntries.delete().where({ taskId }),
         taskRepos.delete().where({ taskId }),
@@ -3266,6 +3362,9 @@ const materializers = counted(
           .where({ id: taskId }),
       'v1.TaskReposSet': ({ taskId, repos, at }) =>
         tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
+      'v1.ValidationProgressed': (row) =>
+        validationProgress.insert(row).onConflict('taskId', 'replace'),
+      'v1.FailureVerified': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureContextCaptured': (row) => failureContexts.insert(row).onConflict('id', 'replace'),
       'v1.FailureCaseRecorded': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAssessed': (row) => failureCases.insert(row).onConflict('id', 'replace'),
@@ -3331,6 +3430,8 @@ const materializers = counted(
       'v1.SeverityRuleReviewRecorded': (row) => p1OnlyReviews.insert(row),
       'v1.SendBackSeverityDeclared': (row) => severityDeclarations.insert(row),
       'v1.ValidateJudged': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v2.ValidateJudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.LoopCheckStarted': ({ to, ...row }) =>
         loopChecks.insert({ ...row, toStage: to, verdict: null }),
@@ -3798,6 +3899,8 @@ const state = State.SQLite.makeState({
     factoryOrder,
     tasks,
     taskQueue,
+    executionMachine,
+    executionAssignments,
     taskBlockers,
     deletedTasks,
     taskAttachments,
@@ -3828,6 +3931,7 @@ const state = State.SQLite.makeState({
     checkResults,
     failureCases,
     failureContexts,
+    validationProgress,
     stageEntries,
     workflowLayers,
     stageFileTexts,

@@ -195,6 +195,20 @@ export { type Edition, edition, type Identity, identity } from './edition.ts'
 export { filterTedEnv, tedEnv, tedEnvironment } from './env.ts'
 export type { DaemonEvent } from './events.ts'
 export {
+  type AssignmentId,
+  type AssignTaskExecution,
+  type ExecutionHandle,
+  type ExecutionHandleId,
+  type ExecutionOperationId,
+  type ExecutionOwnership,
+  type ExecutionRef,
+  executionHandle,
+  executionIds,
+  type MachineId,
+  type ReservationId,
+  type TaskAssignment,
+} from './execution.ts'
+export {
   type ExportFormat,
   type ExportRun,
   type ExportTask,
@@ -307,9 +321,10 @@ export {
   parseAssessFailureRequest,
   parseRecordFailureRequest,
   parseResolveFailureRequest,
+  parseVerifyFailureRequest,
 } from './failure-parsers.ts'
 export type * from './failures.ts'
-export { failureChoices } from './failures.ts'
+export { failureChoices, validateFailureChoices, validationExecution } from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
@@ -354,8 +369,11 @@ export {
 export type { AllowLinearTeamRequest } from './linear.ts'
 export {
   findLinearUrl,
+  isLinearIntakeScope,
   isLinearTeamKey,
   type LinearFile,
+  type LinearIntakeChoices,
+  type LinearIntakeScope,
   type LinearIssue,
   type LinearKeyPlace,
   type LinearKeyState,
@@ -368,11 +386,13 @@ export {
   linearKeyPage,
   parseLinearUrl,
   type SaveLinearKeyRequest,
+  type SetFactoryLinearIntakeRequest,
 } from './linear.ts'
 export {
   parseAllowLinearTeamRequest,
   parseLinearLookupRequest,
   parseSaveLinearKeyRequest,
+  parseSetFactoryLinearIntakeRequest,
 } from './linear-parsers.ts'
 export {
   type ArchivedFilter,

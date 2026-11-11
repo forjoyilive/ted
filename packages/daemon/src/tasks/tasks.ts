@@ -22,7 +22,6 @@ import type {
   BrowserResult,
   CheckRun,
   CheckRunReport,
-  CheckRunTrigger,
   ClarifyDepth,
   Comment,
   CommentAnswer,
@@ -101,6 +100,7 @@ import {
   failureChoices,
   parseLinearUrl,
   sizeChoices,
+  validateFailureChoices,
 } from '@ted/protocol'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
@@ -182,13 +182,14 @@ import {
   failureFindings,
   lastLines,
   planChecks,
+  type RunnableCheck,
   readOutput,
-  runChecks,
   summary,
   tedSettingsCheck,
   touchesSettings,
 } from './checks.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
+import { createTaskExecution } from './execution.ts'
 import {
   ciFailureKey,
   createFailureCases,
@@ -221,6 +222,7 @@ import {
 import { createPullRequestWatch } from './github-watch.ts'
 import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
 import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
+import { verifyLinearIntake } from './linear-intake.ts'
 import { createLinearSync, type LinearClosed, type LinearSyncApi } from './linear-sync.ts'
 import {
   chooseMethod,
@@ -310,6 +312,8 @@ import {
   p1OnlyReviewPrompt,
   subAgentsInValidate,
 } from './validate-settings.ts'
+import { createValidation } from './validation.ts'
+import { failureCaseFindings, failureCaseReference } from './validation-report.ts'
 import { type CommandResult, copyFiles, outputTail } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
@@ -405,6 +409,7 @@ export interface Tasks {
     id: string,
     input: AssessFailureRequest,
   ): Promise<FailureCase>
+  verifyFailure(ref: string, caller: Caller, id: string, evidence: string): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
@@ -541,7 +546,9 @@ export function createTasks(options: {
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
-  linear?: Pick<Linear, 'issueFor'> & Partial<LinearSyncApi>
+  linear?: Pick<Linear, 'issueFor'> &
+    Partial<LinearSyncApi> &
+    Partial<Pick<Linear, 'intakeMembership'>>
   linearSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
@@ -575,6 +582,7 @@ export function createTasks(options: {
     health,
     attachmentFile,
   } = options
+  const execution = createTaskExecution(store)
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
   const promptComments = new Set<string>()
@@ -729,7 +737,7 @@ export function createTasks(options: {
       factory,
     )
     const setupApps = task.setup ? await approvedSetupApps(task) : undefined
-    const bypass = runsInBypass(await taskWorkflow(task, { fetch: false }))
+    const bypass = runsInBypass(await taskWorkflow(find(task.id), { fetch: false }))
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
@@ -1606,12 +1614,11 @@ export function createTasks(options: {
       : `# Apps\n\nTED started the approved Apps from this branch:\n\n${lines.join('\n')}`
   }
 
-  async function beginChecks(
+  async function checkPlan(
     task: StoredTask,
     resolution: WorkflowResolution,
-    trigger: CheckRunTrigger,
     only?: string,
-  ): Promise<{ checkRun: CheckRun; done: Promise<CheckRunnerResult> } | undefined> {
+  ): Promise<RunnableCheck[]> {
     const factory = factoryOf(task)
     const entries = factoryRepos(resolution.workflow, factory)
     const repos = await Promise.all(
@@ -1627,57 +1634,14 @@ export function createTasks(options: {
           }
         }),
     )
-    const plan = await planChecks({
+    return planChecks({
       checks: task.setup
         ? await approvedSetupChecks(task)
         : (resolution.workflow.settings.stages.validate?.checks ?? []),
       repos,
       primary: entries[0]?.name ?? '',
-      ...(only !== undefined && { only }),
+      ...(only !== undefined && task.stage !== 'validate' && { only }),
     })
-    if (plan.length === 0) return undefined
-    if (factoryPermissions(store, factory.id) !== 'bypass') await sandboxProblem(factory.id)
-    const checkRun = store.startChecks({
-      taskId: task.id,
-      trigger,
-      stage: task.stage,
-      checks: plan.map((p) => p.check),
-    })
-    const done = (async () => {
-      const wait = new AbortController()
-      checkWaits.set(task.id, wait)
-      const release = await options.checkSlots.take({
-        taskId: task.id,
-        signal: AbortSignal.any([stopping.signal, wait.signal]),
-      })
-      checkWaits.delete(task.id)
-      if (release === undefined) {
-        if (!stopping.signal.aborted) store.finishChecks(checkRun.id, 'interrupted')
-        return { outcome: 'interrupted' as const, notFound: [] }
-      }
-      const result = await runChecks({
-        checks: plan,
-        taskDisplayId: task.displayId,
-        libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
-        env: options.env?.() ?? process.env,
-        logFor: (position) => checkLog(task, checkRun.id, position),
-        prepareLaunch: () => prepareCommandLaunch(task),
-        signal: stopping.signal,
-        lowPriority: store.settings().lowPriorityWork,
-        onStart: (position) => store.checkStarted(checkRun.id, position),
-        onFinish: (position, finished) => store.checkFinished(checkRun.id, position, finished),
-      })
-        .catch((error: unknown) => {
-          console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
-          return { outcome: 'interrupted' as const, notFound: [] }
-        })
-        .finally(release)
-      if (result.outcome === 'interrupted' && stopping.signal.aborted) return result
-      store.finishChecks(checkRun.id, result.outcome)
-      reportNotFound(factory.id, result)
-      return result
-    })()
-    return { checkRun, done }
   }
 
   function reportAutoMode(factoryId: string, signal: AutoModeSignal): void {
@@ -1730,88 +1694,38 @@ export function createTasks(options: {
     return (await failedFindings(task, checkRun)) ?? `Checks passed.\n\n${summary(checkRun.checks)}`
   }
 
-  async function validateChecks(
-    taskId: string,
-    message?: string,
-    checked?: CheckRun,
-  ): Promise<void> {
-    setChecking(taskId, true)
-    try {
-      const task = find(taskId)
-      const resolution = await taskWorkflow(task, { fetch: false })
-      const { workflow } = resolution
-      const round = await validateRound(task, workflow)
-      const instructions = [
-        message ?? nextStageMessage(workflow, 'validate'),
-        ...(round !== undefined ? [round] : []),
-      ].join('\n\n')
-      const withApps = async (text: string) => {
-        const current = find(taskId)
-        const apps = current.setup ? await startSetupApps(current) : undefined
-        return apps === undefined ? text : `${text}\n\n${apps}`
-      }
-      if (checked) {
-        await deliver(
+  async function applyValidationFix(task: StoredTask, value: FailureCase): Promise<void> {
+    const reference = `${failureCaseReference(value)}\n\n`
+    const matches = (record: { findings: string }) => record.findings.startsWith(reference)
+    if (store.sendBackAsks(task.id).some(matches) || store.loopChecks(task.id).some(matches)) return
+    if (
+      pendingLoopCheck(task.id) ||
+      store.sendBackAsks(task.id).some((ask) => !store.getComment(ask.commentId)?.answer)
+    )
+      return
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
+    const sent = store.listSendBacks(task.id).find(matches)
+    if (sent) {
+      if (sent.at >= visitStart(task))
+        await move(
           task,
-          await withApps(
-            `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before moving the Task out of Work. None failed:\n\n${summary(checked.checks)}`,
-          ),
-        )
-        return
-      }
-      const started = await beginChecks(task, resolution, 'validate')
-      if (!started) {
-        await deliver(task, await withApps(instructions))
-        return
-      }
-      const result = await started.done
-      const checkRun = store.getCheckRun(started.checkRun.id) ?? started.checkRun
-      const current = find(taskId)
-      if (result.outcome === 'interrupted' || current.stage !== 'validate') return
-      if (result.outcome === 'passed') {
-        await deliver(
-          current,
-          await withApps(
-            `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`,
-          ),
-        )
-        return
-      }
-      const findings = (await failedFindings(current, checkRun)) ?? summary(checkRun.checks)
-      await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
-        mode: 0o600,
-      })
-      const canSendBack =
-        workflow.stages.includes('work') &&
-        workflow.order.indexOf('work') < workflow.order.indexOf('validate')
-      if (!canSendBack) {
-        await deliver(
-          current,
-          `${instructions}\n\n# A Check failed\n\nTED ran the Factory’s Checks and one failed. Work isn’t before Validate in this Workflow, so TED couldn’t send the Task back.\n\n${findings}`,
-        )
-        return
-      }
-      const outcome = await holding(current, () =>
-        sendBack(
-          current,
           resolution,
-          'validate',
-          { outcome: 'back', to: 'work', findings },
-          checkRun.id,
-        ),
-      )
-      if (outcome.request || outcome.pending) {
-        await deliver(
-          current,
-          `${instructions}\n\n# A Check failed\n\nTED ran the Factory’s Checks and one failed. ${outcome.message}\n\n${findings}`,
+          'work',
+          backMessage(resolution.workflow, 'work', 'validate', sent),
         )
-      }
-    } finally {
-      setChecking(taskId, false)
+      return
     }
+    judge(task, 'sent-back', undefined)
+    await sendBack(
+      task,
+      resolution,
+      'validate',
+      { outcome: 'back', to: 'work', findings: failureCaseFindings(value) },
+      value.source.kind === 'factory-check' ? value.source.checkRunId : undefined,
+    )
   }
 
-  type StartedChecks = NonNullable<Awaited<ReturnType<typeof beginChecks>>>
+  type StartedChecks = NonNullable<Awaited<ReturnType<typeof validation.begin>>>
 
   const liveHeads = (task: StoredTask) =>
     Promise.all(
@@ -1850,11 +1764,15 @@ export function createTasks(options: {
     try {
       const started =
         begun ??
-        (await beginChecks(
-          find(taskId),
-          await gateWorkflow(find(taskId), { fetch: false }),
-          'hand-off',
-        ))
+        (await execution
+          .local(taskId)
+          .then(async () =>
+            validation.begin(
+              find(taskId),
+              await gateWorkflow(find(taskId), { fetch: false }),
+              'hand-off',
+            ),
+          ))
       const result = started === undefined ? undefined : await started.done
       const checkRun =
         started === undefined
@@ -1934,7 +1852,7 @@ export function createTasks(options: {
 
   async function pullRequestTargets(task: StoredTask): Promise<PullRequestTarget[]> {
     const factory = factoryOf(task)
-    const { workflow } = await taskWorkflow(task, { fetch: false })
+    const { workflow } = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(workflow, factory)
     const live = task.repos.filter((r) => !r.removed)
     return Promise.all(
@@ -1969,6 +1887,7 @@ export function createTasks(options: {
   }
 
   async function baseConflict(task: StoredTask): Promise<BaseConflict | undefined> {
+    await execution.local(task.id)
     for (const target of await pullRequestTargets(task)) {
       const repo = task.repos.find((r) => r.name === target.name)
       if (repo?.pullRequest?.state === 'merged') continue
@@ -2214,7 +2133,7 @@ export function createTasks(options: {
     const deliverable = run !== undefined || canStartForGitHub(task)
     const mode =
       task.stage === 'merge'
-        ? mergeMode(task, (await taskWorkflow(task, { fetch: false })).workflow)
+        ? mergeMode(task, (await taskWorkflow(find(task.id), { fetch: false })).workflow)
         : undefined
     const both = mode === undefined || mode === 'off'
     const choice = { ci: both, conflict: both }
@@ -2372,7 +2291,7 @@ export function createTasks(options: {
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
     setChecking(taskId, true)
     try {
-      const started = await beginChecks(find(taskId), resolution, 'merge')
+      const started = await validation.begin(find(taskId), resolution, 'merge')
       if (!started) return true
       const result = await started.done
       if (result.outcome === 'passed') return true
@@ -2405,7 +2324,7 @@ export function createTasks(options: {
       store.mergeStoppedPartway(taskId, split)
     }
     const told = split ? `${findings}\n\n${partwayFindings(split)}` : findings
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const { stages } = resolution.workflow
     const to = toValidate && stages.includes('validate') ? 'validate' : 'work'
     if (!stages.includes(to)) {
@@ -2437,7 +2356,7 @@ export function createTasks(options: {
     const task = find(taskId)
     if (task.stage !== 'merge') return 'done'
     if (advancing.has(taskId)) return 'busy'
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     await holding(task, async () => {
       const current = find(taskId)
       if (current.stage === 'merge') await move(current, resolution, 'done', undefined)
@@ -2645,10 +2564,13 @@ export function createTasks(options: {
     store,
     runs,
     agents,
+    async prepareExecution(task) {
+      await execution.local(task.id)
+    },
     find: (ref) => find(ref),
     async leadFor(task) {
       if (task.lead) return task.lead
-      return leadFrom((await taskWorkflow(task, { fetch: false })).workflow.settings)
+      return leadFrom((await taskWorkflow(find(task.id), { fetch: false })).workflow.settings)
     },
     reviewerFor: (task) => reviewerFor(task),
     visitStart: (task) => visitStart(task),
@@ -2662,7 +2584,7 @@ export function createTasks(options: {
       return { ...(repoEntry(await entriesOf(factoryOf(task)), repo)?.env ?? {}), ...appVars }
     },
     async permissionsFor(task) {
-      const resolution = await taskWorkflow(task, { fetch: false })
+      const resolution = await taskWorkflow(find(task.id), { fetch: false })
       return resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto'
     },
     clonePathFor: (repo) => clonePath(reposDir, repo),
@@ -2673,7 +2595,7 @@ export function createTasks(options: {
   })
 
   async function reviewerFor(task: StoredTask): Promise<ReviewerChoice> {
-    const { settings } = (await taskWorkflow(task, { fetch: false })).workflow
+    const { settings } = (await taskWorkflow(find(task.id), { fetch: false })).workflow
     const lead = task.lead ?? leadFrom(settings)
     const setting = settings.reviewer
     const tuned = {
@@ -2738,7 +2660,7 @@ export function createTasks(options: {
     if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
     if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
     const factory = factoryOf(task)
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(resolution.workflow, factory)
     if (entries.length < 2) {
       throw new RequestError(
@@ -3027,7 +2949,7 @@ export function createTasks(options: {
   async function freshLead(task: StoredTask, run: Run): Promise<void> {
     const factory = factoryOf(task)
     if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
     await runs.stop(run.id)
     await launch(task, resolution, env)
@@ -3398,6 +3320,7 @@ export function createTasks(options: {
     if (old) acknowledgeLeadMessages(old)
     const current = find(task.id)
     if (current.archived || current.stopped) return
+    await execution.local(task.id)
     const lead = effectiveLead(current, leadFrom(resolution.workflow.settings)) as TaskLead
     const agent = lead.agent
     const note = pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined)
@@ -4040,12 +3963,13 @@ export function createTasks(options: {
       }
       if (request.action !== 'answer' || request.choice === undefined)
         throw new RequestError(400, 'choose a failure resolution')
-      const resolution = (Object.keys(failureChoices) as (keyof typeof failureChoices)[]).find(
-        (key) => failureChoices[key] === request.choice,
+      const choices = { ...failureChoices, ...validateFailureChoices }
+      const resolution = (Object.keys(choices) as (keyof typeof choices)[]).find(
+        (key) => choices[key] === request.choice,
       )
       if (!resolution) throw new RequestError(400, 'choose a failure resolution')
       return holding(task, async () => {
-        await failures.resolve(
+        await validation.resolve(
           find(task.id),
           failure.id,
           {
@@ -4144,7 +4068,7 @@ export function createTasks(options: {
         const now = find(task.id)
         const resolution = await gateWorkflow(now)
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
-        await requireObligations(now)
+        await requireObligations(now, undefined, next)
         const answered = answerRequest(task, comment, {
           kind: 'approved',
           at,
@@ -4309,6 +4233,7 @@ export function createTasks(options: {
   ): Promise<void> {
     const before = find(task.id)
     if (before.stopped || before.archived) return
+    await execution.local(task.id)
     if (store.queue().some((q) => q.id === task.id)) store.dequeue(task.id)
     const cancel = new AbortController()
     settingUp.set(task.id, cancel)
@@ -4389,12 +4314,12 @@ export function createTasks(options: {
     }
     if (held ? leadLive : task.leadRunId) return
     if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
-      const resolution = await taskWorkflow(task, { fetch: false })
+      const resolution = await taskWorkflow(find(task.id), { fetch: false })
       const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
       return launch(task, resolution, env, undefined, { resumeSession: held.sessionId })
     }
     const factory = factoryOf(task)
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
     const interrupted = interruptedSetups(task)
     if (interrupted.length > 0) return setUpAndLaunch(task, resolution, interrupted, env)
@@ -4623,7 +4548,7 @@ export function createTasks(options: {
       resolution.workflow.order.indexOf(to) >
         resolution.workflow.order.indexOf(task.stage as AgentStageId)
     )
-      await requireObligations(task)
+      await requireObligations(task, undefined, to)
     const mergeOff =
       to === 'done' && task.stage !== 'merge' && !resolution.workflow.stages.includes('merge')
     const next = mergeOff ? 'merge' : to
@@ -4646,7 +4571,7 @@ export function createTasks(options: {
     } else if (next === 'validate' && message !== undefined) {
       setChecking(task.id, true)
       inBackground(`run ${task.displayId}’s Checks`, () =>
-        validateChecks(task.id, message, checked),
+        validation.enter(task.id, message, checked),
       )
     } else if (message !== undefined) {
       await deliver(task, message)
@@ -5325,19 +5250,50 @@ export function createTasks(options: {
               r.startedAt <= since,
           )
         : undefined)
-    const reviewer = store
+    const reviewers = store
       .reviewers(task.id)
       .filter((r) => r.purpose === 'review' && r.at >= since)
-      .at(-1)
+    const reviewer = reviewers.at(-1)
+    const acceptedFinding = (category: 'review' | 'visual') =>
+      store.failures.list(task.id).some((value) => {
+        const decision = value.resolutions.at(-1)
+        const source = value.source
+        return (
+          value.validation &&
+          source.kind === 'finding' &&
+          (source.category === category ||
+            (category === 'review' && reviewers.some((r) => r.runId === source.runId))) &&
+          !value.verifications?.length &&
+          decision?.resolution === 'accepted' &&
+          !value.invalidations.some((i) => i.requestId === decision.requestId)
+        )
+      })
+    const acceptedReviewFailure = acceptedFinding('review')
+    const acceptedVisualFailure = acceptedFinding('visual')
+    const visual = judged?.visual ?? (acceptedVisualFailure ? { passed: false } : undefined)
+    if (acceptedVisualFailure && visual?.passed)
+      throw new RequestError(
+        409,
+        'Visual has an accepted failure; report --visual fail to keep its result factual',
+      )
     const review =
       judged?.review ??
-      (reviewer !== undefined && outcome === 'passed' ? { passed: true } : undefined)
+      (acceptedReviewFailure
+        ? { passed: false }
+        : reviewer !== undefined && outcome === 'passed'
+          ? { passed: true }
+          : undefined)
+    if (acceptedReviewFailure && review?.passed)
+      throw new RequestError(
+        409,
+        'Review has an accepted failure; report --review fail to keep its result factual',
+      )
     store.judgeValidate({
       taskId: task.id,
       outcome,
       ...(checkRun !== undefined && { checkRunId: checkRun.id }),
       ...(review !== undefined && { review }),
-      ...(judged?.visual !== undefined && { visual: judged.visual }),
+      ...(visual !== undefined && { visual }),
       ...(reviewer !== undefined && {
         reviewer: {
           agent: reviewer.agent,
@@ -5752,7 +5708,7 @@ export function createTasks(options: {
     const task = find(taskId)
     await Promise.all(task.runs.map((run) => runs.stop(run.id)))
     if (!task.repos.some((r) => !r.removed) && !task.worktree) return
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     await finish(find(taskId), resolution)
   }
 
@@ -5860,7 +5816,7 @@ export function createTasks(options: {
     try {
       await clearingAway.get(task.id)?.catch(() => undefined)
       if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
-      const resolution = await taskWorkflow(task, { fetch: false })
+      const resolution = await taskWorkflow(find(task.id), { fetch: false })
       const current = live(task.id)
       if (automatic) {
         const lead = current.lead ?? leadFrom(resolution.workflow.settings)
@@ -5917,10 +5873,11 @@ export function createTasks(options: {
   }
 
   async function launchQueued(taskId: string): Promise<void> {
+    await execution.local(taskId)
     const task = find(taskId)
     const factory = factoryOf(task)
     if (task.repos.some((r) => !r.removed)) {
-      const resolution = await taskWorkflow(task, { fetch: false })
+      const resolution = await taskWorkflow(find(task.id), { fetch: false })
       const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
       const pickUp = freshRunNote(task)
       const interrupted = interruptedSetups(task)
@@ -5936,7 +5893,7 @@ export function createTasks(options: {
       return
     }
     if (task.repos.length > 0) return reopenWorktree(task)
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     if (!task.lead)
       store.setTaskLead(task.id, { ...leadFrom(resolution.workflow.settings), effortMode: 'stage' })
     const stage = resolution.workflow.next('backlog') as AgentStageId
@@ -5984,7 +5941,7 @@ export function createTasks(options: {
 
   async function reopenWorktree(task: StoredTask): Promise<void> {
     const factory = factoryOf(task)
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const chosen = chosenEntries(task.chosenRepos, factoryRepos(resolution.workflow, factory))
     const fallback = task.branch ?? task.repos[0]?.branch
     if (fallback === undefined) return
@@ -6160,6 +6117,11 @@ export function createTasks(options: {
     const lead = original.lead ?? leadFrom(resolution?.workflow.settings)
     const text = input.description?.trim() ?? ''
     refuseOpen()
+    const intakeUnchanged = input.automation
+      ? await verifyLinearIntake(store, options.linear, original.factoryId, url)
+      : () => undefined
+    refuseOpen()
+    intakeUnchanged()
     const task = await store.createTask({
       title: input.title?.trim() || firstLine(text) || `Follow-up to ${original.displayId}`,
       description: text,
@@ -6391,6 +6353,7 @@ export function createTasks(options: {
     if (!pending) return release()
     const { task, run, reason } = pending
     try {
+      await execution.local(taskId)
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       acknowledgeLeadMessages(run)
@@ -6760,6 +6723,102 @@ export function createTasks(options: {
     return true
   })
 
+  const failures = createFailureCases({
+    store,
+    snapshot: (task, bindCi) => failureSnapshot(task, undefined, bindCi),
+    assertLead: (task, runId) => {
+      taskLead(task.id, { kind: 'run', runId }, 'manages failure cases')
+    },
+    drafts,
+    onInvalidated: async (task) => {
+      await sendWaiting(task.id)
+    },
+    onHold: async (task) => {
+      const current = find(task.id)
+      const split = mergeSplit(current)
+      if (current.stage !== 'done' && split && !current.statuses.includes('partly-merged')) {
+        store.mergeStoppedPartway(task.id, split)
+        await store.persisted()
+      }
+      const stillOn = await mergeWatcher.disableAutoMerge(task.id)
+      if (stillOn.length > 0) {
+        const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. TED will retry.`
+        if (
+          !store
+            .listComments(task.id)
+            .some((comment) => comment.author.kind === 'ted' && comment.body === message)
+        ) {
+          store.postComment({ taskId: task.id, author: { kind: 'ted' }, body: message })
+          await store.persisted()
+        }
+        throw new RequestError(502, message)
+      }
+    },
+    tell: async (task, comment) => {
+      await deliverAnswer(
+        task,
+        comment,
+        redactSecrets(
+          withLines(
+            failureText(
+              `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
+            ),
+            comment,
+          ),
+        ),
+      )
+    },
+  })
+
+  const validation = createValidation({
+    store,
+    failures,
+    find,
+    context: checkContext,
+    workflow: (task) => taskWorkflow(task, { fetch: false }),
+    plan: checkPlan,
+    checkSandbox: async (task) => {
+      if (factoryPermissions(store, task.factoryId) !== 'bypass')
+        await sandboxProblem(task.factoryId)
+    },
+    prepareLaunch: (task) => prepareCommandLaunch(task),
+    env: () => options.env?.() ?? process.env,
+    libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
+    signal: stopping.signal,
+    lowPriority: () => store.settings().lowPriorityWork,
+    takeCheckSlot: async (taskId) => {
+      const wait = new AbortController()
+      checkWaits.set(taskId, wait)
+      try {
+        return await options.checkSlots.take({
+          taskId,
+          signal: AbortSignal.any([stopping.signal, wait.signal]),
+        })
+      } finally {
+        checkWaits.delete(taskId)
+      }
+    },
+    checkLog,
+    checkDir,
+    findings: failedFindings,
+    reportNotFound: (task, result) => reportNotFound(factoryOf(task).id, result),
+    setChecking,
+    isChecking: (id) => checking.has(id),
+    deliver,
+    instructions: async (task, resolution, message) => {
+      const round = await validateRound(task, resolution.workflow)
+      return [
+        message ?? nextStageMessage(resolution.workflow, 'validate'),
+        ...(round !== undefined ? [round] : []),
+      ].join('\n\n')
+    },
+    apps: startSetupApps,
+    fix: applyValidationFix,
+    checkFix: (resolution) => checkBack(resolution.workflow, 'validate', 'work'),
+    holding,
+    background: inBackground,
+  })
+
   const paused = store.agentPauses()
   for (const run of store.listRuns()) {
     if (run.state === 'finished') continue
@@ -6828,20 +6887,19 @@ export function createTasks(options: {
   )
   silenceTimer.unref()
 
-  for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
-    const task = store.getTask(checkRun.taskId)
-    const restart = checkRun.trigger === 'validate' && task?.stage === 'validate'
-    const handOff = checkRun.trigger === 'hand-off' && task?.stage === 'work' && !task.archived
-    if (restart || handOff) setChecking(task.id, true)
-    store.finishChecks(checkRun.id, 'interrupted')
-    if (restart) {
-      inBackground(`run ${task.displayId}’s Checks again`, () => validateChecks(task.id))
-    }
-    if (handOff) {
-      inBackground(`run ${task.displayId}’s Checks again`, async () =>
-        handOffChecks(task.id, await liveHeads(task)),
-      )
-    }
+  const interruptedHandOffs = store
+    .listCheckRuns()
+    .filter((r) => r.finishedAt === undefined && r.trigger === 'hand-off')
+    .flatMap((r) => {
+      const task = store.getTask(r.taskId)
+      return task?.stage === 'work' && !task.archived ? [task] : []
+    })
+  validation.recover()
+  for (const task of interruptedHandOffs) {
+    setChecking(task.id, true)
+    inBackground(`run ${task.displayId}’s Checks again`, async () =>
+      handOffChecks(task.id, await liveHeads(task)),
+    )
   }
 
   for (const check of store.loopChecks().filter((c) => c.verdict === undefined)) {
@@ -6994,18 +7052,7 @@ export function createTasks(options: {
     }
     return { ci, ciFailures }
   }
-  async function failureSnapshot(
-    task: Task,
-    observed?: PullRequestRead,
-    bindCi?: () => void,
-  ): Promise<FailureContext> {
-    const read =
-      observed ??
-      (task.repos.some((repo) => !repo.removed && repo.pullRequest)
-        ? await watch?.next({ now: true })
-        : undefined)
-    const { ci, ciFailures } = failureCi(task, read)
-    bindCi?.()
+  async function checkContext(task: Task): Promise<Pick<FailureContext, 'repos' | 'checks'>> {
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(resolution.workflow, factoryOf(task))
     const checks = hashContext({
@@ -7038,11 +7085,25 @@ export function createTasks(options: {
         }),
     )
     if (repos.length === 0) throw new RequestError(409, 'tested context needs a Task worktree')
+    return { repos: repos.sort((a, b) => a.repo.localeCompare(b.repo)), checks }
+  }
+  async function failureSnapshot(
+    task: Task,
+    observed?: PullRequestRead,
+    bindCi?: () => void,
+  ): Promise<FailureContext> {
+    const read =
+      observed ??
+      (task.repos.some((repo) => !repo.removed && repo.pullRequest)
+        ? await watch?.next({ now: true })
+        : undefined)
+    const { ci, ciFailures } = failureCi(task, read)
+    bindCi?.()
+    const local = await checkContext(task)
     const context = {
       version: 2 as const,
       ciFailures: ciFailures.sort(),
-      repos: repos.sort((a, b) => a.repo.localeCompare(b.repo)),
-      checks,
+      ...local,
       ...(ci && { ci }),
     }
     return {
@@ -7053,53 +7114,25 @@ export function createTasks(options: {
       fingerprint: hashContext(context),
     }
   }
-  const failures = createFailureCases({
-    store,
-    snapshot: (task, bindCi) => failureSnapshot(task, undefined, bindCi),
-    assertLead: (task, runId) => {
-      taskLead(task.id, { kind: 'run', runId }, 'manages failure cases')
-    },
-    drafts,
-    onInvalidated: async (task) => {
-      await sendWaiting(task.id)
-    },
-    onHold: async (task) => {
-      const current = find(task.id)
-      const split = mergeSplit(current)
-      if (current.stage !== 'done' && split && !current.statuses.includes('partly-merged')) {
-        store.mergeStoppedPartway(task.id, split)
-        await store.persisted()
-      }
-      const stillOn = await mergeWatcher.disableAutoMerge(task.id)
-      if (stillOn.length > 0) {
-        const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. TED will retry.`
-        if (
-          !store
-            .listComments(task.id)
-            .some((comment) => comment.author.kind === 'ted' && comment.body === message)
-        ) {
-          store.postComment({ taskId: task.id, author: { kind: 'ted' }, body: message })
-          await store.persisted()
-        }
-        throw new RequestError(502, message)
-      }
-    },
-    tell: async (task, comment) => {
-      await deliverAnswer(
-        task,
-        comment,
-        redactSecrets(
-          withLines(
-            failureText(
-              `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
-            ),
-            comment,
-          ),
-        ),
-      )
-    },
-  })
-  async function requireObligations(task: Task, observed?: PullRequestRead): Promise<void> {
+  async function requireObligations(
+    task: Task,
+    observed?: PullRequestRead,
+    target?: string,
+  ): Promise<void> {
+    let repair = false
+    if (target && target !== 'done') {
+      const workflow = (await taskWorkflow(find(task.id), { fetch: false })).workflow
+      const validate = workflow.order.indexOf('validate')
+      repair =
+        validate >= 0 &&
+        workflow.order.indexOf(target as AgentStageId) <= validate &&
+        task.stage !== 'validate'
+    }
+    if (repair) {
+      const result = await failures.obligations(task)
+      if (result.blockers.every((id) => store.failures.get(id)?.validation)) return
+    }
+    await validation.requireCoverage(find(task.id))
     if (store.failures.list(task.id).length === 0) return
     const context = observed
       ? await failures
@@ -7148,7 +7181,19 @@ export function createTasks(options: {
     async validationObligations(ref, caller) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
       await untilFree(task.id)
-      return holding(find(task.id), () => failures.obligations(find(task.id)))
+      return holding(find(task.id), async () => {
+        const current = await validation.currentCoverage(find(task.id))
+        const result = await failures.obligations(find(task.id))
+        const progress = store.failures.progress(task.id)
+        return {
+          ...result,
+          ...(progress && { progress }),
+          satisfied:
+            current &&
+            result.satisfied &&
+            (!progress || (!progress.pending && progress.next >= progress.checks.length)),
+        }
+      })
     },
     captureFailureContext: (ref, caller) =>
       failureLead(ref, caller, (task, runId) => failures.capture(task, runId)),
@@ -7160,12 +7205,48 @@ export function createTasks(options: {
       ),
     assessFailure: (ref, caller, id, input) =>
       failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
+    verifyFailure: (ref, caller, id, evidence) =>
+      failureLead(ref, caller, async (task) => {
+        const value = failures.get(task, id)
+        if (
+          !value.validation ||
+          !['finding', 'factory-check'].includes(value.source.kind) ||
+          task.stage !== 'validate'
+        )
+          throw new RequestError(
+            409,
+            'only a Validate Finding or repaired Factory Check can be verified by the Task Lead',
+          )
+        if (!evidence.trim()) throw new RequestError(400, 'verification needs fresh evidence')
+        if (
+          !['retry', 'fix'].includes(value.resolutions.at(-1)?.resolution ?? '') &&
+          value.assessments.at(-1)?.assessment !== 'regression'
+        )
+          throw new RequestError(
+            409,
+            'repeat verification after Retry or repair before closing the Finding',
+          )
+        const safeEvidence = failureText(evidence)
+        if (value.verifications?.length)
+          throw new RequestError(409, 'this failure already has verification evidence')
+        const result =
+          value.source.kind === 'factory-check'
+            ? await validation.verifyRepair(task, value, safeEvidence)
+            : failures.verifyResult(task, id, safeEvidence)
+        store.postComment({
+          taskId: task.id,
+          author: { kind: 'run', runId: task.leadRunId ?? '' },
+          title: 'Failure repair verified',
+          body: `Failure ${id}\n\n${result.verifications?.at(-1)?.evidence}`,
+        })
+        return result
+      }),
     requestFailureDecision: (ref, caller, id) =>
       failureLead(ref, caller, (task, runId) => failures.request(task, id, runId)),
     async resolveFailure(ref, id, input) {
       const task = find(ref)
       await untilFree(task.id)
-      return holding(find(task.id), () => failures.resolve(find(task.id), id, input))
+      return holding(find(task.id), () => validation.resolve(find(task.id), id, input))
     },
     deliveryAllowed(runId) {
       const run = store.getRun(runId)
@@ -7242,6 +7323,15 @@ export function createTasks(options: {
         throw new RequestError(409, `${factory.name} is being removed`)
       }
       const held = automation !== undefined && (!resolution || runsInBypass(resolution))
+      const intakeUnchanged =
+        automation && factory
+          ? await verifyLinearIntake(store, options.linear, factory.id, sourceUrl)
+          : () => undefined
+      refuseTracked()
+      if (factory && removingFactories.has(factory.id)) {
+        throw new RequestError(409, `${factory.name} is being removed`)
+      }
+      intakeUnchanged()
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
@@ -7754,6 +7844,22 @@ export function createTasks(options: {
           `the Task brief needs these headings, in order: ${briefHeadings.join(', ')}`,
         )
       }
+      const cases = store.failures.list(task.id).filter((f) => f.validation)
+      if (cases.length) {
+        const details = cases
+          .map((value) => {
+            const decision = value.resolutions.at(-1)
+            const accepted =
+              decision?.resolution === 'accepted' &&
+              !value.invalidations.some((i) => i.requestId === decision.requestId)
+            return `${failureCaseFindings(value)}\n\nDecision: ${accepted ? 'failed, accepted by you' : (decision?.resolution ?? 'unresolved')}${decision?.reason ? ` · ${decision.reason}` : ''}${value.verifications?.length ? `\nLater verification: ${value.verifications.at(-1)?.evidence}` : ''}`
+          })
+          .join('\n\n')
+        text = text.replace(
+          '## Current state',
+          `## Current state\n\nValidation failure history:\n\n${details}`,
+        )
+      }
       return store.writeBrief({ taskId: task.id, text, runId })
     },
 
@@ -7873,10 +7979,11 @@ export function createTasks(options: {
             request,
           }
         }
-        if (outcome.outcome === 'advance') await requireObligations(current)
         const resolution =
           outcome.outcome === 'advance' ? await gateWorkflow(current) : await taskWorkflow(current)
         const { workflow } = resolution
+        if (outcome.outcome === 'advance')
+          await requireObligations(current, undefined, workflow.next(stage))
         const changesAsked =
           (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
         if (outcome.outcome === 'back') {
@@ -7893,9 +8000,32 @@ export function createTasks(options: {
             (stage === 'validate' || stage === 'review')
           if (declared) checkBack(workflow, stage, outcome.to)
           const conflict = declared ? await baseConflict(current) : undefined
+          let failedCheck: string | undefined
           if (stage === 'validate') {
+            const blockers = conflict ? [] : (await failures.obligations(current)).blockers
+            for (const value of store.failures
+              .list(task.id)
+              .filter((f) => f.validation && blockers.includes(f.id))) {
+              const assessment = value.assessments.at(-1)
+              if (
+                value.resolutions.at(-1)?.resolution !== 'fix' &&
+                (assessment?.assessment !== 'regression' ||
+                  assessment.evidenceCount !== value.additions.length)
+              )
+                throw new RequestError(
+                  409,
+                  'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
+                )
+              if (value.source.kind === 'factory-check') failedCheck = value.source.checkRunId
+            }
             checkBack(workflow, stage, outcome.to)
-            if (!conflict) declareSeverity(current, workflow, runId, outcome.severity)
+            if (
+              outcome.judged?.review?.passed === false ||
+              outcome.judged?.visual?.passed === false
+            )
+              failedCheck = undefined
+            if (!conflict && (failedCheck === undefined || outcome.severity !== undefined))
+              declareSeverity(current, workflow, runId, outcome.severity)
             judge(current, 'sent-back', outcome.judged)
           }
           if (conflict) {
@@ -7906,7 +8036,7 @@ export function createTasks(options: {
               conflict: foundConflict(current, conflict),
             })
           }
-          const sent = await sendBack(current, resolution, stage, outcome)
+          const sent = await sendBack(current, resolution, stage, outcome, failedCheck)
           return declared
             ? { ...sent, message: `${sent.message.replace(/\.$/, '')}. ${noConflictFound}` }
             : sent
@@ -7975,7 +8105,8 @@ export function createTasks(options: {
         const gate = gateOn(current, workflow, stage) && outcome.skip !== true
         if (!gate && stage === 'work' && workflow.next(stage) === 'validate') {
           const heads = await liveHeads(current)
-          const started = await beginChecks(current, resolution, 'hand-off')
+          await execution.local(task.id)
+          const started = await validation.begin(current, resolution, 'hand-off')
           if (started) {
             setChecking(task.id, true)
             inBackground(`run ${task.displayId}’s Checks`, () =>
@@ -8218,6 +8349,11 @@ export function createTasks(options: {
 
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs Checks')
+      if (advancing.has(task.id))
+        throw new RequestError(
+          409,
+          `${task.displayId} is already moving; try Checks again when it finishes`,
+        )
       if (task.stage === 'backlog' || task.stage === 'done' || task.repos.every((r) => r.removed)) {
         throw new RequestError(409, `${task.displayId} has no worktree to run Checks in`)
       }
@@ -8226,7 +8362,7 @@ export function createTasks(options: {
       }
       setChecking(task.id, true)
       try {
-        const resolution = await taskWorkflow(task, { fetch: false })
+        const resolution = await gateWorkflow(find(task.id), { fetch: false })
         const problem = runsInBypass(resolution) ? undefined : await sandboxProblem(task.factoryId)
         if (problem !== undefined) throw new RequestError(409, problem)
         const listed = task.setup
@@ -8245,7 +8381,7 @@ export function createTasks(options: {
               : `no Check named “${only}”; this Factory’s Checks are ${names}`,
           )
         }
-        const started = await beginChecks(find(task.id), resolution, 'agent', only)
+        const started = await validation.begin(find(task.id), resolution, 'agent', only)
         if (!started) {
           throw new RequestError(
             409,

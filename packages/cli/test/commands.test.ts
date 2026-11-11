@@ -29,6 +29,9 @@ describe('command definitions', () => {
     ['task', 'repos', 'add', 'ted', '--yes'],
     ['task', 'create'],
     ['made-up'],
+    ['failure', 'list', '--file', 'missing.json'],
+    ['failure', 'record'],
+    ['failure', 'ask'],
     ['task', 'made-up'],
     ['ask', '--round', 'round.json', '--close', '--summary', 'summary.md'],
     ['task', 'lead', 'NB-1', 'codex', '--default-model'],
@@ -553,6 +556,12 @@ describe('invalid command input is rejected before connecting', () => {
     ],
     ['coordinator', 'resume', 'NB-1', '--operation', 'op'],
     ['peers', 'watch', '--timeout', '26'],
+    ['task', 'lead', 'DEV-1', 'gemini'],
+    ['task', 'lead', 'DEV-1', 'claude', '--effort', 'huge'],
+    ['dev', 'run', 'start', 'x'],
+    ['dev', 'factory', 'add', '/repos/origin', '--key', 'NB'],
+    ['comment', 'hello'],
+    ['status', 'Reading'],
   ])('usage error without connecting: %j', async (...args) => {
     let connections = 0
     let error = ''
@@ -628,4 +637,38 @@ describe('shared file parsers after CLI relocation', () => {
       await rm(home, { recursive: true, force: true })
     }
   })
+})
+
+test('failure input and missing Task are refused before connecting', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'ted-failure-cli-'))
+  let connected = false
+  let errors = ''
+  const runtime = {
+    env: { TED_TASK: 'NB-1' },
+    stderr: (text: string) => {
+      errors += text
+    },
+    connect: async () => {
+      connected = true
+      throw new Error('must not connect')
+    },
+  }
+  try {
+    const file = path.join(dir, 'failure.json')
+    await writeFile(
+      file,
+      JSON.stringify({
+        source: { kind: 'finding', runId: 'reviewer', finding: 'Failure', category: 'other' },
+        evidence: 'Evidence',
+      }),
+    )
+    expect(await runCli(['failure', 'record', '--file', file], runtime)).toBe(2)
+    expect(errors).toContain('category must be test, review or visual')
+    errors = ''
+    expect(await runCli(['failure', 'list'], { ...runtime, env: {} })).toBe(2)
+    expect(errors).toContain('name the Task')
+    expect(connected).toBe(false)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })

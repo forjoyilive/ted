@@ -29,6 +29,7 @@ import {
   parseSetTaskReposRequest,
   parseSetTaskSnoozeRequest,
   parseTaskLead,
+  parseVerifyFailureRequest,
   parseWriteBriefRequest,
 } from '@ted/protocol'
 import type { Attachments } from '../attachments.ts'
@@ -141,6 +142,14 @@ export const taskRoutes: Route[] = [
       await tasks.requestFailureDecision(ref, caller, id),
     ],
   },
+  jsonRoute(parseVerifyFailureRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/verification$/,
+    runToken: true,
+    async handle({ body, params: [ref = '', id = ''], caller }, { tasks }) {
+      return [200, await tasks.verifyFailure(ref, caller, id, body.evidence)]
+    },
+  }),
   jsonRoute(parseResolveFailureRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/resolve$/,

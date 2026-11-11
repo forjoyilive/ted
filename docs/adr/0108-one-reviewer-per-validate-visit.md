@@ -18,4 +18,4 @@ Task Leads in Validate started extra review Runs over the same diff (“Independ
 ## Consequences
 
 - A Factory’s own Validate Stage file that tells the Task Lead to start a plain sub-agent now gets a refusal there.
-- A Task Lead can still review the diff itself or run a review tool from its shell. TED’s Validate entry text (ADR 0105) tells it not to.
+- A Task Lead can still review the diff itself or run a review tool from its shell. TED’s Validate entry text (ADR 0107) tells it not to.

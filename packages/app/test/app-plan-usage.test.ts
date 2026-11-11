@@ -55,7 +55,11 @@ test('usage opens from the sidebar, receives Run reports, fits short windows and
   })
   await tracker.getByText('8%', { exact: true }).waitFor()
   await panel.getByRole('button', { name: 'Detailed', exact: true }).click()
-  await expect.poll(() => panel.getByRole('progressbar').count()).toBe(2)
+  await expect
+    .poll(() =>
+      panel.getByRole('region', { name: 'Claude usage' }).getByRole('progressbar').count(),
+    )
+    .toBe(2)
   await window.keyboard.press('Escape')
   await panel.waitFor({ state: 'detached' })
   expect(await tracker.evaluate((button) => document.activeElement === button)).toBe(true)

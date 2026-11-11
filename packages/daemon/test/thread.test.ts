@@ -7,6 +7,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   commitToOrigin,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -236,6 +237,7 @@ describe('Comments into the Task Lead’s Run', () => {
     const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
     const posted = await post(client, task, 'How is the fix going?')
     expect(posted.delivered).toBeUndefined()
+    await hostsStarted(home)
     await daemon?.stop()
     await rm(path.join(home, 'runs', working.leadRunId ?? '', 'queued'), { force: true })
     client = { ...client, ...(await startClient()) }

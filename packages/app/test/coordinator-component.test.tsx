@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { Coordinator, CoordinatorStatus, RunChat } from '@ted/protocol'
+import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { OvernightContext } from '../src/renderer/overnight.tsx'
@@ -288,6 +289,8 @@ test('the Factory Workflow section shows the overnight notice only while overnig
     factorySettings: settingsView,
     homeFolder: () => '/test',
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    getSettings: () => defaultMachineSettings,
+    getLinear: () => ({ state: 'no-key' }),
   })
   await checkNotice(
     () => (

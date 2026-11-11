@@ -1,6 +1,6 @@
 # After a base conflict, Validate reviews the resolution
 
-ADR 0108 left the Validate round after a `base-conflict` send-back as a full review of the whole branch. For the 29 measured conflict send-backs from Review and Merge, Validate had already reviewed the branch; only the conflict resolution was new.
+ADR 0110 left the Validate round after a `base-conflict` send-back as a full review of the whole branch. For the 29 measured conflict send-backs from Review and Merge, Validate had already reviewed the branch; only the conflict resolution was new.
 
 ## Decision
 
@@ -9,9 +9,9 @@ ADR 0108 left the Validate round after a `base-conflict` send-back as a full rev
 - an earlier Validate visit has a reviewer that finished a review, so `v1.ReviewScopeRecorded` holds the commits it started at;
 - at least one send-back was recorded after that reviewer started, and every one of them has the cause `base-conflict`;
 - the Task has the same repos as that review, and in each one the reviewed commit is on the first-parent chain of `HEAD` (`ownCommits` in `git.ts`), so the Task’s own commits since the review can be listed;
-- every merge commit on that chain has two parents and brought in a commit TED knows is on the base branch: an ancestor of a tip TED fetched for this Task, either recorded in `v1.BaseConflictFound` (ADR 0111) or fetched at the last hand-off in this daemon’s lifetime.
+- every merge commit on that chain has two parents and brought in a commit TED knows is on the base branch: an ancestor of a tip TED fetched for this Task, either recorded in `v1.BaseConflictFound` (ADR 0113) or fetched at the last hand-off in this daemon’s lifetime.
 
-Anything else after a `base-conflict` send-back stays a full review with ADR 0105’s “reviews the whole change again” text: a review or Check send-back among them, a rebased or rewritten branch, a changed Repos field, a merge of something TED can’t place on the base branch, a daemon restart that lost the only known tip.
+Anything else after a `base-conflict` send-back stays a full review with ADR 0107’s “reviews the whole change again” text: a review or Check send-back among them, a rebased or rewritten branch, a changed Repos field, a merge of something TED can’t place on the base branch, a daemon restart that lost the only known tip.
 
 **What the reviewer is told.** `conflictReviewPrompt` in `tasks/review-rounds.ts`, under “Your instructions from TED”. For each repo it names each merge commit, the base commit it brought in and the files that conflicted, and gives one command:
 
@@ -27,7 +27,7 @@ The conflicting files come from git, not from the Findings text: TED test-merges
 
 **What the Task Lead is told.** `conflictRoundText`, at Validate entry and in a fresh Task Lead’s prompt, in round one too: this round checks how the conflict was resolved, TED scopes the one reviewer, and a Finding about code the resolution didn’t touch is a note unless it is P1.
 
-**The `fixes` diff no longer includes the base.** When Work resolved a conflict in place between two `fixes` rounds (no send-back, ADR 0108), `git diff <reviewed> <HEAD>` showed everything the base merge brought in. When the reviewed commit is on `HEAD`’s first-parent chain and every merge on it is a verified base merge, the `fixes` prompt now gives the same `git log -p --reverse --first-parent --remerge-diff` command and lists the Task’s own files and the conflicting files. Otherwise it keeps `git diff`, which shows too much but hides nothing.
+**The `fixes` diff no longer includes the base.** When Work resolved a conflict in place between two `fixes` rounds (no send-back, ADR 0110), `git diff <reviewed> <HEAD>` showed everything the base merge brought in. When the reviewed commit is on `HEAD`’s first-parent chain and every merge on it is a verified base merge, the `fixes` prompt now gives the same `git log -p --reverse --first-parent --remerge-diff` command and lists the Task’s own files and the conflicting files. Otherwise it keeps `git diff`, which shows too much but hides nothing.
 
 ## Not done
 
@@ -43,7 +43,7 @@ The conflicting files come from git, not from the Findings text: TED test-merges
 
 ## Consequences
 
-- A base change that breaks the Task without a textual conflict (a renamed function, say) is not in the reviewer’s scope. The Checks run on the merged branch before Validate (ADR 0109) and are what catches it.
+- A base change that breaks the Task without a textual conflict (a renamed function, say) is not in the reviewer’s scope. The Checks run on the merged branch before Validate (ADR 0111) and are what catches it.
 - `--remerge-diff` needs git 2.36 or newer; `mergeConflicts` already needs 2.38.
-- A `conflict` round can also be a round under `stages.validate.p1_only_from` (ADR 0112). `conflictReviewPrompt` and `conflictRoundText` then carry that rule as well, and count a resolution that drops or breaks what the base branch changed as P1. With `stages.validate.sub_agents: true` (ADR 0113) `conflictRoundText` doesn’t say TED refuses other sub-agents.
+- A `conflict` round can also be a round under `stages.validate.p1_only_from` (ADR 0115). `conflictReviewPrompt` and `conflictRoundText` then carry that rule as well, and count a resolution that drops or breaks what the base branch changed as P1. With `stages.validate.sub_agents: true` (ADR 0116) `conflictRoundText` doesn’t say TED refuses other sub-agents.
 - Anything new that sends a Task back with the cause `base-conflict`, or changes history under a Task’s branch, must keep `reviewRound`’s conditions true or the round falls back to a full review.

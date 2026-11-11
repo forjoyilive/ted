@@ -99,8 +99,10 @@ export function createFactoryRemovals(options: {
         const { [factory.id]: _, ...teams } = settings.linearSyncTeams
         const { [factory.id]: __, ...declined } = settings.linearSyncDeclined
         const { [factory.id]: ___, ...outside } = settings.appsOutsideSandbox
+        const { [factory.id]: removedScope, ...scopes } = settings.linearIntakeScopes
         const { [factory.id]: permissionsRemoved, ...permissions } = settings.factoryPermissions
         store.updateSettings({
+          linearIntakeScopes: scopes,
           factoryPermissions: permissions,
           linearSyncTeams: teams,
           linearSyncDeclined: declined,

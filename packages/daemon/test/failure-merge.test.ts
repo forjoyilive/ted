@@ -193,41 +193,6 @@ test('a same-SHA CI attempt replacement invalidates acceptance and holds Merge s
   })
 })
 
-test('current acceptance remains verifiable between the remote merge and Done', async () => {
-  const client = await start()
-  const { task, signoff } = await toSignoff(client)
-  const current = await getTask(client, task.id)
-  const { post } = await leadFor(task.id, current.leadRunId ?? '')
-  const context = await post<FailureContext>('/failure-contexts')
-  const value = await post<FailureCase>('/failures', {
-    source: { kind: 'finding', runId: current.leadRunId, finding: 'Known unrelated failure' },
-    evidence: 'Observed in this exact revision',
-    contextId: context.id,
-  })
-  await post(`/failures/${value.id}/assessments`, {
-    assessment: 'unrelated',
-    recommendation: 'Accept this failure',
-  })
-  const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
-  await writeFile(client.mergingFile, '')
-  expect(
-    (
-      await client.call('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
-        requestId: asked.decisions[0]?.commentId,
-        resolution: 'accepted',
-      })
-    ).status,
-  ).toBe(200)
-  await approve(client, signoff)
-  await waitUntil(
-    async () => (await getTask(client, task.id)).stage === 'done',
-    'Done after accepted case',
-  )
-  const saved = await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
-  expect(saved[0]?.invalidations).toEqual([])
-  expect(saved[0]?.resolutions[0]?.resolution).toBe('accepted')
-})
-
 test('failure holds persist even when GitHub refuses to disable auto-merge', async () => {
   const client = await start({
     files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
@@ -459,6 +424,7 @@ test('completed acceptance survives background reads, explicit queries and daemo
   })
   const history = await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
   expect(history[0]?.invalidations).toEqual([])
+  expect(history[0]?.resolutions[0]?.resolution).toBe('accepted')
   await ctx.daemon?.stop()
   ctx.daemon = await startDaemon({
     home: ctx.home,

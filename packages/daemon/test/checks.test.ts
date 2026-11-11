@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -7,6 +7,7 @@ import type {
   Banner,
   CheckRun,
   Factory,
+  FailureCase,
   SendBack,
   Task,
   ThreadEvent,
@@ -17,7 +18,6 @@ import {
   api,
   assistantTexts,
   commitToOrigin,
-  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -41,14 +41,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
-  await killRunHosts(home)
+  await killRunHosts(home, { waitForStart: true })
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
 })
@@ -129,12 +122,6 @@ const leadMessages = async (client: Client, task: Task) => {
   const current = await getTask(client, task.id)
   return current?.leadRunId ? userMessages(client, current.leadRunId) : []
 }
-
-const sendBacks = (client: Client, task: Task) =>
-  waitUntil(async () => {
-    const found = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
-    return found.length > 0 ? found : undefined
-  }, 'a send-back')
 
 const worktreeFile = async (client: Client, task: Task, name: string) => {
   const repo = await waitUntil(
@@ -278,7 +265,7 @@ describe('Checks before a Task leaves Work', () => {
 })
 
 describe('Checks at Validate', () => {
-  test('Validate entered from Review runs the Checks again, and a failure there sends the Task back to Work', async () => {
+  test('Validate entered from Review runs the Checks again, and a failure there stays in Validate for diagnosis without a send-back to Work', async () => {
     await commitToOrigin(scratch, {
       '.gitignore': 'stub-*\n',
       '.ted/workflow.yaml': [
@@ -286,10 +273,11 @@ describe('Checks at Validate', () => {
         'order: [intake, work, validate, review]',
         'stages:',
         '  validate:',
-        '    max_back: 5',
+        '    max_back: 0',
         '    checks:',
         '      - { name: Typecheck, run: "echo typed" }',
-        '      - { name: Tests, run: "n=$(cat stub-runs 2>/dev/null || echo 0); n=$((n+1)); echo $n > stub-runs; if [ $n -eq 2 ]; then seq 1 300; exit 1; fi" }',
+        '      - { name: Tests, run: "n=$(cat stub-runs 2>/dev/null || echo 0); n=$((n+1)); echo $n > stub-runs; if [ $n -eq 2 ]; then seq 1 300; echo token ghp_abcdefghijklmnopqrstuvwxyz0123; exit 1; fi" }',
+        '      - { name: Lint, run: "echo linted" }',
         '',
       ].join('\n'),
     })
@@ -303,7 +291,6 @@ describe('Checks at Validate', () => {
       '2) echo x > work.txt; ted outcome advance;;',
       '3) ted outcome advance;;',
       `4) ted outcome back --to validate --findings "${findings}";;`,
-      '5) ted outcome advance;;',
       'esac',
     ].join(' ')
     const run = { run: ['sh', '-c', script] }
@@ -312,33 +299,46 @@ describe('Checks at Validate', () => {
       steps({ everyMessage: [run, { endTurn: true }] }, run, { endTurn: true }),
     )
 
-    const [first, second, third] = await finishedRuns(client, task, 3)
-    expect([first, second, third].map((r) => [r?.trigger, r?.stage, r?.outcome])).toEqual([
+    const [first, second] = await finishedRuns(client, task, 2)
+    expect([first, second].map((r) => [r?.trigger, r?.stage, r?.outcome])).toEqual([
       ['hand-off', 'work', 'passed'],
       ['validate', 'validate', 'failed'],
-      ['hand-off', 'work', 'passed'],
     ])
-    const all = await sendBacks(client, task)
-    expect(all.map((b) => [b.from, b.to])).toEqual([
-      ['review', 'validate'],
-      ['validate', 'work'],
+    expect(states(second)).toEqual([
+      ['Typecheck', 'passed'],
+      ['Tests', 'failed'],
+      ['Lint', 'not-run'],
     ])
-    expect(all[1]).toMatchObject({
-      counted: true,
-      round: 1,
-      limit: 5,
-      checkRunId: second?.id,
-      cause: 'check',
-    })
-    expect(all[1]?.findings).toContain('Tests')
-    expect(all[1]?.findings).toContain('\n300\n')
-    const messages = await waitUntil(async () => {
-      const found = await leadMessages(client, task)
-      return found.filter((m) => m.includes('None failed')).length >= 2 ? found : undefined
-    }, 'the Validate instructions after the Checks pass again')
+    const failure = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`))[0],
+      'failure evidence',
+    )
+    expect(failure.evidence).toContain('\n102\n')
+    expect(failure.evidence).not.toContain('\n101\n')
+    expect(failure.evidence).toContain('[redacted]')
+    expect(failure.evidence).not.toContain('ghp_abcdefghij')
+    expect(failure.evidence).toMatch(/Full output: .*checks.*2\.log/)
+    await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).some(
+          (m) => m.includes('# A Check failed') && m.includes(failure.id),
+        ),
+      'diagnosis instructions',
+    )
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
     expect(
-      messages.some((m) => m.includes('moved this Task back to Work') && m.includes('\n300\n')),
-    ).toBe(true)
+      (await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).map((b) => [
+        b.from,
+        b.to,
+      ]),
+    ).toEqual([['review', 'validate']])
+    expect(await client.ok('GET', '/inbox')).toEqual([])
+    const output = await client.ok<{ text: string }>(
+      'GET',
+      `/check-runs/${second?.id}/checks/1/output`,
+    )
+    expect(output.text.split('\n')[0]).toBe('1')
+    expect(output.text).not.toContain('ghp_abcdefghij')
   }, 120_000)
 
   test('a Check past its timeout fails and the Checks after it don’t run', async () => {

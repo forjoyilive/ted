@@ -7,6 +7,7 @@ import type {
   LayerUse,
   ThreadEvent,
   ThreadEventTone,
+  ValidationSnapshot,
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent, TedStore } from '../store/index.ts'
@@ -194,7 +195,7 @@ export function threadEvents(
     line: string,
     findings?: string,
     checkRunId?: string,
-    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'changes' | 'planId'>,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'validation' | 'changes' | 'planId'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -207,6 +208,7 @@ export function threadEvents(
       ...(extra?.judgments !== undefined &&
         extra.judgments.length > 0 && { judgments: extra.judgments }),
       ...(extra?.validate !== undefined && { validate: extra.validate }),
+      ...(extra?.validation !== undefined && { validation: extra.validation }),
       ...(extra?.changes !== undefined && { changes: extra.changes }),
       ...(extra?.planId !== undefined && { planId: extra.planId }),
     })
@@ -476,6 +478,7 @@ export function threadEvents(
         break
       }
       case 'v1.ValidateJudged':
+      case 'v2.ValidateJudged':
         if (data.outcome === 'sent-back') {
           judged = data
           break
@@ -487,7 +490,13 @@ export function threadEvents(
           `Validate passed${reviewedBy(data)}`,
           undefined,
           text(data.checkRunId) || undefined,
-          { judgments: judgmentsIn(data), validate: 'passed' },
+          {
+            judgments: judgmentsIn(data),
+            validate: 'passed',
+            ...(typeof data.validation === 'string' && {
+              validation: JSON.parse(data.validation) as ValidationSnapshot,
+            }),
+          },
         )
         break
       case 'v1.SendBackAsked':

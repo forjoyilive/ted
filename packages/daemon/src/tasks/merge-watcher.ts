@@ -374,6 +374,11 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const task = find(taskId)
     if (port.busy(taskId)) return 'busy'
     if (task.stage === 'done') return watchOnlyCycle(taskId, read)
+    const resolution = await port.resolve(task)
+    const mode = mergeMode(store, task, resolution.workflow)
+    if (mode === undefined) return 'done'
+    if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
+    if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
     if (store.failures.list(task.id).length > 0) {
       if (read) recordPullRequests(task, read)
       try {
@@ -385,12 +390,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         return 'wait'
       }
     }
-    const resolution = await port.resolve(task)
-    const mode = mergeMode(store, task, resolution.workflow)
-    if (mode === undefined) return 'done'
-    if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
     if (mode === 'off') return watchOnlyCycle(taskId, read)
-    if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
     if (mode === 'merge') startMerging(store, task, resolution.workflow)
     if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
     const targets = await mergeTargets(find(taskId), resolution)

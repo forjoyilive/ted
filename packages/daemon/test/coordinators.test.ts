@@ -1339,64 +1339,76 @@ test('tell and answer cap the message, remove secrets and leave line comment dra
   expect(await unsent()).toHaveLength(1)
 })
 
-test('answer resolves a failure decision and leaves line comment drafts unsent', async () => {
-  await commitToOrigin(scratch, { 'app.txt': 'one\ntwo\nthree\n' })
-  const s = await setup(),
-    { task, leadRunId, lead } = await s.led(hold())
-  const worktree = await waitUntil(
-    async () =>
-      (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.repos[0]?.worktree,
-    'the worktree',
-  )
-  await writeFile(path.join(worktree, 'app.txt'), 'one\nTWO\nthree\n')
-  const post = async <T>(route: string, body: unknown = {}) => {
-    const res = await lead.call('POST', `/tasks/${task.id}${route}`, body)
-    expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
-    return res.body as T
-  }
-  const context = await post<{ id: string }>('/failure-contexts')
-  const failure = await post<{ id: string }>('/failures', {
-    source: { kind: 'finding', runId: leadRunId, finding: 'A flaky test' },
-    evidence: 'Fails on main too',
-    contextId: context.id,
-  })
-  await post(`/failures/${failure.id}/assessments`, {
-    assessment: 'unrelated',
-    recommendation: 'Accept for this context',
-  })
-  const asked = await post<{ decisions: { commentId: string }[] }>(
-    `/failures/${failure.id}/decision`,
-  )
-  const requestId = asked.decisions.at(-1)?.commentId ?? ''
-  await s.ok('POST', `/tasks/${task.id}/line-comments`, {
-    repo: 'widgets',
-    path: 'app.txt',
-    from: { new: 2 },
-    body: 'An unfinished review note',
-  })
-  const unsent = async () =>
-    (await s.ok<LineComment[]>('GET', `/tasks/${task.id}/line-comments`)).filter(
-      (c) => c.sent === undefined,
+test.each(['general', 'Validate'])(
+  'answer resolves a %s failure decision and leaves line comment drafts unsent',
+  async (stage) => {
+    await commitToOrigin(scratch, { 'app.txt': 'one\ntwo\nthree\n' })
+    const workflow =
+      stage === 'Validate' ? 'version: 1\norder: [intake, work, validate, review]\n' : undefined
+    const s = await setup(undefined, workflow),
+      { task, leadRunId, lead } = await s.led(hold())
+    const { run } = await s.start()
+    const worktree = await waitUntil(
+      async () =>
+        (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.repos[0]?.worktree,
+      'the worktree',
     )
-  const { run } = await s.start()
-  const read = unpack<CoordinatorTask>(
-    (await run.call('GET', `/coordinator/tasks/${task.id}`)).body,
-  )
-  expect(read.openRequests.find((r) => r.id === requestId)?.coordinatorMayAnswer).toBe(
-    'with a choice',
-  )
-  const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-    operation: 'not-applicable',
-    version: read.version,
-    request: requestId,
-    choice: 'No longer applicable',
-  })
-  expect(answered.status, JSON.stringify(answered.body)).toBe(200)
-  const comment = (await s.comments(task.id)).find((c) => c.id === requestId)
-  expect(comment?.answer).toMatchObject({ kind: 'answered', choice: 'No longer applicable' })
-  expect(comment?.lineComments ?? []).toEqual([])
-  expect(await unsent()).toHaveLength(1)
-})
+    await writeFile(path.join(worktree, 'app.txt'), 'one\nTWO\nthree\n')
+    const post = async <T>(route: string, body: unknown = {}) => {
+      const res = await lead.call('POST', `/tasks/${task.id}${route}`, body)
+      expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+      return res.body as T
+    }
+    if (stage === 'Validate') {
+      await post('/outcome', { outcome: 'advance' })
+      await post('/outcome', { outcome: 'advance' })
+    }
+    const context =
+      stage === 'Validate' ? await post<{ id: string }>('/failure-contexts') : undefined
+    const failure = await post<{ id: string }>('/failures', {
+      source: { kind: 'finding', runId: leadRunId, finding: 'A flaky test' },
+      evidence: 'Fails on main too',
+      ...(context && { contextId: context.id }),
+    })
+    await post(`/failures/${failure.id}/assessments`, {
+      assessment: 'unrelated',
+      recommendation:
+        stage === 'Validate' ? 'Accept for this context' : 'No longer applicable to this Task',
+    })
+    const asked = await post<{ decisions: { commentId: string }[] }>(
+      `/failures/${failure.id}/decision`,
+    )
+    const requestId = asked.decisions.at(-1)?.commentId ?? ''
+    await s.ok('POST', `/tasks/${task.id}/line-comments`, {
+      repo: 'widgets',
+      path: 'app.txt',
+      from: { new: 2 },
+      body: 'An unfinished review note',
+    })
+    const unsent = async () =>
+      (await s.ok<LineComment[]>('GET', `/tasks/${task.id}/line-comments`)).filter(
+        (c) => c.sent === undefined,
+      )
+    const read = unpack<CoordinatorTask>(
+      (await run.call('GET', `/coordinator/tasks/${task.id}`)).body,
+    )
+    expect(read.openRequests.find((r) => r.id === requestId)?.coordinatorMayAnswer).toBe(
+      'with a choice',
+    )
+    const choice = stage === 'Validate' ? 'Accept this failure' : 'No longer applicable'
+    const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+      operation: 'resolve-failure',
+      version: read.version,
+      request: requestId,
+      choice,
+    })
+    expect(answered.status, JSON.stringify(answered.body)).toBe(200)
+    const comment = (await s.comments(task.id)).find((c) => c.id === requestId)
+    expect(comment?.answer).toMatchObject({ kind: 'answered', choice })
+    expect(comment?.lineComments ?? []).toEqual([])
+    expect(await unsent()).toHaveLength(1)
+  },
+)
 
 test('answer gives a choice on TED’s idle question, and refuses free text alone', async () => {
   const s = await setup(undefined, undefined, 100)

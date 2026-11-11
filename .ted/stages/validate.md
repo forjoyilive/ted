@@ -6,7 +6,7 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 ## Before you start
 
-If the Factory has Checks, TED has already run them, one after another, and their results are at the end of these instructions. If one had failed, TED would have sent the Task back to Work instead of handing you this Stage.
+If the Factory has Checks, TED runs them one after another and stops at the first failure. When the Task comes from Work, TED ran them before it left Work, a failure there kept it in Work, and the passing results are at the end of these instructions. When it comes from another Stage, TED runs them at Validate entry. A failure at entry keeps the Task in Validate with the output and a failure case ID; `ted failure list` and `ted failure show <id>` show it, and the preamble lists the other `ted failure` commands.
 
 ## Steps
 
@@ -17,7 +17,7 @@ If the Factory has Checks, TED has already run them, one after another, and thei
 5. Check the diff against `AGENTS.md` and record any rule it breaks.
 6. Check the change against the Task’s description and the Design brief. Look for missing cases, broken behaviour and leftover debugging code.
 7. Try the change by hand, always against this Task’s own `TED_HOME` (`node_modules/.cache/ted-home` in the worktree), never `~/.ted` or `~/.ted-dev`:
-   - For a change in `packages/app`, start TED Dev with `ted run-app "TED Dev"`, open each changed screen in light and dark mode, and attach a screenshot of each with `ted comment --attach`. Take them with Playwright against TED Dev launched with `TED_HIDDEN_WINDOW=1`. Judge them against the Design brief and the Figma file named in `AGENTS.md`. If Figma can’t be read, judge them against the Design brief alone and say so in a note. Quit TED Dev when the screenshots are taken.
+   - For a change in `packages/app`, start TED Dev with `ted run-app "TED Dev"`, open each changed screen in light mode, and attach a screenshot of each with `ted comment --attach`. Light-mode images alone are sufficient. Take them with Playwright against TED Dev launched with `TED_HIDDEN_WINDOW=1`. Judge them against the Design brief and the Figma file named in `AGENTS.md`. If Figma can’t be read, judge them against the Design brief alone and say so in a note. Quit TED Dev when the screenshots are taken.
    - Something that can’t be checked this way, such as a native dialog, is a note saying what the human should look at, not a reason to wait.
    - For a change in `packages/daemon`, `packages/cli` or `packages/protocol`, run the changed `ted` commands with `env -u TED_RUN_CAPABILITY -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>` and paste the output into your note. Keep Task-control commands such as `ted comment`, `ted checks` and `ted outcome` in the normal Run environment.
 8. Sort every Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, with the notes.
