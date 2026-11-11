@@ -4,6 +4,7 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { Readable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
+import type { RestoreBackupRequest, ShutdownRequest } from '@ted/protocol'
 import {
   type AppAuth,
   bodyHash,
@@ -13,11 +14,12 @@ import {
   daemonProof,
   equalHex,
   parseAppAuth,
-  type RestoreBackupRequest,
+  parseRestoreBackupRequest,
+  parseShutdownRequest,
+  RequestValidationError,
   requestMac,
   responseMac,
   responseMacHeader,
-  type ShutdownRequest,
 } from '@ted/protocol'
 import { maxAttachmentBytes } from './attachments.ts'
 import type { Data } from './data.ts'
@@ -35,11 +37,10 @@ import { peerRoutes } from './routes/peers.ts'
 import { planRoutes } from './routes/plans.ts'
 import {
   type BaseOptions,
+  jsonRoute,
   maxBodyBytes,
   type RequestContext,
   type Route,
-  readJson,
-  readOptionalJson,
 } from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
 import { searchRoutes } from './routes/search.ts'
@@ -83,24 +84,20 @@ const dataRoutes: Route<BaseOptions>[] = [
     path: /^\/backups$/,
     handle: async (_, { data }) => [200, await data.summary()],
   },
-  {
+  jsonRoute<RestoreBackupRequest, BaseOptions>(parseRestoreBackupRequest, {
     method: 'POST',
     path: /^\/backups\/restore$/,
     fileToken: true,
-    async handle({ req }, { data }) {
-      const body = (await readJson(req)) as Partial<RestoreBackupRequest> | null
-      const name = typeof body?.name === 'string' ? body.name : ''
-      const stopRuns = body?.stopRuns === true
-      return [200, await data.restore({ name, stopRuns })]
+    async handle({ body }, { data }) {
+      return [200, await data.restore(body)]
     },
-  },
-  {
+  }),
+  jsonRoute<ShutdownRequest, BaseOptions>(parseShutdownRequest, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/shutdown$/,
     fileToken: true,
-    async handle({ req, res, caller }, { data, onShutdown }) {
-      const body = (await readOptionalJson(req)) as Partial<ShutdownRequest> | null
-      const keepRuns = body?.keepRuns === true
+    async handle({ body: { keepRuns }, res, caller }, { data, onShutdown }) {
       if (caller.kind === 'file' && !keepRuns) {
         throw new HttpError(403, 'only the TED app can do this')
       }
@@ -111,7 +108,7 @@ const dataRoutes: Route<BaseOptions>[] = [
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
     },
-  },
+  }),
   {
     method: 'GET',
     path: /^\/command-line$/,
@@ -168,7 +165,8 @@ export async function listen(options: BaseOptions): Promise<{ server: http.Serve
     if (release) res.on('close', release)
     handle(req, res, options).catch(async (error: unknown) => {
       await drain(req)
-      if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
+      if (error instanceof HttpError || error instanceof RequestValidationError)
+        return sendJson(res, error.status, { error: error.message })
       if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
       console.error(
         redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
@@ -207,6 +205,8 @@ async function handle(
   if (caller.kind === 'run') {
     const services = await options.data.services()
     if (!services.store.getRun(caller.runId)) throw new HttpError(403, 'This Run no longer exists')
+    if (services.store.sideChats.forRun(caller.runId))
+      throw new HttpError(403, 'Side chats have no Task or tool authority')
     if (services.store.coordinators.forRun(caller.runId)) {
       const ownBoundary = req.method === 'POST' && url === `/runs/${caller.runId}/boundary`
       const coordinatorTool =

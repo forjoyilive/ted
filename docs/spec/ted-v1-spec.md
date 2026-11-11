@@ -22,7 +22,7 @@ TED (“Totally Excellent Development”) is a desktop app for running software 
 - **Agents:** Claude Code and Codex, run through the user’s own installed CLIs. (KRI-14, KRI-21, ADR 0004)
 - **Code host:** GitHub only, through the user’s `gh` login. GitHub Enterprise works wherever `gh` is signed in to that host. (KRI-20, KRI-57, ADR 0007)
 - **Language:** English only. (KRI-20)
-- **Built standalone.** TED ports logic from agent-orchestrator (agent launch flags, PTY handling, worktree setup, sending CI failures and review comments to agents, the preview server manager, the chat host) and copies React UI code under Apache-2.0, keeping its NOTICE and marking changed files. (KRI-14, KRI-18, KRI-20, ADR 0003)
+- **Built standalone.** TED ports logic from agent-orchestrator (agent launch flags, PTY handling, worktree setup, sending CI failures and review comments to agents, the preview server manager, the chat host) and copies React UI code under Apache-2.0, preserving applicable upstream notices and marking changed files. (KRI-14, KRI-18, KRI-20, ADR 0003)
 
 ---
 
@@ -265,7 +265,7 @@ Rules:
 - `order` is all or nothing: the most specific layer that has one wins outright. (KRI-12)
 - `stages.<id>` settings and `lead`, `reviewer`, `planner` merge key by key across layers. (KRI-12, KRI-53)
 - A Stage file in a more specific layer replaces the one with the same id as a whole. (KRI-12)
-- Every Workflow setting, including Gates and whether Design is on, can be set in the Library and per Factory. Factory-only keys: `repos` (with `apps`, `merge_method`, `worktree`), Checks, `permissions` and `max_working_runs`. (KRI-12, KRI-53, KRI-57)
+- Every Workflow setting, including Gates and whether Design is on, can be set in the Library and per Factory. Factory-only keys: `repos` (with `apps`, `merge_method`, `worktree`), Checks and `max_working_runs`. Permission mode is machine-local per Factory (7.8); a legacy `permissions` key is advisory only. (KRI-12, KRI-53, KRI-57)
 - Any Task TED creates to change `.ted/` (setup, drift merge) has the Review Gate forced on. Setup also forces the Design Gate. (KRI-22, KRI-58)
 
 ### 4.5 `workflow.yaml`
@@ -278,7 +278,7 @@ Rules:
 | `planner` | any layer, merged | Agent for Planning Runs only, as `lead`. Default: Claude if installed, else Codex. | KRI-53, KRI-60 |
 | `model` (in `lead`, `reviewer`, `planner`) | any layer | The CLI’s alias where it has one (Claude: `opus`, `sonnet`, `haiku`, …), the exact name otherwise (Codex has no aliases). Unset: the CLI’s own default and any org admin default. | KRI-53 |
 | `effort` (same) | any layer | The CLI’s levels: `low`, `medium`, `high`, `xhigh`, `max`, plus `ultra` on some Codex models. An unsupported level drops to the highest the model allows. Unset: the CLI’s default. | KRI-53 |
-| `permissions` | Factory only | `auto` (default) or `bypass`. Applies to every Run in the Factory (7.8). | KRI-20, KRI-53 |
+| `permissions` | Legacy Factory key | Advisory `auto` or `bypass`; never authorizes Bypass. The effective mode is chosen on each computer (7.8). | KRI-20, KRI-53, KRI-165 |
 | `max_working_runs` | Factory only | Optional per-Factory cap on working Runs. Unset by default. | KRI-15, KRI-57 |
 | `repos` | Factory only | List of the Factory’s repos; the first is the primary repo (4.6). | KRI-58 |
 | `order` | any layer | Ordered list of agent Stage ids (4.7). | KRI-12, KRI-58 |
@@ -328,7 +328,6 @@ version: 1
 lead: { agent: claude, model: opus, effort: high }
 reviewer: { agent: codex, effort: medium }
 planner: claude
-permissions: auto
 max_working_runs: 3
 repos:
   - name: app
@@ -560,7 +559,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 - **Start** (leaves Backlog): the play button on a Backlog card, dragging a card to Intake (or into the Queued group in a Manual-sorted List), `S`, `ted task start <id>`, or an Automation. A blocked Backlog card has no Start button. (KRI-15, KRI-56, KRI-62)
 - **Un-start:** dragging a Queued card back to Backlog, or **Move to Backlog** in the Task actions menu. A Task that has had a Run can’t go back to Backlog. (KRI-15, KRI-63)
 - **Blocked Tasks and Start now.** A Task with a blocker starts as soon as its last blocker merges only if it was meant to start: created with Start now checked (or `--start`), or already started. Created with Start now unchecked, it stays in Backlog after the blocker merges. The human can start it by hand at any time. Removing the last blocker by hand never starts a Task. (KRI-55 change from Nabha’s review, KRI-15)
-- No snooze-until-a-date in v1 (KRI-42).
+- **Snooze:** an existing Backlog Task can be scheduled for a date and time in TED’s app-wide timezone, saved as a fixed instant. It stays in Backlog until due, including with automatic Backlog starts or Overnight mode on. When due it starts through the normal queue even if Factory automatic starts are off; blockers, capacity and safety holds still apply. Snoozes survive restart, and overdue Tasks are handled when TED next runs. The Task actions menu offers Snooze…, Change snooze… and Cancel snooze. Start clears the snooze and starts early; archiving cancels it. Cancel restores ordinary Backlog behavior, so automatic starts may start it immediately. Pending snoozes keep TED running in the background; Quit is still available. (KRI-42)
 
 **Queue and limits**
 
@@ -738,6 +737,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 
 - A Run is one agent conversation: on a Task (Task Lead or sub-agent), for an Automation, or for planning. (glossary)
 - **Live chat** is the only view of a Run in v1: streaming messages, collapsible tool-call rows, edits expandable to diffs, and the composer (10.6). Port agent-orchestrator’s chat host (`adapters/chatdriver/`) and React chat components. No TUI; switching is later (KRI-24). (KRI-20)
+- **Side chat** opens beside a Task Lead Run’s chat, with a switch between the two in narrow panes. One persistent side chat belongs to each Task Lead Run, including historical Runs while their output is kept. It uses a fixed Conversation snapshot, the source Run’s agent/model/effort, and answers only from supplied text, with no tools or Task authority. Closing the panel keeps the exchange. Each turn queues under normal Run limits; Stop reply affects only the side chat. Snapshot omissions are shown; a missing snapshot makes the chat read-only. (KRI-29)
 - **Transport:** Codex through `codex app-server`. Claude Code with a subscription through the CLI (an interactive PTY or `claude -p --output-format stream-json`); the Agent SDK only with an API key. (KRI-21, ADR 0004)
 - Agent hooks for Claude Code and Codex tell TED whether a Run is working, idle, waiting or finished. They are set through per-Run flags. (KRI-20, KRI-53)
 - **Per-Run flags only.** TED passes everything as flags on each Run (`--settings`, `--mcp-config`, `-c key=value`, …) and never writes to `~/.claude` or `~/.codex`. The `ted mcp` server is passed the same way. (KRI-53, KRI-59)
@@ -786,7 +786,10 @@ At Run start TED gives the agent: (KRI-11, KRI-19, KRI-22, KRI-60)
 
 ### 7.8 Permission modes
 
-- One `permissions` setting, Factory layer only: `auto` (default) or `bypass`. It applies to Task Leads, sub-agents, reviewers and Planning Runs. Automation Runs always run in `auto`, whatever the Factory sets, because they read untrusted content (Sentry, Linear and GitHub issues) with no human watching. (KRI-20, KRI-53)
+- Permission mode is saved per Factory on this computer: `auto` (default) or `bypass`. It applies to Task Leads, sub-agents and reviewers. Planning, Automation and Coordinator Runs always use Auto. (KRI-20, KRI-53, KRI-165)
+- Factory settings has a separate **This computer** permission control. **Enable Bypass…** opens a warning with an unchecked acknowledgement and **Enable Bypass**; only the app can save that confirmation. **Use Auto** saves immediately without confirmation. Neither action creates a pull request. New Checks and agent-started Apps also use this mode for sandboxing; the confirmed human-started App exception remains. (KRI-165)
+- A committed `.ted/workflow.yaml` cannot enable or disable Bypass. Legacy `permissions` values remain valid but advisory; repo Bypass with local Auto raises a warning linking to Factory settings. Existing repo settings and old Save confirmations do not migrate into consent. Another computer and a removed/re-added Factory start in Auto. (KRI-165)
+- Changes apply to newly launched processes, including restart and recovery. Running Runs, Checks and Apps retain their current access until stopped; the settings control explains this. (KRI-165)
 - **`auto`:** Claude Code `--permission-mode auto` with prompts routed to TED; Codex `-s workspace-write -a on-request`. Prompts become `permission` Comments. If Claude’s auto mode isn’t available (unsupported model, or disabled by an org admin), TED uses manual mode with every prompt in the Inbox and notes it on the Run. (KRI-53)
 - **`bypass`:** Claude Code `bypassPermissions`; Codex `danger-full-access` with no approvals. Only for Factories whose Runs happen in an isolated machine or VM. (KRI-53)
 - A permission request is a Comment from the Run with **Deny** and **Approve**, shown in the thread, the Inbox and as a row in the Run chat. A Run waiting on one shows as waiting. Approve and Deny apply to that request only; no “always allow” in v1. A permission request whose Run stops is withdrawn. (KRI-20, KRI-53, KRI-56)
@@ -885,7 +888,10 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 
 - Validate `max_back: 5`. At the third send-back (`loop_check: 3`; `false` turns it off), TED itself starts a sub-agent with the `reviewer` agent, model and effort. It reads the three rounds of Findings and the diffs between them and says **converging** or **looping**. (KRI-16, KRI-53)
 - Converging: back to Work with the verdict added. Looping: ask the human now. (KRI-16)
-- The ask (a `question`, at a looping verdict or over 5) lists each round’s blocking Findings and offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. (KRI-16, KRI-55)
+- At the send-back limit, TED runs a fresh Loop check before asking, unless `loop_check` is `false`. This assessment includes the pending Findings as well as the earlier rounds; even a converging verdict waits for the human’s decision. A failed or unavailable assessment is shown as unknown. (KRI-269)
+- The ask (a `question`, at a looping verdict or over 5) gives a short progress assessment and recommends an existing next step. It offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. Moving on explicitly leaves the Findings open. Full Findings stay in the Task’s history, including the pending send-back; asking does not count as sending back. (KRI-16, KRI-55, KRI-269)
+
+Human-facing Task messages across Stages lead with the current result, risk or needed decision, followed by its consequence and next step. Shared Task Lead guidance keeps routine updates brief and sign-offs clear about what is being approved. Validation summarizes relevant coverage and review outcomes while keeping remaining concerns prominent; detailed logs, review identifiers and test inventories belong in linked or attached evidence. Briefs retain the context a replacement Task Lead needs. Existing messages are not rewritten or automatically shortened. (KRI-269)
 
 ### 8.6 Confirmation row
 
@@ -980,7 +986,8 @@ apps:
 
 - At any Stage once a worktree exists, through the Task’s shell and **Open in editor**. TED never checks a branch out into the user’s own clone. (KRI-18, ADR 0006)
 - The **Code** section in Task details has one row per repo: the pull request, the branch, the worktree path (click to copy), **Shell** and **Open in editor**. Before the first Task Lead Run it reads “No worktree yet”; while `setup` runs, “Setting up…” with a link to the setup log. (KRI-60, KRI-63, KRI-58)
-- **Shell** (or ⌃`) replaces the middle pane with the shell: xterm.js, repo name and path in a header, **Restart shell**, **Open in editor**, “← Thread”. It is the user’s login shell in that repo’s worktree root, with `worktree.env`, `TED_TASK` and `TED_APP_*` set but never `TED_RUN`, so `ted` commands there act as the human. The daemon owns the PTY; it starts on first open, survives app restarts, stays while the Task is Stopped, and ends when the worktree is removed. Search inside it with ⌘F. Split panes are later (KRI-32). (KRI-20, KRI-60)
+- **Shell** (or ⌃`) replaces the middle pane with Task shells: xterm.js, repo name and worktree path in a shared header, **Open in editor**, “← Thread”. Each pane has **Split right**, **Split below**, **Find**, **Restart shell** and **Close**. Splits can nest, up to eight panes per Task/repo; dividers drag or move with arrow keys when focused. Each new pane starts the user’s login shell at the worktree root with `worktree.env`, `TED_TASK` and `TED_APP_*` but never `TED_RUN`, so `ted` commands act as the human. Input, output, search and restart belong to one pane. (KRI-20, KRI-60, KRI-32)
+- The daemon owns the shells and pane layout. They survive app restarts, stay while the Task is Stopped, and end when the worktree is removed or the daemon stops. Closing or restarting a pane confirms before ending its shell and jobs in the original OS session, plus descendants still connected through current parent relationships; other panes keep running. The confirmation warns that programs which detached into separate sessions may keep running. A program that leaves the original session and becomes reparented before cleanup is outside terminal cleanup. An exited shell keeps its output and a Restart action. Closing the last pane shows **Open Shell**; returning to the view stays empty until the human opens a fresh one. “← Thread” hides panes without closing them. A daemon restart resets the layout; next open starts one fresh shell. (ADR 0075, ADR 0097)
 - **Editor:** Settings → General → Editor lists the editors TED finds (VS Code `code`, Cursor `cursor`, Zed `zed`, Windsurf `windsurf`, Sublime Text `subl`, JetBrains launchers, Xcode `xed`) and **Custom command** with `{path}`, `{line}`, `{column}`. No default guess: the first use with nothing set shows a picker of editors found and remembers the choice. It opens the worktree folder; from a diff, the file at the line in each editor’s own syntax. (KRI-57)
 
 ### 9.9 Merge rules
@@ -1010,7 +1017,7 @@ apps:
   - Terminal 12px (adjustable 10–20, saved per user), line height 1.35. Chat 14px, code in chat 12px.
   - Weights 500 and 600 only, sentence case, tabular numbers.
 - Higher contrast for secondary text, captions and lines, in both themes. (KRI-23)
-- No text-size setting (KRI-51); Electron zoom still works.
+- **Text size:** Settings → General → Display has a − / + percentage control, default 100%, in 5% steps from 80% to 200%. It changes app text immediately and is saved on this computer. Default restores 100%. Terminal font size stays independent; Electron zoom still works. (KRI-51)
 - **Dark mode is in v1.** TED follows the system appearance by default. Settings → General → **Appearance**: System, Light, Dark. It changes the theme at once, with no restart. Every colour is a token with a light and a dark value, including status colours, diff green and red, and the agent marks. Dark versions of the main screens are being designed in Figma. (KRI-64 change from Nabha’s review)
 - **Colour meanings.** For Task statuses, Run icons, Run rows and event lines, amber means only Waiting on you. In banners, the plan-usage chip and bars, amber means a warning. Red means failure or stops-work. Blue means working or queued. Grey is everything else, Paused included. (KRI-8 coordinator decision 24, KRI-54, KRI-61, KRI-64)
 - **Run icons** use the Anthropic mark (Claude Code) or the OpenAI mark (Codex), monochrome, inside a ring coloured by state: blue working, amber waiting on you, grey idle or stopped, faint grey dashed Paused, red failed. 18px everywhere. The Task Lead comes first, then up to two sub-agents, then “+N”. A Task Lead waiting only on its sub-agents has a grey ring while the Task still says Working. (KRI-8 consistency pass, KRI-11, KRI-61, KRI-62)
@@ -1211,12 +1218,12 @@ Figma: KRI-64 First launch and Settings.
 - **Section dots** are red, and only for stops-work problems. (KRI-57, KRI-64)
 
 1. **General** (KRI-57, KRI-64, KRI-59, KRI-8 consistency pass)
-   - **Appearance:** System (default), Light, Dark. **Terminal font size** (10–20). **Profile picture:** avatar, **Change…**, **Remove**; initials if none.
+   - **Appearance:** System (default), Light, Dark. **Text size** (80%–200%, 5% steps, default 100%, with a Default action). **Terminal font size** (10–20, independent of Text size). **Profile picture:** avatar, **Change…**, **Remove**; initials if none.
    - **Date and time:** **Time format:** System (default), 12-hour, 24-hour. **Time zone:** System (default, follows changes on this computer) or a fixed named zone. A current-time row shows the effective zone and format. These preferences apply to TED’s timestamps and calendar dates, human-readable schedules and Automation time entry. Existing Automations adopt the app-wide zone and keep their scheduled clock times. Zone changes recalculate future firings without making up slots merely because the zone changed; queued and working Runs keep going. (KRI-222)
    - **Overnight mode across all Factories:** off by default, on this computer only. Turn it on or off in General; while it is on, the sidebar’s footer says “Overnight mode is on”. While on, TED automatically starts eligible Backlog Tasks across every Factory, including those with automatic starting off, after queued work and within the existing working Run limits. Gates set in the Workflow (TED’s defaults, the Library, the Factory) or on one Task count as off, the Merge Gate included, so a Task moves through its Stages and merges without sign-off; the saved Workflow and the Task’s own Gate choices don’t change, and Task details, Factory settings, the Library and the Board show which Gates are off for now. Each Gate skipped this way is a line in the Task’s thread. Gates TED forces stay on: a setup Task’s Design and Review Gates, and the Clarify sign-off at grilling depth. Any Task whose changes in the Factory’s primary repo touch `.ted/` keeps its Gates as saved and has its Review Gate on while the mode is on, so the human signs off before Workflow, Check or permission changes merge; if TED can’t read the Task’s changes it treats the Task the same way. The thread says why the Gate stayed on. A Gate request already open when the mode turns on stays open. Task Leads record reversible decisions in the Task brief and leave genuine blocking questions in the Inbox before ending their turn; questions and permissions still require the human. A Gate is decided when the Task Lead finishes the Stage, so turning the mode off brings Gates back from then on; a Task that TED started merging while it was on keeps merging. Idle and waiting Runs keep their conversations and free their working slots. The mode persists until turned off, including across restarts; there is no schedule or automatic end time. Turning it off leaves already started/queued work running and preserves each Factory’s own automatic starting setting. (KRI-271, ADR 0100)
    - **Startup and quitting:** **Start TED in the background when you log in** (on); Linux only, **Show tray icon** (on); **When you quit with work running** (3.1); **Stay Awake while Runs are working** (on).
    - **Editor** (9.8). **Command line:** **Install the `ted` command**. On macOS a symlink at `/usr/local/bin/ted` into the app bundle, asking for the admin password only if that folder isn’t writable. For AppImage a small `~/.local/bin/ted` script, rewritten after each update; if `~/.local/bin` isn’t on the login shell’s `PATH`, the row shows the line to add. deb and rpm show “Installed by your package”.
-   - **About and updates:** version, “Update ready: TED 1.4.0. Restarting doesn’t stop Runs.”, **Check for updates**, **Restart to update**, Third-party licenses (including agent-orchestrator’s NOTICE).
+   - **About and updates:** version, “Update ready: TED 1.4.0. Restarting doesn’t stop Runs.”, **Check for updates**, **Restart to update**, Third-party licenses (including TED’s agent-orchestrator attribution).
 2. **Notifications:** the switches in 3.8. When the OS has notifications off for TED, a red row at the top with **Open System Settings**. (KRI-59, KRI-64)
 3. **Agents:** one card per agent kind with Health (chip, version against the minimum, path, account and plan, **Check again**, and **Copy command** / **Sign in** / **Update** when needed), **Billing** (Subscription / API key, naming the variables TED removes), and **Plan usage** bars (7.7). A card with a stops-work problem gets a red border and a chip such as “Signed out · 3 Runs paused”. Below the cards: **Restart idle Runs onto new agent versions** (on), and **Defaults for all Factories**: Task Lead (`lead`), Reviewer (`reviewer`), Planner (`planner`), each with agent, model, effort, a Default or Library tag, and **Reset to TED default**. (KRI-54, KRI-57, KRI-64, KRI-53)
 4. **Limits:** **Max working Runs on this machine** (6), **Start fewer Runs when this computer is busy** (off), **Simulators booted at once** (3), **Checks running at once** (2, from 1 to 16; a Task’s Checks count as one, the rest wait in line and the Task reads “Waiting to run Checks · 2nd”; ADR 0103) and **Run agents and Checks at low priority** (on: agents, Checks, worktree setup and teardown, and Apps an agent starts run at the system’s utility priority on macOS and at niceness 10 on Linux; work already running keeps its priority; ADR 0102), with a live line “Now: 4 of 6 Runs working · 2 queued · 1 of 3 simulators booted”. (KRI-57, KRI-64)
@@ -1356,7 +1363,7 @@ Build tasks with no product decision left open, or with the decision recorded he
 - **The `ted` command** (KRI-122): every package has `resources/bin/ted`. macOS links `/usr/local/bin/ted` to it; deb and rpm link `/usr/bin/ted` to it after install and remove the link on uninstall; an AppImage writes `~/.local/bin/ted`, which the daemon rewrites at each start. `ted open` starts the installed app when it isn’t open.
 - **Linux packages:** AppImage, deb and rpm, for x64 and arm64. All three update through TED’s own updater (electron-updater). AppImage replaces itself with no password; deb and rpm install with `dpkg`/`rpm` and the restart chip reads “Restart to update (asks for your password)”. Hosted apt and dnf repositories are later (KRI-74). (KRI-59, KRI-64)
 - Bundled fonts: Geist Variable and Geist Mono Variable, built into the window by Vite from `@fontsource-variable`. (KRI-14)
-- Keep agent-orchestrator’s NOTICE for copied UI code and mark changed files. (ADR 0003) agent-orchestrator ships no NOTICE file, so `packages/app/third-party/agent-orchestrator/` holds TED’s attribution and the Apache-2.0 text; it opens **Third-party licenses**, which lists every shipped package with its license text. (KRI-122)
+- Preserve applicable upstream notices for adapted agent-orchestrator code and mark changed files. (ADR 0003) `packages/app/third-party/agent-orchestrator/` holds an explicitly TED-authored attribution and the complete upstream Apache-2.0 license; these appear in **Third-party licenses**, which lists every shipped package with its license text. (KRI-122, KRI-167)
 - **Minimum supported versions:** `claude` 2.1.111 (`--permission-mode auto` without the hidden `--enable-auto-mode` flag), `codex` 0.128.0 (`codex update`), `gh` 2.81.0 (`gh auth status --json`). Below these, the agent pauses with “Too old” and the GitHub row shows as needing an update. Sources in `docs/research/kri-81-min-versions.md`. (KRI-54, KRI-57, KRI-81)
 - Before shipping to other people: KRI-44 (OpenAI terms), the Anthropic “third-party harness” recheck and the Codex app-server line (7.11). (ADR 0004)
 
@@ -1380,7 +1387,7 @@ From the map (KRI-8) and every issue labelled `later`:
 - Built-in Linear connector with two-way sync: [KRI-26](https://linear.app/kriyadesign/issue/KRI-26)
 - Auto-delete archived Tasks: [KRI-27](https://linear.app/kriyadesign/issue/KRI-27)
 - Several subscription accounts per agent: [KRI-28](https://linear.app/kriyadesign/issue/KRI-28)
-- Side chats: [KRI-29](https://linear.app/kriyadesign/issue/KRI-29)
+- Side chats for other Run types, multiple side chats per Run and a CLI entry point (the Task Lead Run version is in 7.3): [KRI-29](https://linear.app/kriyadesign/issue/KRI-29)
 - Cues: [KRI-30](https://linear.app/kriyadesign/issue/KRI-30)
 - GitLab: [KRI-31](https://linear.app/kriyadesign/issue/KRI-31)
 - Terminal split panes: [KRI-32](https://linear.app/kriyadesign/issue/KRI-32)
@@ -1388,7 +1395,6 @@ From the map (KRI-8) and every issue labelled `later`:
 - Built-in browser that agents drive: [KRI-34](https://linear.app/kriyadesign/issue/KRI-34)
 - Rebinding shortcuts and searching file contents: [KRI-35](https://linear.app/kriyadesign/issue/KRI-35)
 - S3-compatible attachment storage: [KRI-37](https://linear.app/kriyadesign/issue/KRI-37)
-- Snoozing a Task until a date: [KRI-42](https://linear.app/kriyadesign/issue/KRI-42)
 - Revisiting the one-long-Run design: [KRI-43](https://linear.app/kriyadesign/issue/KRI-43)
 - Reading OpenAI’s Terms of Use by hand: [KRI-44](https://linear.app/kriyadesign/issue/KRI-44)
 - Watching for `--bare` becoming the default: [KRI-45](https://linear.app/kriyadesign/issue/KRI-45)

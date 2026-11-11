@@ -38,6 +38,7 @@ import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
 import { createShells } from './shells.ts'
+import { createSideChats } from './side-chats/side-chats.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
@@ -60,6 +61,7 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   linear?: { apiUrl?: string; keyring?: Keyring }
+  snoozes?: { now?: () => Date; checkEveryMs?: number }
   linearSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
@@ -363,6 +365,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
         deliveryFinished: (runId, error) => coordinators?.deliveryFinished(runId, error),
         canDeliver: (runId, admitted) =>
+          !store.sideChats.forRun(runId) &&
           taskDeliveryAllowed(runId) &&
           (!store.coordinators.forRun(runId) ||
             coordinators?.deliveryAllowed(runId, admitted) === true),
@@ -382,6 +385,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
+        ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,
@@ -414,6 +418,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       taskDeliveryAllowed = (runId) => tasks.deliveryAllowed(runId)
       const shells = createShells({
+        env: environment.current,
         async target(ref, repo) {
           const access = await tasks.worktreeAccess(ref, repo)
           return { ...access, env: { ...access.env, TED_HOME: paths.home } }
@@ -511,7 +516,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
       })
       started = tasks
+      const sideChats = createSideChats({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        tasks,
+        ...(idle && { idle }),
+      })
       const factoryRemovals = createFactoryRemovals({
+        sideChats,
         coordinators,
         store,
         banners,
@@ -543,6 +558,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        sideChats,
         coordinators,
         automations,
         plans,
@@ -563,7 +579,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         async close() {
-          shells.close()
+          const shellsClosed = shells.close()
+          await sideChats.close()
           await coordinators.close()
           await automations.close()
           plans.close()
@@ -581,6 +598,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           await factories.close()
           await tasks.close()
           await runs.close()
+          await shellsClosed
         },
       }
     },

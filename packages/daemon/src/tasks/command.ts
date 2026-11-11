@@ -10,16 +10,33 @@ export interface CommandSandbox {
   tmpRoot: string
 }
 
+export interface CommandLaunch {
+  sandbox?: CommandSandbox
+  release: () => void
+}
+
 export async function runTaskCommand(
   input: Parameters<typeof runWorktreeCommand>[0] & {
     label: string
     sandbox?: CommandSandbox
+    prepareLaunch?: () => Promise<CommandLaunch>
   },
 ): Promise<CommandResult> {
-  const { sandbox, label, ...command } = input
-  if (sandbox === undefined) return runWorktreeCommand(command)
+  const { sandbox: givenSandbox, prepareLaunch, label, ...base } = input
+  let release = () => {}
   let tmp: string | undefined
   try {
+    const prepared = await prepareLaunch?.()
+    const sandbox = prepared ? prepared.sandbox : givenSandbox
+    release = prepared?.release ?? (() => {})
+    const command = {
+      ...base,
+      onSpawn: () => {
+        base.onSpawn?.()
+        release()
+      },
+    }
+    if (sandbox === undefined) return await runWorktreeCommand(command)
     await mkdir(sandbox.tmpRoot, { recursive: true, mode: 0o700 })
     tmp = await mkdtemp(path.join(sandbox.tmpRoot, 'tmp-'))
     const wrapped = await sandbox.sandbox.wrap(input.shell ?? ['/bin/sh', '-c'], {
@@ -42,6 +59,7 @@ export async function runTaskCommand(
     }
     return { outcome: 'failed', problem }
   } finally {
+    release()
     if (tmp !== undefined) {
       await rm(tmp, { recursive: true, force: true }).catch((error: unknown) => {
         console.error(redactSecrets(`couldn’t remove command temp folder: ${String(error)}`))

@@ -118,3 +118,12 @@ export interface ValidationProgress {
 export function validationExecution(progress: ValidationProgress, position: number) {
   return progress.executions.findLast((execution) => execution.start <= position)
 }
+
+export interface AddFailureEvidenceRequest {
+  evidence: string
+  contextId?: string
+}
+
+export interface VerifyFailureRequest {
+  evidence: string
+}

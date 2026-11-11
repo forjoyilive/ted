@@ -32,6 +32,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -62,6 +63,7 @@ async function setup(
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
     ...(disk && { disk }),
     ...(nudgeAfterMs !== undefined && { nudgeAfterMs }),
   })

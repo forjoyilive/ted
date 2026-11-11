@@ -6,6 +6,7 @@ import {
   deleteTaskEvent,
   followUpTaskEvent,
 } from './components/ArchiveDialogs.tsx'
+import { snoozeTaskEvent } from './components/SnoozeTaskDialog.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
 import { openInEditor } from './editor.ts'
 import { openTaskFiles } from './files.ts'
@@ -204,6 +205,21 @@ export function taskCommands(task: Task): Command[] {
   }
   const action = statusAction(task)
   const list: Command[] = []
+  if (task.stage === 'backlog' && !task.setup) {
+    list.push({
+      id: 'snooze',
+      label: task.snoozedUntil ? 'Change snooze…' : 'Snooze…',
+      scope: 'task',
+      run: () => taskEvent(snoozeTaskEvent, task),
+    })
+    if (task.snoozedUntil)
+      list.push({
+        id: 'cancel-snooze',
+        label: 'Cancel snooze',
+        scope: 'task',
+        run: () => ted.setTaskSnooze(task.id, null),
+      })
+  }
   if (action) {
     list.push({
       id: action.kind,

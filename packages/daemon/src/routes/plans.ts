@@ -1,30 +1,15 @@
-import type { StartPlanRequest } from '@ted/protocol'
-import { RequestError as HttpError } from '../errors.ts'
-import { agentChoice, bodyObject, type Route, readJson } from './route.ts'
-import { answerRequest, proposalInput, roundInput } from './tasks.ts'
+import {
+  parseAnswerRequest,
+  parsePostPlanRequest,
+  parseRenamePlanRequest,
+  parseStartPlanRequest,
+} from '@ted/protocol'
+import { jsonRoute, type Route } from './route.ts'
 
 const ref = '([^/?]+)'
 const factoryQuery = '(?:\\?factory=([^&]*))?'
 
 const path = (pattern: string) => new RegExp(`^${pattern}$`)
-
-function startInput(value: unknown): StartPlanRequest {
-  const body = bodyObject(value)
-  const { factory, message, from } = body
-  if (typeof factory !== 'string' || factory.trim() === '') {
-    throw new HttpError(400, 'name the Factory')
-  }
-  if (typeof message !== 'string') throw new HttpError(400, 'message must be text')
-  if (from !== undefined && (typeof from !== 'string' || from === '')) {
-    throw new HttpError(400, 'from must be a planning chat ID')
-  }
-  return {
-    factory,
-    message,
-    ...(typeof from === 'string' && { from }),
-    ...agentChoice(body),
-  }
-}
 
 export const planRoutes: Route[] = [
   {
@@ -35,13 +20,13 @@ export const planRoutes: Route[] = [
       await plans.list(factory === '' ? undefined : decodeURIComponent(factory)),
     ],
   },
-  {
+  jsonRoute(parseStartPlanRequest, {
     method: 'POST',
     path: path('/plans'),
-    async handle({ req, caller }, { plans }) {
-      return [201, await plans.start(startInput(await readJson(req)), caller)]
+    async handle({ body, caller }, { plans }) {
+      return [201, await plans.start(body, caller)]
     },
-  },
+  }),
   {
     method: 'GET',
     path: path('/plan-requests'),
@@ -52,15 +37,13 @@ export const planRoutes: Route[] = [
     path: path(`/plans/${ref}`),
     handle: async ({ params: [id = ''] }, { plans }) => [200, await plans.detail(id)],
   },
-  {
+  jsonRoute(parseRenamePlanRequest, {
     method: 'PATCH',
     path: path(`/plans/${ref}`),
-    async handle({ req, caller, params: [id = ''] }, { plans }) {
-      const { title } = bodyObject(await readJson(req))
-      if (typeof title !== 'string') throw new HttpError(400, 'title must be text')
-      return [200, await plans.rename(id, title, caller)]
+    async handle({ body, caller, params: [id = ''] }, { plans }) {
+      return [200, await plans.rename(id, body.title, caller)]
     },
-  },
+  }),
   {
     method: 'POST',
     path: path(`/plans/${ref}/stop`),
@@ -82,33 +65,19 @@ export const planRoutes: Route[] = [
       return [200, { deleted: true }]
     },
   },
-  {
+  jsonRoute(parsePostPlanRequest, {
     method: 'POST',
     path: path('/plan-runs/requests'),
     runToken: true,
-    async handle({ req, caller }, { plans }) {
-      const body = bodyObject(await readJson(req))
-      const round = body.round === undefined ? undefined : roundInput(body.round)
-      const proposal = body.proposal === undefined ? undefined : proposalInput(body.proposal)
-      const { supersedes } = body
-      if (supersedes !== undefined && typeof supersedes !== 'string') {
-        throw new HttpError(400, 'supersedes must be a request ID')
-      }
-      return [
-        201,
-        plans.post(caller, {
-          ...(round && { round }),
-          ...(proposal && { proposal }),
-          ...(typeof supersedes === 'string' && { supersedes }),
-        }),
-      ]
+    async handle({ body, caller }, { plans }) {
+      return [201, plans.post(caller, body)]
     },
-  },
-  {
+  }),
+  jsonRoute(parseAnswerRequest, {
     method: 'POST',
     path: path(`/plan-requests/${ref}/answer`),
-    async handle({ req, params: [id = ''] }, { plans }) {
-      return [200, await plans.answer(id, answerRequest(await readJson(req)))]
+    async handle({ body, params: [id = ''] }, { plans }) {
+      return [200, await plans.answer(id, body)]
     },
-  },
+  }),
 ]

@@ -5,6 +5,7 @@ export const queueKinds = [
   'sub-agent',
   'planning',
   'coordinator',
+  'side-chat',
   'automation-draft',
   'automation',
   'task',
@@ -43,8 +44,10 @@ export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
     e.kind === 'task' ? priorities.indexOf(e.priority ?? 'none') : 0
   return [...entries].sort(
     (a, b) =>
-      queueKinds.indexOf(a.kind === 'coordinator' ? 'planning' : a.kind) -
-        queueKinds.indexOf(b.kind === 'coordinator' ? 'planning' : b.kind) ||
+      queueKinds.indexOf(a.kind === 'coordinator' || a.kind === 'side-chat' ? 'planning' : a.kind) -
+        queueKinds.indexOf(
+          b.kind === 'coordinator' || b.kind === 'side-chat' ? 'planning' : b.kind,
+        ) ||
       priorityRank(a) - priorityRank(b) ||
       a.rank - b.rank ||
       a.id.localeCompare(b.id),

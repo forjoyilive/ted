@@ -33,6 +33,7 @@ interface StubHealth {
   autoUnavailable?: boolean
   resumeSteps?: Step[]
   resumeFails?: boolean
+  stopWaitsFor?: string
   resumeWaitsFor?: string
   resumeInputWaitsFor?: string
   inputWaitsFor?: string
@@ -82,6 +83,16 @@ const flag = (name: string) => {
 
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
 appendFileSync('stub-starts.jsonl', `${JSON.stringify({ argv, pid: process.pid })}\n`)
+
+process.on('SIGTERM', async () => {
+  const gate = stubHealth().stopWaitsFor
+  if (gate !== undefined) {
+    writeFileSync(`${gate}.waiting`, '')
+    while (!existsSync(gate)) await sleep(20)
+  }
+  process.removeAllListeners('SIGTERM')
+  process.kill(process.pid, 'SIGTERM')
+})
 
 const resumeGate = flag('--resume') !== undefined ? stubHealth().resumeWaitsFor : undefined
 while (resumeGate !== undefined && !existsSync(resumeGate)) {

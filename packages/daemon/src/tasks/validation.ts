@@ -14,7 +14,7 @@ import { RequestError } from '../errors.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { type CheckRunnerResult, type RunnableCheck, runChecks, summary } from './checks.ts'
-import type { CommandSandbox } from './command.ts'
+import type { CommandLaunch } from './command.ts'
 import { type createFailureCases, generatedFailureText } from './failure-cases.ts'
 import { sameCheckPlan, validationReport } from './validation-report.ts'
 
@@ -25,7 +25,8 @@ interface ValidationOptions {
   context(task: Task): Promise<Pick<FailureContext, 'repos' | 'checks'>>
   workflow(task: StoredTask): Promise<WorkflowResolution>
   plan(task: StoredTask, resolution: WorkflowResolution, only?: string): Promise<RunnableCheck[]>
-  sandbox(task: StoredTask, resolution: WorkflowResolution): Promise<CommandSandbox | undefined>
+  checkSandbox(task: StoredTask): Promise<void>
+  prepareLaunch(task: StoredTask): Promise<CommandLaunch>
   env(): NodeJS.ProcessEnv
   libraryDir: string
   signal: AbortSignal
@@ -188,7 +189,7 @@ export function createValidation(options: ValidationOptions) {
       }
       plan = plan.slice(start)
     }
-    const sandbox = await options.sandbox(task, resolution)
+    await options.checkSandbox(task)
     const checkRun = store.startChecks({
       taskId: task.id,
       trigger,
@@ -217,7 +218,7 @@ export function createValidation(options: ValidationOptions) {
         libraryDir: options.libraryDir,
         env: options.env(),
         logFor: (position) => options.checkLog(task, checkRun.id, position),
-        ...(sandbox !== undefined && { sandbox }),
+        prepareLaunch: () => options.prepareLaunch(find(task.id)),
         signal: options.signal,
         lowPriority: options.lowPriority(),
         onStart: (position) => store.checkStarted(checkRun.id, position),

@@ -1,3 +1,4 @@
+import type { PermissionMode } from './run.ts'
 export interface LocalFolder {
   path: string
   found: boolean
@@ -176,4 +177,19 @@ export function suggestFactoryName(repo: string): string {
 export function suggestRepoName(repo: string): string {
   const name = (repo.split('/').at(-1) ?? repo).toLowerCase().replace(/[^a-z0-9-]+/g, '-')
   return name.replace(/^-+|-+$/g, '') || 'repo'
+}
+
+export interface AutoStartBacklogRequest {
+  enabled: boolean
+}
+export interface SetRepoFolderRequest {
+  path: string
+}
+export interface StopCheckTryRequest {
+  name: string
+}
+
+export interface SetFactoryPermissionsRequest {
+  mode: PermissionMode
+  confirmBypass?: boolean
 }

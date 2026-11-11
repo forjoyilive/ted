@@ -27,14 +27,24 @@ async function setup(
     '      - { name: Lint, run: "echo linted" }',
   ],
   order = 'intake, work, validate, review',
+  loopCheck: false | number = false,
 ) {
   const client = await start({
     order,
     daemon: { codexBin: stubCodexPath },
-    workflow: ['stages:', '  validate:', '    max_back: 1', '    checks:', ...checks],
+    workflow: [
+      'stages:',
+      '  validate:',
+      '    max_back: 1',
+      `    loop_check: ${loopCheck}`,
+      '    checks:',
+      ...checks,
+    ],
   })
   const task = await client.ok<Task>('POST', '/tasks', {
-    title: '{"steps":[{"endTurn":true}]}',
+    title: JSON.stringify({
+      steps: [...(loopCheck === false ? [] : [{ say: 'Verdict: converging' }]), { endTurn: true }],
+    }),
     factory: 'NB',
     start: true,
   })
@@ -200,8 +210,16 @@ test('a regression assessment uses the existing send-back path and preserves max
   expect((await s.answer(await s.ask(second), 'Fix in this Task')).status).toBe(200)
   expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
   expect(await s.backs()).toHaveLength(1)
-  const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-  expect(comments.some((c) => !c.answer && c.title?.includes('its limit'))).toBe(true)
+  const question = await waitUntil(
+    async () => {
+      const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+      return comments.find((c) => !c.answer && c.title?.includes('its limit'))
+    },
+    'the limit assessment to ask the human',
+    40_000,
+  )
+  expect(question.kind).toBe('question')
+  expect(await s.backs()).toHaveLength(1)
 })
 
 test('a pending question survives restart, then acceptance resumes the remaining Checks', async () => {
@@ -440,9 +458,14 @@ test.each([false, true])(
     await s.post('/outcome', { outcome: 'advance' })
     const second = await s.failure(2)
     await s.answer(await s.ask(second), 'Fix in this Task')
-    const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-    const question = comments.find((c) => !c.answer && c.title?.includes('its limit'))
-    if (!question) throw new Error('Send-back limit question missing')
+    const question = await waitUntil(
+      async () => {
+        const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+        return comments.find((c) => !c.answer && c.title?.includes('its limit'))
+      },
+      'the limit assessment to ask the human',
+      40_000,
+    )
     if (answered) {
       expect(
         (
@@ -1072,4 +1095,20 @@ test('accepted continuation waits for the machine Check slot and keeps its failu
   await waitUntil(async () => (await s.obligations()).satisfied, 'accepted suffix completes')
   expect((await s.runs()).map((r) => r.outcome)).toEqual(['failed', 'passed'])
   expect((await s.runs())[0]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
+})
+
+test('an assessed regression uses the loop check before recording its counted send-back', async () => {
+  const s = await setup(undefined, undefined, 1)
+  await s.assess(s.one, 'regression')
+  await s.post('/outcome', { outcome: 'back', to: 'work', findings: s.one.evidence })
+  await waitUntil(
+    async () => (await getTask(s.client, s.task.id)).stage === 'work',
+    'converging loop send-back',
+    40_000,
+  )
+  expect(await s.backs()).toMatchObject([{ round: 1, counted: true }])
+  const runs = await s.client.ok<RunSummary[]>('GET', `${s.root}/runs`)
+  expect(runs.filter((run) => run.name === 'Loop check · Validate')).toHaveLength(1)
+  const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+  expect(comments.some((comment) => !comment.answer && comment.kind === 'question')).toBe(false)
 })

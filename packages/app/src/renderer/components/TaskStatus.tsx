@@ -1,5 +1,6 @@
 import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
 import { ago, useNow } from '../requests.ts'
+import { formatDate } from '../time.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from './StatusChip.tsx'
 import styles from './TaskStatus.module.css'
@@ -96,6 +97,22 @@ function BlockedBy({
 function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: string) => void }) {
   if (marker.kind === 'blocked-by') {
     return <BlockedBy by={marker.by} ended={marker.ended} onOpenTask={onOpenTask} />
+  }
+  if (marker.kind === 'snoozed') {
+    return (
+      <span
+        className={styles.marker}
+        title={formatDate(marker.until, { dateStyle: 'full', timeStyle: 'long' })}
+      >
+        Scheduled ·{' '}
+        {formatDate(marker.until, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </span>
+    )
   }
   return <span className={styles.marker}>Needs planning</span>
 }
