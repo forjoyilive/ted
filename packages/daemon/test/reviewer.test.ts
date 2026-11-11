@@ -15,6 +15,7 @@ import {
   api,
   assistantTexts,
   commitToOrigin,
+  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -360,6 +361,17 @@ describe('the Validate loop check', () => {
         20_000,
       )
       expect((await comments(client, task)).some((c) => c.kind === 'question')).toBe(false)
+      await waitUntil(
+        async () => {
+          const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
+          const check = runs.find(
+            (r) => r.name === 'Loop check · Validate' && r.state !== 'finished',
+          )
+          return check && (await hostRecords(home, check.id)).some((r) => r.t === 'start')
+        },
+        'the loop check’s host to start',
+        20_000,
+      )
       await daemon?.stop()
       daemon = await startDaemon({
         home,
