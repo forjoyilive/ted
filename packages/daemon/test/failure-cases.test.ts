@@ -96,6 +96,11 @@ test('assessment, request and acceptance are separate, and each case holds indep
   expect(discussion.status).toBe(200)
   expect((discussion.body as Comment).answer).toBeUndefined()
   expect((await s.obligations()).satisfied).toBe(false)
+  const verify = await s.lead.call('POST', `${s.root}/failures/${one.id}/verification`, {
+    evidence: 'It passes now.',
+  })
+  expect(verify.status).toBe(409)
+  expect(JSON.stringify(verify.body)).toContain('`stages.work.lead_closes_failures: true`')
   expect((await s.resolve(decision)).status).toBe(200)
   expect((await s.obligations()).blockers).toEqual([two.id])
   expect((await s.resolve(decision)).status).toBe(409)
@@ -108,6 +113,37 @@ test('assessment, request and acceptance are separate, and each case holds indep
   const stored = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
   expect(stored[0]?.source).toEqual(one.source)
   expect(stored[0]?.evidence).toBe(one.evidence)
+})
+
+test('with stages.work.lead_closes_failures on, the Task Lead closes its own Finding with passing evidence and its question is withdrawn', async () => {
+  const s = await setup(['stages:', '  work: { lead_closes_failures: true }'])
+  const decision = await s.request(await s.record((await s.capture()).id))
+  const route = `/failures/${decision.id}/verification`
+  const closed = await s.ok<FailureCase>(route, {
+    evidence: 'Ran the test again after the upstream fix; it passes.',
+  })
+  expect(closed.verifications).toHaveLength(1)
+  const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+  expect(comments.find((c) => c.id === decision.decisions[0]?.commentId)?.answer).toMatchObject({
+    kind: 'withdrawn',
+  })
+  expect(comments.some((c) => c.title === 'Failure repair verified')).toBe(true)
+  expect((await s.lead.call('POST', s.root + route, { evidence: 'Again.' })).status).toBe(409)
+
+  const accepted = await s.request(await s.record((await s.capture()).id))
+  expect((await s.resolve(accepted)).status).toBe(200)
+  const relabel = await s.lead.call('POST', `${s.root}/failures/${accepted.id}/verification`, {
+    evidence: 'Passes now.',
+  })
+  expect(relabel.status).toBe(409)
+  const state = await s.obligations()
+  expect(state.satisfied).toBe(true)
+  expect(state.cases.map((c) => [c.id, c.disposition]).sort()).toEqual(
+    [
+      [decision.id, 'fixed'],
+      [accepted.id, 'accepted'],
+    ].sort(),
+  )
 })
 
 test('direct and Comment failure resolutions deliver attached line comments to the live Task Lead', async () => {

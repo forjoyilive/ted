@@ -66,6 +66,7 @@ export interface StageSettingsInput {
   depth?: ClarifyDepth
   p1OnlyFrom?: number | false
   subAgents?: boolean
+  leadClosesFailures?: boolean
 }
 
 export interface FactorySettingsChanges {
@@ -94,6 +95,7 @@ export interface StageRowView {
   depth?: ClarifyDepth
   p1OnlyFrom?: number | false
   subAgents?: boolean
+  leadClosesFailures?: boolean
   from: LayerKind
   factoryFile?: string
   inherited?: { layer: LayerKind; text: string }
@@ -301,6 +303,7 @@ export interface LibraryStageRow {
   depth?: ClarifyDepth
   p1OnlyFrom?: number | false
   subAgents?: boolean
+  leadClosesFailures?: boolean
   from: LayerKind
   libraryFile?: string
   defaultText?: string

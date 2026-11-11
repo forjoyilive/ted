@@ -1,4 +1,5 @@
 import { Events, makeSchema, Schema, State } from '@livestore/livestore'
+import { intervalBoundaries, withIntervalBoundaries } from './interval-schema.ts'
 import { counted } from './progress.ts'
 
 export const factories = State.SQLite.table({
@@ -2191,6 +2192,26 @@ export const events = {
     name: 'v1.FactoryRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
   }),
+  intervalObservationStarted: Events.synced({
+    name: 'v1.IntervalObservationStarted',
+    schema: Schema.Struct({
+      sessionId: Schema.String,
+      previousObservedAt: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  intervalObservationEnded: Events.synced({
+    name: 'v1.IntervalObservationEnded',
+    schema: Schema.Struct({ sessionId: Schema.String, at: Schema.String }),
+  }),
+  taskWaitObserved: Events.synced({
+    name: 'v1.TaskWaitObserved',
+    schema: Schema.Struct({ taskId: Schema.String, reasons: Schema.String, at: Schema.String }),
+  }),
+  runStateObserved: Events.synced({
+    name: 'v1.RunStateObserved',
+    schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
+  }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
@@ -3155,7 +3176,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
 
 function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
   return Object.fromEntries(
-    Object.entries(handlers).map(([name, handler]) => {
+    Object.entries(withIntervalBoundaries(handlers)).map(([name, handler]) => {
       const entry = taskLogEntries[name]
       if (!entry) return [name, handler]
       const call = handler as (args: Args, context: MaterializerContext) => unknown
@@ -3191,6 +3212,10 @@ interface MaterializerContext {
 const materializers = counted(
   withTaskLog(
     State.SQLite.materializers(events, {
+      'v1.IntervalObservationStarted': () => [],
+      'v1.IntervalObservationEnded': () => [],
+      'v1.TaskWaitObserved': () => [],
+      'v1.RunStateObserved': () => [],
       'v1.FactoryAdded': (factory) => [
         factories.insert({ ...factory, clonedAt: factory.createdAt }),
         factoryRepos.insert({
@@ -3484,11 +3509,20 @@ const materializers = counted(
         comments.update({ purpose }).where({ id: commentId }),
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
-        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+        comments.insert({
+          ...comment,
+          choices: choices === null ? null : JSON.stringify(choices),
+        }),
       'v3.CommentPosted': ({ choices, ...comment }) =>
-        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+        comments.insert({
+          ...comment,
+          choices: choices === null ? null : JSON.stringify(choices),
+        }),
       'v4.CommentPosted': ({ choices, ...comment }) =>
-        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+        comments.insert({
+          ...comment,
+          choices: choices === null ? null : JSON.stringify(choices),
+        }),
       'v1.ClarifyDepthSet': ({ taskId, depth, by, at }) =>
         tasks
           .update({ clarifyDepth: depth, clarifyDepthBy: by, changedAt: at })
@@ -4039,7 +4073,12 @@ const materializers = counted(
       'v1.AutomationCommentAnswered': ({ id, text, at }) =>
         automationComments.update({ answer: text, answeredAt: at }).where({ id }),
       'v1.AutomationPromptDraftRequested': ({ at, ...draft }) =>
-        automationPromptDrafts.insert({ ...draft, state: 'queued', createdAt: at, updatedAt: at }),
+        automationPromptDrafts.insert({
+          ...draft,
+          state: 'queued',
+          createdAt: at,
+          updatedAt: at,
+        }),
       'v1.AutomationPromptDraftChanged': ({ id, at, ...fields }) =>
         automationPromptDrafts.update({ ...fields, updatedAt: at }).where({ id }),
       'v1.AutomationPromptDraftRemoved': ({ id }) => [
@@ -4116,6 +4155,7 @@ const materializers = counted(
 
 const state = State.SQLite.makeState({
   tables: {
+    intervalBoundaries,
     taskDrafts,
     taskDraftConsumptions,
     factories,

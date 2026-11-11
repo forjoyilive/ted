@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -74,11 +73,6 @@ async function inEventlog<T>(work: (db: DatabaseSync) => T, dir = storeDir()): P
   }
 }
 
-const eventlogHash = async () =>
-  createHash('sha256')
-    .update(await readFile(await eventlogPath()))
-    .digest('hex')
-
 const eventlogBytes = async () => (await stat(await eventlogPath())).size
 
 interface LogRow {
@@ -89,15 +83,28 @@ interface LogRow {
 
 const loggedEvents = (dir?: string) =>
   inEventlog(
-    (db) =>
-      db
-        .prepare('SELECT seqNumGlobal, name, argsJson FROM eventlog ORDER BY seqNumGlobal')
-        .all() as unknown as LogRow[],
+    (db) => db.prepare('SELECT * FROM eventlog ORDER BY seqNumGlobal').all() as unknown as LogRow[],
     dir,
   )
 
 const isOldOutput = (row: LogRow) =>
   row.name === 'v1.RunOutputRead' || row.name === 'v2.RunOutputRead'
+
+async function expectUnchangedEvents(before: LogRow[]): Promise<void> {
+  const after = await loggedEvents()
+  expect(after.slice(0, before.length)).toEqual(before)
+  expect(
+    after
+      .slice(before.length)
+      .every((event) =>
+        [
+          'v1.IntervalObservationStarted',
+          'v1.IntervalObservationEnded',
+          'v1.TaskWaitObserved',
+        ].includes(event.name),
+      ),
+  ).toBe(true)
+}
 
 async function runRows(): Promise<unknown[]> {
   const states = (await storeDbFiles(storeDir())).filter((f) => f.startsWith('state'))
@@ -242,7 +249,12 @@ test('the first open by a new version backs the store up, then drops the lines f
   await writeFile(`${await eventlogPath()}.compacting`, 'left by a killed TED')
 
   const statuses: DataStatus[] = []
-  let client = await start('1.1.0', statuses)
+  let compactedBytes = 0
+  let client = await start('1.1.0', statuses, {
+    async beforeVerify(copy) {
+      compactedBytes = (await stat(copy)).size
+    },
+  })
 
   expect(statuses.at(-1)).toEqual({ state: 'ready' })
   const updates = statuses.filter((s) => s.state === 'updating')
@@ -258,10 +270,12 @@ test('the first open by a new version backs the store up, then drops the lines f
 
   const eventsAfter = await loggedEvents()
   expect(await eventlogBytes()).toBeLessThan(bytesBefore / 2)
-  expect(eventsAfter.map((e) => [e.seqNumGlobal, e.name])).toEqual(
+  const compactedEvents = eventsAfter.slice(0, eventsBefore.length)
+  await expectUnchangedEvents(compactedEvents)
+  expect(compactedEvents.map((e) => [e.seqNumGlobal, e.name])).toEqual(
     eventsBefore.map((e) => [e.seqNumGlobal, e.name]),
   )
-  expect(eventsAfter.filter((e) => !isOldOutput(e))).toEqual(
+  expect(compactedEvents.filter((e) => !isOldOutput(e))).toEqual(
     eventsBefore.filter((e) => !isOldOutput(e)),
   )
   for (const event of eventsAfter.filter(isOldOutput)) {
@@ -276,17 +290,17 @@ test('the first open by a new version backs the store up, then drops the lines f
     by: '1.1.0',
     rewritten: oldOutput.filter((e) => e.argsJson.includes('"line"')).length,
     bytesBefore,
-    bytesAfter: await eventlogBytes(),
+    bytesAfter: compactedBytes,
   })
   expect((await readdir(storeDir())).filter((f) => f.includes('compacting'))).toEqual([])
 
-  const compacted = await eventlogHash()
+  const compacted = await loggedEvents()
   const again: DataStatus[] = []
   client = await start('1.1.0', again)
   expect(again.some((s) => s.state === 'updating')).toBe(false)
   expect(await preUpdateBackups(client)).toHaveLength(backups.length)
   await stop()
-  expect(await eventlogHash()).toBe(compacted)
+  await expectUnchangedEvents(compacted)
 
   await pretendStateSchemaChanged(home)
   client = await start('1.2.0')
@@ -315,7 +329,7 @@ test('an open that also rebuilds state takes one backup, compacts, then rebuilds
 
 test('a copy that fails verification is thrown away: the event log stays as it was and the store opens', async () => {
   const { runIds, before, runsBefore } = await homeFromAnOlderTed()
-  const original = await eventlogHash()
+  const original = await loggedEvents()
   const tamper = (copy: string) => {
     const db = new DatabaseSync(copy)
     db.exec(`UPDATE eventlog SET argsJson = replace(argsJson, 'Fix login', 'Fix logins')`)
@@ -330,7 +344,7 @@ test('a copy that fails verification is thrown away: the event log stays as it w
   const backups = await preUpdateBackups(client)
   expect(backups[0]).toMatchObject({ takenBy: '1.1.0', dataFrom: '1.0.0' })
   await stop()
-  expect(await eventlogHash()).toBe(original)
+  await expectUnchangedEvents(original)
   expect((await readdir(storeDir())).filter((f) => f.includes('compacting'))).toEqual([])
   expect(await compactionMarker()).toMatchObject({
     state: 'failed',
@@ -342,13 +356,13 @@ test('a copy that fails verification is thrown away: the event log stays as it w
   client = await start('1.1.0')
   expect(await preUpdateBackups(client)).toHaveLength(backups.length)
   await stop()
-  expect(await eventlogHash()).toBe(original)
+  await expectUnchangedEvents(original)
 
   client = await start('1.2.0')
   expect(await snapshot(client, runIds)).toEqual(before)
   await stop()
   expect(await compactionMarker()).toMatchObject({ state: 'done', by: '1.2.0' })
-  expect(await eventlogHash()).not.toBe(original)
+  expect((await loggedEvents()).slice(0, original.length)).not.toEqual(original)
 })
 
 test('without a backup the event log isn’t compacted, and the store opens', async () => {

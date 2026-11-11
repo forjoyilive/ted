@@ -167,6 +167,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
           p1OnlyFrom: stage?.p1_only_from ?? false,
           subAgents: stage?.sub_agents === true,
         }),
+        ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
         from: libraryFile !== undefined ? 'library' : 'ted',
         ...(libraryFile !== undefined && { libraryFile }),
         ...(defaultText !== undefined && { defaultText }),

@@ -19,6 +19,7 @@ export interface TaskFacts {
   failed?: boolean
   partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
+  pausedRuns?: readonly { id: string; reason: string }[]
   tedWorking?: boolean
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
@@ -31,6 +32,7 @@ export interface TaskFacts {
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
+  queuedSubAgents?: readonly { id: string; hold?: string; paused?: string }[]
   heldForLoad?: boolean
   github?: GitHubWait
   mergePending?: boolean
@@ -219,4 +221,70 @@ function ordinal(n: number): string {
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+export interface TaskWaitReason {
+  reason: 'run-slot' | 'github' | 'agent-paused' | 'blocker'
+  id: string
+  detail?: string
+}
+
+export function taskWaitReasons(taskId: string, facts: TaskFacts): TaskWaitReason[] {
+  if (facts.archived || facts.stage === 'done') return []
+  const reasons: TaskWaitReason[] = []
+  if (facts.queue)
+    reasons.push({
+      reason: 'run-slot',
+      id: taskId,
+      detail:
+        facts.heldForLoad && 'place' in facts.queue
+          ? busyHold
+          : 'hold' in facts.queue
+            ? facts.queue.hold
+            : 'slot',
+    })
+  for (const queued of facts.queuedSubAgents ?? []) {
+    reasons.push({ reason: 'run-slot', id: queued.id, detail: queued.hold ?? 'slot' })
+    if (queued.paused !== undefined)
+      reasons.push({ reason: 'agent-paused', id: queued.id, detail: queued.paused })
+  }
+  if (facts.pausedRuns !== undefined) {
+    for (const paused of facts.pausedRuns)
+      reasons.push({ reason: 'agent-paused', id: paused.id, detail: paused.reason })
+  } else if (facts.paused !== undefined)
+    reasons.push({ reason: 'agent-paused', id: taskId, detail: facts.paused })
+  for (const id of facts.blockedBy ?? []) reasons.push({ reason: 'blocker', id })
+  if (facts.github !== undefined)
+    reasons.push({ reason: 'github', id: taskId, detail: facts.github })
+  return reasons
+}
+
+export function taskPauses(input: {
+  taskId: string
+  heldAgent: string | undefined
+  liveRuns: readonly { id: string; agent: string }[]
+  queuedAgent: string | undefined
+  pauses: Readonly<Record<string, string | undefined>>
+}): { id: string; reason: string }[] {
+  const subjects = [
+    ...(input.heldAgent ? [{ id: input.taskId, agent: input.heldAgent }] : []),
+    ...input.liveRuns,
+    ...(input.queuedAgent ? [{ id: input.taskId, agent: input.queuedAgent }] : []),
+  ]
+  const paused = new Map<string, { id: string; reason: string }>()
+  for (const { id, agent } of subjects) {
+    const reason = input.pauses[agent]
+    if (reason !== undefined && !paused.has(id)) paused.set(id, { id, reason })
+  }
+  return [...paused.values()]
+}
+
+export function taskIsMerged(
+  stage: StageId,
+  pullRequests: readonly { number: number | null; state: string | null }[],
+): boolean {
+  return (
+    stage === 'done' &&
+    pullRequests.every((request) => request.number === null || request.state === 'merged')
+  )
 }

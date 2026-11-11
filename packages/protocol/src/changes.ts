@@ -5,6 +5,7 @@ export interface ChangeFile {
   uncommitted: boolean
   committed?: { added: number; removed: number }
   binary?: true
+  previousPath?: string
 }
 
 export interface RepoChanges {
@@ -16,6 +17,19 @@ export interface RepoChanges {
   removed: number
   files: ChangeFile[]
   unavailable?: string
+}
+
+export type ChangesSource = 'local' | 'pull-request'
+
+export interface PullRequestChanges {
+  repo: RepoChanges
+  number: number
+  state: string
+  head: string
+  base: string
+  loadedAt: string
+  diffs: FileDiff[]
+  limited?: true
 }
 
 export interface TaskChanges {
@@ -51,6 +65,7 @@ export interface FileDiff {
   hunks: DiffHunk[]
   committedHunks?: DiffHunk[]
   truncated?: true
+  unavailable?: string
 }
 
 export function changeKey(repo: string, path: string): string {

@@ -41,9 +41,7 @@ export function FileDiffBody({
             Committed only
           </button>
         </span>
-        <span>
-          Uncommitted work changes this file. The pull request gets the committed version.
-        </span>
+        <span>Committed only excludes uncommitted edits; it may include unpushed commits.</span>
       </div>
       {showCommitted ? (
         <DiffTable diff={{ ...diff, hunks: committed }} />
@@ -80,6 +78,7 @@ export function DiffTable({
     window.addEventListener('mouseup', finish)
     return () => window.removeEventListener('mouseup', finish)
   }, [drag, gutter, diff.hunks])
+  if (diff.unavailable) return <p className={styles.note}>{diff.unavailable}</p>
   if (diff.binary) return <p className={styles.note}>Binary file, so there are no lines to show.</p>
   if (diff.hunks.length === 0) {
     return (

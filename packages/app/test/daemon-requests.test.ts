@@ -83,6 +83,14 @@ test('dispatch binds the real client, preserves objects and encoded identifiers,
       url: '/tasks/task%2Fwith%20space/comments',
       body: input,
     })
+    expect(await api.pullRequestChanges('task/with space', 'repo/with space')).toEqual({
+      id: 'comment',
+    })
+    expect(received[1]).toEqual({
+      method: 'GET',
+      url: '/tasks/task%2Fwith%20space/pull-request-changes/repo%2Fwith%20space',
+      body: undefined,
+    })
     expect(await taskBrief(instance, 'NB-1')).toBeNull()
     await expect(instance.getBrief('NB-1')).rejects.toBeInstanceOf(DaemonRequestError)
   } finally {

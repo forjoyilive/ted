@@ -144,3 +144,19 @@ test('a file temporarily covers All changes or Full brief and restores it on ret
     expect(middlePane(closed, task, true)).toMatchObject({ file: undefined, covered: true })
   }
 })
+
+test('PR changes retain their source while loading and restore the underlying thread', () => {
+  const state = middlePaneStep({}, task.id, {
+    kind: 'changes',
+    view: { kind: 'all', source: 'pull-request' },
+  })
+  expect(middlePane(state, task, false)).toMatchObject({
+    all: true,
+    covered: true,
+    changes: { source: 'pull-request' },
+  })
+  expect(
+    middlePane(middlePaneStep(state, task.id, { kind: 'changes', view: undefined }), task, true),
+  ).toMatchObject({ covered: false })
+  expect(middlePane(state, { ...task, id: 'other' }, true).changes).toBeUndefined()
+})
