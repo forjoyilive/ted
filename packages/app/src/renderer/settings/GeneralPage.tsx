@@ -5,9 +5,10 @@ import {
   textSizeLimits,
 } from '@ted/protocol/settings'
 import { systemTimeZone } from '@ted/protocol/time'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
+import { useEventValue } from '../data.ts'
 import { useOvernightChange } from '../overnight.tsx'
 import { useProfile } from '../profile.tsx'
 import { useNow } from '../requests.ts'
@@ -51,20 +52,12 @@ const fontSizeOptions = Array.from(
 )
 
 function useLoginItem(): LoginItemState | undefined {
-  const [state, setState] = useState<LoginItemState>()
-  useEffect(() => {
-    const load = () => void ted.loginItem().then(setState)
-    load()
-    window.addEventListener('focus', load)
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'login-item') setState(event.state)
-    })
-    return () => {
-      window.removeEventListener('focus', load)
-      unsubscribe()
-    }
-  }, [])
-  return state
+  return useEventValue<LoginItemState | undefined>({
+    initial: undefined,
+    load: ted.loginItem,
+    focus: true,
+    event: (event) => (event.type === 'login-item' ? () => event.state : undefined),
+  }).value
 }
 
 function loginItemNote(state: LoginItemState | undefined): string | undefined {

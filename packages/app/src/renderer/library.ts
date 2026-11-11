@@ -1,6 +1,11 @@
 import type { LibraryChanges, LibraryView } from '@ted/protocol/factory-settings'
 import type { AgentStageId, StageId } from '@ted/protocol/task'
-import { type SettingsDraft, type StageDraft, settingsChanges } from './factory-settings.ts'
+import {
+  type SettingsDraft,
+  type StageDraft,
+  settingsChanges,
+  validateRoundsDraft,
+} from './factory-settings.ts'
 
 export const libraryLine =
   'Applies to every Factory that doesn’t override it, from each Task’s next Stage.'
@@ -15,6 +20,7 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
       gate: row.gate,
       ...(row.maxBack !== undefined && { maxBack: row.maxBack }),
       ...(row.depth !== undefined && { depth: row.depth }),
+      ...validateRoundsDraft(row),
     }
     if (row.id !== 'backlog' && row.id !== 'done') stageFiles[row.id] = row.libraryFile ?? null
   }

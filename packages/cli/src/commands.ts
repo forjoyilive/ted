@@ -4,6 +4,7 @@ import { tedEnv } from '@ted/protocol'
 export class UsageError extends Error {}
 
 const flags = {
+  reset: { type: 'boolean' },
   approve: { type: 'boolean' },
   'request-changes': { type: 'boolean' },
   answers: { type: 'string' },
@@ -40,6 +41,8 @@ const flags = {
   factory: { type: 'string' },
   file: { type: 'string' },
   findings: { type: 'string' },
+  cause: { type: 'string' },
+  severity: { type: 'string' },
   'own-worktree': { type: 'boolean' },
   'prompt-file': { type: 'string' },
   review: { type: 'string' },
@@ -352,9 +355,19 @@ export const commands = [
     handler: 'back',
     min: 0,
     max: 0,
-    help: '  ted outcome back --to <Stage> --findings <file>\n                                             Send the Task back to an earlier Stage\n                At Validate, both take [--review pass|fail] [--review-notes <n>]\n                [--visual pass|fail] [--visual-notes <n>] for the confirmation row',
+    help: '  ted outcome back --to <Stage> --findings <file>\n                                             Send the Task back to an earlier Stage\n                [--cause base-conflict] when the only Finding is a conflict with the base branch\n                [--severity p1|unfixed] at Validate, to declare that at least one Finding is P1,\n                or that an earlier round’s Finding is still not fixed\n                At Validate, both take [--review pass|fail] [--review-notes <n>]\n                [--visual pass|fail] [--visual-notes <n>] for the confirmation row',
     callers: 'Task Lead',
-    options: options('task', 'to', 'findings', 'review', 'review-notes', 'visual', 'visual-notes'),
+    options: options(
+      'task',
+      'to',
+      'findings',
+      'cause',
+      'severity',
+      'review',
+      'review-notes',
+      'visual',
+      'visual-notes',
+    ),
   },
   {
     name: 'outcome ask',
@@ -813,6 +826,15 @@ export const commands = [
     help: '  ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)',
     callers: 'Everyone',
     options: options(),
+  },
+  {
+    name: 'dev seed',
+    handler: 'seedDemo',
+    min: 0,
+    max: 0,
+    help: '  ted dev seed [--reset]                    Seed an isolated TED Dev demo; --reset rebuilds it',
+    callers: 'Terminal',
+    options: options('reset'),
   },
   {
     name: 'dev run show',

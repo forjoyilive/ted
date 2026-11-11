@@ -35,7 +35,14 @@ import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
-import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
+import type {
+  BaseConflictFound,
+  CheckOutput,
+  CheckRun,
+  CheckRunReport,
+  RunChecksRequest,
+  SendBack,
+} from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
 import type {
   Coordinator,
@@ -636,6 +643,10 @@ export class DaemonClient {
 
   listSendBacks(ref: string): Promise<SendBack[]> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/send-backs`)
+  }
+
+  listBaseConflicts(ref: string): Promise<BaseConflictFound[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/base-conflicts`)
   }
 
   listThreadEvents(ref: string): Promise<ThreadEvent[]> {

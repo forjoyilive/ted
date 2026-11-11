@@ -67,6 +67,7 @@ import { TaskBrowserView } from '../components/TaskBrowserView.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
+  useBrowserOpen,
   useCheckRunList,
   useCommentList,
   useComments,
@@ -332,15 +333,9 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [state, setState] = useState<MiddlePaneState>({})
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type === 'browser-open' && event.taskId === task.id) {
-          setState((s) => middlePaneStep(s, task.id, { kind: 'app', app: event.app }))
-        }
-      }),
-    [task.id],
-  )
+  useBrowserOpen(task.id, (app) => {
+    setState((s) => middlePaneStep(s, task.id, { kind: 'app', app }))
+  })
 
   const go = (action: MiddlePaneAction) => setState((s) => middlePaneStep(s, task.id, action))
   useEffect(() => {
