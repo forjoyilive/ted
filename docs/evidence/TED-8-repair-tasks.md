@@ -22,9 +22,21 @@ TED’s Work hand-off first found seven conflicts against main at c49fd4b2; a su
 
 The results below were obtained before this integration and are historical coverage, not a test pass on the merged revision. Main now forwards the parent lock PID to the nested cleanup fixture, addressing the diagnosed missing-PID path. That repair has not been executed in this Task after integration. The user’s prior acceptance remains in history but is no longer current. A fresh context and decision are required. Current repository policy runs no test files in Work and limits the Lead’s Validate visit to one batch of at most three files; the handoff brief lists the proposed batch and remaining coverage.
 
-## Verification status
+## Validate round 1 and Work repairs
 
-Implementation and native verification are complete. One unrelated process-cleanup test failure awaits the user’s decision; broad coverage is not reported as passing.
+Validate reviewed 620c7a18 and found four blocking issues. Its permitted three-file batch passed 60 of 67 tests: validate-diagnosis (52) and process cleanup (1) passed; seven failure-repairs setups failed before repair selection. The independent reviewer confirmed unchanged-head Check reuse and missing coverage-backed verification of replaced post-rebase Checks. The Lead added the failing fixture and scratch-index boundary Findings. Detailed evidence and original failure IDs are retained in the Task brief and attached Validate reports.
+
+This Work pass merges main 957ca198, including the Lead lifecycle extraction. Tasks injects beforeLeadStart after local assignment, returning the refreshed WorkflowResolution before defaults, permissions and prompt context. afterLeadStart schedules repair Checks only after answer delivery, held-Run release and waiting-message delivery. Stopped/blocked guards and startup stop reconciliation remain in place.
+
+The repairs reset earlier Check progress after incorporation even when the revision and plan are unchanged. A persisted execution beginning at position zero records that the reset already happened, so interrupted recovery can resume fresh progress. Coverage-backed verification also handles incorporated post-rebase Check repairs when the old Check was replaced or removed. The dirty guard now uses workingChanges and its scratch index. The no-Check repair fixture waits for the asynchronous first PR publication before capturing context, avoiding the observed CI-context transition during decision setup.
+
+Regression additions cover completed and partial matching coverage, a replaced Merge Check, and lifecycle callback order/settings/brief refresh. No tests run in Work under the current Factory policy. Next Validate should run failure-repairs.test.ts, validate-diagnosis.test.ts and lead-lifecycle.test.ts in its one permitted batch; other test coverage remains historical. Static-check output is retained under node_modules/.cache/ted-8/work-fixes-*.log.
+
+The old cleanup timeout now has a passing Validate execution at 620c7a18 after main’s parent-PID fix. Its failed executions and invalidated acceptances remain history; the passing result is not borrowed as execution on a later revision. Its outside-Validate failure case still needs the permitted closure decision; prefer Fixed to repeated acceptance of a no-longer-reproducing timeout.
+
+## Historical verification before round 1
+
+The following results predate the current Work repair and must not be treated as a pass on it.
 
 - Typecheck, lint and diff whitespace checks pass after the recovery changes.
 - The final focused recovery pass has ten passing cases: retained incorporation, reset worktree, persisted hold and interrupted Check at both Validate and Merge, existing-selection restart, plus the complete Merge repair continuation. Startup produces exactly one fresh Check run, preserves the original failed execution, and holds a reset worktree before running Checks. Reset and persisted-hold cases also require all restored Runs to finish through RunManager. The fixtures also prove retained incorporation can recover after repair Task metadata is deleted.

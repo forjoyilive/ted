@@ -54,6 +54,23 @@ test('a run of 10 or more files gets 6 workers and a smaller one 3', async () =>
   expect(workersFor(['run', ...files.slice(0, 10)], files)).toBe(6)
 })
 
+test('a full run puts projects with different worker limits in separate execution groups', async () => {
+  const root = (await resolveConfig({ root: repo, watch: false, maxWorkers: 6 })).test
+  const workersByGroup = new Map<number, number | string | undefined>()
+  const names: string[] = []
+  for (const project of root.projects ?? []) {
+    if (typeof project !== 'object' || !('test' in project)) continue
+    const options = project.test
+    const group = options?.sequence?.groupOrder ?? root.sequence?.groupOrder ?? 0
+    const workers = options?.maxWorkers ?? root.maxWorkers
+    if (workersByGroup.has(group)) expect(workers).toBe(workersByGroup.get(group))
+    workersByGroup.set(group, workers)
+    const name = options?.name
+    if (name) names.push(typeof name === 'string' ? name : name.label)
+  }
+  expect(names).toEqual(expect.arrayContaining(['electron', 'node']))
+})
+
 test('TSX component tests are discovered from the repo and app, and Electron imports are followed through TSX helpers', async () => {
   const { launchesElectron } = await import('../../../vitest.config.ts')
   const root = (await resolveConfig({ root: repo, watch: false })).test

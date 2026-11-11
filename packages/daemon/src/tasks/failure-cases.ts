@@ -46,8 +46,12 @@ const otherChoices = (validation: boolean) =>
     ? 'Choose Retry or Fix in this Task instead.'
     : 'Type a reason and choose Fixed or No longer applicable instead.'
 
-const cantAccept =
-  'This failure can’t be accepted: the Task’s code or Checks changed since it was tested, and TED can’t tie a later test run to it.'
+const cantAccept = {
+  changed:
+    'This failure can’t be accepted: the Task’s code or Checks changed since it was tested, and TED can’t tie a later test run to it.',
+  unknown:
+    'This failure can’t be accepted: TED has no record it can verify of what was tested when it happened.',
+}
 
 export const acceptRefusals = {
   changed:
@@ -579,6 +583,11 @@ export function createFailureCases(options: {
           409,
           `The Task’s code, Checks or CI changed since tested context ${bound.id}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
+      const unknown =
+        !bound ||
+        !sourceContext(value.source, tested(task, value.contextId)) ||
+        !sourceContext(value.source, bound)
+      const why = unknown ? cantAccept.unknown : stale ? cantAccept.changed : undefined
       return store.postFailureDecision(
         value,
         [
@@ -592,16 +601,16 @@ export function createFailureCases(options: {
               `Evidence added ${addition.at} (context ${addition.contextId ?? 'unknown'}):\n${addition.evidence}`,
           ),
           `Assessment: ${assessment.assessment}\nRecommendation: ${assessment.recommendation}`,
-          stale
+          why
             ? value.validation
-              ? `Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. ${cantAccept}`
-              : `Close it as fixed or no longer applicable, with a reason. ${cantAccept} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
+              ? `Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. ${why}`
+              : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
             : value.validation
               ? 'Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. Accept this failure allows only this execution in its tested context and resumes remaining Checks and validation. Acceptance never means passed or grants merge approval.'
               : 'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
           'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
         ].join('\n\n'),
-        !stale,
+        !why,
       )
     },
     findDecision(commentId: string) {

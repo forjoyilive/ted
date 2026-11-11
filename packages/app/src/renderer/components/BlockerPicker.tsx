@@ -24,6 +24,16 @@ export function BlockerPicker({
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const searchField = useRef<HTMLInputElement>(null)
+  const search = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!searching) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!search.current?.contains(event.target as Node)) setSearching(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [searching])
 
   useEffect(() => {
     if (searching) searchField.current?.focus()
@@ -69,7 +79,7 @@ export function BlockerPicker({
         </span>
       ))}
       {searching ? (
-        <span className={styles.search}>
+        <span className={styles.search} ref={search}>
           <input
             className={styles.searchInput}
             aria-label="Find a Task"

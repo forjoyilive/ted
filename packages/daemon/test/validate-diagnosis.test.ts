@@ -328,6 +328,7 @@ async function restart() {
   const client = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
   return {
     ...client,
+    port: ctx.daemon.port,
     async read<T>(route: string): Promise<T> {
       const response = await client.call('GET', route)
       expect(response.status).toBe(200)
@@ -338,11 +339,18 @@ async function restart() {
 
 test.each(
   (['validate', 'merge'] as const).flatMap((stage) =>
-    (['retained', 'reset', 'held', 'interrupted'] as const).map((state) => ({ stage, state })),
+    [
+      ...(['retained', 'reset', 'held', 'interrupted'] as const),
+      ...(stage === 'validate' ? (['complete', 'prefix'] as const) : (['replaced'] as const)),
+    ].map((state) => ({ stage, state })),
   ),
 )('$stage restart after persisted repair incorporation: $state', async ({ stage, state }) => {
+  const matchingCoverage = state === 'complete' || state === 'prefix'
   const s = await setup(
-    ['      - { name: Tests, run: "test -f timezone.txt" }'],
+    [
+      ...(matchingCoverage ? ['      - { name: Prefix, run: "true" }'] : []),
+      '      - { name: Tests, run: "test -f timezone.txt" }',
+    ],
     'intake, work, validate, review, merge',
   )
   const decision = await s.ask(s.one)
@@ -352,7 +360,15 @@ test.each(
   await ctx.daemon?.stop()
   ctx.daemon = undefined
   await writeFile(path.join(repo.worktree, 'timezone.txt'), 'restored\n')
-  await run('git', ['add', 'timezone.txt'], { cwd: repo.worktree })
+  if (state === 'replaced') {
+    const file = path.join(repo.worktree, '.ted/workflow.yaml')
+    const { readFile } = await import('node:fs/promises')
+    const workflow = (await readFile(file, 'utf8')).replace('name: Tests', 'name: Repaired export')
+    await writeFile(file, workflow)
+    await commitToOrigin(ctx.scratch, { '.ted/workflow.yaml': workflow })
+    await run('git', ['add', '.ted/workflow.yaml'], { cwd: repo.worktree })
+  }
+  await run('git', ['add', 'timezone.txt', 'work.txt'], { cwd: repo.worktree })
   await run(
     'git',
     ['-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '-qm', 'incorporated repair'],
@@ -361,10 +377,27 @@ test.each(
   const head = (await run('git', ['rev-parse', 'HEAD'], { cwd: repo.worktree })).stdout.trim()
   const store = await openStore({ directory: tedPaths(ctx.home).store })
   if (stage === 'merge') store.changeStage(task.id, 'merge')
-  const saved = store.failures.get(s.one.id)
+  let saved = store.failures.get(s.one.id)
   const requestId = decision.decisions.at(-1)?.commentId
   const assessment = saved?.assessments.at(-1)
   if (!saved || !requestId || !assessment) throw new Error('missing repair decision')
+  if (state === 'replaced') {
+    const original = saved.originalCheck
+    if (!original) throw new Error('missing failed Check')
+    const failed = store.startChecks({
+      taskId: task.id,
+      stage: 'merge',
+      trigger: 'merge',
+      checks: [{ ...original, state: 'not-run' }],
+    })
+    store.checkFinished(failed.id, 0, { state: 'failed', exitCode: 1, durationMs: 1 })
+    store.finishChecks(failed.id, 'failed')
+    const { contextId: _contextId, validation: _validation, ...historical } = saved
+    saved = {
+      ...historical,
+      source: { kind: 'post-rebase-check', checkRunId: failed.id, position: 0 },
+    }
+  }
   const at = new Date().toISOString()
   const resolved = {
     ...saved,
@@ -394,6 +427,30 @@ test.each(
     },
     'repair',
   )
+  if (matchingCoverage) {
+    const progress = store.failures.progress(task.id)
+    if (!progress?.coverage) throw new Error('missing previous Check coverage')
+    const tree = (
+      await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repo.worktree })
+    ).stdout.trim()
+    const previous = JSON.parse(progress.coverage)
+    store.failures.saveProgress({
+      ...progress,
+      coverage: JSON.stringify({
+        ...previous,
+        repos: previous.repos.map((entry: { repo: string; head: string; tree: string }) =>
+          entry.repo === repo.repo ? { ...entry, head, tree } : entry,
+        ),
+      }),
+      checks: progress.checks.map((check, position) => ({
+        ...check,
+        state: state === 'complete' || position === 0 ? 'passed' : 'not-run',
+      })),
+      next: state === 'complete' ? progress.checks.length : 1,
+      pending: false,
+      failureId: undefined,
+    })
+  }
   const before = store.listCheckRuns(task.id).length
   if (state === 'interrupted')
     store.startChecks({
@@ -431,11 +488,46 @@ test.each(
     expect(await client.read<CheckRun[]>(`${s.root}/check-runs`)).toHaveLength(before)
     return
   }
+  if (state === 'replaced') {
+    await waitUntil(
+      async () =>
+        (await client.read<CheckRun[]>(`${s.root}/check-runs`)).some(
+          (run) => run.stage === 'merge' && run.startedAt >= at && run.outcome === 'passed',
+        ),
+      'replacement Merge Check coverage',
+    )
+    const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
+    expect(cases.find((value) => value.id === saved.id)?.verifications).toBeUndefined()
+    const resumed = await waitUntil(async () => {
+      const task = (await client.read<Task[]>('/tasks')).find((value) => value.id === s.task.id)
+      return task?.runs.find((run) => run.id === task.leadRunId)?.state === 'idle'
+        ? task
+        : undefined
+    }, 'replacement Merge Lead')
+    const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+    const lead = api(client.port, tokens.issue(resumed.leadRunId ?? ''))
+    const response = await lead.call('POST', `${s.root}/failures/${saved.id}/verification`, {
+      evidence: 'The repair replaced Tests with Repaired export; the complete current plan passed.',
+    })
+    expect(response.status, JSON.stringify(response.body)).toBe(200)
+    expect((await client.read<FailureCase[]>(`${s.root}/failures`))[0]?.originalCheck?.state).toBe(
+      'failed',
+    )
+    return
+  }
   const verified = await waitUntil(async () => {
     const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
     return cases[0]?.verifications?.at(-1)
   }, 'fresh verification after incorporated repair recovery')
   expect(verified.checkRunId).toBeDefined()
+  if (matchingCoverage) {
+    const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
+    const fresh = runs.find((run) => run.id === verified.checkRunId)
+    expect(fresh?.checks.map(({ name, state }) => ({ name, state }))).toEqual([
+      { name: 'Prefix', state: 'passed' },
+      { name: 'Tests', state: 'passed' },
+    ])
+  }
   expect(await client.read<CheckRun[]>(`${s.root}/check-runs`)).toHaveLength(
     before + (state === 'interrupted' ? 2 : 1),
   )

@@ -70,7 +70,10 @@ async function setup(check = false, command = 'test -f timezone.txt') {
       (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).some(
         (f) => f.source.kind === 'factory-check',
       )
-    return value.stage === 'validate' && value.runs[0]?.state === 'idle' && recorded
+    return value.stage === 'validate' &&
+      value.runs[0]?.state === 'idle' &&
+      value.repos.every((repo) => repo.pullRequest && repo.pushed) &&
+      recorded
       ? value
       : undefined
   }, 'Validate lead')

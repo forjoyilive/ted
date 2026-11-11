@@ -35,7 +35,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_PLAN: 'Planning Run context for CLI requests.',
   TED_RESTART_DELAYS_MS: false,
   TED_RUN: 'Run context for CLI requests and steering boundaries.',
-  TED_RUN_CAPABILITY: 'Capability authenticating a Run to the daemon.',
+  TED_RUN_CAPABILITY:
+    'Run authentication, or an invocation-bound reporting-only credential for Check commands.',
   TED_RUN_TOKEN: 'Legacy Run capability name retained for older running hosts.',
   TED_SANDBOX_BIN: false,
   TED_SIMULATOR_UDID: 'Task simulator context supplied to App and Run commands.',

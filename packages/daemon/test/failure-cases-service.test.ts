@@ -356,6 +356,10 @@ test('a stale ask is still posted when no new context could be attached or read'
 test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
   const s = await setup()
   const asked = await s.request(await s.record())
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('TED has no record it can verify of what was tested'),
+  })
   expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.unknown)
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
 })

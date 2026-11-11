@@ -729,11 +729,12 @@ export async function prepareIncorporation(
   worktree: string,
   onto: string,
 ): Promise<{ head: string; commit: string }> {
-  if (await git(worktree, ...noHooks, 'status', '--porcelain', '--untracked-files=normal'))
+  const changes = await workingChanges(worktree, 'HEAD')
+  if (changes.files.some((file) => file.uncommitted))
     throw new GitError(
       'Save or commit the worktree’s local changes before incorporating the repair',
     )
-  const head = await headCommit(worktree)
+  const head = changes.head
   if (await isAncestor(worktree, onto, head)) return { head, commit: head }
   const base = await mergeBase(worktree, head, onto)
   const tree = await replayedTree(worktree, { from: base, to: head, onto })

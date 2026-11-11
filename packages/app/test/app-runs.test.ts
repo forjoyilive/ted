@@ -110,6 +110,16 @@ describe('Stop and Resume', () => {
     const first = menu.getByRole('menuitem').first()
     expect(await first.textContent()).toContain('Stop Task')
     expect(await first.getAttribute('aria-describedby')).toBeTruthy()
+    expect(
+      await first.evaluate((item) => {
+        const label = item.firstElementChild!
+        const bubble = label.firstElementChild!.getBoundingClientRect()
+        const range = document.createRange()
+        range.selectNodeContents(label.firstChild!)
+        const text = range.getBoundingClientRect()
+        return Math.abs(bubble.y + bubble.height / 2 - (text.y + text.height / 2))
+      }),
+    ).toBeLessThan(1)
     expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).isDisabled()).toBe(
       true,
     )

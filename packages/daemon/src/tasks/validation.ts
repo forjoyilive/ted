@@ -28,6 +28,12 @@ interface ValidationOptions {
   plan(task: StoredTask, resolution: WorkflowResolution, only?: string): Promise<RunnableCheck[]>
   checkSandbox(task: StoredTask): Promise<void>
   prepareLaunch(task: StoredTask): Promise<CommandLaunch>
+  reportingEnv?: (
+    task: Task,
+    checkRunId: string,
+    position: number,
+    supported: boolean,
+  ) => Promise<Record<string, string>>
   env(): NodeJS.ProcessEnv
   libraryDir: string
   signal: AbortSignal
@@ -54,7 +60,7 @@ export interface HandOffChecks {
 }
 
 export function createValidation(options: ValidationOptions) {
-  const { store, failures, find } = options
+  const { store, failures, find, reportingEnv } = options
   const visitStart = (task: Task) =>
     store.listStageEntries(task.id).findLast((e) => e.stage === 'validate')?.at ?? ''
   const coverageOf = (context: Pick<FailureContext, 'repos' | 'checks'>) =>
@@ -163,8 +169,30 @@ export function createValidation(options: ValidationOptions) {
       if (context) contextId = store.failures.capture(context).id
       if (context) await failures.obligations(task, context)
       const prior = progress?.contextId ? store.failures.context(progress.contextId) : undefined
+      const incorporation = store.failures
+        .list(task.id)
+        .flatMap((value) => {
+          const decision = value.resolutions.at(-1)
+          return decision?.resolution === 'repair' && !value.verifications?.length
+            ? (value.repairProgress ?? []).filter((p) => p.requestId === decision.requestId)
+            : []
+        })
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .at(-1)
+      const repairNeedsExecution =
+        incorporation !== undefined &&
+        !progress?.executions.some((execution) => {
+          const run = store.getCheckRun(execution.runId)
+          return (
+            execution.start === 0 &&
+            run?.stage === task.stage &&
+            run.trigger === trigger &&
+            run.startedAt >= incorporation.at
+          )
+        })
       if (
         !progress ||
+        repairNeedsExecution ||
         progress.visit !== visitStart(task) ||
         !local ||
         (progress.coverage ?? (prior && coverageOf(prior))) !== local ||
@@ -246,6 +274,10 @@ export function createValidation(options: ValidationOptions) {
           signal: options.signal,
           lowPriority: options.lowPriority(),
           onInterrupted: (position) => store.checkInterrupted(checkRun.id, position),
+          ...(reportingEnv && {
+            reportingEnv: (position: number, supported: boolean) =>
+              reportingEnv(task, checkRun.id, position, supported),
+          }),
           onStart: (position) => store.checkStarted(checkRun.id, position),
           onFinish: (position, finished) => {
             store.checkFinished(checkRun.id, position, finished)
@@ -627,8 +659,8 @@ export function createValidation(options: ValidationOptions) {
   }
 
   async function verifyRepair(task: StoredTask, value: FailureCase, evidence: string) {
-    if (value.source.kind !== 'factory-check')
-      throw new RequestError(409, 'only a Factory Check repair can use current Check coverage')
+    if (value.source.kind !== 'factory-check' && value.source.kind !== 'post-rebase-check')
+      throw new RequestError(409, 'only a Check repair can use current Check coverage')
     const source = store.getCheckRun(value.source.checkRunId)
     const obligations = await failures.obligations(task)
     const current = await currentCoverage(task)
@@ -645,7 +677,13 @@ export function createValidation(options: ValidationOptions) {
       (progress.checks.length === 0 ||
         progress.executions.some((execution) => {
           const run = store.getCheckRun(execution.runId)
-          return run?.finishedAt !== undefined && run.startedAt >= incorporation.at
+          return (
+            execution.start === 0 &&
+            run?.finishedAt !== undefined &&
+            run.stage === task.stage &&
+            run.trigger === task.stage &&
+            run.startedAt >= incorporation.at
+          )
         }))
     if (
       !current ||
