@@ -398,6 +398,14 @@ export const taskRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/pull-request-changes\/([^/?]+)$/,
+    async handle({ params: [ref = '', repo = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read PR changes')
+      return [200, await tasks.pullRequestChanges(ref, repo)]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/tasks\/([^/?]+)\/changes$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.changes(ref)],
   },

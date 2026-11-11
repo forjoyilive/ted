@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { TaskFiles, TaskRepo } from '@ted/protocol'
+import type { PullRequestChanges, TaskChanges, TaskFiles, TaskRepo } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FilesSection } from '../src/renderer/components/FilesSection.tsx'
@@ -197,7 +197,7 @@ test.each(['Full brief', 'All changes'])(
     await user().click(await screen.findByRole('row', { name: /NB-1/ }))
     if (previous === 'Full brief')
       await user().click(await screen.findByRole('button', { name: 'Full brief' }))
-    else await user().click(await screen.findByRole('button', { name: 'Expand all' }))
+    else await user().click(await screen.findByRole('button', { name: 'All changes' }))
     await screen.findByRole('region', { name: previous })
     await user().keyboard('{Control>}p{/Control}')
     const quick = await screen.findByRole('dialog', { name: 'Quick open' })
@@ -223,3 +223,149 @@ test.each(['binary', 'too-large', 'unavailable'] as const)(
     expect(a.request.mock.calls.some(([name]) => name === 'openInEditor')).toBe(false)
   },
 )
+
+const localChanges: TaskChanges = {
+  taskId: 'NB-1',
+  files: 1,
+  repos: [
+    {
+      name: 'web',
+      baseBranch: 'main',
+      added: 1,
+      removed: 0,
+      files: [{ path: 'local-only.ts', added: 1, removed: 0, uncommitted: true }],
+    },
+  ],
+}
+const prChanges: PullRequestChanges = {
+  repo: {
+    name: 'web',
+    baseBranch: 'main',
+    added: 1,
+    removed: 0,
+    files: [{ path: 'pushed.ts', added: 1, removed: 0, uncommitted: false }],
+  },
+  number: 7,
+  state: 'Open',
+  head: 'a'.repeat(40),
+  base: 'b'.repeat(40),
+  loadedAt: '2026-11-11T12:00:00Z',
+  diffs: [
+    {
+      repo: 'web',
+      path: 'pushed.ts',
+      added: 1,
+      removed: 0,
+      head: 'a'.repeat(40),
+      mergeBase: 'c'.repeat(40),
+      uncommitted: false,
+      hunks: [
+        {
+          header: '@@ -0,0 +1 @@',
+          rows: [{ kind: 'added', new: 1, text: '<img src=x onerror=alert(1)>' }],
+        },
+      ],
+    },
+  ],
+}
+const withPr: TaskRepo = {
+  ...repo,
+  pullRequest: {
+    number: 7,
+    url: 'https://github.com/acme/web/pull/7',
+    base: 'main',
+    state: 'ready',
+  },
+}
+
+async function openChangesTask(a: ReturnType<typeof appState>) {
+  a.handle('taskChanges', () => localChanges)
+  a.handle('fileDiffs', () => [])
+  a.mount()
+  const nav = await screen.findByRole('navigation', { name: 'Sidebar' })
+  await user().click(within(nav).getByRole('button', { name: 'All Tasks' }))
+  await user().click(await screen.findByRole('row', { name: /NB-1/ }))
+  await screen.findByRole('region', { name: 'Task thread' })
+  return screen.findByRole('region', { name: 'Changes' })
+}
+
+test('an open PR retains local access; both sources use the reader without mixing code or offering local actions on PR lines', async () => {
+  const a = appState()
+  a.state.tasks = [task({ repos: [repo], stage: 'work' })]
+  const pending = deferred<PullRequestChanges>()
+  a.handle('pullRequestChanges', () => pending.promise)
+  const changes = await openChangesTask(a)
+  await within(changes).findByRole('button', { name: /local-only.ts/ })
+  expect(within(changes).queryByRole('button', { name: 'Pull request changes' })).toBeNull()
+  await a.emitTask(task({ repos: [withPr], stage: 'work' }))
+  await user().click(await within(changes).findByRole('button', { name: 'Pull request changes' }))
+  await screen.findByRole('region', { name: 'All changes' })
+  expect(screen.getByRole('complementary', { name: 'Task details' })).toBeTruthy()
+  expect(within(changes).queryByRole('button', { name: /local-only.ts/ })).toBeNull()
+  await user().click(within(changes).getByRole('button', { name: 'Local changes' }))
+  await act(async () => pending.resolve(prChanges))
+  await within(changes).findByRole('button', { name: /local-only.ts/ })
+  expect(within(changes).queryByRole('button', { name: /pushed.ts/ })).toBeNull()
+  await user().click(within(changes).getByRole('button', { name: 'Pull request changes' }))
+  const all = screen.getByRole('region', { name: 'All changes' })
+  await within(all).findByText('<img src=x onerror=alert(1)>')
+  expect(all.querySelector('img')).toBeNull()
+  expect(within(all).queryByRole('button', { name: /Comment on line|Open in editor/ })).toBeNull()
+  await user().click(await within(changes).findByRole('button', { name: /pushed.ts/ }))
+  const diff = screen.getByRole('region', { name: 'Diff' })
+  await within(diff).findByText('<img src=x onerror=alert(1)>')
+  expect(within(diff).getByText(/pushed revision aaaaaaa/)).toBeTruthy()
+  expect(within(diff).queryByRole('button', { name: /Comment on line|Open in editor/ })).toBeNull()
+  expect(a.request.mock.calls.filter(([name]) => name === 'fileDiffs')).toHaveLength(1)
+})
+
+test('PR refresh failure clears old code, remains separate from local work, and recovers even without a worktree', async () => {
+  const a = appState()
+  a.state.tasks = [
+    task({ repos: [{ ...withPr, removed: { at: '2026-11-11T12:00:00Z' } }], stage: 'review' }),
+  ]
+  a.handle('pullRequestChanges', () => prChanges)
+  const changes = await openChangesTask(a)
+  await user().click(within(changes).getByRole('button', { name: 'Pull request changes' }))
+  const all = screen.getByRole('region', { name: 'All changes' })
+  await within(all).findByText('<img src=x onerror=alert(1)>')
+  a.handle('pullRequestChanges', () => {
+    throw new Error('secret failure detail')
+  })
+  await user().click(within(all).getByRole('button', { name: 'Refresh' }))
+  await within(all).findByText(/Couldn’t load pull request #7/)
+  expect(within(all).queryByText('<img src=x onerror=alert(1)>')).toBeNull()
+  expect(within(all).queryByText(/secret failure detail/)).toBeNull()
+  expect(within(changes).queryByRole('button', { name: /local-only.ts/ })).toBeNull()
+  a.handle('pullRequestChanges', () => prChanges)
+  await user().click(within(all).getByRole('button', { name: 'Retry' }))
+  await within(all).findByText('<img src=x onerror=alert(1)>')
+})
+
+test('a failed PR in a second repo does not hide the first repo’s pushed files', async () => {
+  const a = appState()
+  const api: TaskRepo = {
+    ...withPr,
+    name: 'api',
+    repo: 'acme/api',
+    pullRequest: {
+      ...withPr.pullRequest,
+      number: 8,
+      url: 'https://github.com/acme/api/pull/8',
+      base: 'main',
+      state: 'ready',
+    },
+  }
+  a.state.tasks = [task({ repos: [withPr, api], stage: 'review' })]
+  a.handle('pullRequestChanges', (_id, name) => {
+    if (name === 'api') throw new Error('Offline')
+    return { ...prChanges, limited: true }
+  })
+  const changes = await openChangesTask(a)
+  await user().click(within(changes).getByRole('button', { name: 'Pull request changes' }))
+  const all = screen.getByRole('region', { name: 'All changes' })
+  await within(all).findByText('<img src=x onerror=alert(1)>')
+  expect(within(all).getByText(/api: Couldn’t load pull request #8/)).toBeTruthy()
+  expect(within(all).getByText(/first 1,000 files only/)).toBeTruthy()
+  expect(within(changes).getByRole('button', { name: /pushed.ts/ })).toBeTruthy()
+})

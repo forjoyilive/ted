@@ -48,6 +48,7 @@ import type {
   Priority,
   ProposalCreated,
   ProposalInput,
+  PullRequestChanges,
   RecordAppRequest,
   RecordFailureRequest,
   ReportOutcomeRequest,
@@ -232,6 +233,7 @@ import { placeBetween } from './order.ts'
 import { overnightGuidance } from './overnight.ts'
 import { createPeers, type Peers } from './peers.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
+import { readPullRequestChanges } from './pull-request-changes.ts'
 import {
   createPullRequests,
   type PullRequestTarget,
@@ -446,6 +448,7 @@ export interface Tasks {
   setupLog(ref: string, repo: string): Promise<string>
   worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
   changes(ref: string): Promise<TaskChanges>
+  pullRequestChanges(ref: string, repo: string): Promise<PullRequestChanges>
   files(ref: string): Promise<TaskFiles>
   file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
@@ -553,6 +556,7 @@ export function createTasks(options: {
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
   const interrupted = new Set<string>()
+  const pullRequestChangeReads = new Map<string, Promise<PullRequestChanges>>()
   const signedOutAt = new Map<string, string>()
   const turnEnding = new Set<string>()
   const readyMidTurn = new Set<string>()
@@ -7675,6 +7679,20 @@ export function createTasks(options: {
         fileScope,
         env: commandEnv(task, env),
       }
+    },
+
+    async pullRequestChanges(ref, name) {
+      const repo = find(ref).repos.find((r) => r.name === name)
+      if (!options.gh) throw new RequestError(503, 'GitHub is unavailable.')
+      if (!repo?.pullRequest) throw new RequestError(404, 'This repo has no pull request.')
+      const key = `${repo.name}:${repo.pullRequest.url}`
+      const current = pullRequestChangeReads.get(key)
+      if (current) return current
+      const reading = readPullRequestChanges(options.gh, repo).finally(() =>
+        pullRequestChangeReads.delete(key),
+      )
+      pullRequestChangeReads.set(key, reading)
+      return reading
     },
 
     async changes(ref) {

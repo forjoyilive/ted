@@ -216,3 +216,8 @@
   display: grid;
   place-items: center;
 }
+
+.remoteSummary {
+  flex-shrink: 0;
+  padding: 0 16px 12px;
+}
