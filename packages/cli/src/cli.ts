@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
@@ -10,6 +11,7 @@ import {
   type AgentStageId,
   agentKinds,
   type Banner,
+  type BrowserRequest,
   type ClarifyDepth,
   type CoordinatorAction,
   DaemonClient,
@@ -26,6 +28,7 @@ import {
   isShowing,
   type LocalDesignReviewInput,
   minGhVersion,
+  parseBrowserRequest,
   parseDesignReviewInput,
   parseLinearUrl,
   parseLocalDesignReviewInput,
@@ -719,7 +722,63 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     console.log(JSON.stringify(receipt))
   }
 
+  async function browser(action: BrowserRequest['action']): Promise<void> {
+    const request: BrowserRequest = { action }
+    if (action === 'open')
+      request.app = { name: args[0] ?? '', ...(options.repo && { repo: options.repo }) }
+    if (action === 'click' || action === 'fill') request.ref = args[0] ?? ''
+    if (action === 'fill') request.value = args[1] ?? (await readStdin())
+    if (action === 'press' || action === 'navigate') request.value = args[0] ?? ''
+    const ref = taskRef()
+    const browserClient = await withDaemon(home, async (client) => {
+      await client.listApps(ref)
+      return client
+    })
+    const result = await browserClient.browserCommand(ref, parseBrowserRequest(request))
+    console.log(printable(result.text ?? result.url ?? 'Done'))
+    if (result.attachment) {
+      const attachment = result.attachment
+      const bytes = await withDaemon(home, (client) =>
+        client.readBrowserCapture(taskRef(), attachment.hash),
+      )
+      const file = path.resolve(`ted-browser-${randomUUID()}.png`)
+      await writeFile(file, Buffer.from(bytes.data, 'base64'), { flag: 'wx', mode: 0o600 })
+      console.log(`Saved ${printable(file)}. Attach with ted comment --attach <path>.`)
+    }
+  }
+
   const handlers = {
+    browserOpen: async () => {
+      await browser('open')
+    },
+    browserSnapshot: async () => {
+      await browser('snapshot')
+    },
+    browserClick: async () => {
+      await browser('click')
+    },
+    browserFill: async () => {
+      await browser('fill')
+    },
+    browserPress: async () => {
+      await browser('press')
+    },
+    browserNavigate: async () => {
+      await browser('navigate')
+    },
+    browserBack: async () => {
+      await browser('back')
+    },
+    browserForward: async () => {
+      await browser('forward')
+    },
+    browserReload: async () => {
+      await browser('reload')
+    },
+    browserScreenshot: async () => {
+      await browser('screenshot')
+    },
+
     export: async () => {
       console.log(await exportCommand(home, options))
     },

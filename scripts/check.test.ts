@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { failedTests, parseReport, parseRetries } from './check.ts'
+import { failedTests, onlyAppChanged, parseReport, parseRetries } from './check.ts'
 import {
   appendRun,
   type FailureRun,
@@ -19,6 +19,34 @@ import {
   parseHistory,
   recordFailureRun,
 } from './check-history.ts'
+
+describe('which tests a change needs', () => {
+  test('a change inside the app’s source and tests needs only the app’s tests', () => {
+    expect(onlyAppChanged(['packages/app/src/renderer/views/Board.tsx'])).toBe(true)
+    expect(
+      onlyAppChanged([
+        'packages/app/test/board-component.test.tsx',
+        'packages/app/src/main.ts',
+        'docs/spec/ted-v1-spec.md',
+        'AGENTS.md',
+      ]),
+    ).toBe(true)
+  })
+
+  test.each([
+    ['daemon code', ['packages/app/src/main.ts', 'packages/daemon/src/server.ts']],
+    ['protocol code', ['packages/app/src/main.ts', 'packages/protocol/src/task.ts']],
+    ['the CLI', ['packages/cli/src/main.ts']],
+    ['the app’s own config', ['packages/app/src/main.ts', 'packages/app/package.json']],
+    ['the repo’s config', ['packages/app/src/main.ts', 'vitest.config.ts']],
+    ['the lockfile', ['packages/app/src/main.ts', 'pnpm-lock.yaml']],
+    ['the check script', ['packages/app/src/main.ts', 'scripts/check.ts']],
+    ['docs alone', ['docs/adr/0001-workflow-needs-ted.md', 'AGENTS.md']],
+    ['nothing', []],
+  ])('a change that touches %s needs every test', (_, files) => {
+    expect(onlyAppChanged(files)).toBe(false)
+  })
+})
 
 const at = '2026-11-10T00:00:00.000Z'
 const run = (failures: string[] = [], problems: string[] = []): FailureRun => ({

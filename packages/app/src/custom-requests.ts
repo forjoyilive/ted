@@ -18,6 +18,15 @@ export interface CustomRequests {
   openTaskSource: (taskId: string) => Promise<void>
   openPullRequest: (taskId: string, repoName: string) => Promise<void>
   openFigmaLink: (taskId: string, commentId: string) => Promise<void>
+  presentBrowser: (
+    taskId: string,
+    repo: string,
+    name: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => Promise<void>
+  hideBrowser: (temporary?: boolean) => Promise<void>
+  browserState: (taskId: string) => Promise<{ url: string; text: string } | undefined>
+  externalBrowser: (taskId: string) => Promise<void>
   openAppPreview: (taskId: string, repo: string, name: string) => Promise<void>
   openHostedPreview: (taskId: string, repo: string) => Promise<void>
   chooseFolder: (title: string) => Promise<string | undefined>

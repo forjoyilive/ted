@@ -105,6 +105,7 @@ export const forwardedRequests = [
   'deleteLineComment',
   'discardLineComments',
   'sendLineComments',
+  'browserCommand',
   'listApps',
   'startApp',
   'showApp',

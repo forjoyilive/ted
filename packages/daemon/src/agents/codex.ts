@@ -3,8 +3,6 @@ import {
   type Billing,
   isModelName,
   type PermissionMode,
-  type PlanWindow,
-  type PlanWindowKind,
   type RunState,
   tedVersion,
 } from '@ted/protocol'
@@ -20,6 +18,7 @@ import {
 } from './agent.ts'
 import { codexChat } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
+import { codexPlanWindows, readCodexPlanUsage } from './codex-usage.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
 
@@ -123,23 +122,6 @@ function usageLimitIn(error: unknown): UsageSignal | undefined {
         : undefined),
   )
   return { limited: true, ...(reset !== undefined && { resetsAt: reset }) }
-}
-
-const windowByMinutes: Record<number, PlanWindowKind> = { 300: 'five-hour', 10080: 'weekly' }
-
-function planWindow(value: unknown, fallback: PlanWindowKind): PlanWindow | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const { usedPercent, windowDurationMins, resetsAt } = value as Record<string, unknown>
-  if (typeof usedPercent !== 'number') return undefined
-  const window =
-    typeof windowDurationMins === 'number' ? windowByMinutes[windowDurationMins] : fallback
-  if (window === undefined) return undefined
-  const reset = fromEpoch(resetsAt)
-  return {
-    window,
-    percent: Math.min(100, Math.max(0, usedPercent)),
-    ...(reset !== undefined && { resetsAt: reset }),
-  }
 }
 
 function rateLimitsIn(message: CodexLine | undefined): unknown {
@@ -613,14 +595,10 @@ export function codexAgent(binary: string): Agent {
       if (type === 'chatgpt' || type === 'chatgptAuthTokens') return { billing: 'subscription' }
       return undefined
     },
+    readPlanUsage: readCodexPlanUsage,
     planUsageFrom(line) {
-      const limits = rateLimitsIn(parse(line))
-      if (typeof limits !== 'object' || limits === null) return undefined
-      const { primary, secondary } = limits as { primary?: unknown; secondary?: unknown }
-      const windows = [planWindow(primary, 'five-hour'), planWindow(secondary, 'weekly')].filter(
-        (w): w is PlanWindow => w !== undefined,
-      )
-      return windows.length > 0 ? windows : undefined
+      const windows = codexPlanWindows(rateLimitsIn(parse(line)))
+      return windows?.length ? windows : undefined
     },
     costOf(lines, model) {
       let last: { input: number; cached: number; output: number } | undefined

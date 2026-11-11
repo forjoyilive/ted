@@ -32,6 +32,7 @@ import type {
   SchedulePreview,
 } from './automation.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
+import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
@@ -843,6 +844,44 @@ export class DaemonClient {
 
   sendLineComments(ref: string): Promise<Comment> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/line-comments/send`)
+  }
+
+  browserApp(ref: string, app: { repo: string; name: string }): Promise<TaskApp> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/browser/apps/${encodeURIComponent(app.repo)}/${encodeURIComponent(app.name)}`,
+    )
+  }
+
+  readBrowserCapture(ref: string, hash: string): Promise<AttachmentBytes> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/browser/captures/${encodeURIComponent(hash)}`,
+    )
+  }
+
+  browserCommand(ref: string, request: BrowserRequest): Promise<BrowserResult> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/browser`, request)
+  }
+
+  pollBrowser(session: string): Promise<BrowserCommand | null> {
+    return this.#request('POST', '/browser/poll', { session })
+  }
+
+  replyBrowser(session: string, id: string, reply: BrowserReply): Promise<void> {
+    return this.#request('POST', `/browser/${encodeURIComponent(id)}/reply`, { session, ...reply })
+  }
+
+  uploadBrowserCapture(
+    session: string,
+    id: string,
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<Attachment> {
+    return this.#upload(
+      `/browser/${encodeURIComponent(session)}/${encodeURIComponent(id)}/capture`,
+      { name: 'Browser screenshot.png', mediaType: 'image/png' },
+      bytes,
+    )
   }
 
   listApps(ref: string): Promise<TaskApp[]> {

@@ -139,6 +139,7 @@ import {
   taskAttachments,
   taskBlockers,
   taskBriefs,
+  taskBrowserCaptures,
   taskDescriptions,
   taskDraftConsumptions,
   taskDrafts,
@@ -655,6 +656,8 @@ export interface TedStore extends TaskHistory {
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
   taskFiles(taskId: string): Attachment[]
+  recordBrowserCapture(taskId: string, attachment: Attachment): void
+  browserCaptures(taskId: string): Attachment[]
   taskDraft(factoryId: string): TaskDraftState
   saveTaskDraft(factoryId: string, draft: NewTaskDraft): TaskDraftState
   removeTaskDraft(factoryId: string): void
@@ -1167,6 +1170,11 @@ export async function openStore({
   const attachmentsOf = (taskId: string): Attachment[] =>
     store
       .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
+      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+
+  const browserCapturesOf = (taskId: string): Attachment[] =>
+    store
+      .query(queryDb(taskBrowserCaptures.where({ taskId })))
       .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
 
   const sourceOf = (taskId: string): TaskSource | undefined => {
@@ -3352,8 +3360,16 @@ export async function openStore({
       )
       return updatedTask(taskId)
     },
+    recordBrowserCapture(taskId, attachment) {
+      requireTaskRow(taskId)
+      commit(
+        events.taskBrowserCaptureAdded({ taskId, ...attachment, at: new Date().toISOString() }),
+      )
+    },
+    browserCaptures: browserCapturesOf,
     taskFiles: (taskId) => [
       ...attachmentsOf(taskId),
+      ...browserCapturesOf(taskId),
       ...store
         .query(queryDb(commentAttachments.where({ taskId })))
         .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType })),
@@ -3388,6 +3404,7 @@ export async function openStore({
             row.draft ? (JSON.parse(row.draft) as NewTaskDraft).attachments.map((a) => a.hash) : [],
           ),
         ...store.query(queryDb(taskAttachments)).map((a) => a.hash),
+        ...store.query(queryDb(taskBrowserCaptures)).map((a) => a.hash),
         ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
       ]),
     postComment(input) {

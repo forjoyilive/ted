@@ -7,6 +7,7 @@ import type { LoginItemState } from '../login-item.ts'
 import type { UpdateStatus } from '../updates.ts'
 
 export type TedEvent =
+  | { type: 'browser-open'; taskId: string; app: { repo: string; name: string; browser: true } }
   | DaemonEvent
   | { type: 'menu-command'; command: MenuCommand }
   | { type: 'connection'; connection: DaemonConnection }
@@ -42,6 +43,15 @@ export const ted = {
   openPullRequest: (taskId: string, repoName: string) =>
     request('openPullRequest', taskId, repoName),
   openFigmaLink: (taskId: string, commentId: string) => request('openFigmaLink', taskId, commentId),
+  presentBrowser: (
+    taskId: string,
+    repo: string,
+    name: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => request('presentBrowser', taskId, repo, name, bounds),
+  hideBrowser: (temporary = false) => request('hideBrowser', temporary),
+  browserState: (taskId: string) => request('browserState', taskId),
+  externalBrowser: (taskId: string) => request('externalBrowser', taskId),
   openAppPreview: (taskId: string, repo: string, name: string) =>
     request('openAppPreview', taskId, repo, name),
   openHostedPreview: (taskId: string, repo: string) => request('openHostedPreview', taskId, repo),

@@ -144,6 +144,12 @@ export interface Agent {
   usageFrom(line: string): UsageSignal | undefined
   retryingFrom(line: string): boolean | undefined
   credentialFrom(line: string): CredentialReport | undefined
+  readPlanUsage?(options: {
+    binary: string
+    env: NodeJS.ProcessEnv
+    cwd: string
+    signal: AbortSignal
+  }): Promise<PlanWindow[] | undefined>
   planUsageFrom(line: string): PlanWindow[] | undefined
   costOf(lines: readonly string[], model: string | undefined): number | undefined
   keyHelp(source: string | undefined): string

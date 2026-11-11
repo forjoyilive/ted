@@ -64,6 +64,7 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import { createTaskBrowsers } from './browser.ts'
 import type { CustomHandlers, CustomRequests } from './custom-requests.ts'
 import { getAutomation, taskBrief } from './daemon-adapters.ts'
 import { forwardDaemonRequest, isForwardedRequest } from './daemon-requests.ts'
@@ -138,7 +139,23 @@ const requests = {
     if (app?.url === undefined || app.kind !== 'web' || !isLoopbackUrl(app.url)) {
       throw new Error('That App isn’t running')
     }
-    await shell.openExternal(app.url)
+    sendToRenderer({
+      type: 'browser-open',
+      taskId: String(taskId),
+      app: { repo: app.repo, name: app.name, browser: true },
+    })
+  },
+  presentBrowser: async (_client, taskId, _repo, _name, bounds) => {
+    const rect = bounds
+    if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite))
+      throw new Error('Invalid browser view')
+    await taskBrowsers?.present(String(taskId), rect)
+  },
+  hideBrowser: async (_client, temporary) => taskBrowsers?.hide(temporary === true),
+  browserState: async (_client, taskId) => taskBrowsers?.state(String(taskId)),
+  externalBrowser: async (_client, taskId) => {
+    const url = await taskBrowsers?.external(String(taskId))
+    if (url) await shell.openExternal(url)
   },
   openHostedPreview: async (client, taskId, repoName) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
@@ -232,6 +249,10 @@ const requests = {
   | 'openPullRequest'
   | 'openFigmaLink'
   | 'openAppPreview'
+  | 'presentBrowser'
+  | 'hideBrowser'
+  | 'browserState'
+  | 'externalBrowser'
   | 'openHostedPreview'
   | 'exportFactory'
   | 'chooseFolder'
@@ -318,6 +339,7 @@ const keepsStopping = 'TED’s background process keeps stopping'
 
 let supervisor: DaemonSupervisor | undefined
 let client: DaemonClient | undefined
+let taskBrowsers: ReturnType<typeof createTaskBrowsers> | undefined
 let window: BrowserWindow | undefined
 let tray: Tray | undefined
 let quitting = false
@@ -371,6 +393,11 @@ function makeLoginItem(): LoginItem {
 }
 
 function forward(event: DaemonEvent): void {
+  if (event.type === 'run-updated' && event.run.state === 'finished')
+    taskBrowsers?.ended(event.run.id)
+  if (event.type === 'apps-changed' || event.type === 'task-deleted')
+    taskBrowsers?.changed(event.taskId)
+  if (event.type === 'task-updated') taskBrowsers?.changed(event.task.id)
   if (event.type === 'settings-changed') applySettings(event.settings)
   if (event.type === 'data-status' && event.status.state === 'ready') {
     loadState().catch((error: unknown) => console.error('loading settings failed:', error))
@@ -758,6 +785,8 @@ async function loadStateWhenReady(): Promise<void> {
 }
 
 function onConnection(connection: DaemonConnection): void {
+  if (connection.state === 'connected') taskBrowsers?.reconnected()
+  else taskBrowsers?.disconnected()
   sendToRenderer({ type: 'connection', connection })
   if (connection.state === 'connected') {
     notifications.forget()
@@ -785,6 +814,17 @@ async function start(): Promise<void> {
   })
   supervisor = supervised
   client = supervised.client
+  taskBrowsers = createTaskBrowsers(
+    () => window,
+    () => supervised.client,
+    (taskId, app) => {
+      sendToRenderer({
+        type: 'browser-open',
+        taskId,
+        app: { repo: app.repo, name: app.name, browser: true },
+      })
+    },
+  )
   servePrototypes((file) => supervised.client.readAttachment(file))
   await loadStateWhenReady()
 
@@ -831,7 +871,9 @@ async function start(): Promise<void> {
     | 'restartToUpdate'
   >
 
-  ipcMain.handle('ted:request', (_event, name: unknown, ...args: unknown[]) => {
+  ipcMain.handle('ted:request', (event, name: unknown, ...args: unknown[]) => {
+    if (event.sender !== window?.webContents || event.senderFrame !== window?.webContents.mainFrame)
+      throw new Error('Untrusted request sender')
     if (typeof name !== 'string') throw new Error('unknown request')
     const appRequest = Object.hasOwn(appRequests, name)
       ? appRequests[name as keyof typeof appRequests]
@@ -858,7 +900,10 @@ async function start(): Promise<void> {
     event.preventDefault()
     void requestQuit()
   })
-  app.on('will-quit', () => supervised.close())
+  app.on('will-quit', () => {
+    taskBrowsers?.close()
+    supervised.close()
+  })
   app.on('window-all-closed', () => undefined)
   app.on('activate', showWindow)
   app.on('second-instance', showWindow)
