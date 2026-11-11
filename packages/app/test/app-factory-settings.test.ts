@@ -86,7 +86,7 @@ describe('Factory settings sections', () => {
 })
 
 describe('Library settings', () => {
-  test('Edit in Library and a Gate change save straight to the Library folder', async () => {
+  test('Edit in Library and a sign-off change save straight to the Library folder', async () => {
     const window = await launchApp()
     await openSettings(window)
     await settingsNav(window).getByRole('button', { name: 'Library', exact: true }).click()
@@ -95,7 +95,7 @@ describe('Library settings', () => {
       .getByText('Applies to every Factory that doesn’t override it, from each Task’s next Stage.')
       .waitFor()
 
-    await window.getByRole('switch', { name: 'Design Gate' }).click()
+    await window.getByRole('switch', { name: 'Design sign-off' }).click()
     await window.getByText('1 unsaved change to the Library').waitFor()
     await window.getByRole('button', { name: 'Edit in Library' }).nth(5).click()
     const editor = window.getByRole('textbox', { name: 'Review Stage file' })

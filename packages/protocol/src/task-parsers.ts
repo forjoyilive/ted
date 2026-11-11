@@ -1,5 +1,11 @@
 import { stripVTControlCharacters } from 'node:util'
-import type { RunChecksRequest } from './checks.ts'
+import {
+  type DeclaredSendBackCause,
+  declaredSendBackCauses,
+  type FindingSeverity,
+  findingSeverities,
+  type RunChecksRequest,
+} from './checks.ts'
 import { proposalCycle } from './proposal.ts'
 import type {
   ArchiveTaskRequest,
@@ -42,12 +48,23 @@ import {
   type SetupProposal,
   type SizeCheckInput,
   type StageId,
+  type StartTaskRequest,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
 } from './task.ts'
 import type { SetTaskGatesRequest, TaskGateOverrides } from './task-gates.ts'
 import { agentChoice, RequestValidationError as HttpError } from './validation.ts'
+
+export function parseStartTaskRequest(value: unknown): StartTaskRequest {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new HttpError(400, 'a start request must be an object')
+  const { prepare } = value as Record<string, unknown>
+  if (prepare !== undefined && typeof prepare !== 'boolean')
+    throw new HttpError(400, 'prepare must be true or false')
+  return prepare === undefined ? {} : { prepare }
+}
 
 const maxRepoRefs = 20
 
@@ -397,7 +414,22 @@ export function parseReportOutcomeRequest(body: unknown): ReportOutcomeRequest {
     }
     const findings = typeof request.findings === 'string' ? request.findings.trim() : ''
     if (findings === '') throw new HttpError(400, '`back` needs Findings')
-    return { outcome: 'back', to: to as AgentStageId, findings, ...(judged && { judged }) }
+    const cause = request.cause
+    if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {
+      throw new HttpError(400, `cause must be one of ${declaredSendBackCauses.join(', ')}`)
+    }
+    const severity = request.severity
+    if (severity !== undefined && !findingSeverities.includes(severity as FindingSeverity)) {
+      throw new HttpError(400, `severity must be one of ${findingSeverities.join(', ')}`)
+    }
+    return {
+      outcome: 'back',
+      to: to as AgentStageId,
+      findings,
+      ...(judged && { judged }),
+      ...(cause !== undefined && { cause: cause as DeclaredSendBackCause }),
+      ...(severity !== undefined && { severity: severity as FindingSeverity }),
+    }
   }
   if (request.outcome === 'ask') {
     const question = typeof request.question === 'string' ? request.question.trim() : ''
@@ -890,13 +922,13 @@ export function parseSetTaskGatesRequest(input: unknown): SetTaskGatesRequest {
     typeof value !== 'object' ||
     Array.isArray(value)
   ) {
-    throw new HttpError(400, 'give a revision and Gate overrides')
+    throw new HttpError(400, 'give a revision and Sign-off overrides')
   }
   const overrides: TaskGateOverrides = {}
   for (const [key, gate] of Object.entries(value)) {
     const stage = agentStageIds.find((id) => id === key)
     if (!stage || typeof gate !== 'boolean')
-      throw new HttpError(400, 'Gate overrides must name Stages with boolean values')
+      throw new HttpError(400, 'Sign-off overrides must name Stages with boolean values')
     overrides[stage] = gate
   }
   return { overrides, revision: body.revision }

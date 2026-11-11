@@ -1,7 +1,7 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
+import { DaemonClient, type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
@@ -11,6 +11,7 @@ import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
+import { createCpuProfiler } from './cpu-profile.ts'
 import { createData, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
@@ -39,6 +40,7 @@ import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
 import { createShells } from './shells.ts'
 import { createSideChats } from './side-chats/side-chats.ts'
+import { createSlowMonitor } from './slow-moments.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
@@ -77,6 +79,7 @@ export interface DaemonOptions {
   settingsMergeWaitMs?: number
   stallAfterMs?: number
   apps?: { pollMs?: number; readyTimeoutMs?: number; stopGraceMs?: number; logBytes?: number }
+  runs?: { stopGraceMs?: number; inputAckMs?: number }
   simulators?: { supported?: boolean; pollMs?: number; idleMs?: number }
   online?: DaemonOnlineOptions
   limitProbeMs?: number
@@ -86,6 +89,7 @@ export interface DaemonOptions {
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
+  slow?: { requestMs?: number; stallMs?: number }
 }
 
 export interface DaemonEditorsOptions {
@@ -195,6 +199,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         env: environment.current,
         ...(idle && { idle }),
         ...(options.oldestHost !== undefined && { oldestHost: options.oldestHost }),
+        ...options.runs,
       })
       const banners = createBanners({ store, emit })
       const diskOptions = options.disk ?? {}
@@ -372,6 +377,20 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       let plans: Plans | undefined
       const tasks = createTasks({
+        testReportingEnv: async (task, checkRunId, position, supported) => {
+          const registration = await new DaemonClient(info, token, {
+            appKey: appToken,
+          }).tryRegisterTestInvocation(task.id, {
+            id: randomUUID(),
+            supported,
+            label: 'TED Check',
+            checkRunId,
+            position,
+          })
+          return registration && supported
+            ? { TED_HOME: paths.home, TED_RUN_CAPABILITY: registration.token }
+            : {}
+        },
         ...(options.clock && { clock: options.clock }),
         steering,
         planning: () => plans,
@@ -526,6 +545,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
       })
       const factoryRemovals = createFactoryRemovals({
+        factorySettings,
         sideChats,
         coordinators,
         store,
@@ -535,6 +555,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         plans,
         factories,
         checkTries,
+        workflows,
         storage: () => storage,
       })
       factories.start()
@@ -594,7 +615,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           stopWatchingWrites()
           online.close()
           health.close()
-          integrations.close()
+          await integrations.close()
           await factories.close()
           await tasks.close()
           await runs.close()
@@ -609,6 +630,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     .catch((error: unknown) => console.error('rewriting the ted command failed:', error))
   const token = randomBytes(32).toString('hex')
   const appToken = options.appToken ?? randomBytes(32).toString('hex')
+  const slow = createSlowMonitor(options.slow)
+  const profiler = createCpuProfiler(paths.home)
   const { server, port } = await listen({
     version: options.version,
     token,
@@ -625,6 +648,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     onShutdown: options.onShutdown ?? (() => undefined),
     home: paths.home,
     commandLine,
+    slow,
+    profiler,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }
@@ -638,6 +663,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     appToken,
     async stop() {
       idle?.cancel()
+      slow.close()
+      profiler.close()
       await rm(paths.daemonInfo, { force: true })
       await new Promise<void>((resolve) => {
         server.close(() => resolve())

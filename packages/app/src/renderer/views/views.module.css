@@ -304,7 +304,6 @@
   margin: 2px 0 0;
   font-size: var(--text-14);
   line-height: var(--leading-body);
-  white-space: pre-wrap;
 }
 
 .details {

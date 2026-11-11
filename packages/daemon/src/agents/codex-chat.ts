@@ -2,7 +2,7 @@
 // commanddetail/command.go. TED changed: TypeScript, reads TED’s stored Conversation lines,
 // keeps userMessage items and builds diff lines.
 import type { ChatDiff, ConversationEntry } from '@ted/protocol'
-import type { AgentChatEntry } from './agent.ts'
+import type { AgentChat, AgentChatEntry } from './agent.ts'
 import { chatList, clip, label, list, parseObject, record, shortPath, str } from './chat-entries.ts'
 import { diffPatch } from './diff.ts'
 
@@ -123,19 +123,20 @@ function userText(item: Record<string, unknown>): string {
     .join('\n')
 }
 
-export function codexChat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[] {
+export function codexChatFrom(cwd: string): AgentChat {
   const chat = chatList()
-  for (const { line, at } of entries) {
+  const add = ({ offset, line, at }: ConversationEntry): void => {
     const message = parseObject(line)
-    if (!message) continue
+    if (!message) return
+    chat.reading(offset)
     const method = message.method
     const params = record(message.params)
     const when = at !== undefined ? { at } : {}
     if (method === 'item/agentMessage/delta') {
       const key = str(params.itemId)
-      if (key === '') continue
+      if (key === '') return
       const current = chat.get(key)
-      if (current?.kind === 'agent' && current.done) continue
+      if (current?.kind === 'agent' && current.done) return
       chat.put({
         kind: 'agent',
         key,
@@ -143,12 +144,12 @@ export function codexChat(entries: readonly ConversationEntry[], cwd: string): A
         done: false,
         ...(current?.at !== undefined ? { at: current.at } : when),
       })
-      continue
+      return
     }
-    if (method !== 'item/started' && method !== 'item/completed') continue
+    if (method !== 'item/started' && method !== 'item/completed') return
     const item = record(params.item)
     const key = str(item.id)
-    if (key === '') continue
+    if (key === '') return
     const completed = method === 'item/completed'
     const current = chat.get(key)
     const started = current?.at !== undefined ? { at: current.at } : when
@@ -158,7 +159,7 @@ export function codexChat(entries: readonly ConversationEntry[], cwd: string): A
       if (completed) chat.put({ kind: 'agent', key, text: str(item.text), done: true, ...started })
     } else {
       const view = tool(item, cwd)
-      if (!view) continue
+      if (!view) return
       chat.put({
         kind: 'tool',
         key,
@@ -169,5 +170,11 @@ export function codexChat(entries: readonly ConversationEntry[], cwd: string): A
       })
     }
   }
-  return chat.entries()
+  return { add, entries: chat.entries, userFrom: chat.userFrom }
+}
+
+export function codexChat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[] {
+  const chat = codexChatFrom(cwd)
+  for (const entry of entries) chat.add(entry)
+  return [...chat.entries()]
 }

@@ -14,6 +14,7 @@ import type {
 } from './factory.ts'
 import type {
   LibraryChanges,
+  MergeSettingsRequest,
   RenameFactoryRequest,
   SaveLibraryRequest,
   SaveSettingsRequest,
@@ -112,12 +113,40 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
     }
     const enabled = flag('enabled')
     const gate = flag('gate')
+    const p1OnlyFrom = stage.p1OnlyFrom
+    if (
+      p1OnlyFrom !== undefined &&
+      (id !== 'validate' ||
+        (p1OnlyFrom !== false &&
+          (typeof p1OnlyFrom !== 'number' || !Number.isInteger(p1OnlyFrom) || p1OnlyFrom < 2)))
+    ) {
+      throw new HttpError(
+        400,
+        `${id}.p1OnlyFrom must be a round number, 2 or more, or false, on Validate`,
+      )
+    }
+    const subAgents = stage.subAgents
+    if (subAgents !== undefined && (id !== 'validate' || typeof subAgents !== 'boolean')) {
+      throw new HttpError(400, `${id}.subAgents must be true or false, on Validate`)
+    }
+    const leadClosesFailures = stage.leadClosesFailures
+    if (
+      leadClosesFailures !== undefined &&
+      (id !== 'work' || typeof leadClosesFailures !== 'boolean')
+    ) {
+      throw new HttpError(400, `${id}.leadClosesFailures must be true or false, on Work`)
+    }
     stages[id as StageId] = {
       ...(effort !== undefined && { effort: effort as Effort | null }),
       ...(enabled !== undefined && { enabled }),
       ...(gate !== undefined && { gate }),
       ...(typeof maxBack === 'number' && { maxBack }),
       ...(depth !== undefined && { depth: depth as ClarifyDepth }),
+      ...(p1OnlyFrom !== undefined && { p1OnlyFrom: p1OnlyFrom as number | false }),
+      ...(subAgents !== undefined && { subAgents: subAgents as boolean }),
+      ...(leadClosesFailures !== undefined && {
+        leadClosesFailures: leadClosesFailures as boolean,
+      }),
     }
   }
   return stages
@@ -320,6 +349,14 @@ export function parseSetLocalFolderRequest(value: unknown): SetLocalFolderReques
   const folder = typeof body?.path === 'string' ? body.path : ''
   if (folder === '') throw new HttpError(400, 'path is required')
   return { path: folder }
+}
+
+export function parseMergeSettingsRequest(value: unknown): MergeSettingsRequest {
+  const body = record(value)
+  if (typeof body.receipt !== 'string' || !/^[a-f0-9]{32}$/.test(body.receipt)) {
+    throw new HttpError(400, 'receipt must be a settings save receipt')
+  }
+  return { receipt: body.receipt }
 }
 
 export function parseSaveSettingsRequest(value: unknown): SaveSettingsRequest {

@@ -1,8 +1,10 @@
-import type { SignOffChanges, TaskChanges } from '@ted/protocol'
+import type { ChangesSource, SignOffChanges, TaskChanges } from '@ted/protocol'
 import { type ChangedFile, splitPath } from '../changes.ts'
+import { Button } from './Button.tsx'
 import styles from './ChangesSection.module.css'
 import { contextMenu, useActionMenu } from './ContextMenu.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
+import { Loading } from './Loading.tsx'
 
 export type DraftCount = (file: ChangedFile) => number
 
@@ -22,6 +24,10 @@ export function ChangesSection({
   onExpandAll,
   drafts,
   draftTotal = 0,
+  source = 'local',
+  onSource,
+  hasPullRequest = false,
+  refresh,
 }: {
   changes: TaskChanges | undefined
   selected?: ChangedFile | undefined
@@ -29,11 +35,19 @@ export function ChangesSection({
   onExpandAll?: (() => void) | undefined
   drafts?: DraftCount | undefined
   draftTotal?: number
+  source?: ChangesSource
+  onSource?: (source: ChangesSource) => void
+  hasPullRequest?: boolean
+  refresh?: () => void
 }) {
-  if (!changes || changes.repos.length === 0) return null
-  const count = `${changes.files === 1 ? '1 file' : `${changes.files} files`}${
-    draftTotal > 0 ? ` · ${draftTotal === 1 ? '1 draft' : `${draftTotal} drafts`}` : ''
-  }`
+  if ((!changes || changes.repos.length === 0) && !hasPullRequest) return null
+  const count = !changes
+    ? 'Loading…'
+    : changes.repos.length > 0 && changes.repos.every((r) => r.unavailable)
+      ? 'Unavailable'
+      : `${changes.files === 1 ? '1 file' : `${changes.files} files`}${
+          draftTotal > 0 ? ` · ${draftTotal === 1 ? '1 draft' : `${draftTotal} drafts`}` : ''
+        }`
   return (
     <DetailsSection
       id="changes"
@@ -41,15 +55,55 @@ export function ChangesSection({
       summary={count}
       action={
         onExpandAll &&
-        changes.files > 0 && (
+        (changes?.files ?? 0) > 0 && (
           <button type="button" className={styles.expandAll} onClick={onExpandAll}>
-            Expand all
+            All changes
           </button>
         )
       }
     >
-      {changes.files === 0 && changes.repos.every((r) => !r.unavailable) ? (
-        <p className={styles.empty}>No changes yet</p>
+      {onSource && (
+        <>
+          <fieldset className={styles.sources} aria-label="Changes source">
+            <Button
+              size="small"
+              aria-pressed={source === 'local'}
+              onClick={() => onSource('local')}
+            >
+              Local changes
+            </Button>
+            {hasPullRequest && (
+              <Button
+                size="small"
+                aria-pressed={source === 'pull-request'}
+                onClick={() => onSource('pull-request')}
+              >
+                Pull request changes
+              </Button>
+            )}
+          </fieldset>
+          <p className={styles.empty}>
+            {source === 'local'
+              ? 'Includes uncommitted and unpushed work.'
+              : 'Only changes pushed to the PR.'}
+          </p>
+          {source === 'pull-request' && (
+            <Button size="small" onClick={refresh}>
+              {changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
+            </Button>
+          )}
+        </>
+      )}
+      {!changes ? (
+        <Loading label="Loading changes…" />
+      ) : changes.repos.length === 0 ? (
+        <p className={styles.empty}>
+          Local changes are unavailable. The worktree may have been removed.
+        </p>
+      ) : changes.files === 0 && changes.repos.every((r) => !r.unavailable) ? (
+        <p className={styles.empty}>
+          {source === 'pull-request' ? 'No changes in the pull request.' : 'No changes yet'}
+        </p>
       ) : (
         <ChangeList changes={changes} selected={selected} onOpen={onOpen} drafts={drafts} />
       )}
@@ -110,7 +164,7 @@ export function ChangeList({
                     )}
                     className={`${styles.file} ${current ? styles.current : ''}`}
                     aria-current={current || undefined}
-                    title={file.path}
+                    title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}
                     onClick={() => onOpen(entry)}
                   >
                     <span className={styles.name}>{name}</span>

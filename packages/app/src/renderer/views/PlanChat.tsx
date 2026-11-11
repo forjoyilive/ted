@@ -10,7 +10,7 @@ import type {
 } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
@@ -24,6 +24,7 @@ import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChat } from '../data.ts'
+import { InboxRequestsContext } from '../inbox-requests.ts'
 import {
   planEnded,
   planStartedLine,
@@ -44,6 +45,7 @@ export function PlanChatView({
   planId,
   from,
   onBack,
+  backLabel,
   onOpenPlan,
   onPlanMore,
   onOpenTask,
@@ -53,6 +55,7 @@ export function PlanChatView({
   planId: string | undefined
   from?: string
   onBack: () => void
+  backLabel?: string
   onOpenPlan: (planId: string) => void
   onPlanMore: (planId: string) => void
   onOpenTask: (ref: string) => void
@@ -74,6 +77,7 @@ export function PlanChatView({
       key={planId}
       planId={planId}
       onBack={onBack}
+      {...(backLabel !== undefined && { backLabel })}
       onOpenTask={onOpenTask}
       onOpenPlan={onOpenPlan}
       onPlanMore={onPlanMore}
@@ -160,10 +164,10 @@ export function LeadSelects({
   )
 }
 
-function Back({ onBack }: { onBack: () => void }) {
+function Back({ onBack, label = '← Plans' }: { onBack: () => void; label?: string }) {
   return (
     <button type="button" className={styles.back} onClick={onBack}>
-      ← Plans
+      {label}
     </button>
   )
 }
@@ -493,11 +497,13 @@ function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
 function PlanHeader({
   plan,
   onBack,
+  backLabel,
   onDeleted,
   onOpenTask,
 }: {
   plan: Plan
   onBack: () => void
+  backLabel?: string
   onDeleted: () => void
   onOpenTask: (ref: string) => void
 }) {
@@ -521,7 +527,7 @@ function PlanHeader({
 
   return (
     <header className={styles.header}>
-      <Back onBack={onBack} />
+      <Back onBack={onBack} {...(backLabel !== undefined && { label: backLabel })} />
       <div className={styles.titleRow}>
         <TitleEditor plan={plan} renameSignal={renameSignal} />
         <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
@@ -782,6 +788,7 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
 function PlanChat({
   planId,
   onBack,
+  backLabel,
   onOpenTask,
   onOpenPlan,
   onPlanMore,
@@ -789,11 +796,13 @@ function PlanChat({
 }: {
   planId: string
   onBack: () => void
+  backLabel?: string
   onOpenTask: (ref: string) => void
   onOpenPlan: (planId: string) => void
   onPlanMore: (planId: string) => void
   onDeleted: () => void
 }) {
+  const inbox = useContext(InboxRequestsContext)
   const resource = usePlanState(planId)
   const detail = resource.value
   const [, setAnswered] = useState(0)
@@ -811,17 +820,26 @@ function PlanChat({
     )
   }
   const { plan } = detail
-  const open = detail.requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
+  const requests = detail.requests.filter((request) => !inbox?.resolved.has(request.id))
+  const open =
+    requests.find((request) => request.id === inbox?.selected) ??
+    requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
   const ended = planEnded(plan)
   return (
     <>
       <section className={views.pane} aria-label="Planning chat">
-        <PlanHeader plan={plan} onBack={onBack} onDeleted={onDeleted} onOpenTask={onOpenTask} />
+        <PlanHeader
+          plan={plan}
+          {...(backLabel !== undefined && { backLabel })}
+          onBack={onBack}
+          onDeleted={onDeleted}
+          onOpenTask={onOpenTask}
+        />
         {plan.runId !== undefined ? (
           <RunChat
             runId={plan.runId}
             bar={false}
-            extra={extraItems(detail, onOpenTask)}
+            extra={extraItems({ ...detail, requests }, onOpenTask)}
             {...(open && {
               pinned: (
                 <PinnedCard
@@ -842,7 +860,7 @@ function PlanChat({
           </>
         )}
       </section>
-      <PlanPane detail={detail} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />
+      <PlanPane detail={{ ...detail, requests }} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />
     </>
   )
 }

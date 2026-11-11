@@ -32,6 +32,7 @@ export const peerRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/peers\/watch\?cursor=([a-f0-9]{64})&timeout=([\d.]{1,8})$/,
+    waits: true,
     runToken: true,
     async handle({ caller, params: [cursor = '', timeout = '25'], res }, { tasks }) {
       const controller = new AbortController()

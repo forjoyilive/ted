@@ -141,7 +141,7 @@ const waitForStage = (client: Client, task: Task, stage: string) =>
 const waitForRequest = (client: Client) =>
   waitUntil(async () => (await inbox(client)).at(0), 'a request in the Inbox')
 
-describe('Gates', () => {
+describe('Sign-offs', () => {
   test('a Task with default settings stops at the end of Design with a design review in the Inbox; the token in daemon.json can’t answer it; Approve with the app’s token moves the Task on and tells the Task Lead', async () => {
     const client = await start()
     const advance = ['ted', 'outcome', 'advance']
@@ -173,7 +173,7 @@ describe('Gates', () => {
     await waitForIdle(client, task)
     expect((await commandResults(client, task)).at(-1)).toMatchObject({
       code: 0,
-      stdout: 'Waiting for the human at the Design Gate. TED sends you their answer.\n',
+      stdout: 'Waiting for the human at the Design sign-off. TED sends you their answer.\n',
     })
     expect((await getTask(client, task.id)).stage).toBe('design')
 
@@ -197,12 +197,12 @@ describe('Gates', () => {
       'the Work instructions to reach the Task Lead',
     )
     expect(work).toMatch(
-      /^The human approved the Design Gate and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
+      /^The human approved the Design sign-off and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
     )
     expect(work).toContain('# Work')
   })
 
-  test('with no .ted/, the Task stops at the Design Gate and again at the Review Gate', async () => {
+  test('with no .ted/, the Task stops at the Design sign-off and again at the Review sign-off', async () => {
     const client = await start(null)
     const task = await startTask(
       client,
@@ -223,7 +223,7 @@ describe('Gates', () => {
     const review = await waitUntil(async () => {
       const [item] = await inbox(client)
       return item?.task.stage === 'review' ? item : undefined
-    }, 'the Review Gate')
+    }, 'the Review sign-off')
     expect(review.request).toMatchObject({
       kind: 'signoff',
       stage: 'review',
@@ -232,7 +232,7 @@ describe('Gates', () => {
     expect((await getTask(client, task.id)).stage).toBe('review')
   })
 
-  test('--skip passes a Gate only at Clarify or Design, before any Gate request, and says so in the thread', async () => {
+  test('--skip passes a sign-off only at Clarify or Design, before any Sign-off request, and says so in the thread', async () => {
     const client = await start(
       'version: 1\norder: [intake, design, work, review, merge]\nstages:\n  review: { gate: false }\n',
     )
@@ -268,12 +268,12 @@ describe('Gates', () => {
         kind: 'note',
         author: { kind: 'ted' },
         stage: 'design',
-        body: 'The Task Lead skipped Design: it had nothing to do. Its Gate was skipped too.',
+        body: 'The Task Lead skipped Design: it had nothing to do. Its sign-off was skipped too.',
       },
     ])
   })
 
-  test('at Design the Task Lead can’t pass the Gate without writing the Task brief in that Stage, can’t go back without a Findings file or to a Stage that isn’t earlier, and can’t skip once the Gate request is posted', async () => {
+  test('at Design the Task Lead can’t pass the sign-off without writing the Task brief in that Stage, can’t go back without a Findings file or to a Stage that isn’t earlier, and can’t skip once the sign-off request is posted', async () => {
     const client = await start()
     const go = path.join(scratch, 'go')
     const back = ['ted', 'outcome', 'back', '--to']
@@ -298,7 +298,8 @@ describe('Gates', () => {
     expect((await commandResults(client, task)).at(-1)).toEqual({
       code: 1,
       stdout: '',
-      stderr: 'ted: write the Task brief with `ted brief write` before passing the Design Gate\n',
+      stderr:
+        'ted: write the Task brief with `ted brief write` before passing the Design sign-off\n',
     })
     expect(await inbox(client)).toEqual([])
     expect((await getTask(client, task.id)).stage).toBe('design')
@@ -329,7 +330,7 @@ describe('Gates', () => {
     expect(results.at(-1)).toEqual({
       code: 1,
       stdout: '',
-      stderr: 'ted: Design has already posted its Gate request, so it can’t skip itself\n',
+      stderr: 'ted: Design has already posted its sign-off request, so it can’t skip itself\n',
     })
     expect((await getTask(client, task.id)).stage).toBe('design')
     expect(await inbox(client)).toHaveLength(1)
@@ -441,10 +442,12 @@ describe('Gates', () => {
       async () => (await userMessages(client, task)).find((m) => m.includes('Split the sync')),
       'the human’s text to reach the Task Lead',
     )
-    expect(message).toMatch(/^The human asked for changes at the Design Gate:\n\nSplit the sync/)
+    expect(message).toMatch(
+      /^The human asked for changes at the Design sign-off:\n\nSplit the sync/,
+    )
     await waitUntil(async () => (await commandResults(client, task)).length === 4, 'four commands')
     expect((await commandResults(client, task)).at(-1)?.stderr).toBe(
-      'ted: write the Task brief with `ted brief write` before passing the Design Gate\n',
+      'ted: write the Task brief with `ted brief write` before passing the Design sign-off\n',
     )
     expect((await getTask(client, task.id)).stage).toBe('design')
     expect(await inbox(client)).toEqual([])
@@ -452,7 +455,7 @@ describe('Gates', () => {
     expect(res).toEqual({ status: 409, body: { error: 'this request has already been answered' } })
   })
 
-  test('a Gate request is withdrawn when the Task leaves the Stage before the human answers', async () => {
+  test('a sign-off request is withdrawn when the Task leaves the Stage before the human answers', async () => {
     const client = await start()
     const task = await startTask(
       client,
@@ -613,7 +616,7 @@ describe('the Task brief', () => {
   })
 })
 
-test('Task Gate overrides keep Stage work, enforce new Gates and cannot bypass posted requests', async () => {
+test('Task Sign-off overrides keep Stage work, enforce new Sign-offs and cannot bypass posted requests', async () => {
   const client = await start()
   const go = path.join(scratch, 'start-with-gates')
   const task = await client.ok<Task>('POST', '/tasks', {
@@ -668,6 +671,9 @@ test('Task Gate overrides keep Stage work, enforce new Gates and cannot bypass p
       .status,
   ).toBe(409)
   expect((await inbox(client)).some((entry) => entry.request.id === item.request.id)).toBe(true)
-  await waitUntil(async () => (await commandResults(client, task)).length === 6, 'Gate commands')
+  await waitUntil(
+    async () => (await commandResults(client, task)).length === 6,
+    'Sign-off commands',
+  )
   expect((await commandResults(client, task))[0]?.stdout.trim()).toBe('403')
 })

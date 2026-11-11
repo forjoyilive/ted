@@ -32,7 +32,7 @@ The change is small and the approach is obvious. Post a one-line note saying Des
 
 ## Done when
 
-The approach is in the brief and the design review is posted with `ted outcome advance --design <file>`. With the Design Gate on, the human then approves it or asks for changes. If they ask for changes, the Task stays in Design: change the approach, write the brief again and post a new design review.
+The approach is in the brief and the design review is posted with `ted outcome advance --design <file>`. With the Design sign-off on, the human then approves it or asks for changes. If they ask for changes, the Task stays in Design: change the approach, write the brief again and post a new design review.
 
 ## Ask the human when
 

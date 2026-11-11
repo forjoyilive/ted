@@ -1,14 +1,22 @@
 import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
-import { type ReactNode, useEffect, useRef } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { contextMenu, useActionMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
-import { inboxChips, inFactory, nextSelection } from '../inbox.ts'
+import {
+  answerConfirmation,
+  type InboxConfirmation,
+  inboxChips,
+  inFactory,
+  nextSelection,
+} from '../inbox.ts'
+import { InboxRequestsContext } from '../inbox-requests.ts'
 import { inboxLabel } from '../plans.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
+import { onRequestAnswered, ted } from '../ted.ts'
 import styles from './Inbox.module.css'
 import { factoryName, stageName } from './TaskViews.tsx'
 import views from './views.module.css'
@@ -59,14 +67,60 @@ export function Inbox({
     )
   const now = useNow()
   const manyFactories = factories.length > 1
-  const waiting = inFactory(items, factoryId)
+  const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set())
+  const [confirmation, setConfirmation] = useState<InboxConfirmation & { order: number }>()
+  const known = useRef(new Map<string, string>())
+  for (const item of items) known.current.set(item.request.id, item.task.displayId)
+  for (const item of plans) known.current.set(item.request.id, item.plan.title)
+  for (const question of questions) known.current.set(question.id, question.automationName)
+
+  useLayoutEffect(() => {
+    const resolve = (ids: readonly string[]) =>
+      setResolved((current) => {
+        const added = ids.filter((id) => known.current.has(id) && !current.has(id))
+        return added.length ? new Set([...current, ...added]) : current
+      })
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'comment-updated' && event.comment.answer) resolve([event.comment.id])
+      if (event.type === 'inbox-changed') {
+        const waiting = new Set(event.waiting.map((request) => request.id))
+        resolve([...known.current.keys()].filter((id) => !waiting.has(id)))
+      }
+    })
+    const stopAnswers = onRequestAnswered(({ source, request, order }) => {
+      const owner = known.current.get(request.id)
+      if (owner === undefined || !request.answer) return
+      resolve([request.id])
+      const message =
+        source === 'automation'
+          ? { text: `Answered ${owner}’s question` }
+          : answerConfirmation(request, owner)
+      if (message)
+        setConfirmation((current) =>
+          current && current.order > order ? current : { ...message, order },
+        )
+    })
+    return () => {
+      unsubscribe()
+      stopAnswers()
+    }
+  }, [])
+
+  const pending = items.filter((item) => !item.request.answer && !resolved.has(item.request.id))
+  const pendingPlans = plans.filter(
+    (item) => !item.request.answer && !resolved.has(item.request.id),
+  )
+  const pendingQuestions = questions.filter(
+    (question) => !question.answer && !resolved.has(question.id),
+  )
+  const waiting = inFactory(pending, factoryId)
   const shown = showAnswered ? inFactory(answered, factoryId) : waiting
   const asked = showAnswered
     ? []
-    : questions.filter((q) => factoryId === undefined || q.factoryId === factoryId)
+    : pendingQuestions.filter((q) => factoryId === undefined || q.factoryId === factoryId)
   const planRows = showAnswered
     ? []
-    : plans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
+    : pendingPlans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
 
   const actions = useActionMenu(
     JSON.stringify([
@@ -82,9 +136,9 @@ export function Inbox({
     ...asked.map((question) => ({ request: question, open: () => onOpenQuestion?.(question) })),
   ]
   const before = useRef(rows)
-  useEffect(() => {
+  const next = showAnswered ? undefined : nextSelection(before.current, rows, selected)
+  useLayoutEffect(() => {
     if (showAnswered) return
-    const next = nextSelection(before.current, rows, selected)
     before.current = rows
     if (next === null) onClear()
     else next?.open()
@@ -115,7 +169,7 @@ export function Inbox({
           </div>
           {manyFactories && (
             <div className={styles.chips}>
-              {inboxChips(items, factories, questions, plans).map((chip) => (
+              {inboxChips(pending, factories, pendingQuestions, pendingPlans).map((chip) => (
                 <button
                   key={chip.factoryId ?? 'all'}
                   type="button"
@@ -129,6 +183,16 @@ export function Inbox({
             </div>
           )}
         </header>
+        <div role="status" aria-live="polite" aria-atomic="true">
+          {confirmation && (
+            <div className={styles.confirmation}>
+              <span>{confirmation.text}</span>
+              {confirmation.detail && (
+                <span className={styles.confirmationDetail}>{confirmation.detail}</span>
+              )}
+            </div>
+          )}
+        </div>
         {shown.length === 0 && asked.length === 0 && planRows.length === 0 ? (
           <InboxEmptyState
             empty={inboxEmpty({
@@ -160,6 +224,7 @@ export function Inbox({
                       onOpenPlan ? () => onOpenPlan(item) : undefined,
                     )}
                     data-plan-request={request.id}
+                    aria-current={request.id === selected ? 'true' : undefined}
                     onClick={() => onOpenPlan?.(item)}
                   >
                     <span className={styles.top}>
@@ -256,7 +321,19 @@ export function Inbox({
           </ul>
         )}
       </section>
-      {children ?? <section className={views.pane} aria-label="Nothing open" />}
+      <InboxRequestsContext
+        value={
+          showAnswered
+            ? undefined
+            : {
+                selected,
+                resolved,
+                select: (id) => rows.find((row) => row.request.id === id)?.open(),
+              }
+        }
+      >
+        {children ?? <section className={views.pane} aria-label="Nothing open" />}
+      </InboxRequestsContext>
     </>
   )
 }

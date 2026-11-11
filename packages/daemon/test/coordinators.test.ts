@@ -9,7 +9,6 @@ import {
   type CoordinatorRequest,
   type CoordinatorTask,
   type Factory,
-  type FailureCase,
   type LineComment,
   type RunChat,
   type RunMessage,
@@ -28,6 +27,7 @@ import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   commitToOrigin,
+  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -310,6 +310,14 @@ test('concurrent first messages share one Coordinator and survive daemon restart
     ),
   )
   expect(chats[0]?.runId).toBe(chats[1]?.runId)
+  const leadRunId = await waitUntil(
+    async () => (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId,
+    'the Task Lead Run',
+  )
+  await waitUntil(
+    async () => (await hostRecords(home, leadRunId)).some((r) => r.t === 'start'),
+    'the Task Lead’s host to start',
+  )
   await daemon?.stop()
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -910,7 +918,7 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
   expect((again.body as { error: string }).error).toContain('already closed')
 })
 
-test('answer approves a Gate request or asks for changes, and refuses permission prompts', async () => {
+test('answer approves a sign-off request or asks for changes, and refuses permission prompts', async () => {
   await commitToOrigin(scratch, { 'app.txt': 'one\ntwo\nthree\n' })
   const s = await setup(undefined, 'version: 1\norder: [intake, design, work, merge]\n')
   const briefFile = path.join(scratch, 'brief.md')
@@ -943,7 +951,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   const request = (id: string, wanted: (c: Comment) => boolean, what: string) =>
     waitUntil(async () => (await s.comments(id)).find(wanted), what)
   const openGate = (c: Comment) => c.gate !== undefined && c.answer === undefined
-  const gate = await request(gated.task.id, openGate, 'a Gate request')
+  const gate = await request(gated.task.id, openGate, 'a sign-off request')
   const permission = await request(
     prompted.task.id,
     (c) => c.kind === 'permission',
@@ -1008,7 +1016,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   })
   expect(changes.status).toBe(200)
   expect((changes.body as CoordinatorReceipt).text).toContain(
-    `Requested changes on ${gated.task.displayId}’s Gate request`,
+    `Requested changes on ${gated.task.displayId}’s Sign-off request`,
   )
   const asked = (await s.comments(gated.task.id)).find((c) => c.id === gate.id)
   expect(asked?.answer).toEqual({
@@ -1022,7 +1030,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   const second = await request(
     gated.task.id,
     (c) => openGate(c) && c.id !== gate.id,
-    'a second Gate request',
+    'a second Sign-off request',
   )
   const approved = await answer(gated.task, {
     operation: 'approve',
@@ -1031,7 +1039,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   })
   expect(approved.status).toBe(200)
   const receipt = approved.body as CoordinatorReceipt
-  expect(receipt.text).toContain(`Approved ${gated.task.displayId}’s Gate request`)
+  expect(receipt.text).toContain(`Approved ${gated.task.displayId}’s Sign-off request`)
   expect(receipt.before?.stage).toBe('design')
   expect(receipt.after?.stage).not.toBe('design')
   expect((await s.comments(gated.task.id)).find((c) => c.id === second.id)?.answer).toMatchObject({
@@ -1476,7 +1484,6 @@ test('answer gives a choice on TED’s idle question, and refuses free text alon
 })
 
 test('answer gives Try again on Validate’s send-back limit; the receipt shows the Stage change', async () => {
-  await commitToOrigin(scratch, { '.gitignore': 'stub-*\n' })
   const s = await setup(
     undefined,
     [
@@ -1485,43 +1492,28 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
       'stages:',
       '  validate:',
       '    max_back: 1',
-      '    checks:',
-      '      - { name: Tests, run: "echo nope; exit 1" }',
       '',
     ].join('\n'),
   )
-  const { task, lead } = await s.led({ endTurn: true })
-  const ready = await waitUntil(async () => {
-    const current = (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
-    return current?.runs[0]?.state === 'idle' && current.repos[0] ? current : undefined
-  }, 'Task Lead ready')
-  const repo = ready.repos[0]
-  if (!repo) throw new Error('missing worktree')
-  await writeFile(path.join(repo.worktree, 'a.txt'), 'implemented\n')
-  const outcome = async (body: unknown) => {
-    const response = await lead.call('POST', `/tasks/${task.id}/outcome`, body)
-    expect(response.status, JSON.stringify(response.body)).toBe(200)
+  const findings = path.join(scratch, 'findings.md')
+  await writeFile(findings, '1. The export button does nothing.\n')
+  const count = path.join(scratch, 'lead-messages')
+  const each = {
+    run: [
+      'sh',
+      '-c',
+      [
+        `n=$(cat "${count}" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "${count}";`,
+        'case $n in',
+        '1|2|4) ted outcome advance;;',
+        `3|5) ted outcome back --to work --findings "${findings}";;`,
+        'esac',
+      ].join(' '),
+    ],
   }
-  await outcome({ outcome: 'advance' })
-  for (let round = 1; round <= 2; round++) {
-    await outcome({ outcome: 'advance' })
-    const failure = await waitUntil(async () => {
-      const cases = await s.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
-      return cases.length === round
-        ? cases.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1)
-        : undefined
-    }, 'failed Check recorded for diagnosis')
-    const assessed = await lead.call(
-      'POST',
-      `/tasks/${task.id}/failures/${failure.id}/assessments`,
-      {
-        assessment: 'regression',
-        recommendation: 'The failed fixture Check is caused by this Task; repair it in Work.',
-      },
-    )
-    expect(assessed.status, JSON.stringify(assessed.body)).toBe(200)
-    await outcome({ outcome: 'back', to: 'work', findings: 'Repair the failed fixture Check.' })
-  }
+  const { task } = await s.led({ everyMessage: [each, { endTurn: true }] }, each, {
+    endTurn: true,
+  })
   const limit = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
     'TED to ask about the send-back limit',

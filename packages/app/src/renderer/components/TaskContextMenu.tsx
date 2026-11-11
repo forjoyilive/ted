@@ -59,6 +59,8 @@ function BulkTaskMenu({
   }
   if (common)
     items.push({ label: action.label, action: () => each((t) => runStatusAction(action.kind, t)) })
+  if (active && tasks.every((t) => t.preparation === 'ready'))
+    items.push({ label: 'Stop Task', action: () => each((t) => ted.stopTask(t.id)) })
   const leads = tasks.map((t) =>
     t.runs.find((run) => run.id === t.leadRunId && run.role === 'lead'),
   )

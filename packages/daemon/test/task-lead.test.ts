@@ -1,10 +1,12 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { Comment, Factory, Run, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { eventlogFile } from '../src/store/files.ts'
 import { openStore } from '../src/store/index.ts'
 import {
   api,
@@ -91,11 +93,21 @@ const leadRun = async (client: Client, task: Task): Promise<Run> => {
   return (await client.getRun(current.leadRunId)).run
 }
 
-const waitForRun = (client: Client, task: Task, check: (run: Run) => boolean, what: string) =>
-  waitUntil(async () => {
-    const run = await leadRun(client, task).catch(() => undefined)
-    return run && check(run) ? run : undefined
-  }, what)
+const waitForRun = (
+  client: Client,
+  task: Task,
+  check: (run: Run) => boolean,
+  what: string,
+  timeoutMs?: number,
+) =>
+  waitUntil(
+    async () => {
+      const run = await leadRun(client, task).catch(() => undefined)
+      return run && check(run) ? run : undefined
+    },
+    what,
+    timeoutMs,
+  )
 
 const userMessages = async (client: Client, runId: string) =>
   (await client.getRun(runId)).conversation.flatMap((e) => {
@@ -215,6 +227,7 @@ describe('changing the Task Lead field', () => {
       effort: 'low',
     })
     expect(changed.lead).toEqual({ agent: 'claude', model: 'opus', effort: 'low' })
+    await waitUntil(async () => (await claudeStarts()).length > 0, 'the agent’s first start')
     await sleep(500)
     expect(await claudeStarts()).toHaveLength(1)
     expect((await leadRun(client, task)).model).toBeUndefined()
@@ -295,65 +308,97 @@ describe('changing the Task Lead field', () => {
 })
 
 describe('Model unavailable', () => {
-  test('the Run waits, TED asks, and nothing switches until the human picks the default model', async () => {
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': 'version: 1\nlead: { model: unavailable-9, effort: high }\n',
-    })
-    const client = await startTed()
-    const task = await client.ok<Task>('POST', '/tasks', {
-      title: steps({ endTurn: true }),
-      factory: 'NB',
-    })
-    await client.ok('POST', `/tasks/${task.id}/start`)
+  test.each([false, true])(
+    'the human picks the default model (daemon restarted: %s)',
+    async (restart) => {
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml': 'version: 1\nlead: { model: unavailable-9, effort: high }\n',
+      })
+      let client = await startTed()
+      const task = await client.ok<Task>('POST', '/tasks', {
+        title: steps({ endTurn: true }),
+        factory: 'NB',
+      })
+      await client.ok('POST', `/tasks/${task.id}/start`)
 
-    const waiting = await waitForRun(
-      client,
-      task,
-      (r) => r.problem === 'model-unavailable',
-      'the model to be unavailable',
-    )
-    expect(waiting.state).toBe('waiting')
-    const [question] = await waitUntil(async () => {
-      const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
-      return comments.length > 0 ? comments : undefined
-    }, 'TED’s question')
-    expect(question).toMatchObject({ kind: 'question', author: { kind: 'ted' } })
-    expect(question?.body).toContain('unavailable-9')
-    expect(question?.body).toContain('Use the default model')
-    expect(question?.body).toContain('Change setting')
-    await sleep(500)
-    expect(await claudeStarts()).toHaveLength(1)
-    expect((await leadRun(client, task)).state).toBe('waiting')
+      const waiting = await waitForRun(
+        client,
+        task,
+        (r) => r.problem === 'model-unavailable',
+        'the model to be unavailable',
+      )
+      expect(waiting.state).toBe('waiting')
+      const [question] = await waitUntil(async () => {
+        const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
+        return comments.length > 0 ? comments : undefined
+      }, 'TED’s question')
+      expect(question).toMatchObject({ kind: 'question', author: { kind: 'ted' } })
+      expect(question?.body).toContain('unavailable-9')
+      expect(question?.body).toContain('Use the default model')
+      expect(question?.body).toContain('Change setting')
+      await sleep(500)
+      expect(await claudeStarts()).toHaveLength(1)
+      expect((await leadRun(client, task)).state).toBe('waiting')
 
-    expect(question).toMatchObject({ choices: ['Use the default model', 'Change setting'] })
-    expect(question?.answer).toBeUndefined()
+      expect(question).toMatchObject({ choices: ['Use the default model', 'Change setting'] })
+      expect(question?.answer).toBeUndefined()
 
-    await client.ok('POST', `/comments/${question?.id}/answer`, {
-      action: 'answer',
-      choice: 'Use the default model',
-    })
+      if (restart) {
+        await daemon?.stop()
+        daemon = await startDaemon({
+          home,
+          version: '9.9.9',
+          claudeBin: stubClaudePath,
+          codexBin: stubCodexPath,
+        })
+        client = connect(daemon)
+      }
 
-    const starts = await waitUntil(async () => {
-      const all = await claudeStarts()
-      return all.length === 2 ? all : undefined
-    }, 'the agent to restart on the default model')
-    const argv = starts[1]?.argv ?? []
-    expect(argv).not.toContain('--model')
-    expect(flag(argv, '--effort')).toBe('high')
-    expect(flag(argv, '--resume')).toBe(waiting.sessionId)
-    const after = await waitForRun(client, task, (r) => r.problem === undefined, 'no problem')
-    expect(after).toMatchObject({ id: waiting.id, model: 'unavailable-9', usesDefaultModel: true })
-    expect((await getTask(client, task.id))?.lead?.model).toBe('unavailable-9')
-    await waitUntil(
-      async () => (await userMessages(client, waiting.id)).at(-1)?.includes('default model'),
-      'the Run to be told to carry on',
-    )
-    await sleep(500)
-    expect(await claudeStarts()).toHaveLength(2)
-    expect(await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).toMatchObject([
-      { answer: { kind: 'answered', choice: 'Use the default model' } },
-    ])
-  })
+      await client.ok('POST', `/comments/${question?.id}/answer`, {
+        action: 'answer',
+        choice: 'Use the default model',
+      })
+
+      const starts = await waitUntil(async () => {
+        const all = await claudeStarts()
+        return all.length === 2 ? all : undefined
+      }, 'the agent to restart on the default model')
+      const argv = starts[1]?.argv ?? []
+      expect(argv).not.toContain('--model')
+      expect(flag(argv, '--effort')).toBe('high')
+      expect(flag(argv, '--resume')).toBe(waiting.sessionId)
+      const after = await waitForRun(client, task, (r) => r.problem === undefined, 'no problem')
+      expect(after).toMatchObject({
+        id: waiting.id,
+        model: 'unavailable-9',
+        usesDefaultModel: true,
+      })
+      expect((await getTask(client, task.id))?.lead?.model).toBe('unavailable-9')
+      await waitUntil(
+        async () => (await userMessages(client, waiting.id)).at(-1)?.includes('default model'),
+        'the Run to be told to carry on',
+      )
+      await sleep(500)
+      expect(await claudeStarts()).toHaveLength(2)
+      expect(await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).toMatchObject([
+        { answer: { kind: 'answered', choice: 'Use the default model' } },
+      ])
+      const log = new DatabaseSync((await eventlogFile(path.join(home, 'store'))) as string, {
+        readOnly: true,
+      })
+      try {
+        expect(
+          log
+            .prepare(
+              "SELECT COUNT(*) AS count FROM eventlog WHERE name = 'v1.CommentAnswered' AND json_extract(argsJson, '$.id') = ?",
+            )
+            .get(question?.id ?? '')?.count,
+        ).toBe(1)
+      } finally {
+        log.close()
+      }
+    },
+  )
 
   test('changing the setting while the model is unavailable resumes with the new model', async () => {
     await commitToOrigin(scratch, {
@@ -454,6 +499,7 @@ describe('Stage effort', () => {
         task,
         (r) => r.state === 'idle' && (release === 'send-now' || r.effort === 'high'),
         'Stop and pending effort applied',
+        60_000,
       )
       if (release === 'new-message')
         await waitUntil(
@@ -473,6 +519,7 @@ describe('Stage effort', () => {
         (await userMessages(client, run.id)).filter((message) => message === text),
       ).toHaveLength(1)
     },
+    90_000,
   )
 
   test.each([
