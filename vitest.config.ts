@@ -119,13 +119,22 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'electron',
+          sequence: { groupOrder: 0 },
           include: codexSandbox ? [] : electron,
           maxWorkers: 3,
           retry: 1,
           globalSetup: [...testOptions.globalSetup, electronSetup],
         },
       },
-      { extends: true, test: { name: 'node', include: testFiles, exclude: electron } },
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          sequence: { groupOrder: 1 },
+          include: testFiles,
+          exclude: electron,
+        },
+      },
     ],
   },
 })
