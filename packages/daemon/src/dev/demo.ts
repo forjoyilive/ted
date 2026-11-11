@@ -2,10 +2,9 @@ import { randomBytes } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { DaemonClient } from '@ted/protocol'
-import { readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo, tedVersion } from '@ted/protocol'
 import { withDaemon } from '../launch.ts'
-import { makeDemoOrigins } from './fixtures.ts'
+import { makeDemoOrigins, prepareDemoBinaries } from './fixtures.ts'
 import { checkDemoHome, type DemoManifest, demoVersion, markDemo } from './home.ts'
 import { seedScenarios, verifyDemo } from './scenarios.ts'
 
@@ -66,6 +65,7 @@ export async function prepareDemo(home: string, reset = false): Promise<DemoMani
     }
     const appFolders = await readdir(path.join(home, 'apps')).catch(() => [])
     if (runs.length > 0 || appFolders.length > 0) {
+      await prepareDemoBinaries(home)
       await withDaemon(
         home,
         async (client) => {
@@ -99,12 +99,14 @@ export async function prepareDemo(home: string, reset = false): Promise<DemoMani
   if (known && !reset) {
     if (known.version !== demoVersion || !known.complete)
       throw new Error('This demo is incomplete or outdated. Run ted dev seed --reset.')
+    await prepareDemoBinaries(home)
     return known
   }
   await mkdir(home, { recursive: true, mode: 0o700 })
   const pending: DemoManifest = { version: demoVersion, complete: false }
   await markDemo(home, pending)
   await makeDemoOrigins(home)
+  await prepareDemoBinaries(home)
   return pending
 }
 
@@ -117,6 +119,7 @@ export async function seedDemo(home: string, client: DaemonClient): Promise<Demo
   await client.updateSettings({
     firstLaunchDone: true,
     maxWorkingRuns: 99,
+    maxBootedSimulators: 1,
     stayAwake: false,
     startAtLogin: false,
     notifyInboxItems: false,
@@ -134,19 +137,56 @@ export async function seedDemo(home: string, client: DaemonClient): Promise<Demo
 export async function seedDemoFromCli(home: string, reset = false): Promise<DemoManifest> {
   const prepared = await prepareDemo(home, reset)
   if (prepared.complete) return prepared
-  return withDaemon(
-    home,
-    async (client) => {
-      let complete = false
-      try {
-        const manifest = await seedDemo(home, client)
-        complete = true
-        return manifest
-      } finally {
-        await client.shutdown({ keepRuns: complete })
-        await until(async () => !(await readDaemonInfo(home)), 'demo daemon shutdown')
-      }
-    },
-    { appToken: randomBytes(32).toString('hex') },
-  )
+  const { startDaemon } = await import('../daemon.ts')
+  const { DaemonAlreadyRunningError } = await import('../lock.ts')
+  const { startStubLinear } = await import('../../test/fixtures/stub-linear.ts')
+  const linear = await startStubLinear()
+  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
+  try {
+    daemon = await until(
+      async () => {
+        try {
+          return await startDaemon({
+            home,
+            version: tedVersion,
+            checkAgentsOnStart: true,
+            ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
+            ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),
+            integrations: {
+              checkOnStart: true,
+              loginShell: false,
+              ...(process.env.TED_GH_BIN && { ghBin: process.env.TED_GH_BIN }),
+            },
+            mergePollMs: 500,
+            simulators: { supported: true },
+            linear: { apiUrl: linear.url },
+            nudgeAfterMs: Number(process.env.TED_NUDGE_AFTER_MS),
+            stallAfterMs: Number(process.env.TED_STALL_AFTER_MS),
+          })
+        } catch (error) {
+          if (error instanceof DaemonAlreadyRunningError) return false
+          throw error
+        }
+      },
+      'demo daemon lock',
+      120_000,
+    )
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('The demo daemon did not publish its connection.')
+    const client = new DaemonClient(info, '', { appKey: daemon.appToken })
+    let complete = false
+    try {
+      const manifest = await seedDemo(home, client)
+      complete = true
+      return manifest
+    } finally {
+      await client.shutdown({ keepRuns: complete })
+    }
+  } finally {
+    try {
+      await daemon?.stop()
+    } finally {
+      await linear.close()
+    }
+  }
 }

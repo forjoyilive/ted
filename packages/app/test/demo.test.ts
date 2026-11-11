@@ -37,9 +37,13 @@ test('opens the populated demo and reuses it when reopened', async () => {
   await buildRenderer()
   const taskReads = vi.spyOn(DaemonClient.prototype, 'listTasks')
   const conversationReads = vi.spyOn(DaemonClient.prototype, 'getRun')
+  const planReads = vi.spyOn(DaemonClient.prototype, 'getPlan')
+  const automationReads = vi.spyOn(DaemonClient.prototype, 'getAutomation')
   await seedDemoFromCli(home)
   expect(taskReads.mock.calls.length).toBeLessThan(100)
   expect(conversationReads.mock.calls.length).toBeLessThan(100)
+  expect(planReads.mock.calls.length).toBeLessThan(30)
+  expect(automationReads.mock.calls.length).toBeLessThan(15)
   vi.restoreAllMocks()
   const launch = async () => {
     const launched = await electron.launch({

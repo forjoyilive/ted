@@ -839,21 +839,31 @@ export function createTasks(options: {
   async function fill(): Promise<void> {
     if (closed || store.newWorkHold() !== undefined) return
     const version = backlogVersion
-    const backlog = queueOrder<QueueEntry>(
+    const automaticFactories = new Set(
       store
-        .listTasks()
-        .flatMap((task) => {
-          const stored = store.getTask(task.id)
-          return stored && backlogEligible(stored) ? [stored] : []
-        })
-        .map((task) => ({
-          id: task.id,
-          kind: 'task',
-          rank: task.rank,
-          priority: task.priority,
-          factoryId: task.factoryId,
-        })),
+        .listFactories()
+        .filter((factory) => factory.autoStartBacklog === true)
+        .map((factory) => factory.id),
     )
+    const backlog =
+      automaticFactories.size === 0
+        ? []
+        : queueOrder<QueueEntry>(
+            store
+              .listTasks()
+              .flatMap((task) => {
+                if (task.stage !== 'backlog' || !automaticFactories.has(task.factoryId)) return []
+                const stored = store.getTask(task.id)
+                return stored && backlogEligible(stored) ? [stored] : []
+              })
+              .map((task) => ({
+                id: task.id,
+                kind: 'task',
+                rank: task.rank,
+                priority: task.priority,
+                factoryId: task.factoryId,
+              })),
+          )
     const revives = revivesReady()
     const held = heldReady()
     const queued = ready()

@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { DaemonClient, Run, Task } from '@ted/protocol'
+import { waitForLock } from '../lock.ts'
 import { until } from './demo.ts'
 import { commitDemoTask, demoGit } from './fixtures.ts'
 
@@ -28,6 +29,8 @@ interface DemoState {
   task(id: string): Promise<Task>
   run(id: string): Run | undefined
   revision(id: string): number
+  plan: DaemonClient['getPlan']
+  automation: DaemonClient['getAutomation']
 }
 
 export async function seedScenarios(
@@ -37,6 +40,7 @@ export async function seedScenarios(
   const tasks = new Map<string, Task>()
   const runs = new Map<string, Run>()
   const revisions = new Map<string, number>()
+  const details = new Map<string, { revision: number; value: Promise<unknown> }>()
   let disconnected = false
   const subscription = await client.subscribe(
     (event) => {
@@ -44,6 +48,17 @@ export async function seedScenarios(
         tasks.set(event.task.id, event.task)
       if (event.type === 'task-deleted') tasks.delete(event.taskId)
       if (event.type === 'run-updated') runs.set(event.run.id, event.run)
+      if (event.type === 'plan-updated' || event.type === 'automation-updated') {
+        const key =
+          event.type === 'plan-updated'
+            ? `plan:${event.planId}`
+            : `automation:${event.automationId}`
+        revisions.set(key, (revisions.get(key) ?? 0) + 1)
+      }
+      if (event.type === 'run-updated') {
+        const key = `plan:${event.run.id}`
+        revisions.set(key, (revisions.get(key) ?? 0) + 1)
+      }
       if (event.type === 'run-output' || event.type === 'run-updated') {
         const id = event.type === 'run-output' ? event.runId : event.run.id
         revisions.set(id, (revisions.get(id) ?? 0) + 1)
@@ -53,6 +68,16 @@ export async function seedScenarios(
   )
   const connected = () => {
     if (disconnected) throw new Error('The demo’s daemon event stream closed while seeding.')
+  }
+  function detail<T>(key: string, read: () => Promise<T>): Promise<T> {
+    connected()
+    const revision = revisions.get(key) ?? 0
+    let cached = details.get(key)
+    if (!cached || cached.revision !== revision) {
+      cached = { revision, value: read() }
+      details.set(key, cached)
+    }
+    return cached.value as Promise<T>
   }
   try {
     return await populateScenarios(home, client, {
@@ -66,6 +91,8 @@ export async function seedScenarios(
         return runs.get(id)
       },
       revision: (id) => revisions.get(id) ?? 0,
+      plan: (id) => detail(`plan:${id}`, () => client.getPlan(id)),
+      automation: (id) => detail(`automation:${id}`, () => client.getAutomation(id)),
     })
   } finally {
     subscription.close()
@@ -108,7 +135,7 @@ async function populateScenarios(
   async function make(
     name: string,
     title: string,
-    start = true,
+    start: boolean | 'defer' = true,
     factory = garden.key,
   ): Promise<Task> {
     const task = await client.createTask({
@@ -116,6 +143,18 @@ async function populateScenarios(
       title,
       description: 'A realistic example for exploring TED Dev.',
       start: false,
+      ...([
+        'design',
+        'working',
+        'review',
+        'validate',
+        'merge',
+        'done',
+        'ci',
+        'partlyMerged',
+      ].includes(name)
+        ? { clarifyDepth: 'none' as const }
+        : {}),
     })
     console.log(`Demo: ${name} (${task.displayId}) · ${Date.now() - began} ms`)
     ids[name] = task.displayId
@@ -140,21 +179,63 @@ async function populateScenarios(
           'partlyMerged',
         ].includes(name)
       )
-        initial.push(brief, advance)
+        initial.push(advance)
       if (
         ['design', 'working', 'review', 'validate', 'merge', 'done', 'ci', 'partlyMerged'].includes(
           name,
         )
       )
+        initial.push(advance)
+      if (['working', 'review', 'validate', 'merge', 'done', 'ci', 'partlyMerged'].includes(name))
+        initial.push(brief, advance)
+      if (name === 'question')
+        initial.push({
+          demoRequest: {
+            comment: {
+              body: 'Which notebook should new notes use?',
+              choices: ['Personal', 'Work'],
+            },
+          },
+        })
+      if (name === 'round')
         initial.push(
-          { demoRequest: { depth: { depth: 'none', why: 'The scope is already clear.' } } },
+          { demoRequest: { depth: { depth: 'few', why: 'Choose the first export format.' } } },
+          { demoRequest: { comment: { round } } },
+        )
+      if (name === 'grilling')
+        initial.push(
+          {
+            demoRequest: {
+              depth: { depth: 'grilling', why: 'Sync conflicts need an explicit decision.' },
+            },
+          },
           brief,
           advance,
         )
-      if (['working', 'review', 'validate', 'merge', 'done', 'ci', 'partlyMerged'].includes(name))
-        initial.push(brief, advance)
+      if (name === 'proposal') initial.push({ demoRequest: { comment: { proposal } } })
+      if (name === 'permission')
+        initial.push({
+          permission: {
+            tool: 'Bash',
+            input: { command: 'ls imports' },
+            description: 'Inspect the demo import folder',
+          },
+        })
+      if (name === 'failed') initial.push({ exit: 1 })
+      if (name === 'simulator')
+        initial.push({
+          run: [
+            'ted',
+            'run-app',
+            'iPhone',
+            '--repo',
+            'web',
+            '--reason',
+            'Compare the swipe interaction with the editor design.',
+          ],
+        })
       await writeFile(path.join(home, 'inputs', `${task.displayId}.json`), script(...initial, idle))
-      await client.startTask(task.id)
+      if (start === true) await client.startTask(task.id)
     }
     return task
   }
@@ -173,13 +254,13 @@ async function populateScenarios(
     await client.sendRunMessage(run, script(...list, ...(wait ? [{ say: marker }, idle] : [])))
     let checkedRevision = -1
     if (wait)
-      await until(async () => {
+      return until(async () => {
         if (observed.run(run)?.state !== 'idle') return false
         const revision = observed.revision(run)
         if (revision === checkedRevision) return false
         checkedRevision = revision
         const current = await client.getRun(run)
-        return (
+        const done =
           current.run.state === 'idle' &&
           current.conversation.some((entry) => {
             const line = JSON.parse(entry.line)
@@ -188,7 +269,7 @@ async function populateScenarios(
               line.message?.content?.some((part: { text?: string }) => part.text === marker)
             )
           })
-        )
+        return done ? current : false
       }, `script on ${task.displayId}`)
   }
   async function command(task: Task, ...args: string[]) {
@@ -208,14 +289,23 @@ async function populateScenarios(
       request = { brief: await readFile(path.join(home, 'inputs', 'brief.md'), 'utf8') }
     if (args[0] === 'outcome' && args.length === 2) request = { outcome: { outcome: 'advance' } }
     if (args[0] === 'clarify') request = { depth: { depth: args[2], why: args[3] } }
-    await steps(task, [...prefix, request ? { demoRequest: request } : { run: ['ted', ...args] }])
-    const run = await lead(task)
-    const entries = (await client.getRun(run)).conversation
-    const result = entries.findLast((e) => e.line.includes('stdout') && e.line.includes('stderr'))
-    if (result?.line.includes('\\"code\\":1'))
-      throw new Error(`Demo command failed: ted ${args.join(' ')}: ${result.line}`)
+    await checkedSteps(
+      task,
+      [...prefix, request ? { demoRequest: request } : { run: ['ted', ...args] }],
+      `ted ${args.join(' ')}`,
+    )
   }
-  let validationQueue = Promise.resolve()
+  async function checkedSteps(task: Task, list: unknown[], label: string) {
+    const completed = await steps(task, list)
+    if (!completed) throw new Error(`Demo command did not complete on ${task.displayId}.`)
+    const entries = completed.conversation
+    const result = entries.find(
+      (e) =>
+        e.line.includes('stdout') && e.line.includes('stderr') && e.line.includes('\\"code\\":1'),
+    )
+    if (result) throw new Error(`Demo command failed: ${label}: ${result.line}`)
+  }
+  const validations = new Set<Promise<void>>()
   async function reach(task: Task, target: string) {
     for (let i = 0; i < 12; i++) {
       await lead(task)
@@ -244,17 +334,31 @@ async function populateScenarios(
         await client.answerRequest(open.id, { action: 'approve' })
       } else {
         if (current.stage === 'work') {
-          const preparation = validationQueue.then(async () => {
+          while (validations.size >= 2) await Promise.race(validations)
+          const preparation = (async () => {
             await commitDemoTask(home, current)
-            await command(task, 'outcome', 'advance')
+            const count = target === 'validate' ? 1 : target === 'review' ? 2 : 3
+            const brief = await readFile(path.join(home, 'inputs', 'brief.md'), 'utf8')
+            await checkedSteps(
+              task,
+              Array.from({ length: count }, () => [
+                { demoRequest: { brief } },
+                { demoRequest: { outcome: { outcome: 'advance' } } },
+              ]).flat(),
+              `advance ${task.displayId} toward ${target}`,
+            )
             await until(
               async () =>
                 (await observed.task(task.id)).repos.every((r) => r.pullRequest !== undefined),
               'draft pull requests',
             )
-          })
-          validationQueue = preparation.catch(() => {})
-          await preparation
+          })()
+          validations.add(preparation)
+          try {
+            await preparation
+          } finally {
+            validations.delete(preparation)
+          }
         } else await command(task, 'outcome', 'advance')
       }
       await lead(task)
@@ -263,37 +367,49 @@ async function populateScenarios(
   }
   const setup = (await client.listTasks()).find((t) => t.factoryId === journal.id && t.setup)
   if (setup) ids.setup = setup.displayId
-  await make('backlog', 'Add keyboard hints to the editor', false)
-  await make('intake', 'Import a notebook from Markdown')
-  const question = await make('question', 'Choose a default notebook')
-  await steps(question, [
-    {
-      demoRequest: {
-        comment: {
-          body: 'Which notebook should new notes use?',
-          choices: ['Personal', 'Work'],
-        },
-      },
-    },
-  ])
-  const clarify = await make('round', 'Export notes for a long trip')
-  await reach(clarify, 'clarify')
-  await mkdir(path.join(home, 'inputs'), { recursive: true })
-  await writeFile(path.join(home, 'inputs', 'round.json'), JSON.stringify(round))
-  await command(clarify, 'clarify', 'depth', 'few', 'Choose the first export format.')
-  await steps(clarify, [{ demoRequest: { comment: { round } } }])
-  const grilling = await make('grilling', 'Decide how offline edits should sync')
-  await reach(grilling, 'clarify')
-  await command(
-    grilling,
-    'clarify',
-    'depth',
-    'grilling',
-    'Sync conflicts need an explicit decision.',
+  const gardenReady = Promise.withResolvers<void>()
+  const pausedAgent = (async () => {
+    await writeFile(path.join(home, 'stub-codex.json'), JSON.stringify({ signedIn: false }))
+    await client.checkAgentHealth()
+  })().then(
+    () => ({}),
+    (error: unknown) => ({ error }),
   )
-  await command(grilling, 'outcome', 'advance')
-  const design = await make('design', 'Make the note editor easier to scan')
-  await reach(design, 'design')
+  const planning = (async () => {
+    const requestId = await preparePlansAndAutomations(
+      home,
+      client,
+      garden.key,
+      journal.key,
+      gardenReady.promise,
+      observed,
+    )
+    const ready = await pausedAgent
+    if ('error' in ready) throw ready.error
+    await client.startPlan({
+      factory: garden.key,
+      message: 'Plan an accessible export dialog',
+      agent: 'codex',
+    })
+    return requestId
+  })().then(
+    (requestId) => ({ requestId }),
+    (error: unknown) => ({ error }),
+  )
+  await make('backlog', 'Add keyboard hints to the editor', false)
+  const intake = await make('intake', 'Import a notebook from Markdown', 'defer')
+  const question = await make('question', 'Choose a default notebook', 'defer')
+  const clarify = await make('round', 'Export notes for a long trip', 'defer')
+  const grilling = await make('grilling', 'Decide how offline edits should sync', 'defer')
+  const design = await make('design', 'Make the note editor easier to scan', 'defer')
+  const work = await make('working', 'Keep the last edited note close at hand', 'defer')
+  for (const task of [intake, question, clarify, grilling, design, work])
+    await client.startTask(task.id)
+  await Promise.all([
+    reach(clarify, 'clarify'),
+    reach(grilling, 'clarify'),
+    reach(design, 'design'),
+  ])
   const svg =
     '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="720" height="420" fill="#fafaf8"/><rect x="24" y="24" width="160" height="372" rx="12" fill="#e4e7df"/><text x="48" y="65" font-size="24" font-family="sans-serif">Garden</text><text x="220" y="80" font-size="30" font-family="sans-serif">A quieter place to think</text><text x="220" y="130" font-size="18" font-family="sans-serif">Your notes, ready when you are.</text></svg>'
   const image = await client.uploadAttachment(
@@ -324,51 +440,191 @@ async function populateScenarios(
   await writeFile(path.join(home, 'inputs', 'editor.svg'), svg)
   await writeFile(path.join(home, 'inputs', 'editor.html'), html)
   await command(design, 'outcome', 'advance', '--design', designFile)
-  const work = await make('working', 'Keep the last edited note close at hand')
   await reach(work, 'work')
-  const review = await make('review', 'Show notebook names in search results')
-  const validate = await make('validate', 'Preserve headings when pasting text')
-  const merge = await make('merge', 'Remember the sidebar width')
+  async function prepareEditor() {
+    await writeFile(
+      path.join(home, 'inputs', 'sub-agent.md'),
+      '# Check editor empty states\n\nRead the empty notebook behavior and report back.\n' +
+        script({ say: 'Empty notebooks keep the new-note action visible.' }, idle),
+    )
+    await command(
+      work,
+      'run',
+      'start',
+      '--agent',
+      'claude',
+      '--name',
+      'Editor empty states',
+      '--prompt-file',
+      path.join(home, 'inputs', 'sub-agent.md'),
+    )
+    const workRepo = (await observed.task(work.id)).repos.find((repo) => repo.name === 'web')
+    if (!workRepo) throw new Error('Missing demo editor worktree.')
+    await writeFile(
+      path.join(workRepo.worktree, 'README.md'),
+      '# Garden\n\nRemember the last edited note.\n',
+    )
+    const diffs = await client.fileDiffs(work.id, 'web', 'README.md')
+    const row = diffs
+      .flatMap((d) => d.hunks)
+      .flatMap((h) => h.rows)
+      .find((r) => r.kind === 'added' && r.new)
+    if (!row?.new) throw new Error('Demo diff has no added line.')
+    await client.draftLineComment(work.id, {
+      repo: 'web',
+      path: 'README.md',
+      from: { new: row.new },
+      body: 'Please also mention how an empty notebook behaves.',
+    })
+    await client.startApp(work.id, { repo: 'web', name: 'iPhone' })
+    await steps(work, [
+      { say: 'I’m checking how the editor restores its previous note.' },
+      {
+        demoRequest: {
+          comment: {
+            body: 'The editor now remembers the last note. I’m checking empty notebooks next.',
+          },
+        },
+      },
+    ])
+    const workingRun = await lead(work)
+    await steps(
+      work,
+      [
+        { say: 'Checking the last few edge cases.' },
+        { waitFor: path.join(home, 'continue-working') },
+      ],
+      false,
+    )
+    await until(async () => observed.run(workingRun)?.state === 'working', 'working example')
+    await client.sendRunMessage(workingRun, 'Also check the case where the notebook is empty.')
+  }
+  const editor = prepareEditor().then(
+    () => ({}),
+    (error: unknown) => ({ error }),
+  )
+  async function prepareInvalidSettings() {
+    const journalRepo = path.join(home, 'fixture-repos', 'journal')
+    await writeFile(
+      path.join(journalRepo, '.ted', 'workflow.yaml'),
+      'version: 1\nstages: [invalid demo setting]\n',
+    )
+    await demoGit(home, journalRepo, 'add', '.ted/workflow.yaml')
+    await demoGit(home, journalRepo, 'commit', '-m', 'Demonstrate an invalid Workflow')
+    await demoGit(home, journalRepo, 'push', path.join(home, 'origins', 'journal.git'), 'HEAD:main')
+    await client.factorySettings(journal.id)
+  }
+  const review = await make('review', 'Show notebook names in search results', 'defer')
+  const validate = await make('validate', 'Preserve headings when pasting text', 'defer')
+  const merge = await make('merge', 'Remember the sidebar width', 'defer')
   async function configurePrs(task: Task, change: (index: number) => Record<string, unknown>) {
     const current = await observed.task(task.id)
     const file = path.join(home, 'gh.json')
-    const state = JSON.parse(await readFile(file, 'utf8'))
-    state.merge.prs ??= {}
-    for (const [index, repo] of current.repos.entries()) {
-      if (repo.pullRequest)
-        state.merge.prs[repo.pullRequest.number] = {
-          allowed: ['squash'],
-          checks: [{ name: 'Build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-          ...change(index),
-        }
+    const lock = await waitForLock(`${file}.lock.sqlite`, 60_000)
+    if (!lock) throw new Error('Demo GitHub fixture lock timed out.')
+    try {
+      const state = JSON.parse(await readFile(file, 'utf8'))
+      state.merge.prs ??= {}
+      for (const [index, repo] of current.repos.entries()) {
+        if (repo.pullRequest)
+          state.merge.prs[repo.pullRequest.number] = {
+            allowed: ['squash'],
+            checks: [{ name: 'Build', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+            ...change(index),
+          }
+      }
+      const temporary = `${file}.next`
+      await writeFile(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
+      await rename(temporary, file)
+    } finally {
+      lock.release()
     }
-    await writeFile(file, JSON.stringify(state))
   }
-  const done = await make('done', 'Keep notebook sorting between launches')
-  const ci = await make('ci', 'Keep pinned notes at the top')
-  const partly = await make('partlyMerged', 'Align notebook labels across web and API')
+  const done = await make('done', 'Keep notebook sorting between launches', 'defer')
+  const ci = await make('ci', 'Keep pinned notes at the top', 'defer')
+  const partly = await make('partlyMerged', 'Align notebook labels across web and API', 'defer')
   await client.setTaskRepos(partly.id, { set: ['demo/garden', 'demo/garden-api'] })
+  for (const task of [review, validate, merge, done, ci, partly]) await client.startTask(task.id)
+  await Promise.all([review, validate, merge, done, ci, partly].map(lead))
+  gardenReady.resolve()
+  const invalidSettings = planning.then(async (planned) => {
+    if ('error' in planned) return planned
+    try {
+      await prepareInvalidSettings()
+      return {}
+    } catch (error) {
+      return { error }
+    }
+  })
+  const doneAtMerge = reach(done, 'merge')
+  const finalExamples = (async () => {
+    await doneAtMerge
+    const ready = await planning
+    if ('error' in ready) throw ready.error
+    await configurePrs(done, () => ({}))
+    const doneSignoff = await until(
+      async () =>
+        (await client.listComments(done.id)).find((c) => c.kind === 'signoff' && !c.answer),
+      'Merge sign-off',
+    )
+    await client.answerRequest(doneSignoff.id, { action: 'approve' })
+    await until(async () => (await observed.task(done.id)).stage === 'done', 'merged Task')
+    const followUp = await client.followUpTask(
+      done.id,
+      'Also preserve sorting when switching notebooks.',
+    )
+    ids.followUp = followUp.displayId
+    const stopped = await make('stopped', 'Add a compact notebook picker', 'defer')
+    const failed = await make('failed', 'Recover an interrupted file import', 'defer')
+    const split = await make('proposal', 'Share notebooks with a small team', 'defer')
+    const permission = await make('permission', 'Inspect the local import folder', 'defer')
+    for (const task of [stopped, failed, split, permission]) await client.startTask(task.id)
+    await Promise.all([
+      lead(stopped).then(() => client.stopTask(stopped.id)),
+      until(
+        async () => (await observed.task(failed.id)).status?.kind === 'failed',
+        'Task failure',
+      ).then(() => writeFile(path.join(home, 'inputs', `${failed.displayId}.json`), script(idle))),
+      reach(split, 'clarify'),
+      until(
+        async () => (await observed.task(permission.id)).status?.kind === 'waiting-on-you',
+        'permission request',
+      ),
+    ])
+    const blocker = await make('blocked', 'Polish the new search result layout', false)
+    await client.blockTask(blocker.id, review.id)
+    const editorReady = await editor
+    if ('error' in editorReady) throw editorReady.error
+    const simulator = await make('simulator', 'Try swiping between notes on iPhone')
+    await until(
+      async () => (await client.listComments(simulator.id)).some((c) => c.simulator && !c.answer),
+      'simulator request',
+    )
+  })().then(
+    () => ({}),
+    (error: unknown) => ({ error }),
+  )
+  await Promise.race([
+    doneAtMerge,
+    until(
+      async () =>
+        ['work', 'validate', 'review', 'merge', 'done'].includes(
+          (await observed.task(done.id)).stage,
+        ),
+      'Done Task preparation',
+    ),
+  ])
   await Promise.all([
     reach(review, 'review'),
     reach(validate, 'validate'),
     reach(merge, 'merge'),
-    reach(done, 'merge'),
+    doneAtMerge,
     reach(ci, 'review'),
     reach(partly, 'merge'),
   ])
+  const planned = await planning
+  if ('error' in planned) throw planned.error
   await command(review, 'outcome', 'advance')
-  await configurePrs(done, () => ({}))
-  const doneSignoff = await until(
-    async () => (await client.listComments(done.id)).find((c) => c.kind === 'signoff' && !c.answer),
-    'Merge sign-off',
-  )
-  await client.answerRequest(doneSignoff.id, { action: 'approve' })
-  await until(async () => (await observed.task(done.id)).stage === 'done', 'merged Task')
-  const followUp = await client.followUpTask(
-    done.id,
-    'Also preserve sorting when switching notebooks.',
-  )
-  ids.followUp = followUp.displayId
   await configurePrs(ci, () => ({
     checks: [{ name: 'Build', status: 'IN_PROGRESS', conclusion: null, required: true }],
   }))
@@ -381,6 +637,8 @@ async function populateScenarios(
     async () => (await observed.task(ci.id)).statuses.includes('waiting-for-github'),
     'pending CI',
   )
+  const finalReady = await finalExamples
+  if ('error' in finalReady) throw finalReady.error
   await configurePrs(partly, (index) =>
     index === 1 ? { mergeFails: 'Demo: the second repository rejected its merge.' } : {},
   )
@@ -394,108 +652,7 @@ async function populateScenarios(
     async () => (await observed.task(partly.id)).status?.kind === 'partly-merged',
     'partly merged Task',
   )
-  const stopped = await make('stopped', 'Add a compact notebook picker')
-  await lead(stopped)
-  await client.stopTask(stopped.id)
-  const failed = await make('failed', 'Recover an interrupted file import')
-  await lead(failed)
-  await writeFile(path.join(home, 'inputs', `${failed.displayId}.json`), script({ exit: 1 }))
-  await steps(failed, [{ exit: 1 }], false)
-  await until(
-    async () => (await observed.task(failed.id)).status?.kind === 'failed',
-    'Task failure',
-  )
-  await writeFile(path.join(home, 'inputs', `${failed.displayId}.json`), script(idle))
-  const split = await make('proposal', 'Share notebooks with a small team')
-  await reach(split, 'clarify')
-  await writeFile(path.join(home, 'inputs', 'proposal.json'), JSON.stringify(proposal))
-  await steps(split, [{ demoRequest: { comment: { proposal } } }])
-  const permission = await make('permission', 'Inspect the local import folder')
-  await steps(
-    permission,
-    [
-      {
-        permission: {
-          tool: 'Bash',
-          input: { command: 'ls imports' },
-          description: 'Inspect the demo import folder',
-        },
-      },
-    ],
-    false,
-  )
-  await until(
-    async () => (await observed.task(permission.id)).status?.kind === 'waiting-on-you',
-    'permission request',
-  )
-  const blocker = await make('blocked', 'Polish the new search result layout', false)
-  await client.blockTask(blocker.id, review.id)
-  await writeFile(
-    path.join(home, 'inputs', 'sub-agent.md'),
-    '# Check editor empty states\n\nRead the empty notebook behavior and report back.\n' +
-      script({ say: 'Empty notebooks keep the new-note action visible.' }, idle),
-  )
-  await command(
-    work,
-    'run',
-    'start',
-    '--agent',
-    'claude',
-    '--name',
-    'Editor empty states',
-    '--prompt-file',
-    path.join(home, 'inputs', 'sub-agent.md'),
-  )
-  const workRepo = (await observed.task(work.id)).repos.find((repo) => repo.name === 'web')
-  if (!workRepo) throw new Error('Missing demo editor worktree.')
-  await writeFile(
-    path.join(workRepo.worktree, 'README.md'),
-    '# Garden\n\nRemember the last edited note.\n',
-  )
-  const diffs = await client.fileDiffs(work.id, 'web', 'README.md')
-  const row = diffs
-    .flatMap((d) => d.hunks)
-    .flatMap((h) => h.rows)
-    .find((r) => r.kind === 'added' && r.new)
-  if (!row?.new) throw new Error('Demo diff has no added line.')
-  await client.draftLineComment(work.id, {
-    repo: 'web',
-    path: 'README.md',
-    from: { new: row.new },
-    body: 'Please also mention how an empty notebook behaves.',
-  })
-  const simulator = await make('simulator', 'Try swiping between notes on iPhone')
-  await client.updateSettings({ maxBootedSimulators: 1 })
-  await client.startApp(work.id, { repo: 'web', name: 'iPhone' })
-  await steps(
-    simulator,
-    [
-      {
-        run: [
-          'ted',
-          'run-app',
-          'iPhone',
-          '--repo',
-          'web',
-          '--reason',
-          'Compare the swipe interaction with the editor design.',
-        ],
-      },
-    ],
-    false,
-  )
-  await until(
-    async () => (await client.listComments(simulator.id)).some((c) => c.simulator && !c.answer),
-    'simulator request',
-  )
-  await seedPlansAndAutomations(home, client, garden.key)
-  await writeFile(path.join(home, 'stub-codex.json'), JSON.stringify({ signedIn: false }))
-  await client.checkAgentHealth()
-  await client.startPlan({
-    factory: garden.key,
-    message: 'Plan an accessible export dialog',
-    agent: 'codex',
-  })
+  await client.answerPlanRequest(planned.requestId, { action: 'approve' })
   const paused = await client.createTask({
     factory: garden.key,
     title: 'Check the export filename on Windows',
@@ -504,27 +661,6 @@ async function populateScenarios(
   })
   ids.paused = paused.displayId
   await until(async () => (await observed.task(paused.id)).status?.kind === 'paused', 'paused Task')
-  const workingRun = await lead(work)
-  await steps(work, [
-    { say: 'I’m checking how the editor restores its previous note.' },
-    {
-      demoRequest: {
-        comment: {
-          body: 'The editor now remembers the last note. I’m checking empty notebooks next.',
-        },
-      },
-    },
-  ])
-  await steps(
-    work,
-    [
-      { say: 'Checking the last few edge cases.' },
-      { waitFor: path.join(home, 'continue-working') },
-    ],
-    false,
-  )
-  await until(async () => observed.run(workingRun)?.state === 'working', 'working example')
-  await client.sendRunMessage(workingRun, 'Also check the case where the notebook is empty.')
   await client.updateSettings({ maxWorkingRuns: 1 })
   const queued = await client.createTask({
     factory: garden.key,
@@ -538,15 +674,8 @@ async function populateScenarios(
   })
   ids.queued = queued.displayId
   await until(async () => (await observed.task(queued.id)).status?.kind === 'queued', 'queued Task')
-  const journalRepo = path.join(home, 'fixture-repos', 'journal')
-  await writeFile(
-    path.join(journalRepo, '.ted', 'workflow.yaml'),
-    'version: 1\nstages: [invalid demo setting]\n',
-  )
-  await demoGit(home, journalRepo, 'add', '.ted/workflow.yaml')
-  await demoGit(home, journalRepo, 'commit', '-m', 'Demonstrate an invalid Workflow')
-  await demoGit(home, journalRepo, 'push', path.join(home, 'origins', 'journal.git'), 'HEAD:main')
-  await client.factorySettings(journal.id)
+  const settingsReady = await invalidSettings
+  if ('error' in settingsReady) throw settingsReady.error
   return ids
 }
 
@@ -685,19 +814,22 @@ export async function verifyDemo(client: DaemonClient): Promise<void> {
   )
 }
 
-async function seedPlansAndAutomations(
+async function preparePlansAndAutomations(
   home: string,
   client: DaemonClient,
   factory: string,
-): Promise<void> {
-  const start = async (title: string, steps: unknown[] = [idle]) => {
+  secondaryFactory: string,
+  gardenReady: Promise<void>,
+  observed: DemoState,
+): Promise<string> {
+  const start = async (title: string, steps: unknown[] = [idle], target = secondaryFactory) => {
     const plan = await client.startPlan({
-      factory,
+      factory: target,
       message: `${title}\n${script(...steps)}`,
       agent: 'claude',
     })
     await until(
-      async () => (await client.getPlan(plan.id)).plan.status !== 'queued',
+      async () => (await observed.plan(plan.id)).plan.status !== 'queued',
       `Plan ${title}`,
     )
     return plan
@@ -711,28 +843,29 @@ async function seedPlansAndAutomations(
     { demoRequest: { planRequest: { round } } },
     idle,
   ])
+  const stopped = await start('Explore notebook templates')
   await until(
-    async () => (await client.getPlan(waiting.id)).plan.status === 'waiting',
+    async () => (await observed.plan(waiting.id)).plan.status === 'waiting',
     'waiting Plan',
   )
-  const stopped = await start('Explore notebook templates')
   await client.stopPlan(stopped.id)
   await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ resumeFails: true }))
   const failed = await start('Investigate a failed importer', [{ exit: 1 }])
-  await until(async () => (await client.getPlan(failed.id)).plan.status === 'failed', 'failed Plan')
+  await until(async () => (await observed.plan(failed.id)).plan.status === 'failed', 'failed Plan')
   await writeFile(path.join(home, 'stub-claude.json'), '{}')
-  const finished = await start('Plan shared notebooks', [
-    { demoRequest: { planRequest: { proposal } } },
-    idle,
-  ])
+  await gardenReady
+  const finished = await start(
+    'Plan shared notebooks',
+    [{ demoRequest: { planRequest: { proposal } } }, idle],
+    factory,
+  )
   const request = await until(
     async () =>
-      (await client.getPlan(finished.id)).requests.find((r) => r.kind === 'proposal' && !r.answer),
+      (await observed.plan(finished.id)).requests.find((r) => r.kind === 'proposal' && !r.answer),
     'Plan proposal',
   )
-  await client.answerPlanRequest(request.id, { action: 'approve' })
   const automation = await client.createAutomation({
-    factory,
+    factory: secondaryFactory,
     name: 'Daily notebook maintenance',
     prompt: `Check notebook health.\n${script({ say: 'The notebooks are healthy. No follow-up needed.' }, idle)}`,
     schedule: { kind: 'daily', at: '09:00' },
@@ -741,7 +874,7 @@ async function seedPlansAndAutomations(
   })
   await client.runAutomation(automation.id)
   await until(
-    async () => (await client.getAutomation(automation.id)).history.some((r) => r.finishedAt),
+    async () => (await observed.automation(automation.id)).history.some((r) => r.finishedAt),
     'successful Automation',
   )
   await client.editAutomation(automation.id, {
@@ -751,8 +884,9 @@ async function seedPlansAndAutomations(
   await client.runAutomation(automation.id)
   await until(
     async () =>
-      (await client.getAutomation(automation.id)).history.filter((r) => r.finishedAt).length === 2,
+      (await observed.automation(automation.id)).history.filter((r) => r.finishedAt).length === 2,
     'failed Automation',
   )
   await writeFile(path.join(home, 'stub-claude.json'), '{}')
+  return request.id
 }

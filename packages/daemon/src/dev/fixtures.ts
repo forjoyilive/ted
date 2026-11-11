@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { stripTypeScriptTypes } from 'node:module'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { gitEnv } from '../command-env.ts'
@@ -42,6 +44,29 @@ repos:
         device: iPhone 17
   - { name: api, remote: 'https://github.com/demo/garden-api' }
 `
+
+export async function prepareDemoBinaries(home: string): Promise<void> {
+  const bin = path.join(home, 'bin')
+  await mkdir(bin, { recursive: true })
+  const executable = async (name: string, source: string) => {
+    const temporary = path.join(bin, `${name}-${randomUUID()}.mjs`)
+    await writeFile(temporary, source, { flag: 'wx', mode: 0o700 })
+    await rename(temporary, path.join(bin, `${name}.mjs`))
+  }
+  const source = await readFile(new URL('../../test/fixtures/stub-gh.ts', import.meta.url), 'utf8')
+  await executable('stub-gh', stripTypeScriptTypes(source))
+  for (const agent of ['claude', 'codex']) {
+    const fixture = new URL(`../../test/fixtures/stub-${agent}.ts`, import.meta.url)
+    await executable(
+      `stub-${agent}`,
+      `#!/usr/bin/env node
+import { enableCompileCache } from 'node:module'
+enableCompileCache(${JSON.stringify(path.join(home, 'module-cache'))})
+await import(${JSON.stringify(fixture.href)})
+`,
+    )
+  }
+}
 
 export async function makeDemoOrigins(home: string): Promise<void> {
   await writeFile(
