@@ -41,7 +41,7 @@ export function launchesElectron(file: string, seen = new Set<string>()): boolea
   if (seen.has(file)) return false
   seen.add(file)
   const source = readFileSync(file, 'utf8')
-  if (/\b_electron\b|\bELECTRON_RUN_AS_NODE\b/.test(source)) return true
+  if (/\b_electron\b|\bresolveElectron\s*\(\s*\)/.test(source)) return true
   return [...source.matchAll(/from '(\.\.?\/[^']+\.tsx?)'/g)].some((match) =>
     launchesElectron(path.resolve(path.dirname(file), match[1] ?? ''), seen),
   )
