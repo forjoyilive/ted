@@ -190,10 +190,13 @@ import {
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
+  acceptedResolution,
   ciFailureKey,
   createFailureCases,
   failureNoticeTitles,
   failureText,
+  leadClosesFailures,
+  leadClosesRefusal,
 } from './failure-cases.ts'
 import {
   endingReason,
@@ -6856,7 +6859,17 @@ export function createTasks(options: {
     verifyFailure: (ref, caller, id, evidence) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
-        if (
+        const own = !value.validation && value.source.kind === 'finding'
+        if (own) {
+          if (!leadClosesFailures((await taskWorkflow(task, { fetch: false })).workflow))
+            throw new RequestError(409, leadClosesRefusal)
+          if (
+            ['fixed', 'no-longer-applicable'].includes(value.resolutions.at(-1)?.resolution ?? '')
+          )
+            throw new RequestError(409, 'this case is closed; record a new failure')
+          if (acceptedResolution(value))
+            throw new RequestError(409, 'this failure already has current acceptance')
+        } else if (
           !value.validation ||
           !['finding', 'factory-check'].includes(value.source.kind) ||
           task.stage !== 'validate'
@@ -6867,6 +6880,7 @@ export function createTasks(options: {
           )
         if (!evidence.trim()) throw new RequestError(400, 'verification needs fresh evidence')
         if (
+          !own &&
           !['retry', 'fix'].includes(value.resolutions.at(-1)?.resolution ?? '') &&
           value.assessments.at(-1)?.assessment !== 'regression'
         )
