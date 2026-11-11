@@ -95,6 +95,17 @@ function BlockedBy({
 }
 
 function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: string) => void }) {
+  if (marker.kind === 'test-activity') {
+    return (
+      <StatusChip
+        tone={marker.phase === 'running' ? 'testing' : 'neutral'}
+        glyph={marker.phase === 'running' ? 'working' : 'queued'}
+        title={marker.detail}
+      >
+        {marker.label}
+      </StatusChip>
+    )
+  }
   if (marker.kind === 'blocked-by') {
     return <BlockedBy by={marker.by} ended={marker.ended} onOpenTask={onOpenTask} />
   }
@@ -142,9 +153,11 @@ export function TaskStatusChips({
   if (!status && markers.length === 0) return null
   return (
     <span className={styles.chips}>
-      {markers.map((marker) => (
-        <Marker key={marker.kind} marker={marker} onOpenTask={onOpenTask} />
-      ))}
+      {markers
+        .filter((marker) => marker.kind !== 'test-activity')
+        .map((marker) => (
+          <Marker key={marker.kind} marker={marker} onOpenTask={onOpenTask} />
+        ))}
       {status?.kind === 'blocked' ? (
         <BlockedBy by={status.by} ended={status.ended} onOpenTask={onOpenTask} />
       ) : (
@@ -154,6 +167,15 @@ export function TaskStatusChips({
           </StatusChip>
         )
       )}
+      {markers
+        .filter((marker) => marker.kind === 'test-activity')
+        .map((marker) => (
+          <Marker
+            key={`${marker.source}-${marker.phase}`}
+            marker={marker}
+            onOpenTask={onOpenTask}
+          />
+        ))}
     </span>
   )
 }
