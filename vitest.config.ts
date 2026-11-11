@@ -41,7 +41,7 @@ export function launchesElectron(file: string, seen = new Set<string>()): boolea
   if (seen.has(file)) return false
   seen.add(file)
   const source = readFileSync(file, 'utf8')
-  if (/\b_electron\b/.test(source)) return true
+  if (/\b_electron\b|\bELECTRON_RUN_AS_NODE\b/.test(source)) return true
   return [...source.matchAll(/from '(\.\.?\/[^']+\.tsx?)'/g)].some((match) =>
     launchesElectron(path.resolve(path.dirname(file), match[1] ?? ''), seen),
   )
@@ -50,6 +50,8 @@ export function launchesElectron(file: string, seen = new Set<string>()): boolea
 function electronTestFiles(): string[] {
   return globSync(testFiles, { cwd: here('.') }).filter((file) => launchesElectron(here(file)))
 }
+
+const electronSetup = here('./packages/app/test/support/electron-setup.ts')
 
 const testOptions = {
   testTimeout: 30_000,
@@ -92,7 +94,17 @@ export function tedTestConfig(include: string[]) {
     : []
   return defineConfig({
     oxc: { jsx: { runtime: 'automatic' } },
-    test: { ...testOptions, include, exclude },
+    test: {
+      ...testOptions,
+      include,
+      exclude,
+      globalSetup: [
+        ...testOptions.globalSetup,
+        ...(!codexSandbox && globSync(include).some((file) => launchesElectron(path.resolve(file)))
+          ? [electronSetup]
+          : []),
+      ],
+    },
   })
 }
 
@@ -105,7 +117,13 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: 'electron', include: codexSandbox ? [] : electron, maxWorkers: 3, retry: 1 },
+        test: {
+          name: 'electron',
+          include: codexSandbox ? [] : electron,
+          maxWorkers: 3,
+          retry: 1,
+          globalSetup: [...testOptions.globalSetup, electronSetup],
+        },
       },
       { extends: true, test: { name: 'node', include: testFiles, exclude: electron } },
     ],

@@ -395,6 +395,7 @@ describe('check runner integration with stub processes', () => {
         export const heldLockEnv = 'TED_STUB_CHECK_LOCK'
         export const waitingMessage = () => ''
         export async function acquireFullRun() {
+          writeFileSync(${JSON.stringify(path.join(root, 'locked'))}, 'yes')
           return async () => writeFileSync(${JSON.stringify(path.join(root, 'unlocked'))}, 'yes')
         }
       `,
@@ -470,6 +471,7 @@ describe('check runner integration with stub processes', () => {
         const fs = require('node:fs')
         const args = process.argv.slice(2)
         fs.appendFileSync(${JSON.stringify(path.join(root, 'commands'))}, JSON.stringify(args) + '\\n')
+        if (args[0] === 'install' && !fs.existsSync(${JSON.stringify(path.join(root, 'locked'))})) process.exit(9)
         if (args[0] === 'exec') {
           const project = args[args.indexOf('--project') + 1]
           const file = args[args.indexOf('--outputFile.json') + 1]
