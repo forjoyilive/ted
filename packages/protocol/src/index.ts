@@ -315,9 +315,10 @@ export {
   parseAssessFailureRequest,
   parseRecordFailureRequest,
   parseResolveFailureRequest,
+  parseVerifyFailureRequest,
 } from './failure-parsers.ts'
 export type * from './failures.ts'
-export { failureChoices } from './failures.ts'
+export { failureChoices, validateFailureChoices, validationExecution } from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,

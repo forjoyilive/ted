@@ -34,6 +34,7 @@ import { CommentFiles } from '../components/CommentFiles.tsx'
 import { DetailsSection } from '../components/DetailsSection.tsx'
 import { AllChanges, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
+import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
 import { FileView } from '../components/FileView.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
@@ -70,6 +71,7 @@ import {
   useCommentList,
   useComments,
   useDescriptionsState,
+  useFailures,
   useStageEntries,
   useTaskBriefState,
   useTaskRuns,
@@ -182,12 +184,14 @@ type OpenOutput = (checkRun: CheckRun, position: number) => void
 
 function EventRow({
   event,
+  failures,
   checkRun,
   onOpenOutput,
   onOpenRun,
   onOpenPlan,
 }: {
   event: ThreadEvent
+  failures: readonly import('@ted/protocol').FailureCase[]
   checkRun: CheckRun | undefined
   onOpenOutput: OpenOutput
   onOpenRun: (runId: string) => void
@@ -230,6 +234,7 @@ function EventRow({
       )}
       {(checkRun || event.judgments) && (
         <ChecksRow
+          accepted={acceptedPositions(failures, checkRun?.id ?? '')}
           checks={checkRun?.checks ?? []}
           {...(event.judgments && { judgments: event.judgments })}
           onOpen={(position) => checkRun && onOpenOutput(checkRun, position)}
@@ -616,6 +621,7 @@ export function TaskThread({
   const comments = commentList.items
   const events = eventList.value ?? []
   const checkRuns = checkList.items
+  const failures = useFailures(task.id)
   const historyError = commentList.error ?? eventList.error ?? checkList.error
   const historyLoading =
     !historyError && (!commentList.loaded || eventList.value === undefined || !checkList.loaded)
@@ -832,6 +838,7 @@ export function TaskThread({
                   const { event } = item
                   return (
                     <EventRow
+                      failures={failures}
                       key={event.id}
                       event={event}
                       checkRun={checkRuns.find((r) => r.id === event.checkRunId)}

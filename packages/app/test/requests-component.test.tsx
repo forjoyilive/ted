@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import type { Round } from '@ted/protocol'
-import { act, render, screen, within } from '@testing-library/react'
+import type { FailureCase, Round } from '@ted/protocol'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
@@ -25,6 +26,13 @@ function requestApi() {
   const api = bridge({
     listThreadEvents: () => [],
     listCheckRuns: () => [],
+    listFailures: () => [],
+    validationObligations: () => ({
+      satisfied: true,
+      cases: [],
+      checkRuns: [],
+      blockers: [],
+    }),
     listApps: () => [],
     simulators: () => ({ supported: false }),
     answerRequest: answer,
@@ -400,6 +408,286 @@ test('empty Inbox opens New Task and Show answered opens the empty Answered view
   expect(within(inbox).getByText('Nothing answered in the last 30 days')).toBeTruthy()
 })
 
+test('Validate failure decisions display evidence and send the selected action', async () => {
+  const { answer, handle } = requestApi()
+  handle('listFailures', () => [
+    {
+      id: 'failure-1',
+      taskId: 'NB-1',
+      validation: true,
+      source: { kind: 'finding', runId: 'run-1', finding: 'Visual failure' },
+      recordedBy: 'run-1',
+      provenance: 'task-lead-reported',
+      evidence: 'Reproduced before the changed code executes.',
+      createdAt,
+      contextId: 'context-1',
+      additions: [],
+      invalidations: [],
+      resolutions: [],
+      assessments: [
+        {
+          id: 'assessment-1',
+          runId: 'run-1',
+          at: createdAt,
+          assessment: 'uncertain',
+          recommendation: 'Retry the identified verification.',
+        },
+      ],
+      decisions: [{ commentId: 'request-1', assessmentId: 'assessment-1' }],
+    },
+  ])
+  render(
+    <RequestCard
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task', 'Accept this failure'],
+      })}
+      task={task()}
+    />,
+  )
+  await screen.findByText('Reproduced before the changed code executes.')
+  expect(screen.getByText('Visual failure')).toBeTruthy()
+  expect(screen.getByText('uncertain')).toBeTruthy()
+  expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
+  expect(answer).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ action: 'answer', choice: 'Accept this failure' }),
+  )
+})
+
+test('historical failure request keeps its own assessment and decision', async () => {
+  bridge({
+    simulators: () => ({ supported: false }),
+    listFailures: () => [
+      {
+        id: 'failure-1',
+        taskId: 'NB-1',
+        validation: true,
+        source: { kind: 'finding', runId: 'run-1', finding: 'Original Finding' },
+        recordedBy: 'run-1',
+        provenance: 'task-lead-reported',
+        evidence: 'Original evidence',
+        createdAt,
+        additions: [],
+        invalidations: [],
+        assessments: [
+          {
+            id: 'assessment-1',
+            runId: 'run-1',
+            at: createdAt,
+            assessment: 'uncertain',
+            recommendation: 'Retry verification',
+          },
+          {
+            id: 'assessment-2',
+            runId: 'run-1',
+            at: createdAt,
+            assessment: 'unrelated',
+            recommendation: 'Accept this execution',
+          },
+        ],
+        decisions: [
+          { commentId: 'request-1', assessmentId: 'assessment-1' },
+          { commentId: 'request-2', assessmentId: 'assessment-2' },
+        ],
+        resolutions: [
+          {
+            requestId: 'request-1',
+            assessmentId: 'assessment-1',
+            resolution: 'retry',
+            at: createdAt,
+          },
+          {
+            requestId: 'request-2',
+            assessmentId: 'assessment-2',
+            resolution: 'accepted',
+            at: createdAt,
+          },
+        ],
+      },
+    ],
+  })
+  render(
+    <AnsweredCard
+      task={task()}
+      expanded
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task', 'Accept this failure'],
+        answer: { kind: 'answered', at: createdAt, choice: 'Retry' },
+      })}
+    />,
+  )
+  await screen.findByText('Original Finding')
+  expect(screen.queryByText(/Human decision: accepted/)).toBeNull()
+  expect(screen.getByText(/Human decision: retry/)).toBeTruthy()
+  expect(screen.getByText('uncertain')).toBeTruthy()
+})
+
+test('a Review confirmation shows completed Checks once when progress is available', async () => {
+  const check = { name: 'Typecheck', command: 'echo typed', timeout: '1m', state: 'passed' }
+  bridge({
+    simulators: () => ({ supported: false }),
+    listApps: () => [],
+    listFailures: () => [],
+    listThreadEvents: () => [
+      {
+        id: 'validated-1',
+        taskId: 'NB-1',
+        at: createdAt,
+        tone: 'success',
+        text: 'Validate passed',
+        validate: 'passed',
+        checkRunId: 'checks-1',
+      },
+    ],
+    listCheckRuns: () => [
+      {
+        id: 'checks-1',
+        taskId: 'NB-1',
+        stage: 'validate',
+        trigger: 'validate',
+        startedAt: createdAt,
+        outcome: 'passed',
+        checks: [check],
+      },
+    ],
+    validationObligations: () => ({
+      satisfied: true,
+      cases: [],
+      blockers: [],
+      checkRuns: [],
+      progress: {
+        taskId: 'NB-1',
+        visit: createdAt,
+        checks: [check],
+        next: 1,
+        pending: false,
+        executions: [{ runId: 'checks-1', start: 0 }],
+      },
+    }),
+  })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
+    />,
+  )
+  await screen.findByRole('button', { name: '✓Typecheck' })
+  expect(screen.getAllByRole('button', { name: '✓Typecheck' })).toHaveLength(1)
+})
+
+test('an obsolete Check repair does not claim a later execution', () => {
+  const value: FailureCase = {
+    id: 'obsolete',
+    taskId: 'fixture',
+    source: { kind: 'factory-check', checkRunId: 'failed-run', position: 0 },
+    recordedBy: 'lead',
+    provenance: 'stored-check',
+    evidence: 'The original Check failed.',
+    createdAt: '2026-01-01T00:00:00Z',
+    validation: true,
+    assessments: [],
+    additions: [],
+    decisions: [],
+    resolutions: [],
+    invalidations: [],
+    verifications: [
+      {
+        at: '2026-01-02T00:00:00Z',
+        evidence:
+          'Task Lead reported repair against a fresh Validate visit. Current Checks: (empty plan). Original execution remains failed.',
+      },
+    ],
+  }
+  render(<FailureDetails failure={value} />)
+  expect(screen.queryByText(/verified by a later execution/)).toBeNull()
+  expect(screen.getByText(/verified with recorded evidence/)).toBeTruthy()
+})
+
+test.each(['Review', 'Visual'])(
+  'Review confirmation keeps a failed %s judgment beside its accepted Finding',
+  async (name) => {
+    const failure: FailureCase = {
+      id: 'review-failure',
+      taskId: 'NB-1',
+      validation: true,
+      source: {
+        kind: 'finding',
+        runId: 'reviewer-1',
+        finding: 'Protected action verification failed',
+      },
+      recordedBy: 'lead-1',
+      provenance: 'task-lead-reported',
+      evidence: 'The fixture service rejected the action.',
+      createdAt,
+      assessments: [
+        {
+          id: 'assessment-1',
+          assessment: 'unrelated',
+          recommendation: 'Accept this fixture failure.',
+          runId: 'lead-1',
+          at: createdAt,
+        },
+      ],
+      additions: [],
+      decisions: [{ commentId: 'decision-1', assessmentId: 'assessment-1' }],
+      resolutions: [
+        {
+          requestId: 'decision-1',
+          assessmentId: 'assessment-1',
+          resolution: 'accepted',
+          at: createdAt,
+        },
+      ],
+      invalidations: [],
+    }
+    bridge({
+      simulators: () => ({ supported: false }),
+      listApps: () => [],
+      listFailures: () => [failure],
+      listCheckRuns: () => [],
+      listThreadEvents: () => [
+        {
+          id: 'validated-1',
+          taskId: 'NB-1',
+          at: createdAt,
+          tone: 'done',
+          text: 'Validate passed',
+          validate: 'passed',
+          judgments: [{ name, passed: false }],
+        },
+      ],
+      validationObligations: () => ({
+        satisfied: true,
+        blockers: [],
+        cases: [{ id: failure.id, disposition: 'accepted', context: 'current' }],
+        checkRuns: [],
+        progress: {
+          taskId: 'NB-1',
+          visit: createdAt,
+          checks: [],
+          next: 0,
+          pending: false,
+          executions: [],
+        },
+      }),
+    })
+    render(
+      <RequestCard
+        task={task()}
+        request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
+      />,
+    )
+    const judgment = await screen.findByText(name, { exact: true })
+    expect(judgment.textContent).toBe(`✗${name}`)
+    expect(await screen.findByText('Protected action verification failed')).toBeTruthy()
+    expect(screen.getByText(/failed, accepted by you/)).toBeTruthy()
+  },
+)
 test('Review keeps its brief and separates current files from changes since approval', async () => {
   const { answer } = requestApi()
   const open = vi.fn()
@@ -534,4 +822,281 @@ test('previous review resolves the referenced approval rather than the first sig
   expect(within(old).queryByRole('textbox')).toBeNull()
   expect(screen.queryByText('The obsolete evidence.')).toBeNull()
   expect(screen.getByText(/^Approved /)).toBeTruthy()
+})
+
+test('previous Review keeps its own Check execution after a second Validate visit', async () => {
+  const later = '2026-11-10T12:00:00.000Z'
+  const old = comment({
+    id: 'previous',
+    kind: 'signoff',
+    stage: 'review',
+    gate: { approveLabel: 'Approve' },
+    answer: { kind: 'approved', at: createdAt },
+  })
+  const oldCheck = {
+    name: 'Old Check',
+    command: 'echo old',
+    timeout: '1m',
+    state: 'passed',
+    durationMs: 1,
+  }
+  const newCheck = {
+    name: 'New Check',
+    command: 'echo new',
+    timeout: '1m',
+    state: 'passed',
+    durationMs: 1,
+  }
+  bridge({
+    listComments: () => [old],
+    listThreadEvents: () => [
+      {
+        id: 'old-validation',
+        taskId: 'NB-1',
+        at: createdAt,
+        tone: 'done',
+        text: 'Validate passed',
+        validate: 'passed',
+        checkRunId: 'old-run',
+        judgments: [{ name: 'Review', passed: true }],
+      },
+    ],
+    listCheckRuns: () => [
+      {
+        id: 'old-run',
+        taskId: 'NB-1',
+        trigger: 'validate',
+        stage: 'validate',
+        outcome: 'passed',
+        startedAt: createdAt,
+        finishedAt: createdAt,
+        checks: [oldCheck],
+      },
+      {
+        id: 'new-run',
+        taskId: 'NB-1',
+        trigger: 'validate',
+        stage: 'validate',
+        outcome: 'passed',
+        startedAt: later,
+        finishedAt: later,
+        checks: [newCheck],
+      },
+    ],
+    listFailures: () => [],
+    validationObligations: () => ({
+      satisfied: true,
+      cases: [],
+      blockers: [],
+      checkRuns: [],
+      progress: {
+        taskId: 'NB-1',
+        visit: later,
+        checks: [newCheck],
+        next: 1,
+        pending: false,
+        executions: [{ runId: 'new-run', start: 0 }],
+      },
+    }),
+    listApps: () => [],
+    simulators: () => ({ supported: false }),
+  })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        id: 'current',
+        kind: 'signoff',
+        stage: 'review',
+        createdAt: later,
+        gate: { approveLabel: 'Approve', changes: { since: 'previous', repos: [] } },
+      })}
+    />,
+  )
+  await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
+  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  await waitFor(() => expect(history.textContent).toMatch(/Old Check|New Check/))
+  const text = history.textContent ?? ''
+  expect({
+    oldExecution: text.includes('Old Check'),
+    newExecution: text.includes('New Check'),
+  }).toEqual({ oldExecution: true, newExecution: false })
+  expect(within(history).queryByRole('button', { name: 'Approve' })).toBeNull()
+})
+
+test('previous Review retains its recorded Check plan and acceptance after later repair and decisions', async () => {
+  const later = '2026-11-10T12:00:00.000Z'
+  const accepted: FailureCase = {
+    id: 'old-failure',
+    taskId: 'NB-1',
+    validation: true,
+    source: { kind: 'factory-check', checkRunId: 'old-run', position: 0 },
+    recordedBy: 'old-lead',
+    provenance: 'stored-check',
+    evidence: 'Original service failure',
+    createdAt,
+    contextId: 'old-context',
+    additions: [],
+    invalidations: [],
+    assessments: [
+      {
+        id: 'old-assessment',
+        runId: 'old-lead',
+        assessment: 'unrelated',
+        recommendation: 'Original recommendation',
+        at: createdAt,
+        evidenceCount: 0,
+      },
+    ],
+    decisions: [
+      { commentId: 'old-decision', assessmentId: 'old-assessment', contextId: 'old-context' },
+    ],
+    resolutions: [
+      {
+        requestId: 'old-decision',
+        assessmentId: 'old-assessment',
+        resolution: 'accepted',
+        reason: 'Original decision',
+        at: createdAt,
+      },
+    ],
+  }
+  const oldCheck = {
+    name: 'Old Check',
+    command: 'echo old',
+    timeout: '1m',
+    state: 'failed',
+    exitCode: 1,
+  }
+  const tail = {
+    name: 'Old remaining Check',
+    command: 'echo tail',
+    timeout: '1m',
+    state: 'passed',
+    exitCode: 0,
+  }
+  const newCheck = {
+    name: 'New Check',
+    command: 'echo new',
+    timeout: '1m',
+    state: 'passed',
+    exitCode: 0,
+  }
+  const oldProgress = {
+    taskId: 'NB-1',
+    visit: createdAt,
+    checks: [oldCheck, tail],
+    next: 2,
+    pending: false,
+    executions: [
+      { runId: 'old-run', start: 0 },
+      { runId: 'old-tail', start: 1 },
+    ],
+  }
+  const currentFailure = {
+    ...accepted,
+    additions: [{ runId: 'new-lead', at: later, evidence: 'Future evidence' }],
+    assessments: [
+      ...accepted.assessments,
+      {
+        id: 'new-assessment',
+        runId: 'new-lead',
+        assessment: 'regression',
+        recommendation: 'Future recommendation',
+        at: later,
+      },
+    ],
+    resolutions: [
+      ...accepted.resolutions,
+      {
+        requestId: 'future-decision',
+        assessmentId: 'new-assessment',
+        resolution: 'fixed',
+        reason: 'Future decision',
+        at: later,
+      },
+    ],
+    invalidations: [{ requestId: 'old-decision', reason: 'Future context', at: later }],
+  }
+  const old = comment({
+    id: 'previous',
+    kind: 'signoff',
+    stage: 'review',
+    gate: { approveLabel: 'Approve' },
+    answer: { kind: 'approved', at: createdAt },
+  })
+  const api = bridge({
+    listComments: () => [old],
+    listThreadEvents: () => [
+      {
+        id: 'old-validation',
+        taskId: 'NB-1',
+        at: createdAt,
+        tone: 'done',
+        text: 'Validate passed',
+        validate: 'passed',
+        checkRunId: 'old-tail',
+        judgments: [{ name: 'Review', passed: false }],
+        validation: { progress: oldProgress, failures: [accepted] },
+      },
+    ],
+    listCheckRuns: () => [
+      {
+        id: 'old-run',
+        taskId: 'NB-1',
+        checks: [oldCheck, { ...tail, state: 'not-run' }],
+        startedAt: createdAt,
+      },
+      { id: 'old-tail', taskId: 'NB-1', checks: [tail], startedAt: createdAt },
+      { id: 'new-run', taskId: 'NB-1', checks: [newCheck], startedAt: later },
+    ],
+    listFailures: () => [currentFailure],
+    validationObligations: () => ({
+      satisfied: true,
+      cases: [],
+      blockers: [],
+      checkRuns: [],
+      progress: {
+        taskId: 'NB-1',
+        visit: later,
+        checks: [newCheck],
+        next: 1,
+        pending: false,
+        executions: [{ runId: 'new-run', start: 0 }],
+      },
+    }),
+    checkOutput: () => ({ text: 'Original output', log: 'original-log' }),
+    listApps: () => [],
+    simulators: () => ({ supported: false }),
+  })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        id: 'current',
+        kind: 'signoff',
+        stage: 'review',
+        createdAt: later,
+        gate: { approveLabel: 'Approve', changes: { since: 'previous', repos: [] } },
+      })}
+    />,
+  )
+  expect(await screen.findByText('New Check', { exact: false })).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
+  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  await within(history).findByText('Original recommendation')
+  expect(history.textContent).toContain('failed, accepted by you')
+  expect(history.textContent).toContain('Original decision')
+  expect(history.textContent).toContain('Old remaining Check')
+  expect(history.textContent).not.toMatch(/New Check|Future|acceptance invalidated/)
+  await user().click(within(history).getByTitle('Open Old Check’s output'))
+  const output = await screen.findByRole('dialog', { name: 'Old Check output' })
+  await within(output).findByText('Original output')
+  expect(api.request).toHaveBeenCalledWith('checkOutput', 'old-run', 0)
+  expect(output.textContent).toContain('Original recommendation')
+  expect(output.textContent).not.toContain('Future')
+  await user().click(within(output).getByRole('button', { name: 'Close' }))
+  await user().click(within(history).getByTitle('Open Old remaining Check’s output'))
+  await screen.findByRole('dialog', { name: 'Old remaining Check output' })
+  expect(api.request).toHaveBeenCalledWith('checkOutput', 'old-tail', 0)
 })

@@ -1,8 +1,9 @@
 import { queryDb, type Store } from '@livestore/livestore'
-import type { FailureCase, FailureContext } from '@ted/protocol'
-import { events, failureCases, failureContexts, type schema } from './schema.ts'
+import type { FailureCase, FailureContext, ValidationProgress } from '@ted/protocol'
+import { events, failureCases, failureContexts, type schema, validationProgress } from './schema.ts'
 
 export type FailureChange =
+  | 'verified'
   | 'recorded'
   | 'assessed'
   | 'evidence'
@@ -18,6 +19,8 @@ export function failureEvent(value: FailureCase, kind: FailureChange) {
     at: new Date().toISOString(),
   }
   switch (kind) {
+    case 'verified':
+      return events.failureVerified(input)
     case 'recorded':
       return events.failureCaseRecorded(input)
     case 'assessed':
@@ -34,6 +37,8 @@ export function failureEvent(value: FailureCase, kind: FailureChange) {
 }
 
 export interface FailureStore {
+  progress(taskId: string): ValidationProgress | undefined
+  saveProgress(value: ValidationProgress): ValidationProgress
   list(taskId: string): FailureCase[]
   get(id: string): FailureCase | undefined
   context(id: string): FailureContext | undefined
@@ -60,6 +65,7 @@ export function createFailureStore({
     if (kind === 'recorded') {
       if (
         previous ||
+        value.verifications?.length ||
         value.assessments.length ||
         value.additions.length ||
         value.decisions.length ||
@@ -78,12 +84,14 @@ export function createFailureStore({
         'originalCheck',
         'contextId',
         'createdAt',
+        'validation',
       ] as const
       for (const field of fields) {
         if (JSON.stringify(previous[field]) !== JSON.stringify(value[field]))
           throw new Error('original failure evidence is immutable')
       }
       const changed = {
+        verified: 'verifications',
         assessed: 'assessments',
         evidence: 'additions',
         requested: 'decisions',
@@ -91,8 +99,8 @@ export function createFailureStore({
         invalidated: 'invalidations',
       } as const
       for (const field of Object.values(changed)) {
-        const old = previous[field]
-        const next = value[field]
+        const old = previous[field] ?? []
+        const next = value[field] ?? []
         if (
           next.length !== old.length + (field === changed[kind] ? 1 : 0) ||
           JSON.stringify(next.slice(0, old.length)) !== JSON.stringify(old)
@@ -103,9 +111,18 @@ export function createFailureStore({
     return failureEvent(value, kind)
   }
   return {
+    progress(taskId) {
+      const row = store.query(queryDb(validationProgress.where({ taskId }))).at(0)
+      return row ? (JSON.parse(row.data) as ValidationProgress) : undefined
+    },
+    saveProgress(value) {
+      commit(events.validationProgressed({ taskId: value.taskId, data: JSON.stringify(value) }))
+      changed(value.taskId)
+      return value
+    },
     list: (taskId) =>
       store
-        .query(queryDb(failureCases.where({ taskId })))
+        .query(queryDb(failureCases.where({ taskId }).orderBy('at', 'asc')))
         .map((r) => JSON.parse(r.data) as FailureCase),
     get,
     event,

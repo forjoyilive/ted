@@ -243,3 +243,31 @@ rejects(
   { kind: 'ratio', revision: 1, branchId: 'divider', ratio: 1 },
   'ratio must be',
 )
+
+test('Validate failure requests preserve all category, action and verification fields', () => {
+  for (const category of ['test', 'review', 'visual'] as const) {
+    const body = {
+      source: { kind: 'finding', runId: 'reviewer', finding: 'Original failure', category },
+      evidence: 'Reproduced before the repair',
+      contextId: 'tested-context',
+    }
+    expect(P.parseRecordFailureRequest(body)).toEqual(body)
+  }
+  for (const resolution of ['retry', 'fix'] as const) {
+    const body = { requestId: 'request', resolution, reason: 'Repeat the identified verification' }
+    expect(P.parseResolveFailureRequest(body)).toEqual(body)
+  }
+  expect(P.parseVerifyFailureRequest({ evidence: ' Fresh reproduction passed ' })).toEqual({
+    evidence: 'Fresh reproduction passed',
+  })
+})
+
+test('Validate failure parsers reject unknown categories and empty verification evidence', () => {
+  expect(() =>
+    P.parseRecordFailureRequest({
+      source: { kind: 'finding', runId: 'reviewer', finding: 'Failure', category: 'other' },
+      evidence: 'Evidence',
+    }),
+  ).toThrow('category must be test, review or visual')
+  expect(() => P.parseVerifyFailureRequest({ evidence: '' })).toThrow('nonempty text')
+})
