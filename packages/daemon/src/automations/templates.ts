@@ -2,7 +2,7 @@ import type { AutomationTemplate } from '@ted/protocol'
 
 const linear = `Bring the Linear issues assigned to me into TED as Tasks.
 
-1. With your own Linear tools (the Linear MCP server or CLI you are signed in to), list the issues assigned to me that haven’t been started yet (Triage, Backlog, Todo), in every team.
+1. With your own Linear tools (the Linear MCP server or CLI you are signed in to), list the issues assigned to me that haven’t been started yet (Triage, Backlog, Todo), within this Factory’s Linear intake scope (or every team when Unscoped).
 2. For each one, run \`ted task create --source <the issue’s URL> "<the issue’s title>"\`. When TED says an issue is already tracked, leave it and move on.
 3. Don’t pass \`--start\`: new Tasks wait in Backlog until I start them.
 4. Don’t change anything in Linear.

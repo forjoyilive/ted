@@ -7,7 +7,7 @@ import type {
   Run,
   Task,
 } from '@ted/protocol'
-import { failureChoices, sizeChoices } from '@ted/protocol'
+import { failureChoices, sizeChoices, validateFailureChoices } from '@ted/protocol'
 import type { Simulators } from '../apps/simulators.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -518,8 +518,9 @@ export function createRequestAnswers(port: RequestAnswerPort) {
       }
       if (request.action !== 'answer' || request.choice === undefined)
         throw new RequestError(400, 'choose a failure resolution')
-      const resolution = (Object.keys(failureChoices) as (keyof typeof failureChoices)[]).find(
-        (key) => failureChoices[key] === request.choice,
+      const choices = { ...failureChoices, ...validateFailureChoices }
+      const resolution = (Object.keys(choices) as (keyof typeof choices)[]).find(
+        (key) => choices[key] === request.choice,
       )
       if (!resolution) throw new RequestError(400, 'choose a failure resolution')
       return holding(task, async () => {

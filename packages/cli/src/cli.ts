@@ -28,12 +28,16 @@ import {
   isShowing,
   type LocalDesignReviewInput,
   minGhVersion,
+  parseAddFailureEvidenceRequest,
+  parseAssessFailureRequest,
   parseBrowserRequest,
   parseDesignReviewInput,
   parseLinearUrl,
   parseLocalDesignReviewInput,
   parseProposalInput,
+  parseRecordFailureRequest,
   parseRoundInput,
+  parseVerifyFailureRequest,
   type RepoSetupReport,
   RequestValidationError,
   type RoundInput,
@@ -722,6 +726,15 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     console.log(JSON.stringify(receipt))
   }
 
+  async function failureResult(
+    work: (client: DaemonClient, ref: string) => Promise<unknown>,
+  ): Promise<void> {
+    const ref = taskRef()
+    console.log(
+      printable(JSON.stringify(await withDaemon(home, (client) => work(client, ref)), null, 2)),
+    )
+  }
+
   async function browser(action: BrowserRequest['action']): Promise<void> {
     const request: BrowserRequest = { action }
     if (action === 'open')
@@ -748,6 +761,49 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   }
 
   const handlers = {
+    failureList: () => failureResult((client, ref) => client.listFailures(ref)),
+    failureContext: () => failureResult((client, ref) => client.captureFailureContext(ref)),
+    failureObligations: () => failureResult((client, ref) => client.validationObligations(ref)),
+    failureShow: () =>
+      failureResult(async (client, ref) => {
+        const found = (await client.listFailures(ref)).find((value) => value.id === args[0])
+        if (!found) throw new UsageError('no such failure on this Task')
+        return found
+      }),
+    failureRecord: async () => {
+      const ref = taskRef()
+      const input = await readParsedFile(options.file ?? '', 'failure', parseRecordFailureRequest)
+      await failureResult((client) => client.recordFailure(ref, input))
+    },
+    failureEvidence: async () => {
+      const ref = taskRef()
+      const input = await readParsedFile(
+        options.file ?? '',
+        'failure evidence',
+        parseAddFailureEvidenceRequest,
+      )
+      await failureResult((client) => client.addFailureEvidence(ref, args[0] ?? '', input))
+    },
+    failureAssess: async () => {
+      const ref = taskRef()
+      const input = await readParsedFile(
+        options.file ?? '',
+        'failure assessment',
+        parseAssessFailureRequest,
+      )
+      await failureResult((client) => client.assessFailure(ref, args[0] ?? '', input))
+    },
+    failureVerify: async () => {
+      const ref = taskRef()
+      const input = await readParsedFile(
+        options.file ?? '',
+        'failure verification',
+        parseVerifyFailureRequest,
+      )
+      await failureResult((client) => client.verifyFailure(ref, args[0] ?? '', input.evidence))
+    },
+    failureAsk: () =>
+      failureResult((client, ref) => client.requestFailureDecision(ref, args[0] ?? '')),
     browserOpen: async () => {
       await browser('open')
     },

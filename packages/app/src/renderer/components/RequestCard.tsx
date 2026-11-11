@@ -6,11 +6,18 @@ import type {
   SignOffChanges,
   Task,
   TaskChanges,
+  ValidationProgress,
 } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
-import { useCheckRuns, useComments, useSimulators, useThreadEvents } from '../data.ts'
+import {
+  useCheckRuns,
+  useComments,
+  useSimulators,
+  useThreadEvents,
+  useValidationObligations,
+} from '../data.ts'
 import {
   age,
   ago,
@@ -31,6 +38,11 @@ import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { DesignReviewContent } from './DesignReview.tsx'
+import {
+  FailureRequestDetails,
+  RecordedValidationSummary,
+  ValidationSummary,
+} from './FailureDetails.tsx'
 import { Help } from './Help.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
@@ -244,25 +256,61 @@ function BriefSections({ text, title }: { text: string; title: string }) {
   )
 }
 
-function ConfirmationRow({ request, task }: { request: Comment; task: Task }) {
+function CurrentConfirmationRow({ request, task }: { request: Comment; task: Task }) {
+  const obligations = useValidationObligations(task.id)
+  return (
+    <ConfirmationRow
+      request={request}
+      task={task}
+      readOnly={false}
+      currentProgress={obligations?.progress}
+    />
+  )
+}
+
+function ConfirmationRow({
+  request,
+  task,
+  readOnly,
+  currentProgress,
+}: {
+  request: Comment
+  task: Task
+  readOnly: boolean
+  currentProgress?: ValidationProgress | undefined
+}) {
   const events = useThreadEvents(task.id)
   const checkRuns = useCheckRuns(task.id)
   const [open, setOpen] = useState<number>()
   const validated = events.findLast((e) => e.validate === 'passed' && e.at <= request.createdAt)
-  if (!validated) return null
-  const checkRun = checkRuns.find((r) => r.id === validated.checkRunId)
-  if (!checkRun && !validated.judgments) return null
+  const checkRun = checkRuns.find((r) => r.id === validated?.checkRunId)
+  const snapshot = readOnly ? validated?.validation : undefined
+  const progress = readOnly ? snapshot?.progress : currentProgress
   return (
-    <div className={styles.confirmation}>
-      <ChecksRow
-        checks={checkRun?.checks ?? []}
-        {...(validated.judgments && { judgments: validated.judgments })}
-        onOpen={setOpen}
-      />
-      {checkRun && open !== undefined && (
-        <CheckOutputDialog checkRun={checkRun} position={open} onClose={() => setOpen(undefined)} />
+    <>
+      {(checkRun || validated?.judgments) && (
+        <div className={styles.confirmation}>
+          <ChecksRow
+            checks={progress ? [] : (checkRun?.checks ?? [])}
+            {...(validated?.judgments && { judgments: validated.judgments })}
+            onOpen={setOpen}
+          />
+          {checkRun && open !== undefined && (
+            <CheckOutputDialog
+              checkRun={checkRun}
+              position={open}
+              onClose={() => setOpen(undefined)}
+              {...(readOnly && { failures: snapshot?.failures ?? [] })}
+            />
+          )}
+        </div>
       )}
-    </div>
+      {readOnly ? (
+        snapshot && <RecordedValidationSummary taskId={task.id} snapshot={snapshot} />
+      ) : (
+        <ValidationSummary taskId={task.id} />
+      )}
+    </>
   )
 }
 
@@ -475,9 +523,13 @@ export function RequestCard({
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
-      {request.kind === 'signoff' && request.stage === 'review' && (
-        <ConfirmationRow request={request} task={task} />
-      )}
+      {request.kind === 'signoff' &&
+        request.stage === 'review' &&
+        (readOnly ? (
+          <ConfirmationRow request={request} task={task} readOnly />
+        ) : (
+          <CurrentConfirmationRow request={request} task={task} />
+        ))}
       {request.design && Object.keys(request.design).length > 0 ? (
         <DesignReviewContent
           design={request.design}
@@ -485,6 +537,8 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
+      ) : request.choices?.includes('Retry') && request.choices.includes('Accept this failure') ? (
+        <FailureRequestDetails taskId={task.id} requestId={request.id} fallback={request.body} />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (

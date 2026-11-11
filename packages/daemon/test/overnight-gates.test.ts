@@ -1,9 +1,11 @@
 import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
+  type CheckRun,
   type Factory,
   type FactoryBoard,
   type FactorySettingsView,
+  type FailureCase,
   type InboxItem,
   type LibraryView,
   type Task,
@@ -244,6 +246,21 @@ describe('overnight mode turns Gates off', () => {
   })
 })
 
+async function verifyCurrent(client: Client, task: Task) {
+  const token = await lead(client, task)
+  const id = await waitUntil(async () => {
+    const response = await token.call('POST', `/tasks/${task.id}/checks`, {})
+    if (response.status === 409 && JSON.stringify(response.body).includes('already moving'))
+      return undefined
+    expect(response.status, JSON.stringify(response.body)).toBe(201)
+    return (response.body as CheckRun).id
+  }, 'start current coverage when the merge watcher releases the Task')
+  await waitUntil(async () => {
+    const runs = await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)
+    return runs.find((r) => r.id === id)?.outcome === 'passed'
+  }, 'fresh coverage for the changed worktree')
+}
+
 describe('overnight mode and a Task that changes .ted/', () => {
   const open = { order: 'intake, work, validate, merge' }
   const kept = (stage: string) =>
@@ -357,6 +374,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const reviewed = repo?.pullRequest?.signedOff
     expect(reviewed).toBeDefined()
     await lateSettingsCommit(repo?.worktree ?? '')
+    await verifyCurrent(client, task)
 
     await setGh(passed)
     const card = await mergeCard(client, task)
@@ -380,6 +398,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const waiting = await waitingForCi(client, task)
     expect(await gateRequests(client, task)).toEqual([])
     await lateSettingsCommit(waiting.repos[0]?.worktree ?? '')
+    await verifyCurrent(client, task)
 
     await setGh(passed)
     const card = await mergeCard(client, task)
@@ -430,6 +449,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
       'the Task to record auto-merge as off',
     )
 
+    await verifyCurrent(client, task)
     await setGh({
       mergeState: 'CLEAN',
       checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
@@ -464,6 +484,8 @@ describe('overnight mode and a Task that changes .ted/', () => {
     flip.worktree = waiting.repos[0]?.worktree ?? ''
 
     await setGh(passed)
+    await waitUntil(async () => flip.done, 'late settings edit before the merge')
+    await verifyCurrent(client, task)
     await mergeCard(client, task)
     expect(flip.done).toBe(true)
     expect(await merges()).toEqual([])
@@ -480,6 +502,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const waiting = await waitingForCi(client, task)
     await new Promise((resolve) => setTimeout(resolve, 300))
     await writeFile(path.join(waiting.repos[0]?.worktree ?? '', '.ted', 'notes.md'), 'Edited.\n')
+    await verifyCurrent(client, task)
 
     await setGh(passed)
     await mergeCard(client, task)
@@ -504,6 +527,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const repo = (await getTask(client, task.id)).repos[0]
     const requested = repo?.pushed?.commit
     await lateSettingsCommit(repo?.worktree ?? '')
+    await verifyCurrent(client, task)
 
     await client.ok('POST', `/comments/${review?.request.id}/answer`, { action: 'approve' })
     const card = await mergeCard(client, task)
@@ -516,5 +540,69 @@ describe('overnight mode and a Task that changes .ted/', () => {
     await waitForStage(client, task, 'done')
     expect(await merges()).toHaveLength(1)
     expect(await branchHead(repo?.branch ?? '')).toBe(listed)
+  })
+
+  test('verified failure history cannot delay disabling auto-merge for a late settings edit', async () => {
+    const client = await start({
+      ...open,
+      files: ci,
+      workflow: [
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Tests, run: "if [ -e stub-retried ]; then exit 0; else touch stub-retried; exit 1; fi" }',
+      ],
+      merge: {
+        mergeState: 'BLOCKED',
+        autoMergeAllowed: true,
+        checks: [{ name: 'test', status: 'IN_PROGRESS', required: true }],
+      },
+    })
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    const token = await lead(client, task)
+    const post = async <T>(route: string, body = {}): Promise<T> => {
+      const res = await token.call('POST', `/tasks/${task.id}${route}`, body)
+      expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+      return res.body as T
+    }
+    const finding = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).at(-1),
+      'failed Check recorded',
+    )
+    await post(`/failures/${finding.id}/assessments`, {
+      assessment: 'uncertain',
+      recommendation: 'Retry the transient fixture failure.',
+    })
+    const asked = await post<FailureCase>(`/failures/${finding.id}/decision`)
+    await client.ok('POST', `/comments/${asked.decisions.at(-1)?.commentId}/answer`, {
+      action: 'answer',
+      choice: 'Retry',
+    })
+    await waitUntil(
+      async () =>
+        (await client.ok<{ satisfied: boolean }>('GET', `/tasks/${task.id}/validation-obligations`))
+          .satisfied,
+      'retry verifies the historical failure',
+    )
+    await advanceTo(client, task, 'merge')
+    const auto = await waitUntil(async () => {
+      const value = await getTask(client, task.id)
+      return value.repos[0]?.pullRequest?.autoMerge ? value : undefined
+    }, 'auto-merge enabled')
+    await lateSettingsCommit(auto.repos[0]?.worktree ?? '')
+    await waitUntil(
+      async () => (await readGh()).merge.autoMerge === undefined,
+      'auto-merge disabled despite verified failure history',
+    )
+    expect((await merges()).at(-1)).toContain('--disable-auto')
+    const obligations = await client.ok<{ satisfied: boolean }>(
+      'GET',
+      `/tasks/${task.id}/validation-obligations`,
+    )
+    expect(obligations.satisfied).toBe(false)
+    expect(await plainMerges()).toEqual([])
   })
 })

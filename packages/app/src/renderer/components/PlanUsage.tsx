@@ -1,5 +1,6 @@
-import { type AgentHealth, type AgentKind, agentKinds, type Billing } from '@ted/protocol'
+import type { AgentHealth, AgentKind, Billing } from '@ted/protocol'
 import { agentShortNames, runsPaused } from '@ted/protocol/health'
+import { agentKinds } from '@ted/protocol/run'
 import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import {
   fullestWindow,

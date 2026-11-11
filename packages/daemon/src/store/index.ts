@@ -75,6 +75,7 @@ import {
   type TaskRepo,
   type TaskSource,
   type TrackStage,
+  validateFailureChoices,
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -93,6 +94,7 @@ import {
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
@@ -457,6 +459,7 @@ export interface HeldRun {
 }
 
 export interface TedStore extends TaskHistory {
+  execution: ExecutionStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
@@ -762,6 +765,9 @@ export interface TedStore extends TaskHistory {
   getRun(id: string): Run | undefined
   runProblemAt(runId: string): string | undefined
   listRuns(): Run[]
+  busyTaskIds(): string[]
+  tasksIn(ids: ReadonlySet<string>): Task[]
+  backlogTasks(): { id: string; snoozed: boolean }[]
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
@@ -1844,6 +1850,15 @@ export async function openStore({
   })
 
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
+  const taskRowByDisplayId = (ref: string) => {
+    const dash = ref.lastIndexOf('-')
+    const digits = ref.slice(dash + 1)
+    if (dash < 0 || !/^(0|[1-9]\d*)$/.test(digits)) return undefined
+    const key = ref.slice(0, dash)
+    return store
+      .query(queryDb(tasks.where({ number: Number(digits) })))
+      .find((row) => factoryKey(row.factoryId) === key)
+  }
   const lastCommentAt = (taskId: string) =>
     store
       .query(queryDb(comments.where({ taskId })))
@@ -2298,7 +2313,26 @@ export async function openStore({
     },
   })
 
+  const execution = createExecutionStore({
+    store,
+    commit,
+    task(id) {
+      const row = taskRow(id)
+      return (
+        row && {
+          started:
+            row.branch !== null ||
+            row.worktree !== null ||
+            taskRuns(id).length > 0 ||
+            store.query(queryDb(taskRepos.where({ taskId: id }))).length > 0,
+        }
+      )
+    },
+  })
+  await persisted()
+
   return {
+    execution,
     sideChats: createSideChatStore({
       store,
       commit,
@@ -2357,7 +2391,10 @@ export async function openStore({
           taskId: value.taskId,
           kind: 'question',
           body,
-          choices: Object.values(failureChoices),
+          ...(value.validation && {
+            title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
+          }),
+          choices: Object.values(value.validation ? validateFailureChoices : failureChoices),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
@@ -2433,7 +2470,7 @@ export async function openStore({
       plan,
       setup = false,
     }) {
-      const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
+      const inFactory = store.query(queryDb(tasks.where({ factoryId })))
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
       const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
       const awaitingSetup =
@@ -2536,7 +2573,8 @@ export async function openStore({
     listTasks: () => listTasks().map(toPublicTask),
     getTask(ref) {
       const row = taskRow(ref)
-      return row ? toTask(row) : listTasks().find((t) => t.displayId === ref)
+      const found = row ?? taskRowByDisplayId(ref)
+      return found && toTask(found)
     },
     startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
@@ -2674,6 +2712,7 @@ export async function openStore({
       checkingTasks.delete(taskId)
       const at = new Date().toISOString()
       commit(
+        events.taskExecutionForgotten({ taskId, at }),
         events.taskDeleted({
           taskId,
           factoryId: row.factoryId,
@@ -3795,11 +3834,18 @@ export async function openStore({
       const judged = (j: { passed: boolean; notes?: number } | undefined) =>
         j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }
       commit(
-        events.validateJudged({
+        events.validateJudgedV2({
           id: randomUUID(),
           taskId,
           outcome,
           checkRunId: checkRunId ?? null,
+          validation:
+            outcome === 'passed'
+              ? JSON.stringify({
+                  progress: failureStore.progress(taskId),
+                  failures: failureStore.list(taskId).filter((failure) => failure.validation),
+                })
+              : null,
           review: judged(review),
           visual: judged(visual),
           reviewer:
@@ -4078,6 +4124,20 @@ export async function openStore({
     },
     runProblemAt: (runId) => runRow(runId)?.problemAt ?? undefined,
     listRuns: () => store.query(allRuns).map(toRun),
+    busyTaskIds: () => [
+      ...store.query(queryDb(runs.where({ state: 'working' }))).flatMap((r) => r.taskId ?? []),
+      ...store.query(queryDb(taskRepos.where({ setupState: 'running' }))).map((r) => r.taskId),
+    ],
+    tasksIn: (ids) =>
+      store
+        .query(allTasks)
+        .filter((row) => ids.has(row.id))
+        .map((row) => toPublicTask(toTask(row))),
+    backlogTasks: () =>
+      store
+        .query(allTasks)
+        .filter((row) => row.stage === 'backlog' && row.archivedAt === null)
+        .map((row) => ({ id: row.id, snoozed: Boolean(row.snoozedUntil) })),
     runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {

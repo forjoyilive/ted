@@ -31,6 +31,7 @@ export interface SubAgents {
   queued(): QueueEntry[]
   begin(id: string): void
   starting(taskId: string): number
+  startingTasks(): string[]
   wait(runId: string, caller: Caller, timeoutMs: number): Promise<SubAgentWait>
   send(runId: string, caller: Caller, text: string): Promise<SubAgent>
   stop(runId: string, caller: Caller): Promise<SubAgent>
@@ -46,7 +47,9 @@ export interface ReviewerChoice {
 
 export interface SubAgentDeps {
   store: TedStore
-  runs: RunManager
+  runs: Pick<RunManager, 'start' | 'stop' | 'send' | 'observe'> & {
+    output: Pick<RunManager['output'], 'entries'>
+  }
   agents: Agents
   find(ref: string): StoredTask
   leadFor(task: StoredTask): Promise<TaskLead>
@@ -55,6 +58,7 @@ export interface SubAgentDeps {
   permissionsFor(task: StoredTask): Promise<PermissionMode>
   clonePathFor(repo: TaskRepo): string
   runFolder(task: StoredTask): Promise<string | undefined>
+  prepareExecution(task: StoredTask): Promise<void>
   worktreesDir: string
   pump(): void
   inBackground(what: string, work: () => Promise<void>): void
@@ -181,6 +185,17 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const parent = store.getRun(request.parentRunId)
     const repo = task.repos.find((r) => !r.removed)
     if (!parent || parent.state === 'finished' || !repo || task.archived) {
+      drop(request.id)
+      return
+    }
+    await deps.prepareExecution(task)
+    const current = find(task.id)
+    if (
+      cancelled.has(request.id) ||
+      current.stopped ||
+      current.archived ||
+      store.getRun(parent.id)?.state === 'finished'
+    ) {
       drop(request.id)
       return
     }
@@ -448,6 +463,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     starting(taskId) {
       return [...startingNow.values()].filter((id) => id === taskId).length
     },
+    startingTasks: () => [...startingNow.values()],
     async wait(runId, caller, timeoutMs) {
       ownSubAgent(runId, caller)
       const leadRunId = caller.kind === 'run' ? caller.runId : ''

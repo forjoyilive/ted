@@ -4,6 +4,18 @@ TED (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
+**Controller**:
+The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when TED uses several machines.
+_Avoid_: Primary server, master
+
+**Execution machine**:
+The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
+_Avoid_: Worker node, remote host
+
+**Task assignment**:
+The durable ownership of a Task’s execution by one machine; losing contact does not move that ownership elsewhere.
+_Avoid_: Lease, placement hint
+
 **Factory**:
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
 _Avoid_: Project (when meaning the whole pipeline), pipeline
@@ -53,7 +65,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly, and a failure sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
+A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly. A failure stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:

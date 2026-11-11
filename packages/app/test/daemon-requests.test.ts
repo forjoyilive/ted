@@ -1,6 +1,6 @@
 import { once } from 'node:events'
 import { createServer } from 'node:http'
-import { DaemonClient, DaemonRequestError } from '@ted/protocol'
+import { DaemonClient, DaemonRequestError, defaultMachineSettings } from '@ted/protocol'
 import { expect, test, vi } from 'vitest'
 import { getAutomation, taskBrief } from '../src/daemon-adapters.ts'
 import {
@@ -91,6 +91,35 @@ test('dispatch binds the real client, preserves objects and encoded identifiers,
       server.close((error) => (error ? reject(error) : resolve())),
     )
   }
+})
+
+test('Linear intake calls retain their client arguments through the request bridge', async () => {
+  const instance = client()
+  const choices = {
+    teams: [],
+    projects: [],
+    workspaceId: 'w1',
+    workspace: 'workspace',
+  }
+  const read = vi.spyOn(instance, 'getLinearIntakeChoices').mockResolvedValue(choices)
+  const save = vi
+    .spyOn(instance, 'setFactoryLinearIntake')
+    .mockResolvedValue(defaultMachineSettings)
+  const api = daemonRequests((name, ...args) => forwardDaemonRequest(instance, name, args))
+  expect(await api.getLinearIntakeChoices()).toBe(choices)
+  expect(read).toHaveBeenCalledExactlyOnceWith()
+  const scope = {
+    kind: 'team' as const,
+    id: 'team-one',
+    name: 'Team One',
+    workspaceId: 'w1',
+    workspace: 'workspace',
+  }
+  await api.setFactoryLinearIntake('factory/one', scope)
+  expect(save).toHaveBeenCalledExactlyOnceWith('factory/one', scope)
+  expect(save.mock.calls[0]?.[1]).toBe(scope)
+  await api.setFactoryLinearIntake('factory/one', null)
+  expect(save).toHaveBeenLastCalledWith('factory/one', null)
 })
 
 test('transport failures are not swallowed by forwards or the missing-brief adapter', async () => {

@@ -93,7 +93,13 @@ import type {
 } from './failures.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
-import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
+import type {
+  LinearIntakeChoices,
+  LinearIntakeScope,
+  LinearLookup,
+  LinearStatus,
+  SaveLinearKeyRequest,
+} from './linear.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
   Plan,
@@ -588,6 +594,13 @@ export class DaemonClient {
       input,
     )
   }
+  verifyFailure(ref: string, id: string, evidence: string): Promise<FailureCase> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/verification`,
+      { evidence },
+    )
+  }
   requestFailureDecision(ref: string, id: string): Promise<FailureCase> {
     return this.#request(
       'POST',
@@ -993,6 +1006,19 @@ export class DaemonClient {
 
   runFix(input: RunFixRequest): Promise<RunFixResult> {
     return this.#request('POST', '/integrations/fix', input)
+  }
+
+  getLinearIntakeChoices(): Promise<LinearIntakeChoices> {
+    return this.#request('GET', '/integrations/linear/intake-choices')
+  }
+
+  setFactoryLinearIntake(
+    factoryId: string,
+    scope: LinearIntakeScope | null,
+  ): Promise<MachineSettings> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/linear-intake`, {
+      scope,
+    })
   }
 
   getLinear(): Promise<LinearStatus> {

@@ -39,6 +39,7 @@ export function appState() {
     drift: () => ({ library: 0, factories: {} }),
     simulators: () => ({ supported: false, limit: 2, booted: [] }),
     getSettings: () => state.settings,
+    getLinear: () => ({ state: 'no-key' }),
     notificationsOff: () => false,
     updateStatus: () => ({ state: 'unavailable' }),
     getProfile: () => ({ name: 'Nabha Cosley' }),
@@ -59,9 +60,10 @@ export function appState() {
       api.emit({ type: 'settings-changed', settings: state.settings })
       return state.settings
     },
-    taskGates: () => ({ rows: [], overrides: {}, revision: 'v1' }),
     listComments: () => [],
     listThreadEvents: () => [],
+    listFailures: () => [],
+    validationObligations: () => ({ satisfied: true, cases: [], blockers: [], checkRuns: [] }),
     listCheckRuns: () => [],
     listTaskRuns: () => [],
     taskBrief: () => null,
@@ -71,6 +73,7 @@ export function appState() {
     lineComments: () => [],
     listApps: () => [],
     listStageEntries: () => [],
+    taskGates: () => ({ overrides: {}, rows: [], revision: 'gates-1' }),
   })
   return {
     state,

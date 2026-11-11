@@ -106,6 +106,18 @@ export async function waitUntil<T>(
   }
 }
 
+// A host that has not started when its daemon stops refuses to start, so a test that
+// restarts the daemon under a Run waits for this first.
+export async function hostsStarted(home: string): Promise<void> {
+  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
+  for (const runId of runIds) {
+    await waitUntil(
+      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
+      `Run ${runId}’s host to start`,
+    )
+  }
+}
+
 export async function hostRecords(home: string, runId: string): Promise<Record<string, unknown>[]> {
   const log = await readFile(path.join(home, 'runs', runId, 'host.log'), 'utf8').catch(() => '')
   return log
@@ -115,9 +127,20 @@ export async function hostRecords(home: string, runId: string): Promise<Record<s
     .map((l) => JSON.parse(l) as Record<string, unknown>)
 }
 
-export async function killRunHosts(home: string): Promise<void> {
+// A host that had not started when its daemon stopped refuses to start (launch authority),
+// so the wait for its start record is short.
+export async function killRunHosts(
+  home: string,
+  { waitForStart = false }: { waitForStart?: boolean } = {},
+): Promise<void> {
   const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
   for (const runId of runIds) {
+    if (waitForStart)
+      await waitUntil(
+        async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
+        `Run ${runId}’s host to start`,
+        2_000,
+      ).catch(() => undefined)
     const starts = (await hostRecords(home, runId)).filter((r) => r.t === 'start')
     for (const pid of starts.flatMap((start) => [start.agentPid, start.hostPid])) {
       try {

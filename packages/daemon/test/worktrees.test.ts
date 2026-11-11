@@ -3,7 +3,6 @@ import {
   chmod,
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   realpath,
   rm,
@@ -21,7 +20,6 @@ import {
   api,
   assistantTexts,
   commitToOrigin,
-  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -49,14 +47,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
-  await killRunHosts(home)
+  await killRunHosts(home, { waitForStart: true })
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
 })

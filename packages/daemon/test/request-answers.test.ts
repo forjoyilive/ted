@@ -201,37 +201,44 @@ test('Request changes requires words and delivers them without approving', async
   expect(effects).toEqual(['delivered'])
 })
 
-test('a failure decision uses its specialist, while a text follow-up leaves the decision open', async () => {
-  const comment = post({ kind: 'failure' })
-  const failure: FailureCase = {
-    id: 'failure',
-    taskId,
-    source: { kind: 'finding', runId: 'lead', finding: 'Example' },
-    recordedBy: 'lead',
-    provenance: 'task-lead-reported',
-    evidence: 'Failed',
-    createdAt: at(),
-    assessments: [],
-    additions: [],
-    decisions: [],
-    resolutions: [],
-    invalidations: [],
-  }
-  port.failures.findDecision = () => failure
-  port.failures.resolve = async (_task, _id, request, sendDrafts) => {
-    effects.push(`resolved:${request.resolution}:${sendDrafts}`)
-    finish(comment)
-    return failure
-  }
-  port.humanComment = async (_task, text, _files, sendDrafts) => {
-    effects.push(`follow-up:${sendDrafts}`)
-    return store.postComment({ taskId, body: text, author: { kind: 'human' } })
-  }
-  await answer(comment, { action: 'answer', text: 'More context' }, false)
-  expect(store.getComment(comment.id)?.answer).toBeUndefined()
-  await answer(comment, { action: 'answer', choice: 'Accept this failure' }, false)
-  expect(effects).toEqual(['follow-up:false', 'resolved:accepted:false'])
-})
+test.each([
+  ['Accept this failure', 'accepted'],
+  ['Retry', 'retry'],
+  ['Fix in this Task', 'fix'],
+])(
+  'a failure decision routes %s to its specialist, while a text follow-up leaves it open',
+  async (choice, resolution) => {
+    const comment = post({ kind: 'failure' })
+    const failure: FailureCase = {
+      id: 'failure',
+      taskId,
+      source: { kind: 'finding', runId: 'lead', finding: 'Example' },
+      recordedBy: 'lead',
+      provenance: 'task-lead-reported',
+      evidence: 'Failed',
+      createdAt: at(),
+      assessments: [],
+      additions: [],
+      decisions: [],
+      resolutions: [],
+      invalidations: [],
+    }
+    port.failures.findDecision = () => failure
+    port.failures.resolve = async (_task, _id, request, sendDrafts) => {
+      effects.push(`resolved:${request.resolution}:${sendDrafts}`)
+      finish(comment)
+      return failure
+    }
+    port.humanComment = async (_task, text, _files, sendDrafts) => {
+      effects.push(`follow-up:${sendDrafts}`)
+      return store.postComment({ taskId, body: text, author: { kind: 'human' } })
+    }
+    await answer(comment, { action: 'answer', text: 'More context' }, false)
+    expect(store.getComment(comment.id)?.answer).toBeUndefined()
+    await answer(comment, { action: 'answer', choice }, false)
+    expect(effects).toEqual(['follow-up:false', `resolved:${resolution}:false`])
+  },
+)
 
 test('a failed Run’s Retry uses the existing resume effect', async () => {
   const comment = post({ kind: 'failed-run' }, { choices: ['Retry'] })

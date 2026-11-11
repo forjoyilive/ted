@@ -4,6 +4,7 @@ import type {
   FailureSource,
   RecordFailureRequest,
   ResolveFailureRequest,
+  VerifyFailureRequest,
 } from './failures.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
 
@@ -33,8 +34,22 @@ function failureSource(value: unknown): FailureSource {
       position: body.position as number,
     }
   }
-  if (kind === 'finding')
-    return { kind, runId: failureString(body, 'runId'), finding: failureString(body, 'finding') }
+  if (kind === 'finding') {
+    const category = body.category
+    if (
+      category !== undefined &&
+      category !== 'test' &&
+      category !== 'review' &&
+      category !== 'visual'
+    )
+      throw new HttpError(400, 'category must be test, review or visual')
+    return {
+      kind,
+      runId: failureString(body, 'runId'),
+      finding: failureString(body, 'finding'),
+      ...(category !== undefined && { category }),
+    }
+  }
   if (kind === 'github-ci') {
     if (!Number.isSafeInteger(body.number) || (body.number as number) < 1)
       throw new HttpError(400, 'number must be a positive PR number')
@@ -82,7 +97,13 @@ export function parseAssessFailureRequest(value: unknown): AssessFailureRequest 
 export function parseResolveFailureRequest(value: unknown): ResolveFailureRequest {
   const body = failureObject(value)
   const resolution = body.resolution
-  if (resolution !== 'accepted' && resolution !== 'fixed' && resolution !== 'no-longer-applicable')
+  if (
+    resolution !== 'accepted' &&
+    resolution !== 'fixed' &&
+    resolution !== 'no-longer-applicable' &&
+    resolution !== 'retry' &&
+    resolution !== 'fix'
+  )
     throw new HttpError(400, 'unknown failure resolution')
   const input: ResolveFailureRequest = {
     requestId: failureString(body, 'requestId'),
@@ -90,4 +111,8 @@ export function parseResolveFailureRequest(value: unknown): ResolveFailureReques
     ...(body.reason !== undefined && { reason: failureString(body, 'reason') }),
   }
   return input
+}
+
+export function parseVerifyFailureRequest(value: unknown): VerifyFailureRequest {
+  return { evidence: failureString(failureObject(value), 'evidence') }
 }

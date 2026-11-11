@@ -127,6 +127,7 @@ test('Task history waits for comments, events and Checks, then keeps content on 
     listComments: () => comments.promise,
     listThreadEvents: () => events.promise,
     listCheckRuns: () => [],
+    listFailures: () => [],
   })
   render(history())
   expect(screen.getByRole('status', { name: 'Loading Task history…' })).toBeTruthy()
@@ -153,6 +154,7 @@ test('switching Tasks resets history loading and ignores a late response for the
     listComments: (id) => (id === 'NB-1' ? old.promise : next.promise),
     listThreadEvents: () => [],
     listCheckRuns: () => [],
+    listFailures: () => [],
   })
   const view = render(history())
   view.rerender(history(task({ id: 'NB-2', displayId: 'NB-2' })))

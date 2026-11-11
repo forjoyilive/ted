@@ -4,6 +4,7 @@ import type {
   Automation,
   AutomationDetail,
   AutomationRequest,
+  AutomationTaskLink,
   AutomationTemplate,
   Banner,
   CheckRun,
@@ -14,6 +15,7 @@ import type {
   DescriptionVersion,
   DriftCounts,
   Factory,
+  FailureCase,
   InboxItem,
   MachineSettings,
   Plan,
@@ -29,8 +31,9 @@ import type {
   TaskApp,
   TaskBrief,
   ThreadEvent,
+  ValidationObligations,
 } from '@ted/protocol'
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
 import { readableError, type TedEvent, ted } from './ted.ts'
@@ -539,9 +542,14 @@ export function useAgentHealthState() {
   return { health, loaded, error, retry: () => setAttempt((n) => n + 1) }
 }
 
+interface Loaded<T> {
+  value: T | undefined
+  loading: boolean
+}
+
 function useReloading<T>(
   load: () => Promise<T>,
-  affects: (event: TedEvent) => boolean,
+  affects: (event: TedEvent, current: Loaded<T>) => boolean,
   key: string,
 ): T | undefined {
   return useReloadingState(load, affects, key).value
@@ -549,7 +557,7 @@ function useReloading<T>(
 
 function useReloadingState<T>(
   load: () => Promise<T>,
-  affects: (event: TedEvent) => boolean,
+  affects: (event: TedEvent, current: Loaded<T>) => boolean,
   key: string,
 ) {
   const [state, setState] = useState<{ key: string; value?: T; error?: string }>()
@@ -566,6 +574,7 @@ function useReloadingState<T>(
     let active = true
     let running = false
     let again = false
+    let latest: T | undefined
     setState((previous) => ({
       key,
       ...(previous?.key === key && previous.value !== undefined && { value: previous.value }),
@@ -580,6 +589,7 @@ function useReloadingState<T>(
         .current()
         .then(
           (value) => {
+            latest = value
             if (active) setState({ key, value })
           },
           (failure: unknown) => {
@@ -596,7 +606,7 @@ function useReloadingState<T>(
         })
     }
     const unsubscribe = ted.onEvent((event) => {
-      if (affectsRef.current(event)) run()
+      if (affectsRef.current(event, { value: latest, loading: running })) run()
     })
     run()
     return () => {
@@ -781,26 +791,83 @@ export function useDescriptionsState(taskId: string) {
   )
 }
 
-const automationEvents = new Set<TedEvent['type']>([
-  'automation-updated',
-  'automation-deleted',
-  'run-updated',
-  'slots-changed',
-  'task-updated',
-  'task-deleted',
-  'agent-health-changed',
-])
+const taskSignature = (link: AutomationTaskLink) =>
+  JSON.stringify([link.displayId, link.title, link.stage, link.source])
 
-export function useAutomations(factoryId: string | undefined): Automation[] | undefined {
-  return useAutomationsState(factoryId).value
+function automationWatch<T>(created: (value: T) => readonly AutomationTaskLink[]) {
+  const seen = new Map<string, string>()
+  const differs = (id: string, signature: string) => {
+    const before = seen.get(id)
+    seen.set(id, signature)
+    return before !== signature
+  }
+  return (event: TedEvent, { value, loading }: Loaded<T>): boolean => {
+    switch (event.type) {
+      case 'automation-updated':
+      case 'automation-deleted':
+      case 'task-deleted':
+      case 'agent-health-changed':
+        return true
+      case 'run-updated':
+        return (
+          event.run.taskId === undefined &&
+          event.run.parentRunId === undefined &&
+          differs(`run ${event.run.id}`, event.run.state)
+        )
+      case 'slots-changed':
+        return differs(
+          'slots',
+          event.slots.queue
+            .flatMap((q) => (q.kind === 'automation' ? [`${q.runId} ${q.place}`] : []))
+            .join(),
+        )
+      case 'task-updated': {
+        const { task } = event
+        if (
+          task.createdBy === 'human' ||
+          task.createdBy === 'planning' ||
+          task.createdBy === 'setup'
+        ) {
+          return false
+        }
+        const id = `task ${task.id}`
+        const signature = taskSignature({
+          id: task.id,
+          displayId: task.displayId,
+          title: task.title,
+          stage: task.stage,
+          ...(task.source?.url !== undefined && { source: task.source.url }),
+        })
+        const shown = value === undefined ? undefined : created(value).find((l) => l.id === task.id)
+        const before = seen.get(id) ?? (shown && taskSignature(shown))
+        seen.set(id, signature)
+        return before === undefined ? loading : before !== signature
+      }
+      default:
+        return false
+    }
+  }
+}
+
+const listedTasks = (automations: Automation[]) => automations.flatMap((a) => a.last?.created ?? [])
+
+const historyTasks = (detail: AutomationDetail | null) =>
+  detail?.history.flatMap((row) => row.created ?? []) ?? []
+
+export function useAutomationOutcomes(): Automation[] | undefined {
+  return useReloading(
+    () => ted.listAutomations(undefined),
+    (event) => event.type === 'automation-updated' || event.type === 'automation-deleted',
+    'automation-outcomes',
+  )
 }
 
 export function useAutomationsState(factoryId: string | undefined) {
-  return useReloadingState(
-    () => ted.listAutomations(factoryId),
-    (event) => automationEvents.has(event.type),
-    factoryId ?? '',
-  )
+  const { epoch } = useConnection()
+  const key = factoryId ?? ''
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection or list starts a new watch
+  const affects = useMemo(() => automationWatch(listedTasks), [epoch, key])
+  return useReloadingState(() => ted.listAutomations(factoryId), affects, key)
 }
 
 export function useAutomation(id: string): AutomationDetail | null | undefined {
@@ -808,9 +875,17 @@ export function useAutomation(id: string): AutomationDetail | null | undefined {
 }
 
 export function useAutomationState(id: string) {
+  const { epoch } = useConnection()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection or Automation starts a new watch
+  const watch = useMemo(() => automationWatch(historyTasks), [epoch, id])
   return useReloadingState(
     () => ted.getAutomation(id),
-    (event) => automationEvents.has(event.type),
+    (event, current) =>
+      event.type === 'automation-updated' || event.type === 'automation-deleted'
+        ? current.value == null ||
+          event.automationId === id ||
+          event.automationId === current.value.automation.id
+        : watch(event, current),
     id,
   )
 }
@@ -837,4 +912,47 @@ export function useAutomationRequests(): AutomationRequest[] {
 
 export function useAutomationTemplates(): AutomationTemplate[] {
   return useReloading(ted.automationTemplates, () => false, '') ?? []
+}
+
+export function useFailures(taskId: string): FailureCase[] {
+  return useValidationData(taskId, ted.listFailures) ?? []
+}
+
+export function useValidationObligations(taskId: string): ValidationObligations | undefined {
+  return useValidationData(taskId, ted.validationObligations)
+}
+
+function useValidationData<T>(taskId: string, read: (id: string) => Promise<T>): T | undefined {
+  const [value, setValue] = useState<T>()
+  const { epoch } = useConnection()
+  useEffect(() => {
+    void epoch
+    let active = true
+    let sequence = 0
+    setValue(undefined)
+    const load = () => {
+      const current = ++sequence
+      void read(taskId).then(
+        (result) => {
+          if (active && current === sequence) setValue(result)
+        },
+        () => {},
+      )
+    }
+    load()
+    const off = ted.onEvent((event) => {
+      if (
+        (event.type === 'task-updated' && event.task.id === taskId) ||
+        ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+          event.comment.taskId === taskId) ||
+        (event.type === 'check-run-updated' && event.checkRun.taskId === taskId)
+      )
+        load()
+    })
+    return () => {
+      active = false
+      off()
+    }
+  }, [taskId, epoch, read])
+  return value
 }

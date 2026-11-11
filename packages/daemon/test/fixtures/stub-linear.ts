@@ -16,6 +16,7 @@ export interface StubLinearIssue {
   priority?: number
   branchName?: string
   state?: string
+  projectId?: string
   teamName?: string
   teamKey?: string
   comments?: LinearComment[]
@@ -26,6 +27,11 @@ export interface StubLinearIssue {
 
 export interface StubLinearAccount {
   viewerReady?: Promise<void>
+  intakeReady?: Promise<void>
+  intakeMalformed?: boolean
+  intakeMissingCursor?: boolean
+  teams?: { id: string; key: string; name: string }[]
+  projects?: { id: string; name: string }[]
   name: string
   workspace: { name: string; urlKey: string }
   issues?: StubLinearIssue[]
@@ -128,7 +134,47 @@ export async function startStubLinear(
         path,
         extensions: { type: 'invalid input', code: 'INVALID_INPUT' },
       })
-      const organization = { name: account.workspace.name, urlKey: account.workspace.urlKey }
+      const organization = {
+        id: `workspace-${account.workspace.urlKey}`,
+        name: account.workspace.name,
+        urlKey: account.workspace.urlKey,
+      }
+      if (query.includes('TedIntakeWorkspace')) return reply(200, { data: { organization } })
+      if (query.includes('TedIntakeChoices')) {
+        const nodes = query.includes('targets: teams')
+          ? (account.teams ?? [])
+          : (account.projects ?? [])
+        const offset = Number(variables?.after ?? 0)
+        return reply(200, {
+          data: {
+            targets: {
+              nodes: nodes.slice(offset, offset + 100),
+              pageInfo: {
+                hasNextPage: offset + 100 < nodes.length,
+                endCursor: account.intakeMissingCursor ? null : String(offset + 100),
+              },
+            },
+          },
+        })
+      }
+      if (query.includes('TedIntakeMembership')) {
+        await account.intakeReady
+        const issue = byId(variables?.id)
+        return reply(200, {
+          data: {
+            organization,
+            issue: !issue
+              ? null
+              : {
+                  identifier: issue.identifier,
+                  team: { id: `team-${teamKeyOf(issue)}` },
+                  ...(account.intakeMalformed
+                    ? {}
+                    : { project: issue.projectId ? { id: issue.projectId } : null }),
+                },
+          },
+        })
+      }
       if (query.includes('TedIssueStates')) {
         const data: Record<string, unknown> = {}
         const errors: unknown[] = []

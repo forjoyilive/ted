@@ -1066,7 +1066,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         await sleep(pollMs)
         start = await startRecord(runDir)
       }
-      if (!start) throw new Error(`Run ${runId}'s host never started`)
+      if (!start) {
+        // No host holds the Run: it refused a launch from an earlier daemon, or died first.
+        if (!isLockHeld(runFiles(runDir).lock)) return void (await done)
+        throw new Error(`Run ${runId}'s host never started`)
+      }
       let held = isLockHeld(runFiles(runDir).lock)
       for (let waited = 0; !held && waited < stopGraceMs; waited += pollMs) {
         const ended = await Promise.race([done.then(() => true), sleep(pollMs).then(() => false)])

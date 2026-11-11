@@ -195,7 +195,7 @@ describe('Task details in the app', () => {
     await brief.getByText('Next step: Your sign-off.').waitFor()
     await expect
       .poll(() => details.getByRole('region').evaluateAll((els) => els.map((e) => e.ariaLabel)))
-      .toEqual(['Code', 'Changes', 'Runs', 'Task brief'])
+      .toEqual(['Code', 'Changes', 'Files', 'Runs', 'Task brief'])
 
     const runs = details.getByRole('region', { name: 'Runs' })
     await runs.getByRole('button', { name: /^Runs/ }).click()

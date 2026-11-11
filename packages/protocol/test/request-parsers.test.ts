@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import * as P from '../src/index.ts'
-import { rejects, roundTrip } from './parser-cases.ts'
+import { rejects, roundTrip, variant } from './parser-cases.ts'
 
 roundTrip(P.parseAppRef, { name: 'Dev', repo: 'ted' })
 roundTrip(P.parseStartAppRequest, {
@@ -85,6 +85,17 @@ roundTrip(P.parseRunFixRequest, { fix: 'gh-login', host: 'github.com' })
 roundTrip(P.parseSaveLinearKeyRequest, { key: 'test-key', inFile: true })
 roundTrip(P.parseLinearLookupRequest, { url: 'https://linear.app/team/issue/ENG-1/title' })
 roundTrip(P.parseAllowLinearTeamRequest, { factoryId: 'factory', team: 'ENG' })
+roundTrip(P.parseSetFactoryLinearIntakeRequest, {
+  scope: {
+    kind: 'team',
+    id: 'team-one',
+    name: 'One',
+    workspaceId: 'workspace-one',
+    workspace: 'acme',
+  },
+})
+variant(P.parseSetFactoryLinearIntakeRequest, { scope: null })
+
 roundTrip(P.parseRestoreBackupRequest, { name: 'backup', stopRuns: true })
 roundTrip(P.parseShutdownRequest, { keepRuns: true })
 roundTrip(P.parseBannerActionInput, { folder: '/tmp/repo' })
@@ -135,6 +146,13 @@ rejects(P.parseRunFixRequest, { fix: 'other' }, 'fix must be')
 rejects(P.parseSaveLinearKeyRequest, { key: 'key', inFile: 2 }, 'inFile must be')
 rejects(P.parseLinearLookupRequest, { url: 2 }, 'url must be text')
 rejects(P.parseAllowLinearTeamRequest, { factoryId: 'factory', team: 'bad key' }, 'Linear team key')
+rejects(
+  P.parseSetFactoryLinearIntakeRequest,
+  { scope: { kind: 'both' } },
+  'Choose a valid Linear scope',
+)
+rejects(P.parseSetFactoryLinearIntakeRequest, {}, 'Choose a valid Linear scope')
+
 rejects(
   P.parseDraftLineCommentRequest,
   { repo: 'ted', path: 'file', from: { old: 0 }, body: 'Hi' },
@@ -225,3 +243,31 @@ rejects(
   { kind: 'ratio', revision: 1, branchId: 'divider', ratio: 1 },
   'ratio must be',
 )
+
+test('Validate failure requests preserve all category, action and verification fields', () => {
+  for (const category of ['test', 'review', 'visual'] as const) {
+    const body = {
+      source: { kind: 'finding', runId: 'reviewer', finding: 'Original failure', category },
+      evidence: 'Reproduced before the repair',
+      contextId: 'tested-context',
+    }
+    expect(P.parseRecordFailureRequest(body)).toEqual(body)
+  }
+  for (const resolution of ['retry', 'fix'] as const) {
+    const body = { requestId: 'request', resolution, reason: 'Repeat the identified verification' }
+    expect(P.parseResolveFailureRequest(body)).toEqual(body)
+  }
+  expect(P.parseVerifyFailureRequest({ evidence: ' Fresh reproduction passed ' })).toEqual({
+    evidence: 'Fresh reproduction passed',
+  })
+})
+
+test('Validate failure parsers reject unknown categories and empty verification evidence', () => {
+  expect(() =>
+    P.parseRecordFailureRequest({
+      source: { kind: 'finding', runId: 'reviewer', finding: 'Failure', category: 'other' },
+      evidence: 'Evidence',
+    }),
+  ).toThrow('category must be test, review or visual')
+  expect(() => P.parseVerifyFailureRequest({ evidence: '' })).toThrow('nonempty text')
+})

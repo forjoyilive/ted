@@ -17,6 +17,8 @@ Make the change the Task asks for, on this Task’s branch.
 
 The change is committed and the note is posted. Then report the outcome.
 
+If Validate sent this Task back, repair the evidence-based Findings and preserve their original failure history. Returning to Validate runs fresh verification; a retry or investigation is not a send-back. Do not count acceptance as a passing test or merge approval.
+
 ## Send back or ask when
 
 Implementation uncovers a decision that changes the agreed scope or approach. Write the evidence and what needs deciding in a Findings file and run `ted outcome back --to design --findings <file>`, or ask the human with `ted outcome ask` when a decision is needed before work can continue.
