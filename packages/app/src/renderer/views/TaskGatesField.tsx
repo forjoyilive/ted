@@ -94,17 +94,17 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
     <div className={styles.field}>
       <Button size="small" disabled={busy || (!data && !error)} onClick={() => void edit()}>
         {busy ? (
-          <Loading compact label="Loading Gates…" />
+          <Loading compact label="Loading sign-offs…" />
         ) : data ? (
           `${count ? `${count} overridden` : 'Use Workflow'} · ${editable ? 'Edit' : 'View'}`
         ) : error ? (
-          'Load Gates'
+          'Load sign-offs'
         ) : (
-          <Loading compact label="Loading Gates…" />
+          <Loading compact label="Loading sign-offs…" />
         )}
       </Button>
       {open && data && (
-        <section className={styles.editor} aria-label="Gates for this Task">
+        <section className={styles.editor} aria-label="Sign-offs for this Task">
           <OvernightNotice />
           <p className={styles.note}>
             Choose where TED waits for your sign-off. Stage work stays the same.
@@ -147,7 +147,7 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
               </p>
               {row.required && row.override === false && (
                 <p className={styles.rowNote}>
-                  Your Off choice applies when this Gate is optional.
+                  Your Off choice applies when this sign-off is optional.
                 </p>
               )}
               {row.stage === 'merge' && (
@@ -159,13 +159,13 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
           ))}
           {changed && (
             <p className={styles.note} role="status">
-              The Task or Workflow changed. Reload Gates before saving.
+              The Task or Workflow changed. Reload sign-offs before saving.
             </p>
           )}
           <div className={styles.actions}>
             {changed ? (
               <Button size="small" disabled={busy} onClick={() => void edit()}>
-                Reload Gates
+                Reload sign-offs
               </Button>
             ) : (
               <Button

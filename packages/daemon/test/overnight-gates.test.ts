@@ -105,8 +105,8 @@ const gates = (client: Client, task: Task) => client.ok<TaskGates>('GET', `/task
 
 const row = (view: TaskGates, stage: string) => view.rows.find((r) => r.stage === stage)
 
-describe('overnight mode turns Gates off', () => {
-  test('a Task with Design, Review and Merge Gates runs to Done with no Gate request', async () => {
+describe('overnight mode turns Sign-offs off', () => {
+  test('a Task with Design, Review and Merge sign-offs runs to Done with no Sign-off request', async () => {
     const client = await start(gated)
     await overnight(client, true)
     const task = await begin(client)
@@ -121,12 +121,12 @@ describe('overnight mode turns Gates off', () => {
     const all = await client.ok<{ gate?: unknown }[]>('GET', `/tasks/${task.id}/comments`)
     expect(all.filter((c) => c.gate !== undefined)).toEqual([])
     const thread = await lines(client, task)
-    expect(thread).toContain('Overnight mode is on, so TED skipped the Design Gate')
-    expect(thread).toContain('Overnight mode is on, so TED skipped the Review Gate')
-    expect(thread).toContain('Overnight mode is on, so TED skipped the Merge Gate')
+    expect(thread).toContain('Overnight mode is on, so TED skipped the Design sign-off')
+    expect(thread).toContain('Overnight mode is on, so TED skipped the Review sign-off')
+    expect(thread).toContain('Overnight mode is on, so TED skipped the Merge sign-off')
   })
 
-  test('a Gate turned on for one Task is off overnight too, the saved choice stays, and turning overnight mode off mid-Task brings back the next Gate', async () => {
+  test('a sign-off turned on for one Task is off overnight too, the saved choice stays, and turning overnight mode off mid-Task brings back the next Sign-off', async () => {
     const client = await start(gated)
     const task = await begin(client)
     const before = await gates(client, task)
@@ -156,7 +156,7 @@ describe('overnight mode turns Gates off', () => {
     await advanceTo(client, task, 'validate')
     expect(await gateRequests(client, task)).toEqual([])
     expect(await lines(client, task)).toContain(
-      'Overnight mode is on, so TED skipped the Work Gate',
+      'Overnight mode is on, so TED skipped the Work sign-off',
     )
     await overnight(client, false)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
@@ -166,19 +166,19 @@ describe('overnight mode turns Gates off', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'review' },
-      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Review sign-off. TED sends you their answer.',
     })
     expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
   })
 
-  test('with overnight mode off a Task stops at the Design Gate, and a Gate request open when the mode turns on stays open', async () => {
+  test('with overnight mode off a Task stops at the Design sign-off, and a sign-off request open when the mode turns on stays open', async () => {
     const client = await start(gated)
     const task = await begin(client)
     await advanceTo(client, task, 'design')
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'design' },
-      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Design sign-off. TED sends you their answer.',
     })
     expect(await gateRequests(client, task)).toHaveLength(1)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
@@ -190,7 +190,7 @@ describe('overnight mode turns Gates off', () => {
     expect(row(await gates(client, task), 'design')?.overnight).toBeUndefined()
     const again = await advance(client, task)
     expect(again.status).toBe(409)
-    expect(JSON.stringify(again.body)).toContain('already waiting at the Design Gate')
+    expect(JSON.stringify(again.body)).toContain('already waiting at the Design sign-off')
     expect((await getTask(client, task.id)).stage).toBe('design')
     const still = await gateRequests(client, task)
     expect(still.map((item) => item.request.id)).toEqual([open?.request.id])
@@ -199,7 +199,7 @@ describe('overnight mode turns Gates off', () => {
     await waitForStage(client, task, 'work')
   })
 
-  test('the Factory settings, Library and Board reads mark Gates that are off overnight', async () => {
+  test('the Factory settings, Library and Board reads mark Sign-offs that are off overnight', async () => {
     const client = await start(gated)
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
     const read = async () => {
@@ -247,9 +247,9 @@ async function verifyCurrent(client: Client, task: Task) {
 describe('overnight mode and a Task that changes .ted/', () => {
   const open = { order: 'intake, work, validate, merge' }
   const kept = (stage: string) =>
-    `Overnight mode is on, but this Task changes .ted/, so its ${stage} Gate stays on`
+    `Overnight mode is on, but this Task changes .ted/, so its ${stage} sign-off stays on`
 
-  test('with every Gate off in the Workflow, it stops for the human before Merge', async () => {
+  test('with every sign-off off in the Workflow, it stops for the human before Merge', async () => {
     const client = await start(open)
     await overnight(client, true)
     const task = await begin(client, {}, settingsStep)
@@ -259,7 +259,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'review' },
-      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Review sign-off. TED sends you their answer.',
     })
     const [request] = await gateRequests(client, task)
     expect(request?.request.stage).toBe('review')
@@ -290,7 +290,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     expect(all.filter((c) => c.gate !== undefined)).toEqual([])
   })
 
-  test('a Design Gate saved in the Workflow stays on for it', async () => {
+  test('a Design sign-off saved in the Workflow stays on for it', async () => {
     const client = await start(gated)
     await overnight(client, true)
     const task = await begin(client, {}, settingsStep)
@@ -301,12 +301,12 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'design' },
-      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Design sign-off. TED sends you their answer.',
     })
     expect(await lines(client, task)).toContain(kept('Design'))
   })
 
-  test('a worktree TED can’t read keeps the Gates on', async () => {
+  test('a worktree TED can’t read keeps the sign-offs on', async () => {
     const client = await start(gated)
     await overnight(client, true)
     const task = await begin(client)
@@ -317,10 +317,10 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'design' },
-      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Design sign-off. TED sends you their answer.',
     })
     expect(await lines(client, task)).toContain(
-      'Overnight mode is on, but TED couldn’t read this Task’s changes, so its Design Gate stays on',
+      'Overnight mode is on, but TED couldn’t read this Task’s changes, so its Design sign-off stays on',
     )
   })
 

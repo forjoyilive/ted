@@ -89,7 +89,7 @@ test('Workflow and notes stay staged while confirmed permissions save locally', 
     saveFactorySettings: save,
   })
   const u = user()
-  const gate = await screen.findByRole('switch', { name: 'Design Gate' })
+  const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
   expect(gate.getAttribute('aria-checked')).toBe('true')
   expect((screen.getByRole('switch', { name: 'Work on' }) as HTMLButtonElement).disabled).toBe(true)
   await u.click(gate)
@@ -151,7 +151,7 @@ test('repo settings explain saving and let the user retry merging without losing
     openOnGitHub: vi.fn(),
   })
   const u = user()
-  const gate = await screen.findByRole('switch', { name: 'Design Gate' })
+  const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
   expect(screen.getByText('How repo settings are saved')).toBeTruthy()
   expect(screen.queryByText('Saved to the repo · pull request')).toBeNull()
   const repos = within(screen.getByRole('region', { name: 'Repos' }))

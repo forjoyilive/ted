@@ -57,7 +57,7 @@ const mergeSignoff = (client: Client, task: Task) =>
     'the Merge sign-off',
   )
 
-describe('Merge Gate', () => {
+describe('Merge sign-off', () => {
   test('TED posts the Merge sign-off only once CI passes, it still waits for the human when overnight mode turns on, and Merge merges at once', async () => {
     const client = await start({
       files: ci,
@@ -118,11 +118,11 @@ describe('Merge Gate', () => {
     expect(done.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await merges()).toHaveLength(1)
     expect(await lines(client, task)).not.toContain(
-      'Overnight mode is on, so TED skipped the Merge Gate',
+      'Overnight mode is on, so TED skipped the Merge sign-off',
     )
   })
 
-  test('overnight mode merges without the Merge sign-off, and turning it off does not bring the Gate back', async () => {
+  test('overnight mode merges without the Merge sign-off, and turning it off does not bring the sign-off back', async () => {
     const client = await start({
       files: ci,
       workflow: ['stages:', '  merge: { gate: true }'],
@@ -136,7 +136,7 @@ describe('Merge Gate', () => {
       return current.stage === 'merge' && current.status?.kind === 'waiting-for-github'
     }, 'Waiting for CI')
     expect(await lines(client, task)).toContain(
-      'Overnight mode is on, so TED skipped the Merge Gate',
+      'Overnight mode is on, so TED skipped the Merge sign-off',
     )
     await client.ok('PATCH', '/settings', { overnightMode: false })
     const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
@@ -211,7 +211,7 @@ describe('Merge Gate', () => {
     expect(await merges()).toEqual([])
   }, 60_000)
 
-  test('with no Review Gate, the Merge sign-off carries the brief', async () => {
+  test('with no Review sign-off, the Merge sign-off carries the brief', async () => {
     const client = await start({
       workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
     })
@@ -473,7 +473,7 @@ describe('CI stuck', () => {
   })
 })
 
-test('a Task can turn off the inherited Merge Gate before entry, while CI still controls merging', async () => {
+test('a Task can turn off the inherited Merge sign-off before entry, while CI still controls merging', async () => {
   const client = await start({
     files: ci,
     workflow: ['stages:', '  merge: { gate: true }'],

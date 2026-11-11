@@ -192,7 +192,7 @@ rejects(P.parseDeleteTaskRequest, { blocked: 'other' }, 'blocked must be')
 rejects(P.parseBlockTaskRequest, {}, 'by is required')
 rejects(P.parseSetTaskReposRequest, { add: [], set: [] }, 'give exactly one')
 rejects(P.parseSetClarifyDepthRequest, { depth: 'other' }, 'depth must be')
-rejects(P.parseSetTaskGatesRequest, { revision: 'r', overrides: { work: 1 } }, 'Gate overrides')
+rejects(P.parseSetTaskGatesRequest, { revision: 'r', overrides: { work: 1 } }, 'Sign-off overrides')
 rejects(
   P.parseRoundInput,
   { ...round, questions: Array(13).fill(question) },
