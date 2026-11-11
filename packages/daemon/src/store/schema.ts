@@ -3368,13 +3368,15 @@ const materializers = counted(
           at,
         }),
       'v1.CheckSlotRecoveryRecorded': ({ checkRunId, at }) =>
-        checkBoundaries.insert({
-          id: `${checkRunId}:recovered`,
-          checkRunId,
-          position: null,
-          kind: 'recovered',
-          at,
-        }),
+        checkBoundaries
+          .insert({
+            id: `${checkRunId}:recovered`,
+            checkRunId,
+            position: null,
+            kind: 'recovered',
+            at,
+          })
+          .onConflict('id', 'ignore'),
       'v1.CheckExecutionInterrupted': ({ checkRunId, position, at }) =>
         checkBoundaries.insert({
           id: `${checkRunId}:interrupted-end:${position}`,

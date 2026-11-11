@@ -129,3 +129,21 @@ test('observed command interruption records an end without changing historical C
   expect(store.getCheckRun(run.id)?.checks).toMatchObject([{ state: 'not-run' }])
   expect(store.getCheckRun(run.id)?.checks[0]?.durationMs).toBeUndefined()
 })
+
+test('repeated recovery after another stop keeps the first unknown boundary', async () => {
+  const run = store.startChecks({ taskId, trigger: 'validate', stage: 'validate', checks: [check] })
+  store.checkSlotBoundary(run.id, 'entered', new Date().toISOString())
+  vi.setSystemTime(initial + 1000)
+  store.checkSlotBoundary(run.id, 'recovered', new Date().toISOString())
+  await store.persisted()
+  await store.close()
+  store = await openStore({ directory: dir })
+  vi.setSystemTime(initial + 60_000)
+  store.checkSlotBoundary(run.id, 'recovered', new Date().toISOString())
+  store.finishChecks(run.id, 'interrupted')
+  expect(store.checkTiming(run.id)?.queue).toEqual({
+    status: 'interrupted',
+    startedAt: '2026-11-11T12:00:00.000Z',
+    detectedAt: '2026-11-11T12:00:01.000Z',
+  })
+})
