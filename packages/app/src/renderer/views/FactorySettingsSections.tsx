@@ -1027,7 +1027,7 @@ export function PermissionsSection({
   const [error, setError] = useState<string>()
   const dialog = useRef<HTMLDialogElement>(null)
   const bypass = mode === 'bypass'
-  useEffect(() => update(() => view.permissions), [view.permissions, update])
+  useEffect(() => update(() => view.permissions), [view, update])
   useEffect(() => {
     if (confirming) dialog.current?.showModal()
   }, [confirming])

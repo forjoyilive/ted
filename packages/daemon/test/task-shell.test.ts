@@ -789,9 +789,9 @@ describe('Task shell panes', () => {
     const second = ws.shells[1]
     if (!second) throw new Error('no second shell')
     await ted.ok('POST', paneRoute(task, second.id, '/input'), {
-      data: 'echo "PID""=$$"\r',
+      data: 'echo "PID""=$$"; exec sleep 600\r',
     })
-    const output = await readUntil(ted, task, second, (t) => /PID=\d+/.test(t), second.id)
+    const output = await readUntil(ted, task, second, (t) => /PID=\d+\r?\n/.test(t), second.id)
     const pid = Number(/PID=(\d+)/.exec(output)?.[1])
     const current = await ted.ok<ShellOutput>(
       'GET',
