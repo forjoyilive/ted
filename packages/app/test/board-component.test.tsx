@@ -197,6 +197,11 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   await u.click(await screen.findByRole('button', { name: 'Show all 1 →' }))
   await screen.findByRole('heading', { name: /widgets.*List/ })
   await screen.findByText('Stage is Done')

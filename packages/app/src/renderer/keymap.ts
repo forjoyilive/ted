@@ -17,6 +17,7 @@ const sections: readonly SheetSection[] = [
       { id: 'new-task', label: 'New Task', keys: ['⌘N', 'C'] },
       { id: 'go-to-inbox', label: 'Go to Inbox', keys: ['G I'] },
       { id: 'go-to-all-tasks', label: 'Go to All Tasks', keys: ['G A'] },
+      { id: 'go-to-dashboard', label: 'Go to Dashboard', keys: ['G D'] },
       { id: 'go-to-board', label: 'Go to Board', keys: ['G B'] },
       { id: 'go-to-list', label: 'Go to List', keys: ['G L'] },
       { id: 'go-to-plans', label: 'Go to Plans', keys: ['G P'] },

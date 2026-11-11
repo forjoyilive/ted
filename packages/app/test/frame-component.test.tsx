@@ -107,16 +107,16 @@ test('slow diagnostics do not overlap or restart polling after leaving the main 
   }
 })
 
-test('Factories open Board and expose their Views; All Tasks preserves expansion', async () => {
+test('Factories open Dashboard and expose their Views; All Tasks preserves expansion', async () => {
   const a = appState()
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
-  for (const name of ['Board', 'List', 'Plans', 'Automations'])
+  for (const name of ['Dashboard', 'Board', 'List', 'Plans', 'Automations'])
     expect(within(nav()).getByRole('button', { name })).toBeTruthy()
-  expect(within(nav()).getByRole('button', { name: 'Board' }).getAttribute('aria-current')).toBe(
-    'page',
-  )
+  expect(
+    within(nav()).getByRole('button', { name: 'Dashboard' }).getAttribute('aria-current'),
+  ).toBe('page')
   await u.click(within(nav()).getByRole('button', { name: 'All Tasks' }))
   expect(within(nav()).getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')).toBe(
     'true',
@@ -230,6 +230,9 @@ test('G navigation and history shortcuts use the App keymap', async () => {
   fireEvent.keyDown(window, { key: 'g' })
   fireEvent.keyDown(window, { key: 'i' })
   await screen.findByRole('heading', { name: 'Inbox', level: 1 })
+  fireEvent.keyDown(window, { key: 'g' })
+  fireEvent.keyDown(window, { key: 'd' })
+  await screen.findByRole('heading', { name: /widgets.*Dashboard/, level: 1 })
 })
 
 test('question mark opens the shortcut sheet and dialog cancel closes it', async () => {
@@ -316,7 +319,7 @@ test('Move down sends Factory order and the numbered shortcut follows the new or
       .map((e) => e.getAttribute('aria-label')),
   ).toEqual(['site', 'widgets'])
   fireEvent.keyDown(window, { key: '1', metaKey: true })
-  await screen.findByRole('heading', { name: /site.*Board/ })
+  await screen.findByRole('heading', { name: /site.*Dashboard/ })
 })
 
 test('finishing setup with an existing Factory opens the plain Add Factory form', async () => {

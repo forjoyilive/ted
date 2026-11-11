@@ -180,6 +180,11 @@ test('App removes the initial setup panel after clone Retry recovers', async () 
   })
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   const panel = await screen.findByRole('region', { name: 'Setting up widgets' })
   await user().click(within(panel).getByRole('button', { name: 'Retry' }))
   await vi.waitFor(() =>
@@ -210,6 +215,11 @@ test('App shows a global agent Fix banner, the paused Board status and clears th
   const problems = await screen.findByRole('region', { name: 'Problems' })
   expect(within(problems).getByRole('button', { name: 'Fix' })).toBeTruthy()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   expect(await screen.findByText('Paused · Claude Code is signed out')).toBeTruthy()
   await act(async () => a.emit({ type: 'banner-cleared', id: 'agent' }))
   expect(screen.queryByText('Claude Code is signed out')).toBeNull()

@@ -167,6 +167,16 @@ export type {
 } from './coordinator.ts'
 export { parseCoordinatorAction, parseCoordinatorMessage } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export type {
+  DashboardBucket,
+  DashboardChange,
+  DashboardMetric,
+  DashboardPeriod,
+  DashboardRange,
+  DashboardSample,
+  DashboardTask,
+  FactoryDashboard,
+} from './dashboard.ts'
 export {
   type Backup,
   type BackupKind,

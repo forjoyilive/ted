@@ -99,6 +99,13 @@ export const globalCommands: readonly Command[] = [
     run: ({ dispatch }) => dispatch({ type: 'open', screen: { kind: 'all-tasks' } }),
   },
   {
+    id: 'go-to-dashboard',
+    label: 'Go to Dashboard',
+    scope: 'global',
+    shortcuts: keysFor('go-to-dashboard'),
+    run: goToView('dashboard'),
+  },
+  {
     id: 'go-to-board',
     label: 'Go to Board',
     scope: 'global',

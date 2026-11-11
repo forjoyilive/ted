@@ -4,7 +4,14 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
-import type { NewTaskDraft, PeerMessage, TaskDraftState, TaskGateOverrides } from '@ted/protocol'
+import type {
+  DashboardRange,
+  FactoryDashboard,
+  NewTaskDraft,
+  PeerMessage,
+  TaskDraftState,
+  TaskGateOverrides,
+} from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -79,6 +86,7 @@ import {
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { Effect } from 'effect'
+import { factoryDashboard as aggregateDashboard } from '../dashboard.ts'
 import { isDiskFullError } from '../disk.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
@@ -641,6 +649,7 @@ export interface TedStore extends TaskHistory {
   leadFailed(failure: LeadFailure): Task
   retryTask(taskId: string, options: { waitForBlockers: boolean }): Task
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
+  factoryDashboard(factoryId: string, range: DashboardRange, asOf?: number): FactoryDashboard
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
@@ -911,6 +920,15 @@ export async function openStore({
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
+  const dashboardTasks = (factoryId: string) =>
+    queryDb(tasks.where({ factoryId, setup: false }).orderBy('number', 'asc'))
+  const dashboardEntries = (ids: string[]) =>
+    queryDb(
+      stageEntries.where({
+        taskId: { op: 'IN', value: ids },
+        stage: { op: 'IN', value: ['done', 'intake'] },
+      }),
+    )
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
   const liveRuns = queryDb(
     runs.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
@@ -3289,6 +3307,32 @@ export async function openStore({
         }
       }
       return task
+    },
+    factoryDashboard(factoryId, range, asOf = Date.now()) {
+      const rows = store.query(dashboardTasks(factoryId))
+      const entries = rows.length ? store.query(dashboardEntries(rows.map((row) => row.id))) : []
+      const byTask = new Map<string, { stage: string; at: string }[]>()
+      for (const entry of entries) {
+        const found = byTask.get(entry.taskId) ?? []
+        found.push({ stage: entry.stage, at: entry.at })
+        byTask.set(entry.taskId, found)
+      }
+      const factory =
+        listFactories().find((factory) => factory.id === factoryId) ?? placeholderFactory
+      return aggregateDashboard(
+        rows.map((row) => ({
+          id: row.id,
+          displayId: `${factory.key}-${row.number}`,
+          title: row.title,
+          createdAt: row.createdAt,
+          archived: row.archivedAt !== null,
+          setup: row.setup,
+          stage: row.stage,
+          entries: byTask.get(row.id) ?? [],
+        })),
+        range,
+        asOf,
+      )
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),

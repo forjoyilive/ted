@@ -152,6 +152,11 @@ test('App opens unfinished setup without starting, then starts the ordinary Task
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   await u.click(await screen.findByRole('button', { name: 'Start NB-1' }))
   const notice = await screen.findByRole('dialog', { name: 'Start NB-1?' })
   expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toEqual([])
@@ -162,6 +167,11 @@ test('App opens unfinished setup without starting, then starts the ordinary Task
   expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toEqual([])
   expect(a.state.tasks.find((t) => t.id === 'NB-1')?.stage).toBe('backlog')
   await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   await u.click(await screen.findByRole('button', { name: 'Start NB-1' }))
   await u.click(
     within(screen.getByRole('dialog', { name: 'Start NB-1?' })).getByRole('button', {

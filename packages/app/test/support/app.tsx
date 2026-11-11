@@ -3,6 +3,7 @@ import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
 import { App } from '../../src/renderer/App.tsx'
 import { bridge, user } from './component.ts'
+import { dashboardFixture } from './dashboard.ts'
 import { factory } from './fixtures.ts'
 
 export function appState() {
@@ -20,6 +21,7 @@ export function appState() {
     slots: { limit: 3, working: 0, queued: 0, holders: [], queue: [], factories: [] },
   }
   const api = bridge({
+    factoryDashboard: () => dashboardFixture(true),
     listFactories: () => state.factories,
     listTasks: () => state.tasks,
     listInbox: () => state.inbox,

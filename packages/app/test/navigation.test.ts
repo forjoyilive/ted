@@ -26,11 +26,11 @@ describe('navigation', () => {
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()
   })
 
-  test('opening a Factory shows its Board the first time and its last-used View after', () => {
+  test('opening a Factory shows its Dashboard the first time and its last-used View after', () => {
     expect(after({ type: 'open-factory', factoryId: 'nb' }).screen).toEqual({
       kind: 'factory',
       factoryId: 'nb',
-      view: 'board',
+      view: 'dashboard',
     })
 
     const back = after(
@@ -65,7 +65,7 @@ describe('navigation', () => {
       backLink(
         after({ type: 'open-factory', factoryId: 'nb' }, { type: 'open-task', taskId: 't1' }),
       ),
-    ).toBe('← Board')
+    ).toBe('← Dashboard')
     expect(
       backLink(
         after(
@@ -205,7 +205,7 @@ describe('back and forward (⌘[ and ⌘])', () => {
       { type: 'open-factory', factoryId: 'nb' },
       { type: 'forward' },
     )
-    expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
+    expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'dashboard' })
   })
 
   test('back with nowhere to go, and actions that stay in place, change nothing', () => {
@@ -218,4 +218,18 @@ describe('back and forward (⌘[ and ⌘])', () => {
     )
     expect(state.now.screen).toEqual({ kind: 'inbox' })
   })
+})
+
+test('Task return and history preserve a Dashboard range and metric sample', () => {
+  const screen = {
+    kind: 'factory',
+    factoryId: 'nb',
+    view: 'dashboard',
+    dashboard: { range: '7d', sample: { metric: 'intake', period: 'previous', bucket: 2 } },
+  } as const
+  const start = startHistory(navigate(initialNavigation, { type: 'open', screen }))
+  const opened = withHistory(start, { type: 'open-task', taskId: 't1', factoryId: 'nb' })
+  expect(backLink(opened.now)).toBe('← Dashboard')
+  expect(navigate(opened.now, { type: 'close-task' }).screen).toEqual(screen)
+  expect(withHistory(opened, { type: 'back' }).now.screen).toEqual(screen)
 })

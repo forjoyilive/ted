@@ -46,6 +46,7 @@ import type {
   CoordinatorStatus,
 } from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
+import type { DashboardRange, FactoryDashboard } from './dashboard.ts'
 import type {
   BackupsSummary,
   DataStatus,
@@ -700,6 +701,13 @@ export class DaemonClient {
 
   listFactories(): Promise<Factory[]> {
     return this.#request('GET', '/factories')
+  }
+
+  factoryDashboard(factoryId: string, range: DashboardRange): Promise<FactoryDashboard> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/dashboard?range=${encodeURIComponent(range)}`,
+    )
   }
 
   factoryBoard(factoryId: string): Promise<FactoryBoard> {

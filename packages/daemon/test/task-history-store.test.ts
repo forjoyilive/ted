@@ -197,3 +197,23 @@ test('Overnight Gate history respects Stage and inclusive visit boundaries', () 
   expect(store.overnightGateHistory(id, 'merge', at)).toEqual({ kept: true, skipped: true })
   expect(store.overnightGateHistory(id, 'merge', '2099')).toEqual({ kept: false, skipped: false })
 })
+
+test('Dashboard history keeps archived completions and reads first Intake and latest Done without Runs', async () => {
+  const created = store.getTask(id)
+  if (!created) throw new Error('missing Task')
+  vi.setSystemTime(initial + 60_000)
+  store.changeStage(id, 'intake', entry)
+  vi.setSystemTime(initial + 120_000)
+  store.changeStage(id, 'done', entry)
+  store.archiveTask(id)
+  vi.setSystemTime(initial + 180_000)
+  const setup = await store.createTask({ title: 'Setup', setup: true })
+  store.changeStage(setup.id, 'done', entry)
+  const result = store.factoryDashboard(created.factoryId, '7d', initial + 240_000)
+  expect(result.current.taskIds).toEqual([id])
+  expect(result.current.created.value).toBe(120_000)
+  expect(result.current.intake.value).toBe(60_000)
+  expect(result.tasks).toMatchObject([
+    { id, archived: true, doneAt: new Date(initial + 120_000).toISOString() },
+  ])
+})
