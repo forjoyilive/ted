@@ -599,6 +599,15 @@ export const taskRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/tasks\/([^/]+)\/base-conflicts$/,
+    async handle({ params: [ref = ''] }, { store }) {
+      const task = store.getTask(ref)
+      if (!task) throw new HttpError(404, `no Task ${ref}`)
+      return [200, store.baseConflicts(task.id)]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/factories\/([^/]+)\/task-defaults$/,
     handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.defaults(id)],
   },

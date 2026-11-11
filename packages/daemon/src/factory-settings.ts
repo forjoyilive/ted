@@ -345,6 +345,10 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
+        ...(id === 'validate' && {
+          p1OnlyFrom: stage?.p1_only_from ?? false,
+          subAgents: stage?.sub_agents === true,
+        }),
         from: file?.layer ?? 'ted',
         ...(factoryFile !== undefined && { factoryFile }),
         ...(from &&
@@ -748,6 +752,7 @@ export function storedRepos(
         known?.cloneUrl ?? (ssh ? `git@github.com:${repo}.git` : `https://github.com/${repo}.git`),
     })
   })
+  if (factory.repos.every((kept) => wanted.some((w) => same(w.repo, kept.repo)))) return wanted
   const inUse = new Set(
     store
       .listTasks()

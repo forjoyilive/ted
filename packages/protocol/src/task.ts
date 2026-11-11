@@ -1,6 +1,7 @@
 import type { SimulatorAsk } from './app.ts'
 import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
+import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
 import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
@@ -225,6 +226,7 @@ export interface Task {
   fromPlan?: { id: string; title: string; deleted?: boolean }
   merged?: TaskMerged
   createdAt: string
+  startedAt?: string
   updatedAt: string
   archived?: TaskArchive
 }
@@ -556,7 +558,28 @@ export type CommentAnswer =
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
+export type RequestPurpose =
+  | { kind: 'model'; runId: string }
+  | {
+      kind:
+        | 'question'
+        | 'round'
+        | 'proposal'
+        | 'gate'
+        | 'permission'
+        | 'simulator'
+        | 'size-check'
+        | 'send-back'
+        | 'failure'
+        | 'failed-run'
+        | 'linear-closed'
+        | 'linear-team'
+        | 'idle-run'
+        | 'ci-stuck'
+    }
+
 export interface Comment {
+  purpose?: RequestPurpose
   id: string
   taskId: string
   kind: CommentKind
@@ -763,7 +786,14 @@ export type ReportOutcomeRequest =
       changes?: string
       design?: DesignReviewInput
     }
-  | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
+  | {
+      outcome: 'back'
+      to: AgentStageId
+      findings: string
+      judged?: ValidateJudgments
+      cause?: DeclaredSendBackCause
+      severity?: FindingSeverity
+    }
   | { outcome: 'ask'; question: string; choices?: string[] }
 
 export type Outcome = ReportOutcomeRequest['outcome']

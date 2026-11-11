@@ -9,12 +9,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import {
-  type AnswerRequest,
   type AppLog,
   type AppRef,
   type AppStarter,
   appEnvName,
-  type Comment,
   type DaemonEvent,
   isSimulatorApp,
   type SimulatorSlots,
@@ -48,6 +46,7 @@ import {
   createSimulators,
   createSimulatorTools,
   type SimulatorApp,
+  type Simulators,
   type SimulatorTools,
 } from './simulators.ts'
 
@@ -121,7 +120,7 @@ export interface Apps {
     ref: AppRef,
     action: 'start' | 'stop',
   ): Promise<{ file?: string; app: TaskApp }>
-  answerSimulator(comment: Comment, request: AnswerRequest, text: string): Promise<Comment>
+  withSimulatorRequest: Simulators['withRequest']
   close(): Promise<void>
 }
 
@@ -1051,7 +1050,7 @@ export function createApps(options: AppsOptions): Apps {
         app: toApp(taskId, repo.name, app, instance),
       }
     },
-    answerSimulator: (comment, request, text) => sims.answer(comment, request, text),
+    withSimulatorRequest: (comment, work) => sims.withRequest(comment, work),
     async log(taskId, ref) {
       const { repo, app } = await findListed(taskId, ref)
       const files = appFiles(dirOf(taskId, repo.name, app.name))

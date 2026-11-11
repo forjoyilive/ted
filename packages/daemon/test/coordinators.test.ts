@@ -9,7 +9,6 @@ import {
   type CoordinatorRequest,
   type CoordinatorTask,
   type Factory,
-  type FailureCase,
   type LineComment,
   type RunChat,
   type RunMessage,
@@ -1476,7 +1475,6 @@ test('answer gives a choice on TED’s idle question, and refuses free text alon
 })
 
 test('answer gives Try again on Validate’s send-back limit; the receipt shows the Stage change', async () => {
-  await commitToOrigin(scratch, { '.gitignore': 'stub-*\n' })
   const s = await setup(
     undefined,
     [
@@ -1485,43 +1483,28 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
       'stages:',
       '  validate:',
       '    max_back: 1',
-      '    checks:',
-      '      - { name: Tests, run: "echo nope; exit 1" }',
       '',
     ].join('\n'),
   )
-  const { task, lead } = await s.led({ endTurn: true })
-  const ready = await waitUntil(async () => {
-    const current = (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
-    return current?.runs[0]?.state === 'idle' && current.repos[0] ? current : undefined
-  }, 'Task Lead ready')
-  const repo = ready.repos[0]
-  if (!repo) throw new Error('missing worktree')
-  await writeFile(path.join(repo.worktree, 'a.txt'), 'implemented\n')
-  const outcome = async (body: unknown) => {
-    const response = await lead.call('POST', `/tasks/${task.id}/outcome`, body)
-    expect(response.status, JSON.stringify(response.body)).toBe(200)
+  const findings = path.join(scratch, 'findings.md')
+  await writeFile(findings, '1. The export button does nothing.\n')
+  const count = path.join(scratch, 'lead-messages')
+  const each = {
+    run: [
+      'sh',
+      '-c',
+      [
+        `n=$(cat "${count}" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "${count}";`,
+        'case $n in',
+        '1|2|4) ted outcome advance;;',
+        `3|5) ted outcome back --to work --findings "${findings}";;`,
+        'esac',
+      ].join(' '),
+    ],
   }
-  await outcome({ outcome: 'advance' })
-  for (let round = 1; round <= 2; round++) {
-    await outcome({ outcome: 'advance' })
-    const failure = await waitUntil(async () => {
-      const cases = await s.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
-      return cases.length === round
-        ? cases.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1)
-        : undefined
-    }, 'failed Check recorded for diagnosis')
-    const assessed = await lead.call(
-      'POST',
-      `/tasks/${task.id}/failures/${failure.id}/assessments`,
-      {
-        assessment: 'regression',
-        recommendation: 'The failed fixture Check is caused by this Task; repair it in Work.',
-      },
-    )
-    expect(assessed.status, JSON.stringify(assessed.body)).toBe(200)
-    await outcome({ outcome: 'back', to: 'work', findings: 'Repair the failed fixture Check.' })
-  }
+  const { task } = await s.led({ everyMessage: [each, { endTurn: true }] }, each, {
+    endTurn: true,
+  })
   const limit = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
     'TED to ask about the send-back limit',

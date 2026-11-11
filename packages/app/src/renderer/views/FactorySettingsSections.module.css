@@ -556,3 +556,19 @@
   gap: 8px;
   font-weight: var(--weight-medium);
 }
+
+.validateRounds {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 28px;
+  padding: 0 14px 12px;
+  color: var(--text-caption);
+  font-size: var(--text-13);
+}
+
+.roundSetting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

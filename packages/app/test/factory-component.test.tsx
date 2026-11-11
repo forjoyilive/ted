@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDialog.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
@@ -536,7 +536,7 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
     expect(id).toBe('f1')
     a.state.factories = a.state.factories.filter((f) => f.id !== id)
     a.state.tasks = a.state.tasks.filter((t) => t.factoryId !== id)
-    await act(async () => {
+    act(() => {
       a.emit({ type: 'task-deleted', taskId: 'NB-1' })
       a.emit({ type: 'factory-removed', factoryId: 'f1' })
     })
@@ -561,4 +561,107 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
     key: 'NB',
     closePullRequests: true,
   })
+})
+
+test('permission mode survives Check updates after enabling Bypass', async () => {
+  const api = open({ setFactoryPermissions: (_id, mode) => ({ mode }) })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Enable Bypass…' }))
+  const confirmation = screen.getByRole('dialog', { name: 'Enable Bypass on this computer?' })
+  await u.click(within(confirmation).getByRole('checkbox'))
+  await u.click(within(confirmation).getByRole('button', { name: 'Enable Bypass' }))
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  await act(async () =>
+    api.emit({
+      type: 'check-try-updated',
+      checkTry: {
+        factoryId: 'f1',
+        name: 'Typecheck',
+        repo: 'widgets',
+        state: 'passed',
+        startedAt: '2026-11-10T00:00:00Z',
+      },
+    }),
+  )
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  await u.click(screen.getByRole('button', { name: 'Use Auto' }))
+  expect(api.request).toHaveBeenLastCalledWith('setFactoryPermissions', 'f1', 'auto', true)
+  expect(screen.getByText('Auto is on.')).toBeTruthy()
+})
+
+test('failed agent-default saves keep their error after refreshing the controls', async () => {
+  const { AgentDefaults } = await import('../src/renderer/settings/AgentDefaults.tsx')
+  let reads = 0
+  bridge({
+    library: () => ({
+      path: '/test/library',
+      version: `v${++reads}`,
+      stages: [],
+      problems: [],
+      agents: [
+        {
+          role: 'reviewer',
+          default: { agent: 'codex', model: reads === 1 ? 'original' : 'fresh' },
+          from: 'ted',
+        },
+      ],
+    }),
+    saveLibrary: () => {
+      throw new Error('The Library changed on disk. Try again.')
+    },
+  })
+  render(<AgentDefaults />)
+  await user().selectOptions(
+    await screen.findByRole('combobox', { name: 'Reviewer effort' }),
+    'high',
+  )
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('textbox', { name: 'Reviewer model' }) as HTMLInputElement).value,
+    ).toBe('fresh'),
+  )
+  expect(screen.getByText('The Library changed on disk. Try again.')).toBeTruthy()
+})
+
+test('a drift reload during save completion still resets the saved draft', async () => {
+  const saved = settingsView()
+  saved.version = 'v2'
+  saved.stages = saved.stages.map((stage) =>
+    stage.id === 'design' ? { ...stage, gate: false } : stage,
+  )
+  const afterSave = deferred<typeof saved>()
+  const drift = deferred<typeof saved>()
+  let reads = 0
+  const api = open({
+    factorySettings: () => {
+      reads++
+      if (reads === 1) return settingsView()
+      if (reads === 2) return afterSave.promise
+      if (reads === 3) return drift.promise
+      return saved
+    },
+    previewFactorySettings: () => ({ valid: true, sideEffects: [], problems: [], files: [] }),
+    saveFactorySettings: () => ({
+      merged: true,
+      pullRequest: { number: 42, url: 'https://github.com/acme/widgets/pull/42' },
+    }),
+  })
+  const u = user()
+  await u.click(await screen.findByRole('switch', { name: 'Design sign-off' }))
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
+  await waitFor(() => expect(reads).toBe(2))
+  act(() => api.emit({ type: 'drift-changed', drift: { factories: { f1: 1 }, library: 0 } }))
+  await waitFor(() => expect(reads).toBe(3))
+  await act(async () => afterSave.resolve(saved))
+  await act(async () => drift.resolve(saved))
+  await screen.findByText('Pull request #42 merged. Settings saved to the repo.')
+  await waitFor(() =>
+    expect(screen.queryByText('1 unsaved change to .ted/workflow.yaml')).toBeNull(),
+  )
+  expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
+  expect(screen.getByRole('switch', { name: 'Design sign-off' }).getAttribute('aria-checked')).toBe(
+    'false',
+  )
 })

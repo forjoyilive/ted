@@ -1,6 +1,7 @@
 import type { LinearIntakeChoices, LinearIntakeScope } from '@ted/protocol'
 import { useEffect, useId, useState } from 'react'
 import { Button } from '../components/Button.tsx'
+import { Select } from '../components/Select.tsx'
 import { useConnection, useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './FactorySettings.module.css'
@@ -90,9 +91,10 @@ export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
         <label className={styles.label} htmlFor={`${id}-kind`}>
           Scope
         </label>
-        <select
+        <Select
+          fullWidth
           id={`${id}-kind`}
-          className={styles.select}
+          controlClassName={styles.select}
           value={kind}
           disabled={!settings || saving}
           onChange={(event) => {
@@ -106,16 +108,17 @@ export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
           <option value="none">Unscoped</option>
           <option value="team">One Team</option>
           <option value="project">One Project</option>
-        </select>
+        </Select>
       </div>
       {kind !== 'none' && (
         <div className={styles.field}>
           <label className={styles.label} htmlFor={`${id}-target`}>
             {kind === 'team' ? 'Team' : 'Project'}
           </label>
-          <select
+          <Select
+            fullWidth
             id={`${id}-target`}
-            className={styles.select}
+            controlClassName={styles.select}
             disabled={loading || saving || !choices || !settings}
             value={missing ? 'saved-unavailable' : selected}
             onChange={(event) => {
@@ -146,7 +149,7 @@ export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
                     : ''}
               </option>
             ))}
-          </select>
+          </Select>
           {targets?.length === 0 && (
             <span className={styles.caption}>
               No accessible {kind === 'team' ? 'Teams' : 'Projects'} found.
