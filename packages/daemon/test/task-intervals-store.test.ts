@@ -276,6 +276,116 @@ test('an unexpected shutdown leaves the tail after the last meaningful observati
   })
 })
 
+test('old homes preserve pauses established by durable queue and hold attribution', async () => {
+  store.setTaskLead(taskId, { agent: 'codex' })
+  tick(1)
+  store.queueTask(taskId, 'work')
+  tick(2)
+  store.pauseAgent('codex', 'offline')
+  tick(3)
+  store.holdTaskRun({ taskId, agent: 'codex' })
+  store.dequeue(taskId)
+  tick(4)
+  store.pauseAgent('codex', undefined)
+  tick(5)
+  store.releaseTaskRun(taskId)
+  tick(6)
+  await store.close()
+  await rebuildWithoutRecording()
+  tick(10)
+  store = await openStore({ directory })
+  tick(11)
+  const history = store.taskIntervalHistory(taskId)
+  expect(history.intervals.filter((i) => i.reason === 'agent-paused')).toMatchObject([
+    {
+      start: at(2),
+      end: at(4),
+      contributors: [{ id: taskId, startSource: 'v1.AgentPaused', endSource: 'v1.AgentResumed' }],
+    },
+  ])
+  expect(history.coverage).toContainEqual({
+    reason: 'agent-paused',
+    start: at(2),
+    end: at(4),
+    state: 'known',
+    source: 'durable-history',
+  })
+  tick(12)
+  await store.close()
+  for (const name of await readdir(path.join(directory, 'ted')))
+    if (name.startsWith('state')) await rm(path.join(directory, 'ted', name), { force: true })
+  tick(15)
+  store = await openStore({ directory })
+  expect(store.taskIntervalHistory(taskId, at(11))).toEqual(history)
+})
+
+test('a paused Run ending during downtime has no known pause before host catch-up', async () => {
+  tick(1)
+  store.startRun({ id: 'ended-while-down', taskId, agent: 'codex', prompt: '', cwd: directory })
+  tick(2)
+  store.pauseAgent('codex', 'offline')
+  tick(4)
+  await store.close()
+  await rebuildWithoutRecording(true)
+  tick(10)
+  store = await openStore({ directory })
+  tick(11)
+  const pending = store.taskIntervalHistory(taskId)
+  expect(pending.intervals.filter((i) => i.reason === 'agent-paused')).toEqual([])
+  expect(pending.coverage).toContainEqual({
+    reason: 'agent-paused',
+    start: at(10),
+    end: at(11),
+    state: 'unknown',
+    source: 'unreconciled',
+  })
+  tick(12)
+  store.recordRunOutput('ended-while-down', { toOffset: 1, state: 'finished' })
+  tick(13)
+  const caughtUp = store.taskIntervalHistory(taskId)
+  expect(caughtUp.intervals.filter((i) => i.reason === 'agent-paused')).toEqual([])
+  expect(caughtUp.coverage).toContainEqual({
+    reason: 'agent-paused',
+    start: at(10),
+    end: at(12),
+    state: 'unknown',
+    source: 'unreconciled',
+  })
+  expect(caughtUp.coverage).toContainEqual({
+    reason: 'agent-paused',
+    start: at(12),
+    end: at(13),
+    state: 'known',
+    source: 'observation',
+  })
+})
+
+test('a live Run pause becomes known only after recovery reconciliation', async () => {
+  tick(1)
+  store.startRun({ id: 'still-live', taskId, agent: 'codex', prompt: '', cwd: directory })
+  tick(2)
+  store.pauseAgent('codex', 'offline')
+  tick(3)
+  await store.close()
+  tick(10)
+  store = await openStore({ directory })
+  tick(12)
+  store.reconcileRunState('still-live')
+  tick(13)
+  const history = store.taskIntervalHistory(taskId)
+  expect(history.intervals.filter((i) => i.reason === 'agent-paused')).toMatchObject([
+    { start: at(2), end: at(3) },
+    { start: at(12), end: at(13), contributors: [{ startSource: 'v1.RunStateObserved' }] },
+  ])
+  expect(history.coverage).toContainEqual({
+    reason: 'agent-paused',
+    start: at(10),
+    end: at(12),
+    state: 'unknown',
+    source: 'unreconciled',
+  })
+})
+
 test('old homes retain durable requests, stops and queues while missing Run observations stay unknown', async () => {
   store.setTaskLead(taskId, { agent: 'codex' })
   tick(1)

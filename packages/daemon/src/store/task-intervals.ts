@@ -130,7 +130,7 @@ export function taskIntervalHistory(input: {
   }
   const sessions = input.observations.filter((b) => b.name === 'v1.IntervalObservationStarted')
   const windows: { start: string; end: string; source: string }[] = []
-  const unreconciled: { start: string; end: string }[] = []
+  const unreconciled: { id: string; start: string; end: string; endSource: string }[] = []
   for (const [index, session] of sessions.entries()) {
     if (session.at > asOf) continue
     const next = sessions[index + 1]
@@ -171,7 +171,13 @@ export function taskIntervalHistory(input: {
         )
         .sort((a, b) => a.sequence - b.sequence)[0]
       const until = first && first.at < end ? first.at : end
-      if (session.at < until) unreconciled.push({ start: session.at, end: until })
+      if (session.at < until)
+        unreconciled.push({
+          id: subject.slice(4),
+          start: session.at,
+          end: until,
+          endSource: first && first.at <= end ? first.name : endSource,
+        })
     }
     const active = new Map<string, typeof intervalBoundaries.Type>()
     const closures = log
@@ -265,19 +271,30 @@ export function taskIntervalHistory(input: {
   for (const interval of durableIntervals) {
     const contributor = interval.contributors[0]
     if (!contributor) continue
-    if (interval.reason === 'blocker' || interval.reason === 'run-slot') {
+    if (
+      interval.reason === 'blocker' ||
+      interval.reason === 'run-slot' ||
+      (interval.reason === 'agent-paused' && interval.runId === undefined)
+    ) {
       add(interval.reason, contributor)
       continue
     }
     for (const window of windows) {
-      const start = [interval.start, window.start].sort().at(-1) ?? interval.start
+      let start = [interval.start, window.start].sort().at(-1) ?? interval.start
+      let startSource =
+        start === interval.start ? contributor.startSource : 'v1.IntervalObservationStarted'
       const end = [interval.end, window.end].sort()[0] ?? interval.end
+      if (interval.runId !== undefined)
+        for (const gap of unreconciled) {
+          if (gap.id !== interval.runId || gap.start > start || gap.end <= start) continue
+          start = gap.end
+          startSource = gap.endSource
+        }
       add(interval.reason, {
         ...contributor,
         start,
         end,
-        startSource:
-          start === interval.start ? contributor.startSource : 'v1.IntervalObservationStarted',
+        startSource,
         endSource: end === interval.end ? contributor.endSource : window.source,
       })
     }
@@ -287,7 +304,13 @@ export function taskIntervalHistory(input: {
     asOf,
     intervals: unionIntervals(intervals),
     coverage: [
-      ...observedCoverage(createdAt, asOf, windows, unreconciled),
+      ...observedCoverage(
+        createdAt,
+        asOf,
+        windows,
+        unreconciled,
+        durableIntervals.filter((i) => i.reason === 'agent-paused' && i.runId === undefined),
+      ),
       ...(['user-request', 'stopped', 'blocker', 'run-slot'] as const).map((reason) => ({
         reason,
         start: createdAt,
@@ -319,6 +342,7 @@ function observedCoverage(
   asOf: string,
   windows: { start: string; end: string }[],
   unreconciled: { start: string; end: string }[],
+  durablePauses: TaskInterval[],
 ): TaskIntervalCoverage[] {
   const cuts = [
     ...new Set([
@@ -326,6 +350,7 @@ function observedCoverage(
       asOf,
       ...windows.flatMap((w) => [w.start, w.end]),
       ...unreconciled.flatMap((w) => [w.start, w.end]),
+      ...durablePauses.flatMap((w) => [w.start, w.end]),
     ]),
   ]
     .filter((at) => at >= createdAt && at <= asOf)
@@ -338,15 +363,19 @@ function observedCoverage(
       if (start === undefined || end === undefined) continue
       const observed = windows.some((w) => w.start <= start && w.end >= end)
       const pending =
-        reason === 'run-working' && unreconciled.some((w) => w.start <= start && w.end >= end)
-      const state = observed && !pending ? 'known' : 'unknown'
-      const source = observed
-        ? pending
-          ? 'unreconciled'
-          : 'observation'
-        : windows[0] === undefined || start < windows[0].start
-          ? 'not-recorded'
-          : 'daemon-gap'
+        reason !== 'github' && unreconciled.some((w) => w.start <= start && w.end >= end)
+      const durable =
+        reason === 'agent-paused' && durablePauses.some((w) => w.start <= start && w.end >= end)
+      const state = durable || (observed && !pending) ? 'known' : 'unknown'
+      const source = durable
+        ? 'durable-history'
+        : observed
+          ? pending
+            ? 'unreconciled'
+            : 'observation'
+          : windows[0] === undefined || start < windows[0].start
+            ? 'not-recorded'
+            : 'daemon-gap'
       const last = result.at(-1)
       if (
         last?.reason === reason &&
@@ -366,6 +395,8 @@ function eventOrder(id: string): number {
   return global * 1_000_000 + client
 }
 
+type AttributedInterval = TaskInterval & { runId?: string }
+
 function durableWaits(input: {
   taskId: string
   asOf: string
@@ -374,7 +405,7 @@ function durableWaits(input: {
   boundaries: (typeof intervalBoundaries.Type)[]
   runAgents: ReadonlyMap<string, string>
   blockerCompletions: LoggedEvent[]
-}): TaskInterval[] {
+}): AttributedInterval[] {
   const timeline = new Map([...input.log, ...input.blockerCompletions].map((e) => [e.id, e]))
   for (const row of [
     ...input.agents,
@@ -397,9 +428,9 @@ function durableWaits(input: {
   const github = new Map<string, string>()
   const active = new Map<
     string,
-    { reason: TaskWaitReason['reason']; contributor: TaskIntervalContributor }
+    { reason: TaskWaitReason['reason']; contributor: TaskIntervalContributor; runId?: string }
   >()
-  const intervals: TaskInterval[] = []
+  const intervals: AttributedInterval[] = []
   for (const event of [...timeline.values()].sort((a, b) => eventOrder(a.id) - eventOrder(b.id))) {
     if (event.at > input.asOf) continue
     const data = event.data
@@ -487,15 +518,34 @@ function durableWaits(input: {
         ...(stage === 'merge' && { github: on as GitHubWait }),
       }))
         selected.push({ ...reason, id: repo })
-    const next = new Map(selected.map((r) => [`${r.reason}:${r.id}`, r]))
+    const durablePauses = taskPauses({
+      taskId: input.taskId,
+      heldAgent,
+      queuedAgent: queued ? queuedAgent : undefined,
+      liveRuns: [],
+      pauses,
+    })
+    const next = new Map<string, TaskWaitReason & { runId: string | undefined }>(
+      selected.map((r) => {
+        const runId =
+          r.reason === 'agent-paused' &&
+          !pendingRuns.has(r.id) &&
+          !durablePauses.some((p) => p.id === r.id && p.reason === r.detail)
+            ? r.id
+            : undefined
+        return [`${r.reason}:${r.id}`, { ...r, runId }] as const
+      }),
+    )
     for (const [key, start] of active) {
       if (
         next.has(key) &&
+        next.get(key)?.runId === start.runId &&
         (start.reason === 'run-slot' || next.get(key)?.detail === start.contributor.detail)
       )
         continue
       intervals.push({
         reason: start.reason,
+        ...(start.runId !== undefined && { runId: start.runId }),
         start: start.contributor.start,
         end: event.at,
         contributors: [{ ...start.contributor, end: event.at, endSource: event.name }],
@@ -506,6 +556,7 @@ function durableWaits(input: {
       if (!active.has(key))
         active.set(key, {
           reason: reason.reason,
+          ...(reason.runId !== undefined && { runId: reason.runId }),
           contributor: {
             id: reason.id,
             ...(reason.reason !== 'run-slot' &&
@@ -520,6 +571,7 @@ function durableWaits(input: {
   for (const start of active.values())
     intervals.push({
       reason: start.reason,
+      ...(start.runId !== undefined && { runId: start.runId }),
       start: start.contributor.start,
       end: input.asOf,
       contributors: [start.contributor],
