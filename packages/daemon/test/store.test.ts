@@ -345,6 +345,65 @@ describe('TedStore', () => {
     }
   })
 
+  test('getTask finds a Task by its display ID, per Factory, and nothing for an unknown ref', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const factory = (key: string) =>
+        store.createFactory({
+          key,
+          name: key,
+          repos: [],
+          defaultBranch: 'main',
+          showTutorial: false,
+        })
+      const other = factory('OTHER')
+      const dashed = factory('MY-APP')
+      const devOne = await store.createTask({ title: 'Dev one' })
+      const devTwo = await store.createTask({ title: 'Dev two' })
+      const otherOne = await store.createTask({ factoryId: other.id, title: 'Other one' })
+      const otherTwo = await store.createTask({ factoryId: other.id, title: 'Other two' })
+      const dashedOne = await store.createTask({ factoryId: dashed.id, title: 'Dashed one' })
+
+      expect(store.getTask('DEV-1')).toEqual(store.getTask(devOne.id))
+      expect(store.getTask('DEV-1')).toMatchObject({ id: devOne.id, displayId: 'DEV-1' })
+      expect(store.getTask('DEV-2')?.id).toBe(devTwo.id)
+      expect([otherOne.displayId, otherTwo.displayId]).toEqual(['OTHER-2', 'OTHER-3'])
+      expect(store.getTask('OTHER-2')?.id).toBe(otherOne.id)
+      expect(store.getTask('OTHER-3')?.id).toBe(otherTwo.id)
+      expect(dashedOne.displayId).toBe('MY-APP-2')
+      expect(store.getTask('MY-APP-2')?.id).toBe(dashedOne.id)
+
+      for (const ref of [
+        'DEV-3',
+        'OTHER-1',
+        'NOPE-1',
+        'DEV-01',
+        'DEV-1x',
+        'DEV- 1',
+        'DEV-',
+        'DEV',
+      ]) {
+        expect(store.getTask(ref), ref).toBeUndefined()
+      }
+      for (const ref of ['APP-2', 'dev-1', '-1', '1', '']) {
+        expect(store.getTask(ref), ref).toBeUndefined()
+      }
+
+      store.deleteTask(otherOne.id)
+      expect(store.getTask('OTHER-2')).toBeUndefined()
+      expect(
+        (await store.createTask({ factoryId: other.id, title: 'Other three' })).displayId,
+      ).toBe('OTHER-4')
+
+      store.removeFactory(other.id)
+      expect(store.getTask('OTHER-3')).toBeUndefined()
+      expect(store.getTask('?-3')?.id).toBe(otherTwo.id)
+      expect(store.getTask('DEV-2')?.id).toBe(devTwo.id)
+    } finally {
+      await store.close()
+    }
+  })
+
   test('every event has a versioned name', () => {
     for (const event of Object.values(events)) {
       expect(event.name).toMatch(/^v[1-9][0-9]*\.[A-Z][A-Za-z]+$/)

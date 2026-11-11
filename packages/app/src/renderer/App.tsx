@@ -47,8 +47,8 @@ import {
   useAgentHealth,
   useAllPlans,
   useAnswered,
+  useAutomationOutcomes,
   useAutomationRequests,
-  useAutomations,
   useBanners,
   useConnection,
   useCoordinatorStatuses,
@@ -281,7 +281,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setNewTaskOpen(factoryId === undefined ? {} : { factoryId })
   const inbox = useInbox()
   const questions = useAutomationRequests()
-  const allAutomations = useAutomations(undefined)
+  const allAutomations = useAutomationOutcomes()
   const planInbox = usePlanInbox()
   const inboxCount = useWaitingCount()
   const notificationsOff = useNotificationsOff()

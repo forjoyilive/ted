@@ -1117,8 +1117,10 @@ export function createTasks(options: {
   }
 
   async function slotUse(factoryIds: readonly string[]) {
-    const all = store.listTasks()
-    const holders = all.flatMap((task) => {
+    const candidates = store.tasksIn(
+      new Set([...store.busyTaskIds(), ...holds.keys(), ...subAgents.startingTasks()]),
+    )
+    const holders = candidates.flatMap((task) => {
       const working = task.runs.filter(
         (r) => r.state === 'working' && r.paused === undefined && !r.onSubAgents,
       )
@@ -1155,20 +1157,20 @@ export function createTasks(options: {
       byFactory,
       caps: capsNow,
       handoffs: slotHandoffs(
-        all,
+        candidates,
         holders.map((h) => h.task.id),
       ),
       heldForLoad: heldAtLoad !== undefined,
     }
-    return { use, holders, others, all }
+    return { use, holders, others, candidates }
   }
 
-  function slotHandoffs(all: readonly Task[], holding: readonly string[]): Set<string> {
+  function slotHandoffs(working: readonly Task[], holding: readonly string[]): Set<string> {
     const taken = new Set(holding)
     const handoffs = new Set<string>()
     for (const request of store.subAgentRequests()) {
       if (taken.has(request.taskId) || !subAgentRunnable(request.id)) continue
-      const lead = all
+      const lead = working
         .find((task) => task.id === request.taskId)
         ?.runs.find((r) => r.id === request.parentRunId)
       if (lead?.state !== 'working' || lead.paused !== undefined || !lead.onSubAgents) continue
@@ -1264,9 +1266,9 @@ export function createTasks(options: {
     const version = backlogVersion
     const backlog = queueOrder<QueueEntry>(
       store
-        .listTasks()
-        .flatMap((task) => {
-          const stored = store.getTask(task.id)
+        .backlogTasks()
+        .flatMap(({ id }) => {
+          const stored = store.getTask(id)
           return stored && backlogEligible(stored) ? [stored] : []
         })
         .map((task) => ({
@@ -1354,8 +1356,7 @@ export function createTasks(options: {
 
   async function slots(): Promise<RunSlots> {
     const factoryIds = store.listFactories().map((f) => f.id)
-    const { use, holders, others, all } = await slotUse(factoryIds)
-    const byId = new Map(all.map((t) => [t.id, t]))
+    const { use, holders, others, candidates } = await slotUse(factoryIds)
     const requests = new Map(store.subAgentRequests().map((r) => [r.id, r]))
     const sourceOf = new Map(
       sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
@@ -1365,6 +1366,13 @@ export function createTasks(options: {
       ...store.queue(),
       ...sources.flatMap((source) => source.queued()),
     ])
+    const byId = new Map(candidates.map((t) => [t.id, t]))
+    const missing = new Set(
+      ordered
+        .map((entry) => requests.get(entry.id)?.taskId ?? entry.id)
+        .filter((id) => !byId.has(id)),
+    )
+    if (missing.size > 0) for (const task of store.tasksIn(missing)) byId.set(task.id, task)
     const queue = ordered.flatMap((entry, i): RunSlots['queue'] => {
       const described = sourceOf.get(entry.id)?.describe(entry.id, i + 1)
       if (described) return [described]
@@ -4183,7 +4191,7 @@ export function createTasks(options: {
   }
 
   function publicTask(id: string): Task {
-    const task = store.listTasks().find((t) => t.id === id)
+    const task = store.tasksIn(new Set([id])).at(0)
     if (!task) throw new RequestError(404, `no Task ${id}`)
     return task
   }
@@ -6336,9 +6344,7 @@ export function createTasks(options: {
   let snoozeTimer: Timer | undefined
   let releaseSnoozeIdle: (() => void) | undefined
   function refreshSnoozes(): void {
-    const pending = store
-      .listTasks()
-      .some((task) => task.stage === 'backlog' && !task.archived && task.snoozedUntil)
+    const pending = store.backlogTasks().some((task) => task.snoozed)
     if (pending && !snoozeTimer) {
       releaseSnoozeIdle = options.idle?.hold()
       snoozeTimer = clock.interval(() => void pump(), options.snoozes?.checkEveryMs ?? 30_000)

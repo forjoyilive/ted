@@ -31,6 +31,7 @@ export interface SubAgents {
   queued(): QueueEntry[]
   begin(id: string): void
   starting(taskId: string): number
+  startingTasks(): string[]
   wait(runId: string, caller: Caller, timeoutMs: number): Promise<SubAgentWait>
   send(runId: string, caller: Caller, text: string): Promise<SubAgent>
   stop(runId: string, caller: Caller): Promise<SubAgent>
@@ -448,6 +449,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     starting(taskId) {
       return [...startingNow.values()].filter((id) => id === taskId).length
     },
+    startingTasks: () => [...startingNow.values()],
     async wait(runId, caller, timeoutMs) {
       ownSubAgent(runId, caller)
       const leadRunId = caller.kind === 'run' ? caller.runId : ''
