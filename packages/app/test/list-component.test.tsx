@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, screen, within } from '@testing-library/react'
-import { expect, test, vi } from 'vitest'
+import { act, fireEvent, screen, within } from '@testing-library/react'
+import { afterEach, expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
 import { required, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
+
+afterEach(() => vi.useRealTimers())
 
 async function list() {
   const a = appState()
@@ -19,6 +21,39 @@ async function list() {
 }
 const ids = () =>
   [...document.querySelectorAll('tbody tr[data-task]')].map((e) => e.getAttribute('data-task'))
+
+test('Started is the last column in both Lists and updates elapsed time', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const now = Date.parse('2026-11-11T12:00:00.000Z')
+  vi.spyOn(Date, 'now').mockReturnValue(now)
+  const a = await list()
+  await a.emitTask(
+    task({ title: 'Export notes', startedAt: new Date(now - 120_000).toISOString() }),
+  )
+  const headers = () => [...document.querySelectorAll('thead th')].map((cell) => cell.textContent)
+  const started = (id: string) =>
+    required(document.querySelector(`[data-task="${id}"]`)).lastElementChild?.textContent
+  expect(headers().slice(-2)).toEqual(['Updated', 'Started'])
+  expect(started('NB-1')).toBe('2m')
+  expect(started('NB-2')).toBe('—')
+  try {
+    vi.mocked(Date.now).mockReturnValue(now + 60_000)
+    await act(async () => vi.advanceTimersByTime(30_000))
+    expect(started('NB-1')).toBe('3m')
+  } finally {
+    vi.mocked(Date.now).mockRestore()
+  }
+  await user().click(screen.getByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'List',
+    }),
+  )
+  expect(headers().slice(-2)).toEqual(['Updated', 'Started'])
+  expect(started('NB-2')).toBe('—')
+  a.unmount()
+  vi.useRealTimers()
+})
 
 test('List display, grouping and filters update persisted settings per scope', async () => {
   const a = await list()
@@ -60,6 +95,31 @@ test('List display, grouping and filters update persisted settings per scope', a
   await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
   await screen.findByText('Priority is High')
   expect(ids()).toEqual(['NB-2'])
+})
+
+test('existing saved Lists gain Started and remember hiding it after remounting', async () => {
+  const a = appState()
+  a.state.tasks = [task()]
+  a.state.settings.listViews = {
+    all: { sort: 'title', group: 'none', columns: ['title', 'updated'], filters: {} },
+  }
+  const mounted = a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  expect(screen.getByRole('columnheader', { name: 'Started' })).toBeTruthy()
+  await u.click(screen.getByRole('button', { name: 'Display' }))
+  await u.click(screen.getByRole('menuitemcheckbox', { name: 'Started' }))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('columnheader', { name: 'Started' })).toBeNull()
+  mounted.unmount()
+  a.mount()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  expect(screen.queryByRole('columnheader', { name: 'Started' })).toBeNull()
+  expect(a.state.settings.listViews.all?.sort).toBe('title')
+  await u.click(screen.getByRole('button', { name: 'Display' }))
+  await u.click(screen.getByRole('menuitemcheckbox', { name: 'Started' }))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.getByRole('columnheader', { name: 'Started' })).toBeTruthy()
 })
 
 test('bulk selection sends Priority, Start and Archive to each selected Task', async () => {

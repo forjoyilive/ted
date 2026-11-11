@@ -82,6 +82,7 @@ export const columnLabels: Record<ListColumn, string> = {
   created: 'Created',
   'created-by': 'Created by',
   tokens: 'Tokens',
+  started: 'Started',
 }
 
 const columnOrder: readonly ListColumn[] = [
@@ -96,6 +97,7 @@ const columnOrder: readonly ListColumn[] = [
   'tokens',
   'created',
   'updated',
+  'started',
 ]
 
 export function isAllTasks(scope: string): boolean {
@@ -107,6 +109,7 @@ export function defaultView(scope: string): ListView {
   return {
     sort: 'manual',
     group: 'stage',
+    columnsVersion: 2,
     columns: [
       'priority',
       'id',
@@ -115,6 +118,7 @@ export function defaultView(scope: string): ListView {
       'stage',
       'status',
       'updated',
+      'started',
     ],
     filters: {},
   }
@@ -124,7 +128,11 @@ export function viewFor(
   views: Readonly<Record<string, ListView>> | undefined,
   scope: string,
 ): ListView {
-  return views?.[scope] ?? defaultView(scope)
+  const view = views?.[scope]
+  if (!view) return defaultView(scope)
+  return view.columnsVersion === 2
+    ? view
+    : { ...view, columnsVersion: 2, columns: [...view.columns, 'started'] }
 }
 
 export function viewKey(view: ListView): string {

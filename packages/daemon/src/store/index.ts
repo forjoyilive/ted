@@ -1510,6 +1510,7 @@ export async function openStore({
     const linearSync = linearSyncOf(row, source)
     return {
       ...row,
+      ...(entries[0] && { startedAt: entries[0].at }),
       ...(snoozedUntil !== null && { snoozedUntil }),
       priority: row.priority as Priority,
       clarifyDepth: row.clarifyDepth as ClarifyDepth,
