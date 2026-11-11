@@ -2,12 +2,9 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
-import {
-  acquireFullRun,
-  heldLockEnv,
-  waitingMessage,
-} from '../packages/daemon/test/support/suite-lock.ts'
+import { heldLockEnv, waitingMessage } from '../packages/daemon/test/support/suite-lock.ts'
 import { recordFailureRun } from './check-history.ts'
+import { reportedTestLock } from './test-reporting.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cacheDir = path.join(root, 'node_modules', '.cache')
@@ -325,7 +322,9 @@ function recordTimes(reports: JsonReport[], save: boolean): void {
 }
 
 export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
-  const unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
+  const unlock = await reportedTestLock('check', {
+    onWait: (pid) => console.log(waitingMessage(pid)),
+  })
   try {
     console.log('\n== Install')
     // pnpm asks before reinstalling node_modules from scratch, and the run holds the test lock
@@ -339,7 +338,7 @@ export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
     mkdirSync(cacheDir, { recursive: true })
     return await checkInParallel(appOnly)
   } finally {
-    await unlock()
+    await unlock?.()
   }
 }
 

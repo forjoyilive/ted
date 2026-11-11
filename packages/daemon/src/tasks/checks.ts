@@ -102,6 +102,7 @@ export async function runChecks(input: {
   signal?: AbortSignal
   lowPriority: boolean
   onInterrupted?: (position: number) => void
+  reportingEnv?: (position: number) => Promise<Record<string, string>>
   onStart: (position: number) => void
   onFinish: (
     position: number,
@@ -115,6 +116,7 @@ export async function runChecks(input: {
     input.onStart(position)
     const started = Date.now()
     const log = input.logFor(position)
+    const reporting = (await input.reportingEnv?.(position).catch(() => ({}))) ?? {}
     const result =
       check.builtIn === 'ted-settings'
         ? await checkSettings(cwd, log, input.libraryDir)
@@ -122,7 +124,7 @@ export async function runChecks(input: {
             label: 'this Check',
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
-            env: checkEnv(input.taskDisplayId, env ?? {}, input.env),
+            env: { ...checkEnv(input.taskDisplayId, env ?? {}, input.env), ...reporting },
             log,
             shell: [loginShell(input.env), '-lc'],
             lowPriority: input.lowPriority,
