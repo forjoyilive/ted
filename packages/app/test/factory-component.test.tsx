@@ -622,3 +622,46 @@ test('failed agent-default saves keep their error after refreshing the controls'
   )
   expect(screen.getByText('The Library changed on disk. Try again.')).toBeTruthy()
 })
+
+test('a drift reload during save completion still resets the saved draft', async () => {
+  const saved = settingsView()
+  saved.version = 'v2'
+  saved.stages = saved.stages.map((stage) =>
+    stage.id === 'design' ? { ...stage, gate: false } : stage,
+  )
+  const afterSave = deferred<typeof saved>()
+  const drift = deferred<typeof saved>()
+  let reads = 0
+  const api = open({
+    factorySettings: () => {
+      reads++
+      if (reads === 1) return settingsView()
+      if (reads === 2) return afterSave.promise
+      if (reads === 3) return drift.promise
+      return saved
+    },
+    previewFactorySettings: () => ({ valid: true, sideEffects: [], problems: [], files: [] }),
+    saveFactorySettings: () => ({
+      merged: true,
+      pullRequest: { number: 42, url: 'https://github.com/acme/widgets/pull/42' },
+    }),
+  })
+  const u = user()
+  await u.click(await screen.findByRole('switch', { name: 'Design Gate' }))
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
+  await waitFor(() => expect(reads).toBe(2))
+  act(() => api.emit({ type: 'drift-changed', drift: { factories: { f1: 1 }, library: 0 } }))
+  await waitFor(() => expect(reads).toBe(3))
+  await act(async () => afterSave.resolve(saved))
+  await act(async () => drift.resolve(saved))
+  await screen.findByText('Pull request #42 merged. Settings saved to the repo.')
+  await waitFor(() =>
+    expect(screen.queryByText('1 unsaved change to .ted/workflow.yaml')).toBeNull(),
+  )
+  expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
+  expect(screen.getByRole('switch', { name: 'Design Gate' }).getAttribute('aria-checked')).toBe(
+    'false',
+  )
+})

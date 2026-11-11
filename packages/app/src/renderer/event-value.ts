@@ -18,6 +18,11 @@ export function eventValue<T, E>(options: EventValueOptions<T, E>) {
   let latest = 0
   let pending: ValueUpdate<T>[] | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
+  const waiting = new Set<(value: T | undefined) => void>()
+  const settle = (next: T | undefined) => {
+    for (const resolve of waiting) resolve(next)
+    waiting.clear()
+  }
   const publish = (next: T) => {
     value = next
     options.changed(next)
@@ -27,28 +32,32 @@ export function eventValue<T, E>(options: EventValueOptions<T, E>) {
     pending?.push(change)
     publish(change(value))
   }
-  const refresh = async (load = options.load) => {
-    if (!active) return undefined
+  const refresh = (load = options.load): Promise<T | undefined> => {
+    if (!active) return Promise.resolve(undefined)
+    const result = new Promise<T | undefined>((resolve) => waiting.add(resolve))
     clearTimeout(timer)
     const request = ++latest
     const changes: ValueUpdate<T>[] = []
     pending = changes
-    try {
-      const loaded = await load()
-      if (!active || request !== latest) return undefined
-      pending = undefined
-      const baseline = options.reconcile ? options.reconcile(loaded, value) : loaded
-      const next = changes.reduce<T>((current, change) => change(current), baseline)
-      publish(next)
-      options.loaded?.()
-      return next
-    } catch (error) {
-      if (active && request === latest) {
+    void (async () => {
+      try {
+        const loaded = await load()
+        if (!active || request !== latest) return
         pending = undefined
-        options.error?.(error)
+        const baseline = options.reconcile ? options.reconcile(loaded, value) : loaded
+        const next = changes.reduce<T>((current, change) => change(current), baseline)
+        publish(next)
+        options.loaded?.()
+        settle(next)
+      } catch (error) {
+        if (active && request === latest) {
+          pending = undefined
+          options.error?.(error)
+          settle(undefined)
+        }
       }
-      return undefined
-    }
+    })()
+    return result
   }
   const unsubscribe = options.subscribe((event) => {
     if (!active) return
@@ -71,6 +80,7 @@ export function eventValue<T, E>(options: EventValueOptions<T, E>) {
       latest++
       pending = undefined
       clearTimeout(timer)
+      settle(undefined)
       unsubscribe()
     },
   }

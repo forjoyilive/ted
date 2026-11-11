@@ -137,3 +137,35 @@ test('subscription is installed before the loader can emit an update', async () 
   expect(changed).toHaveBeenLastCalledWith(2)
   s.dispose()
 })
+
+test('an awaited refresh follows the replacement read without waiting for its obsolete read', async () => {
+  const s = source(0, () => 'reload')
+  const completed = vi.fn()
+  const pending = s.refresh().then(completed)
+  s.emit('reload')
+  s.calls[2]?.resolve(3)
+  await pending
+  expect(completed).toHaveBeenCalledExactlyOnceWith(3)
+  s.calls[1]?.resolve(2)
+  s.calls[0]?.resolve(1)
+  await Promise.resolve()
+  expect(s.changed).toHaveBeenCalledExactlyOnceWith(3)
+  s.dispose()
+})
+
+test.each(['failure', 'dispose'] as const)(
+  'an awaited refresh finishes when its replacement ends in %s',
+  async (ending) => {
+    const s = source(0, () => 'reload')
+    const pending = s.refresh()
+    s.emit('reload')
+    if (ending === 'failure') s.calls[2]?.reject(new Error('Current read failed'))
+    else s.dispose()
+    expect(await pending).toBeUndefined()
+    s.calls[1]?.resolve(2)
+    s.calls[0]?.resolve(1)
+    await Promise.resolve()
+    expect(s.changed).not.toHaveBeenCalled()
+    s.dispose()
+  },
+)
