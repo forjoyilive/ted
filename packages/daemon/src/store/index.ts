@@ -41,6 +41,7 @@ import {
   type Effort,
   type Factory,
   type FailureCase,
+  type FindingSeverity,
   failureChoices,
   type GitHubWait,
   type LayerKind,
@@ -120,6 +121,7 @@ import {
   loopChecks,
   machineSettings,
   machineSettingValues,
+  p1OnlyReviews,
   peerMessages,
   planRequests,
   plans,
@@ -134,6 +136,7 @@ import {
   sendBackAsks,
   sendBackResets,
   sendBacks,
+  severityDeclarations,
   sideChats,
   stageEntries,
   stageFileTexts,
@@ -713,6 +716,14 @@ export interface TedStore extends TaskHistory {
     cause?: SendBackCause
   }): SendBack
   listSendBacks(taskId: string): SendBack[]
+  declareSeverity(input: {
+    taskId: string
+    runId: string
+    round: number
+    severity: FindingSeverity
+  }): void
+  recordP1OnlyReview(input: { runId: string; taskId: string; round: number; from: number }): void
+  p1OnlyReview(runId: string): boolean
   startChecks(input: {
     taskId: string
     trigger: CheckRunTrigger
@@ -3602,8 +3613,37 @@ export async function openStore({
       emit({ type: 'sent-back', sendBack })
       return sendBack
     },
-    listSendBacks: (taskId) =>
-      store.query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc'))).map(toSendBack),
+    listSendBacks(taskId) {
+      const declared = store.query(
+        queryDb(severityDeclarations.where({ taskId }).orderBy('at', 'asc')),
+      )
+      let after = ''
+      return store
+        .query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc')))
+        .map(toSendBack)
+        .map((sendBack) => {
+          const since = after
+          after = sendBack.at
+          if (sendBack.from !== 'validate' || !sendBack.counted || sendBack.checkRunId) {
+            return sendBack
+          }
+          const found = declared.findLast((d) => d.at > since && d.at <= sendBack.at)
+          return found ? { ...sendBack, severity: found.severity as FindingSeverity } : sendBack
+        })
+    },
+    declareSeverity(input) {
+      commit(
+        events.sendBackSeverityDeclared({
+          ...input,
+          id: randomUUID(),
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    recordP1OnlyReview(input) {
+      commit(events.p1OnlyReviewRecorded({ ...input, at: new Date().toISOString() }))
+    },
+    p1OnlyReview: (runId) => store.query(queryDb(p1OnlyReviews.where({ runId }))).length > 0,
     startChecks({ taskId, trigger, stage, checks }) {
       const id = randomUUID()
       commit(

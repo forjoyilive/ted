@@ -146,6 +146,8 @@ export {
   checkLabel,
   type DeclaredSendBackCause,
   declaredSendBackCauses,
+  type FindingSeverity,
+  findingSeverities,
   type RunChecksRequest,
   type SendBack,
   type SendBackCause,

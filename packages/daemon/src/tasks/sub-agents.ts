@@ -26,6 +26,7 @@ import type {
 import { stageTitle, subAgentPrompt, tedSubAgentPrompt } from '../workflow/workflow.ts'
 import type { QueueEntry } from './queue.ts'
 import type { Caller } from './tasks.ts'
+import { subAgentRefusal } from './validate-settings.ts'
 
 export interface SubAgents {
   request(ref: string, caller: Caller, input: StartSubAgentRequest): Promise<SubAgent>
@@ -55,6 +56,7 @@ export interface ReviewerChoice {
 export interface PlannedReview {
   prompt: string
   scope: Omit<ReviewScope, 'runId' | 'at'>
+  p1OnlyFrom?: number
 }
 
 export interface SubAgentDeps {
@@ -66,6 +68,7 @@ export interface SubAgentDeps {
   reviewerFor(task: StoredTask): Promise<ReviewerChoice>
   visitStart(task: StoredTask): string
   planReview(task: StoredTask, prompt: string): Promise<PlannedReview>
+  validateSubAgents(task: StoredTask): Promise<boolean>
   envFor(task: StoredTask, repo: TaskRepo): Promise<Record<string, string>>
   permissionsFor(task: StoredTask): Promise<PermissionMode>
   clonePathFor(repo: TaskRepo): string
@@ -203,6 +206,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : shared
     const fromTed =
       store.reviewerOf(request.id)?.purpose === 'loop-check' ||
+      store.p1OnlyReview(request.id) ||
       store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope === 'fixes')
     const prompt = fromTed
       ? await tedSubAgentPrompt(request.prompt)
@@ -434,15 +438,20 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
           ...(choice.unavailable !== undefined && { unavailable: choice.unavailable }),
         })
         if (planned) store.recordReviewScope({ ...planned.scope, runId: id })
+        if (planned?.p1OnlyFrom !== undefined) {
+          store.recordP1OnlyReview({
+            runId: id,
+            taskId: task.id,
+            round: planned.scope.round,
+            from: planned.p1OnlyFrom,
+          })
+        }
         deps.pump()
         const started = store.getRun(request.id)
         return started ? describe(started) : describeRequest(request)
       }
-      if (task.stage === 'validate') {
-        throw new RequestError(
-          409,
-          'in Validate the only sub-agent is TED’s reviewer, one per visit: start it with `ted run start --reviewer --prompt-file <file>` and do the other steps yourself',
-        )
+      if (task.stage === 'validate' && !(await deps.validateSubAgents(task))) {
+        throw new RequestError(409, subAgentRefusal)
       }
       const fallback = await deps.leadFor(task)
       const agent: AgentKind = input.agent ?? fallback.agent

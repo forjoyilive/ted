@@ -291,6 +291,8 @@ Rules:
 | `stages.clarify.depth` | any layer | `auto` (default), `none`, `few`, `grilling`. | KRI-19 |
 | `stages.validate.checks` | Factory | List of Checks (8.1). | KRI-16, KRI-57 |
 | `stages.validate.loop_check` | any layer | Send-back count at which the loop check runs; default `3`; `false` turns it off. | KRI-16 |
+| `stages.validate.p1_only_from` | any layer | Validate round (2 or more) from which only P1 Findings send the Task back (8.4). Unset or `false`: off, the default. UI label: **Send back only for P1 Findings**. | ADR 0109 |
+| `stages.validate.sub_agents` | any layer | `true` lets the Task Lead start sub-agents other than the reviewer in Validate (7.2). Default `false`. UI label: **Other sub-agents in Validate**. | ADR 0110 |
 
 - **Defaults:** Gates on Design and Review; Merge on with no Gate; every Stage has `max_back: 3` except Validate, which has 5. (KRI-12, KRI-16, KRI-52, KRI-58)
 - **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per agent kind, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)
@@ -734,6 +736,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - A failed sub-agent is reported to the Task Lead, which decides what to do, with no Inbox item. (KRI-54)
 - The reviewer Run is named “Reviewer · Validate”. (KRI-63)
 - In Validate the only sub-agent is the reviewer, one per visit. TED refuses a second reviewer while the first is queued, working or has reported, and refuses any other sub-agent. A reviewer that failed or never started doesn’t count. (ADR 0106)
+- `stages.validate.sub_agents: true` lets the Task Lead start other sub-agents in Validate as in other Stages. The one-reviewer rule stays, and the reviewer’s agent, model and effort still come only from `reviewer`. The refusal names the setting. (ADR 0110)
 
 ### 7.3 Runs
 
@@ -810,7 +813,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 |---|---|---|
 | `ted help` | Command reference, named in the Run preamble. | KRI-11 |
 | `ted outcome advance` | End the Stage and move on. | KRI-11 |
-| `ted outcome back --to <Stage> --findings <file> [--cause base-conflict]` | Send back to an earlier Stage. | KRI-11, KRI-16 |
+| `ted outcome back --to <Stage> --findings <file> [--cause base-conflict] [--severity p1]` | Send back to an earlier Stage. `--severity p1`, at Validate only, declares that at least one Finding is P1 (8.4). | KRI-11, KRI-16 |
 | `ted outcome ask` | Ask the human instead of moving. | KRI-11 |
 | `ted comment [--attach <path>] [--choice "…"]` | Post a Comment (note, question with choice buttons, review, sign-off), optionally with files copied into TED’s store. | KRI-11, KRI-55 |
 | `ted ask --round <file>` | Post a Clarify or planning round. | KRI-19 |
@@ -887,6 +890,7 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 - `reviewer` (4.5). The reviewer performs code review and security review of the committed diff with no Work context, supplied with the Task, acceptance criteria, Design brief, repo guidance and a stated base commit. One reviewer can cover both reviews, reporting requested behaviour, repo standards and security separately with evidence for each Finding. (KRI-16, KRI-53, KRI-199)
 - From the second round of Validate, TED sets the reviewer’s scope. When the last round’s reviewer finished and every send-back since came from Validate to Work, the reviewer’s instructions come from TED: the earlier rounds’ blocking Findings and `git diff <last reviewed commit> <HEAD>` for each repo, to check only that each Finding is fixed and that the fixes broke nothing. A problem in code the fixes didn’t touch is a note unless it is P1 (lost or corrupted data, a security hole, or broken behaviour the Task’s description asks for). The Task Lead’s prompt file is added as context and can’t widen the scope. Otherwise (a Check failure with no review before it, a send-back from Review or by the human, a send-back for a conflict with the base branch, a rebased branch) the round is a full review from the Task Lead’s prompt. TED records the commits each reviewer started at. (ADR 0105)
 - At each Validate entry after a send-back, and at each send-back to Work, TED tells the Task Lead the round number, the limit and the rule for that round. (ADR 0105)
+- With `stages.validate.p1_only_from: N`, in Validate rounds numbered N or later only a P1 Finding sends the Task back. TED says so in the Validate entry text and adds a Severity section to the reviewer’s prompt, in scoped and full rounds. `ted outcome back` from Validate then needs `--severity p1`, the Task Lead’s declaration that at least one Finding is P1; without it TED refuses and tells the Task Lead to list the Findings as notes and advance. TED can’t verify severity, so it records the declaration (`v1.SendBackSeverityDeclared`), shows it on the send-back as `severity` and ends the thread line “· P1 declared”. A failed Check, a verified base conflict and a send-back the human asked for are not affected; send-backs that happen still count toward `max_back` and the loop check. It is not a Gate, so overnight mode and forced Gates leave it alone. Off by default: with it on, Findings that aren’t P1 reach Review unfixed, as notes. (ADR 0109)
 - An explicit `reviewer` pauses like any other Run and never falls back. An unset `reviewer` picks from the agent kinds that are installed, signed in and not limited when Validate starts. The Validate event names the reviewer, for example “Reviewed by Claude (Codex unavailable)”. (KRI-54)
 
 ### 8.5 Loop limit

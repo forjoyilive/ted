@@ -54,6 +54,9 @@ export const declaredSendBackCauses = ['base-conflict'] as const
 export type DeclaredSendBackCause = (typeof declaredSendBackCauses)[number]
 export type SendBackCause = 'review' | 'check' | 'human' | DeclaredSendBackCause
 
+export const findingSeverities = ['p1'] as const
+export type FindingSeverity = (typeof findingSeverities)[number]
+
 export interface SendBack {
   id: string
   taskId: string
@@ -65,6 +68,7 @@ export interface SendBack {
   limit?: number
   checkRunId?: string
   cause?: SendBackCause
+  severity?: FindingSeverity
   at: string
 }
 

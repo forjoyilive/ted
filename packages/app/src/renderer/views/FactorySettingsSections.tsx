@@ -26,6 +26,7 @@ import {
   lastRunText,
   lastValidLine,
   type SettingsDraft,
+  type StageDraft,
   stageEdited,
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
@@ -101,6 +102,63 @@ export function Toggle({
     >
       <span className={styles.knob} />
     </button>
+  )
+}
+
+export function ValidateRounds({
+  stage,
+  onStage,
+}: {
+  stage: Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'> | undefined
+  onStage: (fields: Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'>) => void
+}) {
+  const from = stage?.p1OnlyFrom ?? false
+  const rounds = [2, 3, 4, 5, 6]
+  if (from !== false && !rounds.includes(from)) rounds.push(from)
+  return (
+    <div className={styles.validateRounds}>
+      <span className={styles.roundSetting}>
+        Send back only for P1 Findings
+        <select
+          aria-label="Validate sends back only for P1 Findings"
+          className={styles.cellSelect}
+          value={from === false ? 'off' : String(from)}
+          onChange={(event) =>
+            onStage({
+              p1OnlyFrom: event.target.value === 'off' ? false : Number(event.target.value),
+            })
+          }
+        >
+          <option value="off">Off</option>
+          {rounds.map((round) => (
+            <option key={round} value={round}>
+              From round {round}
+            </option>
+          ))}
+        </select>
+        <Help>
+          Off: every blocking Finding sends the Task back to Work. From a round: in that round of
+          Validate and every later one, only a P1 Finding sends it back. P1 means lost or corrupted
+          data, a security hole, or broken behaviour the Task asks for. Every other Finding stays
+          unfixed and is listed as a note for you at Review. You get fewer rounds, and problems
+          Validate found can merge if you approve without reading the notes.
+        </Help>
+      </span>
+      <span className={styles.roundSetting}>
+        Other sub-agents in Validate
+        <Toggle
+          label="Other sub-agents in Validate"
+          checked={stage?.subAgents === true}
+          onChange={(subAgents) => onStage({ subAgents })}
+        />
+        <Help>
+          Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can
+          also start other sub-agents, for example to run slow tests. Each one takes a working Run,
+          and a sub-agent that reviews the diff adds Findings that can cost another round. The
+          one-reviewer rule stays either way.
+        </Help>
+      </span>
+    </div>
   )
 }
 
@@ -413,6 +471,7 @@ function StageRow({
           )}
         </span>
       </div>
+      {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}

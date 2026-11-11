@@ -64,6 +64,13 @@ describe('TED defaults', () => {
     expect(settings.stages.validate?.loop_check).toBe(3)
     expect(settings.stages.clarify?.depth).toBe('auto')
   })
+
+  test('leave P1-only rounds and other sub-agents in Validate off', async () => {
+    const { settings } = resolveWorkflow([await defaults()])
+
+    expect(settings.stages.validate?.p1_only_from).toBeUndefined()
+    expect(settings.stages.validate?.sub_agents).toBeUndefined()
+  })
 })
 
 describe('layers', () => {
@@ -95,6 +102,23 @@ describe('layers', () => {
     ])
 
     expect(settings.stages.design).toEqual({ gate: false, max_back: 1 })
+  })
+
+  test('a Factory turns off the Library’s P1-only round and keeps its sub-agents setting', async () => {
+    const { settings } = resolveWorkflow([
+      await defaults(),
+      library({
+        'workflow.yaml': 'version: 1\nstages:\n  validate: { p1_only_from: 3, sub_agents: true }\n',
+      }),
+      factory({ 'workflow.yaml': 'version: 1\nstages:\n  validate: { p1_only_from: false }\n' }),
+    ])
+
+    expect(settings.stages.validate).toMatchObject({
+      max_back: 5,
+      loop_check: 3,
+      p1_only_from: false,
+      sub_agents: true,
+    })
   })
 
   test('lead, reviewer and planner merge key by key, and a plain name sets the agent', async () => {
@@ -412,6 +436,33 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 10 17 `stages.validate.loop_check` must be a whole number above 0, or false',
       'error .ted/workflow.yaml 11 14 each Check needs a `run` command',
       'error .ted/workflow.yaml 12 23 `stages.review.based_on` must be text',
+    ])
+  })
+
+  test('p1_only_from takes a round of 2 or more or false, and sub_agents true or false', () => {
+    const validate = (line: string) =>
+      problems({ 'workflow.yaml': `stages:\n  validate:\n    ${line}\n` })
+    for (const value of ['1', '0', '2.5', 'soon', 'true']) {
+      expect(validate(`p1_only_from: ${value}`)).toEqual([
+        'error .ted/workflow.yaml 3 19 `stages.validate.p1_only_from` must be a round number, 2 or more, or false',
+      ])
+    }
+    for (const value of ['2', '7', 'false']) expect(validate(`p1_only_from: ${value}`)).toEqual([])
+    expect(validate('sub_agents: 1')).toEqual([
+      'error .ted/workflow.yaml 3 17 `stages.validate.sub_agents` must be true or false',
+    ])
+    for (const value of ['true', 'false']) expect(validate(`sub_agents: ${value}`)).toEqual([])
+    expect(
+      problems(
+        { 'workflow.yaml': 'stages:\n  validate: { p1_only_from: 3, sub_agents: true }\n' },
+        'library',
+      ),
+    ).toEqual([])
+    expect(
+      problems({ 'workflow.yaml': 'stages:\n  work: { p1_only_from: 3, sub_agents: true }\n' }),
+    ).toEqual([
+      'warning .ted/workflow.yaml 2 11 unknown key `stages.work.p1_only_from`',
+      'warning .ted/workflow.yaml 2 28 unknown key `stages.work.sub_agents`',
     ])
   })
 

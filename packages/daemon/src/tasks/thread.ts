@@ -170,6 +170,7 @@ export function threadEvents(
   let sentBackTo: string | undefined
   let held = false
   let judged: Record<string, unknown> | undefined
+  let declaredP1 = false
   let depthSet = false
   const splits = new Set(log.filter((e) => e.name === 'v1.TaskSplit').map((e) => e.at))
   const descriptionChanges = (version: unknown) => {
@@ -438,11 +439,17 @@ export function threadEvents(
           text(data.findings).trim(),
         )
         break
+      case 'v1.SendBackSeverityDeclared':
+        declaredP1 = data.severity === 'p1'
+        break
       case 'v2.TaskSentBack': {
         sentBackTo = text(data.to)
         const fromValidate = text(data.from) === 'validate'
         const judgedNow = fromValidate ? judged : undefined
         judged = undefined
+        const p1 =
+          declaredP1 && fromValidate && typeof data.round === 'number' && !text(data.checkRunId)
+        declaredP1 = false
         const round =
           typeof data.round !== 'number'
             ? ''
@@ -456,7 +463,7 @@ export function threadEvents(
           'failure',
           `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
             judgedNow ? reviewedBy(judgedNow) : ''
-          }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}`,
+          }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}${p1 ? ' · P1 declared' : ''}`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
           checkRunId ?? (judgedNow ? text(judgedNow.checkRunId) || undefined : undefined),
           {
@@ -516,6 +523,7 @@ export function threadEvents(
       case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
+        declaredP1 = false
         if (sentBackTo === stage) {
           sentBackTo = undefined
           const fallback = settingsFallback(data.layers)
