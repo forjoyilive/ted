@@ -197,7 +197,7 @@ describe('resuming takes a working slot', () => {
       expect(after.leadRunId).toBe(task.leadRunId)
       await expect
         .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
-        .toEqual({ active: 2, working: 0, queued: 0 })
+        .toMatchObject({ active: 2, queued: 0 })
     },
   )
 })

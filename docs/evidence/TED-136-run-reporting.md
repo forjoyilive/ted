@@ -72,3 +72,13 @@ The minimal repair adds `queuedTasks` to the internal queue activity snapshot. T
 Typecheck and Lint passed after this source change. The focused `failures.test.ts` and `store.test.ts` verification is queued (`recovery-green.log`), not yet passing. Required broad daemon coverage remains outstanding. The user chose Keep waiting for shared test capacity; no peer process or lock was altered.
 
 The same recovery-slot regression now covers both revival and Stop while waiting. Both require one queued item initially. Revival requires two actual unfinished Runs and no queued item afterward; Stop requires the queued item to disappear and the stopped Lead not to restart when the slot becomes free. This adds coverage only, without another production change. Focused and broad verification remain pending.
+
+## Broad recovery verification
+
+The required 191-file run completed on the production repair with 188 files and 2,152 tests passing; three files each had one failure. The Stop-while-recovery-is-queued case passed with the corrected public Task status. All store/other reporting regressions passed. Failures retained in `recovery-broad.log`:
+
+1. The existing `failure-merge.test.ts:62` acceptance/obligations/Gate test again timed out after 30 seconds. This is the original recorded uncertainty, not a new passing result.
+2. The recovery-resume test expected both Runs to be idle after revival. Actual active 2 / working 1 / queued 0 correctly reports a resumed working Run and no queued recovery. The final assertion now matches only the promised active 2 / queued 0; no production change.
+3. `task-lead.test.ts` · “Stop holds Task Lead messages until send-now, including after an effort change” timed out waiting for Stop and pending effort to be applied. Cause is not established. Compare this exact test on the base and repeat focused verification before assessing it.
+
+The earlier two-file focused run passed the store file but failed the same over-specific resume assertion and an already-corrected private-field assertion in the Stop test. That run loaded the old Stop assertion before its correction; the original Expected true / Received undefined output is retained. Direct Typecheck caught the private-field error and passed after using `status.kind`. Logs are `recovery-green.log`, `recovery-final-typecheck.log` and `recovery-public-status-{typecheck,lint}.log`.
