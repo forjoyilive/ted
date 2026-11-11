@@ -322,6 +322,11 @@ describe('Apps', () => {
       daemon?.port ?? 0,
       (await loadRunTokens(tedPaths(home).runTokenKey)).issue(lead ?? ''),
     )
+    for (const action of ['stop', 'restart'])
+      expect(
+        (await asLead.call('POST', `/tasks/${task.id}/apps/${action}`, { name: 'Web' })).status,
+        `the Task’s own Run asks to ${action}`,
+      ).toBe(403)
     const refused = await asLead.call('PATCH', '/settings', {
       appsOutsideSandbox: { [task.factoryId]: ['API'] },
     })
