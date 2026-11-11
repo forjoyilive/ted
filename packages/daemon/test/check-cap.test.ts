@@ -164,10 +164,9 @@ describe('Checks running at once', () => {
     await running(client, second)
     expect((await checkRun(client, second))?.waiting).toBeUndefined()
     expect((await getTask(client, second.id))?.activity).toBe('Running Checks · Wait (1 of 1)')
-    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
-      checksRunning: 1,
-      checksWaiting: 0,
-    })
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ checksRunning: 1, checksWaiting: 0 })
     await go(client, second)
     const measured = await finished(client, second)
     expect(measured.outcome).toBe('passed')

@@ -90,6 +90,13 @@ async function advance(client: Client, task: Task) {
 
 async function advanceTo(client: Client, task: Task, stage: string) {
   const res = await advance(client, task)
+  if (stage === 'validate' && /before \S+ leaves Work/.test(JSON.stringify(res.body))) {
+    await waitUntil(
+      async () => (await getTask(client, task.id)).stage === stage || undefined,
+      'the Checks to pass and the Task to reach Validate',
+    )
+    return
+  }
   expect(res.body).toMatchObject({ task: { stage } })
 }
 
@@ -533,7 +540,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
         'stages:',
         '  validate:',
         '    checks:',
-        '      - { name: Tests, run: "if [ -e stub-retried ]; then exit 0; else touch stub-retried; exit 1; fi" }',
+        '      - { name: Tests, run: "n=$(cat stub-runs 2>/dev/null || echo 0); n=$((n+1)); echo $n > stub-runs; [ $n -ne 2 ]" }',
       ],
       merge: {
         mergeState: 'BLOCKED',
@@ -551,6 +558,10 @@ describe('overnight mode and a Task that changes .ted/', () => {
       expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
       return res.body as T
     }
+    await waitUntil(
+      async () => (await token.call('POST', `/tasks/${task.id}/checks`, {})).status === 201,
+      'the Checks to run again in Validate',
+    )
     const finding = await waitUntil(
       async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).at(-1),
       'failed Check recorded',

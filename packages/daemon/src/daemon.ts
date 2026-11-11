@@ -539,6 +539,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         plans,
         factories,
         checkTries,
+        workflows,
         storage: () => storage,
       })
       factories.start()

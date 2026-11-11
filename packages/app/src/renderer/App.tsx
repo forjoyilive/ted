@@ -55,6 +55,7 @@ import {
   useDrift,
   useFactoryList,
   useInbox,
+  useMenuCommands,
   usePlanInbox,
   useSettingsState,
   useSimulators,
@@ -364,13 +365,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   const onMenuCommand = useRef<(command: MenuCommand) => void>(() => undefined)
 
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type === 'menu-command') onMenuCommand.current(event.command)
-      }),
-    [],
-  )
+  useMenuCommands((command) => onMenuCommand.current(command))
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return

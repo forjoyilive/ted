@@ -293,14 +293,17 @@ export function assistantTexts(conversation: ConversationEntry[]): string[] {
   })
 }
 
-export async function makeOriginRepo(parent: string): Promise<string> {
+export async function makeOriginRepo(
+  parent: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
   const origin = path.join(parent, 'acme', 'widgets.git')
   const work = path.join(parent, 'seed')
   const git = (cwd: string, ...args: string[]) =>
     execFileAsync('git', args, {
       cwd,
       env: {
-        ...process.env,
+        ...environment,
         GIT_AUTHOR_NAME: 'Test',
         GIT_AUTHOR_EMAIL: 'test@example.com',
         GIT_COMMITTER_NAME: 'Test',
@@ -362,4 +365,39 @@ export async function editEventlog(home: string, sql: string): Promise<void> {
   const db = new DatabaseSync(path.join(dir, file))
   db.exec(sql)
   db.close()
+}
+
+export function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const name of [
+    'PATH',
+    'TMPDIR',
+    'SystemRoot',
+    'TED_TEST_RUN',
+    'TED_TEST_FILE',
+    'TED_EXIT_WITH_PID',
+  ]) {
+    if (process.env[name] !== undefined) env[name] = process.env[name]
+  }
+  return {
+    ...env,
+    HOME: home,
+    XDG_CONFIG_HOME: path.join(home, '.config'),
+    TED_HOME: home,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_TERMINAL_PROMPT: '0',
+    TED_LOGIN_SHELL: 'off',
+    TED_STAY_AWAKE: 'off',
+    TED_LOW_PRIORITY: 'off',
+    TED_GH_BIN: fileURLToPath(new URL('./fixtures/stub-gh.ts', import.meta.url)),
+    TED_KEYRING_MODULE: fileURLToPath(new URL('./fixtures/stub-keyring.ts', import.meta.url)),
+    TED_LINEAR_API: 'http://127.0.0.1:9/graphql',
+    TED_TIME_MACHINE: 'off',
+    TED_STUB_GH: path.join(home, 'gh.json'),
+    TED_STUB_GH_LOG: path.join(home, 'gh.jsonl'),
+    TED_FREE_BYTES_FILE: fileURLToPath(new URL('./fixtures/free-bytes.txt', import.meta.url)),
+    TED_LOAD_FILE: fileURLToPath(new URL('./fixtures/load.txt', import.meta.url)),
+    TED_ONLINE_FILE: fileURLToPath(new URL('./fixtures/online.txt', import.meta.url)),
+  }
 }

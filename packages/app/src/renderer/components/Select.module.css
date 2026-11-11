@@ -2,11 +2,24 @@
   position: relative;
   display: inline-flex;
   flex-shrink: 0;
+  min-width: 0;
   align-items: center;
 }
 
-.select {
+.fullWidth {
+  width: 100%;
+}
+
+.fullWidth > select {
+  width: 100%;
+}
+
+.control {
+  min-width: 0;
   appearance: none;
+}
+
+.select {
   padding: 5px 28px 5px 10px;
   border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
@@ -22,9 +35,19 @@
   outline-offset: 1px;
 }
 
+.wrap > .control {
+  padding-right: 28px;
+}
+
 .chevron {
   position: absolute;
+  top: 50%;
   right: 10px;
+  transform: translateY(-50%);
   color: var(--text-caption);
   pointer-events: none;
+}
+
+.control:disabled + .chevron {
+  color: var(--text-tertiary);
 }
