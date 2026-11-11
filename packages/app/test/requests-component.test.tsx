@@ -356,6 +356,7 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
 })
 
 function inboxProps() {
+  bridge({})
   return {
     items: [],
     answered: [],
