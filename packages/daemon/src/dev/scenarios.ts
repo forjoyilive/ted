@@ -407,6 +407,14 @@ async function populateScenarios(
   const work = await make('working', 'Keep the last edited note close at hand', 'defer')
   for (const task of [intake, question, clarify, grilling, design, work])
     await client.startTask(task.id)
+  const review = await make('review', 'Show notebook names in search results', 'defer')
+  const validate = await make('validate', 'Preserve headings when pasting text', 'defer')
+  const merge = await make('merge', 'Remember the sidebar width', 'defer')
+  const done = await make('done', 'Keep notebook sorting between launches', 'defer')
+  const ci = await make('ci', 'Keep pinned notes at the top', 'defer')
+  const partly = await make('partlyMerged', 'Align notebook labels across web and API', 'defer')
+  await client.setTaskRepos(partly.id, { set: ['demo/garden', 'demo/garden-api'] })
+  for (const task of [review, validate, merge, done, ci, partly]) await client.startTask(task.id)
   await Promise.all([
     reach(clarify, 'clarify'),
     reach(grilling, 'clarify'),
@@ -516,9 +524,6 @@ async function populateScenarios(
     await demoGit(home, journalRepo, 'push', path.join(home, 'origins', 'journal.git'), 'HEAD:main')
     await client.factorySettings(journal.id)
   }
-  const review = await make('review', 'Show notebook names in search results', 'defer')
-  const validate = await make('validate', 'Preserve headings when pasting text', 'defer')
-  const merge = await make('merge', 'Remember the sidebar width', 'defer')
   async function configurePrs(task: Task, change: (index: number) => Record<string, unknown>) {
     const current = await observed.task(task.id)
     const file = path.join(home, 'gh.json')
@@ -542,11 +547,6 @@ async function populateScenarios(
       lock.release()
     }
   }
-  const done = await make('done', 'Keep notebook sorting between launches', 'defer')
-  const ci = await make('ci', 'Keep pinned notes at the top', 'defer')
-  const partly = await make('partlyMerged', 'Align notebook labels across web and API', 'defer')
-  await client.setTaskRepos(partly.id, { set: ['demo/garden', 'demo/garden-api'] })
-  for (const task of [review, validate, merge, done, ci, partly]) await client.startTask(task.id)
   await Promise.all([review, validate, merge, done, ci, partly].map(lead))
   gardenReady.resolve()
   const invalidSettings = planning.then(async (planned) => {
