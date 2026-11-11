@@ -82,6 +82,7 @@ export function createBrowserBroker() {
             }
           })
         }
+        if (owner !== session) return null
         const cancellation = canceled.values().next().value
         if (cancellation) {
           canceled.delete(cancellation.id)
@@ -98,6 +99,14 @@ export function createBrowserBroker() {
       }
     },
     command: (owner: string, id: string) => check(owner, id).command,
+    rejectCommand(owner: string, id: string) {
+      try {
+        check(owner, id)
+      } catch {
+        return
+      }
+      fail(id, 'The Task’s browser is no longer available')
+    },
     reply(owner: string, id: string, reply: BrowserReply) {
       const item = check(owner, id, true)
       if (item.cancellation && !reply.canceled) return

@@ -8303,8 +8303,9 @@ export function createTasks(options: {
           ) {
             throw new RequestError(409, 'The App restarted')
           }
+          browser.command(session, command.id)
         } catch {
-          browser.cancel(command.taskId)
+          browser.rejectCommand(session, command.id)
           return null
         }
       }

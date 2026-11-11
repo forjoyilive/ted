@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type BrowserCommand, DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -17,11 +17,42 @@ import {
   waitUntil,
 } from './helpers.ts'
 
+const validation = vi.hoisted(() => ({
+  after: 0,
+  release: undefined as ((error?: Error) => void) | undefined,
+}))
+function releaseValidation(error?: Error) {
+  validation.release?.(error)
+}
+vi.mock('../src/apps/apps.ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/apps/apps.ts')>()
+  return {
+    ...original,
+    createApps(...args: Parameters<typeof original.createApps>) {
+      const apps = original.createApps(...args)
+      const list = apps.list
+      apps.list = async (...args) => {
+        const result = await list(...args)
+        if (validation.after > 0 && --validation.after === 0) {
+          await new Promise<void>((resolve, reject) => {
+            validation.release = (error) => (error ? reject(error) : resolve())
+          })
+        }
+        return result
+      }
+      return apps
+    },
+  }
+})
+
 let daemon: RunningDaemon | undefined
 let cleanup: (() => Promise<void>) | undefined
 let scratch: string | undefined
 let home = ''
 afterEach(async () => {
+  validation.release?.()
+  validation.release = undefined
+  validation.after = 0
   await daemon?.stop()
   await killAppHosts(home)
   await killRunHosts(home)
@@ -109,6 +140,52 @@ test('only its Task can command the browser; the app bridge completes commands o
     await app.replyBrowser('owner', unchanged.id, { result: { text: 'Still active' } })
     expect(await unchangedResult).toEqual({ result: { text: 'Still active' } })
   }
+  await waitUntil(
+    async () =>
+      (await app.listApps(task.id)).find((a) => a.name === 'Other' && a.state === 'running'),
+    'other App',
+  )
+  for (const outcome of ['failure', 'success']) {
+    validation.after = 2
+    validation.release = undefined
+    const obsoletePoll = app.pollBrowser(`old-${outcome}`)
+    const obsoleteRequest = app
+      .browserCommand(task.id, request)
+      .catch((error: Error) => error.message)
+    await vi.waitFor(() => expect(validation.release).toBeTypeOf('function'))
+    const newerPoll = app.pollBrowser(`new-${outcome}`)
+    const newerRequest = app.browserCommand(task.id, { action: 'open', app: { name: 'Other' } })
+    const newerResult = newerRequest.then(
+      (result) => ({ result }),
+      (error: Error) => ({ error: error.message }),
+    )
+    const newer = await newerPoll
+    if (!newer) throw new Error('Missing newer command')
+    expect(await obsoleteRequest).toMatch(/connection changed/)
+    releaseValidation(
+      outcome === 'failure' ? new Error('Obsolete App validation failed') : undefined,
+    )
+    expect(await obsoletePoll).toBeNull()
+    expect(await app.pollBrowser(`new-${outcome}`)).toBeNull()
+    await app.replyBrowser(`new-${outcome}`, newer.id, {
+      result: { text: 'Newer command completed' },
+    })
+    expect(await newerResult).toEqual({ result: { text: 'Newer command completed' } })
+  }
+  validation.after = 2
+  validation.release = undefined
+  const invalidPoll = app.pollBrowser('invalid-owner')
+  const invalidRequest = app.browserCommand(task.id, request).catch((error: Error) => error.message)
+  await vi.waitFor(() => expect(validation.release).toBeTypeOf('function'))
+  releaseValidation(new Error('Current App validation failed'))
+  expect(await invalidPoll).toBeNull()
+  expect(await invalidRequest).toMatch(/no longer available/)
+  const restorePoll = app.pollBrowser('owner')
+  const restore = app.browserCommand(task.id, request)
+  const restored = await restorePoll
+  if (!restored) throw new Error('Missing restore command')
+  await app.replyBrowser('owner', restored.id, { result: {} })
+  await restore
   const capturePoll = app.pollBrowser('owner')
   const capturing = run.call('POST', `/tasks/${task.id}/browser`, { action: 'screenshot' })
   const shot = (await capturePoll) as BrowserCommand
