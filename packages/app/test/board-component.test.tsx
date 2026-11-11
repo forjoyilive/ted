@@ -209,8 +209,9 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
       f1: {
         sort: 'updated',
         group: 'none',
-        columns: ['id', 'title', 'stage'],
+        columns: ['id', 'title', 'stage', 'started'],
         filters: { stages: ['done'] },
+        columnsVersion: 2,
       },
     },
   })
