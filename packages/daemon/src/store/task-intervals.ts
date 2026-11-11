@@ -44,7 +44,9 @@ export function taskIntervalHistory(input: {
     .filter((e) => e.at <= asOf)
     .sort((a, b) => eventOrder(a.id) - eventOrder(b.id))
   const lifecycle = log.filter((e) =>
-    /Task(?:Stopped|Resumed|Retried|Archived|Unarchived|StageEntered|StageChanged)$/.test(e.name),
+    /Task(?:Stopped|Resumed(?:Overnight)?|Retried|Archived|Unarchived|StageEntered|StageChanged)$/.test(
+      e.name,
+    ),
   )
   const terminal = (e: LoggedEvent) =>
     e.name.endsWith('TaskArchived') ||
@@ -117,7 +119,7 @@ export function taskIntervalHistory(input: {
     if (!event.name.endsWith('TaskStopped')) continue
     const end = log
       .slice(index + 1)
-      .find((e) => /Task(?:Resumed|Retried|Unarchived)$/.test(e.name) || terminal(e))
+      .find((e) => /Task(?:Resumed(?:Overnight)?|Retried|Unarchived)$/.test(e.name) || terminal(e))
     add('stopped', {
       id: event.id,
       start: event.at,
@@ -184,7 +186,8 @@ export function taskIntervalHistory(input: {
     for (const e of closures.filter((e) => e.sequence < session.sequence)) {
       if (e.name.endsWith('TaskStopped') || terminal({ ...e, data: JSON.parse(e.data) }))
         workingAllowed = false
-      else if (/Task(?:Resumed|Retried|Unarchived)$/.test(e.name)) workingAllowed = true
+      else if (/Task(?:Resumed(?:Overnight)?|Retried|Unarchived)$/.test(e.name))
+        workingAllowed = true
     }
     for (const boundary of [...input.boundaries, ...closures]
       .filter(
@@ -210,7 +213,8 @@ export function taskIntervalHistory(input: {
               endSource: boundary.name,
             })
           active.clear()
-        } else if (/Task(?:Resumed|Retried|Unarchived)$/.test(boundary.name)) workingAllowed = true
+        } else if (/Task(?:Resumed(?:Overnight)?|Retried|Unarchived)$/.test(boundary.name))
+          workingAllowed = true
         continue
       }
       const id = boundary.subject.slice(4)
@@ -422,7 +426,7 @@ function durableWaits(input: {
     if (event.name.endsWith('TaskRunHeld')) heldAgent = String(data.agent)
     if (event.name.endsWith('TaskRunReleased')) heldAgent = undefined
     if (
-      /Task(?:Queued|Resumed|Retried|RequeuedAfterBlockers|StartedAfterPlanning)$/.test(
+      /Task(?:Queued|Resumed(?:Overnight)?|Retried|RequeuedAfterBlockers|StartedAfterPlanning)$/.test(
         event.name,
       ) ||
       event.name.endsWith('GitHubActivityQueued')

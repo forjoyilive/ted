@@ -5,11 +5,11 @@ import type {
   LibraryAgentRow,
   LibraryView,
 } from '@ted/protocol'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
-import { useConnection } from '../data.ts'
+import { useEventValue } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import sections from '../views/FactorySettingsSections.module.css'
 import { FromChip } from '../views/FactorySettingsSections.tsx'
@@ -24,44 +24,34 @@ const roleNames: Record<AgentRole, string> = {
 const efforts: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
 export function AgentDefaults() {
-  const [view, setView] = useState<LibraryView>()
-  const [error, setError] = useState<string>()
+  const [saveError, setSaveError] = useState<string>()
   const [busy, setBusy] = useState(false)
-  const { epoch } = useConnection()
 
-  useEffect(() => {
-    void epoch
-    let active = true
-    const load = () =>
-      ted.library().then(
-        (next) => {
-          if (!active) return
-          setView(next)
-          setError(undefined)
-        },
-        (failure: unknown) => active && setError(readableError(failure)),
-      )
-    void load()
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'library-changed') void load()
-    })
-    return () => {
-      active = false
-      unsubscribe()
-    }
-  }, [epoch])
+  const {
+    value: view,
+    update,
+    refresh,
+    error: loadError,
+  } = useEventValue<LibraryView | undefined>({
+    initial: undefined,
+    load: ted.library,
+    event: (event) => (event.type === 'library-changed' ? 'reload' : undefined),
+  })
+  const error = saveError ?? loadError
 
   async function save(role: AgentRole, choice: AgentChoiceInput | null) {
     if (!view) return
     setBusy(true)
-    setError(undefined)
+    setSaveError(undefined)
     try {
-      setView(
-        await ted.saveLibrary({ changes: { agents: { [role]: choice } }, version: view.version }),
-      )
+      const saved = await ted.saveLibrary({
+        changes: { agents: { [role]: choice } },
+        version: view.version,
+      })
+      update(() => saved)
     } catch (failure) {
-      setError(readableError(failure))
-      void ted.library().then(setView, () => undefined)
+      setSaveError(readableError(failure))
+      void refresh()
     } finally {
       setBusy(false)
     }

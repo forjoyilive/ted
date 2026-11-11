@@ -16,10 +16,17 @@ import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { ReviewerPurpose, StoredTask, SubAgentRequest, TedStore } from '../store/index.ts'
+import type {
+  ReviewerPurpose,
+  ReviewScope,
+  StoredTask,
+  SubAgentRequest,
+  TedStore,
+} from '../store/index.ts'
 import { stageTitle, subAgentPrompt, tedSubAgentPrompt } from '../workflow/workflow.ts'
 import type { QueueEntry } from './queue.ts'
 import type { Caller } from './tasks.ts'
+import { subAgentRefusal } from './validate-settings.ts'
 
 export interface SubAgents {
   request(ref: string, caller: Caller, input: StartSubAgentRequest): Promise<SubAgent>
@@ -28,6 +35,8 @@ export interface SubAgents {
     input: { name: string; prompt: string; choice: ReviewerChoice; purpose: ReviewerPurpose },
   ): string | undefined
   result(runId: string): Promise<SubAgentWait>
+  reviewed(runId: string): boolean
+  visitReviewer(task: StoredTask): string | undefined
   queued(): QueueEntry[]
   begin(id: string): void
   starting(taskId: string): number
@@ -45,6 +54,12 @@ export interface ReviewerChoice {
   unavailable?: AgentKind
 }
 
+export interface PlannedReview {
+  prompt: string
+  scope: Omit<ReviewScope, 'runId' | 'at'>
+  p1OnlyFrom?: number
+}
+
 export interface SubAgentDeps {
   store: TedStore
   runs: Pick<RunManager, 'start' | 'stop' | 'send' | 'observe'> & {
@@ -54,6 +69,9 @@ export interface SubAgentDeps {
   find(ref: string): StoredTask
   leadFor(task: StoredTask): Promise<TaskLead>
   reviewerFor(task: StoredTask): Promise<ReviewerChoice>
+  visitStart(task: StoredTask): string
+  planReview(task: StoredTask, prompt: string): Promise<PlannedReview>
+  validateSubAgents(task: StoredTask): Promise<boolean>
   envFor(task: StoredTask, repo: TaskRepo): Promise<Record<string, string>>
   permissionsFor(task: StoredTask): Promise<PermissionMode>
   clonePathFor(repo: TaskRepo): string
@@ -157,13 +175,23 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     return entries.findLast((e) => e.kind === 'agent')?.text
   }
 
-  function ownWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
-    const next = allocating.then(() => addOwnWorktree(task, repo, name))
+  function ownWorktree(
+    task: StoredTask,
+    repo: TaskRepo,
+    name: string,
+    from?: string,
+  ): Promise<string> {
+    const next = allocating.then(() => addOwnWorktree(task, repo, name, from))
     allocating = next.catch(() => undefined)
     return next
   }
 
-  async function addOwnWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
+  async function addOwnWorktree(
+    task: StoredTask,
+    repo: TaskRepo,
+    name: string,
+    from?: string,
+  ): Promise<string> {
     const clone = deps.clonePathFor(repo)
     const base = `${task.branch ?? `ted/${task.displayId.toLowerCase()}`}-${slug(name)}`
     let branch = base
@@ -175,7 +203,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       branch.split('/').at(-1) ?? 'sub-agent',
     )
     await mkdir(path.dirname(dir), { recursive: true })
-    const head = await git.revParse(repo.worktree, 'HEAD')
+    const head = from ?? (await git.revParse(repo.worktree, 'HEAD'))
     await git.addWorktree(clone, { path: dir, branch, from: head })
     return dir
   }
@@ -200,11 +228,18 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       return
     }
     const shared = (await deps.runFolder(task)) ?? repo.worktree
-    const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : shared
-    const prompt =
-      store.reviewerOf(request.id)?.purpose === 'loop-check'
-        ? await tedSubAgentPrompt(request.prompt)
-        : await subAgentPrompt(task.displayId, request.prompt)
+    const reviewed = store
+      .reviewScopes(task.id)
+      .find((s) => s.runId === request.id)
+      ?.commits.find((c) => c.name === repo.name)?.commit
+    const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name, reviewed) : shared
+    const fromTed =
+      store.reviewerOf(request.id)?.purpose === 'loop-check' ||
+      store.p1OnlyReview(request.id) ||
+      store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope !== 'full')
+    const prompt = fromTed
+      ? await tedSubAgentPrompt(request.prompt)
+      : await subAgentPrompt(task.displayId, request.prompt)
     const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
     const permissions = await deps.permissionsFor(task)
     if (cancelled.has(request.id)) {
@@ -227,6 +262,23 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       ...(request.effort !== undefined && { effort: request.effort }),
     })
     if (cancelled.has(request.id)) await runs.stop(request.id)
+  }
+
+  function holdsReview(runId: string): boolean {
+    if (store.subAgentRequests().some((r) => r.id === runId)) return true
+    const run = store.getRun(runId)
+    if (!run || run.failure !== undefined) return false
+    return run.state !== 'finished' || finalMessage(run) !== undefined
+  }
+
+  function validateReviewer(task: StoredTask): string | undefined {
+    const since = deps.visitStart(task)
+    return store
+      .reviewers(task.id)
+      .find(
+        (r) =>
+          r.purpose === 'review' && r.stage === 'validate' && r.at >= since && holdsReview(r.runId),
+      )?.runId
   }
 
   function setWaiting(leadRunId: string, delta: 1 | -1): void {
@@ -384,7 +436,17 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
             'the reviewer’s agent, model and effort come from the `reviewer` setting; leave them out',
           )
         }
+        if (task.stage === 'validate') await deps.prepareExecution(task)
+        const planned =
+          task.stage === 'validate' ? await deps.planReview(task, input.prompt) : undefined
         const choice = await deps.reviewerFor(task)
+        const earlier = task.stage === 'validate' ? validateReviewer(task) : undefined
+        if (earlier !== undefined) {
+          throw new RequestError(
+            409,
+            `this Validate visit already has its reviewer (Run ${earlier}), and each visit gets one review. Wait for its Findings with \`ted run wait ${earlier}\`, or send it a follow-up with \`ted run send ${earlier} "<text>"\`.`,
+          )
+        }
         const id = crypto.randomUUID()
         const request = store.requestSubAgent({
           id,
@@ -394,7 +456,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
           agent: choice.lead.agent,
           ...(choice.lead.model !== undefined && { model: choice.lead.model }),
           ...(choice.lead.effort !== undefined && { effort: choice.lead.effort }),
-          prompt: input.prompt,
+          prompt: planned?.prompt ?? input.prompt,
           ownWorktree: input.ownWorktree === true,
         })
         store.chooseReviewer({
@@ -405,9 +467,21 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
           agent: choice.lead.agent,
           ...(choice.unavailable !== undefined && { unavailable: choice.unavailable }),
         })
+        if (planned) store.recordReviewScope({ ...planned.scope, runId: id })
+        if (planned?.p1OnlyFrom !== undefined) {
+          store.recordP1OnlyReview({
+            runId: id,
+            taskId: task.id,
+            round: planned.scope.round,
+            from: planned.p1OnlyFrom,
+          })
+        }
         deps.pump()
         const started = store.getRun(request.id)
         return started ? describe(started) : describeRequest(request)
+      }
+      if (task.stage === 'validate' && !(await deps.validateSubAgents(task))) {
+        throw new RequestError(409, subAgentRefusal)
       }
       const fallback = await deps.leadFor(task)
       const agent: AgentKind = input.agent ?? fallback.agent
@@ -481,6 +555,11 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         if (result.done || closed) return result
       }
     },
+    reviewed(runId) {
+      const run = store.getRun(runId)
+      return run !== undefined && run.failure === undefined && finalMessage(run) !== undefined
+    },
+    visitReviewer: (task) => (task.stage === 'validate' ? validateReviewer(task) : undefined),
     requestForTed(task, { name, prompt, choice, purpose }) {
       const leadRunId = task.leadRunId
       const leadRun = leadRunId === undefined ? undefined : store.getRun(leadRunId)

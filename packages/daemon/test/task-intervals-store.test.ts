@@ -66,6 +66,31 @@ test('unions overlapping requests and ends an unanswered request at a stop', () 
   ])
 })
 
+test('overnight resume ends a preparation stop and begins its durable queue interval', () => {
+  tick(1)
+  store.stopTask(taskId, { runs: 0, why: 'prepared' })
+  tick(2)
+  store.resumeTask(taskId, { waitForBlockers: false, overnight: true })
+  tick(3)
+  const history = store.taskIntervalHistory(taskId)
+  expect(history.intervals.filter((i) => i.reason === 'stopped')).toMatchObject([
+    {
+      start: at(1),
+      end: at(2),
+      contributors: [{ endSource: 'v1.TaskResumedOvernight' }],
+    },
+  ])
+  expect(history.intervals.filter((i) => i.reason === 'run-slot')).toMatchObject([
+    {
+      start: at(2),
+      end: at(3),
+      contributors: expect.arrayContaining([
+        expect.objectContaining({ startSource: 'v1.TaskResumedOvernight' }),
+      ]),
+    },
+  ])
+})
+
 test('unions observed working Runs without recording output batches as transitions', () => {
   tick(1)
   store.startRun({ id: 'lead', taskId, agent: 'codex', prompt: '', cwd: directory })

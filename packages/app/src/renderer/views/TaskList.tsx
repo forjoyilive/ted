@@ -22,6 +22,8 @@ import {
   useRef,
   useState,
 } from 'react'
+import dialogStyles from '../components/ArchiveDialogs.module.css'
+import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
@@ -59,8 +61,9 @@ import {
 import { age, useNow } from '../requests.ts'
 import { startTask } from '../setup-notice.ts'
 import { activeSubAgentCount } from '../sub-agents.ts'
+import { statusAction } from '../task-actions.ts'
 import { priorityLabels } from '../task-fields.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import styles from './TaskList.module.css'
 import views from './views.module.css'
@@ -78,6 +81,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   tokens: '64px',
   created: '56px',
   updated: '56px',
+  started: '56px',
 }
 
 const sortHints: Partial<Record<ListSort, string>> = { manual: 'Priority, then rank' }
@@ -493,6 +497,10 @@ export function TaskList({
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
   const [spot, setSpot] = useState<DropSpot>()
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [prepareNotice, setPrepareNotice] = useState(false)
+  const [noticeSeen, setNoticeSeen] = useState(false)
+  const [preparing, setPreparing] = useState(false)
+  const [prepareError, setPrepareError] = useState<string>()
   const [closePullRequests, setClosePullRequests] = useState(true)
   const [priorityOpen, setPriorityOpen] = useState(false)
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
@@ -524,9 +532,10 @@ export function TaskList({
   const canDrag = view.sort === 'manual' && !archivedOnly
   const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
   const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : g.tasks))
-  const grid = [...(queueMode ? (['queue'] as const) : []), ...columns]
-    .map((c) => columnWidths[c])
-    .join(' ')
+  const grid = [
+    '24px',
+    ...[...(queueMode ? (['queue'] as const) : []), ...columns].map((c) => columnWidths[c]),
+  ].join(' ')
   const chips = filterChips(view.filters, factories)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
   const chosen = tasks.filter((t) => selected.includes(t.id))
@@ -546,6 +555,7 @@ export function TaskList({
 
   function onRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, task: Task) {
     const at = ordered.findIndex((t) => t.id === task.id)
+    if ((event.target as HTMLElement).closest('input, button')) return
     if (event.key === 'Enter') {
       event.preventDefault()
       onOpen(task)
@@ -653,10 +663,12 @@ export function TaskList({
         return archivedOnly && task.archived
           ? shortDate(task.archived.at)
           : age(task.updatedAt, now)
+      case 'started':
+        return task.startedAt ? age(task.startedAt, now) : <span className={styles.none}>—</span>
     }
   }
 
-  const rightAligned = new Set<ListColumn>(['updated', 'created', 'tokens'])
+  const rightAligned = new Set<ListColumn>(['updated', 'created', 'tokens', 'started'])
 
   function row(task: Task, group: TaskGroup, index: number) {
     const isSelected = selected.includes(task.id)
@@ -708,6 +720,19 @@ export function TaskList({
         }}
         onKeyDown={(event) => onRowKeyDown(event, task)}
       >
+        <td className={`${styles.cell} ${styles.selectionCell}`}>
+          <input
+            type="checkbox"
+            className={styles.selectionCheckbox}
+            aria-label={`Select ${task.displayId}`}
+            checked={isSelected}
+            onClick={(event) => event.stopPropagation()}
+            onChange={() => {
+              setSelected((current) => toggled(current, task.id))
+              setAnchor(task.id)
+            }}
+          />
+        </td>
         {queueMode && (
           <td className={styles.queueCell}>
             <span className={styles.grip} aria-hidden>
@@ -755,6 +780,8 @@ export function TaskList({
   }
 
   const startable = chosen.filter((t) => t.stage === 'backlog' && !t.statuses.includes('blocked'))
+  const preparable = startable.filter((t) => !t.archived && !t.setup)
+  const resumable = chosen.filter((t) => statusAction(t)?.kind === 'resume')
   const archivable = chosen.filter((t) => !t.archived)
   const openPullRequests = archivable.flatMap((t) =>
     t.repos.flatMap((r) =>
@@ -766,6 +793,34 @@ export function TaskList({
 
   async function bulk(action: (task: Task) => Promise<unknown>, on: readonly Task[]) {
     await Promise.all(on.map((task) => action(task).catch(report)))
+  }
+
+  async function prepareTasks() {
+    setPreparing(true)
+    setPrepareError(undefined)
+    try {
+      if (!settings?.preparationNoticeSeen && !noticeSeen) {
+        await ted.updateSettings({ preparationNoticeSeen: true })
+        setNoticeSeen(true)
+      }
+      setPrepareNotice(false)
+      const failures = await Promise.all(
+        preparable.map(async (task) => {
+          try {
+            await ted.startTask(task.id, { prepare: true })
+            return undefined
+          } catch (error) {
+            return `${task.displayId}: ${readableError(error)}`
+          }
+        }),
+      )
+      const errors = failures.filter((error) => error !== undefined)
+      if (errors.length > 0) setPrepareError(errors.join('\n'))
+    } catch (error) {
+      setPrepareError(readableError(error))
+    } finally {
+      setPreparing(false)
+    }
   }
 
   function empty() {
@@ -802,7 +857,21 @@ export function TaskList({
   }
 
   return (
-    <section className={`${views.pane} ${styles.listPane}`} aria-label={title}>
+    <section
+      className={`${views.pane} ${styles.listPane} ${chosen.length > 0 ? styles.selecting : ''}`}
+      aria-label={title}
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Escape' &&
+          chosen.length > 0 &&
+          !document.querySelector('dialog[open], [role="menu"]')
+        ) {
+          setSelected([])
+          setConfirmArchive(false)
+          setPriorityOpen(false)
+        }
+      }}
+    >
       <header className={views.header}>
         <h1 className={views.title}>
           {title}
@@ -913,6 +982,7 @@ export function TaskList({
           >
             <thead>
               <tr className={`${styles.row} ${styles.heads}`} style={{ gridTemplateColumns: grid }}>
+                <th className={styles.cell} aria-label="Selection" />
                 {queueMode && <th className={styles.cell}>Queue</th>}
                 {columns.map((column) => (
                   <th
@@ -935,6 +1005,37 @@ export function TaskList({
                   {view.group !== 'none' && (
                     <tr className={styles.groupRow}>
                       <th>
+                        <input
+                          type="checkbox"
+                          className={styles.selectionCheckbox}
+                          aria-label={`Select all ${group.label} Tasks`}
+                          aria-checked={
+                            group.tasks.some((t) => selected.includes(t.id)) &&
+                            !group.tasks.every((t) => selected.includes(t.id))
+                              ? 'mixed'
+                              : undefined
+                          }
+                          checked={
+                            group.tasks.length > 0 &&
+                            group.tasks.every((t) => selected.includes(t.id))
+                          }
+                          ref={(input) => {
+                            if (input)
+                              input.indeterminate =
+                                group.tasks.some((t) => selected.includes(t.id)) &&
+                                !group.tasks.every((t) => selected.includes(t.id))
+                          }}
+                          disabled={group.tasks.length === 0}
+                          onChange={() => {
+                            const ids = new Set(group.tasks.map((t) => t.id))
+                            const all = group.tasks.every((t) => selected.includes(t.id))
+                            setSelected((current) =>
+                              all
+                                ? current.filter((id) => !ids.has(id))
+                                : [...new Set([...current, ...ids])],
+                            )
+                          }}
+                        />
                         <button
                           type="button"
                           className={styles.groupHead}
@@ -972,6 +1073,33 @@ export function TaskList({
               ? 'Start'
               : `Start ${startable.length}`}
           </Button>
+          <Button
+            size="small"
+            disabled={preparable.length === 0 || preparing}
+            title="Runs through Design, then waits before Work. Resume or Overnight mode lets it continue."
+            onClick={() => {
+              if (settings?.preparationNoticeSeen || noticeSeen) void prepareTasks()
+              else {
+                setNoticeSeen(true)
+                setPrepareNotice(true)
+                ted
+                  .updateSettings({ preparationNoticeSeen: true })
+                  .catch((error: unknown) => setPrepareError(readableError(error)))
+              }
+            }}
+          >
+            {preparable.length === chosen.length || preparable.length === 0
+              ? 'Prepare through Design'
+              : `Prepare through Design ${preparable.length}`}
+          </Button>
+          {resumable.length > 0 && (
+            <Button
+              size="small"
+              onClick={() => bulk((task) => ted.resumeTask(task.id), resumable).catch(report)}
+            >
+              {resumable.length === chosen.length ? 'Resume' : `Resume ${resumable.length}`}
+            </Button>
+          )}
           <div className={styles.menuAnchor}>
             <Button
               size="small"
@@ -1036,19 +1164,45 @@ export function TaskList({
               Archive
             </Button>
           )}
-          <button
-            type="button"
-            className={styles.selectionClear}
-            aria-label="Clear selection"
-            onClick={() => {
-              setSelected([])
-              setConfirmArchive(false)
-              setPriorityOpen(false)
-            }}
-          >
-            <CloseIcon size={12} />
-          </button>
         </div>
+      )}
+      {prepareError && (
+        <p role="alert" className={dialogStyles.error}>
+          {prepareError}
+        </p>
+      )}
+      {prepareNotice && (
+        <Dialog onClose={() => setPrepareNotice(false)}>
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogStyles.heading}>
+                Prepare through Design
+              </h2>
+              <p className={dialogStyles.body}>
+                Settle questions and review designs now. Each Task enters Work and waits before
+                implementation starts.
+              </p>
+              <p className={dialogStyles.body}>
+                Answer questions and approve Gates as usual. Resume prepared Tasks individually or
+                in bulk, or turn on Overnight mode to let them continue.
+              </p>
+              {settings?.overnightMode && (
+                <p className={dialogStyles.body}>
+                  Overnight mode is on, so these Tasks can continue into Work as soon as Design
+                  finishes.
+                </p>
+              )}
+              <div className={dialogStyles.buttons}>
+                <Button onClick={() => setPrepareNotice(false)}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  disabled={preparing || preparable.length === 0}
+                  onClick={() => void prepareTasks()}
+                >{`Prepare ${preparable.length} ${preparable.length === 1 ? 'Task' : 'Tasks'}`}</Button>
+              </div>
+            </>
+          )}
+        </Dialog>
       )}
     </section>
   )

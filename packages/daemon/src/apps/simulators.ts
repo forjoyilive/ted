@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
-  AnswerRequest,
   AppSimulator,
   AppStarter,
   BootedSimulator,
@@ -80,6 +79,13 @@ export type SimulatorWait =
   | { state: 'denied'; text?: string }
   | { state: 'gone' }
 
+export interface SimulatorRequestEffects {
+  assertApp(): void
+  hasRoom(): Promise<boolean>
+  boot(): Promise<void>
+  shutDown(udid: string): Promise<string>
+}
+
 export interface Simulators {
   readonly supported: boolean
   slots(): SimulatorSlots
@@ -91,7 +97,10 @@ export interface Simulators {
   ): Promise<{ udid: string } | { waiting: string }>
   wait(commentId: string, app: SimulatorApp): Promise<SimulatorWait>
   withdraw(commentId: string): void
-  answer(comment: Comment, request: AnswerRequest, text: string): Promise<Comment>
+  withRequest<T>(
+    comment: Comment,
+    work: (effects: SimulatorRequestEffects) => Promise<T>,
+  ): Promise<T>
   shutDown(taskId: string, repo: string, name: string): Promise<void>
   show(taskId: string, repo: string, name: string): Promise<void>
   screenshot(taskId: string, repo: string, name: string): Promise<string>
@@ -553,54 +562,35 @@ export function createSimulators(options: {
         appGone: true,
       })
     },
-    answer(comment, request, text) {
+    withRequest(comment, work) {
       return serial(async () => {
-        const current = store.getComment(comment.id)
-        if (current?.answer?.kind === 'withdrawn') {
-          throw new RequestError(409, 'this request was withdrawn')
+        const requester = () => {
+          const ask = comment.simulator
+          const record = ask && recordOf(comment.taskId, ask.repo, ask.app)
+          if (!record) throw new RequestError(409, 'the App that asked has stopped')
+          return record
         }
-        if (current?.answer) throw new RequestError(409, 'this request has already been answered')
-        const at = new Date().toISOString()
-        if (request.action === 'deny') {
-          return store.answerPermission(comment.id, {
-            kind: 'denied',
-            at,
-            ...(text !== '' && { text }),
-          })
-        }
-        if (request.action !== 'approve') {
-          throw new RequestError(
-            400,
-            'answer a simulator request with a simulator to shut down, or Deny',
-          )
-        }
-        const ask = comment.simulator as SimulatorAsk
-        const record = recordOf(comment.taskId, ask.repo, ask.app)
-        if (!record) throw new RequestError(409, 'the App that asked has stopped')
-        if (store.newWorkHold() !== undefined) {
-          throw new RequestError(
-            409,
-            'The disk is almost full, so TED holds new Apps until there’s space',
-          )
-        }
-        const now = await freshBooted()
-        if (now.has(record.udid) || now.size < limit()) {
-          if (!now.has(record.udid)) await boot(record)
-          return store.answerPermission(comment.id, { kind: 'withdrawn', at, slotFreed: true })
-        }
-        if (request.simulator === undefined) {
-          throw new RequestError(400, 'pick the simulator to shut down')
-        }
-        const target = shutDownChoice(request.simulator, record)
-        const owner = store.getTask(target.taskId)?.displayId ?? target.taskId
-        const requester = store.getTask(comment.taskId)?.displayId ?? comment.taskId
-        await shutDownRecord(target, { for: requester })
-        await boot(record)
-        return store.answerPermission(comment.id, {
-          kind: 'approved',
-          at,
-          shutDown: owner,
-          ...(text !== '' && { text }),
+        return work({
+          assertApp() {
+            requester()
+          },
+          async hasRoom() {
+            const record = requester()
+            const now = await freshBooted()
+            return now.has(record.udid) || now.size < limit()
+          },
+          async boot() {
+            const record = requester()
+            if (!booted.has(record.udid)) await boot(record)
+          },
+          async shutDown(udid) {
+            const record = requester()
+            const target = shutDownChoice(udid, record)
+            const owner = store.getTask(target.taskId)?.displayId ?? target.taskId
+            const forTask = store.getTask(comment.taskId)?.displayId ?? comment.taskId
+            await shutDownRecord(target, { for: forTask })
+            return owner
+          },
         })
       })
     },

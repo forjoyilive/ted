@@ -432,6 +432,15 @@ describe('the message to the Task Lead', () => {
     expect(message).not.toContain('ted outcome back')
   })
 
+  test('outside Work a conflict names the cause to send back with', () => {
+    const message = activityMessage(
+      noticesFor(where, pr({ mergeable: 'CONFLICTING' }), both),
+      'validate',
+    )
+    expect(message).toContain('ted outcome back --to work')
+    expect(message).toContain('add `--cause base-conflict` to that command')
+  })
+
   test('the summary counts by pull request without GitHub’s own text', () => {
     expect(
       summary([
