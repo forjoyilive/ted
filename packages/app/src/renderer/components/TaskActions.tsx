@@ -320,6 +320,17 @@ export function TaskActionsMenu({
                     : act(() => runStatusAction(action.kind, task))
                 }
               />
+              {task.preparation === 'ready' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.item}
+                  title="Keeps this Task stopped when Overnight mode is on. Resume still starts it."
+                  onClick={() => act(() => ted.stopTask(task.id))}
+                >
+                  <span className={styles.label}>Stop Task</span>
+                </button>
+              )}
               {lead !== undefined && lead.state !== 'finished' && (
                 <button
                   type="button"

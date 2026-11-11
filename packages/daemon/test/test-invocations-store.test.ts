@@ -172,9 +172,25 @@ test('Check association is verified and interruption ends coverage without inven
       at: invocation.registeredAt,
     })
     expect(store.testInvocations.summary(task.id).checksWithoutReports).toEqual([])
-    store.checkFinished(check.id, 0, { state: 'passed', durationMs: 1 })
+    store.checkInterrupted(check.id, 0)
     expect(store.testInvocations.summary(task.id).invocations[0]?.coverage).toBe('incomplete')
     store.finishChecks(check.id, 'interrupted')
+    const completed = store.startChecks({
+      taskId: task.id,
+      trigger: 'agent',
+      stage: 'work',
+      checks: [{ name: 'Completed', command: 'true', timeout: '1m', state: 'waiting' }],
+    })
+    store.checkStarted(completed.id, 0)
+    const unfinishedReport = store.testInvocations.register(
+      { taskId: task.id },
+      { id: randomUUID(), supported: true, checkRunId: completed.id, position: 0 },
+    )
+    store.checkFinished(completed.id, 0, { state: 'passed', durationMs: 1 })
+    expect(
+      store.testInvocations.summary(task.id).invocations.find((i) => i.id === unfinishedReport.id)
+        ?.coverage,
+    ).toBe('incomplete')
     const unreported = store.startChecks({
       taskId: task.id,
       trigger: 'agent',

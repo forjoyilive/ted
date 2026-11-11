@@ -170,9 +170,13 @@ function listView(value: unknown): ListView {
     throw new HttpError(400, 'showEmptyGroups must be true or false')
   }
   const columns = oneOfList('columns', view.columns, listColumns)
+  if (view.columnsVersion !== undefined && view.columnsVersion !== 2) {
+    throw new HttpError(400, 'columnsVersion must be 2')
+  }
   return {
     sort,
     group,
+    ...(view.columnsVersion === 2 && { columnsVersion: 2 }),
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
     ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),
@@ -267,6 +271,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
     return choice
   },
+  preparationNoticeSeen: onOff('preparationNoticeSeen'),
   overnightMode: onOff('overnightMode'),
   adjustRunsToLoad: onOff('adjustRunsToLoad'),
   showTrayIcon: onOff('showTrayIcon'),

@@ -16,13 +16,17 @@ import {
   type CoordinatorAction,
   DaemonClient,
   DaemonUnreachableError,
+  type DeclaredSendBackCause,
   type DesignFileInput,
   type DesignFileSpec,
   type DesignReviewInput,
+  declaredSendBackCauses,
   type Effort,
   efforts,
   type Factory,
+  type FindingSeverity,
   filterTedEnv,
+  findingSeverities,
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
@@ -1031,12 +1035,22 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const findings = await readFile(path.resolve(options.findings), 'utf8')
       if (findings.trim() === '') throw new UsageError('the Findings file is empty')
       const judged = judgments()
+      const cause = options.cause
+      if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {
+        throw new UsageError(`--cause takes ${declaredSendBackCauses.join(', ')}`)
+      }
+      const severity = options.severity?.toLowerCase()
+      if (severity !== undefined && !findingSeverities.includes(severity as FindingSeverity)) {
+        throw new UsageError(`--severity takes ${findingSeverities.join(', ')}`)
+      }
       const result = await withDaemon(home, (client) =>
         client.reportOutcome(ref, {
           outcome: 'back',
           to: to as AgentStageId,
           findings,
           ...(judged && { judged }),
+          ...(cause !== undefined && { cause: cause as DeclaredSendBackCause }),
+          ...(severity !== undefined && { severity: severity as FindingSeverity }),
         }),
       )
       console.log(result.message)
@@ -1252,6 +1266,29 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     },
     workflowCheck: async () => {
       await workflowCheck(args[0] ?? '.ted')
+    },
+    seedDemo: async () => {
+      if (
+        tedEnv('TED_RUN', env) ||
+        tedEnv('TED_TASK', env) ||
+        tedEnv('TED_PLAN', env) ||
+        runTokenFrom(env)
+      )
+        throw new UsageError('Run demo seeding from a local terminal, outside a Run.')
+      const started = Date.now()
+      const { demoHome, demoEnvironment, seedDemoFromCli } = await import('@ted/daemon/demo')
+      const demo = runtime.home ?? demoHome(env)
+      const prepared = demoEnvironment(demo, env)
+      const original = { ...process.env }
+      try {
+        for (const key of Object.keys(process.env)) delete process.env[key]
+        Object.assign(process.env, prepared)
+        await seedDemoFromCli(demo, options.reset)
+      } finally {
+        for (const key of Object.keys(process.env)) delete process.env[key]
+        Object.assign(process.env, original)
+      }
+      console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
     },
     showSlow: async () => {
       console.log(formatSlowMoments(await withDaemon(home, (client) => client.getSlowMoments())))

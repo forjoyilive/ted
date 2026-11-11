@@ -196,6 +196,8 @@ export function applyChanges(
       ['max_back', stage.maxBack],
       ['depth', stage.depth],
       ['effort', stage.effort],
+      ['p1_only_from', stage.p1OnlyFrom],
+      ['sub_agents', stage.subAgents],
     ]
     if (fields.every(([, value]) => value === undefined)) continue
     const map = stageMap(doc, root, id)
@@ -517,6 +519,8 @@ const keyOrder = [
   'max_back',
   'depth',
   'loop_check',
+  'p1_only_from',
+  'sub_agents',
   'checks',
   'based_on',
 ]
