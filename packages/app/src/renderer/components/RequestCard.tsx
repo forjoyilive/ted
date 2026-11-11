@@ -8,6 +8,7 @@ import type {
   TaskChanges,
   ValidationProgress,
 } from '@ted/protocol'
+import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
@@ -29,7 +30,7 @@ import {
   summary,
   useNow,
 } from '../requests.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import type { ShownApp } from './AppsSection.tsx'
@@ -44,6 +45,7 @@ import {
   ValidationSummary,
 } from './FailureDetails.tsx'
 import { Help } from './Help.tsx'
+import { Markdown } from './Markdown.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import styles from './RequestCard.module.css'
@@ -135,7 +137,9 @@ function ChangesBlock({
   return (
     <section className={styles.changes} aria-label="Since your last approval">
       <h3 className={styles.sectionHeading}>Since your last approval</h3>
-      {changes.summary !== undefined && <p className={styles.sectionBody}>{changes.summary}</p>}
+      {changes.summary !== undefined && (
+        <Markdown className={styles.sectionBody} text={changes.summary} />
+      )}
       <ul className={styles.changedFiles}>
         {changes.repos.flatMap((repo) =>
           repo.files.length === 0
@@ -249,7 +253,7 @@ function BriefSections({ text, title }: { text: string; title: string }) {
       {sections.map(({ heading, body }) => (
         <section key={heading} className={styles.section} aria-label={heading}>
           <h3 className={styles.sectionHeading}>{heading}</h3>
-          <p className={styles.sectionBody}>{body}</p>
+          <Markdown className={styles.sectionBody} text={body} />
         </section>
       ))}
     </div>
@@ -320,27 +324,19 @@ function SignoffDecisions({ text }: { text: string }) {
     sections.find((s) => s.heading.toLowerCase() === name)?.body.trim() ?? ''
   const decisions = body('decisions so far')
   const open = body('open questions')
-  const items = decisions
-    .split('\n')
-    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
-    .filter((line) => line !== '')
   return (
     <>
       <section className={styles.content} aria-label="Decisions so far">
         <h3 className={styles.sectionHeading}>Decisions so far</h3>
-        {items.length === 0 ? (
+        {decisions === '' ? (
           <p className={styles.sectionBody}>None yet.</p>
         ) : (
-          <ul className={styles.decisions}>
-            {items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
+          <Markdown text={decisions} />
         )}
       </section>
-      <p className={styles.openQuestions}>
-        {`Open questions: ${open === '' ? 'none.' : open.replace(/\s*\n\s*/g, ' ')}`}
-      </p>
+      <div className={styles.openQuestions}>
+        <Markdown text={`Open questions: ${open === '' ? 'none.' : open}`} />
+      </div>
     </>
   )
 }
@@ -389,33 +385,6 @@ function SimulatorRequest({
       showApp
       disabled={readOnly}
     />
-  )
-}
-
-function Summary({ text }: { text: string }) {
-  let at = 0
-  const paragraphs = text.split(/\n\s*\n/).map((paragraph) => {
-    at += paragraph.length + 1
-    return { paragraph, key: at }
-  })
-  return (
-    <div className={styles.summaryBlock}>
-      {paragraphs.map(({ paragraph, key }) =>
-        paragraph.startsWith('```') ? (
-          <pre key={key} className={styles.command}>
-            {paragraph.replace(/^```[^\n]*\n?/, '').replace(/\n?```\s*$/, '')}
-          </pre>
-        ) : paragraph.startsWith('> ') ? (
-          <blockquote key={key} className={styles.quoted}>
-            “{paragraph.slice(2).trim()}”
-          </blockquote>
-        ) : (
-          <p key={key} className={styles.summary}>
-            {paragraph}
-          </p>
-        ),
-      )}
-    </div>
   )
 }
 
@@ -471,7 +440,7 @@ export function RequestCard({
         onOpenPlan?.(answered.answer.planId)
       }
     } catch (failed) {
-      setError(failed instanceof Error ? failed.message : String(failed))
+      setError(readableError(failed))
     } finally {
       setSending(false)
     }
@@ -484,13 +453,20 @@ export function RequestCard({
       const talking = await ted.talkThrough(request.id)
       if (talking.talk) onOpenRun?.(talking.talk.runId)
     } catch (failed) {
-      setError(failed instanceof Error ? failed.message : String(failed))
+      setError(readableError(failed))
     } finally {
       setSending(false)
     }
   }
 
   const withText = typed ? { text } : {}
+  const reasonChoices: string[] =
+    request.author.kind === 'ted' &&
+    request.choices?.includes(failureChoices.fixed) &&
+    request.choices.includes(failureChoices['no-longer-applicable'])
+      ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
+      : []
+  const needsReason = (choice: string) => !readOnly && !typed && reasonChoices.includes(choice)
   const actionChoice =
     request.author.kind === 'ted' && request.choices?.length === 1 ? request.choices[0] : undefined
 
@@ -537,7 +513,8 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
-      ) : request.choices?.includes('Retry') && request.choices.includes('Accept this failure') ? (
+      ) : request.choices?.includes(validateFailureChoices.retry) &&
+        request.choices.includes(validateFailureChoices.fix) ? (
         <FailureRequestDetails taskId={task.id} requestId={request.id} fallback={request.body} />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
@@ -546,7 +523,7 @@ export function RequestCard({
           <BriefSections text={request.body} title={headline(request)} />
         )
       ) : (
-        shown !== undefined && shown !== '' && <Summary text={shown} />
+        shown !== undefined && shown !== '' && <Markdown text={shown} />
       )}
       {request.kind === 'signoff' &&
         request.stage === 'review' &&
@@ -619,8 +596,11 @@ export function RequestCard({
             <button
               key={choice}
               type="button"
-              className={styles.choice}
-              disabled={sending || readOnly}
+              className={
+                needsReason(choice) ? `${styles.choice} ${styles.needsReason}` : styles.choice
+              }
+              disabled={sending || readOnly || needsReason(choice)}
+              {...(needsReason(choice) && { title: 'Write your reason below first' })}
               onClick={() => void send({ action: 'answer', choice, ...withText })}
             >
               {choice}
@@ -638,17 +618,19 @@ export function RequestCard({
               placeholder={
                 request.simulator
                   ? 'Comment…'
-                  : request.permission
-                    ? 'Comment, or say why you’re denying…'
-                    : request.design
-                      ? 'Comment, or say what to change…'
-                      : request.failed
-                        ? 'Or tell the Task Lead what to change, then Retry…'
-                        : actionChoice !== undefined
-                          ? 'Comment, or tell the Task Lead what to do next…'
-                          : request.kind === 'question' && request.choices
-                            ? 'Or write your own answer…'
-                            : 'Comment to the Task Lead…'
+                  : reasonChoices.length > 0
+                    ? 'Your reason. Fixed and No longer applicable need one…'
+                    : request.permission
+                      ? 'Comment, or say why you’re denying…'
+                      : request.design
+                        ? 'Comment, or say what to change…'
+                        : request.failed
+                          ? 'Or tell the Task Lead what to change, then Retry…'
+                          : actionChoice !== undefined
+                            ? 'Comment, or tell the Task Lead what to do next…'
+                            : request.kind === 'question' && request.choices
+                              ? 'Or write your own answer…'
+                              : 'Comment to the Task Lead…'
               }
               value={text}
               onChange={(event) => setText(event.target.value)}
@@ -981,7 +963,7 @@ export function AnsweredCard({
       {permission ? (
         <>
           <h2 className={styles.title}>{headline(request)}</h2>
-          {shown !== undefined && shown !== '' && <Summary text={shown} />}
+          {shown !== undefined && shown !== '' && <Markdown text={shown} />}
           <PermissionCommand request={request} />
           {request.simulator && (
             <SimulatorRequest
@@ -1015,7 +997,11 @@ export function AnsweredCard({
           <span className={styles.answerAge}>{ago(request.answer.at, now)}</span>
         </div>
       )}
-      {quoted !== undefined && quoted !== '' && <p className={styles.quote}>“{quoted}”</p>}
+      {quoted !== undefined && quoted !== '' && (
+        <blockquote className={styles.quote}>
+          <Markdown text={quoted} />
+        </blockquote>
+      )}
       {!permission && showing && <RequestCard request={request} task={task} readOnly />}
     </section>
   )

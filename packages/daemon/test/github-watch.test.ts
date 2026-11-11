@@ -79,11 +79,27 @@ const failingCheck = {
 }
 
 describe('Watching GitHub', () => {
-  test('a failing CI check reaches the open Task Lead once, with its log tail fenced', async () => {
+  test('a hosted preview is stored on the pull request; a failing CI check, then review comments and a merge conflict, each reach the open Task Lead once; a pull request closed on GitHub is recorded and the archived Task says so', async () => {
     const client = await start()
     const { task } = await toSignoff(client)
     await quiet(client)
     const lead = await leadOf(client, task)
+
+    await setGh({
+      deployments: [
+        { environment: 'Preview', state: 'SUCCESS', url: 'https://nb-1.preview.example.com' },
+      ],
+    })
+    const pr = await waitUntil(async () => {
+      const current = (await getTask(client, task.id)).repos[0]?.pullRequest
+      return current?.preview ? current : undefined
+    }, 'the preview')
+    expect(pr.preview, 'hosted preview').toEqual({
+      url: 'https://nb-1.preview.example.com/',
+      source: 'deployment',
+      label: 'Preview',
+    })
+
     await setStub({
       logs: {
         '42': '2026-11-09T10:00:00.0000000Z npm test\n2026-11-09T10:00:01.0000000Z Error: boom\n',
@@ -93,10 +109,12 @@ describe('Watching GitHub', () => {
 
     const message = await waitForMessage(client, lead, 'CI is failing on acme/widgets#7')
     const fence = /^<<<GITHUB [0-9a-f-]{36}>>>$/m.exec(message)?.[0]
-    expect(fence).toBeDefined()
-    expect(message).toContain('Failed: test (failure)')
-    expect(message).toContain('Log tail (last 2 lines):\nnpm test\nError: boom')
-    expect(message).toContain('ted outcome back --to work')
+    expect(fence, 'failing CI: fence').toBeDefined()
+    expect(message, 'failing CI: failed check').toContain('Failed: test (failure)')
+    expect(message, 'failing CI: log tail').toContain(
+      'Log tail (last 2 lines):\nnpm test\nError: boom',
+    )
+    expect(message, 'failing CI: what to do').toContain('ted outcome back --to work')
     await waitUntil(
       async () =>
         (await lines(client, task)).includes(
@@ -107,15 +125,15 @@ describe('Watching GitHub', () => {
 
     const reads = (await readCalls()).length
     await waitUntil(async () => (await readCalls()).length >= reads + 3, 'three more polls')
-    expect((await sentTo(client, lead)).filter((m) => m.includes('CI is failing'))).toHaveLength(1)
-    expect((await getTask(client, task.id)).stage).toBe('review')
-  })
+    expect(
+      (await sentTo(client, lead)).filter((m) => m.includes('CI is failing')),
+      'failing CI: delivered once',
+    ).toHaveLength(1)
+    expect((await getTask(client, task.id)).stage, 'failing CI: Stage').toBe('review')
 
-  test('review comments and a merge conflict reach the Task Lead the same way', async () => {
-    const client = await start()
-    const { task } = await toSignoff(client)
-    await quiet(client)
-    const lead = await leadOf(client, task)
+    await setGh({ checks: [] })
+    const cleared = (await readCalls()).length
+    await waitUntil(async () => (await readCalls()).length >= cleared + 2, 'polls without checks')
     await setGh({
       mergeable: 'CONFLICTING',
       threads: [
@@ -137,12 +155,14 @@ describe('Watching GitHub', () => {
       ],
     })
 
-    const message = await waitForMessage(client, lead, 'Review comment on src/notes.ts:4 from @ana')
-    expect(message).toContain('Use the cache. [redacted]')
-    expect(message).toContain('@bo requested changes:\nAdd a test.')
-    expect(message).toContain('acme/widgets#7 has merge conflicts with its base branch.')
-    expect(message).toContain('bring in the latest base branch')
-    expect(message).not.toContain('Coverage 91%')
+    const review = await waitForMessage(client, lead, 'Review comment on src/notes.ts:4 from @ana')
+    expect(review, 'review: redacted comment').toContain('Use the cache. [redacted]')
+    expect(review, 'review: requested changes').toContain('@bo requested changes:\nAdd a test.')
+    expect(review, 'review: conflict').toContain(
+      'acme/widgets#7 has merge conflicts with its base branch.',
+    )
+    expect(review, 'review: what to do').toContain('bring in the latest base branch')
+    expect(review, 'review: bot comment left out').not.toContain('Coverage 91%')
 
     await setGh({
       threads: [
@@ -158,8 +178,23 @@ describe('Watching GitHub', () => {
       ],
     })
     const second = await waitForMessage(client, lead, 'Also rename it.')
-    expect(second).not.toContain('Use the cache.')
-    expect(second).not.toContain('merge conflicts')
+    expect(second, 'second review message: old comment').not.toContain('Use the cache.')
+    expect(second, 'second review message: conflict').not.toContain('merge conflicts')
+
+    await setGh({ closed: true })
+    const closed = await waitUntil(async () => {
+      const current = (await getTask(client, task.id)).repos[0]?.pullRequest
+      return current?.state === 'closed' ? current : undefined
+    }, 'the pull request to be closed')
+    expect(closed.closedOnGitHub, 'closed: time').toBeDefined()
+    expect(await lines(client, task), 'closed: thread line').toContain(
+      `The pull request for ${(await getTask(client, task.id)).repos[0]?.name} was closed on GitHub`,
+    )
+    await client.ok('POST', `/tasks/${task.id}/archive`, {})
+    expect((await getTask(client, task.id)).archived?.ended, 'closed: archived Task').toEqual({
+      kind: 'pull-request-closed',
+      at: closed.closedOnGitHub,
+    })
   })
 
   test('an outside contributor’s comment isn’t sent to the Task Lead; the thread says so', async () => {
@@ -388,45 +423,5 @@ describe('Watching GitHub', () => {
       expect(new Set([variables.p0, variables.p1])).toEqual(new Set([7, 8]))
       expect(call.env.GH_HOST).toBeUndefined()
     }
-  })
-
-  test('a hosted preview is read from GitHub Deployments and stored on the pull request', async () => {
-    const client = await start()
-    const { task } = await toSignoff(client)
-    await quiet(client)
-    await setGh({
-      deployments: [
-        { environment: 'Preview', state: 'SUCCESS', url: 'https://nb-1.preview.example.com' },
-      ],
-    })
-    const pr = await waitUntil(async () => {
-      const current = (await getTask(client, task.id)).repos[0]?.pullRequest
-      return current?.preview ? current : undefined
-    }, 'the preview')
-    expect(pr.preview).toEqual({
-      url: 'https://nb-1.preview.example.com/',
-      source: 'deployment',
-      label: 'Preview',
-    })
-  })
-
-  test('a pull request closed on GitHub is recorded, and the archived Task says so', async () => {
-    const client = await start()
-    const { task } = await toSignoff(client)
-    await quiet(client)
-    await setGh({ closed: true })
-    const closed = await waitUntil(async () => {
-      const current = (await getTask(client, task.id)).repos[0]?.pullRequest
-      return current?.state === 'closed' ? current : undefined
-    }, 'the pull request to be closed')
-    expect(closed.closedOnGitHub).toBeDefined()
-    expect(await lines(client, task)).toContain(
-      `The pull request for ${(await getTask(client, task.id)).repos[0]?.name} was closed on GitHub`,
-    )
-    await client.ok('POST', `/tasks/${task.id}/archive`, {})
-    expect((await getTask(client, task.id)).archived?.ended).toEqual({
-      kind: 'pull-request-closed',
-      at: closed.closedOnGitHub,
-    })
   })
 })

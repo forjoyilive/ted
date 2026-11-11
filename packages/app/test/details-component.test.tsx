@@ -2,6 +2,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { CodeSection } from '../src/renderer/CodeSection.tsx'
+import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { ReposField } from '../src/renderer/views/ReposField.tsx'
 import { TaskDetails } from '../src/renderer/views/TaskThread.tsx'
 import { appState } from './support/app.tsx'
@@ -120,6 +121,45 @@ test('Blocked by sends add/remove requests and displays a rejected cycle', async
   )
   await user().click(screen.getByRole('button', { name: 'Remove NB-2' }))
   expect(api.request).toHaveBeenCalledWith('unblockTask', 'NB-1', 'NB-2')
+})
+
+test('Blocked by dismisses on outside clicks while keeping search and selection usable', async () => {
+  const api = bridge({ ...handlers(), blockTask: () => task(), unblockTask: vi.fn() })
+  const t = task()
+  const other = task({ id: 'NB-2', displayId: 'NB-2', title: 'Offline editing' })
+  render(
+    <>
+      <TaskActionsMenu task={t} />
+      <TaskDetails
+        task={t}
+        tasks={[t, other]}
+        factories={[factory()]}
+        onOpenRun={vi.fn()}
+        onOpenShell={vi.fn()}
+      />
+    </>,
+  )
+  const u = user()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: /^Blocked by/ }))
+  await u.click(screen.getByLabelText('Find a Task'))
+  await u.type(screen.getByLabelText('Find a Task'), 'offline')
+  expect(screen.getByRole('option', { name: /NB-2/ })).toBeTruthy()
+  await u.click(screen.getByLabelText('Priority'))
+  expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
+  expect(screen.queryByLabelText('Find a Task')).toBeNull()
+  expect(
+    api.request.mock.calls.filter(([name]) => name === 'blockTask' || name === 'unblockTask'),
+  ).toEqual([])
+
+  await u.click(screen.getByRole('button', { name: 'Add blocker' }))
+  await u.keyboard('{Escape}')
+  expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: /^Blocked by/ }))
+  await u.click(screen.getByRole('option', { name: /NB-2/ }))
+  expect(api.request).toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-2')
+  expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
 })
 
 test('Task details keeps a saved additional repo selected after the Task update', async () => {

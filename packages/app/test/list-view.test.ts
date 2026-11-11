@@ -81,6 +81,7 @@ describe('defaults', () => {
       'stage',
       'status',
       'updated',
+      'started',
     ])
     expect(defaultView('all')).toMatchObject({ sort: 'manual', group: 'stage' })
     expect(shownColumns(defaultView('all'))).toContain('factory')

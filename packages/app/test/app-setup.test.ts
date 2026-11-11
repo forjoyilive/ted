@@ -37,7 +37,7 @@ describe('setup Tasks', () => {
           workflow: [
             { stage: 'intake' },
             { stage: 'clarify', setting: 'Depth: Auto' },
-            { stage: 'design', setting: 'Gate on' },
+            { stage: 'design', setting: 'Sign-off on' },
             { stage: 'validate', setting: 'Send back at most 5 times · validate.md for Widgets' },
           ],
           checks: [
@@ -116,7 +116,7 @@ describe('setup Tasks', () => {
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details
       .getByText(
-        'The Design and Review Gates are always on for a setup Task. Tasks started before it merges use TED’s defaults.',
+        'The Design and Review sign-offs are always on for a setup Task. Tasks started before it merges use TED’s defaults.',
       )
       .waitFor()
     await expect(details.locator(':scope > *').first().textContent()).resolves.toContain(

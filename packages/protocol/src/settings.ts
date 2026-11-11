@@ -34,6 +34,7 @@ export interface MachineSettings {
   terminalFontSize: number
   profilePicture: string | null
   developerMode: boolean
+  preparationNoticeSeen: boolean
   overnightMode: boolean
   maxWorkingRuns: number
   adjustRunsToLoad: boolean
@@ -71,6 +72,7 @@ export const defaultMachineSettings: MachineSettings = {
   terminalFontSize: 13,
   profilePicture: null,
   developerMode: false,
+  preparationNoticeSeen: false,
   overnightMode: false,
   maxWorkingRuns: 6,
   adjustRunsToLoad: false,

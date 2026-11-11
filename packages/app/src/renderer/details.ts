@@ -52,7 +52,9 @@ export function briefUpdatedLine(
   const atGate = comments.some(
     (c) => c.gate !== undefined && c.stage === brief.stage && c.createdAt >= brief.createdAt,
   )
-  const where = atGate ? `at the ${stageName(brief.stage)} Gate` : `in ${stageName(brief.stage)}`
+  const where = atGate
+    ? `at the ${stageName(brief.stage)} sign-off`
+    : `in ${stageName(brief.stage)}`
   return `Updated by the Task Lead ${where} · ${ago(brief.createdAt, now)}`
 }
 

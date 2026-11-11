@@ -37,6 +37,40 @@ describe('vitest config', () => {
   }, 60_000)
 })
 
+test('a run of 10 or more files gets 6 workers and a smaller one 3', async () => {
+  const { workersFor } = await import('../../../vitest.config.ts')
+  const files = Array.from(
+    { length: 12 },
+    (_, i) => `packages/daemon/test/file-${i}.test.ts`,
+  ).concat('packages/app/test/board.test.ts')
+  expect(workersFor(['run'], files)).toBe(6)
+  expect(workersFor(['run', 'packages/daemon/test'], files)).toBe(6)
+  expect(workersFor(['run', 'packages/daemon/test/file-1.test.ts'], files)).toBe(3)
+  expect(workersFor(['run', 'packages/app/test', '--reporter', 'verbose'], files)).toBe(3)
+  expect(workersFor(['run', '-t', 'packages/daemon', 'board'], files)).toBe(3)
+  expect(
+    workersFor(['run', ...files.slice(0, 9), '--reporter=verbose', '--project', 'node'], files),
+  ).toBe(3)
+  expect(workersFor(['run', ...files.slice(0, 10)], files)).toBe(6)
+})
+
+test('a full run puts projects with different worker limits in separate execution groups', async () => {
+  const root = (await resolveConfig({ root: repo, watch: false, maxWorkers: 6 })).test
+  const workersByGroup = new Map<number, number | string | undefined>()
+  const names: string[] = []
+  for (const project of root.projects ?? []) {
+    if (typeof project !== 'object' || !('test' in project)) continue
+    const options = project.test
+    const group = options?.sequence?.groupOrder ?? root.sequence?.groupOrder ?? 0
+    const workers = options?.maxWorkers ?? root.maxWorkers
+    if (workersByGroup.has(group)) expect(workers).toBe(workersByGroup.get(group))
+    workersByGroup.set(group, workers)
+    const name = options?.name
+    if (name) names.push(typeof name === 'string' ? name : name.label)
+  }
+  expect(names).toEqual(expect.arrayContaining(['electron', 'node']))
+})
+
 test('TSX component tests are discovered from the repo and app, and Electron imports are followed through TSX helpers', async () => {
   const { launchesElectron } = await import('../../../vitest.config.ts')
   const root = (await resolveConfig({ root: repo, watch: false })).test
@@ -51,7 +85,7 @@ test('TSX component tests are discovered from the repo and app, and Electron imp
       }),
     ]),
   )
-  expect(root.maxWorkers).toBe(3)
+  expect([3, 6]).toContain(root.maxWorkers)
   expect(root.projects).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -60,6 +94,15 @@ test('TSX component tests are discovered from the repo and app, and Electron imp
     ]),
   )
   expect(app.include).toContain('test/**/*.test.{ts,tsx}')
+  expect(launchesElectron(path.join(repo, 'packages/daemon/test/add-factory.test.ts'))).toBe(false)
+  expect(launchesElectron(path.join(repo, 'packages/daemon/src/command-env.ts'))).toBe(false)
+  expect(launchesElectron(path.join(repo, 'packages/app/test/electron-installation.test.ts'))).toBe(
+    false,
+  )
+  expect(
+    launchesElectron(path.join(repo, 'packages/app/test/daemon-client-transport.test.ts')),
+  ).toBe(true)
+  expect(launchesElectron(path.join(repo, 'packages/app/test/app-inbox.test.ts'))).toBe(true)
   const dir = await mkdtemp(path.join(tmpdir(), 'ted-test-discovery-'))
   try {
     const entry = path.join(dir, 'entry.test.tsx')

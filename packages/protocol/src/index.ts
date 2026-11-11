@@ -103,6 +103,7 @@ export {
 } from './browser-parsers.ts'
 export {
   type ChangeFile,
+  type ChangesSource,
   changeKey,
   type DiffHunk,
   type DiffRow,
@@ -114,6 +115,7 @@ export {
   type LineComment,
   type LineSide,
   lineLabel,
+  type PullRequestChanges,
   type RepoChanges,
   type TaskChanges,
 } from './changes.ts'
@@ -135,17 +137,25 @@ export type {
   SendRunMessageRequest,
 } from './chat.ts'
 export {
+  type BaseConflictFound,
   type CheckOutput,
   type CheckResult,
   type CheckRun,
   type CheckRunOutcome,
   type CheckRunReport,
+  type CheckRunTiming,
   type CheckRunTrigger,
   type CheckState,
+  type CheckTimingInterval,
   checkFailed,
   checkLabel,
+  type DeclaredSendBackCause,
+  declaredSendBackCauses,
+  type FindingSeverity,
+  findingSeverities,
   type RunChecksRequest,
   type SendBack,
+  type SendBackCause,
 } from './checks.ts'
 export {
   DaemonClient,
@@ -262,6 +272,7 @@ export {
   parseCreateFactoryRequest,
   parseFactorySettingsChanges,
   parseLibraryChanges,
+  parseMergeSettingsRequest,
   parseRemoveFactoryRequest,
   parseRenameFactoryRequest,
   parseReorderFactoriesRequest,
@@ -301,6 +312,7 @@ export {
   type LibraryPreview,
   type LibraryStageRow,
   type LibraryView,
+  type MergeSettingsRequest,
   type RenameFactoryRequest,
   type RepoLocalFolder,
   type RepoSettingsInput,
@@ -650,6 +662,7 @@ export {
   type ReportOutcomeRequest,
   type RepoSetupReport,
   type RepoToConfirm,
+  type RequestPurpose,
   type ResumeTaskRequest,
   type Round,
   type RoundAnswer,
@@ -672,6 +685,7 @@ export {
   type SizeCheck,
   type SizeCheckInput,
   type StageId,
+  type StartTaskRequest,
   sizeChoices,
   type TalkedThrough,
   type Task,
@@ -715,6 +729,13 @@ export type {
   TaskGateRow,
   TaskGates,
 } from './task-gates.ts'
+export type {
+  TaskInterval,
+  TaskIntervalContributor,
+  TaskIntervalCoverage,
+  TaskIntervalHistory,
+  TaskIntervalReason,
+} from './task-intervals.ts'
 export {
   parseAnswerRequest,
   parseArchiveTaskRequest,
@@ -743,9 +764,11 @@ export {
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
   parseSizeCheckInput,
+  parseStartTaskRequest,
   parseTaskLead,
   parseWriteBriefRequest,
 } from './task-parsers.ts'
+export * from './test-invocations.ts'
 export {
   effectiveTimeZone,
   formatClockTime,

@@ -6,6 +6,7 @@ import {
   parseCheckTryRequest,
   parseCreateFactoryRequest,
   parseFactorySettingsChanges,
+  parseMergeSettingsRequest,
   parseRemoveFactoryRequest,
   parseRenameFactoryRequest,
   parseReorderFactoriesRequest,
@@ -180,6 +181,13 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/settings\/preview$/,
     async handle({ body, params: [id = ''] }, { factorySettings }) {
       return [200, await factorySettings.preview(id, body)]
+    },
+  }),
+  jsonRoute(parseMergeSettingsRequest, {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/settings\/merge$/,
+    async handle({ body, params: [id = ''] }, { factorySettings }) {
+      return [200, await factorySettings.merge(id, body)]
     },
   }),
   jsonRoute(parseSaveSettingsRequest, {

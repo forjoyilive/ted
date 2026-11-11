@@ -1,5 +1,5 @@
 import type { MachineSettings } from '@ted/protocol'
-import { useEffect, useState } from 'react'
+import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
 import { Button, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import styles from './notifications.module.css'
@@ -26,24 +26,11 @@ const switches: { setting: NotifySetting; title: string; help: string }[] = [
 ]
 
 export function useNotificationsOff(): boolean {
-  const [off, setOff] = useState(false)
-  useEffect(() => {
-    let current = true
-    void ted.notificationsOff().then(
-      (value) => {
-        if (current) setOff(value)
-      },
-      () => undefined,
-    )
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'notifications-off') setOff(event.off)
-    })
-    return () => {
-      current = false
-      unsubscribe()
-    }
-  }, [])
-  return off
+  return useEventValue({
+    initial: false,
+    load: ted.notificationsOff,
+    event: (event) => (event.type === 'notifications-off' ? () => event.off : undefined),
+  }).value
 }
 
 function NotifySwitch({

@@ -2,16 +2,46 @@ import { globSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
+import { smallRunFiles } from './packages/daemon/test/support/suite-lock.ts'
 
 const here = (file: string) => fileURLToPath(new URL(file, import.meta.url))
 
 const testFiles = ['packages/*/test/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts']
 
+const flagsWithValues = new Set([
+  '-t',
+  '--testNamePattern',
+  '--reporter',
+  '--project',
+  '--maxWorkers',
+  '--outputFile',
+  '--outputFile.json',
+  '--config',
+  '--root',
+  '--dir',
+])
+
+// A run of 10 or more files takes the whole machine (suite-lock.ts), so it gets 6 workers;
+// smaller runs share it two at a time and get 3 each.
+export function workersFor(args: readonly string[], files: readonly string[]): number {
+  const filters: string[] = []
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index] ?? ''
+    if (flagsWithValues.has(arg)) index++
+    else if (!arg.startsWith('-') && arg !== 'run') filters.push(arg)
+  }
+  const matched =
+    filters.length === 0
+      ? files.length
+      : files.filter((file) => filters.some((filter) => file.includes(filter))).length
+  return matched >= smallRunFiles ? 6 : 3
+}
+
 export function launchesElectron(file: string, seen = new Set<string>()): boolean {
   if (seen.has(file)) return false
   seen.add(file)
   const source = readFileSync(file, 'utf8')
-  if (/\b_electron\b/.test(source)) return true
+  if (/\b_electron\b|\bresolveElectron\s*\(\s*\)/.test(source)) return true
   return [...source.matchAll(/from '(\.\.?\/[^']+\.tsx?)'/g)].some((match) =>
     launchesElectron(path.resolve(path.dirname(file), match[1] ?? ''), seen),
   )
@@ -21,10 +51,12 @@ function electronTestFiles(): string[] {
   return globSync(testFiles, { cwd: here('.') }).filter((file) => launchesElectron(here(file)))
 }
 
+const electronSetup = here('./packages/app/test/support/electron-setup.ts')
+
 const testOptions = {
   testTimeout: 30_000,
   expect: { poll: { timeout: 10_000 } },
-  maxWorkers: 3,
+  maxWorkers: workersFor(process.argv.slice(2), globSync(testFiles, { cwd: here('.') })),
   globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
   setupFiles: [
     here('./packages/daemon/test/support/setup.ts'),
@@ -62,7 +94,17 @@ export function tedTestConfig(include: string[]) {
     : []
   return defineConfig({
     oxc: { jsx: { runtime: 'automatic' } },
-    test: { ...testOptions, include, exclude },
+    test: {
+      ...testOptions,
+      include,
+      exclude,
+      globalSetup: [
+        ...testOptions.globalSetup,
+        ...(!codexSandbox && globSync(include).some((file) => launchesElectron(path.resolve(file)))
+          ? [electronSetup]
+          : []),
+      ],
+    },
   })
 }
 
@@ -75,9 +117,24 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: 'electron', include: codexSandbox ? [] : electron, maxWorkers: 3, retry: 1 },
+        test: {
+          name: 'electron',
+          sequence: { groupOrder: 0 },
+          include: codexSandbox ? [] : electron,
+          maxWorkers: 3,
+          retry: 1,
+          globalSetup: [...testOptions.globalSetup, electronSetup],
+        },
       },
-      { extends: true, test: { name: 'node', include: testFiles, exclude: electron } },
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          sequence: { groupOrder: 1 },
+          include: testFiles,
+          exclude: electron,
+        },
+      },
     ],
   },
 })

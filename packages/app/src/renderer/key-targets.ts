@@ -106,3 +106,13 @@ export function pressDialogPrimary(): boolean {
   primary.click()
   return true
 }
+
+export function pressImageNavigation(direction: 'previous' | 'next'): boolean {
+  const dialog = [...document.querySelectorAll('dialog[open]')].at(-1)
+  const button = dialog?.querySelector<HTMLButtonElement>(
+    `button[data-image-direction="${direction}"]`,
+  )
+  if (!button || button.disabled) return false
+  button.click()
+  return true
+}
