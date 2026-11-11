@@ -88,7 +88,7 @@ import {
   middlePaneStep,
 } from '../middle-pane.ts'
 import { useProfile } from '../profile.tsx'
-import { useNow } from '../requests.ts'
+import { ago, useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
@@ -100,7 +100,7 @@ import {
   priorityLabels,
 } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
-import { formatDate, formatTime } from '../time.ts'
+import { formatDate } from '../time.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
 import { TaskGatesField } from './TaskGatesField.tsx'
@@ -129,10 +129,12 @@ function NoteRow({
   task,
   comment,
   lines,
+  now,
 }: {
   task: Task
   comment: Comment
   lines?: LineLinks | undefined
+  now: number
 }) {
   const profile = useProfile()
   const agent = leadAgent(task, comment)
@@ -156,7 +158,7 @@ function NoteRow({
       <div>
         <div className={styles.commentHead}>
           <span className={styles.author}>{author}</span>
-          <span className={styles.taskMeta}>{formatTime(comment.createdAt)}</span>
+          <span className={styles.taskMeta}>{ago(comment.createdAt, now)}</span>
           {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
@@ -869,7 +871,15 @@ export function TaskThread({
                   )
                 }
                 if (comment.kind === 'note') {
-                  return <NoteRow key={comment.id} task={task} comment={comment} lines={lines} />
+                  return (
+                    <NoteRow
+                      key={comment.id}
+                      task={task}
+                      comment={comment}
+                      lines={lines}
+                      now={now}
+                    />
+                  )
                 }
                 if (comment.answer !== undefined) {
                   const { answer } = comment
