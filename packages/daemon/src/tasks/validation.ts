@@ -28,6 +28,12 @@ interface ValidationOptions {
   plan(task: StoredTask, resolution: WorkflowResolution, only?: string): Promise<RunnableCheck[]>
   checkSandbox(task: StoredTask): Promise<void>
   prepareLaunch(task: StoredTask): Promise<CommandLaunch>
+  reportingEnv?: (
+    task: Task,
+    checkRunId: string,
+    position: number,
+    supported: boolean,
+  ) => Promise<Record<string, string>>
   env(): NodeJS.ProcessEnv
   libraryDir: string
   signal: AbortSignal
@@ -54,7 +60,7 @@ export interface HandOffChecks {
 }
 
 export function createValidation(options: ValidationOptions) {
-  const { store, failures, find } = options
+  const { store, failures, find, reportingEnv } = options
   const visitStart = (task: Task) =>
     store.listStageEntries(task.id).findLast((e) => e.stage === 'validate')?.at ?? ''
   const coverageOf = (context: Pick<FailureContext, 'repos' | 'checks'>) =>
@@ -235,6 +241,10 @@ export function createValidation(options: ValidationOptions) {
           signal: options.signal,
           lowPriority: options.lowPriority(),
           onInterrupted: (position) => store.checkInterrupted(checkRun.id, position),
+          ...(reportingEnv && {
+            reportingEnv: (position: number, supported: boolean) =>
+              reportingEnv(task, checkRun.id, position, supported),
+          }),
           onStart: (position) => store.checkStarted(checkRun.id, position),
           onFinish: (position, finished) => {
             store.checkFinished(checkRun.id, position, finished)

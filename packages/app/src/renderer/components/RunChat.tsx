@@ -539,6 +539,7 @@ export interface ChatOptions {
   pinned?: ReactNode
   requests?: readonly RequestJump[]
   revealRequest?: ScrollReveal | undefined
+  onJumpRequest?: ((id: string) => void) | undefined
   label?: string
   placeholder?: string
   endedPlaceholder?: string
@@ -750,7 +751,13 @@ export function ChatBody({
           : options.bar !== false && (
               <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
             ))}
-      <RequestJumpBar requests={options.requests ?? []} onJump={(id) => setRequestReveal({ id })} />
+      <RequestJumpBar
+        requests={options.requests ?? []}
+        onJump={(id) => {
+          setRequestReveal({ id })
+          options.onJumpRequest?.(id)
+        }}
+      />
       <ScrollMemory
         spot={options.inspect ? `search:${run.id}:${options.matchItemId}` : `run:${run.id}`}
         reveal={options.matchItemId ?? requestReveal}

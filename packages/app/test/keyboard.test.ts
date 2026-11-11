@@ -219,12 +219,43 @@ describe('Keyboard shortcuts', () => {
     await card.getByText('↵ to confirm').waitFor({ state: 'detached' })
     await window.getByRole('region', { name: 'Task thread' }).waitFor()
 
+    await window.evaluate(() => {
+      document.documentElement.dataset.watchApproval = 'true'
+      document.documentElement.dataset.approvalFrames = '0'
+      const frame = () => {
+        if (document.documentElement.dataset.watchApproval !== 'true') return
+        if (
+          document
+            .querySelector('[aria-label="Task thread"]')
+            ?.textContent?.includes('You approved · this request only')
+        ) {
+          document.documentElement.dataset.approvalFrames = String(
+            Number(document.documentElement.dataset.approvalFrames) + 1,
+          )
+        }
+        requestAnimationFrame(frame)
+      }
+      requestAnimationFrame(frame)
+    })
     await press(window, 'a', 'Enter')
     await expect
       .poll(async () => (await ted.listComments(task.id)).find((c) => c.permission)?.answer?.kind)
       .toBe('approved')
     const inbox = window.getByRole('region', { name: 'Inbox' })
     await inbox.getByText('Nothing waiting on you').waitFor()
+    await inbox
+      .getByRole('status')
+      .getByText(`Approved ${task.displayId}’s permission request`)
+      .waitFor()
+    await inbox.getByRole('status').getByText('This request only').waitFor()
+    const frames = await window.evaluate(async () => {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
+      document.documentElement.dataset.watchApproval = 'false'
+      return Number(document.documentElement.dataset.approvalFrames)
+    })
+    expect(frames).toBe(0)
     await inbox.getByRole('switch', { name: 'Answered' }).click()
     await inbox.getByRole('button').filter({ hasText: 'Permission' }).click()
     await window

@@ -1,7 +1,7 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
+import { DaemonClient, type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
@@ -377,6 +377,20 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       let plans: Plans | undefined
       const tasks = createTasks({
+        testReportingEnv: async (task, checkRunId, position, supported) => {
+          const registration = await new DaemonClient(info, token, {
+            appKey: appToken,
+          }).tryRegisterTestInvocation(task.id, {
+            id: randomUUID(),
+            supported,
+            label: 'TED Check',
+            checkRunId,
+            position,
+          })
+          return registration && supported
+            ? { TED_HOME: paths.home, TED_RUN_CAPABILITY: registration.token }
+            : {}
+        },
         ...(options.clock && { clock: options.clock }),
         steering,
         planning: () => plans,

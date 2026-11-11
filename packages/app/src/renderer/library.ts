@@ -4,7 +4,7 @@ import {
   type SettingsDraft,
   type StageDraft,
   settingsChanges,
-  validateRoundsDraft,
+  stageOptionsDraft,
 } from './factory-settings.ts'
 
 export const libraryLine =
@@ -20,7 +20,7 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
       gate: row.gate,
       ...(row.maxBack !== undefined && { maxBack: row.maxBack }),
       ...(row.depth !== undefined && { depth: row.depth }),
-      ...validateRoundsDraft(row),
+      ...stageOptionsDraft(row),
     }
     if (row.id !== 'backlog' && row.id !== 'done') stageFiles[row.id] = row.libraryFile ?? null
   }

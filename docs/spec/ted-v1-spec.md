@@ -294,6 +294,7 @@ Rules:
 | `stages.validate.loop_check` | any layer | Send-back count at which the loop check runs; default `3`; `false` turns it off. | KRI-16 |
 | `stages.validate.p1_only_from` | any layer | Validate round (2 or more) from which a new Finding sends the Task back only if it is P1 (8.4). Unset or `false`: off, the default. UI label: **Send back only for P1 Findings**. | ADR 0116 |
 | `stages.validate.sub_agents` | any layer | `true` lets the Task Lead start sub-agents other than the reviewer in Validate (7.2). Default `false`. UI label: **Other sub-agents in Validate**. | ADR 0117 |
+| `stages.work.lead_closes_failures` | any layer | `true` lets the Task Lead close a Failure case it recorded as a Finding outside Validate, with passing evidence through `ted failure verify`. Default `false`: only the human closes it. UI label: **Task Lead closes its own fixed failures**. | ADR 0118 |
 
 - **Defaults:** Sign-offs on Design and Review; Merge on with no Sign-off; every Stage has `max_back: 3` except Validate, which has 5. (KRI-12, KRI-16, KRI-52, KRI-58)
 - **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per agent kind, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)

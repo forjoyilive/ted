@@ -1,6 +1,6 @@
-import type { ChangeFile, Task, TaskChanges } from '@ted/protocol'
-import { useRef } from 'react'
-import { useEventValue } from './data.ts'
+import type { ChangeFile, PullRequestChanges, Task, TaskChanges } from '@ted/protocol'
+import { useEffect, useRef, useState } from 'react'
+import { useConnection, useEventValue } from './data.ts'
 import { ted } from './ted.ts'
 
 export interface ChangedFile extends ChangeFile {
@@ -39,4 +39,77 @@ export function useTaskChanges(task: Task): TaskChanges | undefined {
         ? settleMs
         : undefined,
   }).value
+}
+
+export interface PullRequestChangesState {
+  changes: TaskChanges | undefined
+  snapshots: ReadonlyMap<string, PullRequestChanges>
+  refresh: () => void
+}
+
+export function usePullRequestChanges(task: Task, active: boolean): PullRequestChangesState {
+  const { epoch } = useConnection()
+  const [version, setVersion] = useState(0)
+  const identity = JSON.stringify(
+    task.repos
+      .filter((r) => r.pullRequest)
+      .map((r) => ({ name: r.name, pr: r.pullRequest, pushed: r.pushed })),
+  )
+  const refresh = () => setVersion((v) => v + 1)
+  useEffect(() => {
+    if (!active) {
+      setVersion((v) => v + 1)
+      return
+    }
+    const focus = () => setVersion((v) => v + 1)
+    window.addEventListener('focus', focus)
+    return () => window.removeEventListener('focus', focus)
+  }, [active])
+  const resource = useEventValue<
+    | {
+        changes: TaskChanges
+        snapshots: Map<string, PullRequestChanges>
+      }
+    | undefined
+  >({
+    initial: undefined,
+    key: `${task.id}\0${identity}\0${epoch}\0${version}\0${active}`,
+    enabled: active,
+    event: () => undefined,
+    load: async () => {
+      const snapshots = new Map<string, PullRequestChanges>()
+      const repos = task.repos.filter((r) => r.pullRequest)
+      const changed = await Promise.all(
+        repos.map(async (repo) => {
+          try {
+            const snapshot = await ted.pullRequestChanges(task.id, repo.name)
+            snapshots.set(repo.name, snapshot)
+            return snapshot.repo
+          } catch {
+            return {
+              name: repo.name,
+              baseBranch: repo.pullRequest?.base ?? '',
+              files: [],
+              added: 0,
+              removed: 0,
+              unavailable: `${repo.name}: Couldn’t load pull request #${repo.pullRequest?.number} changes. Check your connection and GitHub access, then retry.`,
+            }
+          }
+        }),
+      )
+      return {
+        changes: {
+          taskId: task.id,
+          files: changed.reduce((n, r) => n + r.files.length, 0),
+          repos: changed,
+        },
+        snapshots,
+      }
+    },
+  })
+  return {
+    changes: active ? resource.value?.changes : undefined,
+    snapshots: active && resource.value ? resource.value.snapshots : new Map(),
+    refresh,
+  }
 }

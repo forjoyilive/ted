@@ -4,7 +4,13 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
-import type { NewTaskDraft, PeerMessage, TaskDraftState, TaskGateOverrides } from '@ted/protocol'
+import type {
+  NewTaskDraft,
+  PeerMessage,
+  TaskDraftState,
+  TaskGateOverrides,
+  TaskIntervalHistory,
+} from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -19,6 +25,7 @@ import {
   type BaseConflictFound,
   type BlockerEnded,
   bannerOrder,
+  busyHold,
   type CheckResult,
   type CheckRun,
   type CheckRunOutcome,
@@ -91,9 +98,12 @@ import {
   type TaskFacts,
   taskActivity,
   taskCanResume,
+  taskIsMerged,
   taskMarkers,
+  taskPauses,
   taskStatus,
   taskStatuses,
+  taskWaitReasons,
 } from '../tasks/status.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
@@ -102,6 +112,7 @@ import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
+import { intervalBoundaries } from './interval-schema.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
 import { countMaterialized } from './progress.ts'
 import { legacyPurpose, structuralPurpose } from './request-purpose.ts'
@@ -166,6 +177,7 @@ import {
 } from './schema.ts'
 import { createSideChatStore, type SideChatStore } from './side-chats.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
+import { blockerTransitions, taskIntervalHistory } from './task-intervals.ts'
 import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
@@ -729,6 +741,7 @@ export interface TedStore extends TaskHistory {
   roundTalkDone(id: string): Comment
   heldAnswers(taskId: string): Comment[]
   answersDelivered(ids: readonly string[], runId: string): void
+  taskIntervalHistory(taskId: string, asOf?: string): TaskIntervalHistory
   taskLog(taskId: string): LoggedEvent[]
   supersedeComment(id: string, input: NewComment): Comment
   listOpenRequests(): Comment[]
@@ -823,6 +836,7 @@ export interface TedStore extends TaskHistory {
   sendBackAsks(taskId: string): SendBackAsk[]
   setOnSubAgents(runId: string, on: boolean): void
   onSubAgents(runId: string): boolean
+  reconcileRunState(runId: string): void
   recordRunOutput(runId: string, output: RunOutput): void
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
@@ -888,7 +902,7 @@ export interface TedStore extends TaskHistory {
   testInvocations: TestInvocationStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
-  postFailureDecision(value: FailureCase, body: string): FailureCase
+  postFailureDecision(value: FailureCase, body: string, canAccept?: boolean): FailureCase
   resolveFailure(
     value: FailureCase,
     commentId: string,
@@ -1205,10 +1219,10 @@ export async function openStore({
     history.mergeHistory(taskId).latest === 'started'
 
   const isMerged = (taskId: string): boolean =>
-    taskRow(taskId)?.stage === 'done' &&
-    store
-      .query(queryDb(pullRequests.where({ taskId })))
-      .every((row) => row.number === null || row.state === 'merged')
+    taskIsMerged(
+      taskRow(taskId)?.stage as StageId,
+      store.query(queryDb(pullRequests.where({ taskId }))),
+    )
 
   const blockerRows = (taskId: string) =>
     store.query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
@@ -1296,40 +1310,44 @@ export async function openStore({
       .query(queryDb(plans.where({ fromTaskId: taskId })))
       .some((p) => p.state !== 'ended' && p.fromTaskGone === null)
 
-  const toTask = ({
-    snoozedUntil,
-    clarifyDepthBy,
-    branch,
-    worktree,
-    chosenRepos,
-    activity,
-    activityEntries,
-    leadAgent,
-    leadModel,
-    leadEffort,
-    leadEffortMode,
-    stageEffort,
-    pendingLeadMessage,
-    pendingLeadDeliveries,
-    rank,
-    changedAt,
-    archivedAt,
-    waitsForBlockers,
-    stoppedAt,
-    stoppedRuns,
-    stoppedWhy,
-    preparation,
-    failedAt,
-    followUpOf,
-    forcedGates,
-    gateOverrides,
-    changesSettings,
-    splitFrom,
-    needsPlanningAt,
-    partlyMergedAt,
-    setup,
-    ...row
-  }: typeof tasks.Type): StoredTask => {
+  let noteTaskWait = (_taskId: string, _facts: TaskFacts) => {}
+  const toTask = (
+    {
+      snoozedUntil,
+      clarifyDepthBy,
+      branch,
+      worktree,
+      chosenRepos,
+      activity,
+      activityEntries,
+      leadAgent,
+      leadModel,
+      leadEffort,
+      leadEffortMode,
+      stageEffort,
+      pendingLeadMessage,
+      pendingLeadDeliveries,
+      rank,
+      changedAt,
+      archivedAt,
+      waitsForBlockers,
+      stoppedAt,
+      stoppedRuns,
+      stoppedWhy,
+      preparation,
+      failedAt,
+      followUpOf,
+      forcedGates,
+      gateOverrides,
+      changesSettings,
+      splitFrom,
+      needsPlanningAt,
+      partlyMergedAt,
+      setup,
+      ...row
+    }: typeof tasks.Type,
+    observe = false,
+  ): StoredTask => {
     const stage = row.stage as StageId
     const all = taskRuns(row.id)
     const lead = all.find((r) => r.parentRunId === null)
@@ -1360,10 +1378,14 @@ export async function openStore({
     const paused = pauses()
     const held = heldRow(row.id)
     const place = queued ? queue().findIndex((q) => q.id === row.id) + 1 : 0
-    const pausedReason =
-      (held && paused[held.agent as AgentKind]) ??
-      live.map((r) => paused[r.agent as AgentKind]).find((reason) => reason !== undefined) ??
-      (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
+    const pausedRuns = taskPauses({
+      taskId: row.id,
+      heldAgent: held?.agent,
+      liveRuns: live,
+      queuedAgent: place > 0 && leadAgent !== null ? leadAgent : undefined,
+      pauses: paused,
+    })
+    const pausedReason = pausedRuns[0]?.reason
     const leadLive =
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
     const leadStopped =
@@ -1416,6 +1438,20 @@ export async function openStore({
         repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       ...(place > 0 && heldForLoad && { heldForLoad }),
+      queuedSubAgents: store
+        .query(queryDb(subAgentRequests.where({ taskId: row.id })))
+        .map((r) => ({
+          id: r.id,
+          ...(paused[r.agent as AgentKind] !== undefined && {
+            paused: paused[r.agent as AgentKind],
+          }),
+          ...(newWorkHeld !== undefined
+            ? { hold: newWorkHeld }
+            : heldForLoad
+              ? { hold: busyHold }
+              : {}),
+        })),
+      pausedRuns,
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).filter((r) => r.linearTeam === null).length,
       ...permissionWait(row.id, lead?.id),
@@ -1438,6 +1474,7 @@ export async function openStore({
       ...(needsPlanningAt !== null && { needsPlanning: true }),
       ...(stage === 'clarify' && planningFrom(row.id) && { planningInChat: true }),
     }
+    if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
     const tabs: ConversationTab[] = store
@@ -2021,7 +2058,7 @@ export async function openStore({
 
   const nextRank = () => Math.max(0, ...store.query(allTasks).map((t) => t.rank ?? t.number)) + 1
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
-  const listTasks = () => store.query(allTasks).map(toTask)
+  const listTasks = () => store.query(allTasks).map((row) => toTask(row))
   const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
@@ -2170,7 +2207,7 @@ export async function openStore({
   const updatedTask = (taskId: string): Task => {
     const row = taskRow(taskId)
     if (!row) throw new Error(`no Task ${taskId}`)
-    const task = toPublicTask(toTask(row))
+    const task = toPublicTask(toTask(row, true))
     emit({ type: 'task-updated', task })
     return task
   }
@@ -2479,6 +2516,28 @@ export async function openStore({
       )
     },
   })
+  const observedRuns = new Set<string>()
+  const observationSessionId = randomUUID()
+  const previousBoundary = store.query(
+    queryDb(intervalBoundaries.orderBy('sequence', 'desc').limit(1)),
+  )[0]
+  commit(
+    events.intervalObservationStarted({
+      sessionId: observationSessionId,
+      previousObservedAt: previousBoundary?.at ?? null,
+      at: new Date().toISOString(),
+    }),
+  )
+  const lastTaskWaits = new Map<string, string>()
+  noteTaskWait = (taskId, facts) => {
+    const reasons = JSON.stringify(
+      taskWaitReasons(taskId, facts).filter((r) => r.reason === 'run-slot'),
+    )
+    if (lastTaskWaits.get(taskId) === reasons) return
+    commit(events.taskWaitObserved({ taskId, reasons, at: new Date().toISOString() }))
+    lastTaskWaits.set(taskId, reasons)
+  }
+  for (const row of store.query(allTasks)) toTask(row, true)
   await persisted()
 
   return {
@@ -2533,7 +2592,7 @@ export async function openStore({
       emit({ type: 'comment-posted', comment: requireComment(id) })
       updatedTask(value.taskId)
     },
-    postFailureDecision(value, body) {
+    postFailureDecision(value, body, canAccept = true) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
@@ -2545,7 +2604,9 @@ export async function openStore({
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
           }),
-          choices: Object.values(value.validation ? validateFailureChoices : failureChoices),
+          choices: Object.values(value.validation ? validateFailureChoices : failureChoices).filter(
+            (choice) => canAccept || choice !== failureChoices.accepted,
+          ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
@@ -2715,7 +2776,7 @@ export async function openStore({
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
-      const task = toPublicTask(toTask(row))
+      const task = toPublicTask(toTask(row, true))
       emit({ type: 'task-created', task })
       if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
       if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
@@ -3823,6 +3884,66 @@ export async function openStore({
       commit(events.commentAnswersDelivered({ ids, runId, at: new Date().toISOString() }))
     },
     ...history,
+    taskIntervalHistory(taskId, asOf = new Date().toISOString()) {
+      const row = requireTaskRow(taskId)
+      const taskBoundaries = store.query(
+        queryDb(intervalBoundaries.where({ subject: `task:${taskId}` })),
+      )
+      const queuedRunIds = taskBoundaries
+        .filter((b) => b.name === 'v1.SubAgentRequested')
+        .map((b) => String(JSON.parse(b.data).queuedRunId))
+      return taskIntervalHistory({
+        taskId,
+        createdAt: row.createdAt,
+        asOf,
+        log: readTaskLog(taskId),
+        observations: store.query(
+          queryDb(intervalBoundaries.where({ subject: 'observation' }).orderBy('sequence', 'asc')),
+        ),
+        boundaries: [
+          ...taskBoundaries,
+          ...queuedRunIds.flatMap((id) =>
+            store.query(queryDb(intervalBoundaries.where({ subject: `sub-agent:${id}` }))),
+          ),
+          ...taskRuns(taskId).flatMap((r) =>
+            store.query(
+              queryDb(
+                intervalBoundaries.where({ subject: `run:${r.id}` }).orderBy('sequence', 'asc'),
+              ),
+            ),
+          ),
+        ],
+        blockerCompletions: readTaskLog(taskId).flatMap((event) => {
+          if (!event.name.endsWith('TaskBlockerAdded') || typeof event.data.blockerId !== 'string')
+            return []
+          const id = event.data.blockerId
+          return blockerTransitions(id, [
+            ...readTaskLog(id),
+            ...store
+              .query(queryDb(intervalBoundaries.where({ subject: `task:${id}` })))
+              .filter((b) => b.name !== 'v1.TaskWaitObserved')
+              .map((b) => ({
+                id: b.id,
+                name: b.name,
+                at: b.at,
+                data: JSON.parse(b.data) as Record<string, unknown>,
+              })),
+          ])
+        }),
+        agents: store.query(queryDb(intervalBoundaries.where({ subject: 'agent' }))),
+        runAgents: new Map(taskRuns(taskId).map((r) => [r.id, r.agent])),
+        sessionId: observationSessionId,
+        comments: store
+          .query(queryDb(comments.select('id', 'kind', 'createdAt', 'answer').where({ taskId })))
+          .filter((row) => row.kind !== 'note')
+          .map((row) => ({
+            id: row.id,
+            kind: row.kind as CommentKind,
+            createdAt: row.createdAt,
+            ...(row.answer !== null && { answer: JSON.parse(row.answer) as CommentAnswer }),
+          })),
+      })
+    },
     taskLog: readTaskLog,
     listOpenRequests: () => openRequestRows().map(toComment),
     listAnsweredRequests: () =>
@@ -4067,6 +4188,7 @@ export async function openStore({
         events.runStartedV4(row),
         events.runPermissionsSet({ runId: row.id, permissions, at: row.startedAt }),
       )
+      observedRuns.add(row.id)
       const run = toRun({
         ...row,
         retrying: false,
@@ -4243,6 +4365,13 @@ export async function openStore({
       noteActivity()
     },
     onSubAgents: (runId) => waitingOnSubAgents.has(runId),
+    reconcileRunState(runId) {
+      if (observedRuns.has(runId)) return
+      const run = runRow(runId)
+      if (!run || run.state === 'finished') return
+      commit(events.runStateObserved({ runId, state: run.state, at: new Date().toISOString() }))
+      observedRuns.add(runId)
+    },
     recordRunOutput(
       runId,
       {
@@ -4346,7 +4475,10 @@ export async function openStore({
         const taskId = taskIdOfRun(runId)
         if (taskId !== undefined) updatedTask(taskId)
       }
-      if (stateChanged) noteActivity()
+      if (stateChanged) {
+        observedRuns.add(runId)
+        noteActivity()
+      }
     },
     setRunPermissions(runId, permissions) {
       const row = runRow(runId)
@@ -4680,13 +4812,13 @@ export async function openStore({
     holdNewWork(reason) {
       if (reason === newWorkHeld) return
       newWorkHeld = reason
-      updatedQueue()
+      for (const row of store.query(allTasks)) updatedTask(row.id)
     },
     newWorkHold: () => newWorkHeld,
     holdForLoad(held) {
       if (held === heldForLoad) return
       heldForLoad = held
-      updatedQueue()
+      for (const row of store.query(allTasks)) updatedTask(row.id)
     },
     setTaskChecking(taskId, on) {
       if (checkingTasks.has(taskId) === on) return
@@ -4712,9 +4844,20 @@ export async function openStore({
       writeListeners.add(listener)
       return () => writeListeners.delete(listener)
     },
-    close: () => {
-      shutDown = true
-      return store.shutdownPromise()
+    close: async () => {
+      if (shutDown) return
+      try {
+        commit(
+          events.intervalObservationEnded({
+            sessionId: observationSessionId,
+            at: new Date().toISOString(),
+          }),
+        )
+        await persisted()
+      } finally {
+        shutDown = true
+        await store.shutdownPromise()
+      }
     },
   }
 }

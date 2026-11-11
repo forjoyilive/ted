@@ -50,6 +50,7 @@ import type {
   Priority,
   ProposalCreated,
   ProposalInput,
+  PullRequestChanges,
   RecordAppRequest,
   RecordFailureRequest,
   ReportOutcomeRequest,
@@ -189,10 +190,13 @@ import {
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
+  acceptedResolution,
   ciFailureKey,
   createFailureCases,
   failureNoticeTitles,
   failureText,
+  leadClosesFailures,
+  leadClosesRefusal,
 } from './failure-cases.ts'
 import {
   endingReason,
@@ -243,6 +247,7 @@ import { placeBetween } from './order.ts'
 import { overnightGuidance } from './overnight.ts'
 import { createPeers, type Peers } from './peers.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
+import { readPullRequestChanges } from './pull-request-changes.ts'
 import {
   createPullRequests,
   type PullRequestTarget,
@@ -481,6 +486,7 @@ export interface Tasks {
   setupLog(ref: string, repo: string): Promise<string>
   worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
   changes(ref: string): Promise<TaskChanges>
+  pullRequestChanges(ref: string, repo: string): Promise<PullRequestChanges>
   files(ref: string): Promise<TaskFiles>
   file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
@@ -535,6 +541,12 @@ function withoutRepeats(files: readonly Attachment[]): Attachment[] {
 }
 
 export function createTasks(options: {
+  testReportingEnv?: (
+    task: Task,
+    checkRunId: string,
+    position: number,
+    supported: boolean,
+  ) => Promise<Record<string, string>>
   steering: Steering
   store: TedStore
   runs: RunManager
@@ -607,6 +619,7 @@ export function createTasks(options: {
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
   const interrupted = new Set<string>()
+  const pullRequestChangeReads = new Map<string, Promise<PullRequestChanges>>()
   const signedOutAt = new Map<string, string>()
   const turnEnding = new Set<string>()
   const readyMidTurn = new Set<string>()
@@ -6405,6 +6418,7 @@ export function createTasks(options: {
   })
 
   const validation = createValidation({
+    ...(options.testReportingEnv && { reportingEnv: options.testReportingEnv }),
     store,
     failures,
     find,
@@ -6852,7 +6866,17 @@ export function createTasks(options: {
     verifyFailure: (ref, caller, id, evidence) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
-        if (
+        const own = !value.validation && value.source.kind === 'finding'
+        if (own) {
+          if (!leadClosesFailures((await taskWorkflow(task, { fetch: false })).workflow))
+            throw new RequestError(409, leadClosesRefusal)
+          if (
+            ['fixed', 'no-longer-applicable'].includes(value.resolutions.at(-1)?.resolution ?? '')
+          )
+            throw new RequestError(409, 'this case is closed; record a new failure')
+          if (acceptedResolution(value))
+            throw new RequestError(409, 'this failure already has current acceptance')
+        } else if (
           !value.validation ||
           !['finding', 'factory-check'].includes(value.source.kind) ||
           task.stage !== 'validate'
@@ -6863,6 +6887,7 @@ export function createTasks(options: {
           )
         if (!evidence.trim()) throw new RequestError(400, 'verification needs fresh evidence')
         if (
+          !own &&
           !['retry', 'fix'].includes(value.resolutions.at(-1)?.resolution ?? '') &&
           value.assessments.at(-1)?.assessment !== 'regression'
         )
@@ -7892,6 +7917,20 @@ export function createTasks(options: {
         fileScope,
         env: commandEnv(task, env),
       }
+    },
+
+    async pullRequestChanges(ref, name) {
+      const repo = find(ref).repos.find((r) => r.name === name)
+      if (!options.gh) throw new RequestError(503, 'GitHub is unavailable.')
+      if (!repo?.pullRequest) throw new RequestError(404, 'This repo has no pull request.')
+      const key = `${repo.name}:${repo.pullRequest.url}`
+      const current = pullRequestChangeReads.get(key)
+      if (current) return current
+      const reading = readPullRequestChanges(options.gh, repo).finally(() =>
+        pullRequestChangeReads.delete(key),
+      )
+      pullRequestChangeReads.set(key, reading)
+      return reading
     },
 
     async changes(ref) {

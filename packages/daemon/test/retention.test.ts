@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Factory, Task } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { pruneRunOutput, runOutputEnd } from '../src/retention.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
@@ -34,6 +34,7 @@ describe('pruning Run output', () => {
 
   afterEach(async () => {
     await store.close()
+    vi.useRealTimers()
     await rm(root, { recursive: true, force: true })
   })
 
@@ -137,16 +138,32 @@ describe('pruning Run output', () => {
   })
 
   test('removes a Done Task’s Run output 7 days after it became Done, and not before', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
     const task = await store.createTask({ title: 'Fix login' })
-    const run = await makeRun(task.id)
-    const sub = await makeRun(task.id)
+    const run = await makeRun(task.id, 'working')
+    const sub = await makeRun(task.id, 'working')
+    vi.setSystemTime(Date.now() + 1000)
+    for (const id of [run, sub]) store.recordRunOutput(id, { toOffset: 1, state: 'finished' })
     store.changeStage(task.id, 'done', entry)
+    const intervals = store.taskIntervalHistory(task.id)
+    expect(intervals.intervals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'run-working',
+          contributors: expect.arrayContaining([
+            expect.objectContaining({ id: run }),
+            expect.objectContaining({ id: sub }),
+          ]),
+        }),
+      ]),
+    )
 
     expect(await prune(6)).toEqual({ removed: [] })
     expect(await kept()).toEqual([run, sub].sort())
 
     expect((await prune(8)).removed.sort()).toEqual([run, sub].sort())
     expect(await kept()).toEqual([])
+    expect(store.taskIntervalHistory(task.id, intervals.asOf)).toEqual(intervals)
   })
 
   test('an archived Task follows the same rule, and unarchiving it keeps its output again', async () => {
