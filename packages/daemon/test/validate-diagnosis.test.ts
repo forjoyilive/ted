@@ -21,6 +21,11 @@ import { ctx, getTask, start, useMergeHarness } from './merge-harness.ts'
 
 useMergeHarness()
 
+const workGate = ['  work:', '    gate: true']
+const brief = {
+  text: '## Goal\nVerify the change.\n\n## Decisions so far\nNone.\n\n## Current state\nWork is done.\n\n## Open questions\nNone.\n\n## Next step\nValidate.',
+}
+
 async function setup(
   checks = [
     '      - { name: Tests, run: "echo broken; exit 1" }',
@@ -34,6 +39,7 @@ async function setup(
     daemon: { codexBin: stubCodexPath },
     workflow: [
       'stages:',
+      ...(order.indexOf('work') < order.indexOf('validate') ? workGate : []),
       '  validate:',
       '    max_back: 1',
       `    loop_check: ${loopCheck}`,
@@ -55,9 +61,18 @@ async function setup(
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
   const lead = api(ctx.daemon?.port ?? 0, tokens.issue(initial.leadRunId ?? ''))
   const root = `/tasks/${task.id}`
-  const post = async <T>(route: string, body = {}): Promise<T> => {
+  const post = async <T>(route: string, body: Record<string, unknown> = {}): Promise<T> => {
+    if (
+      route === '/outcome' &&
+      body.outcome === 'advance' &&
+      (await getTask(client, task.id)).stage === 'work'
+    )
+      await lead.call('POST', `${root}/brief`, brief)
     const res = await lead.call('POST', root + route, body)
     expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+    const gate = (res.body as { request?: Comment }).request
+    if (route === '/outcome' && gate?.gate && gate.stage === 'work')
+      await client.ok('POST', `/comments/${gate.id}/answer`, { action: 'approve' })
     return res.body as T
   }
   const working = await waitUntil(async () => (await getTask(client, task.id)).repos[0], 'worktree')
@@ -644,6 +659,7 @@ test.each(['revert', 'remove', 'replace', 'accepted'])(
           'version: 1',
           'order: [intake, work, validate, review]',
           'stages:',
+          ...workGate,
           '  validate:',
           kind === 'remove'
             ? '    checks: []'
@@ -1074,8 +1090,11 @@ test('accepted continuation waits for the machine Check slot and keeps its failu
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
   const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
   for (let i = 0; i < 2; i++) {
+    if (i === 1) await lead.call('POST', `/tasks/${other.id}/brief`, brief)
     const response = await lead.call('POST', `/tasks/${other.id}/outcome`, { outcome: 'advance' })
     expect(response.status, JSON.stringify(response.body)).toBe(200)
+    const gate = (response.body as { request?: Comment }).request
+    if (gate?.gate) await s.client.ok('POST', `/comments/${gate.id}/answer`, { action: 'approve' })
   }
   await waitUntil(async () => {
     const runs = await s.client.ok<CheckRun[]>('GET', `/tasks/${other.id}/check-runs`)

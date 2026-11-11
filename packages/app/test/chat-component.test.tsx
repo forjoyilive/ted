@@ -301,3 +301,39 @@ test('opening a sub-agent from Task details selects its actual Conversation and 
   expect(screen.getByRole('tab', { name: /Reviewer/ }).getAttribute('aria-selected')).toBe('true')
   expect(a.request).toHaveBeenCalledWith('getRunChat', 'r2')
 })
+
+test('live and saved conversations share Markdown while tool output stays literal', async () => {
+  const chat: RunChat = {
+    run: lead,
+    items: [
+      { kind: 'agent', id: 'a1', text: '## Progress\n\n**Ready**', writing: true },
+      {
+        kind: 'human',
+        id: 'm1',
+        text: 'Use *nested* lists\n\n- Parent\n  - Child',
+        at: createdAt,
+        sent: true,
+      },
+      {
+        kind: 'tool',
+        id: 't1',
+        tool: 'Read',
+        title: 'notes.md',
+        status: 'done',
+        output: '## Literal\n**raw**',
+      },
+    ],
+  }
+  bridge({ getRunChat: () => chat })
+  const view = render(<Conversation runId="r1" />)
+  await screen.findByRole('heading', { name: 'Progress' })
+  expect(screen.getByText('Ready').tagName).toBe('STRONG')
+  expect(screen.getByText('nested').tagName).toBe('EM')
+  expect(screen.getByText('Child').closest('ul')?.parentElement?.tagName).toBe('LI')
+  await user().click(screen.getByRole('button', { name: /Read/ }))
+  expect(screen.getByText('## Literal **raw**').tagName).toBe('PRE')
+  expect(screen.queryByRole('heading', { name: 'Literal' })).toBeNull()
+  view.rerender(<Conversation runId="r1" inspect matchItemId="a1" />)
+  expect(screen.getByRole('heading', { name: 'Progress' })).toBeTruthy()
+  expect(screen.getByText('Ready').tagName).toBe('STRONG')
+})

@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { failedTests, onlyAppChanged, parseReport, parseRetries } from './check.ts'
+import { failedTests, onlyAppChanged, parseReport, parseRetries, runRefusal } from './check.ts'
 import {
   appendRun,
   type FailureRun,
@@ -91,6 +91,13 @@ function report(status = 'passed') {
 }
 const parse = (value: unknown, exitedOk = true) =>
   parseReport(JSON.stringify(value), 'node', exitedOk)
+
+describe('pnpm check started by a Run', () => {
+  test('is refused', () => {
+    expect(runRefusal({})).toBeUndefined()
+    expect(runRefusal({ TED_RUN: 'run-1' })).toContain('pnpm vitest run <files>')
+  })
+})
 
 describe('failure window', () => {
   test('successful runs age failures out after 20 runs', () => {

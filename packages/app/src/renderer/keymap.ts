@@ -89,6 +89,19 @@ export function keysFor(id: string): readonly string[] {
   return byId.get(id) ?? []
 }
 
+export function imageNavigationKey(event: {
+  key: string
+  shiftKey: boolean
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+}): 'previous' | 'next' | undefined {
+  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return undefined
+  if (event.key === 'ArrowLeft') return 'previous'
+  if (event.key === 'ArrowRight') return 'next'
+  return undefined
+}
+
 export const keyBindings: readonly { id: string; shortcuts: readonly string[] }[] = [
   ...sections.flatMap((s) =>
     s.rows.filter((r) => !displayOnly.has(r.id)).map((r) => ({ id: r.id, shortcuts: r.keys })),

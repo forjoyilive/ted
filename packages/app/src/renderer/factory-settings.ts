@@ -117,6 +117,8 @@ export interface StageDraft {
   gate: boolean
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
 }
 
 export interface SettingsDraft {
@@ -141,6 +143,7 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
       gate: row.gate,
       ...(row.maxBack !== undefined && { maxBack: row.maxBack }),
       ...(row.depth !== undefined && { depth: row.depth }),
+      ...validateRoundsDraft(row),
     }
     if (row.id !== 'backlog' && row.id !== 'done') stageFiles[row.id] = row.factoryFile ?? null
   }
@@ -159,7 +162,25 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
   }
 }
 
-const stageFields = ['enabled', 'gate', 'maxBack', 'depth', 'effort'] as const
+const stageFields = [
+  'enabled',
+  'gate',
+  'maxBack',
+  'depth',
+  'effort',
+  'p1OnlyFrom',
+  'subAgents',
+] as const
+
+export function validateRoundsDraft(row: {
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
+}): Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'> {
+  return {
+    ...(row.p1OnlyFrom !== undefined && { p1OnlyFrom: row.p1OnlyFrom }),
+    ...(row.subAgents !== undefined && { subAgents: row.subAgents }),
+  }
+}
 
 function sameChoice(a: AgentChoiceInput | null, b: AgentChoiceInput | null): boolean {
   const norm = (c: AgentChoiceInput | null) =>
@@ -256,7 +277,16 @@ export function unsavedSummary({ count, files }: UnsavedChanges): string {
   return `${changes} to ${files.length} files in .ted/`
 }
 
-export type StageField = 'enabled' | 'gate' | 'maxBack' | 'depth' | 'effort' | 'file' | 'kept'
+export type StageField =
+  | 'enabled'
+  | 'gate'
+  | 'maxBack'
+  | 'depth'
+  | 'effort'
+  | 'p1OnlyFrom'
+  | 'subAgents'
+  | 'file'
+  | 'kept'
 
 export function stageEdited(
   draft: SettingsDraft,

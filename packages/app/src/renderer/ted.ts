@@ -104,6 +104,7 @@ export const ted = {
   openPullRequest: (taskId: string, repoName: string) =>
     request('openPullRequest', taskId, repoName),
   openFigmaLink: (taskId: string, commentId: string) => request('openFigmaLink', taskId, commentId),
+  openMarkdownLink: (url: string) => request('openMarkdownLink', url),
   presentBrowser: (
     taskId: string,
     repo: string,

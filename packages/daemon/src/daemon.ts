@@ -79,6 +79,7 @@ export interface DaemonOptions {
   settingsMergeWaitMs?: number
   stallAfterMs?: number
   apps?: { pollMs?: number; readyTimeoutMs?: number; stopGraceMs?: number; logBytes?: number }
+  runs?: { stopGraceMs?: number; inputAckMs?: number }
   simulators?: { supported?: boolean; pollMs?: number; idleMs?: number }
   online?: DaemonOnlineOptions
   limitProbeMs?: number
@@ -198,6 +199,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         env: environment.current,
         ...(idle && { idle }),
         ...(options.oldestHost !== undefined && { oldestHost: options.oldestHost }),
+        ...options.runs,
       })
       const banners = createBanners({ store, emit })
       const diskOptions = options.disk ?? {}
@@ -539,6 +541,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         plans,
         factories,
         checkTries,
+        workflows,
         storage: () => storage,
       })
       factories.start()

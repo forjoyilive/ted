@@ -48,8 +48,8 @@ test('empty Board keeps Workflow columns and New Task and Plan actions', async (
   expect(
     [...document.querySelectorAll('[data-stage]')].map((e) => e.getAttribute('aria-label')),
   ).toEqual(['Backlog', 'Intake', 'Work', 'Review', 'Done'])
-  expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Gate')).toBeTruthy()
-  expect(within(screen.getByRole('region', { name: 'Work' })).queryByText('Gate')).toBeNull()
+  expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Sign-off')).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: 'Work' })).queryByText('Sign-off')).toBeNull()
   const u = user()
   const empty = screen.getByRole('region', { name: 'No Tasks yet' })
   if (!empty) throw new Error('Missing empty Board')
