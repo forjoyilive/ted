@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
-import { withDaemon } from '@ted/daemon/launch'
+import type { withDaemon as connectDaemon } from '@ted/daemon/launch'
 import {
   type AgentKind,
   type Automation,
@@ -31,33 +31,96 @@ export interface AutomationOptions {
   off?: boolean
 }
 
-export const automationUsage = `  ted automation list                        List the Factory’s Automations
-  ted automation show <id>                   Show an Automation: schedule, next firings, prompt
-  ted automation history <id>                Show an Automation’s Runs, newest first
-  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>
-                [--template linear|sentry|github] [--agent claude|codex]
-                [--model <name>] [--effort <level>] [--off]
-                                             Create an Automation (a template fills in what you
-                                             leave out)
-  ted automation edit <id> [same flags as create]
-                                             Change an Automation
-  ted automation enable <id> / disable <id>  Turn an Automation on or off
-  ted automation run <id>                    Run an Automation now
-  ted automation delete <id>                 Delete an Automation and its history
-                Every automation command takes --factory <key>. Inside a Run only list, show
-                and history work; from a terminal, create, edit, enable, run and delete are
-                refused, because only the TED app may schedule agent Runs.`
-
 const appOnly = 'only the TED app can do this'
+
+import type { commands } from './commands.ts'
+
+export type AutomationCommand = Extract<
+  (typeof commands)[number],
+  { name: `automation ${string}` }
+>['handler'] extends infer H
+  ? H extends `automation${infer Name}`
+    ? Uncapitalize<Name>
+    : never
+  : never
 
 export async function automationCommand(
   home: string,
-  command: string | undefined,
+  command: AutomationCommand,
   rest: string[],
   options: AutomationOptions,
+  runtime: { connect: typeof connectDaemon; log: (text: string) => void },
 ): Promise<void> {
+  const withDaemon = runtime.connect
+  const console = { log: runtime.log }
+  const factory = options.factory
+  const one = () => rest[0] ?? ''
+  const actions = {
+    list: async () => {
+      const list = await withDaemon(home, (client) => client.listAutomations(factory))
+      console.log(list.length === 0 ? 'No Automations yet.' : list.map(listLine).join('\n'))
+    },
+    show: async () => {
+      const ref = one()
+      const { automation, history } = await withDaemon(home, (client) =>
+        client.getAutomation(ref, factory),
+      )
+      console.log(showText(automation, history))
+    },
+    history: async () => {
+      const ref = one()
+      const { history } = await withDaemon(home, (client) => client.getAutomation(ref, factory))
+      console.log(history.length === 0 ? 'No Runs yet.' : history.map(historyLine).join('\n'))
+    },
+    create: async () => {
+      const input = await createInput(home, options)
+      const automation = await withDaemon(home, (client) => client.createAutomation(input))
+      console.log(`Created Automation ${shortId(automation)}  ${printable(automation.name)}`)
+      console.log(`  ${printable(automation.scheduleText)}${nextLine(automation)}`)
+    },
+    edit: async () => {
+      const ref = one()
+      const input = await editInput(options)
+      const automation = await withDaemon(home, (client) =>
+        client.editAutomation(ref, input, factory),
+      )
+      console.log(`Changed Automation ${shortId(automation)}  ${printable(automation.name)}`)
+    },
+    enable: async () => {
+      const ref = one()
+      const automation = await withDaemon(home, (client) =>
+        client.setAutomationOn(ref, true, factory),
+      )
+      console.log(
+        `${printable(automation.name)} is ${automation.on ? `on${nextLine(automation)}` : 'off'}`,
+      )
+    },
+    disable: async () => {
+      const ref = one()
+      const automation = await withDaemon(home, (client) =>
+        client.setAutomationOn(ref, false, factory),
+      )
+      console.log(
+        `${printable(automation.name)} is ${automation.on ? `on${nextLine(automation)}` : 'off'}`,
+      )
+    },
+    run: async () => {
+      const ref = one()
+      const run = await withDaemon(home, async (client) => {
+        const started = await client.runAutomation(ref, factory)
+        const { automation } = await client.getAutomation(ref, factory)
+        return { started, automation }
+      })
+      console.log(`Running ${printable(run.automation.name)} now (Run ${run.started.id})`)
+    },
+    delete: async () => {
+      const ref = one()
+      await withDaemon(home, (client) => client.deleteAutomation(ref, factory))
+      console.log('Deleted the Automation and its history. Tasks it created stay.')
+    },
+  }
   try {
-    await automationAction(home, command, rest, options)
+    await actions[command]()
   } catch (error) {
     if (error instanceof Error && error.message === appOnly) {
       throw new Error(
@@ -66,132 +129,67 @@ export async function automationCommand(
     }
     throw error
   }
-}
-
-async function automationAction(
-  home: string,
-  command: string | undefined,
-  rest: string[],
-  options: AutomationOptions,
-): Promise<void> {
-  const factory = options.factory
-  const one = () => {
-    if (rest.length !== 1 || rest[0] === undefined) {
-      throw new AutomationUsageError(`name the Automation: ted automation ${command} <id>`)
+  async function createInput(
+    home: string,
+    options: AutomationOptions,
+  ): Promise<CreateAutomationRequest> {
+    const template =
+      options.template === undefined
+        ? undefined
+        : await withDaemon(home, async (client) => {
+            const id = options.template as AutomationTemplateId
+            if (!automationTemplateIds.includes(id)) {
+              throw new AutomationUsageError(
+                `--template must be one of ${automationTemplateIds.join(', ')}`,
+              )
+            }
+            return (await client.automationTemplates()).find((t) => t.id === id)
+          })
+    const fields = await editInput(options)
+    const name = fields.name ?? template?.name
+    const prompt = fields.prompt ?? template?.prompt
+    const schedule = fields.schedule ?? template?.schedule
+    if (name === undefined) throw new AutomationUsageError('give the Automation a --name')
+    if (schedule === undefined) {
+      throw new AutomationUsageError('give a --schedule: a 5-field cron or an RRULE')
     }
-    return rest[0]
-  }
-  if (command === 'list' && rest.length === 0) {
-    const list = await withDaemon(home, (client) => client.listAutomations(factory))
-    console.log(list.length === 0 ? 'No Automations yet.' : list.map(listLine).join('\n'))
-  } else if (command === 'show') {
-    const ref = one()
-    const { automation, history } = await withDaemon(home, (client) =>
-      client.getAutomation(ref, factory),
-    )
-    console.log(showText(automation, history))
-  } else if (command === 'history') {
-    const ref = one()
-    const { history } = await withDaemon(home, (client) => client.getAutomation(ref, factory))
-    console.log(history.length === 0 ? 'No Runs yet.' : history.map(historyLine).join('\n'))
-  } else if (command === 'create' && rest.length === 0) {
-    const input = await createInput(home, options)
-    const automation = await withDaemon(home, (client) => client.createAutomation(input))
-    console.log(`Created Automation ${shortId(automation)}  ${printable(automation.name)}`)
-    console.log(`  ${printable(automation.scheduleText)}${nextLine(automation)}`)
-  } else if (command === 'edit') {
-    const ref = one()
-    const input = await editInput(options)
-    const automation = await withDaemon(home, (client) =>
-      client.editAutomation(ref, input, factory),
-    )
-    console.log(`Changed Automation ${shortId(automation)}  ${printable(automation.name)}`)
-  } else if (command === 'enable' || command === 'disable') {
-    const ref = one()
-    const automation = await withDaemon(home, (client) =>
-      client.setAutomationOn(ref, command === 'enable', factory),
-    )
-    console.log(
-      `${printable(automation.name)} is ${automation.on ? `on${nextLine(automation)}` : 'off'}`,
-    )
-  } else if (command === 'run') {
-    const ref = one()
-    const run = await withDaemon(home, async (client) => {
-      const started = await client.runAutomation(ref, factory)
-      const { automation } = await client.getAutomation(ref, factory)
-      return { started, automation }
-    })
-    console.log(`Running ${printable(run.automation.name)} now (Run ${run.started.id})`)
-  } else if (command === 'delete') {
-    const ref = one()
-    await withDaemon(home, (client) => client.deleteAutomation(ref, factory))
-    console.log('Deleted the Automation and its history. Tasks it created stay.')
-  } else {
-    throw new AutomationUsageError('')
-  }
-}
-
-async function createInput(
-  home: string,
-  options: AutomationOptions,
-): Promise<CreateAutomationRequest> {
-  const template =
-    options.template === undefined
-      ? undefined
-      : await withDaemon(home, async (client) => {
-          const id = options.template as AutomationTemplateId
-          if (!automationTemplateIds.includes(id)) {
-            throw new AutomationUsageError(
-              `--template must be one of ${automationTemplateIds.join(', ')}`,
-            )
-          }
-          return (await client.automationTemplates()).find((t) => t.id === id)
-        })
-  const fields = await editInput(options)
-  const name = fields.name ?? template?.name
-  const prompt = fields.prompt ?? template?.prompt
-  const schedule = fields.schedule ?? template?.schedule
-  if (name === undefined) throw new AutomationUsageError('give the Automation a --name')
-  if (schedule === undefined) {
-    throw new AutomationUsageError('give a --schedule: a 5-field cron or an RRULE')
-  }
-  if (prompt === undefined) throw new AutomationUsageError('give the prompt with --prompt-file')
-  return {
-    ...fields,
-    name,
-    prompt,
-    schedule,
-    ...(template && { template: template.id }),
-    ...(options.factory !== undefined && { factory: options.factory }),
-  }
-}
-
-async function editInput(
-  options: AutomationOptions,
-): Promise<Partial<Omit<AutomationInput, 'template'>>> {
-  const input: Partial<Omit<AutomationInput, 'template'>> = {}
-  if (options.name !== undefined) input.name = options.name
-  if (options.schedule !== undefined) input.schedule = scheduleFromExpression(options.schedule)
-  if (options['prompt-file'] !== undefined) {
-    input.prompt = await readFile(path.resolve(options['prompt-file']), 'utf8')
-  }
-  if (options.agent !== undefined) {
-    if (!agentKinds.includes(options.agent as AgentKind)) {
-      throw new AutomationUsageError('--agent must be claude or codex')
+    if (prompt === undefined) throw new AutomationUsageError('give the prompt with --prompt-file')
+    return {
+      ...fields,
+      name,
+      prompt,
+      schedule,
+      ...(template && { template: template.id }),
+      ...(options.factory !== undefined && { factory: options.factory }),
     }
-    input.agent = options.agent as AgentKind
   }
-  if (options.model !== undefined) input.model = options.model
-  if (options.effort !== undefined) {
-    if (!efforts.includes(options.effort as Effort)) {
-      throw new AutomationUsageError(`--effort must be one of ${efforts.join(', ')}`)
-    }
-    input.effort = options.effort as Effort
-  }
-  if (options.off === true) input.on = false
-  return input
-}
 
+  async function editInput(
+    options: AutomationOptions,
+  ): Promise<Partial<Omit<AutomationInput, 'template'>>> {
+    const input: Partial<Omit<AutomationInput, 'template'>> = {}
+    if (options.name !== undefined) input.name = options.name
+    if (options.schedule !== undefined) input.schedule = scheduleFromExpression(options.schedule)
+    if (options['prompt-file'] !== undefined) {
+      input.prompt = await readFile(path.resolve(options['prompt-file']), 'utf8')
+    }
+    if (options.agent !== undefined) {
+      if (!agentKinds.includes(options.agent as AgentKind)) {
+        throw new AutomationUsageError('--agent must be claude or codex')
+      }
+      input.agent = options.agent as AgentKind
+    }
+    if (options.model !== undefined) input.model = options.model
+    if (options.effort !== undefined) {
+      if (!efforts.includes(options.effort as Effort)) {
+        throw new AutomationUsageError(`--effort must be one of ${efforts.join(', ')}`)
+      }
+      input.effort = options.effort as Effort
+    }
+    if (options.off === true) input.on = false
+    return input
+  }
+}
 const shortId = (automation: { id: string }) => automation.id.slice(0, 8)
 
 function when(iso: string): string {
