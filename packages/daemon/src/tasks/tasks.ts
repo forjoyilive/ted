@@ -541,6 +541,12 @@ function withoutRepeats(files: readonly Attachment[]): Attachment[] {
 }
 
 export function createTasks(options: {
+  testReportingEnv?: (
+    task: Task,
+    checkRunId: string,
+    position: number,
+    supported: boolean,
+  ) => Promise<Record<string, string>>
   steering: Steering
   store: TedStore
   runs: RunManager
@@ -6412,6 +6418,7 @@ export function createTasks(options: {
   })
 
   const validation = createValidation({
+    ...(options.testReportingEnv && { reportingEnv: options.testReportingEnv }),
     store,
     failures,
     find,
