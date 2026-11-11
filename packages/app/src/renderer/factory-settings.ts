@@ -119,6 +119,7 @@ export interface StageDraft {
   depth?: ClarifyDepth
   p1OnlyFrom?: number | false
   subAgents?: boolean
+  leadClosesFailures?: boolean
 }
 
 export interface SettingsDraft {
@@ -143,7 +144,7 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
       gate: row.gate,
       ...(row.maxBack !== undefined && { maxBack: row.maxBack }),
       ...(row.depth !== undefined && { depth: row.depth }),
-      ...validateRoundsDraft(row),
+      ...stageOptionsDraft(row),
     }
     if (row.id !== 'backlog' && row.id !== 'done') stageFiles[row.id] = row.factoryFile ?? null
   }
@@ -170,15 +171,18 @@ const stageFields = [
   'effort',
   'p1OnlyFrom',
   'subAgents',
+  'leadClosesFailures',
 ] as const
 
-export function validateRoundsDraft(row: {
+export function stageOptionsDraft(row: {
   p1OnlyFrom?: number | false
   subAgents?: boolean
-}): Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'> {
+  leadClosesFailures?: boolean
+}): Pick<StageDraft, 'p1OnlyFrom' | 'subAgents' | 'leadClosesFailures'> {
   return {
     ...(row.p1OnlyFrom !== undefined && { p1OnlyFrom: row.p1OnlyFrom }),
     ...(row.subAgents !== undefined && { subAgents: row.subAgents }),
+    ...(row.leadClosesFailures !== undefined && { leadClosesFailures: row.leadClosesFailures }),
   }
 }
 
@@ -285,6 +289,7 @@ export type StageField =
   | 'effort'
   | 'p1OnlyFrom'
   | 'subAgents'
+  | 'leadClosesFailures'
   | 'file'
   | 'kept'
 

@@ -11,7 +11,7 @@ import {
   unsavedChanges,
 } from '../src/renderer/factory-settings.ts'
 import { libraryChanges, libraryDraft, unsavedLibrary } from '../src/renderer/library.ts'
-import { ValidateRounds } from '../src/renderer/views/FactorySettingsSections.tsx'
+import { ValidateRounds, WorkFailures } from '../src/renderer/views/FactorySettingsSections.tsx'
 import { user } from './support/component.ts'
 
 type Rounds = Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'>
@@ -80,6 +80,35 @@ test('the help says what each setting trades', async () => {
       .map((tip) => tip.textContent)
       .join('\n'),
   ).toContain('a sub-agent that reviews the diff adds Findings that can cost another round')
+})
+
+type Closes = Pick<StageDraft, 'leadClosesFailures'>
+
+function Work({ onStage }: { onStage: (fields: Closes) => void }) {
+  const [stage, setStage] = useState<Closes>({ leadClosesFailures: false })
+  return (
+    <WorkFailures
+      stage={stage}
+      onStage={(fields) => {
+        onStage(fields)
+        setStage(fields)
+      }}
+    />
+  )
+}
+
+test('the Work setting starts off, sends what the human picks and says what it trades', async () => {
+  const onStage = vi.fn()
+  render(<Work onStage={onStage} />)
+  const closes = screen.getByRole('switch', { name: 'Task Lead closes its own fixed failures' })
+  expect(closes.getAttribute('aria-checked')).toBe('false')
+  await user().click(closes)
+  expect(onStage).toHaveBeenLastCalledWith({ leadClosesFailures: true })
+  expect(closes.getAttribute('aria-checked')).toBe('true')
+  await user().hover(screen.getByRole('button', { name: 'Help' }))
+  expect(screen.getByRole('tooltip').textContent).toContain(
+    'TED doesn’t run the test, so you are trusting the Task Lead’s report.',
+  )
 })
 
 const validate: StageRowView = {

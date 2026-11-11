@@ -33,7 +33,13 @@ import type {
 } from './automation.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
-import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from './changes.ts'
+import type {
+  DraftLineCommentRequest,
+  FileDiff,
+  LineComment,
+  PullRequestChanges,
+  TaskChanges,
+} from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type {
   BaseConflictFound,
@@ -181,6 +187,12 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
+import type {
+  RegisterTestInvocation,
+  TestInvocationRegistration,
+  TestInvocationReport,
+  TestInvocationSummary,
+} from './test-invocations.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
@@ -625,6 +637,49 @@ export class DaemonClient {
     )
   }
 
+  registerTestInvocation(
+    ref: string,
+    input: RegisterTestInvocation,
+  ): Promise<TestInvocationRegistration> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/test-invocations`, input)
+  }
+
+  async tryRegisterTestInvocation(
+    ref: string,
+    input: RegisterTestInvocation,
+  ): Promise<TestInvocationRegistration | undefined> {
+    try {
+      const res = await this.#send(
+        'POST',
+        `/tasks/${encodeURIComponent(ref)}/test-invocations`,
+        input,
+        AbortSignal.timeout(500),
+      )
+      return (await this.#json(res)) as TestInvocationRegistration
+    } catch {
+      return undefined
+    }
+  }
+
+  testInvocations(ref: string): Promise<TestInvocationSummary> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/test-invocations`)
+  }
+
+  async reportTestInvocation(id: string, input: TestInvocationReport): Promise<boolean> {
+    try {
+      const res = await this.#send(
+        'POST',
+        `/test-invocations/${encodeURIComponent(id)}/reports`,
+        input,
+        AbortSignal.timeout(500),
+      )
+      await this.#json(res)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   runChecks(ref: string, request: RunChecksRequest = {}): Promise<CheckRun> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/checks`, request)
   }
@@ -838,6 +893,13 @@ export class DaemonClient {
 
   taskChanges(ref: string): Promise<TaskChanges> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/changes`)
+  }
+
+  pullRequestChanges(ref: string, repo: string): Promise<PullRequestChanges> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/pull-request-changes/${encodeURIComponent(repo)}`,
+    )
   }
 
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]> {

@@ -922,13 +922,13 @@ export function parseSetTaskGatesRequest(input: unknown): SetTaskGatesRequest {
     typeof value !== 'object' ||
     Array.isArray(value)
   ) {
-    throw new HttpError(400, 'give a revision and Gate overrides')
+    throw new HttpError(400, 'give a revision and Sign-off overrides')
   }
   const overrides: TaskGateOverrides = {}
   for (const [key, gate] of Object.entries(value)) {
     const stage = agentStageIds.find((id) => id === key)
     if (!stage || typeof gate !== 'boolean')
-      throw new HttpError(400, 'Gate overrides must name Stages with boolean values')
+      throw new HttpError(400, 'Sign-off overrides must name Stages with boolean values')
     overrides[stage] = gate
   }
   return { overrides, revision: body.revision }

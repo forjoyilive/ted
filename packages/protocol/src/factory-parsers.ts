@@ -129,6 +129,13 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
     if (subAgents !== undefined && (id !== 'validate' || typeof subAgents !== 'boolean')) {
       throw new HttpError(400, `${id}.subAgents must be true or false, on Validate`)
     }
+    const leadClosesFailures = stage.leadClosesFailures
+    if (
+      leadClosesFailures !== undefined &&
+      (id !== 'work' || typeof leadClosesFailures !== 'boolean')
+    ) {
+      throw new HttpError(400, `${id}.leadClosesFailures must be true or false, on Work`)
+    }
     stages[id as StageId] = {
       ...(effort !== undefined && { effort: effort as Effort | null }),
       ...(enabled !== undefined && { enabled }),
@@ -137,6 +144,9 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
       ...(depth !== undefined && { depth: depth as ClarifyDepth }),
       ...(p1OnlyFrom !== undefined && { p1OnlyFrom: p1OnlyFrom as number | false }),
       ...(subAgents !== undefined && { subAgents: subAgents as boolean }),
+      ...(leadClosesFailures !== undefined && {
+        leadClosesFailures: leadClosesFailures as boolean,
+      }),
     }
   }
   return stages

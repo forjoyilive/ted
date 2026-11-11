@@ -170,9 +170,13 @@ function listView(value: unknown): ListView {
     throw new HttpError(400, 'showEmptyGroups must be true or false')
   }
   const columns = oneOfList('columns', view.columns, listColumns)
+  if (view.columnsVersion !== undefined && view.columnsVersion !== 2) {
+    throw new HttpError(400, 'columnsVersion must be 2')
+  }
   return {
     sort,
     group,
+    ...(view.columnsVersion === 2 && { columnsVersion: 2 }),
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
     ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),

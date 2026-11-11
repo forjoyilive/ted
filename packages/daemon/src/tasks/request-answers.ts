@@ -554,6 +554,8 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         (key) => choices[key] === request.choice,
       )
       if (!resolution) throw new RequestError(400, 'choose a failure resolution')
+      if (comment.choices && !comment.choices.includes(request.choice))
+        throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
       return holding(task, async () => {
         await failures.resolve(
           find(task.id),
@@ -594,7 +596,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
       if (request.action === 'request-changes') {
         if (text === '') throw new RequestError(400, 'Request changes needs your comment')
       } else if (request.action !== 'approve') {
-        throw new RequestError(400, 'answer a Gate request with Approve or Request changes')
+        throw new RequestError(400, 'answer a sign-off request with Approve or Request changes')
       }
     } else if (comment.kind !== 'question') {
       throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)

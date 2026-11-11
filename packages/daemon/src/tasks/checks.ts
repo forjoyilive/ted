@@ -101,6 +101,7 @@ export async function runChecks(input: {
   prepareLaunch: () => Promise<CommandLaunch>
   signal?: AbortSignal
   lowPriority: boolean
+  onInterrupted?: (position: number) => void
   onStart: (position: number) => void
   onFinish: (
     position: number,
@@ -128,7 +129,10 @@ export async function runChecks(input: {
             ...(input.signal !== undefined && { signal: input.signal }),
             prepareLaunch: input.prepareLaunch,
           })
-    if (result.outcome === 'interrupted') return { outcome: 'interrupted', notFound }
+    if (result.outcome === 'interrupted') {
+      input.onInterrupted?.(position)
+      return { outcome: 'interrupted', notFound }
+    }
     const state: CheckState = result.outcome
     const finished = {
       state,

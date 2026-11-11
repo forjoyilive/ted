@@ -89,7 +89,7 @@ test('Workflow and notes stay staged while confirmed permissions save locally', 
     saveFactorySettings: save,
   })
   const u = user()
-  const gate = await screen.findByRole('switch', { name: 'Design Gate' })
+  const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
   expect(gate.getAttribute('aria-checked')).toBe('true')
   expect((screen.getByRole('switch', { name: 'Work on' }) as HTMLButtonElement).disabled).toBe(true)
   await u.click(gate)
@@ -151,7 +151,7 @@ test('repo settings explain saving and let the user retry merging without losing
     openOnGitHub: vi.fn(),
   })
   const u = user()
-  const gate = await screen.findByRole('switch', { name: 'Design Gate' })
+  const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
   expect(screen.getByText('How repo settings are saved')).toBeTruthy()
   expect(screen.queryByText('Saved to the repo · pull request')).toBeNull()
   const repos = within(screen.getByRole('region', { name: 'Repos' }))
@@ -647,7 +647,7 @@ test('a drift reload during save completion still resets the saved draft', async
     }),
   })
   const u = user()
-  await u.click(await screen.findByRole('switch', { name: 'Design Gate' }))
+  await u.click(await screen.findByRole('switch', { name: 'Design sign-off' }))
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
   await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
@@ -661,7 +661,7 @@ test('a drift reload during save completion still resets the saved draft', async
     expect(screen.queryByText('1 unsaved change to .ted/workflow.yaml')).toBeNull(),
   )
   expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
-  expect(screen.getByRole('switch', { name: 'Design Gate' }).getAttribute('aria-checked')).toBe(
+  expect(screen.getByRole('switch', { name: 'Design sign-off' }).getAttribute('aria-checked')).toBe(
     'false',
   )
 })

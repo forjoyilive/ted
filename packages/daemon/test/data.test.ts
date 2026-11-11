@@ -138,7 +138,7 @@ describe('store migrations', () => {
     const logged = await loggedEvents()
     await pretendTheStateSchemaChanged()
     await editEventlog(
-      `UPDATE eventlog SET argsJson = '{}' WHERE seqNumGlobal = (SELECT MAX(seqNumGlobal) FROM eventlog)`,
+      `UPDATE eventlog SET argsJson = '{}' WHERE seqNumGlobal = (SELECT MAX(seqNumGlobal) FROM eventlog WHERE name = 'v1.TaskRanked')`,
     )
 
     ted = await start('1.1.0')

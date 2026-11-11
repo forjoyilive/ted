@@ -337,7 +337,7 @@ export const commands = [
     handler: 'advance',
     min: 0,
     max: 0,
-    help: '  ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on\n                                             (--skip: the Stage had nothing to do; skips its Gate)\n                [--changes "<one line>"]       On a re-sign-off, say what changed since the human\n                                             approved\n                [--design <file>]              At Design, post the design review: a JSON file with\n                                             screenshots, a video, a prototype, a Figma link and\n                                             Worth your eye (see the Design Stage file)',
+    help: '  ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on\n                                             (--skip: the Stage had nothing to do; skips its sign-off)\n                [--changes "<one line>"]       On a re-sign-off, say what changed since the human\n                                             approved\n                [--design <file>]              At Design, post the design review: a JSON file with\n                                             screenshots, a video, a prototype, a Figma link and\n                                             Worth your eye (see the Design Stage file)',
     callers: 'Task Lead',
     options: options(
       'task',
@@ -550,6 +550,24 @@ export const commands = [
     options: options('task', 'repo', 'start', 'stop'),
   },
   {
+    name: 'test-invocations register',
+    handler: 'registerTestInvocation',
+    min: 0,
+    max: 0,
+    help: '  ted test-invocations register --file <json> Register a test invocation; returns a reporting-only token',
+    callers: 'Task Run',
+    options: options('task', 'file'),
+  },
+  {
+    name: 'test-invocations',
+    handler: 'testInvocations',
+    min: 0,
+    max: 0,
+    help: '  ted test-invocations [--task <id>]         Show structured test-lock measurements and coverage',
+    callers: 'Terminal and Runs',
+    options: options('task'),
+  },
+  {
     name: 'checks',
     handler: 'checks',
     min: 0,
@@ -684,7 +702,7 @@ export const commands = [
     ),
     min: 1,
     max: 1,
-    help: '  ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>\n                         [--choice "<answer>"] [--message "<text>"]\n                         [--approve | --request-changes] [--skip-rows <json>] [--start-unblocked]\n                         [--answers <json> | --recommended]\n                                             Answer an open request on a Task, on the human’s\n                                             instruction: a question (--choice, --message), a\n                                             Gate request, sign-off or proposal (--approve or\n                                             --request-changes), or a Clarify round (--answers\n                                             or --recommended); never a permission prompt,\n                                             simulator ask or the Linear team ask\n                                             (Coordinator only)',
+    help: '  ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>\n                         [--choice "<answer>"] [--message "<text>"]\n                         [--approve | --request-changes] [--skip-rows <json>] [--start-unblocked]\n                         [--answers <json> | --recommended]\n                                             Answer an open request on a Task, on the human’s\n                                             instruction: a question (--choice, --message), a\n                                             sign-off request or proposal (--approve or\n                                             --request-changes), or a Clarify round (--answers\n                                             or --recommended); never a permission prompt,\n                                             simulator ask or the Linear team ask\n                                             (Coordinator only)',
     callers: 'Coordinator Run',
   },
   {

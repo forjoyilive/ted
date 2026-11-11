@@ -1,4 +1,5 @@
 import { Events, makeSchema, Schema, State } from '@livestore/livestore'
+import { intervalBoundaries, withIntervalBoundaries } from './interval-schema.ts'
 import { counted } from './progress.ts'
 
 export const factories = State.SQLite.table({
@@ -567,6 +568,20 @@ export const failureContexts = State.SQLite.table({
   },
 })
 
+export const testInvocations = State.SQLite.table({
+  name: 'testInvocations',
+  indexes: [{ name: 'idx_testInvocations_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    runId: State.SQLite.text({ nullable: true }),
+    checkRunId: State.SQLite.text({ nullable: true }),
+    position: State.SQLite.integer({ nullable: true }),
+    ownerEnded: State.SQLite.boolean({ default: false }),
+    data: State.SQLite.text(),
+  },
+})
+
 export const checkRuns = State.SQLite.table({
   name: 'checkRuns',
   indexes: [{ name: 'idx_checkRuns_taskId', columns: ['taskId'] }],
@@ -578,6 +593,18 @@ export const checkRuns = State.SQLite.table({
     startedAt: State.SQLite.text(),
     finishedAt: State.SQLite.text({ nullable: true }),
     outcome: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const checkBoundaries = State.SQLite.table({
+  name: 'checkBoundaries',
+  indexes: [{ name: 'idx_checkBoundaries_checkRunId', columns: ['checkRunId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    checkRunId: State.SQLite.text(),
+    kind: State.SQLite.text(),
+    position: State.SQLite.integer({ nullable: true }),
+    at: State.SQLite.text(),
   },
 })
 
@@ -934,6 +961,10 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  testInvocationRecorded: Events.synced({
+    name: 'v1.TestInvocationRecorded',
+    schema: Schema.Struct({ id: Schema.String, taskId: Schema.String, data: Schema.String }),
+  }),
   localMachineIdentified: Events.synced({
     name: 'v1.LocalMachineIdentified',
     schema: Schema.Struct({ machineId: Schema.String, at: Schema.String }),
@@ -1878,6 +1909,65 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  checkSlotEntered: Events.synced({
+    name: 'v1.CheckSlotEntered',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotAcquired: Events.synced({
+    name: 'v1.CheckSlotAcquired',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotCanceled: Events.synced({
+    name: 'v1.CheckSlotCanceled',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotInterrupted: Events.synced({
+    name: 'v1.CheckSlotInterrupted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotRecoveryRecorded: Events.synced({
+    name: 'v1.CheckSlotRecoveryRecorded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkExecutionInterrupted: Events.synced({
+    name: 'v1.CheckExecutionInterrupted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
   checkStarted: Events.synced({
     name: 'v1.CheckStarted',
     schema: Schema.Struct({
@@ -2092,6 +2182,26 @@ export const events = {
   factoryRemoved: Events.synced({
     name: 'v1.FactoryRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
+  }),
+  intervalObservationStarted: Events.synced({
+    name: 'v1.IntervalObservationStarted',
+    schema: Schema.Struct({
+      sessionId: Schema.String,
+      previousObservedAt: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  intervalObservationEnded: Events.synced({
+    name: 'v1.IntervalObservationEnded',
+    schema: Schema.Struct({ sessionId: Schema.String, at: Schema.String }),
+  }),
+  taskWaitObserved: Events.synced({
+    name: 'v1.TaskWaitObserved',
+    schema: Schema.Struct({ taskId: Schema.String, reasons: Schema.String, at: Schema.String }),
+  }),
+  runStateObserved: Events.synced({
+    name: 'v1.RunStateObserved',
+    schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
   }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
@@ -3057,7 +3167,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
 
 function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
   return Object.fromEntries(
-    Object.entries(handlers).map(([name, handler]) => {
+    Object.entries(withIntervalBoundaries(handlers)).map(([name, handler]) => {
       const entry = taskLogEntries[name]
       if (!entry) return [name, handler]
       const call = handler as (args: Args, context: MaterializerContext) => unknown
@@ -3093,6 +3203,10 @@ interface MaterializerContext {
 const materializers = counted(
   withTaskLog(
     State.SQLite.materializers(events, {
+      'v1.IntervalObservationStarted': () => [],
+      'v1.IntervalObservationEnded': () => [],
+      'v1.TaskWaitObserved': () => [],
+      'v1.RunStateObserved': () => [],
       'v1.FactoryAdded': (factory) => [
         factories.insert({ ...factory, clonedAt: factory.createdAt }),
         factoryRepos.insert({
@@ -3360,6 +3474,7 @@ const materializers = counted(
         severityDeclarations.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
+        testInvocations.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
         validationProgress.delete().where({ taskId }),
         failureContexts.delete().where({ taskId }),
@@ -3376,23 +3491,50 @@ const materializers = counted(
             ]),
         ...(checkRunIds.length === 0
           ? []
-          : [checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } })]),
+          : [
+              checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+              checkBoundaries.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+            ]),
       ],
       'v1.CommentPurposeRecorded': ({ commentId, purpose }) =>
         comments.update({ purpose }).where({ id: commentId }),
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
-        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+        comments.insert({
+          ...comment,
+          choices: choices === null ? null : JSON.stringify(choices),
+        }),
       'v3.CommentPosted': ({ choices, ...comment }) =>
-        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+        comments.insert({
+          ...comment,
+          choices: choices === null ? null : JSON.stringify(choices),
+        }),
       'v4.CommentPosted': ({ choices, ...comment }) =>
-        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+        comments.insert({
+          ...comment,
+          choices: choices === null ? null : JSON.stringify(choices),
+        }),
       'v1.ClarifyDepthSet': ({ taskId, depth, by, at }) =>
         tasks
           .update({ clarifyDepth: depth, clarifyDepthBy: by, changedAt: at })
           .where({ id: taskId }),
       'v1.TaskReposSet': ({ taskId, repos, at }) =>
         tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
+      'v1.TestInvocationRecorded': (row) => {
+        const value = JSON.parse(row.data) as {
+          runId?: string
+          checkRunId?: string
+          position?: number
+        }
+        return testInvocations
+          .insert({
+            ...row,
+            runId: value.runId ?? null,
+            checkRunId: value.checkRunId ?? null,
+            position: value.position ?? null,
+          })
+          .onConflict('id', 'replace')
+      },
       'v1.ValidationProgressed': (row) =>
         validationProgress.insert(row).onConflict('taskId', 'replace'),
       'v1.FailureVerified': (row) => failureCases.insert(row).onConflict('id', 'replace'),
@@ -3425,13 +3567,83 @@ const materializers = counted(
           }),
         ),
       ],
-      'v1.CheckStarted': ({ checkRunId, position }) =>
+      'v1.CheckSlotEntered': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:entered`,
+          checkRunId,
+          position: null,
+          kind: 'entered',
+          at,
+        }),
+      'v1.CheckSlotAcquired': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:acquired`,
+          checkRunId,
+          position: null,
+          kind: 'acquired',
+          at,
+        }),
+      'v1.CheckSlotCanceled': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:canceled`,
+          checkRunId,
+          position: null,
+          kind: 'canceled',
+          at,
+        }),
+      'v1.CheckSlotInterrupted': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:interrupted`,
+          checkRunId,
+          position: null,
+          kind: 'interrupted',
+          at,
+        }),
+      'v1.CheckSlotRecoveryRecorded': ({ checkRunId, at }) =>
+        checkBoundaries
+          .insert({
+            id: `${checkRunId}:recovered`,
+            checkRunId,
+            position: null,
+            kind: 'recovered',
+            at,
+          })
+          .onConflict('id', 'ignore'),
+      'v1.CheckExecutionInterrupted': ({ checkRunId, position, at }) => [
+        testInvocations.update({ ownerEnded: true }).where({ checkRunId, position }),
+        checkBoundaries.insert({
+          id: `${checkRunId}:interrupted-end:${position}`,
+          checkRunId,
+          position,
+          kind: 'interrupted-end',
+          at,
+        }),
+      ],
+      'v1.CheckStarted': ({ checkRunId, position, at }) => [
         checkResults.update({ state: 'running' }).where({ id: `${checkRunId}:${position}` }),
-      'v1.CheckFinished': ({ checkRunId, position, state, exitCode, durationMs }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:start:${position}`,
+          checkRunId,
+          position,
+          kind: 'start',
+          at,
+        }),
+      ],
+      'v1.CheckFinished': ({ checkRunId, position, state, exitCode, durationMs, at }) => [
+        testInvocations.update({ ownerEnded: true }).where({ checkRunId, position }),
         checkResults
           .update({ state, exitCode, durationMs })
           .where({ id: `${checkRunId}:${position}` }),
+        checkBoundaries.insert({
+          id: `${checkRunId}:end:${position}`,
+          checkRunId,
+          position,
+          kind: 'end',
+          at,
+        }),
+      ],
       'v1.ChecksFinished': ({ checkRunId, outcome, at }) => [
+        testInvocations.update({ ownerEnded: true }).where({ checkRunId }),
         checkRuns.update({ outcome, finishedAt: at }).where({ id: checkRunId }),
         checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'waiting' }),
         checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'running' }),
@@ -3556,7 +3768,12 @@ const materializers = counted(
           .onConflict('id', 'ignore'),
       'v1.ConversationTabClosed': ({ taskId, runId }) =>
         conversationTabs.delete().where({ id: `${taskId}:${runId}` }),
-      'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+      'v1.RunStateChanged': ({ runId, state }) => [
+        runs.update({ state }).where({ id: runId }),
+        ...(state === 'finished'
+          ? [testInvocations.update({ ownerEnded: true }).where({ runId })]
+          : []),
+      ],
       'v1.RunPermissionsSet': ({ runId, permissions }) =>
         runs.update({ permissions }).where({ id: runId }),
       'v1.RunAutoModeUnavailable': ({ runId }) =>
@@ -3846,7 +4063,12 @@ const materializers = counted(
       'v1.AutomationCommentAnswered': ({ id, text, at }) =>
         automationComments.update({ answer: text, answeredAt: at }).where({ id }),
       'v1.AutomationPromptDraftRequested': ({ at, ...draft }) =>
-        automationPromptDrafts.insert({ ...draft, state: 'queued', createdAt: at, updatedAt: at }),
+        automationPromptDrafts.insert({
+          ...draft,
+          state: 'queued',
+          createdAt: at,
+          updatedAt: at,
+        }),
       'v1.AutomationPromptDraftChanged': ({ id, at, ...fields }) =>
         automationPromptDrafts.update({ ...fields, updatedAt: at }).where({ id }),
       'v1.AutomationPromptDraftRemoved': ({ id }) => [
@@ -3923,6 +4145,7 @@ const materializers = counted(
 
 const state = State.SQLite.makeState({
   tables: {
+    intervalBoundaries,
     taskDrafts,
     taskDraftConsumptions,
     factories,
@@ -3959,7 +4182,9 @@ const state = State.SQLite.makeState({
     sendBacks,
     sendBackResets,
     checkRuns,
+    testInvocations,
     checkResults,
+    checkBoundaries,
     failureCases,
     failureContexts,
     validationProgress,

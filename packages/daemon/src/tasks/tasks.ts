@@ -50,6 +50,7 @@ import type {
   Priority,
   ProposalCreated,
   ProposalInput,
+  PullRequestChanges,
   RecordAppRequest,
   RecordFailureRequest,
   ReportOutcomeRequest,
@@ -188,10 +189,13 @@ import {
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
+  acceptedResolution,
   ciFailureKey,
   createFailureCases,
   failureNoticeTitles,
   failureText,
+  leadClosesFailures,
+  leadClosesRefusal,
 } from './failure-cases.ts'
 import { freshAfterFailure, retryChoice } from './failures.ts'
 import { listTaskFiles, readTaskFile } from './files.ts'
@@ -243,6 +247,7 @@ import { placeBetween } from './order.ts'
 import { overnightGuidance } from './overnight.ts'
 import { createPeers, type Peers } from './peers.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
+import { readPullRequestChanges } from './pull-request-changes.ts'
 import {
   createPullRequests,
   type PullRequestTarget,
@@ -481,6 +486,7 @@ export interface Tasks {
   setupLog(ref: string, repo: string): Promise<string>
   worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
   changes(ref: string): Promise<TaskChanges>
+  pullRequestChanges(ref: string, repo: string): Promise<PullRequestChanges>
   files(ref: string): Promise<TaskFiles>
   file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
@@ -606,6 +612,7 @@ export function createTasks(options: {
   const starting = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
+  const pullRequestChangeReads = new Map<string, Promise<PullRequestChanges>>()
   const advancing = new Set<string>()
   const released = new Map<string, Promise<void>>()
   const humanWaitMs = 15_000
@@ -5952,13 +5959,19 @@ export function createTasks(options: {
     libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
     signal: stopping.signal,
     lowPriority: () => store.settings().lowPriorityWork,
-    takeCheckSlot: async (taskId) => {
+    takeCheckSlot: async (taskId, checkRunId) => {
       const wait = new AbortController()
       checkWaits.set(taskId, wait)
       try {
         return await options.checkSlots.take({
           taskId,
           signal: AbortSignal.any([stopping.signal, wait.signal]),
+          observe: (boundary, at) =>
+            store.checkSlotBoundary(
+              checkRunId,
+              boundary === 'canceled' && stopping.signal.aborted ? 'interrupted' : boundary,
+              at,
+            ),
         })
       } finally {
         checkWaits.delete(taskId)
@@ -6350,7 +6363,17 @@ export function createTasks(options: {
     verifyFailure: (ref, caller, id, evidence) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
-        if (
+        const own = !value.validation && value.source.kind === 'finding'
+        if (own) {
+          if (!leadClosesFailures((await taskWorkflow(task, { fetch: false })).workflow))
+            throw new RequestError(409, leadClosesRefusal)
+          if (
+            ['fixed', 'no-longer-applicable'].includes(value.resolutions.at(-1)?.resolution ?? '')
+          )
+            throw new RequestError(409, 'this case is closed; record a new failure')
+          if (acceptedResolution(value))
+            throw new RequestError(409, 'this failure already has current acceptance')
+        } else if (
           !value.validation ||
           !['finding', 'factory-check'].includes(value.source.kind) ||
           task.stage !== 'validate'
@@ -6361,6 +6384,7 @@ export function createTasks(options: {
           )
         if (!evidence.trim()) throw new RequestError(400, 'verification needs fresh evidence')
         if (
+          !own &&
           !['retry', 'fix'].includes(value.resolutions.at(-1)?.resolution ?? '') &&
           value.assessments.at(-1)?.assessment !== 'regression'
         )
@@ -6856,7 +6880,7 @@ export function createTasks(options: {
       if (old.sizeCheck) {
         throw new RequestError(400, 'replace a size check with `ted clarify too-big --supersedes`')
       }
-      if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
+      if (old.gate) throw new RequestError(409, 'a sign-off request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
       }
@@ -6880,7 +6904,7 @@ export function createTasks(options: {
 
     async setTaskGates(ref, caller, request) {
       if (caller.kind !== 'app')
-        throw new RequestError(403, 'only the TED app can change Task Gates')
+        throw new RequestError(403, 'only the TED app can change Task sign-offs')
       const id = find(ref).id
       await untilFree(id)
       return holding(find(id), async () => {
@@ -6888,7 +6912,7 @@ export function createTasks(options: {
         if (before.revision !== request.revision) {
           throw new RequestError(
             409,
-            'Task Gates changed while you were editing. Reopen the editor and try again.',
+            'Task sign-offs changed while you were editing. Reopen the editor and try again.',
           )
         }
         const keys = new Set([...Object.keys(before.overrides), ...Object.keys(request.overrides)])
@@ -7132,7 +7156,7 @@ export function createTasks(options: {
           if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
             throw new RequestError(
               409,
-              `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
+              `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design`,
             )
           }
           const declared =
@@ -7186,7 +7210,7 @@ export function createTasks(options: {
         if (changesAsked) {
           throw new RequestError(
             409,
-            `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
+            `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
           )
         }
         if (stage === 'merge') {
@@ -7235,13 +7259,13 @@ export function createTasks(options: {
           if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
             throw new RequestError(
               409,
-              `${stageTitle(stage)} has already posted its Gate request, so it can’t skip itself`,
+              `${stageTitle(stage)} has already posted its sign-off request, so it can’t skip itself`,
             )
           }
           store.postComment({
             taskId: task.id,
             body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
-              gateOn(current, workflow, stage) ? ' Its Gate was skipped too.' : ''
+              gateOn(current, workflow, stage) ? ' Its sign-off was skipped too.' : ''
             }`,
             author: { kind: 'ted' },
           })
@@ -7292,7 +7316,7 @@ export function createTasks(options: {
           )
           return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
         }
-        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} Gate`
+        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} sign-off`
         if (openGateRequest(current)) {
           throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
         }
@@ -7390,6 +7414,20 @@ export function createTasks(options: {
         fileScope,
         env: commandEnv(task, env),
       }
+    },
+
+    async pullRequestChanges(ref, name) {
+      const repo = find(ref).repos.find((r) => r.name === name)
+      if (!options.gh) throw new RequestError(503, 'GitHub is unavailable.')
+      if (!repo?.pullRequest) throw new RequestError(404, 'This repo has no pull request.')
+      const key = `${repo.name}:${repo.pullRequest.url}`
+      const current = pullRequestChangeReads.get(key)
+      if (current) return current
+      const reading = readPullRequestChanges(options.gh, repo).finally(() =>
+        pullRequestChangeReads.delete(key),
+      )
+      pullRequestChangeReads.set(key, reading)
+      return reading
     },
 
     async changes(ref) {
@@ -7833,7 +7871,7 @@ function storedDesign({ title: _, ...design }: DesignSubmission): DesignReview {
 
 function gateName(comment: Comment): string {
   if (comment.stage === 'clarify') return 'Clarify sign-off'
-  return `${stageTitle(comment.stage ?? '')} Gate`
+  return `${stageTitle(comment.stage ?? '')} sign-off`
 }
 
 function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {
