@@ -112,7 +112,7 @@ export function requestHeading(request: PlanRequest): { kind: string; detail: st
 
 export function requestState(request: PlanRequest, latest: boolean): string {
   const { answer } = request
-  if (!answer) return 'pinned below'
+  if (!answer) return 'waiting for you'
   if (answer.kind === 'answered') return `answered by you at ${clockTime(answer.at)}`
   if (answer.kind === 'approved') return `approved by you at ${clockTime(answer.at)}`
   if (answer.kind === 'superseded') return 'Superseded'
