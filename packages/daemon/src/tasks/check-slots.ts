@@ -1,5 +1,13 @@
+export type CheckSlotBoundary = 'entered' | 'acquired' | 'canceled'
+
+export interface CheckSlotRequest {
+  taskId?: string
+  signal?: AbortSignal
+  observe?(boundary: CheckSlotBoundary, at: string): void
+}
+
 export interface CheckSlots {
-  take(input: { taskId?: string; signal?: AbortSignal }): Promise<(() => void) | undefined>
+  take(input: CheckSlotRequest): Promise<(() => void) | undefined>
   full(): boolean
   recheck(): void
   watch(listener: (places: ReadonlyMap<string, number>) => void): void
@@ -48,10 +56,16 @@ export function createCheckSlots(options: { limit: () => number }): CheckSlots {
   const full = () => line.length > 0 || running >= options.limit()
 
   return {
-    take({ taskId, signal }) {
-      if (signal?.aborted) return Promise.resolve(undefined)
+    take({ taskId, signal, observe }) {
+      const at = new Date().toISOString()
+      observe?.('entered', at)
+      if (signal?.aborted) {
+        observe?.('canceled', at)
+        return Promise.resolve(undefined)
+      }
       if (!full()) {
         running += 1
+        observe?.('acquired', at)
         return Promise.resolve(release())
       }
       return new Promise((resolve) => {
@@ -59,6 +73,7 @@ export function createCheckSlots(options: { limit: () => number }): CheckSlots {
           ...(taskId !== undefined && { taskId }),
           start: () => {
             signal?.removeEventListener('abort', leave)
+            observe?.('acquired', new Date().toISOString())
             resolve(release())
           },
         }
@@ -66,6 +81,7 @@ export function createCheckSlots(options: { limit: () => number }): CheckSlots {
           const index = line.indexOf(waiter)
           if (index === -1) return
           line.splice(index, 1)
+          observe?.('canceled', new Date().toISOString())
           resolve(undefined)
           changed()
         }

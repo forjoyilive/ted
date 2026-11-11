@@ -21,6 +21,7 @@ import {
   type CheckResult,
   type CheckRun,
   type CheckRunOutcome,
+  type CheckRunTiming,
   type CheckRunTrigger,
   type CheckState,
   type CiSignal,
@@ -92,6 +93,7 @@ import {
 } from '../tasks/status.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
+import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
@@ -104,6 +106,7 @@ import {
   automations,
   automationTasks,
   banners,
+  checkBoundaries,
   checkResults,
   checkRuns,
   commentAttachments,
@@ -705,6 +708,14 @@ export interface TedStore extends TaskHistory {
     stage: StageId
     checks: PlannedCheck[]
   }): CheckRun
+  checkSlotBoundary(
+    checkRunId: string,
+    boundary: 'entered' | 'acquired' | 'canceled' | 'interrupted' | 'recovered',
+    at: string,
+  ): void
+  checkTiming(checkRunId: string): CheckRunTiming | undefined
+  listCheckTimings(taskId: string): CheckRunTiming[]
+  checkInterrupted(checkRunId: string, position: number): void
   checkStarted(checkRunId: string, position: number): CheckRun
   checkFinished(
     checkRunId: string,
@@ -1775,17 +1786,26 @@ export async function openStore({
     ...(row.durationMs !== null && { durationMs: row.durationMs }),
     ...(row.builtIn === 'ted-settings' && { builtIn: 'ted-settings' as const }),
   })
-  const toCheckRun = (row: typeof checkRuns.Type): CheckRun => ({
-    id: row.id,
-    taskId: row.taskId,
-    trigger: row.trigger as CheckRunTrigger,
-    stage: row.stage as StageId,
-    checks: checkResultRows(row.id).map(toCheckResult),
-    startedAt: row.startedAt,
-    ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
-    ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
-    ...(row.finishedAt === null && checksWaiting.has(row.taskId) && { waiting: true }),
-  })
+  const toCheckRun = (row: typeof checkRuns.Type): CheckRun => {
+    const run: CheckRun = {
+      id: row.id,
+      taskId: row.taskId,
+      trigger: row.trigger as CheckRunTrigger,
+      stage: row.stage as StageId,
+      checks: checkResultRows(row.id).map(toCheckResult),
+      startedAt: row.startedAt,
+      ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+      ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
+      ...(row.finishedAt === null && checksWaiting.has(row.taskId) && { waiting: true }),
+    }
+    return {
+      ...run,
+      timing: checkRunTiming(
+        run,
+        store.query(queryDb(checkBoundaries.where({ checkRunId: row.id }))),
+      ),
+    }
+  }
   const checkProgress = (checkRunId: string) => {
     const rows = checkResultRows(checkRunId)
     const index = rows.findIndex((r) => r.state === 'running')
@@ -3644,6 +3664,37 @@ export async function openStore({
         }),
       )
       return updatedCheckRun(id)
+    },
+    checkSlotBoundary(checkRunId, boundary, at) {
+      const run = requireCheckRun(checkRunId)
+      const event = {
+        entered: events.checkSlotEntered,
+        acquired: events.checkSlotAcquired,
+        canceled: events.checkSlotCanceled,
+        interrupted: events.checkSlotInterrupted,
+        recovered: events.checkSlotRecoveryRecorded,
+      }[boundary]
+      commit(event({ taskId: run.taskId, checkRunId, stage: run.stage, trigger: run.trigger, at }))
+      updatedCheckRun(checkRunId)
+    },
+    checkTiming(id) {
+      const row = store.query(queryDb(checkRuns.where({ id }))).at(0)
+      return row && toCheckRun(row).timing
+    },
+    listCheckTimings(taskId) {
+      return checkRunRows(taskId).map((row) => toCheckRun(row).timing as CheckRunTiming)
+    },
+    checkInterrupted(checkRunId, position) {
+      const run = requireCheckRun(checkRunId)
+      commit(
+        events.checkExecutionInterrupted({
+          taskId: run.taskId,
+          checkRunId,
+          position,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedCheckRun(checkRunId)
     },
     checkStarted(checkRunId, position) {
       commit(events.checkStarted({ checkRunId, position, at: new Date().toISOString() }))

@@ -31,7 +31,7 @@ interface ValidationOptions {
   libraryDir: string
   signal: AbortSignal
   lowPriority(): boolean
-  takeCheckSlot(taskId: string): Promise<(() => void) | undefined>
+  takeCheckSlot(taskId: string, checkRunId: string): Promise<(() => void) | undefined>
   checkLog(task: Task, id: string, position: number): string
   checkDir(task: Task, id: string): string
   findings(task: Task, run: CheckRun): Promise<string | undefined>
@@ -207,41 +207,45 @@ export function createValidation(options: ValidationOptions) {
       })
     await store.persisted()
     const done = (async () => {
-      const release = await options.takeCheckSlot(task.id)
+      const release = await options.takeCheckSlot(task.id, checkRun.id)
       if (release === undefined) {
         if (!options.signal.aborted) store.finishChecks(checkRun.id, 'interrupted')
         return { outcome: 'interrupted' as const, notFound: [] }
       }
-      const result = await runChecks({
-        checks: plan,
-        taskDisplayId: task.displayId,
-        libraryDir: options.libraryDir,
-        env: options.env(),
-        logFor: (position) => options.checkLog(task, checkRun.id, position),
-        prepareLaunch: () => options.prepareLaunch(find(task.id)),
-        signal: options.signal,
-        lowPriority: options.lowPriority(),
-        onStart: (position) => store.checkStarted(checkRun.id, position),
-        onFinish: (position, finished) => {
-          store.checkFinished(checkRun.id, position, finished)
-          if (tracking) {
-            const executed = store.getCheckRun(checkRun.id)
-            if (executed) verifyPassed(find(task.id), executed)
-            const current = store.failures.progress(task.id)
-            if (current?.executions.at(-1)?.runId === checkRun.id) {
-              const checks = [...current.checks]
-              const original = checks[start + position]
-              if (!original) throw new Error('missing planned Check')
-              checks[start + position] = { ...original, ...finished }
-              store.failures.saveProgress({
-                ...current,
-                checks,
-                next: finished.state === 'passed' ? start + position + 1 : start + position,
-              })
+      const result = await (async () => {
+        await store.persisted()
+        return runChecks({
+          checks: plan,
+          taskDisplayId: task.displayId,
+          libraryDir: options.libraryDir,
+          env: options.env(),
+          logFor: (position) => options.checkLog(task, checkRun.id, position),
+          prepareLaunch: () => options.prepareLaunch(find(task.id)),
+          signal: options.signal,
+          lowPriority: options.lowPriority(),
+          onInterrupted: (position) => store.checkInterrupted(checkRun.id, position),
+          onStart: (position) => store.checkStarted(checkRun.id, position),
+          onFinish: (position, finished) => {
+            store.checkFinished(checkRun.id, position, finished)
+            if (tracking) {
+              const executed = store.getCheckRun(checkRun.id)
+              if (executed) verifyPassed(find(task.id), executed)
+              const current = store.failures.progress(task.id)
+              if (current?.executions.at(-1)?.runId === checkRun.id) {
+                const checks = [...current.checks]
+                const original = checks[start + position]
+                if (!original) throw new Error('missing planned Check')
+                checks[start + position] = { ...original, ...finished }
+                store.failures.saveProgress({
+                  ...current,
+                  checks,
+                  next: finished.state === 'passed' ? start + position + 1 : start + position,
+                })
+              }
             }
-          }
-        },
-      })
+          },
+        })
+      })()
         .catch((error: unknown) => {
           console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
           return { outcome: 'interrupted' as const, notFound: [] }
@@ -624,6 +628,7 @@ export function createValidation(options: ValidationOptions) {
       const task = store.getTask(checkRun.taskId)
       const restart = checkRun.trigger === 'validate' && task?.stage === 'validate'
       if (restart) options.setChecking(task.id, true)
+      store.checkSlotBoundary(checkRun.id, 'recovered', new Date().toISOString())
       store.finishChecks(checkRun.id, 'interrupted')
       if (restart) {
         options.background(`run ${task.displayId}’s Checks again`, () => resumeValidation(task.id))

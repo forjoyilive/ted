@@ -24,6 +24,26 @@ export type CheckRunTrigger = 'validate' | 'agent' | 'merge'
 
 export type CheckRunOutcome = 'passed' | 'failed' | 'interrupted'
 
+export type CheckTimingInterval =
+  | { status: 'unavailable' }
+  | { status: 'ongoing'; startedAt: string }
+  | { status: 'interrupted'; startedAt: string; detectedAt: string }
+  | {
+      status: 'complete' | 'canceled' | 'interrupted'
+      startedAt: string
+      endedAt: string
+      durationMs: number
+    }
+
+export interface CheckRunTiming {
+  checkRunId: string
+  taskId: string
+  trigger: CheckRunTrigger
+  stage: StageId
+  queue: CheckTimingInterval
+  execution: (CheckTimingInterval & { position: number })[]
+}
+
 export interface CheckRun {
   id: string
   taskId: string
@@ -33,6 +53,7 @@ export interface CheckRun {
   startedAt: string
   finishedAt?: string
   outcome?: CheckRunOutcome
+  timing?: CheckRunTiming
   waiting?: boolean
 }
 

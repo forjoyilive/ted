@@ -521,6 +521,18 @@ export const checkRuns = State.SQLite.table({
   },
 })
 
+export const checkBoundaries = State.SQLite.table({
+  name: 'checkBoundaries',
+  indexes: [{ name: 'idx_checkBoundaries_checkRunId', columns: ['checkRunId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    checkRunId: State.SQLite.text(),
+    kind: State.SQLite.text(),
+    position: State.SQLite.integer({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 export const checkResults = State.SQLite.table({
   name: 'checkResults',
   indexes: [{ name: 'idx_checkResults_checkRunId', columns: ['checkRunId'] }],
@@ -1799,6 +1811,65 @@ export const events = {
           state: Schema.String,
         }),
       ),
+      at: Schema.String,
+    }),
+  }),
+  checkSlotEntered: Events.synced({
+    name: 'v1.CheckSlotEntered',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotAcquired: Events.synced({
+    name: 'v1.CheckSlotAcquired',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotCanceled: Events.synced({
+    name: 'v1.CheckSlotCanceled',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotInterrupted: Events.synced({
+    name: 'v1.CheckSlotInterrupted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkSlotRecoveryRecorded: Events.synced({
+    name: 'v1.CheckSlotRecoveryRecorded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  checkExecutionInterrupted: Events.synced({
+    name: 'v1.CheckExecutionInterrupted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      position: Schema.Number,
       at: Schema.String,
     }),
   }),
@@ -3214,7 +3285,10 @@ const materializers = counted(
             ]),
         ...(checkRunIds.length === 0
           ? []
-          : [checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } })]),
+          : [
+              checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+              checkBoundaries.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+            ]),
       ],
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
@@ -3261,12 +3335,76 @@ const materializers = counted(
           }),
         ),
       ],
-      'v1.CheckStarted': ({ checkRunId, position }) =>
+      'v1.CheckSlotEntered': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:entered`,
+          checkRunId,
+          position: null,
+          kind: 'entered',
+          at,
+        }),
+      'v1.CheckSlotAcquired': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:acquired`,
+          checkRunId,
+          position: null,
+          kind: 'acquired',
+          at,
+        }),
+      'v1.CheckSlotCanceled': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:canceled`,
+          checkRunId,
+          position: null,
+          kind: 'canceled',
+          at,
+        }),
+      'v1.CheckSlotInterrupted': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:interrupted`,
+          checkRunId,
+          position: null,
+          kind: 'interrupted',
+          at,
+        }),
+      'v1.CheckSlotRecoveryRecorded': ({ checkRunId, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:recovered`,
+          checkRunId,
+          position: null,
+          kind: 'recovered',
+          at,
+        }),
+      'v1.CheckExecutionInterrupted': ({ checkRunId, position, at }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:interrupted-end:${position}`,
+          checkRunId,
+          position,
+          kind: 'interrupted-end',
+          at,
+        }),
+      'v1.CheckStarted': ({ checkRunId, position, at }) => [
         checkResults.update({ state: 'running' }).where({ id: `${checkRunId}:${position}` }),
-      'v1.CheckFinished': ({ checkRunId, position, state, exitCode, durationMs }) =>
+        checkBoundaries.insert({
+          id: `${checkRunId}:start:${position}`,
+          checkRunId,
+          position,
+          kind: 'start',
+          at,
+        }),
+      ],
+      'v1.CheckFinished': ({ checkRunId, position, state, exitCode, durationMs, at }) => [
         checkResults
           .update({ state, exitCode, durationMs })
           .where({ id: `${checkRunId}:${position}` }),
+        checkBoundaries.insert({
+          id: `${checkRunId}:end:${position}`,
+          checkRunId,
+          position,
+          kind: 'end',
+          at,
+        }),
+      ],
       'v1.ChecksFinished': ({ checkRunId, outcome, at }) => [
         checkRuns.update({ outcome, finishedAt: at }).where({ id: checkRunId }),
         checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'waiting' }),
@@ -3780,6 +3918,7 @@ const state = State.SQLite.makeState({
     sendBackResets,
     checkRuns,
     checkResults,
+    checkBoundaries,
     failureCases,
     failureContexts,
     validationProgress,
