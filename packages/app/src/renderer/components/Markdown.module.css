@@ -43,6 +43,18 @@
   margin: 8px 0;
   padding-left: 23px;
 }
+.markdown ul {
+  list-style-type: disc;
+}
+.markdown ol {
+  list-style-type: decimal;
+}
+.markdown li ul {
+  list-style-type: circle;
+}
+.markdown li li ul {
+  list-style-type: square;
+}
 .markdown li {
   margin: 3px 0;
 }
