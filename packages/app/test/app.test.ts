@@ -292,6 +292,9 @@ describe('TED app', () => {
           ).length,
       ),
     ).toBe(0)
+    await ctx.app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setMinimumSize(900, 400),
+    )
     for (const [height, expected] of [
       [500, 360],
       [1000, 650],
