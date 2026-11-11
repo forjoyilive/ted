@@ -57,6 +57,10 @@ export const factoryOrder = State.SQLite.table({
 
 export const tasks = State.SQLite.table({
   name: 'tasks',
+  indexes: [
+    { name: 'idx_tasks_number', columns: ['number'] },
+    { name: 'idx_tasks_factoryId', columns: ['factoryId'] },
+  ],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     factoryId: State.SQLite.text(),
@@ -113,6 +117,10 @@ export const taskQueue = State.SQLite.table({
 
 export const taskBlockers = State.SQLite.table({
   name: 'taskBlockers',
+  indexes: [
+    { name: 'idx_taskBlockers_taskId', columns: ['taskId'] },
+    { name: 'idx_taskBlockers_blockerId', columns: ['blockerId'] },
+  ],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -134,6 +142,7 @@ export const deletedTasks = State.SQLite.table({
 
 export const taskAttachments = State.SQLite.table({
   name: 'taskAttachments',
+  indexes: [{ name: 'idx_taskAttachments_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -147,6 +156,10 @@ export const taskAttachments = State.SQLite.table({
 
 export const commentAttachments = State.SQLite.table({
   name: 'commentAttachments',
+  indexes: [
+    { name: 'idx_commentAttachments_commentId', columns: ['commentId'] },
+    { name: 'idx_commentAttachments_taskId', columns: ['taskId'] },
+  ],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     commentId: State.SQLite.text(),
@@ -175,6 +188,7 @@ export const taskSources = State.SQLite.table({
 
 export const runs = State.SQLite.table({
   name: 'runs',
+  indexes: [{ name: 'idx_runs_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     agent: State.SQLite.text(),
@@ -204,6 +218,7 @@ export const runs = State.SQLite.table({
 
 export const subAgentRequests = State.SQLite.table({
   name: 'subAgentRequests',
+  indexes: [{ name: 'idx_subAgentRequests_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -220,6 +235,7 @@ export const subAgentRequests = State.SQLite.table({
 
 export const reviewers = State.SQLite.table({
   name: 'reviewers',
+  indexes: [{ name: 'idx_reviewers_taskId', columns: ['taskId'] }],
   columns: {
     runId: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -233,6 +249,7 @@ export const reviewers = State.SQLite.table({
 
 export const loopChecks = State.SQLite.table({
   name: 'loopChecks',
+  indexes: [{ name: 'idx_loopChecks_taskId', columns: ['taskId'] }],
   columns: {
     runId: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -248,6 +265,7 @@ export const loopChecks = State.SQLite.table({
 
 export const sendBackAsks = State.SQLite.table({
   name: 'sendBackAsks',
+  indexes: [{ name: 'idx_sendBackAsks_taskId', columns: ['taskId'] }],
   columns: {
     commentId: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -262,6 +280,7 @@ export const sendBackAsks = State.SQLite.table({
 
 export const runMessages = State.SQLite.table({
   name: 'runMessages',
+  indexes: [{ name: 'idx_runMessages_runId', columns: ['runId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     runId: State.SQLite.text(),
@@ -275,6 +294,7 @@ export const runMessages = State.SQLite.table({
 
 export const runInterrupts = State.SQLite.table({
   name: 'runInterrupts',
+  indexes: [{ name: 'idx_runInterrupts_runId', columns: ['runId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     runId: State.SQLite.text(),
@@ -285,6 +305,7 @@ export const runInterrupts = State.SQLite.table({
 
 export const conversationTabs = State.SQLite.table({
   name: 'conversationTabs',
+  indexes: [{ name: 'idx_conversationTabs_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -295,6 +316,10 @@ export const conversationTabs = State.SQLite.table({
 
 export const comments = State.SQLite.table({
   name: 'comments',
+  indexes: [
+    { name: 'idx_comments_taskId', columns: ['taskId'] },
+    { name: 'idx_comments_authorRunId', columns: ['authorRunId'] },
+  ],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -329,6 +354,10 @@ export const comments = State.SQLite.table({
 
 export const lineComments = State.SQLite.table({
   name: 'lineComments',
+  indexes: [
+    { name: 'idx_lineComments_taskId', columns: ['taskId'] },
+    { name: 'idx_lineComments_commentId', columns: ['commentId'] },
+  ],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -350,6 +379,7 @@ export const lineComments = State.SQLite.table({
 
 export const taskLog = State.SQLite.table({
   name: 'taskLog',
+  indexes: [{ name: 'idx_taskLog_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -375,6 +405,7 @@ export const peerMessages = State.SQLite.table({
 
 export const taskBriefs = State.SQLite.table({
   name: 'taskBriefs',
+  indexes: [{ name: 'idx_taskBriefs_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -388,6 +419,7 @@ export const taskBriefs = State.SQLite.table({
 
 export const taskDescriptions = State.SQLite.table({
   name: 'taskDescriptions',
+  indexes: [{ name: 'idx_taskDescriptions_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -399,6 +431,7 @@ export const taskDescriptions = State.SQLite.table({
 
 export const sendBacks = State.SQLite.table({
   name: 'sendBacks',
+  indexes: [{ name: 'idx_sendBacks_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -415,6 +448,7 @@ export const sendBacks = State.SQLite.table({
 
 export const failureCases = State.SQLite.table({
   name: 'failureCases',
+  indexes: [{ name: 'idx_failureCases_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -434,6 +468,7 @@ export const failureContexts = State.SQLite.table({
 
 export const checkRuns = State.SQLite.table({
   name: 'checkRuns',
+  indexes: [{ name: 'idx_checkRuns_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -447,6 +482,7 @@ export const checkRuns = State.SQLite.table({
 
 export const checkResults = State.SQLite.table({
   name: 'checkResults',
+  indexes: [{ name: 'idx_checkResults_checkRunId', columns: ['checkRunId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     checkRunId: State.SQLite.text(),
@@ -464,6 +500,7 @@ export const checkResults = State.SQLite.table({
 
 export const sendBackResets = State.SQLite.table({
   name: 'sendBackResets',
+  indexes: [{ name: 'idx_sendBackResets_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -490,6 +527,7 @@ export const machineSettingValues = State.SQLite.table({
 
 export const stageEntries = State.SQLite.table({
   name: 'stageEntries',
+  indexes: [{ name: 'idx_stageEntries_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -540,6 +578,7 @@ export const banners = State.SQLite.table({
 
 export const taskRepos = State.SQLite.table({
   name: 'taskRepos',
+  indexes: [{ name: 'idx_taskRepos_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -563,6 +602,7 @@ export const taskRepos = State.SQLite.table({
 
 export const pullRequests = State.SQLite.table({
   name: 'pullRequests',
+  indexes: [{ name: 'idx_pullRequests_taskId', columns: ['taskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
@@ -711,6 +751,7 @@ export const coordinators = State.SQLite.table({
 
 export const plans = State.SQLite.table({
   name: 'plans',
+  indexes: [{ name: 'idx_plans_fromTaskId', columns: ['fromTaskId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     factoryId: State.SQLite.text(),
