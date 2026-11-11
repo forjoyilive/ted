@@ -594,7 +594,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           stopWatchingWrites()
           online.close()
           health.close()
-          integrations.close()
+          await integrations.close()
           await factories.close()
           await tasks.close()
           await runs.close()
