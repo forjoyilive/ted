@@ -251,6 +251,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     generations.set(runId, generation)
     let awaitingStart = revived || offset === 0 ? Date.now() + stopGraceMs : undefined
     let lockCheckedAt = 0
+    let reconciled = false
     const last = await lastStartRecord(path.join(runsDir, runId))
     if (last?.permissions !== undefined) store.setRunPermissions(runId, last.permissions)
     if (last !== undefined && !(last.v >= oldestHost)) {
@@ -335,6 +336,16 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         const finished = commitBatch(runId, batch, hostGone && batch.atEnd, generation)
         offset = batch.toOffset
         if (finished) return
+      }
+      if (
+        !reconciled &&
+        batch.atEnd &&
+        awaitingStart === undefined &&
+        !hostGone &&
+        isLockHeld(files.lock)
+      ) {
+        store.reconcileRunState(runId)
+        reconciled = true
       }
       if (batch.atEnd) await sleep(pollMs)
     }

@@ -707,6 +707,13 @@ export type {
   TaskGateRow,
   TaskGates,
 } from './task-gates.ts'
+export type {
+  TaskInterval,
+  TaskIntervalContributor,
+  TaskIntervalCoverage,
+  TaskIntervalHistory,
+  TaskIntervalReason,
+} from './task-intervals.ts'
 export {
   parseAnswerRequest,
   parseArchiveTaskRequest,
