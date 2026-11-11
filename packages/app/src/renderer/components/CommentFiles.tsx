@@ -1,7 +1,7 @@
 import type { Attachment } from '@ted/protocol'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useBytes } from '../attachment-bytes.ts'
 import { formatSize } from '../task-fields.ts'
-import { readableError, ted } from '../ted.ts'
 import styles from './CommentFiles.module.css'
 import { Loading } from './Loading.tsx'
 import { ImageViewer } from './Viewer.tsx'
@@ -11,24 +11,8 @@ const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'
 export const showsInline = (a: Attachment) => imageTypes.has(a.mediaType)
 export const isHtml = (a: Attachment) => a.mediaType === 'text/html'
 
-export function useBytes({ hash, name }: Attachment): { data?: string; error?: string } {
-  const [state, setState] = useState<{ data?: string; error?: string }>({})
-  useEffect(() => {
-    let current = true
-    ted
-      .readAttachment({ hash, name })
-      .then(({ data }) => current && setState({ data }))
-      .catch((failed: unknown) => current && setState({ error: readableError(failed) }))
-    return () => {
-      current = false
-    }
-  }, [hash, name])
-  return state
-}
-
-function ImageFile({ attachment }: { attachment: Attachment }) {
+function ImageFile({ attachment, onOpen }: { attachment: Attachment; onOpen: () => void }) {
   const { data, error } = useBytes(attachment)
-  const [open, setOpen] = useState(false)
   const src = data === undefined ? undefined : `data:${attachment.mediaType};base64,${data}`
   return (
     <figure className={styles.image}>
@@ -37,7 +21,7 @@ function ImageFile({ attachment }: { attachment: Attachment }) {
           type="button"
           className={styles.thumbnail}
           aria-label={`View ${attachment.name}`}
-          onClick={() => setOpen(true)}
+          onClick={onOpen}
         >
           <img src={src} alt={attachment.name} />
         </button>
@@ -47,9 +31,6 @@ function ImageFile({ attachment }: { attachment: Attachment }) {
         </div>
       )}
       <figcaption className={styles.caption}>{attachment.name}</figcaption>
-      {open && src !== undefined && (
-        <ImageViewer title={attachment.name} src={src} onClose={() => setOpen(false)} />
-      )}
     </figure>
   )
 }
@@ -87,6 +68,7 @@ function HtmlFile({ attachment }: { attachment: Attachment }) {
 }
 
 export function CommentFiles({ files }: { files: readonly Attachment[] }) {
+  const [open, setOpen] = useState<number>()
   const images = files.filter(showsInline)
   const pages = files.filter(isHtml)
   const others = files.filter((a) => !showsInline(a) && !isHtml(a))
@@ -94,10 +76,13 @@ export function CommentFiles({ files }: { files: readonly Attachment[] }) {
     <div className={styles.files}>
       {images.length > 0 && (
         <div className={styles.images}>
-          {images.map((a) => (
-            <ImageFile key={`${a.hash}:${a.name}`} attachment={a} />
+          {images.map((a, index) => (
+            <ImageFile key={`${a.hash}:${a.name}`} attachment={a} onOpen={() => setOpen(index)} />
           ))}
         </div>
+      )}
+      {open !== undefined && (
+        <ImageViewer images={images} initialIndex={open} onClose={() => setOpen(undefined)} />
       )}
       {pages.map((a) => (
         <HtmlFile key={`${a.hash}:${a.name}`} attachment={a} />
