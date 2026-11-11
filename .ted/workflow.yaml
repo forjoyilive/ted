@@ -21,4 +21,4 @@ stages:
   merge: { gate: false }
   clarify:
     enabled: true
-    gate: true
+    gate: false
