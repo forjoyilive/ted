@@ -1,7 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import type { Comment, Factory, RunChat, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -15,6 +14,7 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -96,10 +96,14 @@ const getTask = async (client: Client, id: string) => {
 }
 
 const waitFor = (client: Client, task: Task, check: (t: Task) => boolean, what: string) =>
-  waitUntil(async () => {
-    const current = await getTask(client, task.id)
-    return check(current) ? current : undefined
-  }, `${task.displayId} ${what}`)
+  eventWait(
+    client.subscribe,
+    async () => {
+      const current = await getTask(client, task.id)
+      return check(current) ? current : undefined
+    },
+    `${task.displayId} ${what}`,
+  )
 
 const comments = (client: Client, task: Task) =>
   client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
@@ -158,7 +162,6 @@ describe('Comments into the Task Lead’s Run', () => {
 
     const posted = await post(client, task, 'Also handle the empty query.')
     expect(posted.delivered).toBeUndefined()
-    await sleep(600)
     expect((await comment(client, task, posted.id)).readAt).toBeUndefined()
 
     await writeFile(gate, '')

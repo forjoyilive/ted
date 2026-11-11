@@ -1,9 +1,14 @@
-import { type Appearance, type QuitChoice, terminalFontSizes } from '@ted/protocol/settings'
+import {
+  type Appearance,
+  type QuitChoice,
+  terminalFontSizes,
+  textSizeLimits,
+} from '@ted/protocol/settings'
 import { systemTimeZone } from '@ted/protocol/time'
 import { useEffect, useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
-import { useOvernightChange } from '../overnight.ts'
+import { useOvernightChange } from '../overnight.tsx'
 import { useProfile } from '../profile.tsx'
 import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
@@ -16,6 +21,7 @@ import {
   SettingRow,
   SettingsGroup,
   SettingsPage,
+  Stepper,
   Switch,
 } from './controls.tsx'
 import { EditorRow } from './EditorRow.tsx'
@@ -115,6 +121,27 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
         <SettingRow
+          title="Text size"
+          detail="Changes text throughout TED. Terminal font size is separate."
+        >
+          <Stepper
+            value={settings.textSize}
+            min={textSizeLimits.min}
+            max={textSizeLimits.max}
+            step={textSizeLimits.step}
+            format={(value) => `${value}%`}
+            lessLabel="Decrease text size"
+            moreLabel="Increase text size"
+            onChange={(textSize) => void ted.updateSettings({ textSize })}
+          />
+          <Button
+            disabled={settings.textSize === 100}
+            onClick={() => void ted.updateSettings({ textSize: 100 })}
+          >
+            Default
+          </Button>
+        </SettingRow>
+        <SettingRow
           title="Terminal font size"
           labelFor="terminal-font-size"
           help="The size of text in terminals and logs, in points."
@@ -179,7 +206,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
       <SettingsGroup label="Overnight mode">
         <SettingRow
           title="Overnight mode across all Factories"
-          help="Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Task Leads finish independent work and leave blocking questions and approvals in the Inbox."
+          help="Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Gates set in the Workflow or on a Task are off, so Tasks move through their Stages and merge without your sign-off. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you, and so do questions and permission prompts."
           detail={
             overnight.problem ??
             'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.'

@@ -83,7 +83,7 @@ describe('Library settings', () => {
       'Read the changelog.',
     )
     expect(await readFile(path.join(library, 'workflow.yaml'), 'utf8')).toMatch(
-      /design:\n {4}gate: false\n {2}review:\n {4}based_on: [0-9a-f]{7}\n/,
+      /design:\n {4}gate: false\n {2}review:\n {4}based_on: "?[0-9a-f]{7}"?\n/,
     )
 
     await window.getByRole('button', { name: 'Reset to default' }).first().click()
@@ -95,4 +95,40 @@ describe('Library settings', () => {
       ),
     )
   })
+})
+
+test('Stage effort saves in Library and a Factory override can return to inheritance', async () => {
+  await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
+  const window = await launchApp()
+  await window.setViewportSize({ width: 1440, height: 1000 })
+  await openSettings(window)
+  await settingsNav(window).getByRole('button', { name: 'Library', exact: true }).click()
+  await window.getByRole('combobox', { name: 'Design effort', exact: true }).selectOption('high')
+  await window.getByRole('combobox', { name: 'Work effort', exact: true }).selectOption('medium')
+  await window.getByRole('button', { name: 'Save', exact: true }).click()
+  await window.getByText('2 unsaved changes to the Library').waitFor({ state: 'detached' })
+  expect(await readFile(path.join(ctx.home, 'library', 'workflow.yaml'), 'utf8')).toContain(
+    'effort: high',
+  )
+
+  await settingsNav(window).getByRole('button', { name: /Back/ }).click()
+  const nav = sidebar(window)
+  await nav.getByRole('button', { name: 'widgets' }).click()
+  await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+  const design = window.getByRole('combobox', { name: 'Design effort', exact: true })
+  await design.waitFor()
+  expect(await design.inputValue()).toBe('')
+  expect(await design.locator('option:checked').textContent()).toContain('high · Library')
+  await design.selectOption('ultra')
+  await window.getByText('1 unsaved change to .ted/workflow.yaml', { exact: true }).waitFor()
+  await design.selectOption('')
+  expect(await design.locator('option:checked').textContent()).toContain('high · Library')
+  if (process.env.TED_TEST_SCREENSHOT) {
+    await window
+      .getByRole('navigation', { name: 'Jump to a section' })
+      .getByRole('button', { name: 'Workflow', exact: true })
+      .click()
+    await sleep(300)
+    await window.screenshot({ path: process.env.TED_TEST_SCREENSHOT, fullPage: true })
+  }
 })

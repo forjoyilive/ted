@@ -13,7 +13,13 @@ export type Appearance = (typeof appearances)[number]
 
 export const workingRunLimits = { min: 1, max: 99 } as const
 
+export const checkLimits = { min: 1, max: 16 } as const
+
+export const textSizeLimits = { min: 80, max: 200, step: 5 } as const
+
 export const terminalFontSizes = { min: 10, max: 20 } as const
+
+export const runOutputDayLimits = { min: 1, max: 365 } as const
 
 export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 
@@ -22,13 +28,16 @@ export type QuitChoice = (typeof quitChoices)[number]
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string
+  textSize: number
   appearance: Appearance
   terminalFontSize: number
   profilePicture: string | null
   developerMode: boolean
   overnightMode: boolean
   maxWorkingRuns: number
+  adjustRunsToLoad: boolean
   maxBootedSimulators: number
+  runOutputDays: number
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
   startAtLogin: boolean
@@ -47,18 +56,23 @@ export interface MachineSettings {
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
+  lowPriorityWork: boolean
+  maxChecksAtOnce: number
 }
 
 export const defaultMachineSettings: MachineSettings = {
   timeFormat: 'system',
   timeZone: 'system',
+  textSize: 100,
   appearance: 'system',
   terminalFontSize: 13,
   profilePicture: null,
   developerMode: false,
   overnightMode: false,
   maxWorkingRuns: 6,
+  adjustRunsToLoad: false,
   maxBootedSimulators: 3,
+  runOutputDays: 7,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,
   startAtLogin: true,
@@ -77,6 +91,8 @@ export const defaultMachineSettings: MachineSettings = {
   linearSyncTeams: {},
   linearSyncDeclined: {},
   appsOutsideSandbox: {},
+  lowPriorityWork: true,
+  maxChecksAtOnce: 2,
 }
 
 export interface Profile {

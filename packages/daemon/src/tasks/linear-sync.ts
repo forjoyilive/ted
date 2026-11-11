@@ -1,4 +1,5 @@
 import { type LinearUrl, parseLinearUrl, type Task } from '@ted/protocol'
+import { type Clock, systemClock, type Timer } from '../clock.ts'
 import {
   type Linear,
   type LinearIssueState,
@@ -29,6 +30,7 @@ export interface LinearSync {
 export interface LinearSyncOptions {
   store: TedStore
   linear: LinearSyncApi
+  clock?: Clock
   everyMs: number
   closed(taskId: string, issue: LinearClosed): Promise<void>
   settled(taskId: string, why: 'reopened' | 'done'): void
@@ -117,12 +119,13 @@ function pullRequestLinks(task: Task): { url: string; title: string }[] {
 
 export function createLinearSync(options: LinearSyncOptions): LinearSync {
   const { store, linear } = options
-  let timer: NodeJS.Timeout | undefined
+  const clock = options.clock ?? systemClock
+  let timer: Timer | undefined
   let closed = false
 
   function schedule(): void {
     if (closed) return
-    timer = setTimeout(() => {
+    timer = clock.timeout(() => {
       options.inBackground('sync Tasks with Linear', () => cycle().finally(schedule))
     }, options.everyMs)
     timer.unref()
@@ -211,7 +214,7 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
   return {
     close() {
       closed = true
-      if (timer) clearTimeout(timer)
+      timer?.cancel()
     },
   }
 }

@@ -8,6 +8,7 @@ export interface TaskGateRow {
   effective: boolean
   required: boolean
   override?: boolean
+  overnight?: true
   locked?: string
 }
 

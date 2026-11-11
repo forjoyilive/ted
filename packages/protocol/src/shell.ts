@@ -3,6 +3,10 @@ export interface ShellSize {
   rows: number
 }
 
+export interface ShellWorkspaceRequest extends ShellSize {
+  create?: boolean
+}
+
 export const shellSizeLimits = { min: 2, max: 1000 } as const
 
 export const maxShellPanes = 8
@@ -110,7 +114,12 @@ export interface FoundEditor {
 export const editorPlaceholders = ['{path}', '{line}', '{column}'] as const
 
 export interface OpenInEditorRequest {
+  snapshot?: boolean
   file?: string
   line?: number
   column?: number
+}
+
+export interface ShellInputRequest {
+  data: string
 }

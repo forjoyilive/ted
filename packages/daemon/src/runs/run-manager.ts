@@ -16,7 +16,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type {
   AgentKind,
-  ConversationEntry,
   PermissionMode,
   PlanWindow,
   Run,
@@ -24,7 +23,7 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { runTokenEnv } from '@ted/protocol'
+import { filterTedEnv, runTokenEnv } from '@ted/protocol'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -38,8 +37,10 @@ import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
+import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
+import { sideFolder } from '../side-chats/context.ts'
 import { signalProcess } from '../signal.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
 import {
@@ -51,6 +52,7 @@ import {
   readQueuedInput,
   runFiles,
 } from './host-files.ts'
+import { createRunOutput, type RunOutputReader } from './run-output.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
@@ -96,12 +98,14 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
 }
 
 export interface ReviveRunInput {
+  flags?: RunFlags
   prompt: string
   messageIds?: string[]
   env?: Record<string, string>
 }
 
 export interface RunManager {
+  output: RunOutputReader
   start(input: StartRunInput): Promise<Run>
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
@@ -147,6 +151,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   await mkdir(runsDir, { recursive: true, mode: 0o700 })
   await writeTedShim(binDir, options.cliPath ?? defaultCli)
 
+  const output = createRunOutput({ home, store })
   const following = new Map<string, Promise<void>>()
   const stopRequested = new Set<string>()
   const heard = new Map<string, number>()
@@ -163,7 +168,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const billingOf = (kind: AgentKind) => store.settings().billing[kind]
 
   const environment = (): NodeJS.ProcessEnv => {
-    const base = options.env?.() ?? process.env
+    const base = filterTedEnv(options.env?.() ?? process.env)
     return {
       ...base,
       TED_HOME: home,
@@ -266,7 +271,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     generation: Generation,
   ): boolean {
     const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
-    const entries: ConversationEntry[] = []
+    const lines: string[] = []
+    let lastAt: string | undefined
     let state: RunState | undefined
     let sessionId: string | undefined
     let authFailed = false
@@ -285,13 +291,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
       heard.set(runId, Date.now())
     }
-    for (const { offset, record } of batch.records) {
+    for (const { record } of batch.records) {
       if (record.t === 'out') {
-        entries.push({
-          offset,
-          line: record.line,
-          ...(record.at !== undefined && { at: record.at }),
-        })
+        lines.push(record.line)
+        lastAt = record.at
         const text = agent.acceptedTextFrom(record.line)
         if (text !== undefined) accepted.push(text)
         state = agent.stateFrom(record.line) ?? state
@@ -306,11 +309,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         for (const window of agent.planUsageFrom(record.line) ?? [])
           windows.set(window.window, window)
         const prompt = agent.permissionPromptFrom(record.line, (matches) => {
-          for (let i = entries.length - 2; i >= 0; i--) {
-            const line = entries[i]?.line
+          for (let i = lines.length - 2; i >= 0; i--) {
+            const line = lines[i]
             if (line !== undefined && matches(line)) return line
           }
-          return store.conversation(runId).findLast((entry) => matches(entry.line))?.line
+          return output.findLast(runId, (entry) => matches(entry.line))?.line
         })
         if (prompt) {
           prompts.push({
@@ -360,7 +363,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(agentRestarted && { agentRestarted }),
       ...(autoMode === 'unavailable' && { autoModeUnavailable: true }),
       toOffset: batch.toOffset,
-      entries,
+      ...(lines.length > 0 && { output: { ...(lastAt !== undefined && { lastAt }) } }),
       ...(state && { state }),
       ...(sessionId !== undefined && { sessionId }),
       ...(problem !== undefined && { problem }),
@@ -435,7 +438,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
         ...(run.effort !== undefined && { effort: run.effort }),
         permissions: run.permissions,
-        ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
+        ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
+          tools: 'none' as const,
+        }),
         billing: billingOf(run.agent),
       })
       const inputFrom = await stat(files.input).then(
@@ -453,7 +458,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
   function spawnHost(runDir: string, env: NodeJS.ProcessEnv): void {
-    const host = nodeEntry(hostMain, [runDir])
+    const entry = nodeEntry(hostMain, [runDir])
+    const host = workCommand(entry.command, entry.args, store.settings().lowPriorityWork)
     spawn(host.command, host.args, {
       detached: true,
       stdio: 'ignore',
@@ -463,6 +469,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   function runEnv(id: string, env: Record<string, string>): NodeJS.ProcessEnv {
+    if (store.sideChats.forRun(id))
+      return Object.fromEntries(
+        Object.entries({ ...environment(), TED_HOME: home }).filter(
+          ([name]) => !/^TED_(RUN|TASK|PLAN|RUN_TOKEN|RUN_CAPABILITY)$/.test(name),
+        ),
+      )
     return {
       ...environment(),
       ...env,
@@ -480,6 +492,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     inputFrom?: number,
     promptInput?: { ids: string[]; text: string },
   ): Promise<void> {
+    const sideId = path.basename(runDir)
+    if (store.sideChats.forRun(sideId)) await sideFolder(home, sideId)
     for (const [name, content] of Object.entries(launch.files)) {
       await writeFile(path.join(runDir, name), content, { mode: 0o600 })
     }
@@ -549,7 +563,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       (r) => r.text === record.text && r.outputFrom === record.outputFrom,
     )
     const required = siblings.indexOf(record) + 1
-    const entries = store.conversation(runId)
+    const entries = output.entries(runId)
     const earlier = new Set(
       agent
         .chat(
@@ -587,6 +601,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   const manager: RunManager = {
+    output,
     async start({
       agent: kind,
       prompt,
@@ -605,7 +620,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       refuseWhileShuttingDown()
       const agent = agents.get(kind)
       const runDir = path.join(runsDir, id)
-      await mkdir(runDir, { mode: 0o700 })
+      await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
       const launch = agent.launch({
         prompt,
         runDir,
@@ -614,7 +629,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
         permissions,
-        ...(store.automationDrafts.get(id) && { tools: 'none' as const }),
+        ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
+          tools: 'none' as const,
+        }),
         billing: billingOf(kind),
       })
       await writeLaunch(
@@ -644,28 +661,32 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       follow(id)
       return run
     },
-    async revive(runId, { prompt, env = {}, messageIds }) {
+    async revive(runId, { prompt, env = {}, messageIds, flags }) {
       refuseWhileShuttingDown()
       const run = store.getRun(runId)
       if (run?.state !== 'finished' || following.has(runId)) {
         throw new Error(`Run ${runId} isn't finished`)
       }
-      if (run.sessionId === undefined) throw new Error(`Run ${runId} has no session to resume`)
+      if (run.sessionId === undefined && store.sideChats.forRun(runId)?.contextSent !== false)
+        throw new Error(`Run ${runId} has no session to resume`)
       const runDir = path.join(runsDir, runId)
       const files = runFiles(runDir)
       for (let waited = 0; isLockHeld(files.lock); waited += pollMs) {
         if (waited >= stopGraceMs) throw new Error(`Run ${runId}'s old host is still running`)
         await sleep(pollMs)
       }
+      const choice = flags ?? run
       const launch = agents.get(run.agent).launch({
         prompt,
         runDir,
         env: runEnv(runId, env),
-        resume: run.sessionId,
-        ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
-        ...(run.effort !== undefined && { effort: run.effort }),
+        ...(run.sessionId !== undefined && { resume: run.sessionId }),
+        ...(choice.model !== undefined && !choice.usesDefaultModel && { model: choice.model }),
+        ...(choice.effort !== undefined && { effort: choice.effort }),
         permissions: run.permissions,
-        ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
+        ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
+          tools: 'none' as const,
+        }),
         billing: billingOf(run.agent),
       })
       const inputFrom = await stat(files.input).then(
@@ -682,7 +703,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       await writeFile(files.env, JSON.stringify(env), { mode: 0o600 })
       refuseWhileShuttingDown()
       stopRequested.delete(runId)
-      const revived = store.reviveRun(runId)
+      const revived = store.reviveRun(runId, flags)
+      await store.persisted()
       spawnHost(runDir, launch.env)
       follow(runId, { revived: true })
       return revived
@@ -705,7 +727,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
         ...(flags.effort !== undefined && { effort: flags.effort }),
         permissions: run.permissions,
-        ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
+        ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
+          tools: 'none' as const,
+        }),
         billing: billingOf(run.agent),
       })
       await writeLaunch(runDir, run.cwd, launch)

@@ -2,6 +2,7 @@ import type { MachineSettings } from '@ted/protocol'
 import { type EditorChoice, editorNames } from '@ted/protocol/shell'
 import { useEffect, useState } from 'react'
 import { customCommandHelp, useFoundEditors } from '../components/EditorPicker.tsx'
+import { Loading } from '../components/Loading.tsx'
 import { readableError, ted } from '../ted.ts'
 import { Select, SettingRow } from './controls.tsx'
 import styles from './editor.module.css'
@@ -34,7 +35,10 @@ export function EditorRow({ settings }: { settings: MachineSettings }) {
     ted.updateSettings(changes).catch((error: unknown) => setProblem(readableError(error)))
   }
 
-  const detail = problem ?? listProblem
+  const detail =
+    problem ??
+    listProblem ??
+    (editors === undefined ? <Loading compact label="Finding editors…" /> : undefined)
 
   return (
     <>

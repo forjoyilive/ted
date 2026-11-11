@@ -101,7 +101,7 @@ describe('waiting Inbox requests', () => {
   test('counts read requests even on Stopped Tasks, but never counts a waiting Run alone', async () => {
     const task = await store.createTask({ title: 'Fix login' })
     store.startRun({ id: 'r1', taskId: task.id, agent: 'claude', prompt: 'Fix it', cwd: dir })
-    store.recordRunOutput('r1', { toOffset: 0, entries: [], state: 'waiting' })
+    store.recordRunOutput('r1', { toOffset: 0, state: 'waiting' })
     expect(store.getRun('r1')?.state).toBe('waiting')
     expect(store.waiting()).toEqual([])
 

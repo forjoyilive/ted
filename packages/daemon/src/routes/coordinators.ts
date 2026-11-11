@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import type { CoordinatorAction } from '@ted/protocol'
+import type { CoordinatorOperation } from '@ted/protocol'
+import {
+  type CoordinatorAction,
+  parseCoordinatorAction,
+  parseCoordinatorMessage,
+} from '@ted/protocol'
 import { RequestError } from '../errors.ts'
-import { agentChoice, bodyObject, type Route, readJson } from './route.ts'
+import { redactSecrets } from '../redact.ts'
+import { jsonRoute, type Route } from './route.ts'
 
 const offset = (raw: string | undefined) => Number(raw ?? 0)
 const context = (value: unknown) => {
@@ -10,31 +16,7 @@ const context = (value: unknown) => {
     context: `<<<TASK CONTEXT ${nonce}>>>\n${JSON.stringify(value)}\n<<<END TASK CONTEXT ${nonce}>>>`,
   }
 }
-function action(value: unknown): CoordinatorAction {
-  const body = bodyObject(value)
-  if (typeof body.operation !== 'string' || !/^[\w-]{1,100}$/.test(body.operation))
-    throw new RequestError(400, 'operation must be a unique ID of up to 100 characters')
-  if (typeof body.version !== 'string' || !/^[a-f0-9]{64}$/.test(body.version))
-    throw new RequestError(400, 'version must come from a current Task read')
-  for (const name of ['after', 'before'])
-    if (body[name] !== undefined && (typeof body[name] !== 'string' || body[name] === ''))
-      throw new RequestError(400, `${name} must be a Task ID`)
-  const neighbours: Record<string, string> = {}
-  if (body.neighbours !== undefined) {
-    for (const [key, value] of Object.entries(bodyObject(body.neighbours, 'neighbours'))) {
-      if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value))
-        throw new RequestError(400, 'neighbour versions must come from current Task reads')
-      neighbours[key] = value
-    }
-  }
-  return {
-    operation: body.operation,
-    version: body.version,
-    ...(typeof body.after === 'string' && { after: body.after }),
-    ...(typeof body.before === 'string' && { before: body.before }),
-    neighbours,
-  }
-}
+const operations: readonly string[] = ['start', 'move', 'tell', 'answer', 'resume']
 export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
@@ -42,18 +24,37 @@ export const coordinatorRoutes: Route[] = [
     handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.get(id)],
   },
   {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/coordinator\/chat$/,
+    handle: async ({ params: [id = ''] }, { coordinators, conversations }) => [
+      200,
+      coordinators.get(id) ? await conversations.coordinatorChat(id) : null,
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/coordinators$/,
+    handle: async (_, { coordinators }) => [200, coordinators.statuses()],
+  },
+  jsonRoute(parseCoordinatorMessage, {
     method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/messages$/,
-    async handle({ params: [id = ''], req }, { coordinators }) {
-      const body = bodyObject(await readJson(req))
-      if (typeof body.text !== 'string') throw new RequestError(400, 'text is required')
-      return [201, await coordinators.message(id, { text: body.text, ...agentChoice(body) })]
+    async handle({ params: [id = ''], body }, { coordinators }) {
+      return [201, await coordinators.message(id, body)]
     },
-  },
+  }),
   {
     method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/stop$/,
     handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.stop(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/coordinator\/reset$/,
+    async handle({ params: [id = ''] }, { coordinators }) {
+      await coordinators.reset(id)
+      return [200, null]
+    },
   },
   {
     method: 'POST',
@@ -78,13 +79,33 @@ export const coordinatorRoutes: Route[] = [
       context(coordinators.task(caller, ref, offset(page))),
     ],
   },
-  {
-    method: 'POST',
-    path: /^\/coordinator\/tasks\/([^/]+)\/(start|move)$/,
-    runToken: true,
-    async handle({ caller, req, params: [ref = '', kind] }, { coordinators }) {
-      if (kind !== 'start' && kind !== 'move') throw new RequestError(400, 'unknown action')
-      return [200, await coordinators.act(caller, ref, kind, action(await readJson(req)))]
+  jsonRoute(
+    (value, { params: [, kind = ''] }) =>
+      parseCoordinatorAction(value, kind as CoordinatorOperation),
+    {
+      method: 'POST',
+      path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer|resume)$/,
+      runToken: true,
+      async handle({ caller, body, params: [ref = '', kind = ''] }, { coordinators }) {
+        if (!operations.includes(kind)) throw new RequestError(400, 'unknown action')
+        return [
+          200,
+          await coordinators.act(caller, ref, kind as CoordinatorOperation, redactedAction(body)),
+        ]
+      },
     },
-  },
+  ),
 ]
+
+function redactedAction(action: CoordinatorAction): CoordinatorAction {
+  return {
+    ...action,
+    ...(action.message !== undefined && { message: redactSecrets(action.message) }),
+    ...(action.answers !== undefined && {
+      answers: action.answers.map(({ answer, note }) => ({
+        answer: redactSecrets(answer),
+        ...(note !== undefined && { note: redactSecrets(note) }),
+      })),
+    }),
+  }
+}

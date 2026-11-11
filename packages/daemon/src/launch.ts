@@ -9,6 +9,7 @@ import {
   type DaemonInfo,
   DaemonRequestError,
   DaemonUnreachableError,
+  filterTedEnv,
   readDaemonInfo,
   runTokenFrom,
   type Subscription,
@@ -166,7 +167,12 @@ async function startDaemon(home: string, appToken?: string): Promise<ChildProces
   const child = spawn(daemon.command, daemon.args, {
     detached: true,
     stdio: [appToken === undefined ? 'ignore' : 'pipe', output.fd, output.fd],
-    env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1', ...inheritedFdsEnv() },
+    env: {
+      ...filterTedEnv(process.env),
+      TED_HOME: home,
+      ELECTRON_RUN_AS_NODE: '1',
+      ...inheritedFdsEnv(),
+    },
   })
   child.stdin?.on('error', () => undefined)
   child.stdin?.end(`${appToken}\n`)

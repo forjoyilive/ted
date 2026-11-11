@@ -8,7 +8,12 @@ const verifications: (() => void)[] = []
 
 type Handler = (...args: unknown[]) => unknown
 
-export function bridge(handlers: Record<string, Handler>) {
+export function bridge(given: Record<string, Handler>) {
+  const handlers: Record<string, Handler> = {
+    getSideChat: () => null,
+    taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
+    ...given,
+  }
   const listeners = new Set<(event: TedEvent) => void>()
   const unexpected: string[] = []
   const request = vi.fn(async (name: string, ...args: unknown[]) => {
