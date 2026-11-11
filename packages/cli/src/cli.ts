@@ -40,6 +40,7 @@ import {
   parseLocalDesignReviewInput,
   parseProposalInput,
   parseRecordFailureRequest,
+  parseRegisterTestInvocation,
   parseRoundInput,
   parseVerifyFailureRequest,
   type RepoSetupReport,
@@ -1112,6 +1113,21 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           ? `Recording ${printable(app.name)}. Stop with ted app record ${printable(app.name)} --stop.`
           : `Saved ${printable(capture.attachment?.name ?? 'the recording')} to the Task`,
       )
+    },
+    testInvocations: async () => {
+      const ref = taskRef()
+      const result = await withDaemon(home, (client) => client.testInvocations(ref))
+      console.log(JSON.stringify(result, null, 2))
+    },
+    registerTestInvocation: async () => {
+      const ref = taskRef()
+      const text =
+        options.file === undefined
+          ? await readStdin()
+          : await readFile(path.resolve(options.file), 'utf8')
+      const input = parseRegisterTestInvocation(JSON.parse(text))
+      const result = await withDaemon(home, (client) => client.registerTestInvocation(ref, input))
+      console.log(JSON.stringify(result))
     },
     checks: async () => {
       const ref = taskRef()

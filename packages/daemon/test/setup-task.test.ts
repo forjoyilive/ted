@@ -222,7 +222,7 @@ describe('creating the setup Task', () => {
 })
 
 describe('the setup Workflow', () => {
-  test('forces Clarify at grilling depth and the Design and Review Gates, and targets the default branch', () => {
+  test('forces Clarify at grilling depth and the Design and Review sign-offs, and targets the default branch', () => {
     const base = resolveWorkflow([
       {
         kind: 'library',
@@ -265,7 +265,7 @@ describe('the proposal', () => {
     title: 'Proposed setup for Widgets',
     summary: 'One repo with a test script. I ran each Check on main.',
     setup: {
-      workflow: [{ stage: 'intake' }, { stage: 'design', setting: 'Gate on' }],
+      workflow: [{ stage: 'intake' }, { stage: 'design', setting: 'Sign-off on' }],
       checks,
       apps: [
         {
@@ -290,7 +290,7 @@ describe('the proposal', () => {
     ['off', false],
     ['on', true],
   ])(
-    'Design and Review Gates hold the setup Task, the proposal shows tried Checks, and Validate runs only approved Checks from the branch (overnight mode %s)',
+    'Design and Review sign-offs hold the setup Task, the proposal shows tried Checks, and Validate runs only approved Checks from the branch (overnight mode %s)',
     async (_, overnight) => {
       await commitToOrigin(scratch, {
         '.ted/workflow.yaml': [

@@ -72,7 +72,7 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function start(workflow = 'version: 1\n', detached = false) {
+async function start(workflow = 'version: 1\n', detached = false, runs?: { stopGraceMs: number }) {
   await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow })
   let port: number
   let appKey: string
@@ -91,6 +91,7 @@ async function start(workflow = 'version: 1\n', detached = false) {
       version: '9.9.9',
       claudeBin: stubClaudePath,
       codexBin: stubCodexPath,
+      ...(runs && { runs }),
     })
     port = daemon.port
     appKey = daemon.appToken
@@ -1212,7 +1213,7 @@ describe('local Factory permission consent', () => {
   })
 
   test('a timed-out restart kills the old Bypass agent before releasing consent', async () => {
-    const client = await start()
+    const client = await start(undefined, false, { stopGraceMs: 4_000 })
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
     const route = `/factories/${factory?.id}/permissions`
     await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })

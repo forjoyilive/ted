@@ -181,6 +181,12 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
+import type {
+  RegisterTestInvocation,
+  TestInvocationRegistration,
+  TestInvocationReport,
+  TestInvocationSummary,
+} from './test-invocations.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
@@ -623,6 +629,49 @@ export class DaemonClient {
       `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/resolve`,
       input,
     )
+  }
+
+  registerTestInvocation(
+    ref: string,
+    input: RegisterTestInvocation,
+  ): Promise<TestInvocationRegistration> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/test-invocations`, input)
+  }
+
+  async tryRegisterTestInvocation(
+    ref: string,
+    input: RegisterTestInvocation,
+  ): Promise<TestInvocationRegistration | undefined> {
+    try {
+      const res = await this.#send(
+        'POST',
+        `/tasks/${encodeURIComponent(ref)}/test-invocations`,
+        input,
+        AbortSignal.timeout(500),
+      )
+      return (await this.#json(res)) as TestInvocationRegistration
+    } catch {
+      return undefined
+    }
+  }
+
+  testInvocations(ref: string): Promise<TestInvocationSummary> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/test-invocations`)
+  }
+
+  async reportTestInvocation(id: string, input: TestInvocationReport): Promise<boolean> {
+    try {
+      const res = await this.#send(
+        'POST',
+        `/test-invocations/${encodeURIComponent(id)}/reports`,
+        input,
+        AbortSignal.timeout(500),
+      )
+      await this.#json(res)
+      return true
+    } catch {
+      return false
+    }
   }
 
   runChecks(ref: string, request: RunChecksRequest = {}): Promise<CheckRun> {

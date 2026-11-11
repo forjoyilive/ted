@@ -78,6 +78,8 @@ export interface RunManagerOptions {
   cliPath?: string
   env?: () => NodeJS.ProcessEnv
   oldestHost?: number
+  stopGraceMs?: number
+  inputAckMs?: number
 }
 
 export interface RunObserver {
@@ -151,11 +153,12 @@ function mergeUsage(
   return next
 }
 
-const stopGraceMs = 10_000
 const startRecordBytes = 4096
 
 export async function startRunManager(options: RunManagerOptions): Promise<RunManager> {
   const { home, store, agents, tokens } = options
+  const stopGraceMs = options.stopGraceMs ?? 10_000
+  const inputAckMs = options.inputAckMs ?? 10_000
   const runsDir = path.join(home, 'runs')
   const binDir = path.join(home, 'bin')
   await mkdir(runsDir, { recursive: true, mode: 0o700 })
@@ -1009,7 +1012,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
       if (relevant.length === 0) return false
       for (let waited = 0; !relevant.every(accepted); waited += pollMs) {
-        if (waited >= 10_000 || store.getRun(runId)?.state === 'finished')
+        if (waited >= inputAckMs || store.getRun(runId)?.state === 'finished')
           throw new Error(
             'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
           )

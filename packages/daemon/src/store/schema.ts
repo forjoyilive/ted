@@ -568,6 +568,20 @@ export const failureContexts = State.SQLite.table({
   },
 })
 
+export const testInvocations = State.SQLite.table({
+  name: 'testInvocations',
+  indexes: [{ name: 'idx_testInvocations_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    runId: State.SQLite.text({ nullable: true }),
+    checkRunId: State.SQLite.text({ nullable: true }),
+    position: State.SQLite.integer({ nullable: true }),
+    ownerEnded: State.SQLite.boolean({ default: false }),
+    data: State.SQLite.text(),
+  },
+})
+
 export const checkRuns = State.SQLite.table({
   name: 'checkRuns',
   indexes: [{ name: 'idx_checkRuns_taskId', columns: ['taskId'] }],
@@ -947,6 +961,10 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  testInvocationRecorded: Events.synced({
+    name: 'v1.TestInvocationRecorded',
+    schema: Schema.Struct({ id: Schema.String, taskId: Schema.String, data: Schema.String }),
+  }),
   localMachineIdentified: Events.synced({
     name: 'v1.LocalMachineIdentified',
     schema: Schema.Struct({ machineId: Schema.String, at: Schema.String }),
@@ -3456,6 +3474,7 @@ const materializers = counted(
         severityDeclarations.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
+        testInvocations.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
         validationProgress.delete().where({ taskId }),
         failureContexts.delete().where({ taskId }),
@@ -3501,6 +3520,21 @@ const materializers = counted(
           .where({ id: taskId }),
       'v1.TaskReposSet': ({ taskId, repos, at }) =>
         tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
+      'v1.TestInvocationRecorded': (row) => {
+        const value = JSON.parse(row.data) as {
+          runId?: string
+          checkRunId?: string
+          position?: number
+        }
+        return testInvocations
+          .insert({
+            ...row,
+            runId: value.runId ?? null,
+            checkRunId: value.checkRunId ?? null,
+            position: value.position ?? null,
+          })
+          .onConflict('id', 'replace')
+      },
       'v1.ValidationProgressed': (row) =>
         validationProgress.insert(row).onConflict('taskId', 'replace'),
       'v1.FailureVerified': (row) => failureCases.insert(row).onConflict('id', 'replace'),
@@ -3575,7 +3609,8 @@ const materializers = counted(
             at,
           })
           .onConflict('id', 'ignore'),
-      'v1.CheckExecutionInterrupted': ({ checkRunId, position, at }) =>
+      'v1.CheckExecutionInterrupted': ({ checkRunId, position, at }) => [
+        testInvocations.update({ ownerEnded: true }).where({ checkRunId, position }),
         checkBoundaries.insert({
           id: `${checkRunId}:interrupted-end:${position}`,
           checkRunId,
@@ -3583,6 +3618,7 @@ const materializers = counted(
           kind: 'interrupted-end',
           at,
         }),
+      ],
       'v1.CheckStarted': ({ checkRunId, position, at }) => [
         checkResults.update({ state: 'running' }).where({ id: `${checkRunId}:${position}` }),
         checkBoundaries.insert({
@@ -3594,6 +3630,7 @@ const materializers = counted(
         }),
       ],
       'v1.CheckFinished': ({ checkRunId, position, state, exitCode, durationMs, at }) => [
+        testInvocations.update({ ownerEnded: true }).where({ checkRunId, position }),
         checkResults
           .update({ state, exitCode, durationMs })
           .where({ id: `${checkRunId}:${position}` }),
@@ -3606,6 +3643,7 @@ const materializers = counted(
         }),
       ],
       'v1.ChecksFinished': ({ checkRunId, outcome, at }) => [
+        testInvocations.update({ ownerEnded: true }).where({ checkRunId }),
         checkRuns.update({ outcome, finishedAt: at }).where({ id: checkRunId }),
         checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'waiting' }),
         checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'running' }),
@@ -3730,7 +3768,12 @@ const materializers = counted(
           .onConflict('id', 'ignore'),
       'v1.ConversationTabClosed': ({ taskId, runId }) =>
         conversationTabs.delete().where({ id: `${taskId}:${runId}` }),
-      'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+      'v1.RunStateChanged': ({ runId, state }) => [
+        runs.update({ state }).where({ id: runId }),
+        ...(state === 'finished'
+          ? [testInvocations.update({ ownerEnded: true }).where({ runId })]
+          : []),
+      ],
       'v1.RunPermissionsSet': ({ runId, permissions }) =>
         runs.update({ permissions }).where({ id: runId }),
       'v1.RunAutoModeUnavailable': ({ runId }) =>
@@ -4139,6 +4182,7 @@ const state = State.SQLite.makeState({
     sendBacks,
     sendBackResets,
     checkRuns,
+    testInvocations,
     checkResults,
     checkBoundaries,
     failureCases,

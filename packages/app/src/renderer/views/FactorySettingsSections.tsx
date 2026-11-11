@@ -267,10 +267,10 @@ export function WorkflowSection({
           <span>Stage</span>
           <span>On</span>
           <span className={styles.gateHeading}>
-            Gate
+            Sign-off
             <Help>
-              A Gate makes the Task wait for your sign-off at the end of this Stage before moving
-              on. If the Stage skips itself, its Gate is skipped too.
+              When on, the Task waits for your approval at the end of this Stage before moving on.
+              If the Stage skips itself, its sign-off is skipped too.
             </Help>
           </span>
           <span>Send-backs</span>
@@ -299,7 +299,7 @@ export function WorkflowSection({
           <span className={styles.warnMark} aria-hidden>
             ▲
           </span>{' '}
-          The Review Gate is off, so Merge runs right after Validate without your sign-off.
+          The Review sign-off is off, so Merge runs right after Validate without your sign-off.
         </p>
       )}
       {view.ignoredStageFiles.map((file) => (
@@ -380,7 +380,7 @@ function StageRow({
         <span>
           {agent ? (
             <Toggle
-              label={`${name} Gate`}
+              label={`${name} sign-off`}
               checked={stage?.gate ?? row.gate}
               onChange={(gate) => onStage({ gate })}
             />
@@ -579,7 +579,7 @@ export function DriftNotice({
             </Button>
             <Help>
               Creates a Task in this Factory that folds the inherited changes into your copy and
-              updates based_on. Its Review Gate is always on, so you see the result before it
+              updates based_on. Its Review sign-off is always on, so you see the result before it
               merges.
             </Help>
           </>
