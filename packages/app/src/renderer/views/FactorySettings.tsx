@@ -1,7 +1,6 @@
 import type {
   AppInput,
   CheckInput,
-  CheckTry,
   Factory,
   FactorySettingsView,
   RepoCheck,
@@ -29,7 +28,7 @@ import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Skeleton } from '../components/Loading.tsx'
-import { useConnection } from '../data.ts'
+import { useEventValue } from '../data.ts'
 import {
   editedFields,
   missingCopies,
@@ -94,20 +93,16 @@ export function FactorySettings({
   onRemoveFactory,
   onOpenTask,
 }: FactorySettingsProps) {
-  const [view, setView] = useState<FactorySettingsView>()
   const [loadError, setLoadError] = useState<string>()
   const [draft, setDraft] = useState<SettingsDraft>()
   const [base, setBase] = useState<{ draft: SettingsDraft; version: string }>()
-  const [tries, setTries] = useState<CheckTry[]>([])
   const [reviewing, setReviewing] = useState(false)
   const [saved, setSaved] = useState<SaveSettingsResult>()
   const [merging, setMerging] = useState(false)
   const [mergeError, setMergeError] = useState<string>()
   const mergeBusy = useRef(false)
-  const [home, setHome] = useState<string>()
   const [setupError, setSetupError] = useState<string>()
   const pendingFolders = useRef(new Map<string, string>())
-  const { epoch } = useConnection()
   const scroller = useRef<HTMLDivElement>(null)
   const started = useRef(false)
   const savedNotice = useRef<HTMLDivElement>(null)
@@ -117,53 +112,47 @@ export function FactorySettings({
     if (scroller.current) scroller.current.scrollTop = 0
   }, [saved])
 
-  const load = useCallback(async () => {
-    try {
-      const loaded = await ted.factorySettings(factory.id)
-      setView(loaded)
-      setTries(loaded.tries)
-      setLoadError(undefined)
-      return loaded
-    } catch (failure) {
-      setLoadError(readableError(failure))
-      return undefined
-    }
-  }, [factory.id])
-
   const restart = useCallback((from: FactorySettingsView) => {
     setBase({ draft: settingsDraft(from), version: from.version })
     setDraft(settingsDraft(from))
   }, [])
 
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type !== 'check-try-updated' || event.checkTry.factoryId !== factory.id) return
-        const next = event.checkTry
-        setTries((current) => [...current.filter((t) => t.name !== next.name), next])
-      }),
-    [factory.id],
-  )
-
-  useEffect(() => {
-    void epoch
-    void load().then((loaded) => {
+  const driftRef = useRef(0)
+  const { value: view, refresh: load } = useEventValue<FactorySettingsView | undefined>({
+    initial: undefined,
+    key: factory.id,
+    load: () => ted.factorySettings(factory.id),
+    event: (event) => {
+      if (event.type === 'check-try-updated' && event.checkTry.factoryId === factory.id) {
+        return (current) =>
+          current && {
+            ...current,
+            tries: [...current.tries.filter((t) => t.name !== event.checkTry.name), event.checkTry],
+          }
+      }
+      if (
+        event.type === 'drift-changed' &&
+        (event.drift.factories[factory.id] ?? 0) !== driftRef.current
+      )
+        return 'reload'
+      return undefined
+    },
+    changed: (loaded) => {
+      setLoadError(undefined)
       if (!loaded || started.current) return
       started.current = true
       restart(loaded)
-    })
-    void ted.homeFolder().then(setHome, () => undefined)
-  }, [load, epoch, restart])
-
-  const drifted = view?.stages.filter((s) => s.drift !== undefined).length ?? 0
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type !== 'drift-changed') return
-        if ((event.drift.factories[factory.id] ?? 0) !== drifted) void load()
-      }),
-    [factory.id, drifted, load],
-  )
+    },
+    error: (failure) => setLoadError(readableError(failure)),
+  })
+  driftRef.current = view?.stages.filter((s) => s.drift !== undefined).length ?? 0
+  const drifted = driftRef.current
+  const tries = view?.tries ?? []
+  const { value: home } = useEventValue<string | undefined>({
+    initial: undefined,
+    load: ted.homeFolder,
+    event: () => undefined,
+  })
 
   const loaded = base?.draft.repos ?? []
   const unsaved = base && draft ? unsavedChanges(draft, base.draft) : { count: 0, files: [] }

@@ -1,8 +1,8 @@
 import type { TaskGateOverrides, TaskGates } from '@ted/protocol'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Loading } from '../components/Loading.tsx'
-import { useConnection } from '../data.ts'
+import { useEventValue } from '../data.ts'
 import { stageName } from '../list-view.ts'
 import { OvernightNotice } from '../overnight.tsx'
 import { ted } from '../ted.ts'
@@ -11,46 +11,28 @@ import styles from './TaskGatesField.module.css'
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 export function TaskGatesField({ taskId }: { taskId: string }) {
-  const { epoch } = useConnection()
-  const [data, setData] = useState<TaskGates>()
   const [draft, setDraft] = useState<TaskGateOverrides>({})
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [changed, setChanged] = useState(false)
   const original = useRef<TaskGates | undefined>(undefined)
-  const sequence = useRef(0)
 
-  useEffect(() => {
-    void epoch
-    let alive = true
-    const load = () => {
-      const request = ++sequence.current
-      void ted.taskGates(taskId).then(
-        (next) => {
-          if (!alive || sequence.current !== request) return
-          setData(next)
-          if (original.current && original.current.revision !== next.revision) setChanged(true)
-        },
-        (failure: unknown) => {
-          if (alive && sequence.current === request) setError(errorText(failure))
-        },
-      )
-    }
-    load()
-    const unsubscribe = ted.onEvent((event) => {
-      if (
-        (event.type === 'task-updated' && event.task.id === taskId) ||
-        event.type === 'library-changed' ||
-        event.type === 'factory-updated'
-      )
-        load()
-    })
-    return () => {
-      alive = false
-      unsubscribe()
-    }
-  }, [taskId, epoch])
+  const { value: data, update } = useEventValue<TaskGates | undefined>({
+    initial: undefined,
+    key: taskId,
+    load: () => ted.taskGates(taskId),
+    event: (event) =>
+      (event.type === 'task-updated' && event.task.id === taskId) ||
+      event.type === 'library-changed' ||
+      event.type === 'factory-updated'
+        ? 'reload'
+        : undefined,
+    changed: (next) => {
+      if (original.current && original.current.revision !== next?.revision) setChanged(true)
+    },
+    error: (failure) => setError(errorText(failure)),
+  })
 
   const edit = async () => {
     setBusy(true)
@@ -58,7 +40,7 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
     try {
       const next = await ted.taskGates(taskId)
       original.current = next
-      setData(next)
+      update(() => next)
       setDraft({ ...next.overrides })
       setChanged(false)
       setOpen(true)
@@ -79,7 +61,7 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
         revision: original.current.revision,
       })
       original.current = undefined
-      setData(next)
+      update(() => next)
       setOpen(false)
     } catch (failure) {
       setError(errorText(failure))

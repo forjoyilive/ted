@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDialog.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
@@ -536,7 +536,7 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
     expect(id).toBe('f1')
     a.state.factories = a.state.factories.filter((f) => f.id !== id)
     a.state.tasks = a.state.tasks.filter((t) => t.factoryId !== id)
-    await act(async () => {
+    act(() => {
       a.emit({ type: 'task-deleted', taskId: 'NB-1' })
       a.emit({ type: 'factory-removed', factoryId: 'f1' })
     })
@@ -561,4 +561,64 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
     key: 'NB',
     closePullRequests: true,
   })
+})
+
+test('permission mode survives Check updates after enabling Bypass', async () => {
+  const api = open({ setFactoryPermissions: (_id, mode) => ({ mode }) })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Enable Bypass…' }))
+  const confirmation = screen.getByRole('dialog', { name: 'Enable Bypass on this computer?' })
+  await u.click(within(confirmation).getByRole('checkbox'))
+  await u.click(within(confirmation).getByRole('button', { name: 'Enable Bypass' }))
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  await act(async () =>
+    api.emit({
+      type: 'check-try-updated',
+      checkTry: {
+        factoryId: 'f1',
+        name: 'Typecheck',
+        repo: 'widgets',
+        state: 'passed',
+        startedAt: '2026-11-10T00:00:00Z',
+      },
+    }),
+  )
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  await u.click(screen.getByRole('button', { name: 'Use Auto' }))
+  expect(api.request).toHaveBeenLastCalledWith('setFactoryPermissions', 'f1', 'auto', true)
+  expect(screen.getByText('Auto is on.')).toBeTruthy()
+})
+
+test('failed agent-default saves keep their error after refreshing the controls', async () => {
+  const { AgentDefaults } = await import('../src/renderer/settings/AgentDefaults.tsx')
+  let reads = 0
+  bridge({
+    library: () => ({
+      path: '/test/library',
+      version: `v${++reads}`,
+      stages: [],
+      problems: [],
+      agents: [
+        {
+          role: 'reviewer',
+          default: { agent: 'codex', model: reads === 1 ? 'original' : 'fresh' },
+          from: 'ted',
+        },
+      ],
+    }),
+    saveLibrary: () => {
+      throw new Error('The Library changed on disk. Try again.')
+    },
+  })
+  render(<AgentDefaults />)
+  await user().selectOptions(
+    await screen.findByRole('combobox', { name: 'Reviewer effort' }),
+    'high',
+  )
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('textbox', { name: 'Reviewer model' }) as HTMLInputElement).value,
+    ).toBe('fresh'),
+  )
+  expect(screen.getByText('The Library changed on disk. Try again.')).toBeTruthy()
 })
