@@ -1,7 +1,9 @@
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { access, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { promisify } from 'node:util'
 import type {
   CheckRun,
   Factory,
@@ -18,6 +20,7 @@ import { conflictChecked, conflictRefusal } from '../src/tasks/base-conflict.ts'
 import {
   conflictReviewPrompt,
   conflictRoundText,
+  reviewDiffFlags,
   reviewMovedRefusal,
   scopedReviewPrompt,
   validateRoundText,
@@ -552,6 +555,105 @@ describe('the texts TED writes for a round', () => {
       `- old: the reviewer read ${read}, and it is no longer one of the Task’s repos.`,
     )
     expect(text).toContain('`ted outcome back --to work --findings <file>`')
+  })
+
+  test('every git command TED gives a reviewer prints the real change, whatever the repo’s config and attributes say', async () => {
+    const repo = path.join(scratch, 'hostile')
+    await mkdir(repo)
+    const ran = path.join(scratch, 'ran')
+    const tool = path.join(scratch, 'tool.sh')
+    await writeFile(tool, `#!/bin/sh\necho ran >> '${ran}'\n`)
+    await chmod(tool, 0o755)
+    const run = promisify(execFile)
+    const identity = ['-c', 'user.name=T', '-c', 'user.email=t@example.com']
+    const git = async (...args: string[]) =>
+      (await run('git', [...identity, ...args], { cwd: repo })).stdout.trim()
+    const commit = async (files: Record<string, string>, message: string) => {
+      for (const [name, text] of Object.entries(files)) await writeFile(path.join(repo, name), text)
+      await git('add', '-A')
+      await git('commit', '-qm', message)
+      return git('rev-parse', 'HEAD')
+    }
+    await git('init', '-q', '--initial-branch=main')
+    const base = await commit({ 'a.txt': 'one\n', 'm.txt': 'base\n' }, 'base')
+    await git('checkout', '-qb', 'task')
+    const since = await commit({ 'm.txt': 'task\n' }, 'reviewed')
+    await git('checkout', '-q', 'main')
+    const moved = await commit({ 'm.txt': 'main\n' }, 'main moved')
+    await git('checkout', '-q', 'task')
+    await git('merge', '-q', '-X', 'ours', '-m', 'merge', moved)
+    const merge = await git('rev-parse', 'HEAD')
+    const head = await commit(
+      { 'a.txt': 'one\nREAL CHANGE\n', '.gitattributes': '*.txt diff=clean merge=clean\n' },
+      'the change',
+    )
+    for (const [key, value] of [
+      ['diff.external', tool],
+      ['diff.clean.textconv', tool],
+      ['diff.clean.command', tool],
+      ['merge.clean.driver', `${tool} %A`],
+      ['core.pager', tool],
+      ['log.showSignature', 'true'],
+      ['gpg.program', tool],
+      ['diff.relative', 'true'],
+    ] as const)
+      await git('config', key, value)
+    expect(await git('diff', since, head)).not.toContain('REAL CHANGE')
+    await rm(ran)
+
+    const merged = { commit: merge, base: moved, files: ['m.txt'] }
+    const prompts = [
+      scopedReviewPrompt({
+        displayId: 'NB-1',
+        round: 2,
+        rounds,
+        repos: [{ name: 'widgets', since, head, files: ['a.txt'] }],
+        multiRepo: false,
+        added: '',
+      }),
+      scopedReviewPrompt({
+        displayId: 'NB-1',
+        round: 2,
+        rounds,
+        repos: [{ name: 'widgets', since, head, files: ['a.txt'], merges: [merged] }],
+        multiRepo: false,
+        added: '',
+      }),
+      conflictReviewPrompt({
+        displayId: 'NB-1',
+        repos: [
+          { name: 'widgets', since, head: merge, files: [], merges: [merged], commitCount: 1 },
+        ],
+        sendBacks: [],
+        found: [],
+        multiRepo: false,
+        added: '',
+      }),
+    ]
+    const commands = prompts.flatMap((text) =>
+      [...text.matchAll(/`([^`]*\bgit [^`]*)`/g)].map((m) => m[1] ?? ''),
+    )
+    expect(commands.map((c) => / (diff|show|log -p) /.exec(c)?.[1])).toEqual([
+      'diff',
+      'log -p',
+      'show',
+    ])
+    const outputs: string[] = []
+    for (const command of commands) {
+      expect(command).toContain('git --no-replace-objects --no-pager --attr-source=')
+      expect(command).toContain('-c diff.external=')
+      expect(command).toContain('-c log.showSignature=false')
+      expect(command).toContain(reviewDiffFlags)
+      expect(reviewDiffFlags).toContain('--no-ext-diff --no-textconv')
+      outputs.push((await run('sh', ['-c', command], { cwd: repo })).stdout)
+    }
+    expect(outputs[0]).toContain('+REAL CHANGE')
+    expect(outputs[1]).toContain('+REAL CHANGE')
+    expect(outputs[1]).toContain('remerge CONFLICT')
+    expect(outputs[2]).toContain('remerge CONFLICT')
+    expect(outputs[2]).toContain('-main')
+    await expect(access(ran)).rejects.toThrow()
+    expect(base).toMatch(/^[0-9a-f]{40}$/)
   })
 
   test('file names are one line each, inside a fence that says they are data', () => {

@@ -345,7 +345,11 @@ async function inScratch<T>(
     await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], { cwd: scratch, env })
     await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
     return await work((args) =>
-      execFileAsync('git', args, { cwd: scratch, env, maxBuffer: 16 * 1024 * 1024 }),
+      execFileAsync('git', ['-c', 'core.commitGraph=false', ...args], {
+        cwd: scratch,
+        env,
+        maxBuffer: 16 * 1024 * 1024,
+      }),
     )
   } finally {
     await rm(scratch, { recursive: true, force: true })

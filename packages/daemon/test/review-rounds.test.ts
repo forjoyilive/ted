@@ -193,7 +193,7 @@ describe('Validate rounds', () => {
       expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
       expect(second).toContain('1. The export button does nothing.')
       expect(second).toMatch(
-        /`GIT_GRAFT_FILE=\/dev\/null\/grafts GIT_SHALLOW_FILE=\/dev\/null git --no-replace-objects diff [0-9a-f]{40} [0-9a-f]{40}`\. Files changed:\n {2}(<<<FILES [0-9a-f-]{36}>>>)\n {2}- export\.txt\n {2}\1\n/,
+        /`GIT_GRAFT_FILE=\/dev\/null\/grafts GIT_SHALLOW_FILE=\/dev\/null git --no-replace-objects [^`]* diff --no-ext-diff --no-textconv [^`]* [0-9a-f]{40} [0-9a-f]{40}`\. Files changed:\n {2}(<<<FILES [0-9a-f-]{36}>>>)\n {2}- export\.txt\n {2}\1\n/,
       )
       expect(second).toMatch(
         /<<<TASK LEAD [0-9a-f-]{36}>>>\n# Review the whole branch[\s\S]*<<<TASK LEAD [0-9a-f-]{36}>>>$/,
@@ -409,7 +409,9 @@ describe('Validate rounds', () => {
     expect(first).toContain('# Your instructions from the Task Lead of NB-1')
     expect(second).toContain('# Your instructions from TED')
     expect(second).toContain('# Review of the conflict resolution in NB-1')
-    expect(second).toMatch(/git --no-replace-objects show --remerge-diff [0-9a-f]{40}`/)
+    expect(second).toMatch(
+      /git --no-replace-objects [^`]* show --no-ext-diff [^`]* --remerge-diff [0-9a-f]{40}`/,
+    )
     expect(second).toContain(`brought in base commit ${tip}. Files that conflicted:`)
     expect(second).toContain('    - export.txt')
     expect(second).not.toContain('other.txt')
@@ -464,12 +466,12 @@ describe('Validate rounds', () => {
     const [, second] = await reviewerPrompts(client, task)
     expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
     expect(second).toMatch(
-      /git --no-replace-objects log -p --reverse --first-parent --remerge-diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/,
+      /git --no-replace-objects [^`]* log -p --no-ext-diff [^`]* --reverse --first-parent --remerge-diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/,
     )
     expect(second).toContain('not what the base branch brought in')
     expect(second).toContain('  - fix.txt')
     expect(second).toContain('  - export.txt')
     expect(second).not.toContain('other.txt')
-    expect(second).not.toMatch(/git --no-replace-objects diff [0-9a-f]{40} [0-9a-f]{40}`/)
+    expect(second).not.toMatch(/ diff --no-ext-diff [^`]* [0-9a-f]{40} [0-9a-f]{40}`/)
   }, 150_000)
 })
