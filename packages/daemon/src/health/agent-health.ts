@@ -85,6 +85,8 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   const limits = new Map<AgentKind, Limit>()
   const wrongKeys = new Map<AgentKind, string | undefined>()
   const usage = new Map<AgentKind, PlanUsage>()
+  const usageTimers = new Map<AgentKind, NodeJS.Timeout>()
+  const usageReads = new Set<AbortController>()
   let offline = false
   let closed = false
 
@@ -246,11 +248,79 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     return publish(health.agent) ?? health
   }
 
+  function scheduleUsage(kind: AgentKind): void {
+    clearTimeout(usageTimers.get(kind))
+    usageTimers.delete(kind)
+    if (closed || !agents.get(kind).readPlanUsage) return
+    const resets = (usage.get(kind)?.windows ?? [])
+      .flatMap((window) => (window.resetsAt ? [Date.parse(window.resetsAt)] : []))
+      .filter((at) => at + resetMarginMs > Date.now())
+    if (!resets.length) return
+    const delay = Math.min(Math.min(...resets) + resetMarginMs - Date.now(), 2_147_483_647)
+    const timer = setTimeout(
+      () => {
+        usageTimers.delete(kind)
+        void checkOne(kind).catch((error: unknown) =>
+          console.error('agent health check failed:', error),
+        )
+      },
+      Math.max(1, delay),
+    )
+    timer.unref()
+    usageTimers.set(kind, timer)
+  }
+
+  async function refreshUsage(kind: AgentKind, health: AgentHealth): Promise<void> {
+    const agent = agents.get(kind)
+    if (
+      closed ||
+      offline ||
+      health.state !== 'ready' ||
+      wrongKeys.has(kind) ||
+      billing(kind) !== 'subscription' ||
+      !agent.readPlanUsage ||
+      !health.path
+    )
+      return
+    const before = usage.get(kind)
+    const controller = new AbortController()
+    usageReads.add(controller)
+    try {
+      const windows = await agent.readPlanUsage({
+        binary: health.path,
+        env: agent.environment(options.runEnv(), billing(kind)),
+        cwd: home,
+        signal: controller.signal,
+      })
+      if (
+        closed ||
+        offline ||
+        billing(kind) !== 'subscription' ||
+        wrongKeys.has(kind) ||
+        usage.get(kind) !== before ||
+        windows === undefined
+      )
+        return
+      usage.set(kind, { windows, at: new Date().toISOString(), from: 'read' })
+      publish(kind)
+    } catch {
+      // Usage is best-effort; a failed read must not pause work or refresh its timestamp.
+    } finally {
+      usageReads.delete(controller)
+      scheduleUsage(kind)
+    }
+  }
+
   function checkOne(kind: AgentKind): Promise<AgentHealth> {
     let running = checking.get(kind)
     if (!running) {
       running = inspect(kind)
-        .then((health) => (closed ? health : apply(health)))
+        .then(async (health) => {
+          if (closed) return health
+          apply(health)
+          await refreshUsage(kind, health)
+          return latest.get(kind) ?? health
+        })
         .finally(() => checking.delete(kind))
       checking.set(kind, running)
     }
@@ -422,6 +492,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
         at: new Date().toISOString(),
         from: kind === 'codex' ? 'read' : 'run',
       })
+      scheduleUsage(kind)
       const known = latest.get(kind)
       if (!known) return
       const updated = { ...known, planUsage: usage.get(kind) as PlanUsage }
@@ -450,6 +521,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     close() {
       closed = true
       clearInterval(interval)
+      for (const controller of usageReads) controller.abort()
+      for (const timer of usageTimers.values()) clearTimeout(timer)
+      usageTimers.clear()
       for (const kind of [...watches.keys()]) stopWatching(kind)
       for (const limit of limits.values()) clearTimeout(limit.timer)
       limits.clear()

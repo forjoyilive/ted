@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -48,7 +48,7 @@ afterEach(async () => {
 const setStub = (agent: 'claude' | 'codex', state: Record<string, unknown>) =>
   writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
-async function start(options: { stallAfterMs?: number } = {}) {
+async function start(options: { stallAfterMs?: number; healthIntervalMs?: number } = {}) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
@@ -56,6 +56,7 @@ async function start(options: { stallAfterMs?: number } = {}) {
     codexBin: stubCodexPath,
     checkAgentsOnStart: true,
     limitProbeMs: 1000,
+    ...(options.healthIntervalMs !== undefined && { healthIntervalMs: options.healthIntervalMs }),
     online: { isOnline: async () => online, onlineEveryMs: 100, offlineEveryMs: 100 },
     ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
   })
@@ -499,6 +500,179 @@ describe('Tokens, dollars, plan usage and retries', () => {
         { window: 'weekly', percent: 41 },
       ],
     })
+  })
+
+  test('Check again refreshes Codex usage to zero without a new Run', async () => {
+    const rateLimits = (percent: number) => ({
+      primary: { usedPercent: percent, windowDurationMins: 300 },
+      secondary: { usedPercent: 78, windowDurationMins: 10080 },
+    })
+    await setStub('codex', { rateLimits: rateLimits(94) })
+    const client = await start()
+    await startTask(client, steps({ endTurn: true }), 'codex')
+    await waitUntil(async () => (await healthOf(client, 'codex'))?.planUsage, 'initial usage')
+    await setStub('codex', { rateLimits: rateLimits(0) })
+    await client.ok('POST', '/agents/health/check')
+    expect((await healthOf(client, 'codex'))?.planUsage?.windows).toEqual([
+      { window: 'five-hour', percent: 0 },
+      { window: 'weekly', percent: 78 },
+    ])
+  })
+
+  test('Codex usage refreshes periodically without any Run and replaces absent windows', async () => {
+    await setStub('codex', {
+      rateLimits: {
+        primary: { usedPercent: 94, windowDurationMins: 300 },
+        secondary: { usedPercent: 78, windowDurationMins: 10080 },
+      },
+    })
+    const client = await start({ healthIntervalMs: 500 })
+    await waitUntil(
+      async () => (await healthOf(client, 'codex'))?.planUsage?.windows.length === 2,
+      'initial usage without a Run',
+    )
+    await setStub('codex', { rateLimits: { primary: { usedPercent: 0, windowDurationMins: 300 } } })
+    await waitUntil(async () => {
+      const windows = (await healthOf(client, 'codex'))?.planUsage?.windows
+      return windows?.length === 1 && windows[0]?.percent === 0
+    }, 'automatic zero usage')
+    expect((await client.ok<{ runs: { active: number } }>('GET', '/activity')).runs.active).toBe(0)
+    expect(await client.ok('GET', '/tasks')).toEqual([])
+  })
+
+  test('Codex usage refreshes after its reset without manufacturing a zero', async () => {
+    const resetsAt = Math.floor(Date.now() / 1000) + 1
+    await setStub('codex', {
+      rateLimits: { primary: { usedPercent: 94, windowDurationMins: 300, resetsAt } },
+    })
+    const client = await start()
+    await waitUntil(async () => (await healthOf(client, 'codex'))?.planUsage, 'initial usage')
+    await setStub('codex', { rateLimits: { primary: { usedPercent: 3, windowDurationMins: 300 } } })
+    await waitUntil(
+      async () => (await healthOf(client, 'codex'))?.planUsage?.windows[0]?.percent === 3,
+      'usage read after reset',
+      12_000,
+    )
+  })
+
+  test('failed Codex usage reads retain their timestamp and do not pause work', async () => {
+    await setStub('codex', { rateLimits: { primary: { usedPercent: 94 } } })
+    const client = await start()
+    const initial = await waitUntil(
+      async () => (await healthOf(client, 'codex'))?.planUsage,
+      'initial usage',
+    )
+    await setStub('codex', { rateLimitsError: true })
+    await client.ok('POST', '/agents/health/check')
+    expect(await healthOf(client, 'codex')).toMatchObject({ state: 'ready', planUsage: initial })
+    await setStub('codex', {})
+    await client.ok('POST', '/agents/health/check')
+    expect((await healthOf(client, 'codex'))?.planUsage?.windows).toEqual([])
+  })
+
+  test('a newer Run update wins over an in-flight Codex usage read', async () => {
+    const client = await start()
+    const go = path.join(scratch, 'usage-go')
+    const task = await startTask(
+      client,
+      steps(
+        { waitFor: go },
+        {
+          notify: 'account/rateLimits/updated',
+          params: { rateLimits: { primary: { usedPercent: 0 } } },
+        },
+        { endTurn: true },
+      ),
+      'codex',
+    )
+    const runId = await leadRunOf(client, task.id)
+    await waitUntil(async () => (await client.getRun(runId)).run.state === 'working', 'working Run')
+    const reads = async () =>
+      (await readFile(path.join(home, 'stub-usage-reads.jsonl'), 'utf8')).trim().split('\n').length
+    await waitUntil(async () => (await reads()) >= 2, 'startup reads')
+    const before = await reads()
+    await setStub('codex', {
+      rateLimitsDelayMs: 1500,
+      rateLimits: { primary: { usedPercent: 94 } },
+    })
+    const check = client.ok('POST', '/agents/health/check')
+    await waitUntil(async () => (await reads()) > before, 'the delayed read')
+    await writeFile(go, '')
+    await waitUntil(
+      async () => (await healthOf(client, 'codex'))?.planUsage?.windows[0]?.percent === 0,
+      'the newer Run update',
+    )
+    await check
+    expect((await healthOf(client, 'codex'))?.planUsage?.windows[0]?.percent).toBe(0)
+  })
+
+  test('concurrent health checks share a usage probe with the scrubbed daemon environment', async () => {
+    const saved = process.env.OPENAI_API_KEY
+    process.env.OPENAI_API_KEY = 'usage-probe-test-key'
+    try {
+      const client = await start()
+      await waitUntil(async () => (await healthOf(client, 'codex'))?.planUsage, 'initial usage')
+      await setStub('codex', { rateLimitsDelayMs: 500 })
+      const records = async () =>
+        (await readFile(path.join(home, 'stub-usage-reads.jsonl'), 'utf8')).trim().split('\n')
+      const before = (await records()).length
+      await Promise.all([
+        client.ok('POST', '/agents/health/check'),
+        client.ok('POST', '/agents/health/check'),
+      ])
+      const after = await records()
+      expect(after.length).toBe(before + 1)
+      const probe = JSON.parse(after.at(-1) ?? '{}')
+      expect(probe.cwd).toBe(await realpath(home))
+      expect(probe.env.OPENAI_API_KEY).toBeUndefined()
+    } finally {
+      if (saved === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = saved
+    }
+  })
+
+  test('usage probes skip offline, signed-out, old and API-key agents', async () => {
+    const client = await start()
+    await waitUntil(async () => (await healthOf(client, 'codex'))?.planUsage, 'initial usage')
+    const records = () => readFile(path.join(home, 'stub-usage-reads.jsonl'), 'utf8')
+    const before = await records()
+    online = false
+    await waitUntil(async () => (await healthOf(client, 'codex'))?.state === 'offline', 'offline')
+    await client.ok('POST', '/agents/health/check')
+    expect(await records()).toBe(before)
+    await setStub('codex', { signedIn: false })
+    online = true
+    await client.ok('POST', '/agents/health/check')
+    expect(await records()).toBe(before)
+    await setStub('codex', { version: '0.1.0' })
+    await client.ok('POST', '/agents/health/check')
+    expect(await records()).toBe(before)
+    await client.ok('PATCH', '/settings', { billing: { claude: 'subscription', codex: 'api-key' } })
+    await setStub('codex', {})
+    await client.ok('POST', '/agents/health/check')
+    expect(await records()).toBe(before)
+  })
+
+  test('closing health cancels a running periodic usage probe', async () => {
+    const client = await start({ healthIntervalMs: 500 })
+    await waitUntil(async () => (await healthOf(client, 'codex'))?.planUsage, 'initial usage')
+    await setStub('codex', { rateLimitsHang: true })
+    const probe = await waitUntil(async () => {
+      const lines = (await readFile(path.join(home, 'stub-usage-reads.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+      return lines.length >= 2 ? (JSON.parse(lines.at(-1) ?? '{}') as { pid: number }) : undefined
+    }, 'hanging periodic probe')
+    await daemon?.stop()
+    daemon = undefined
+    await waitUntil(() => {
+      try {
+        process.kill(probe.pid, 0)
+        return undefined
+      } catch {
+        return true
+      }
+    }, 'the cancelled probe to be reaped')
   })
 
   test('Codex plan usage is read from the app-server when a Run starts', async () => {
