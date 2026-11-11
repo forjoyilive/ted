@@ -2,6 +2,7 @@
 
 Use this guidance in chat, questions, Comments, Task briefs, reviews, and proposed Task titles, scopes and descriptions.
 
+- Call the person operating TED “the user”.
 - Start with what changes for the user, why it matters, or what decision you need. Put implementation details after that explanation, when they help the user understand or verify the work.
 - Lead updates with the current result or risk and its consequence, then give the next step when there is one. A routine update usually needs one to three sentences. Questions name the choice and your recommendation with its main tradeoff. Give each remaining concern enough space to be noticed; distinguish a blocker from a limitation that is fine to proceed with.
 - Keep detailed evidence in attached reports or existing history. Summarize Checks and reviews by their outcome and relevant coverage; put exact revisions, reviewer Run IDs, test inventories and diagnostic transcripts in the evidence. Link or attach evidence before referring to it. Preserve substantive Findings and uncertainty, including failed Checks the human accepted. Report new results and changed decisions rather than repeating the execution history or routine Workflow rules.
