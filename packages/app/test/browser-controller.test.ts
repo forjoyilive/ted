@@ -69,6 +69,7 @@ vi.mock('electron', () => ({
   },
 }))
 
+import { createBrowserBroker } from '../../daemon/src/tasks/browser.ts'
 import { createTaskBrowsers } from '../src/browser.ts'
 
 const app = {
@@ -80,6 +81,7 @@ const app = {
   startedAt: 'today',
 } as TaskApp
 const controllers: ReturnType<typeof createTaskBrowsers>[] = []
+const brokers: ReturnType<typeof createBrowserBroker>[] = []
 function bridge() {
   let deliver: ((command: BrowserCommand) => void) | undefined
   let rejectPoll: ((error: Error) => void) | undefined
@@ -131,9 +133,98 @@ function bridge() {
 }
 afterEach(() => {
   for (const controller of controllers) controller.close()
+  for (const broker of brokers) broker.close()
+  brokers.length = 0
   controllers.length = 0
   mocks.views.length = 0
   mocks.sessions.length = 0
+})
+
+test.each(
+  ['App stop', 'App restart', 'Task deletion', 'Factory deletion'].flatMap((lifecycle) =>
+    ['workers', 'connections'].map((step) => ({ lifecycle, step })),
+  ),
+)(
+  '$lifecycle during $step switch cleanup cannot create a guest in a forgotten session',
+  async ({ lifecycle, step }) => {
+    const transport = bridge()
+    const other = { ...app, name: 'Other', url: 'http://localhost:4000/' }
+    vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) =>
+      selected.name === app.name ? app : other,
+    )
+    const controller = createTaskBrowsers(
+      () => undefined,
+      () => transport.client,
+      vi.fn(),
+    )
+    controllers.push(controller)
+    await transport.send('open', 'one', 'open')
+    await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+    let release: (() => void) | undefined
+    mocks.sessions[0]?.[
+      step === 'workers' ? 'clearStorageData' : 'closeAllConnections'
+    ].mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+    await transport.send('switch', 'one', 'open', {}, 5_000, undefined, other)
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) => {
+      if (lifecycle.includes('deletion')) throw new DaemonRequestError(404, 'Task removed')
+      return selected.name === app.name
+        ? lifecycle === 'App stop'
+          ? { ...app, state: 'stopped' }
+          : { ...app, startedAt: 'tomorrow' }
+        : other
+    })
+    controller.changed('one')
+    await vi.waitFor(() => expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce())
+    release?.()
+    await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+    expect(transport.replies[1]?.error).toBeTruthy()
+    expect(mocks.views).toHaveLength(1)
+  },
+)
+
+test('broker cancellation reaches a held executor before native input can resume', async () => {
+  const broker = createBrowserBroker()
+  brokers.push(broker)
+  const client = {
+    browserApp: async () => app,
+    pollBrowser: async (owner: string) => broker.poll(owner),
+    replyBrowser: async (owner: string, id: string, reply: BrowserReply) =>
+      broker.reply(owner, id, reply),
+  } as unknown as DaemonClient
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  const result = await broker.request({ taskId: 'one', app, request: { action: 'snapshot' } })
+  const ref = result.text?.split(' ')[0]
+  const contents = mocks.views[0]?.webContents
+  if (!contents || !ref) throw new Error('Missing snapshot')
+  let release: ((value: unknown) => void) | undefined
+  contents.executeJavaScriptInIsolatedWorld.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve
+      }),
+  )
+  const clicking = broker.request({ taskId: 'one', app, request: { action: 'click', ref } })
+  const rejected = expect(clicking).rejects.toThrow(/no longer available/)
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  broker.cancel('one')
+  await rejected
+  await vi.waitFor(() => expect(contents.close).toHaveBeenCalledOnce())
+  release?.({ x: 10, y: 10 })
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(
+    contents.debugger.sendCommand.mock.calls.some(([method]) => method.startsWith('Input.')),
+  ).toBe(false)
 })
 
 test('a new client resumes polling while an idle Task retains its page and session', async () => {

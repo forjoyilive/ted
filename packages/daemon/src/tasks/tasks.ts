@@ -7712,7 +7712,7 @@ export function createTasks(options: {
     },
     async browserPoll(session) {
       const command = await browser.poll(session)
-      if (command) {
+      if (command && !command.canceled) {
         try {
           const current = await browserApp(
             command.taskId,
@@ -7795,12 +7795,12 @@ export function createTasks(options: {
     },
     simulators: () => apps.simulators(),
     stopApp(ref, app) {
-      browser.cancel(find(ref).id)
+      browser.cancel(find(ref).id, app)
       return apps.stop(find(ref).id, app)
     },
     restartApp(ref, app) {
       const { task, by } = runnableApps(ref, { kind: 'app' })
-      browser.cancel(task.id)
+      browser.cancel(task.id, app)
       return apps.restart(task.id, app, by)
     },
     appLog(ref, app) {

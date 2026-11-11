@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { BrowserCommand, BrowserReply, BrowserResult } from '@ted/protocol'
+import type { AppRef, BrowserCommand, BrowserReply, BrowserResult } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 
 interface Pending {
   command: BrowserCommand
   sent: boolean
+  cancellation?: string
   resolve: (result: BrowserResult) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
@@ -12,6 +13,7 @@ interface Pending {
 
 export function createBrowserBroker() {
   const pending = new Map<string, Pending>()
+  const canceled = new Map<string, BrowserCommand>()
   let session = ''
   let seen = 0
   let wake: (() => void) | undefined
@@ -21,11 +23,13 @@ export function createBrowserBroker() {
     if (!item) return
     pending.delete(id)
     clearTimeout(item.timer)
+    if (item.sent) canceled.set(id, { ...item.command, canceled: true })
+    wake?.()
     item.reject(new RequestError(409, message))
   }
-  const check = (owner: string, id: string) => {
+  const check = (owner: string, id: string, allowCanceled = false) => {
     const item = pending.get(id)
-    if (owner !== session || !item?.sent)
+    if (owner !== session || !item?.sent || (!allowCanceled && item.cancellation))
       throw new RequestError(409, 'That browser command expired')
     return item
   }
@@ -62,13 +66,14 @@ export function createBrowserBroker() {
     async poll(owner: string): Promise<BrowserCommand | null> {
       if (session !== owner) {
         for (const id of pending.keys()) fail(id, 'The browser connection changed')
+        canceled.clear()
         session = owner
       }
       if (polling) throw new RequestError(409, 'A browser poll is already waiting')
       polling = true
       seen = Date.now()
       try {
-        if (![...pending.values()].some((p) => !p.sent)) {
+        if (!canceled.size && ![...pending.values()].some((p) => !p.sent)) {
           await new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, 5_000)
             wake = () => {
@@ -76,6 +81,11 @@ export function createBrowserBroker() {
               resolve()
             }
           })
+        }
+        const cancellation = canceled.values().next().value
+        if (cancellation) {
+          canceled.delete(cancellation.id)
+          return cancellation
         }
         const item = [...pending.values()].find((p) => !p.sent)
         if (!item) return null
@@ -89,15 +99,30 @@ export function createBrowserBroker() {
     },
     command: (owner: string, id: string) => check(owner, id).command,
     reply(owner: string, id: string, reply: BrowserReply) {
-      const item = check(owner, id)
+      const item = check(owner, id, true)
+      if (item.cancellation && !reply.canceled) return
       pending.delete(id)
       clearTimeout(item.timer)
-      if (reply.error !== undefined) item.reject(new RequestError(409, reply.error))
+      if (item.cancellation) item.reject(new RequestError(409, item.cancellation))
+      else if (reply.error !== undefined) item.reject(new RequestError(409, reply.error))
       else item.resolve(reply.result ?? {})
     },
-    cancel(taskId: string) {
+    cancel(taskId: string, app?: AppRef) {
       for (const [id, item] of pending) {
-        if (item.command.taskId === taskId) fail(id, 'The Task’s browser is no longer available')
+        if (
+          item.command.taskId === taskId &&
+          (!app ||
+            (item.command.app.name === app.name &&
+              (app.repo === undefined || item.command.app.repo === app.repo)))
+        ) {
+          const message = 'The Task’s browser is no longer available'
+          if (!item.sent) fail(id, message)
+          else if (!item.cancellation) {
+            item.cancellation = message
+            canceled.set(id, { ...item.command, canceled: true })
+            wake?.()
+          }
+        }
       }
     },
     close() {

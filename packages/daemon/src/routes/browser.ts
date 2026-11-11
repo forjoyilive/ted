@@ -73,6 +73,7 @@ export const browserRoutes: Route[] = [
       const body = bodyObject(await readJson(req))
       const result = body.result === undefined ? undefined : bodyObject(body.result, 'result')
       tasks.browserReply(shortText(body.session, 'session', 100), id, {
+        ...(body.canceled === true && { canceled: true }),
         ...(body.error !== undefined && { error: shortText(body.error, 'error', 1000) }),
         ...(result && {
           result: {

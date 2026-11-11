@@ -24,6 +24,7 @@ export interface BrowserRequest {
 
 export interface BrowserCommand {
   id: string
+  canceled?: true
   expiresAt: number
   runId?: string
   taskId: string
@@ -38,6 +39,7 @@ export interface BrowserResult {
 }
 
 export interface BrowserReply {
+  canceled?: true
   result?: BrowserResult
   error?: string
 }

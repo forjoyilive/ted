@@ -43,6 +43,8 @@ test('only its Task can command the browser; the app bridge completes commands o
       '    apps:',
       '      - name: Web',
       `        run: "'${process.execPath}' '${stub}'"`,
+      '      - name: Other',
+      `        run: "'${process.execPath}' '${stub}'"`,
     ].join('\n'),
   })
   daemon = await startDaemon({
@@ -92,6 +94,21 @@ test('only its Task can command the browser; the app bridge completes commands o
   await app.replyBrowser('owner', command.id, { result: { url: command.app.url ?? '' } })
   expect((await opening).status).toBe(200)
   await expect(app.replyBrowser('owner', command.id, { result: {} })).rejects.toThrow(/expired/)
+  for (const action of ['stop', 'restart'] as const) {
+    await app.startApp(task.id, { name: 'Other' })
+    const unchangedPoll = app.pollBrowser('owner')
+    const unchangedRequest = app.browserCommand(task.id, { action: 'snapshot' })
+    const unchangedResult = unchangedRequest.then(
+      (result) => ({ result }),
+      (error: Error) => ({ error: error.message }),
+    )
+    const unchanged = await unchangedPoll
+    if (!unchanged) throw new Error('Missing unchanged App command')
+    if (action === 'stop') await app.stopApp(task.id, { name: 'Other' })
+    else await app.restartApp(task.id, { name: 'Other' })
+    await app.replyBrowser('owner', unchanged.id, { result: { text: 'Still active' } })
+    expect(await unchangedResult).toEqual({ result: { text: 'Still active' } })
+  }
   const capturePoll = app.pollBrowser('owner')
   const capturing = run.call('POST', `/tasks/${task.id}/browser`, { action: 'screenshot' })
   const shot = (await capturePoll) as BrowserCommand
@@ -130,9 +147,19 @@ test('only its Task can command the browser; the app bridge completes commands o
   )
   expect((await unpostedRequest).status).toBe(200)
   const stopPoll = app.pollBrowser('owner')
-  const pending = run.call('POST', `/tasks/${task.id}/browser`, { action: 'snapshot' })
+  let settled = false
+  const pending = run
+    .call('POST', `/tasks/${task.id}/browser`, { action: 'snapshot' })
+    .then((result) => {
+      settled = true
+      return result
+    })
   const stopped = (await stopPoll) as BrowserCommand
   await app.stopApp(task.id, { name: 'Web' })
+  await app.replyBrowser('owner', stopped.id, { result: { text: 'Late result' } })
+  expect(settled).toBe(false)
+  expect(await app.pollBrowser('owner')).toMatchObject({ id: stopped.id, canceled: true })
+  await app.replyBrowser('owner', stopped.id, { canceled: true })
   expect((await pending).status).toBe(409)
   await expect(app.replyBrowser('owner', stopped.id, { result: {} })).rejects.toThrow(/expired/)
   expect((await run.call('POST', `/tasks/${task.id}/browser`, { action: 'snapshot' })).status).toBe(

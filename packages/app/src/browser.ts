@@ -59,6 +59,7 @@ export function createTaskBrowsers(
   let stopped = false
   let generation = 0
   const running = new Map<string, AbortController>()
+  const commands = new Map<string, AbortController>()
   const runTasks = new Map<string, string>()
   const rechecks = new Map<string, ReturnType<typeof setTimeout>>()
   const owner = randomUUID()
@@ -145,8 +146,11 @@ export function createTaskBrowsers(
       })
   }
   const ensure = async (taskId: string, app: TaskApp, check: () => void) => {
+    const previousSession = sessions.get(taskId)
     await valid(taskId, app)
     check()
+    if (sessions.get(taskId) !== previousSession)
+      throw new Error('The Task’s browser session changed; reopen the App')
     const old = pages.get(taskId)
     if (
       old &&
@@ -170,11 +174,16 @@ export function createTaskBrowsers(
     }
     retainedSession.apps.set(appKey(app), app)
     sessions.set(taskId, retainedSession)
+    const checkSession = () => {
+      check()
+      if (sessions.get(taskId) !== retainedSession)
+        throw new Error('The Task’s browser session changed; reopen the App')
+    }
     if (reused) {
       await stopSessionWorkers(ses)
-      check()
+      checkSession()
       await ses.closeAllConnections()
-      check()
+      checkSession()
     }
     const origin = new URL(app.url as string).origin
     const allowed = (address: string) => {
@@ -264,7 +273,7 @@ export function createTaskBrowsers(
     try {
       // Bootstrap without repo scripts before installing guards in every guest frame.
       await contents.loadURL('about:blank')
-      check()
+      checkSession()
       contents.debugger.attach('1.3')
       contents.debugger.on('detach', () => {
         if (pages.get(taskId) === page) close(taskId)
@@ -276,30 +285,30 @@ export function createTaskBrowsers(
             .catch(() => undefined)
         }
       })
-      check()
+      checkSession()
       // WebTransport bypasses webRequest but refuses proxied connections.
       await ses.setProxy({
         proxyRules: 'socks5://127.0.0.1:9',
         proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
       })
-      check()
+      checkSession()
       ses.webRequest.onBeforeRequest((details, callback) =>
         callback({ cancel: !allowed(details.url) }),
       )
       await contents.debugger.sendCommand('Page.enable')
-      check()
+      checkSession()
       await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
         source: `for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) {
           Object.defineProperty(globalThis, name, {value: undefined, writable: false, configurable: false});
         }`,
       })
-      check()
+      checkSession()
       await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
-      check()
+      checkSession()
       await contents.loadURL(app.url as string).catch(() => {
         page.error = 'The page couldn’t load. Reload to try again.'
       })
-      check()
+      checkSession()
       page.ready = true
       return page
     } catch (error) {
@@ -458,6 +467,7 @@ export function createTaskBrowsers(
     }
     const controller = new AbortController()
     running.set(command.taskId, controller)
+    commands.set(command.id, controller)
     if (command.runId) runTasks.set(command.runId, command.taskId)
     const check = () => {
       if (stopped || controller.signal.aborted || version !== generation || client !== getClient())
@@ -497,6 +507,7 @@ export function createTaskBrowsers(
     } finally {
       clearTimeout(timer)
       if (running.get(command.taskId) === controller) running.delete(command.taskId)
+      commands.delete(command.id)
       if (command.runId) runTasks.delete(command.runId)
     }
   }
@@ -508,7 +519,10 @@ export function createTaskBrowsers(
         const command = await client.pollBrowser(owner)
         if (stopped) break
         if (client !== getClient() || version !== generation) continue
-        if (command) void run(command, client, version)
+        if (command?.canceled) {
+          commands.get(command.id)?.abort()
+          void client.replyBrowser(owner, command.id, { canceled: true }).catch(() => undefined)
+        } else if (command) void run(command, client, version)
       } catch {
         invalidate()
         await new Promise((resolve) => setTimeout(resolve, 1_000))
