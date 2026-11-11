@@ -5,7 +5,6 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
-import { InboxRequestsContext } from '../inbox-requests.ts'
 import {
   answerConfirmation,
   type InboxConfirmation,
@@ -13,6 +12,7 @@ import {
   inFactory,
   nextSelection,
 } from '../inbox.ts'
+import { InboxRequestsContext } from '../inbox-requests.ts'
 import { inboxLabel } from '../plans.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
 import { onRequestAnswered, ted } from '../ted.ts'
