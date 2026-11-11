@@ -616,13 +616,13 @@ export function createShells(options: ShellsOptions): Shells {
           signal.addEventListener('abort', done)
           shell.waiters.add(done)
         })
-        if (shells.get(shell.id) !== shell) {
-          throw new RequestError(404, `No shell is open for ${repo}`)
-        }
         if (shell.generation !== generation || from < shell.start) {
           reset = true
           from = shell.start
         }
+      }
+      if (shells.get(shell.id) !== shell) {
+        throw new RequestError(404, `No shell is open for ${repo}`)
       }
       return {
         generation: shell.generation,
