@@ -180,7 +180,7 @@ import { createTaskExecution } from './execution.ts'
 import {
   ciFailureKey,
   createFailureCases,
-  failureNoticeTitle,
+  failureNoticeTitles,
   failureText,
 } from './failure-cases.ts'
 import {
@@ -3209,7 +3209,7 @@ export function createTasks(options: {
   }
 
   const failureNotice = (comment: Comment) =>
-    comment.author.kind === 'ted' && comment.title === failureNoticeTitle
+    comment.author.kind === 'ted' && failureNoticeTitles.includes(comment.title)
 
   function waitingForRun(taskId: string): { comments: Comment[]; answers: Comment[] } {
     return {
