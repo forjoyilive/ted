@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AgentKind,
@@ -175,7 +175,7 @@ import {
   tedSettingsCheck,
   touchesSettings,
 } from './checks.ts'
-import { type CommandLaunch, runTaskCommand } from './command.ts'
+import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
   ciFailureKey,
@@ -210,6 +210,7 @@ import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
 import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
 import { verifyLinearIntake } from './linear-intake.ts'
 import { createLinearSync, type LinearClosed, type LinearSyncApi } from './linear-sync.ts'
+import { createLocalLifecycle } from './local-lifecycle.ts'
 import {
   chooseMethod,
   defaultHost,
@@ -281,7 +282,7 @@ import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
 import { createValidation } from './validation.ts'
 import { failureCaseFindings, failureCaseReference } from './validation-report.ts'
-import { type CommandResult, copyFiles, outputTail } from './worktree.ts'
+import { type CommandResult, outputTail } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
@@ -548,6 +549,23 @@ export function createTasks(options: {
     attachmentFile,
   } = options
   const execution = createTaskExecution(store)
+  const lifecycle = createLocalLifecycle({
+    store,
+    banners,
+    reposDir,
+    worktreesDir,
+    logsDir,
+    sandbox: options.sandbox,
+    env: () => options.env?.() ?? process.env,
+  })
+
+  async function removeRepoWorktree(
+    task: StoredTask,
+    repo: Pick<TaskRepo, 'name' | 'repo'>,
+  ): Promise<void> {
+    const ref = await execution.local(task.id)
+    await lifecycle.remove(lifecycle.worktree(ref, repo))
+  }
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
   const promptComments = new Set<string>()
@@ -2588,7 +2606,7 @@ export function createTasks(options: {
         repoSetups.get(`${task.id}:${repo.name}`)?.abort()
         await apps.stopRepo(task.id, repo.name).catch(() => undefined)
         const teardown = await tearDown(task, repo, entry)
-        await git.removeWorktree(clonePath(reposDir, repo), repo.worktree).catch((error) => {
+        await removeRepoWorktree(task, repo).catch((error) => {
           console.error(`couldn’t remove ${task.displayId}’s ${repo.name} worktree:`, error)
         })
         store.worktreeRemoved(task.id, repo.name, teardown)
@@ -2969,11 +2987,10 @@ export function createTasks(options: {
         .map((r) => runs.stop(r.id)),
     )
     const factory = factoryOf(task)
-    const clone = clonePath(reposDir, factory)
+    const ref = await execution.local(task.id)
     const live = task.repos.filter((r) => !r.removed)
-    const clones = [clone, ...live.map((r) => clonePath(reposDir, r))]
-    for (const worktree of subAgents.ownWorktrees(task)) {
-      await removeFromAny(clones, worktree).catch((error: unknown) => {
+    for (const handle of lifecycle.auxiliaryWorktrees(ref)) {
+      await lifecycle.remove(handle).catch((error: unknown) => {
         console.error(`couldn’t remove a sub-agent worktree of ${task.displayId}:`, error)
       })
     }
@@ -2981,29 +2998,16 @@ export function createTasks(options: {
     const removed: { name: string; teardown?: TeardownRecord }[] = []
     for (const [index, repo] of live.entries()) {
       const teardown = await tearDown(task, repo, repoEntry(entries, repo), live.slice(index))
-      await git.removeWorktree(clonePath(reposDir, repo), repo.worktree)
+      await removeRepoWorktree(task, repo)
       removed.push({ name: repo.name, ...(teardown && { teardown }) })
     }
-    if (task.repos.length === 0 && task.worktree) await git.removeWorktree(clone, task.worktree)
-    await rm(path.join(worktreesDir, task.displayId), { recursive: true, force: true })
-    await removeInside(sandboxDir, task.displayId)
+    const legacy = lifecycle.legacyWorktree(ref)
+    if (legacy) await lifecycle.remove(legacy)
+    await lifecycle.cleanFolders(ref)
     for (const { name, teardown } of removed) store.worktreeRemoved(task.id, name, teardown)
   }
 
   type TeardownRecord = { command: string; outcome: WorktreeCommandOutcome }
-
-  async function removeFromAny(clones: readonly string[], worktree: string): Promise<void> {
-    let failure: unknown
-    for (const clone of new Set(clones)) {
-      try {
-        await git.removeWorktree(clone, worktree)
-        return
-      } catch (error) {
-        failure = error
-      }
-    }
-    throw failure
-  }
 
   async function tearDown(
     task: StoredTask,
@@ -3014,19 +3018,21 @@ export function createTasks(options: {
     const teardown = entry?.teardown
     if (!teardown) return undefined
     const current = find(task.id)
-    const result: CommandResult = await runTaskCommand({
-      label: 'teardown',
-      prepareLaunch: () => prepareCommandLaunch(current, remainingRepos ?? current.repos),
-      command: teardown,
-      cwd: repo.worktree,
-      env: commandEnv(task, entry.env),
-      log: commandLog(task, 'teardown', repo.name),
-      signal: stopping.signal,
-      lowPriority: store.settings().lowPriorityWork,
-    }).catch((error: unknown) => {
-      console.error(`couldn’t run teardown for ${task.displayId}:`, error)
-      return { outcome: 'failed' as const }
-    })
+    const ref = await execution.local(task.id)
+    const result: CommandResult = await lifecycle
+      .command(lifecycle.worktree(ref, repo), {
+        kind: 'teardown',
+        command: teardown,
+        env: entry.env,
+        remaining: (remainingRepos ?? current.repos)
+          .filter((r) => !r.removed)
+          .map((r) => lifecycle.worktree(ref, r)),
+        signal: stopping.signal,
+      })
+      .catch((error: unknown) => {
+        console.error(`couldn’t run teardown for ${task.displayId}:`, error)
+        return { outcome: 'failed' as const }
+      })
     if (result.outcome !== 'passed') {
       console.error(
         `teardown for ${task.displayId} in ${repo.name} ${result.outcome}; removing the worktree anyway`,
@@ -3050,11 +3056,13 @@ export function createTasks(options: {
     return task.repos.find((r) => !r.removed)?.worktree
   }
 
-  function cloneFor(factory: StoredFactory, entry: FactoryRepoEntry): Promise<string> {
-    return ensureClone(
-      { banners, reposDir },
-      entry.primary ? factory : { ...factory, repo: entry.repo, cloneUrl: entry.cloneUrl },
-    )
+  async function cloneFor(
+    task: StoredTask,
+    factory: StoredFactory,
+    entry: FactoryRepoEntry,
+  ): Promise<string> {
+    const ref = await execution.local(task.id)
+    return lifecycle.localPath(await lifecycle.prepare(ref, factory, entry))
   }
 
   async function openWorktree(
@@ -3064,29 +3072,10 @@ export function createTasks(options: {
     branch: string,
     fresh: boolean,
   ): Promise<NewWorktree & { branch: string; worktree: string }> {
-    const clone = await cloneFor(factory, entry)
-    await git.fetch(clone)
-    const base = entry.baseBranch ?? (await git.defaultBranch(clone))
-    const worktree = path.join(worktreesDir, task.displayId, entry.name)
-    await mkdir(path.dirname(worktree), { recursive: true })
-    const add = fresh ? git.addWorktree : git.restoreWorktree
-    await add(clone, { path: worktree, branch, from: `origin/${base}` }).catch((error: unknown) => {
-      throw new RequestError(
-        409,
-        `couldn’t make ${task.displayId}’s ${entry.name} worktree from origin/${base}: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    })
-    const copy = await copyFiles(store.localFolder(entry.repo), worktree, entry.copy).catch(
-      async (error: unknown) => {
-        await git.removeWorktree(clone, worktree).catch(() => undefined)
-        if (fresh) await git.deleteBranch(clone, branch).catch(() => undefined)
-        throw new RequestError(
-          409,
-          `couldn’t copy files into ${task.displayId}’s ${entry.name} worktree: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      },
-    )
-    return { name: entry.name, repo: entry.repo, branch, worktree, ...copy }
+    const ref = await execution.local(task.id)
+    const clone = await lifecycle.prepare(ref, factory, entry)
+    const { handle, ...made } = await lifecycle.create(clone, entry, branch, fresh)
+    return { ...made, worktree: lifecycle.localPath(handle) }
   }
 
   function setupSteps(task: StoredTask, entries: readonly FactoryRepoEntry[]): SetupStep[] {
@@ -4085,15 +4074,12 @@ export function createTasks(options: {
     { untilStopped }: { untilStopped: boolean },
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
     const log = commandLog(task, 'setup', repo.name)
-    const result = await runTaskCommand({
-      label: 'setup',
-      prepareLaunch: () => prepareCommandLaunch(find(task.id)),
+    const ref = await execution.local(task.id)
+    const result = await lifecycle.command(lifecycle.worktree(ref, repo), {
+      kind: 'setup',
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
-      cwd: repo.worktree,
-      env: commandEnv(task, setup.env),
-      log,
+      env: setup.env,
       signal,
-      lowPriority: store.settings().lowPriorityWork,
     })
     const now = find(task.id)
     if (result.outcome === 'interrupted' || now.archived || (untilStopped && now.stopped)) {
@@ -5502,7 +5488,7 @@ export function createTasks(options: {
       find(task.id).chosenRepos,
       factoryRepos(resolution.workflow, factory),
     )
-    const clones = await Promise.all(chosen.map((entry) => cloneFor(factory, entry)))
+    const clones = await Promise.all(chosen.map((entry) => cloneFor(task, factory, entry)))
     const branch = await branchFor(clones, task)
     const opened: (NewWorktree & { branch: string; worktree: string })[] = []
     try {
@@ -5510,9 +5496,10 @@ export function createTasks(options: {
         opened.push(await openWorktree(task, factory, entry, branch, true))
     } catch (error) {
       for (const made of opened) {
-        const clone = clonePath(reposDir, made)
-        await git.removeWorktree(clone, made.worktree).catch(() => undefined)
-        await git.deleteBranch(clone, branch).catch(() => undefined)
+        const ref = await execution.local(task.id)
+        await lifecycle
+          .rollback({ ...made, handle: lifecycle.worktree(ref, made) })
+          .catch(() => undefined)
       }
       throw error
     }
