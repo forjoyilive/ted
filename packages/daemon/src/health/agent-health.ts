@@ -97,7 +97,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const spec = agents.get(kind).health
     if (state === 'not-installed') return { label: 'Install', command: spec.install }
     if (state === 'signed-out' || state === 'wrong-credential') {
-      return { label: 'Sign in', command: spec.signIn }
+      return { label: 'Sign in', command: spec.signIn(options.runEnv()) }
     }
     if (state === 'too-old') return { label: 'Update', command: spec.update }
     return undefined

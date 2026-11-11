@@ -179,6 +179,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const environment = createEnvironment({ loginShell: given.loginShell ?? false })
   const environmentRead = environment.reload()
   const agents = createAgents({
+    home: paths.home,
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
     env: environment.current,
