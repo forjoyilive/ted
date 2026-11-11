@@ -1251,6 +1251,29 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     workflowCheck: async () => {
       await workflowCheck(args[0] ?? '.ted')
     },
+    seedDemo: async () => {
+      if (
+        tedEnv('TED_RUN', env) ||
+        tedEnv('TED_TASK', env) ||
+        tedEnv('TED_PLAN', env) ||
+        runTokenFrom(env)
+      )
+        throw new UsageError('Run demo seeding from a local terminal, outside a Run.')
+      const started = Date.now()
+      const { demoHome, demoEnvironment, seedDemoFromCli } = await import('@ted/daemon/demo')
+      const demo = runtime.home ?? demoHome(env)
+      const prepared = demoEnvironment(demo, env)
+      const original = { ...process.env }
+      try {
+        for (const key of Object.keys(process.env)) delete process.env[key]
+        Object.assign(process.env, prepared)
+        await seedDemoFromCli(demo, options.reset)
+      } finally {
+        for (const key of Object.keys(process.env)) delete process.env[key]
+        Object.assign(process.env, original)
+      }
+      console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
+    },
     showSlow: async () => {
       console.log(formatSlowMoments(await withDaemon(home, (client) => client.getSlowMoments())))
     },

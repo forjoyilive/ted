@@ -13,6 +13,7 @@ import {
   superviseDaemon,
   withDaemon,
 } from '../src/launch.ts'
+import { tryLock } from '../src/lock.ts'
 import {
   api,
   assistantTexts,
@@ -76,6 +77,24 @@ const connectedAgain = (count: number) =>
     'the supervisor to reconnect',
     20_000,
   )
+
+test('startup retries when the previous daemon releases its shutdown lock', async () => {
+  const lock = tryLock(tedPaths(home).daemonLock)
+  if (!lock) throw new Error('Could not hold the shutdown lock')
+  const result = withDaemon(home, (client) => client.listTasks(), { startTimeoutMs: 10_000 }).then(
+    (tasks) => ({ tasks }),
+    (error: Error) => ({ error: error.message }),
+  )
+  try {
+    await waitUntil(async () => {
+      const log = await readFile(tedPaths(home).daemonLog, 'utf8').catch(() => '')
+      return log.includes('TED’s daemon is already running')
+    }, 'the new daemon to encounter the shutdown lock')
+  } finally {
+    lock.release()
+  }
+  expect(await result).toEqual({ tasks: [] })
+})
 
 test('a crashed daemon is restarted at once, and the new one serves requests and events', async () => {
   const supervised = await supervise()

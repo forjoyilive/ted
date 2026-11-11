@@ -752,6 +752,7 @@ export function storedRepos(
         known?.cloneUrl ?? (ssh ? `git@github.com:${repo}.git` : `https://github.com/${repo}.git`),
     })
   })
+  if (factory.repos.every((kept) => wanted.some((w) => same(w.repo, kept.repo)))) return wanted
   const inUse = new Set(
     store
       .listTasks()

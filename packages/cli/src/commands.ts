@@ -4,6 +4,7 @@ import { tedEnv } from '@ted/protocol'
 export class UsageError extends Error {}
 
 const flags = {
+  reset: { type: 'boolean' },
   approve: { type: 'boolean' },
   'request-changes': { type: 'boolean' },
   answers: { type: 'string' },
@@ -825,6 +826,15 @@ export const commands = [
     help: '  ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)',
     callers: 'Everyone',
     options: options(),
+  },
+  {
+    name: 'dev seed',
+    handler: 'seedDemo',
+    min: 0,
+    max: 0,
+    help: '  ted dev seed [--reset]                    Seed an isolated TED Dev demo; --reset rebuilds it',
+    callers: 'Terminal',
+    options: options('reset'),
   },
   {
     name: 'dev run show',
