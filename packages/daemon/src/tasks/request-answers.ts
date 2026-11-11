@@ -7,15 +7,27 @@ import type {
   Run,
   Task,
 } from '@ted/protocol'
-import { failureChoices } from '@ted/protocol'
+import { failureChoices, sizeChoices } from '@ted/protocol'
+import type { Simulators } from '../apps/simulators.ts'
 import { RequestError } from '../errors.ts'
+import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
-import { nextStageMessage, stageTitle } from '../workflow/workflow.ts'
+import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/workflow.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
+import { mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
+import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
+import { createLinearConsent } from './request-linear-team.ts'
 import { roundAnswerMessage, roundAnswers } from './rounds.ts'
+import {
+  grillAnywayMessage,
+  planInChatMessage,
+  proposalChangesMessage,
+  splitApprovedMessage,
+  splitChosenMessage,
+} from './split.ts'
 
 export interface RequestAnswerPort {
   store: TedStore
@@ -29,34 +41,21 @@ export interface RequestAnswerPort {
     files: readonly Attachment[],
     sendDrafts: boolean,
   ): Promise<Comment>
-  answerProposal(task: StoredTask, comment: Comment, request: AnswerRequest): Promise<Comment>
-  answerSimulator(comment: Comment, request: AnswerRequest, text: string): Promise<Comment>
   answerRunPermission: RunManager['answerPermission']
-  answerLinearTeam(
-    task: StoredTask,
-    comment: Comment,
-    choice: string | undefined,
-    text: string,
-  ): Comment
-  answerSizeCheck(
-    task: StoredTask,
-    comment: Comment,
-    choice: string,
-    text: string,
-  ): Promise<Comment>
-  answerCiStuck(
-    task: StoredTask,
-    comment: Comment,
-    choice: string | undefined,
-    text: string,
-  ): Promise<Comment>
+  withSimulatorRequest: Simulators['withRequest']
+  mergeSendBack(id: string, findings: string): Promise<unknown>
+  startTask(id: string): Promise<unknown>
+  planOutside(task: StoredTask, comment: Comment): void
+  planning?: () =>
+    | {
+        fromTask(input: {
+          taskId: string
+          sizeCheckId: string
+          text: string
+        }): Promise<{ id: string; title: string }>
+      }
+    | undefined
   resumeByHand(id: string, options: { comment: string; sendDrafts: boolean }): Promise<Task>
-  answerRequest(
-    task: Task,
-    comment: Comment,
-    answer: CommentAnswer,
-    drafts?: readonly string[],
-  ): Comment
   drafts(id: string): string[]
   deliverAnswer(task: Task, comment: Comment, text: string): Promise<void>
   gateWorkflow(task: StoredTask): Promise<WorkflowResolution>
@@ -66,21 +65,14 @@ export interface RequestAnswerPort {
   startMerging(task: StoredTask, workflow: ResolvedWorkflow): void
   watchMerge(id: string): void
   deliver(task: Task, text: string): Promise<boolean>
-  pullRequestWork(id: string, reason: 'signoff'): void
+  pullRequestWork(id: string, reason: 'signoff' | 'again'): void
   move(
     task: StoredTask,
     resolution: WorkflowResolution,
     next: AgentStageId | 'done',
     message: string | undefined,
-    options: { signedOff: boolean },
+    options?: { signedOff: boolean },
   ): Promise<Task>
-  answerLoopAsk(
-    task: StoredTask,
-    comment: Comment,
-    choice: string,
-    text: string,
-    at: string,
-  ): Promise<Comment | undefined>
   settleDependents(id: string, choice: 'unblock'): void
   archiveNow(task: StoredTask, close: boolean): Task
   wake(): void
@@ -99,14 +91,13 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     holding,
     failures,
     humanComment,
-    answerProposal,
-    answerSimulator,
     answerRunPermission,
-    answerLinearTeam,
-    answerSizeCheck,
-    answerCiStuck,
+    withSimulatorRequest,
+    mergeSendBack,
+    startTask,
+    planOutside,
+    planning,
     resumeByHand,
-    answerRequest,
     drafts,
     deliverAnswer,
     gateWorkflow,
@@ -118,7 +109,6 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     deliver,
     pullRequestWork,
     move,
-    answerLoopAsk,
     settleDependents,
     archiveNow,
     wake,
@@ -128,10 +118,319 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     gateName,
     firstLine,
   } = port
+  const { answerLinearTeam } = createLinearConsent(store)
+  const answerRequest = (
+    task: Task,
+    comment: Comment,
+    answer: CommentAnswer,
+    lineComments?: readonly string[],
+  ) => answerTaskRequest(store, task, comment, answer, lineComments)
   const linearArchiveChoice = 'Archive'
   const nudgeAgainChoice = 'Nudge again'
   const useDefaultChoice = 'Use the default model'
   const retryChoice = 'Retry'
+  function unanswered(comment: Comment): void {
+    const current = store.getComment(comment.id)
+    if (current?.answer?.kind === 'withdrawn') {
+      throw new RequestError(409, 'this request was withdrawn')
+    }
+    if (current?.answer?.kind === 'superseded') {
+      throw new RequestError(409, 'this request was replaced by a newer one')
+    }
+    if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+  }
+
+  async function answerCiStuck(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment> {
+    const answered = await holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn: CI reported before you answered')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      if (choice === mergeAnywayChoice) await requireObligations(find(task.id))
+      return store.answerComment(comment.id, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        ...(choice !== undefined && { choice }),
+        ...(text !== '' && { text }),
+      })
+    })
+    if (choice === sendToLeadChoice) {
+      await mergeSendBack(
+        task.id,
+        [
+          `TED asked the human about CI at Merge: ${comment.title ?? ''}.`,
+          comment.body.split('\n\n')[0] ?? '',
+          'The human sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
+          ...(text !== '' ? [`The human added: ${text}`] : []),
+        ].join('\n\n'),
+      )
+    } else if (choice === undefined && text !== '') {
+      await deliverAnswer(task, answered, `The human answered “${comment.title ?? ''}”:\n\n${text}`)
+    }
+    return store.getComment(comment.id) ?? answered
+  }
+
+  async function answerProposal(
+    task: StoredTask,
+    comment: Comment,
+    request: AnswerRequest,
+  ): Promise<Comment> {
+    const proposal = comment.proposal
+    if (!proposal) throw new RequestError(409, 'this proposal has no rows')
+    const text = 'text' in request ? (request.text?.trim() ?? '') : ''
+    if (request.action === 'request-changes') {
+      if (text === '') throw new RequestError(400, 'Request changes needs your comment')
+      return holding(task, async () => {
+        unanswered(comment)
+        const at = new Date().toISOString()
+        const answered = answerRequest(task, comment, { kind: 'changes-requested', at, text })
+        await deliverAnswer(task, comment, proposalChangesMessage(text))
+        return answered
+      })
+    }
+    if (request.action !== 'approve') {
+      throw new RequestError(400, 'answer a proposal with Create Tasks or Request changes')
+    }
+    const { skip, shape: plan } = approvedShape(
+      proposal,
+      request.proposal?.skip,
+      proposal.firstPiece && { name: 'this Task' },
+    )
+    const startUnblocked = request.proposal?.startUnblocked === true
+    const first = proposal.rows[0]
+    const result = await holding(task, async () => {
+      unanswered(comment)
+      const current = find(task.id)
+      if (current.archived) throw new RequestError(409, `${task.displayId} is archived`)
+      const created = await createProposalTasks(store, proposal, plan, {
+        firstPieceId: proposal.firstPiece ? task.id : undefined,
+        factoryId: current.factoryId,
+        fields: () => ({ ...(current.lead && { lead: current.lead }), splitFrom: task.id }),
+      })
+      const narrowed =
+        proposal.firstPiece && first
+          ? { title: first.title, description: first.description ?? first.scope }
+          : undefined
+      if (narrowed) {
+        store.taskSplit(task.id, {
+          pieceIds: created.map((c) => c.id),
+          narrowedTo: narrowed.title,
+          description: narrowed.description,
+        })
+        if (first && first.priority !== current.priority) {
+          store.setPriority(task.id, first.priority)
+        }
+      }
+      const outcome = { tasks: created, skipped: skip, startUnblocked }
+      const answered = answerRequest(task, comment, {
+        kind: 'approved',
+        at: new Date().toISOString(),
+        ...(text !== '' && { text }),
+        created: outcome,
+      })
+      await deliverAnswer(
+        task,
+        comment,
+        splitApprovedMessage({
+          displayId: task.displayId,
+          proposal,
+          created: outcome,
+          ...(narrowed && { narrowed }),
+          text,
+        }),
+      )
+      return { answered, created }
+    })
+    if (startUnblocked) {
+      for (const piece of result.created) {
+        if (!plan.unblocked.includes(piece.row)) continue
+        await startTask(piece.id).catch((error: unknown) => {
+          console.error(redactSecrets(`couldn’t start ${piece.displayId}: ${String(error)}`))
+        })
+      }
+    }
+    wake()
+    return store.getComment(comment.id) ?? result.answered
+  }
+
+  async function answerSizeCheck(
+    task: StoredTask,
+    comment: Comment,
+    choice: string,
+    text: string,
+  ): Promise<Comment> {
+    if (!comment.sizeCheck) throw new RequestError(400, 'this question has no size check')
+    if (!Object.values(sizeChoices).some((value) => value === choice))
+      throw new RequestError(400, 'choose a size-check option')
+    if (choice === sizeChoices.chat) return planInChat(task, comment, text)
+    return holding(task, async () => {
+      unanswered(comment)
+      const at = new Date().toISOString()
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      if (choice === sizeChoices.split) {
+        await deliverAnswer(task, comment, splitChosenMessage(text))
+      } else if (choice === sizeChoices.grill) {
+        store.setClarifyDepth(task.id, { depth: 'grilling', by: 'human' })
+        await deliverAnswer(task, comment, grillAnywayMessage(text))
+      } else {
+        planOutside(find(task.id), comment)
+      }
+      return store.getComment(comment.id) ?? answered
+    })
+  }
+
+  async function planInChat(task: StoredTask, comment: Comment, text: string): Promise<Comment> {
+    const planner = planning?.()
+    if (!planner) throw new RequestError(503, 'Planning chats aren’t ready yet. Try again.')
+    return holding(task, async () => {
+      unanswered(comment)
+      if (find(task.id).stage !== 'clarify') {
+        throw new RequestError(409, `${task.displayId} has left Clarify`)
+      }
+      const plan = await planner.fromTask({ taskId: task.id, sizeCheckId: comment.id, text })
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        choice: sizeChoices.chat,
+        ...(text !== '' && { text }),
+        planId: plan.id,
+      })
+      await deliverAnswer(task, comment, planInChatMessage(plan.title))
+      return store.getComment(comment.id) ?? answered
+    })
+  }
+
+  async function answerLoopAsk(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+    at: string,
+  ): Promise<Comment | undefined> {
+    const ask = store.sendBackAsk(comment.id)
+    if (!ask) throw new RequestError(409, 'this send-back request has no recorded decision')
+    if (!ask.loop || choice === undefined) return undefined
+    const current = find(task.id)
+    if (current.stage !== 'validate') return undefined
+    const resolution = await gateWorkflow(current)
+    const { workflow } = resolution
+    const next = workflow.next('validate') as AgentStageId | 'done'
+    const choices = loopChoices(workflow)
+    if (!choices.includes(choice)) return undefined
+    if (choice === tryAgainChoice) checkBack(workflow, 'validate', ask.to)
+    if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
+    if (choice !== tryAgainChoice && choice !== backToDesignChoice)
+      await requireObligations(current)
+    const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
+    const answered = answerRequest(task, comment, {
+      kind: 'answered',
+      at,
+      choice,
+      ...(text !== '' && { text }),
+    })
+    if (choice === tryAgainChoice) {
+      const limit = workflow.settings.stages.validate?.max_back
+      store.recordSendBack({
+        taskId: task.id,
+        from: 'validate',
+        to: ask.to,
+        findings: ask.findings,
+        counted: true,
+        round: 1,
+        ...(limit !== undefined && { limit }),
+        ...(ask.checkRunId !== undefined && { checkRunId: ask.checkRunId }),
+      })
+      await move(
+        current,
+        resolution,
+        ask.to,
+        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
+      )
+    } else if (choice === backToDesignChoice) {
+      store.recordSendBack({
+        taskId: task.id,
+        from: 'validate',
+        to: 'design',
+        findings: ask.findings,
+        counted: false,
+      })
+      await move(
+        current,
+        resolution,
+        'design',
+        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
+      )
+    } else {
+      pullRequestWork(task.id, 'again')
+      const open = `# Open Findings\n\nThe human chose “${choice}” with Validate’s blocking Findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
+      await move(
+        current,
+        resolution,
+        next,
+        next === 'done'
+          ? undefined
+          : `The human moved this Task on from Validate.${added}\n\n${nextStageMessage(workflow, next)}\n\n${open}`,
+      )
+    }
+    return answered
+  }
+
+  async function answerSimulator(
+    comment: Comment,
+    request: AnswerRequest,
+    text: string,
+  ): Promise<Comment> {
+    if (!comment.simulator) throw new RequestError(400, 'this request has no simulator')
+    return withSimulatorRequest(comment, async (simulator) => {
+      unanswered(comment)
+      const at = new Date().toISOString()
+      if (request.action === 'deny') {
+        return store.answerPermission(comment.id, {
+          kind: 'denied',
+          at,
+          ...(text !== '' && { text }),
+        })
+      }
+      if (request.action !== 'approve')
+        throw new RequestError(
+          400,
+          'answer a simulator request with a simulator to shut down, or Deny',
+        )
+      simulator.assertApp()
+      if (store.newWorkHold() !== undefined) {
+        throw new RequestError(
+          409,
+          'The disk is almost full, so TED holds new Apps until there’s space',
+        )
+      }
+      if (await simulator.hasRoom()) {
+        await simulator.boot()
+        return store.answerPermission(comment.id, { kind: 'withdrawn', at, slotFreed: true })
+      }
+      if (request.simulator === undefined)
+        throw new RequestError(400, 'pick the simulator to shut down')
+      const owner = await simulator.shutDown(request.simulator)
+      await simulator.boot()
+      return store.answerPermission(comment.id, {
+        kind: 'approved',
+        at,
+        shutDown: owner,
+        ...(text !== '' && { text }),
+      })
+    })
+  }
+
   async function answerRound(task: Task, comment: Comment, request: AnswerRequest, mark?: string) {
     if (!comment.round) throw new RequestError(409, 'this round has no questions')
     const answers = roundAnswers(comment.round, request)
@@ -374,7 +673,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         return answered
       }
       const choice = request.choice
-      if (comment.purpose?.kind === 'send-back' && choice !== undefined) {
+      if (comment.purpose?.kind === 'send-back') {
         const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
         if (answered) return answered
       }
@@ -462,4 +761,43 @@ function permissionMessage(approved: boolean, command: string, text: string): st
 function oneLine(text: string, max = 200): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
+}
+
+export const tryAgainChoice = 'Try again'
+export const backToDesignChoice = 'Back to Design'
+
+export function loopChoices(workflow: ResolvedWorkflow): string[] {
+  const next = workflow.next('validate')
+  const design =
+    workflow.stages.includes('design') &&
+    workflow.order.indexOf('design') < workflow.order.indexOf('validate')
+  return [
+    tryAgainChoice,
+    ...(design ? [backToDesignChoice] : []),
+    `Move to ${stageTitle(next)} anyway`,
+  ]
+}
+
+export function checkBack(workflow: ResolvedWorkflow, from: AgentStageId, to: AgentStageId): void {
+  if (!workflow.stages.includes(to)) {
+    throw new RequestError(409, `${stageTitle(to)} isn’t on in this Factory’s Workflow`)
+  }
+  if (workflow.order.indexOf(to) >= workflow.order.indexOf(from)) {
+    throw new RequestError(
+      409,
+      `\`back\` goes only to an earlier Stage; ${stageTitle(to)} isn’t before ${stageTitle(from)}`,
+    )
+  }
+}
+
+export function answerTaskRequest(
+  store: TedStore,
+  task: Task,
+  comment: Comment,
+  answer: CommentAnswer,
+  lineComments?: readonly string[],
+): Comment {
+  const answered = store.answerComment(comment.id, answer, lineComments)
+  if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
+  return answered
 }

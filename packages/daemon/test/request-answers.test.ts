@@ -1,7 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { AnswerRequest, Comment, FailureCase, RequestPurpose } from '@ted/protocol'
+import {
+  type AnswerRequest,
+  type Comment,
+  type FailureCase,
+  type RequestPurpose,
+  sizeChoices,
+} from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type NewComment, openStore, type TedStore } from '../src/store/index.ts'
 import { createRequestAnswers, type RequestAnswerPort } from '../src/tasks/request-answers.ts'
@@ -33,15 +39,19 @@ beforeEach(async () => {
     holding: async (_task, work) => work(),
     failures: { findDecision: () => undefined, resolve: unexpected },
     humanComment: unexpected,
-    answerProposal: unexpected,
-    answerSimulator: unexpected,
     answerRunPermission: unexpected,
-    answerLinearTeam: unexpected,
-    answerSizeCheck: unexpected,
-    answerCiStuck: unexpected,
+    withSimulatorRequest: async (_comment, work) =>
+      work({ assertApp: () => {}, hasRoom: unexpected, boot: unexpected, shutDown: unexpected }),
+    mergeSendBack: async () => {
+      effects.push('merge-back')
+    },
+    startTask: async (id) => {
+      effects.push(`start:${id}`)
+    },
+    planOutside: () => {
+      effects.push('plan-outside')
+    },
     resumeByHand: unexpected,
-    answerRequest: (_task, comment, answer, drafts) =>
-      store.answerComment(comment.id, answer, drafts),
     drafts: (id) => store.lineCommentDrafts(id).map((d) => d.id),
     deliverAnswer: async () => {
       effects.push('delivered')
@@ -67,7 +77,6 @@ beforeEach(async () => {
       effects.push('moved')
       return port.find(taskId)
     },
-    answerLoopAsk: unexpected,
     settleDependents: () => {
       effects.push('unblocked')
     },
@@ -135,34 +144,6 @@ test.each([
   expect(store.getComment(comment.id)?.answer).toBeUndefined()
   expect(effects).toEqual([])
 })
-
-test.each(['proposal', 'simulator', 'size-check', 'ci-stuck', 'linear-team', 'send-back'] as const)(
-  '%s dispatch is independent of title and choice wording',
-  async (kind) => {
-    const handler = async (_task: unknown, comment: Comment) => {
-      effects.push(kind)
-      return finish(comment)
-    }
-    const comment = post({ kind }, { choices: ['Continue'] })
-    port.answerProposal = handler
-    port.answerSimulator = async (c) => handler(undefined, c)
-    port.answerSizeCheck = handler
-    port.answerCiStuck = handler
-    port.answerLinearTeam = (_t, c) => {
-      effects.push(kind)
-      return finish(c)
-    }
-    port.answerLoopAsk = handler
-    await answer(
-      comment,
-      kind === 'proposal' || kind === 'simulator'
-        ? { action: 'approve' }
-        : { action: 'answer', choice: 'Continue' },
-    )
-    expect(effects).toEqual([kind])
-    expect(store.listOpenRequests()).toEqual([])
-  },
-)
 
 test('the stored Linear purpose archives the Task without delivering the answer to its Run', async () => {
   await answer(post({ kind: 'linear-closed' }, { choices: ['Archive'] }), {
@@ -443,4 +424,400 @@ test('a model question from an earlier problem cannot switch the same Run after 
   )
   await answer(current, { action: 'answer', choice: 'Use the default model' })
   expect(effects).toEqual(['default-model'])
+})
+
+test('a Linear team answer rejects missing metadata before any lifecycle effect', async () => {
+  const comment = post({ kind: 'linear-team' }, { choices: ['Allow'] })
+  await expect(answer(comment, { action: 'answer', choice: 'Allow' })).rejects.toThrow(
+    'this question isn’t about a Linear team',
+  )
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+})
+
+const stage = (id: 'clarify' | 'validate' | 'merge') =>
+  store.changeStage(taskId, id, {
+    stageFile: { layer: 'ted', path: `${id}.md` },
+    layers: [],
+    order: [],
+  })
+const linearQuestion = () =>
+  post(
+    { kind: 'linear-team' },
+    { choices: ['Allow', 'Not now', 'Continue'], linearTeam: { key: 'ABC', name: 'Team ABC' } },
+  )
+
+test.each(['Allow', 'Not now'] as const)(
+  'a Linear team %s updates real consent and closes its requests once',
+  async (choice) => {
+    const comment = linearQuestion()
+    const changes: string[] = []
+    store.subscribe((event) => {
+      if (event.type === 'comment-updated' && event.comment.id === comment.id)
+        changes.push(event.comment.id)
+    })
+    await answer(comment, { action: 'answer', choice })
+    const settings = store.settings()
+    const factoryId = port.find(taskId).factoryId
+    expect(
+      choice === 'Allow'
+        ? settings.linearSyncTeams[factoryId]
+        : settings.linearSyncDeclined[factoryId],
+    ).toEqual(['ABC'])
+    expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'answered', choice })
+    expect(changes).toHaveLength(1)
+    expect(store.listOpenRequests()).toEqual([])
+  },
+)
+
+test.each([
+  { choice: 'Continue' },
+  { text: 'Please allow this' },
+  { choice: 'Allow', text: 'Extra words' },
+])('Linear team rules reject %j without consuming the request', async (input) => {
+  const comment = linearQuestion()
+  await expect(answer(comment, { action: 'answer', ...input })).rejects.toThrow(
+    'answer with Allow or Not now',
+  )
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+})
+
+const sizeQuestion = () =>
+  post(
+    { kind: 'size-check' },
+    { choices: Object.values(sizeChoices), sizeCheck: { settle: ['The scope'] } },
+  )
+
+test.each([
+  ['Split it', 'delivered'],
+  ['Grill anyway', 'delivered'],
+  ['Plan it outside TED', 'plan-outside'],
+] as const)('size-check %s carries out the real decision', async (choice, effect) => {
+  stage('clarify')
+  const comment = sizeQuestion()
+  await answer(comment, { action: 'answer', choice })
+  expect(effects).toEqual([effect])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'answered', choice })
+  if (choice === 'Grill anyway') expect(store.getTask(taskId)?.clarifyDepth).toBe('grilling')
+})
+
+test('Plan in chat records the new plan and delivers the result', async () => {
+  stage('clarify')
+  port.planning = () => ({
+    fromTask: async (input) => {
+      effects.push(`plan:${input.sizeCheckId}`)
+      return { id: 'new-plan', title: 'A plan' }
+    },
+  })
+  const comment = sizeQuestion()
+  await answer(comment, { action: 'answer', choice: 'Plan in chat', text: 'Discuss this' })
+  expect(effects).toEqual([`plan:${comment.id}`, 'delivered'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'answered',
+    planId: 'new-plan',
+    choice: 'Plan in chat',
+  })
+})
+
+test('size-check answers reject missing metadata and unavailable planning before closing', async () => {
+  const missing = post({ kind: 'size-check' }, { choices: ['Split it'] })
+  await expect(answer(missing, { action: 'answer', choice: 'Split it' })).rejects.toThrow(
+    'no size check',
+  )
+  const comment = sizeQuestion()
+  await expect(answer(comment, { action: 'answer', choice: 'Plan in chat' })).rejects.toThrow(
+    'aren’t ready',
+  )
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+})
+
+const ciQuestion = () =>
+  post({ kind: 'ci-stuck' }, { choices: ['Merge anyway', 'Send to Task Lead', 'Keep waiting'] })
+
+test.each([
+  ['Keep waiting', []],
+  ['Send to Task Lead', ['merge-back']],
+  ['Merge anyway', ['obligations']],
+] as const)('CI choice %s runs its real decision', async (choice, expected) => {
+  stage('merge')
+  const comment = ciQuestion()
+  await answer(comment, { action: 'answer', choice })
+  expect(effects).toEqual(expected)
+  expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'answered', choice })
+})
+
+test('CI Merge anyway leaves its request open when obligations fail', async () => {
+  port.requireObligations = async () => {
+    throw new Error('unresolved failures')
+  }
+  const comment = ciQuestion()
+  await expect(answer(comment, { action: 'answer', choice: 'Merge anyway' })).rejects.toThrow(
+    'unresolved failures',
+  )
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+})
+
+test('CI free text is answered and delivered without sending the Task back', async () => {
+  const comment = ciQuestion()
+  await answer(comment, { action: 'answer', text: 'Please inspect this' })
+  expect(effects).toEqual(['delivered'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'answered',
+    text: 'Please inspect this',
+  })
+})
+
+const proposalQuestion = () =>
+  post(
+    { kind: 'proposal' },
+    {
+      kind: 'proposal',
+      proposal: {
+        firstPiece: { id: taskId, displayId: port.find(taskId).displayId },
+        rows: [
+          { title: 'Narrowed piece', scope: 'First scope', priority: 'high', blockedBy: [] },
+          { title: 'A dependent piece', scope: 'Second scope', priority: 'medium', blockedBy: [1] },
+          { title: 'An independent piece', scope: 'Third scope', priority: 'low', blockedBy: [] },
+        ],
+      },
+    },
+  )
+
+test('proposal approval really creates pieces, narrows this Task and starts only unblocked pieces', async () => {
+  const comment = proposalQuestion()
+  await answer(comment, { action: 'approve', proposal: { startUnblocked: true } })
+  const tasks = store.listTasks()
+  expect(tasks.map((t) => t.title)).toEqual([
+    'Narrowed piece',
+    'A dependent piece',
+    'An independent piece',
+  ])
+  expect(store.getTask(taskId)).toMatchObject({ description: 'First scope', priority: 'high' })
+  const dependent = tasks.find((t) => t.title === 'A dependent piece')
+  const independent = tasks.find((t) => t.title === 'An independent piece')
+  expect(dependent && store.blockers(dependent.id).map((b) => b.blockerId)).toEqual([taskId])
+  expect(effects).toEqual(['delivered', `start:${independent?.id}`])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'approved',
+    created: { skipped: [], startUnblocked: true },
+  })
+})
+
+test.each([1, 8])('proposal skip row %s is rejected before creating Tasks', async (row) => {
+  const comment = proposalQuestion()
+  await expect(answer(comment, { action: 'approve', proposal: { skip: [row] } })).rejects.toThrow(
+    row === 1 ? 'always kept' : 'no row 8',
+  )
+  expect(store.listTasks()).toHaveLength(1)
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+})
+
+test('a proposal without rows cannot be approved', async () => {
+  const comment = post({ kind: 'proposal' }, { kind: 'proposal' })
+  await expect(answer(comment, { action: 'approve' })).rejects.toThrow('no rows')
+})
+
+test('proposal Request changes records and delivers words without creating pieces', async () => {
+  const comment = proposalQuestion()
+  await answer(comment, { action: 'request-changes', text: 'Change the split' })
+  expect(store.listTasks()).toHaveLength(1)
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'changes-requested',
+    text: 'Change the split',
+  })
+  expect(effects).toEqual(['delivered'])
+})
+
+const sendBackQuestion = (loop = true) => {
+  const comment = post(
+    { kind: 'send-back' },
+    { choices: ['Try again', 'Back to Design', 'Move to Review anyway'] },
+  )
+  store.askAboutSendBack({
+    commentId: comment.id,
+    taskId,
+    from: 'validate',
+    to: 'work',
+    findings: 'Fix the bug',
+    loop,
+  })
+  return comment
+}
+const loopWorkflow = () => {
+  const workflow = resolveWorkflow([])
+  return {
+    ...workflow,
+    stageFile: (id: string) => ({
+      layer: 'ted' as const,
+      path: `${id}.md`,
+      text: 'Stage instructions',
+    }),
+  }
+}
+
+test.each([
+  ['Try again', 'work'],
+  ['Back to Design', 'design'],
+  ['Move to Review anyway', 'review'],
+] as const)('send-back %s records the real decision and moves to %s', async (choice, next) => {
+  stage('validate')
+  port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
+  port.pullRequestWork = () => {
+    effects.push('pull-request')
+  }
+  port.move = async (task, _resolution, to) => {
+    effects.push(`move:${to}`)
+    return store.changeStage(task.id, to, {
+      stageFile: { layer: 'ted', path: `${to}.md` },
+      layers: [],
+      order: [],
+    })
+  }
+  const comment = sendBackQuestion()
+  await answer(comment, { action: 'answer', choice })
+  expect(store.getTask(taskId)?.stage).toBe(next)
+  expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'answered', choice })
+  expect(effects).toContain(`move:${next}`)
+  if (choice === 'Move to Review anyway')
+    expect(effects).toEqual(['obligations', 'pull-request', 'move:review'])
+  else
+    expect(store.listSendBacks(taskId).at(-1)).toMatchObject({
+      to: next,
+      counted: choice === 'Try again',
+    })
+})
+
+test('send-back missing metadata is rejected, and non-loop choices are delivered normally', async () => {
+  const missing = post({ kind: 'send-back' }, { choices: ['Try again'] })
+  await expect(answer(missing, { action: 'answer', choice: 'Try again' })).rejects.toThrow(
+    'no recorded decision',
+  )
+  await expect(answer(missing, { action: 'answer', text: 'Please review' })).rejects.toThrow(
+    'no recorded decision',
+  )
+  const comment = sendBackQuestion(false)
+  await answer(comment, { action: 'answer', choice: 'Try again' })
+  expect(effects).toEqual(['delivered'])
+})
+
+const simulatorQuestion = () =>
+  store.requestSimulator({
+    taskId,
+    runId: 'simulator-run',
+    title: 'A simulator request',
+    body: 'Choose a device',
+    simulator: { app: 'iOS', repo: 'widgets', device: 'iPhone', limit: 1, booted: [] },
+  })
+const simulatorEffects = (room = false) => {
+  port.withSimulatorRequest = async (_comment, work) =>
+    work({
+      assertApp: () => {},
+      hasRoom: async () => room,
+      boot: async () => {
+        effects.push('boot')
+      },
+      shutDown: async (udid) => {
+        effects.push(`shutdown:${udid}`)
+        return 'OTHER-1'
+      },
+    })
+}
+
+test('simulator denial is recorded without touching a device', async () => {
+  const comment = simulatorQuestion()
+  await answer(comment, { action: 'deny', text: 'Keep it running' })
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'denied',
+    text: 'Keep it running',
+  })
+  expect(effects).toEqual([])
+})
+
+test('simulator approval requires a choice while full, then shuts down and boots in order', async () => {
+  simulatorEffects()
+  const comment = simulatorQuestion()
+  await expect(answer(comment, { action: 'approve' })).rejects.toThrow('pick the simulator')
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  await answer(comment, { action: 'approve', simulator: 'other-device' })
+  expect(effects).toEqual(['shutdown:other-device', 'boot'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'approved',
+    shutDown: 'OTHER-1',
+  })
+})
+
+test('a freed simulator slot withdraws the request after booting, without shutting down another device', async () => {
+  simulatorEffects(true)
+  const comment = simulatorQuestion()
+  await answer(comment, { action: 'approve' })
+  expect(effects).toEqual(['boot'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'withdrawn', slotFreed: true })
+})
+
+test('simulator answers reject missing metadata and the disk hold', async () => {
+  const missing = post({ kind: 'simulator' }, { kind: 'permission' })
+  await expect(answer(missing, { action: 'deny' })).rejects.toThrow('no simulator')
+  const comment = simulatorQuestion()
+  store.holdNewWork('disk full')
+  await expect(answer(comment, { action: 'approve', simulator: 'other-device' })).rejects.toThrow(
+    'disk is almost full',
+  )
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+})
+
+test.each(['proposal', 'simulator', 'size-check', 'ci-stuck', 'linear-team', 'send-back'] as const)(
+  '%s rules reject stale requests before their effects',
+  async (kind) => {
+    const comment =
+      kind === 'proposal'
+        ? proposalQuestion()
+        : kind === 'simulator'
+          ? simulatorQuestion()
+          : kind === 'size-check'
+            ? sizeQuestion()
+            : kind === 'ci-stuck'
+              ? ciQuestion()
+              : kind === 'linear-team'
+                ? linearQuestion()
+                : sendBackQuestion()
+    store.answerComment(comment.id, { kind: 'withdrawn', at: at(), cancelled: true })
+    const request: AnswerRequest =
+      kind === 'proposal' || kind === 'simulator'
+        ? { action: 'approve', simulator: 'other-device' }
+        : {
+            action: 'answer',
+            choice:
+              kind === 'size-check'
+                ? 'Split it'
+                : kind === 'ci-stuck'
+                  ? 'Keep waiting'
+                  : kind === 'linear-team'
+                    ? 'Allow'
+                    : 'Try again',
+          }
+    await expect(answer(comment, request)).rejects.toThrow('withdrawn')
+    expect(effects).toEqual([])
+  },
+)
+
+test('a simulator App that stopped cannot consume its pending approval', async () => {
+  port.withSimulatorRequest = async (_comment, work) =>
+    work({
+      assertApp: () => {
+        throw new Error('the App that asked has stopped')
+      },
+      hasRoom: unexpected,
+      boot: unexpected,
+      shutDown: unexpected,
+    })
+  const comment = simulatorQuestion()
+  await expect(answer(comment, { action: 'approve', simulator: 'other-device' })).rejects.toThrow(
+    'App that asked has stopped',
+  )
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
 })

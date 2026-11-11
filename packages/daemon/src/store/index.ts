@@ -1576,19 +1576,23 @@ export async function openStore({
   const withPurpose = (comment: Comment, stored: string | null): Comment => {
     if (comment.kind === 'note') return comment
     if (stored !== null) return { ...comment, purpose: JSON.parse(stored) as RequestPurpose }
+    const structural = structuralPurpose(comment)
+    if (structural && structural.kind !== 'question') return { ...comment, purpose: structural }
     const sendBack = store.query(queryDb(sendBackAsks.where({ commentId: comment.id }))).length > 0
     const failure = failureStore
       .list(comment.taskId)
       .some((f) => f.decisions.some((d) => d.commentId === comment.id))
-    const modelRun = store
-      .query(queryDb(runs.where({ taskId: comment.taskId }).orderBy('startedAt', 'asc')))
-      .filter((r) => r.parentRunId === null && r.startedAt <= comment.createdAt)
-      .at(-1)
     const purpose = sendBack
       ? { kind: 'send-back' as const }
       : failure
         ? { kind: 'failure' as const }
-        : legacyPurpose(comment, modelRun?.id)
+        : legacyPurpose(comment, () => {
+            const modelRun = store
+              .query(queryDb(runs.where({ taskId: comment.taskId }).orderBy('startedAt', 'asc')))
+              .filter((r) => r.parentRunId === null && r.startedAt <= comment.createdAt)
+              .at(-1)
+            return modelRun?.id
+          })
     return purpose ? { ...comment, purpose } : comment
   }
 

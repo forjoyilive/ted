@@ -16,7 +16,7 @@ export function structuralPurpose(
 
 export function legacyPurpose(
   comment: Comment,
-  modelRunId: string | undefined,
+  modelRunId: () => string | undefined,
 ): RequestPurpose | undefined {
   const structural = structuralPurpose(comment)
   if (structural?.kind !== 'question' || comment.author.kind !== 'ted') return structural
@@ -30,10 +30,11 @@ export function legacyPurpose(
     return { kind: 'linear-closed' }
   if (comment.title === 'The Task Lead stopped without saying why') return { kind: 'idle-run' }
   if (
-    modelRunId &&
     comment.title?.endsWith(' isn’t in your plan') &&
     comment.choices?.includes('Use the default model')
-  )
-    return { kind: 'model', runId: modelRunId }
+  ) {
+    const runId = modelRunId()
+    if (runId !== undefined) return { kind: 'model', runId }
+  }
   return structural
 }
