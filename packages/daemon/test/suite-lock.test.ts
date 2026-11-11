@@ -226,16 +226,17 @@ describe('test slots', () => {
 
     children[0]?.kill()
     const releaseSmall = await small
-    const releaseLate = await late
-    await pause(200)
-    expect(order).toEqual(['first small', 'last small'])
-    expect(await readFile(file, 'utf8')).toBe(`${full}\n`)
-
     const afterFull = acquireSlot({ ...slots(), pid: 4242 }).then((release) => {
       order.push('small after the full run')
       return release
     })
     await releaseSmall?.()
+    const releaseLate = await late
+    await pause(200)
+    expect(order).toEqual(['first small', 'last small'])
+    expect(await readFile(file, 'utf8')).toBe(`${full}\n`)
+    for (const index of [0, 1])
+      expect(await readFile(slot(index), 'utf8').catch(() => '')).not.toBe('4242\n')
     await releaseLate?.()
     const releaseFull = await big
     await pause(100)

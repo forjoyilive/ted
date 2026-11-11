@@ -149,15 +149,20 @@ const slotFile = (dir: string, index: number) => path.join(dir, `${index}.lock`)
 // Each waiting run holds a ticket in <slot folder>/queue, named <time asked>-<pid>-<kind>.
 // A run waits behind the earlier tickets of its own kind. A ticket without a kind comes
 // from a checkout with the older lock code, and every run waits behind an earlier one.
+// A full run letting small runs go first adds the time its turn came as a fourth part,
+// and small runs that asked at or after that time wait for it.
 interface Queue {
   ahead(): Promise<number | undefined>
   smallBefore(time: number): Promise<number | undefined>
+  turn(time: number | undefined): Promise<void>
   leave(): Promise<void>
 }
 
 async function joinQueue(dir: string, pid: number, kind: RunKind): Promise<Queue | undefined> {
   const queue = path.join(dir, 'queue')
-  const ticket = `${String(Date.now()).padStart(15, '0')}-${pid}-${kind}`
+  const asked = Date.now()
+  const first = `${String(asked).padStart(15, '0')}-${pid}-${kind}`
+  let ticket = first
   const written = await mkdir(queue, { recursive: true })
     .then(() => writeFile(path.join(queue, ticket), ''))
     .then(
@@ -166,13 +171,25 @@ async function joinQueue(dir: string, pid: number, kind: RunKind): Promise<Queue
     )
   if (!written) return undefined
   const others = async () => {
-    const live: { name: string; asked: number; pid: number; kind: string | undefined }[] = []
+    const live: {
+      name: string
+      asked: number
+      pid: number
+      kind: string | undefined
+      turn: number | undefined
+    }[] = []
     for (const name of (await readdir(queue).catch(() => [])).sort()) {
-      const [asked, holder, itsKind] = name.split('-')
+      const [itsAsked, holder, itsKind, itsTurn] = name.split('-')
       const other = Number(holder)
       if (other === pid) continue
       if (Number.isInteger(other) && other > 0 && pidAlive(other))
-        live.push({ name, asked: Number(asked), pid: other, kind: itsKind })
+        live.push({
+          name,
+          asked: Number(itsAsked),
+          pid: other,
+          kind: itsKind,
+          turn: itsTurn === undefined ? undefined : Number(itsTurn),
+        })
       else await unlink(path.join(queue, name)).catch(() => undefined)
     }
     return live
@@ -180,12 +197,30 @@ async function joinQueue(dir: string, pid: number, kind: RunKind): Promise<Queue
   const passes = kind === 'full' ? 'small' : 'full'
   return {
     async ahead() {
-      return (await others()).find((other) => other.name < ticket && other.kind !== passes)?.pid
+      return (await others()).find(
+        (other) =>
+          (other.name < first && other.kind !== passes) ||
+          (kind === 'small' &&
+            other.kind === 'full' &&
+            other.turn !== undefined &&
+            other.turn <= asked),
+      )?.pid
     },
     async smallBefore(time) {
       const live = await others()
       if (live.some((other) => other.kind !== 'full' && other.kind !== 'small')) return undefined
       return live.find((other) => other.kind === 'small' && other.asked < time)?.pid
+    },
+    async turn(time) {
+      const next = time === undefined ? first : `${first}-${time}`
+      if (next === ticket) return
+      const made = await writeFile(path.join(queue, next), '').then(
+        () => true,
+        () => false,
+      )
+      if (!made) return
+      await unlink(path.join(queue, ticket)).catch(() => undefined)
+      ticket = next
     },
     leave: () => unlink(path.join(queue, ticket)).catch(() => undefined),
   }
@@ -228,9 +263,11 @@ async function letSmallRunsGo(
     let waitsFor: number | undefined
     if (running !== undefined && running !== options.pid && pidAlive(running)) {
       turn = undefined
+      await queue.turn(undefined)
       waitsFor = running
     } else {
       turn ??= Date.now()
+      await queue.turn(turn)
       if (Date.now() - turn >= options.yieldMs) return
       waitsFor = await queue.smallBefore(turn)
       if (waitsFor === undefined) return
