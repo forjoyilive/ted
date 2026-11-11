@@ -33,7 +33,13 @@ import type {
 } from './automation.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
-import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from './changes.ts'
+import type {
+  DraftLineCommentRequest,
+  FileDiff,
+  LineComment,
+  PullRequestChanges,
+  TaskChanges,
+} from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type {
   BaseConflictFound,
@@ -887,6 +893,13 @@ export class DaemonClient {
 
   taskChanges(ref: string): Promise<TaskChanges> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/changes`)
+  }
+
+  pullRequestChanges(ref: string, repo: string): Promise<PullRequestChanges> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/pull-request-changes/${encodeURIComponent(repo)}`,
+    )
   }
 
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]> {
