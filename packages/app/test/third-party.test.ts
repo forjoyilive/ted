@@ -11,7 +11,9 @@ describe('third-party code TED ships', () => {
 
     expect(byName.get('yaml')).toMatchObject({ runtime: true })
     expect(byName.get('@livestore/wa-sqlite')).toMatchObject({ runtime: true })
-    expect(byName.get('react')).toMatchObject({ runtime: false })
+    for (const name of ['react', 'react-markdown', 'remark-gfm']) {
+      expect(byName.get(name), name).toMatchObject({ runtime: false })
+    }
     expect(byName.get('@fontsource-variable/geist')).toMatchObject({ runtime: false })
     for (const left of ['electron', 'vitest', '@effect/vitest', '@ted/daemon']) {
       expect(byName.has(left), left).toBe(false)
@@ -32,6 +34,8 @@ describe('third-party code TED ships', () => {
     expect(text).toContain('APPENDIX: How to apply the Apache License to your work.')
     expect(text).not.toContain('this attribution stands in for it')
     expect(text).toMatch(/^react \d+\.\d+\.\d+ · MIT$/m)
+    expect(text).toMatch(/^react-markdown \d+\.\d+\.\d+ · MIT$/m)
+    expect(text).toMatch(/^remark-gfm \d+\.\d+\.\d+ · MIT$/m)
     expect(text).toMatch(/^@fontsource-variable\/geist \d+\.\d+\.\d+ · OFL-1\.1$/m)
     expect(text).toMatch(/^electron \d+\.\d+\.\d+ · MIT$/m)
     expect(text).toContain('SIL OPEN FONT LICENSE')

@@ -30,7 +30,7 @@ export interface Integrations {
   check(options?: { fresh?: boolean }): Promise<IntegrationsHealth>
   fix(request: RunFixRequest): Promise<RunFixResult>
   start(): void
-  close(): void
+  close(): Promise<void>
 }
 
 export interface IntegrationsOptions {
@@ -64,6 +64,16 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
   const watches = new Set<NodeJS.Timeout>()
   let unsubscribe: (() => void) | undefined
   let closed = false
+  let closing: Promise<void> | undefined
+  const pending = new Set<Promise<unknown>>()
+
+  function track<T>(work: Promise<T>): Promise<T> {
+    const tracked = work.finally(() => {
+      pending.delete(tracked)
+    })
+    pending.add(tracked)
+    return tracked
+  }
 
   const environment =
     options.environment ?? createEnvironment({ loginShell: options.loginShell ?? false })
@@ -82,6 +92,7 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
     onAuthError: () => void check().catch(() => undefined),
     rateLimit: {
       limited(host, since, retryAt) {
+        if (closed) return
         if (now().getTime() - since.getTime() < rateLimitBannerAfterMs) return
         banners.raise({
           problem: rateLimitProblem,
@@ -91,6 +102,7 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
         })
       },
       cleared(host) {
+        if (closed) return
         banners.clear({ problem: rateLimitProblem, subject: host })
       },
     },
@@ -99,8 +111,10 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
 
   async function measure(fresh: boolean): Promise<IntegrationsHealth> {
     const found = await loadEnv(fresh)
-    const [github, git] = await Promise.all([checkGitHub(found), checkGit(found)])
-    return { github, git, checkedAt: now().toISOString() }
+    const [github, git] = await Promise.allSettled([checkGitHub(found), checkGit(found)])
+    if (github.status === 'rejected') throw github.reason
+    if (git.status === 'rejected') throw git.reason
+    return { github: github.value, git: git.value, checkedAt: now().toISOString() }
   }
 
   async function checkGitHub(found: NodeJS.ProcessEnv): Promise<IntegrationsHealth['github']> {
@@ -298,22 +312,30 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
   }
 
   function check({ fresh = false }: { fresh?: boolean } = {}): Promise<IntegrationsHealth> {
+    if (closed) return Promise.reject(new RequestError(503, 'Integrations are closed'))
     if (running && !fresh) return running
-    const next = (async () => {
-      const health = await measure(fresh)
-      if (closed) return health
-      last = health
-      updateBanner(health)
-      options.emit?.({ type: 'integrations-checked', health })
-      return health
-    })()
+    const next = track(
+      (async () => {
+        const health = await measure(fresh)
+        if (closed) return health
+        last = health
+        updateBanner(health)
+        options.emit?.({ type: 'integrations-checked', health })
+        return health
+      })(),
+    )
     running = next
     return next.finally(() => {
       if (running === next) running = undefined
     })
   }
 
-  async function fix({ fix: kind, host }: RunFixRequest): Promise<RunFixResult> {
+  function fix(request: RunFixRequest): Promise<RunFixResult> {
+    if (closed) return Promise.reject(new RequestError(503, 'Integrations are closed'))
+    return track(applyFix(request))
+  }
+
+  async function applyFix({ fix: kind, host }: RunFixRequest): Promise<RunFixResult> {
     if (!integrationFixes.includes(kind)) {
       throw new RequestError(400, `fix must be ${integrationFixes.join(', ')}`)
     }
@@ -333,6 +355,7 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
   }
 
   function watch(kind: IntegrationFix, host: string): void {
+    if (closed) return
     const { everyMs, forMs } = options.watchAfterFix ?? { everyMs: 5_000, forMs: 5 * 60_000 }
     const until = Date.now() + forMs
     const tick = setInterval(() => {
@@ -366,6 +389,7 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
     check,
     fix,
     start() {
+      if (closed) return
       void check({ fresh: true }).catch((error: unknown) =>
         console.error(redactSecrets(`checking GitHub and Git failed: ${String(error)}`)),
       )
@@ -381,11 +405,14 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
       })
     },
     close() {
+      if (closing) return closing
       closed = true
       if (timer) clearInterval(timer)
       for (const tick of watches) clearInterval(tick)
       watches.clear()
       unsubscribe?.()
+      closing = Promise.allSettled([loaded, ...pending]).then(() => undefined)
+      return closing
     },
   }
 }

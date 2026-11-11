@@ -1,5 +1,4 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +14,7 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 const briefText = [
   '## Goal\n\nStop the TypeError in SearchPanel.',
@@ -25,7 +25,7 @@ const briefText = [
 ].join('\n\n')
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
-const electronPath = createRequire(import.meta.url)('electron') as string
+const electronPath = resolveElectron()
 const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
 )
@@ -92,12 +92,12 @@ describe('Task details in the app', () => {
     return { daemon, task }
   }
 
-  test('Task Gates edit, cancel, reset and refresh stale choices while a posted Gate stays locked', async () => {
+  test('Task sign-offs edit, cancel, reset and refresh stale choices while a posted Sign-off stays locked', async () => {
     const { daemon, task } = await taskAtDesignGate()
     const window = await launch()
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details.getByRole('button', { name: 'Use Workflow · Edit' }).click()
-    let editor = details.getByRole('region', { name: 'Gates for this Task' })
+    let editor = details.getByRole('region', { name: 'Sign-offs for this Task' })
     await expect(editor.getByLabel('Design', { exact: false }).isDisabled()).resolves.toBe(true)
     const review = () => editor.locator(`select[id="gate-${task.id}-review"]`)
     await review().selectOption('off')
@@ -111,18 +111,20 @@ describe('Task details in the app', () => {
     await details.getByRole('button', { name: '1 overridden · Edit' }).click()
     const current = await daemon.taskGates(task.id)
     await daemon.setTaskGates(task.id, { overrides: { review: true }, revision: current.revision })
-    await editor.getByText('The Task or Workflow changed. Reload Gates before saving.').waitFor()
+    await editor
+      .getByText('The Task or Workflow changed. Reload sign-offs before saving.')
+      .waitFor()
     await expect(
       editor.getByRole('button', { name: 'Save', exact: true }).isDisabled(),
     ).resolves.toBe(true)
-    await editor.getByRole('button', { name: 'Reload Gates' }).click()
+    await editor.getByRole('button', { name: 'Reload sign-offs' }).click()
     await expect.poll(() => review().inputValue()).toBe('on')
     await editor.getByRole('button', { name: 'Use Workflow', exact: true }).click()
     await editor.getByRole('button', { name: 'Save', exact: true }).click()
     await details.getByRole('button', { name: 'Use Workflow · Edit' }).waitFor()
     expect((await daemon.taskGates(task.id)).overrides).toEqual({})
     await details.getByRole('button', { name: 'Use Workflow · Edit' }).click()
-    editor = details.getByRole('region', { name: 'Gates for this Task' })
+    editor = details.getByRole('region', { name: 'Sign-offs for this Task' })
     await editor.waitFor()
     if (process.env.TED_GATE_SCREENSHOT) {
       await daemon.editTask(task.id, { title: 'Let notes be edited offline.' })
@@ -138,13 +140,13 @@ describe('Task details in the app', () => {
     }
   })
 
-  test('a required Gate displays On while retaining a previously saved Off choice', async () => {
+  test('a required Sign-off displays On while retaining a previously saved Off choice', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const daemon = await daemonAsApp(home, env())
     await daemon.addFactory({ repo: origin, key: 'NB' })
     const task = await daemon.createTask({
       factory: 'NB',
-      title: 'Choose the Clarify Gate',
+      title: 'Choose the Clarify sign-off',
       clarifyDepth: 'few',
     })
     const before = await daemon.taskGates(task.id)
@@ -152,7 +154,7 @@ describe('Task details in the app', () => {
     const window = await launch()
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details.getByRole('button', { name: '1 overridden · Edit' }).click()
-    const editor = details.getByRole('region', { name: 'Gates for this Task' })
+    const editor = details.getByRole('region', { name: 'Sign-offs for this Task' })
     const clarify = editor.getByLabel('Clarify', { exact: true })
     await expect(clarify.inputValue()).resolves.toBe('off')
     await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -161,7 +163,7 @@ describe('Task details in the app', () => {
     await expect(clarify.inputValue()).resolves.toBe('required')
     await expect(clarify.isDisabled()).resolves.toBe(true)
     await editor.getByText('Required at grilling depth', { exact: true }).waitFor()
-    await editor.getByText('Your Off choice applies when this Gate is optional.').waitFor()
+    await editor.getByText('Your Off choice applies when this sign-off is optional.').waitFor()
     expect((await daemon.taskGates(task.id)).overrides.clarify).toBe(false)
     if (process.env.TED_REQUIRED_GATE_SCREENSHOT) {
       if (app)

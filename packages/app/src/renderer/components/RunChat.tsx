@@ -2,7 +2,7 @@
 // ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
 // grouping of calls, and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
-import { type ReactNode, useEffect, useState } from 'react'
+import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
 import { useProfile } from '../profile.tsx'
@@ -13,6 +13,7 @@ import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import { LoadingError, Skeleton } from './Loading.tsx'
+import { Markdown } from './Markdown.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
 import { ScrollMemory } from './ScrollMemory.tsx'
@@ -255,7 +256,7 @@ function AgentMessage({
           <span className={styles.author}>{run.name}</span>
           {item.at !== undefined && <span className={styles.when}>{ago(item.at, now)}</span>}
         </div>
-        <p className={styles.text}>{item.text}</p>
+        <Markdown className={styles.text} text={item.text} />
       </div>
     </div>
   )
@@ -348,7 +349,7 @@ function HumanMessage({
             />
           )}
         </div>
-        <p className={styles.text}>{item.text}</p>
+        <Markdown className={styles.text} text={item.text} />
       </div>
     </div>
   )
@@ -454,17 +455,30 @@ function PermissionRow({
   )
 }
 
-function ChatRow({
-  item,
-  run,
-  now,
-  options,
-}: {
+interface ChatRowProps {
   item: ChatItem
   run: RunSummary
   now: number
   options: ChatOptions
-}) {
+}
+
+function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
+  return (
+    before.now === after.now &&
+    before.run.id === after.run.id &&
+    before.run.agent === after.run.agent &&
+    before.run.name === after.run.name &&
+    before.run.state === after.run.state &&
+    before.options.live === after.options.live &&
+    before.options.interrupt === after.options.interrupt &&
+    before.options.inspect === after.options.inspect &&
+    (before.options.matchItemId === before.item.id) ===
+      (after.options.matchItemId === after.item.id) &&
+    (before.item === after.item || JSON.stringify(before.item) === JSON.stringify(after.item))
+  )
+}
+
+const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps) {
   switch (item.kind) {
     case 'instructions':
       return (
@@ -505,7 +519,7 @@ function ChatRow({
     case 'permission':
       return <PermissionRow item={item} now={now} inspect={options.inspect} />
   }
-}
+}, sameRow)
 
 export interface ChatExtra {
   id: string
@@ -717,7 +731,8 @@ export function ChatBody({
   const { run, items } = chat
   const rows = withExtras(items, options.extra ?? [])
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
-  const now = useTicking(running)
+  const ticking = useTicking(running)
+  const now = useNow()
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
 
   return (
@@ -743,7 +758,12 @@ export function ChatBody({
               tabIndex={options.matchItemId === row.item.id ? -1 : undefined}
               className={options.matchItemId === row.item.id ? styles.searchMatch : undefined}
             >
-              <ChatRow item={row.item} run={run} now={now} options={options} />
+              <ChatRow
+                item={row.item}
+                run={run}
+                now={row.item.kind === 'tool' && row.item.status === 'running' ? ticking : now}
+                options={options}
+              />
             </div>
           ) : (
             <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { Coordinator, CoordinatorStatus, RunChat } from '@ted/protocol'
+import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { OvernightContext } from '../src/renderer/overnight.tsx'
@@ -263,7 +264,7 @@ test('overnight mode is switched in Settings → General, not in the sidebar', a
 
 const notice = () => screen.queryByRole('status', { name: 'Overnight mode is on' })
 const noticeText =
-  '▲ Overnight mode is on. Gates set here are off until you turn it off in Settings → General. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you.'
+  '▲ Overnight mode is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you.'
 
 function overnight(on: boolean, view: React.ReactNode) {
   const openGeneral = vi.fn()
@@ -288,6 +289,8 @@ test('the Factory Workflow section shows the overnight notice only while overnig
     factorySettings: settingsView,
     homeFolder: () => '/test',
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    getSettings: () => defaultMachineSettings,
+    getLinear: () => ({ state: 'no-key' }),
   })
   await checkNotice(
     () => (
@@ -315,13 +318,13 @@ test('the Library page shows the overnight notice only while overnight mode is o
   )
 })
 
-test('a Task’s Gates editor shows the overnight notice only while overnight mode is on', async () => {
+test('a Task’s sign-offs editor shows the overnight notice only while overnight mode is on', async () => {
   bridge({})
   await checkNotice(
     () => <TaskGatesField taskId="NB-1" />,
     async () => {
       await user().click(await screen.findByRole('button', { name: /Use Workflow/ }))
-      await screen.findByRole('region', { name: 'Gates for this Task' })
+      await screen.findByRole('region', { name: 'Sign-offs for this Task' })
     },
   )
 })

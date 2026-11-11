@@ -325,8 +325,12 @@
 }
 
 .groupRow th {
-  display: block;
-  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-column);
 }
 
 .row {
@@ -519,6 +523,9 @@
   z-index: 15;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: calc(100% - 32px);
   gap: 8px;
   padding: 6px 8px 6px 14px;
   border: 1px solid var(--border-default);
@@ -544,15 +551,33 @@
   font-size: var(--text-13);
 }
 
-.selectionClear {
-  display: inline-flex;
-  padding: 6px;
-  border: none;
-  border-radius: 5px;
-  background: none;
-  color: var(--text-caption);
+.selectionCheckbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent-default);
+  opacity: 0;
 }
 
-.selectionClear:hover {
-  background: var(--surface-selected);
+.row:hover .selectionCheckbox,
+.row:focus-within .selectionCheckbox,
+.groupRow:hover .selectionCheckbox,
+.groupRow:focus-within .selectionCheckbox,
+.selecting .selectionCheckbox {
+  opacity: 1;
+}
+
+.groupRow .groupHead {
+  padding-inline: 0;
+  border-bottom: none;
+}
+
+.selectionCell {
+  padding-inline: 0;
+}
+
+@media (hover: none) {
+  .selectionCheckbox {
+    opacity: 1;
+  }
 }

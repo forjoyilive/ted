@@ -87,6 +87,48 @@ describe('startsNow', () => {
   })
 })
 
+describe('Automation admission', () => {
+  const automationQueue = queueOrder([
+    { id: 'firing', kind: 'automation', rank: 1, factoryId: 'nb' },
+    { id: 'draft', kind: 'automation-draft', rank: 1, factoryId: 'nb' },
+    task('same-factory', 'high', 1),
+    task('other-factory', 'high', 2, 'ms'),
+  ])
+
+  test.each([
+    {
+      name: 'machine capacity',
+      use: { limit: 1, working: 2, byFactory: {}, caps: {} },
+      expected: ['draft', 'firing'],
+    },
+    {
+      name: 'Factory capacity',
+      use: { limit: 6, working: 1, byFactory: { nb: 1 }, caps: { nb: 1 } },
+      expected: ['draft', 'firing', 'other-factory'],
+    },
+    {
+      name: 'busy computer',
+      use: { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: true },
+      expected: ['draft', 'firing'],
+    },
+  ])('bypasses $name while ordinary work respects it', ({ use, expected }) => {
+    expect(startsNow(automationQueue, use).map((e) => e.id)).toEqual(expected)
+  })
+
+  test('both kinds count against machine and Factory capacity in the same pass', () => {
+    expect(
+      startsNow(automationQueue, { limit: 2, working: 0, byFactory: {}, caps: {} }).map(
+        (e) => e.id,
+      ),
+    ).toEqual(['draft', 'firing'])
+    expect(
+      startsNow(automationQueue, { limit: 6, working: 0, byFactory: {}, caps: { nb: 2 } }).map(
+        (e) => e.id,
+      ),
+    ).toEqual(['draft', 'firing', 'other-factory'])
+  })
+})
+
 describe('startsNow with a slot handoff', () => {
   const subAgent = (id: string, rank: number, factoryId = 'nb') =>
     ({ id, kind: 'sub-agent', rank, factoryId }) as const

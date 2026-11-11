@@ -1,0 +1,7 @@
+# Offline notices wait for confirmation
+
+A single failed connection check is not enough evidence to pause every agent kind. In a local trial, a TCP probe to a listening loopback server failed when the daemon’s event loop was blocked for 5.2 seconds. This matches the user’s report that false offline notices happen more often under high CPU use, without proving the cause of every notice.
+
+`watchOnline` in `packages/daemon/src/health/online.ts` keeps the published state online after the first failure and schedules another probe after `offlineCheckMs` (10 seconds). It publishes offline only when a probe started at least that interval after the first failure also fails. A success immediately clears either a suspected or confirmed outage. Calls prompted by CLI retries share an in-flight probe and cannot shorten or postpone the confirmation interval. Elapsed time uses the monotonic clock, so changing the wall clock cannot confirm an outage early.
+
+This changes the offline detection policy in ADR 0057. The hosts, credential-free TCP probes, health-owned pause reasons, banner and recovery behavior stay the same. Detection of a real outage takes roughly 10–15 seconds longer after the first failure; repeated delayed probes can still cause an offline notice. Merely increasing the socket timeout still lets one failed check pause all Runs, while removing detection loses the real-outage pause and recovery behavior.

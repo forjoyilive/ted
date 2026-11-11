@@ -325,14 +325,18 @@ function recordTimes(reports: JsonReport[], save: boolean): void {
 }
 
 export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
-  console.log('\n== Install')
-  if (spawnSync('pnpm', ['install', '--frozen-lockfile'], { cwd: root, stdio: 'inherit' }).status) {
-    console.error('check: Install failed')
-    return false
-  }
-  mkdirSync(cacheDir, { recursive: true })
   const unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
   try {
+    console.log('\n== Install')
+    // pnpm asks before reinstalling node_modules from scratch, and the run holds the test lock
+    // until someone answers; the setting and the closed stdin stop any question.
+    const install = ['install', '--frozen-lockfile', '--config.confirm-modules-purge=false']
+    const stdio = ['ignore', 'inherit', 'inherit'] as const
+    if (spawnSync('pnpm', install, { cwd: root, stdio: [...stdio] }).status) {
+      console.error('check: Install failed')
+      return false
+    }
+    mkdirSync(cacheDir, { recursive: true })
     return await checkInParallel(appOnly)
   } finally {
     await unlock()
@@ -434,7 +438,17 @@ async function checkInParallel(appOnly: boolean): Promise<boolean> {
   return failed.length === 0
 }
 
+export function runRefusal(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!env.TED_RUN) return undefined
+  return 'A Run can’t run pnpm check. It runs every test, takes the whole machine and makes every other Run wait; only the human or a merge runs it. Run pnpm typecheck, pnpm lint and the test files your change touches: pnpm vitest run <files>.'
+}
+
 export async function checkAndRecord({ all = false } = {}): Promise<boolean> {
+  const refusal = runRefusal()
+  if (refusal) {
+    console.error(`check: ${refusal}`)
+    return false
+  }
   const clean = git('status', '--porcelain') === ''
   const commit = git('rev-parse', 'HEAD')
   const appOnly = !all && onlyAppChanged(changedSinceMain())

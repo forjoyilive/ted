@@ -16,11 +16,13 @@ import {
   type Banner,
   type BannerAction,
   type BannerSeverity,
+  type BaseConflictFound,
   type BlockerEnded,
   bannerOrder,
   type CheckResult,
   type CheckRun,
   type CheckRunOutcome,
+  type CheckRunTiming,
   type CheckRunTrigger,
   type CheckState,
   type CiSignal,
@@ -41,6 +43,7 @@ import {
   type Effort,
   type Factory,
   type FailureCase,
+  type FindingSeverity,
   failureChoices,
   type GitHubWait,
   type LayerKind,
@@ -55,6 +58,7 @@ import {
   type Proposal,
   type PullRequestPreview,
   parseLinearUrl,
+  type RequestPurpose,
   type Round,
   type Run,
   type RunEnding,
@@ -62,6 +66,7 @@ import {
   type RunProblem,
   type RunState,
   type SendBack,
+  type SendBackCause,
   type SimulatorAsk,
   type SizeCheck,
   type StageEntry,
@@ -92,18 +97,22 @@ import {
 } from '../tasks/status.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
+import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
 import { countMaterialized } from './progress.ts'
+import { legacyPurpose, structuralPurpose } from './request-purpose.ts'
 import {
   agentPauses,
   automationComments,
   automations,
   automationTasks,
   banners,
+  baseConflicts,
+  checkBoundaries,
   checkResults,
   checkRuns,
   commentAttachments,
@@ -121,12 +130,14 @@ import {
   loopChecks,
   machineSettings,
   machineSettingValues,
+  p1OnlyReviews,
   peerMessages,
   planRequests,
   plans,
   planTasks,
   pullRequests,
   reviewers,
+  reviewScopes,
   runInterrupts,
   runMessages,
   runs,
@@ -134,6 +145,7 @@ import {
   sendBackAsks,
   sendBackResets,
   sendBacks,
+  severityDeclarations,
   sideChats,
   stageEntries,
   stageFileTexts,
@@ -154,6 +166,7 @@ import {
 } from './schema.ts'
 import { createSideChatStore, type SideChatStore } from './side-chats.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
+import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
@@ -277,7 +290,7 @@ export interface SeenStageFile {
   tedVersion: string
 }
 
-export type StopReason = 'human' | 'blockers-removed' | 'repair-incorporation'
+export type StopReason = 'human' | 'blockers-removed' | 'repair-incorporation' | 'prepared'
 
 export interface BlockerLink {
   blockerId: string
@@ -363,6 +376,30 @@ export interface Reviewer {
   at: string
 }
 
+export interface RepoCommit {
+  name: string
+  commit: string
+}
+
+export interface ReviewScope {
+  runId: string
+  taskId: string
+  scope: 'full' | 'fixes' | 'conflict'
+  round: number
+  commits: RepoCommit[]
+  since?: RepoCommit[]
+  at: string
+}
+
+export interface FoundConflict {
+  stage: StageId
+  repo: string
+  base: string
+  tip: string
+  fileCount: number
+  files: readonly string[]
+}
+
 export type LoopVerdict = 'converging' | 'looping' | 'failed'
 
 export interface LoopCheck {
@@ -407,6 +444,7 @@ export interface AcceptedLayer {
 }
 
 export interface NewComment {
+  purpose?: RequestPurpose
   taskId: string
   body: string
   author: CommentAuthor
@@ -577,10 +615,15 @@ export interface TedStore extends TaskHistory {
   removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
-  queueTask(taskId: string, stage: StageId): Task
+  queueTask(taskId: string, stage: StageId, options?: { prepare?: boolean }): Task
   moveToBacklog(taskId: string): Task
   needsPlanning(taskId: string, runId: string): Task
-  startAfterPlanning(taskId: string, stage: StageId, entry: NewStageEntry): Task
+  startAfterPlanning(
+    taskId: string,
+    stage: StageId,
+    entry: NewStageEntry,
+    options?: { prepare?: boolean },
+  ): Task
   taskSplit(
     taskId: string,
     input: { pieceIds: string[]; narrowedTo: string; description: string },
@@ -612,7 +655,7 @@ export interface TedStore extends TaskHistory {
   waitForBlockers(taskId: string): Task
   requeueAfterBlockers(taskId: string): Task
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
-  resumeTask(taskId: string, options: { waitForBlockers: boolean }): Task
+  resumeTask(taskId: string, options: { waitForBlockers: boolean; overnight?: boolean }): Task
   leadNudged(taskId: string, runId: string): void
   appStarted(input: {
     taskId: string
@@ -649,7 +692,12 @@ export interface TedStore extends TaskHistory {
   }): Comment
   leadFailed(failure: LeadFailure): Task
   retryTask(taskId: string, options: { waitForBlockers: boolean }): Task
-  changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
+  changeStage(
+    taskId: string,
+    stage: StageId,
+    entry?: NewStageEntry,
+    options?: { prepare?: boolean },
+  ): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
@@ -667,6 +715,7 @@ export interface TedStore extends TaskHistory {
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
+  permissionComments(runId: string): Comment[]
   taskFiles(taskId: string): Attachment[]
   recordBrowserCapture(taskId: string, attachment: Attachment): void
   browserCaptures(taskId: string): Attachment[]
@@ -705,14 +754,34 @@ export interface TedStore extends TaskHistory {
     round?: number
     limit?: number
     checkRunId?: string
+    cause?: SendBackCause
+    conflict?: FoundConflict
   }): SendBack
   listSendBacks(taskId: string): SendBack[]
+  recordBaseConflict(taskId: string, conflict: FoundConflict): BaseConflictFound
+  baseConflicts(taskId?: string): BaseConflictFound[]
+  declareSeverity(input: {
+    taskId: string
+    runId: string
+    round: number
+    severity: FindingSeverity
+  }): void
+  recordP1OnlyReview(input: { runId: string; taskId: string; round: number; from: number }): void
+  p1OnlyReview(runId: string): boolean
   startChecks(input: {
     taskId: string
     trigger: CheckRunTrigger
     stage: StageId
     checks: PlannedCheck[]
   }): CheckRun
+  checkSlotBoundary(
+    checkRunId: string,
+    boundary: 'entered' | 'acquired' | 'canceled' | 'interrupted' | 'recovered',
+    at: string,
+  ): void
+  checkTiming(checkRunId: string): CheckRunTiming | undefined
+  listCheckTimings(taskId: string): CheckRunTiming[]
+  checkInterrupted(checkRunId: string, position: number): void
   checkStarted(checkRunId: string, position: number): CheckRun
   checkFinished(
     checkRunId: string,
@@ -745,6 +814,8 @@ export interface TedStore extends TaskHistory {
   chooseReviewer(reviewer: Omit<Reviewer, 'at'>): Reviewer
   reviewerOf(runId: string): Reviewer | undefined
   reviewers(taskId: string): Reviewer[]
+  recordReviewScope(scope: Omit<ReviewScope, 'at'>): ReviewScope
+  reviewScopes(taskId: string): ReviewScope[]
   judgeValidate(input: {
     taskId: string
     outcome: 'passed' | 'sent-back'
@@ -769,9 +840,12 @@ export interface TedStore extends TaskHistory {
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
+  runProblemAt(runId: string): string | undefined
   listRuns(): Run[]
+  liveRuns(): Run[]
   busyTaskIds(): string[]
   tasksIn(ids: ReadonlySet<string>): Task[]
+  preparedTasks(): string[]
   backlogTasks(): { id: string; snoozed: boolean }[]
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
@@ -820,6 +894,7 @@ export interface TedStore extends TaskHistory {
   ): PeerMessage
   sideChats: SideChatStore
   coordinators: CoordinatorStore
+  testInvocations: TestInvocationStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
   postFailureDecision(value: FailureCase, body: string): FailureCase
@@ -883,11 +958,12 @@ export async function openStore({
     for (const listener of writeListeners) listener(error)
   }
   let noteWaiting = () => {}
+  let waitingUnchanged = false
   let shutDown = false
   const commit = ((...args: unknown[]) => {
     try {
       const result = (store.commit as (...a: unknown[]) => unknown)(...args)
-      noteWaiting()
+      if (!waitingUnchanged) noteWaiting()
       if (writeFailing) {
         writeFailing = false
         tellWriters()
@@ -922,6 +998,9 @@ export async function openStore({
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
+  const liveRuns = queryDb(
+    runs.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
+  )
 
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
   const taskDraft = (factoryId: string): TaskDraftState => {
@@ -1252,6 +1331,7 @@ export async function openStore({
     stoppedAt,
     stoppedRuns,
     stoppedWhy,
+    preparation,
     failedAt,
     followUpOf,
     forcedGates,
@@ -1323,6 +1403,7 @@ export async function openStore({
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
     const facts: TaskFacts = {
+      ...(preparation === 'preparing' && { preparing: true }),
       ...(snoozedUntil !== null && { snoozedUntil }),
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
@@ -1332,7 +1413,9 @@ export async function openStore({
           at: stoppedAt,
           runs: stoppedRuns ?? 0,
           why:
-            stoppedWhy === 'blockers-removed' || stoppedWhy === 'repair-incorporation'
+            stoppedWhy === 'blockers-removed' ||
+            stoppedWhy === 'repair-incorporation' ||
+            stoppedWhy === 'prepared'
               ? stoppedWhy
               : 'human',
         },
@@ -1442,6 +1525,7 @@ export async function openStore({
     const linearSync = linearSyncOf(row, source)
     return {
       ...row,
+      ...(entries[0] && { startedAt: entries[0].at }),
       ...(snoozedUntil !== null && { snoozedUntil }),
       priority: row.priority as Priority,
       clarifyDepth: row.clarifyDepth as ClarifyDepth,
@@ -1466,6 +1550,7 @@ export async function openStore({
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
+      ...((preparation === 'preparing' || preparation === 'ready') && { preparation }),
       gateOverrides: gateOverrides === null ? {} : (JSON.parse(gateOverrides) as TaskGateOverrides),
       forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
       changesSettings,
@@ -1561,6 +1646,7 @@ export async function openStore({
     effort,
     usesDefaultModel,
     problem,
+    problemAt: _problemAt,
     parentRunId,
     name,
     failure,
@@ -1590,6 +1676,29 @@ export async function openStore({
     ...(ended !== null && { ended: JSON.parse(ended) as RunEnding }),
   })
 
+  const withPurpose = (comment: Comment, stored: string | null): Comment => {
+    if (comment.kind === 'note') return comment
+    if (stored !== null) return { ...comment, purpose: JSON.parse(stored) as RequestPurpose }
+    const structural = structuralPurpose(comment)
+    if (structural && structural.kind !== 'question') return { ...comment, purpose: structural }
+    const sendBack = store.query(queryDb(sendBackAsks.where({ commentId: comment.id }))).length > 0
+    const failure = failureStore
+      .list(comment.taskId)
+      .some((f) => f.decisions.some((d) => d.commentId === comment.id))
+    const purpose = sendBack
+      ? { kind: 'send-back' as const }
+      : failure
+        ? { kind: 'failure' as const }
+        : legacyPurpose(comment, () => {
+            const modelRun = store
+              .query(queryDb(runs.where({ taskId: comment.taskId }).orderBy('startedAt', 'asc')))
+              .filter((r) => r.parentRunId === null && r.startedAt <= comment.createdAt)
+              .at(-1)
+            return modelRun?.id
+          })
+    return purpose ? { ...comment, purpose } : comment
+  }
+
   const toComment = ({
     authorKind,
     authorRunId,
@@ -1614,42 +1723,47 @@ export async function openStore({
     design,
     tutorial,
     linearTeam,
+    purpose,
     ...row
-  }: typeof comments.Type): Comment => ({
-    ...row,
-    kind: row.kind as CommentKind,
-    author:
-      authorKind === 'run' && authorRunId !== null
-        ? { kind: 'run', runId: authorRunId }
-        : { kind: authorKind === 'ted' ? 'ted' : 'human' },
-    ...(stage !== null && { stage: stage as StageId }),
-    ...(title !== null && { title }),
-    ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
-    ...(round !== null && { round: JSON.parse(round) as Round }),
-    ...(talkRunId !== null &&
-      talkStartedAt !== null && {
-        talk: {
-          runId: talkRunId,
-          startedAt: talkStartedAt,
-          ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
-        },
-      }),
-    ...(proposal !== null && { proposal: JSON.parse(proposal) as Proposal }),
-    ...(sizeCheck !== null && { sizeCheck: JSON.parse(sizeCheck) as SizeCheck }),
-    ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
-    ...(permission !== null && { permission: publicPermission(permission) }),
-    ...(simulator !== null && { simulator: JSON.parse(simulator) as SimulatorAsk }),
-    ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
-    ...(deliveredRunId !== null &&
-      deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
-    ...(readAt !== null && { readAt }),
-    ...(failedRunId !== null && { failed: { runId: failedRunId } }),
-    ...(tutorial && { tutorial: true as const }),
-    ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
-    ...(design !== null && { design: JSON.parse(design) as DesignReview }),
-    ...withFiles(row.id),
-    ...withLineComments(row.id),
-  })
+  }: typeof comments.Type): Comment =>
+    withPurpose(
+      {
+        ...row,
+        kind: row.kind as CommentKind,
+        author:
+          authorKind === 'run' && authorRunId !== null
+            ? { kind: 'run', runId: authorRunId }
+            : { kind: authorKind === 'ted' ? 'ted' : 'human' },
+        ...(stage !== null && { stage: stage as StageId }),
+        ...(title !== null && { title }),
+        ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
+        ...(round !== null && { round: JSON.parse(round) as Round }),
+        ...(talkRunId !== null &&
+          talkStartedAt !== null && {
+            talk: {
+              runId: talkRunId,
+              startedAt: talkStartedAt,
+              ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
+            },
+          }),
+        ...(proposal !== null && { proposal: JSON.parse(proposal) as Proposal }),
+        ...(sizeCheck !== null && { sizeCheck: JSON.parse(sizeCheck) as SizeCheck }),
+        ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
+        ...(permission !== null && { permission: publicPermission(permission) }),
+        ...(simulator !== null && { simulator: JSON.parse(simulator) as SimulatorAsk }),
+        ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
+        ...(deliveredRunId !== null &&
+          deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
+        ...(readAt !== null && { readAt }),
+        ...(failedRunId !== null && { failed: { runId: failedRunId } }),
+        ...(tutorial && { tutorial: true as const }),
+        ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
+        ...(design !== null && { design: JSON.parse(design) as DesignReview }),
+        ...withFiles(row.id),
+        ...withLineComments(row.id),
+      },
+      purpose,
+    )
 
   const toLineComment = ({
     side,
@@ -1785,17 +1899,26 @@ export async function openStore({
     ...(row.durationMs !== null && { durationMs: row.durationMs }),
     ...(row.builtIn === 'ted-settings' && { builtIn: 'ted-settings' as const }),
   })
-  const toCheckRun = (row: typeof checkRuns.Type): CheckRun => ({
-    id: row.id,
-    taskId: row.taskId,
-    trigger: row.trigger as CheckRunTrigger,
-    stage: row.stage as StageId,
-    checks: checkResultRows(row.id).map(toCheckResult),
-    startedAt: row.startedAt,
-    ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
-    ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
-    ...(row.finishedAt === null && checksWaiting.has(row.taskId) && { waiting: true }),
-  })
+  const toCheckRun = (row: typeof checkRuns.Type): CheckRun => {
+    const run: CheckRun = {
+      id: row.id,
+      taskId: row.taskId,
+      trigger: row.trigger as CheckRunTrigger,
+      stage: row.stage as StageId,
+      checks: checkResultRows(row.id).map(toCheckResult),
+      startedAt: row.startedAt,
+      ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+      ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
+      ...(row.finishedAt === null && checksWaiting.has(row.taskId) && { waiting: true }),
+    }
+    return {
+      ...run,
+      timing: checkRunTiming(
+        run,
+        store.query(queryDb(checkBoundaries.where({ checkRunId: row.id }))),
+      ),
+    }
+  }
   const checkProgress = (checkRunId: string) => {
     const rows = checkResultRows(checkRunId)
     const index = rows.findIndex((r) => r.state === 'running')
@@ -1819,6 +1942,34 @@ export async function openStore({
     updatedTask(checkRun.taskId)
     return checkRun
   }
+  const conflictFound = (
+    taskId: string,
+    conflict: FoundConflict,
+    at: string,
+    sendBackId: string | null,
+  ) =>
+    events.baseConflictFound({
+      id: randomUUID(),
+      taskId,
+      stage: conflict.stage,
+      repo: conflict.repo,
+      base: conflict.base,
+      tip: conflict.tip,
+      fileCount: conflict.fileCount,
+      files: [...conflict.files],
+      sendBackId,
+      at,
+    })
+  const toBaseConflict = ({
+    files,
+    sendBackId,
+    ...row
+  }: typeof baseConflicts.Type): BaseConflictFound => ({
+    ...row,
+    stage: row.stage as StageId,
+    files: JSON.parse(files) as string[],
+    ...(sendBackId !== null && { sendBackId }),
+  })
   const toSendBack = (row: typeof sendBacks.Type): SendBack => ({
     id: row.id,
     taskId: row.taskId,
@@ -1829,6 +1980,7 @@ export async function openStore({
     ...(row.round !== null && { round: row.round }),
     ...(row.limit !== null && { limit: row.limit }),
     ...(row.checkRunId !== null && { checkRunId: row.checkRunId }),
+    ...(row.cause !== null && { cause: row.cause as SendBackCause }),
     at: row.at,
   })
 
@@ -1924,6 +2076,7 @@ export async function openStore({
       design,
       tutorial = false,
       linearTeam,
+      purpose,
     }: NewComment,
     createdAt: string,
   ) => {
@@ -1963,7 +2116,23 @@ export async function openStore({
         position,
       }),
     )
+    const recordedPurpose =
+      purpose ??
+      structuralPurpose({
+        kind,
+        ...(gate && { gate }),
+        ...(sizeCheck && { sizeCheck }),
+        ...(linearTeam && { linearTeam }),
+      })
     const attached = [
+      ...(recordedPurpose
+        ? [
+            events.commentPurposeRecorded({
+              commentId: id,
+              purpose: JSON.stringify(recordedPurpose),
+            }),
+          ]
+        : []),
       ...files,
       ...(design === undefined
         ? []
@@ -2087,7 +2256,7 @@ export async function openStore({
 
   let shellsRunning = 0
   const activity = (): Activity => {
-    const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    const active = store.query(liveRuns)
     const held = store.query(queryDb(heldRuns)).length
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveAutomations = store
@@ -2252,6 +2421,34 @@ export async function openStore({
     changed: () => noteActivity(),
   })
 
+  const testInvocationStore = createTestInvocationStore({
+    store,
+    commit,
+    checks: (taskId) =>
+      checkRunRows(taskId).map((row) => {
+        const starts = new Set(
+          store
+            .query(queryDb(checkBoundaries.where({ checkRunId: row.id, kind: 'start' })))
+            .map((boundary) => boundary.position),
+        )
+        return {
+          id: row.id,
+          checks: checkResultRows(row.id).map((result) => ({
+            state: result.state,
+            started: starts.has(result.position),
+          })),
+        }
+      }),
+    run: (id) => {
+      const row = runRow(id)
+      return row && toRun(row)
+    },
+    check: (id) => {
+      const row = store.query(queryDb(checkRuns.where({ id })))[0]
+      return row && toCheckRun(row)
+    },
+  })
+
   const failureStore = createFailureStore({
     store,
     commit,
@@ -2395,6 +2592,7 @@ export async function openStore({
     coordinators: coordinatorStore,
     automations: automationStore,
     plans: planStore,
+    testInvocations: testInvocationStore,
     failures: failureStore,
     invalidateFailure(value, note) {
       const { id, event, attached } = commentPosted(
@@ -2435,6 +2633,7 @@ export async function openStore({
               choice !== 'Wait for a repair Task' ||
               ['validate', 'merge'].includes(taskRow(value.taskId)?.stage ?? ''),
           ),
+          purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
         at,
@@ -2652,20 +2851,35 @@ export async function openStore({
       if (queued) updatedQueue(taskId)
       return task
     },
-    queueTask(taskId, stage) {
+    queueTask(taskId, stage, options) {
       const rank = nextRank()
       const at = new Date().toISOString()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         events.taskRanked({ taskId, rank, at }),
         events.taskQueued({ taskId, stage, rank, at }),
+        ...(options?.prepare || taskRow(taskId)?.preparation !== null
+          ? [
+              events.taskPreparationChanged({
+                taskId,
+                state: options?.prepare ? 'preparing' : null,
+                at,
+              }),
+            ]
+          : []),
       )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
     moveToBacklog(taskId) {
-      commit(events.taskMovedToBacklog({ taskId, at: new Date().toISOString() }))
+      const at = new Date().toISOString()
+      commit(
+        events.taskMovedToBacklog({ taskId, at }),
+        ...(taskRow(taskId)?.preparation !== null
+          ? [events.taskPreparationChanged({ taskId, state: null, at })]
+          : []),
+      )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
@@ -2685,13 +2899,22 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
-    startAfterPlanning(taskId, stage, entry) {
+    startAfterPlanning(taskId, stage, entry, options) {
       const at = new Date().toISOString()
       const rank = nextRank()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
+        ...(options?.prepare || taskRow(taskId)?.preparation !== null
+          ? [
+              events.taskPreparationChanged({
+                taskId,
+                state: options?.prepare ? 'preparing' : null,
+                at,
+              }),
+            ]
+          : []),
         stageEntered(taskId, stage, entry, at),
       )
       const task = updatedTask(taskId)
@@ -2762,6 +2985,9 @@ export async function openStore({
       const rank = queued ? Math.max(0, ...queue().map((q) => q.rank)) + 1 : null
       commit(
         events.taskUnarchived({ taskId, rank, at }),
+        ...(taskRow(taskId)?.preparation === 'ready'
+          ? [events.taskStopped({ taskId, runs: 0, why: 'prepared', at })]
+          : []),
         ...(queued && waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
       )
       const task = updatedTask(taskId)
@@ -2858,16 +3084,25 @@ export async function openStore({
       return task
     },
     stopTask(taskId, { runs, why }) {
-      commit(events.taskStopped({ taskId, runs, why, at: new Date().toISOString() }))
+      const at = new Date().toISOString()
+      commit(
+        events.taskStopped({ taskId, runs, why, at }),
+        ...(why === 'human' && taskRow(taskId)?.preparation === 'ready'
+          ? [events.taskPreparationChanged({ taskId, state: null, at })]
+          : []),
+      )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
-    resumeTask(taskId, { waitForBlockers }) {
+    resumeTask(taskId, { waitForBlockers, overnight }) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
       const at = new Date().toISOString()
       commit(
-        events.taskResumed({ taskId, rank, at }),
+        (overnight ? events.taskResumedOvernight : events.taskResumed)({ taskId, rank, at }),
+        ...(taskRow(taskId)?.preparation === 'ready'
+          ? [events.taskPreparationChanged({ taskId, state: null, at })]
+          : []),
         ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
       )
       const task = updatedTask(taskId)
@@ -2944,6 +3179,10 @@ export async function openStore({
           simulator: JSON.stringify(simulator),
           createdAt: at,
         }),
+        events.commentPurposeRecorded({
+          commentId: id,
+          purpose: JSON.stringify({ kind: 'simulator' }),
+        }),
         ...(pause ? [events.runStateChanged({ runId, state: 'waiting', at })] : []),
       )
       const comment = requireComment(id)
@@ -2970,6 +3209,14 @@ export async function openStore({
           ask: ask && id ? { id, ...ask } : null,
           at,
         }),
+        ...(id
+          ? [
+              events.commentPurposeRecorded({
+                commentId: id,
+                purpose: JSON.stringify({ kind: 'failed-run' }),
+              }),
+            ]
+          : []),
       )
       if (id) emit({ type: 'comment-posted', comment: requireComment(id) })
       const task = updatedTask(taskId)
@@ -3374,7 +3621,7 @@ export async function openStore({
       return requireFactory(factoryId)
     },
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
-    changeStage(taskId, stage, entry) {
+    changeStage(taskId, stage, entry, options) {
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId).filter(
         (row) => (row.gate !== null || row.kind === 'round') && row.stage !== stage,
@@ -3382,6 +3629,17 @@ export async function openStore({
       const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
       commit(
         events.taskStageChanged({ taskId, stage, at }),
+        ...(options?.prepare
+          ? [
+              events.taskPreparationChanged({ taskId, state: 'ready', at }),
+              events.taskStopped({
+                taskId,
+                runs: taskRuns(taskId).filter((r) => r.state !== 'finished').length,
+                why: 'prepared',
+                at,
+              }),
+            ]
+          : []),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
         ...withdrawn.map(({ id }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
@@ -3389,6 +3647,7 @@ export async function openStore({
       )
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
+      if (options?.prepare) updatedQueue(taskId)
       if (stage === 'done') {
         for (const { taskId: waiting } of store.query(
           queryDb(taskBlockers.where({ blockerId: taskId })),
@@ -3589,6 +3848,19 @@ export async function openStore({
     },
     listComments: (taskId) =>
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
+    permissionComments(runId) {
+      const taskId = runRow(runId)?.taskId
+      if (taskId === undefined || taskId === null) return []
+      return store
+        .query(
+          queryDb(
+            comments
+              .where({ authorRunId: runId, authorKind: 'run', kind: 'permission', taskId })
+              .orderBy('createdAt', 'asc'),
+          ),
+        )
+        .map(toComment)
+    },
     getComment,
     answerComment(id, answer, sending) {
       commit(
@@ -3695,8 +3967,20 @@ export async function openStore({
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
     },
-    recordSendBack({ taskId, from, to, findings, counted, round, limit, checkRunId }) {
+    recordSendBack({
+      taskId,
+      from,
+      to,
+      findings,
+      counted,
+      round,
+      limit,
+      checkRunId,
+      cause,
+      conflict,
+    }) {
       const id = randomUUID()
+      const at = new Date().toISOString()
       commit(
         events.taskSentBackV2({
           id,
@@ -3708,8 +3992,12 @@ export async function openStore({
           round: round ?? null,
           limit: limit ?? null,
           checkRunId: checkRunId ?? null,
-          at: new Date().toISOString(),
+          at,
         }),
+        ...(cause === undefined
+          ? []
+          : [events.sendBackCauseRecorded({ sendBackId: id, taskId, cause, at })]),
+        ...(conflict === undefined ? [] : [conflictFound(taskId, conflict, at, id)]),
       )
       const row = store.query(queryDb(sendBacks.where({ id }))).at(0)
       if (!row) throw new Error(`no send-back ${id}`)
@@ -3717,8 +4005,55 @@ export async function openStore({
       emit({ type: 'sent-back', sendBack })
       return sendBack
     },
-    listSendBacks: (taskId) =>
-      store.query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc'))).map(toSendBack),
+    recordBaseConflict(taskId, conflict) {
+      const event = conflictFound(taskId, conflict, new Date().toISOString(), null)
+      commit(event)
+      const row = store.query(queryDb(baseConflicts.where({ id: event.args.id }))).at(0)
+      if (!row) throw new Error(`no base conflict ${event.args.id}`)
+      return toBaseConflict(row)
+    },
+    baseConflicts: (taskId) =>
+      store
+        .query(
+          queryDb(
+            (taskId === undefined ? baseConflicts : baseConflicts.where({ taskId })).orderBy(
+              'at',
+              'asc',
+            ),
+          ),
+        )
+        .map(toBaseConflict),
+    listSendBacks(taskId) {
+      const declared = store.query(
+        queryDb(severityDeclarations.where({ taskId }).orderBy('at', 'asc')),
+      )
+      let after = ''
+      return store
+        .query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc')))
+        .map(toSendBack)
+        .map((sendBack) => {
+          const since = after
+          after = sendBack.at
+          if (sendBack.from !== 'validate' || !sendBack.counted || sendBack.checkRunId) {
+            return sendBack
+          }
+          const found = declared.findLast((d) => d.at > since && d.at <= sendBack.at)
+          return found ? { ...sendBack, severity: found.severity as FindingSeverity } : sendBack
+        })
+    },
+    declareSeverity(input) {
+      commit(
+        events.sendBackSeverityDeclared({
+          ...input,
+          id: randomUUID(),
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    recordP1OnlyReview(input) {
+      commit(events.p1OnlyReviewRecorded({ ...input, at: new Date().toISOString() }))
+    },
+    p1OnlyReview: (runId) => store.query(queryDb(p1OnlyReviews.where({ runId }))).length > 0,
     startChecks({ taskId, trigger, stage, checks }) {
       const id = randomUUID()
       commit(
@@ -3739,6 +4074,37 @@ export async function openStore({
         }),
       )
       return updatedCheckRun(id)
+    },
+    checkSlotBoundary(checkRunId, boundary, at) {
+      const run = requireCheckRun(checkRunId)
+      const event = {
+        entered: events.checkSlotEntered,
+        acquired: events.checkSlotAcquired,
+        canceled: events.checkSlotCanceled,
+        interrupted: events.checkSlotInterrupted,
+        recovered: events.checkSlotRecoveryRecorded,
+      }[boundary]
+      commit(event({ taskId: run.taskId, checkRunId, stage: run.stage, trigger: run.trigger, at }))
+      updatedCheckRun(checkRunId)
+    },
+    checkTiming(id) {
+      const row = store.query(queryDb(checkRuns.where({ id }))).at(0)
+      return row && toCheckRun(row).timing
+    },
+    listCheckTimings(taskId) {
+      return checkRunRows(taskId).map((row) => toCheckRun(row).timing as CheckRunTiming)
+    },
+    checkInterrupted(checkRunId, position) {
+      const run = requireCheckRun(checkRunId)
+      commit(
+        events.checkExecutionInterrupted({
+          taskId: run.taskId,
+          checkRunId,
+          position,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedCheckRun(checkRunId)
     },
     checkStarted(checkRunId, position) {
       commit(events.checkStarted({ checkRunId, position, at: new Date().toISOString() }))
@@ -3818,6 +4184,7 @@ export async function openStore({
         steeringRelease: null,
         usesDefaultModel: false,
         problem: null,
+        problemAt: null,
         failure: null,
         permissions,
         manualPermissions: false,
@@ -3880,6 +4247,20 @@ export async function openStore({
     },
     reviewers: (taskId) =>
       store.query(queryDb(reviewers.where({ taskId }).orderBy('at', 'asc'))).map(toReviewer),
+    recordReviewScope({ since, ...scope }) {
+      const at = new Date().toISOString()
+      commit(events.reviewScopeRecorded({ ...scope, since: since ?? null, at }))
+      return { ...scope, ...(since !== undefined && { since }), at }
+    },
+    reviewScopes: (taskId) =>
+      store
+        .query(queryDb(reviewScopes.where({ taskId }).orderBy('at', 'asc')))
+        .map(({ commits, since, ...row }) => ({
+          ...row,
+          scope: row.scope as ReviewScope['scope'],
+          commits: JSON.parse(commits) as RepoCommit[],
+          ...(since !== null && { since: JSON.parse(since) as RepoCommit[] }),
+        })),
     judgeValidate({ taskId, outcome, checkRunId, review, visual, reviewer }) {
       const judged = (j: { passed: boolean; notes?: number } | undefined) =>
         j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }
@@ -3949,7 +4330,13 @@ export async function openStore({
         .map(toLoopCheck),
     askAboutSendBack({ checkRunId, ...ask }) {
       const at = new Date().toISOString()
-      commit(events.sendBackAsked({ ...ask, checkRunId: checkRunId ?? null, at }))
+      commit(
+        events.sendBackAsked({ ...ask, checkRunId: checkRunId ?? null, at }),
+        events.commentPurposeRecorded({
+          commentId: ask.commentId,
+          purpose: JSON.stringify({ kind: 'send-back' }),
+        }),
+      )
       return { ...ask, ...(checkRunId !== undefined && { checkRunId }), at }
     },
     sendBackAsk: (commentId) => {
@@ -4024,28 +4411,41 @@ export async function openStore({
       const stateChanged = target !== undefined && target !== current.state
       const nowRetrying = state === 'finished' ? false : (retrying ?? current.retrying)
       const retryChanged = nowRetrying !== current.retrying
-      commit(
-        events.runOutputReadV3({
-          runId,
-          toOffset,
-          lastOutputAt: output ? (output.lastAt ?? at) : null,
-        }),
-        ...(sessionId !== undefined && sessionId !== current.sessionId
-          ? [events.runSessionIdentified({ runId, sessionId })]
-          : []),
-        ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
-        ...(retryChanged ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })] : []),
-        ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
-        ...(stateChanged && target !== undefined
-          ? [events.runStateChanged({ runId, state: target, at })]
-          : []),
-        ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
-        ...asked.map(({ event }) => event),
-        ...withdrawnOnce.map(({ id, answer }) =>
-          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
-        ),
-      )
-      if (output) emit({ type: 'run-output', runId })
+      waitingUnchanged = asked.length === 0 && withdrawnOnce.length === 0
+      try {
+        commit(
+          events.runOutputReadV3({
+            runId,
+            toOffset,
+            lastOutputAt: output ? (output.lastAt ?? at) : null,
+          }),
+          ...(sessionId !== undefined && sessionId !== current.sessionId
+            ? [events.runSessionIdentified({ runId, sessionId })]
+            : []),
+          ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+          ...(retryChanged
+            ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })]
+            : []),
+          ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
+          ...(stateChanged && target !== undefined
+            ? [events.runStateChanged({ runId, state: target, at })]
+            : []),
+          ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
+          ...asked.flatMap(({ id, event }) => [
+            event,
+            events.commentPurposeRecorded({
+              commentId: id,
+              purpose: JSON.stringify({ kind: 'permission' }),
+            }),
+          ]),
+          ...withdrawnOnce.map(({ id, answer }) =>
+            events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+          ),
+        )
+      } finally {
+        waitingUnchanged = false
+      }
+      if (output) emit({ type: 'run-output', runId, lines: true })
       for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const { id } of withdrawnOnce) emitComment(id)
       if (asked.length > 0 || withdrawnOnce.length > 0 || retryChanged) {
@@ -4160,7 +4560,9 @@ export async function openStore({
       updatedTask(comment.taskId)
       return comment
     },
+    runProblemAt: (runId) => runRow(runId)?.problemAt ?? undefined,
     listRuns: () => store.query(allRuns).map(toRun),
+    liveRuns: () => store.query(liveRuns).map(toRun),
     busyTaskIds: () => [
       ...store.query(queryDb(runs.where({ state: 'working' }))).flatMap((r) => r.taskId ?? []),
       ...store.query(queryDb(taskRepos.where({ setupState: 'running' }))).map((r) => r.taskId),
@@ -4170,6 +4572,11 @@ export async function openStore({
         .query(allTasks)
         .filter((row) => ids.has(row.id))
         .map((row) => toPublicTask(toTask(row))),
+    preparedTasks: () =>
+      store
+        .query(allTasks)
+        .filter((row) => row.preparation === 'ready' && row.archivedAt === null)
+        .map((row) => row.id),
     backlogTasks: () =>
       store
         .query(allTasks)

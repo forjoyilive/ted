@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tedHome } from '@ted/protocol'
 import { type Keyring, KeyringUnavailableError } from '../../src/linear/keyring.ts'
@@ -19,6 +20,15 @@ export async function readStubKeyring(file: string): Promise<StubKeyringState> {
 
 export function stubKeyring(file: string): Keyring {
   const load = () => readStubKeyring(file)
+  const save = async (state: StubKeyringState) => {
+    const temporary = `${file}.${randomUUID()}.tmp`
+    try {
+      await writeFile(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
+      await rename(temporary, file)
+    } finally {
+      await rm(temporary, { force: true })
+    }
+  }
   const usable = async () => {
     const state = await load()
     if (state.state === 'no-keyring') {
@@ -35,11 +45,11 @@ export function stubKeyring(file: string): Keyring {
     },
     async set(secret) {
       const state = await usable()
-      await writeFile(file, JSON.stringify({ ...state, secret }))
+      await save({ ...state, secret })
     },
     async delete() {
       const { secret: _, ...state } = await usable()
-      await writeFile(file, JSON.stringify(state))
+      await save(state)
     },
   }
 }

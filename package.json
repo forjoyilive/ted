@@ -1,6 +1,6 @@
 {
   "name": "ted",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.28.0",
@@ -16,6 +16,7 @@
     "app": "pnpm --filter @ted/app start",
     "package": "pnpm --filter @ted/app package",
     "check": "node scripts/check.ts",
+    "test-waits": "node scripts/test-waits.ts",
     "release": "node scripts/release.ts"
   },
   "devDependencies": {

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { type Banner, integrationInstallPages } from '@ted/protocol'
+import { type Banner, integrationInstallPages, type RepoCheck } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { BannerStack } from '../src/renderer/components/BannerStack.tsx'
 import { AddFactoryDialog } from '../src/renderer/views/AddFactoryDialog.tsx'
 import { SetupPanel } from '../src/renderer/views/TaskViews.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
 const warning: Banner = {
@@ -101,68 +101,82 @@ test('clone failure shows Retry and the setup panel follows cloning progress', a
   expect(screen.getByText('✓ Cloned')).toBeTruthy()
 })
 
-test('Add Factory repo-access and key errors prevent submission', async () => {
-  const openFactory = vi.fn()
-  const api = bridge({
-    homeFolder: () => '/test',
-    getIntegrations: () => ({
-      github: {
-        cli: { state: 'ready' },
-        hosts: [{ host: 'github.com', state: 'ready', scopes: ['workflow'], usedBy: [] }],
-      },
-      git: { state: 'ready' },
-      checkedAt: createdAt,
-    }),
-    checkRepo: () => ({
+test.each(['immediate', 'delayed'])(
+  'Add Factory repo-access and key errors prevent submission (%s validation)',
+  async (completion) => {
+    const openFactory = vi.fn()
+    const api = bridge({
+      homeFolder: () => '/test',
+      getIntegrations: () => ({
+        github: {
+          cli: { state: 'ready' },
+          hosts: [{ host: 'github.com', state: 'ready', scopes: ['workflow'], usedBy: [] }],
+        },
+        git: { state: 'ready' },
+        checkedAt: createdAt,
+      }),
+      checkRepo: () => ({
+        ok: false,
+        notes: [],
+        problem: {
+          kind: 'not-found',
+          text: 'Repository not found, or your GitHub account can’t see it.',
+          fixes: [{ kind: 'check-again' }, { kind: 'github-settings' }],
+        },
+      }),
+    })
+    render(
+      <AddFactoryDialog
+        factories={[factory()]}
+        onClose={vi.fn()}
+        onAdded={vi.fn()}
+        onOpenFactory={openFactory}
+        onOpenGitHubSettings={vi.fn()}
+      />,
+    )
+    const u = user()
+    await u.type(screen.getByLabelText('GitHub URL or owner/repo'), 'acme/nope{Enter}')
+    await screen.findByText('Repository not found, or your GitHub account can’t see it.')
+    expect(api.request).toHaveBeenCalledWith('checkRepo', {
+      source: { remote: 'acme/nope' },
+      primary: true,
+    })
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy()
+    const validation = deferred<RepoCheck>()
+    const result: RepoCheck = {
       ok: false,
+      repo: 'acme/widgets',
       notes: [],
       problem: {
-        kind: 'not-found',
-        text: 'Repository not found, or your GitHub account can’t see it.',
-        fixes: [{ kind: 'check-again' }, { kind: 'github-settings' }],
+        kind: 'primary-elsewhere',
+        text: 'acme/widgets is the primary repo of Factory widgets.',
+        fixes: [{ kind: 'open-factory', factoryId: 'f1', factoryName: 'widgets' }],
       },
-    }),
-  })
-  render(
-    <AddFactoryDialog
-      factories={[factory()]}
-      onClose={vi.fn()}
-      onAdded={vi.fn()}
-      onOpenFactory={openFactory}
-      onOpenGitHubSettings={vi.fn()}
-    />,
-  )
-  const u = user()
-  await u.type(screen.getByLabelText('GitHub URL or owner/repo'), 'acme/nope{Enter}')
-  await screen.findByText('Repository not found, or your GitHub account can’t see it.')
-  expect(api.request).toHaveBeenCalledWith('checkRepo', {
-    source: { remote: 'acme/nope' },
-    primary: true,
-  })
-  expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy()
-  api.handle('checkRepo', () => ({
-    ok: false,
-    repo: 'acme/widgets',
-    notes: [],
-    problem: {
-      kind: 'primary-elsewhere',
-      text: 'acme/widgets is the primary repo of Factory widgets.',
-      fixes: [{ kind: 'open-factory', factoryId: 'f1', factoryName: 'widgets' }],
-    },
-  }))
-  await u.click(screen.getByRole('button', { name: 'Clear the primary repo' }))
-  await u.type(screen.getByLabelText('GitHub URL or owner/repo'), 'acme/widgets{Enter}')
-  await screen.findByText('acme/widgets is the primary repo of Factory widgets.')
-  expect(screen.getByRole('button', { name: 'Open widgets' })).toBeTruthy()
-  fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'NB' } })
-  expect(screen.getByText('NB is already the key of widgets.')).toBeTruthy()
-  expect(screen.getByText('Fix the 1 repo problem and the key to continue.')).toBeTruthy()
-  await u.click(screen.getByRole('button', { name: 'Open widgets' }))
-  expect(openFactory).toHaveBeenCalledWith('f1')
-  expect((screen.getByRole('button', { name: 'Add Factory' }) as HTMLButtonElement).disabled).toBe(
-    true,
-  )
-})
+    }
+    api.handle('checkRepo', () => (completion === 'delayed' ? validation.promise : result))
+    await u.click(screen.getByRole('button', { name: 'Clear the primary repo' }))
+    await u.type(screen.getByLabelText('GitHub URL or owner/repo'), 'acme/widgets{Enter}')
+    if (completion === 'delayed') {
+      expect(screen.getByText('Waiting for 1 access check.')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Open widgets' })).toBeNull()
+      expect(
+        (screen.getByRole('button', { name: 'Add Factory' }) as HTMLButtonElement).disabled,
+      ).toBe(true)
+      validation.resolve(result)
+    }
+    await screen.findByText('acme/widgets is the primary repo of Factory widgets.')
+    expect(screen.getByRole('button', { name: 'Open widgets' })).toBeTruthy()
+    await screen.findByDisplayValue('WD')
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'NB' } })
+    expect(screen.getByText('NB is already the key of widgets.')).toBeTruthy()
+    expect(screen.getByText('Fix the 1 repo problem and the key to continue.')).toBeTruthy()
+    await u.click(screen.getByRole('button', { name: 'Open widgets' }))
+    expect(openFactory).toHaveBeenCalledWith('f1')
+    expect(
+      (screen.getByRole('button', { name: 'Add Factory' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+  },
+)
 
 test('App removes the initial setup panel after clone Retry recovers', async () => {
   const a = appState()

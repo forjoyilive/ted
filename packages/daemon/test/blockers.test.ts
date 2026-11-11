@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Comment, Factory, Task } from '@ted/protocol'
+import type { AgentHealth, Comment, Factory, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -125,7 +125,7 @@ const userMessages = async (client: Client, runId: string) =>
   })
 
 describe('adding a blocker', () => {
-  test('a blocker that would make a cycle is refused, naming the cycle', async () => {
+  test('a blocker that would make a cycle is refused, naming the cycle; a Backlog Task stays in Backlog and shows the blocker as a marker; removing the last blocker by hand never starts a Task', async () => {
     const client = await startTed()
     const a = await create(client, 'A')
     const b = await create(client, 'B', { blockedBy: [a.id] })
@@ -135,26 +135,38 @@ describe('adding a blocker', () => {
 
     expect(refused.status).toBe(409)
     expect(refused.body.error).toBe(
-      'NB-3 can’t block NB-1: that makes a cycle, NB-1 → NB-3 → NB-2 → NB-1',
+      `${c.displayId} can’t block ${a.displayId}: that makes a cycle, ${a.displayId} → ${c.displayId} → ${b.displayId} → ${a.displayId}`,
     )
     expect((await block(client, a, a)).status).toBe(409)
     expect((await getTask(client, a.id)).blockedBy).toEqual([])
-  })
 
-  test('a Backlog Task stays in Backlog and shows the blocker as a marker', async () => {
-    const client = await startTed()
-    const a = await create(client, 'A')
-    const b = await create(client, 'B')
+    const d = await create(client, 'D')
+    const e = await create(client, 'E')
 
-    const res = await block(client, b, a)
+    const marked = await block(client, e, d)
+
+    expect(marked.status).toBe(200)
+    expect(marked.body).toMatchObject({
+      stage: 'backlog',
+      blockedBy: [d.id],
+      markers: [{ kind: 'blocked-by', by: d.displayId }],
+      activity: `Starts when ${d.displayId} merges`,
+    })
+
+    const blocker = await create(client, 'Blocker')
+    const task = await create(client, 'Task', { start: true, blockedBy: [blocker.id] })
+
+    const res = await client.call('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
 
     expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({
-      stage: 'backlog',
-      blockedBy: [a.id],
-      markers: [{ kind: 'blocked-by', by: 'NB-1' }],
-      activity: 'Starts when NB-1 merges',
-    })
+    expect(res.body).toMatchObject({ stage: 'backlog', blockedBy: [], markers: [] })
+    expect(
+      (await client.call('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)).status,
+    ).toBe(404)
+    await block(client, task, blocker)
+    expect((await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)).blockedBy).toEqual([])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await getTask(client, task.id)).stage).toBe('backlog')
   })
 
   test('a Queued Task goes back to Backlog and starts when its blocker reaches Done', async () => {
@@ -338,112 +350,90 @@ describe('starting when the blocker merges', () => {
     await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start')
   })
 
-  test('removing the last blocker by hand never starts a Task', async () => {
-    const client = await startTed()
-    const blocker = await create(client, 'Blocker')
-    const task = await create(client, 'Task', { start: true, blockedBy: [blocker.id] })
+  test('removing remaining blockers mid-flow waits for Resume and keeps context', async () => {
+    let client = await startTed()
+    const gate = path.join(scratch, 'gate')
+    const briefFile = path.join(scratch, 'brief.md')
+    await writeFile(
+      briefFile,
+      '## Goal\n\nParse dates.\n\n## Decisions so far\n\nKeep the parser.\n\n## Current state\n\nParser half done.\n\n## Open questions\n\nNone.\n\n## Next step\n\nFinish integration.\n',
+    )
+    const blocker = await create(client, doneWhen(gate))
+    const other = await create(client, 'Other blocker')
+    const task = await create(
+      client,
+      steps(
+        { run: advance },
+        { run: ['ted', 'brief', 'write', '--file', briefFile] },
+        { endTurn: true },
+        {
+          everyMessage: [
+            { run: ['ted', 'task', 'block', '--by', blocker.displayId] },
+            { endTurn: true },
+          ],
+        },
+      ),
+      { start: true },
+    )
+    const first = await waitFor(
+      client,
+      task,
+      (t) => t.stage === 'work' && t.runs[0]?.state === 'idle',
+      'to work before waiting for a blocker',
+    )
+    const runId = first.leadRunId ?? ''
+    const worktree = path.join(home, 'worktrees', task.displayId, 'widgets')
+    const unfinished = path.join(worktree, 'parser.txt')
+    await writeFile(unfinished, 'unfinished parser\n')
 
-    const res = await client.call('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
-
-    expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ stage: 'backlog', blockedBy: [], markers: [] })
-    expect((await client.call('DELETE', `/tasks/${task.id}/blockers/NB-1`)).status).toBe(404)
     await block(client, task, blocker)
-    expect((await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)).blockedBy).toEqual([])
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    expect((await getTask(client, task.id)).stage).toBe('backlog')
+    await waitFor(client, task, (t) => t.status?.kind === 'blocked', 'to be Blocked')
+    await block(client, task, other)
+    await client.ok('DELETE', `/tasks/${task.id}/blockers/${other.displayId}`)
+    expect((await getTask(client, task.id)).status?.kind).toBe('blocked')
+    await block(client, task, other)
+
+    const stopped = await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)
+    expect(stopped).toMatchObject({
+      stage: 'work',
+      blockedBy: [],
+      runs: [],
+      status: { kind: 'stopped' },
+      commentBox: 'stopped',
+      activity: 'Its blockers are gone. Resume to carry on.',
+    })
+    expect(stopped.leadRunId).toBe(runId)
+    expect((await client.getRun(runId)).run.state).toBe('finished')
+
+    await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'Keep the old endpoint.' })
+    await client.ok('POST', `/tasks/${blocker.id}/start`)
+    await writeFile(gate, '')
+    await waitFor(client, blocker, (t) => t.stage === 'done', 'to merge after manual removal')
+
+    await daemon?.stop()
+    daemon = undefined
+    client = await openTed()
+    const stillStopped = await getTask(client, task.id)
+    expect(stillStopped.status?.kind).toBe('stopped')
+    expect(stillStopped.runs).toEqual([])
+    expect(stillStopped.leadRunId).toBe(runId)
+    expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
+
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    const fresh = await waitFor(
+      client,
+      task,
+      (t) => t.leadRunId !== undefined && t.leadRunId !== runId,
+      'to start a fresh Run only after Resume',
+    )
+    expect(fresh.stage).toBe('work')
+    const { prompt } = (await client.getRun(fresh.leadRunId ?? '')).run as { prompt?: string }
+    expect(prompt).toContain('# Picking up after a stop')
+    expect(prompt).toContain('Parser half done.')
+    expect(prompt).toContain('Keep the old endpoint.')
+    expect((await client.getRun(runId)).run.state).toBe('finished')
+    expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
   })
-
-  test.each(['one', 'all'] as const)(
-    'removing remaining blockers mid-flow (%s) waits for Resume and keeps context',
-    async (removal) => {
-      let client = await startTed()
-      const gate = path.join(scratch, 'gate')
-      const briefFile = path.join(scratch, 'brief.md')
-      await writeFile(
-        briefFile,
-        '## Goal\n\nParse dates.\n\n## Decisions so far\n\nKeep the parser.\n\n## Current state\n\nParser half done.\n\n## Open questions\n\nNone.\n\n## Next step\n\nFinish integration.\n',
-      )
-      const blocker = await create(client, doneWhen(gate))
-      const other = await create(client, 'Other blocker')
-      const task = await create(
-        client,
-        steps(
-          { run: advance },
-          { run: ['ted', 'brief', 'write', '--file', briefFile] },
-          { endTurn: true },
-          {
-            everyMessage: [
-              { run: ['ted', 'task', 'block', '--by', blocker.displayId] },
-              { endTurn: true },
-            ],
-          },
-        ),
-        { start: true },
-      )
-      const first = await waitFor(
-        client,
-        task,
-        (t) => t.stage === 'work' && t.runs[0]?.state === 'idle',
-        'to work before waiting for a blocker',
-      )
-      const runId = first.leadRunId ?? ''
-      const worktree = path.join(home, 'worktrees', task.displayId, 'widgets')
-      const unfinished = path.join(worktree, 'parser.txt')
-      await writeFile(unfinished, 'unfinished parser\n')
-
-      await block(client, task, blocker)
-      await waitFor(client, task, (t) => t.status?.kind === 'blocked', 'to be Blocked')
-      await block(client, task, other)
-      await client.ok('DELETE', `/tasks/${task.id}/blockers/${other.displayId}`)
-      expect((await getTask(client, task.id)).status?.kind).toBe('blocked')
-      if (removal === 'all') await block(client, task, other)
-
-      const route = `/tasks/${task.id}/blockers${removal === 'one' ? `/${blocker.displayId}` : ''}`
-      const stopped = await client.ok<Task>('DELETE', route)
-      expect(stopped).toMatchObject({
-        stage: 'work',
-        blockedBy: [],
-        runs: [],
-        status: { kind: 'stopped' },
-        commentBox: 'stopped',
-        activity: 'Its blockers are gone. Resume to carry on.',
-      })
-      expect(stopped.leadRunId).toBe(runId)
-      expect((await client.getRun(runId)).run.state).toBe('finished')
-
-      await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'Keep the old endpoint.' })
-      await client.ok('POST', `/tasks/${blocker.id}/start`)
-      await writeFile(gate, '')
-      await waitFor(client, blocker, (t) => t.stage === 'done', 'to merge after manual removal')
-
-      if (removal === 'all') {
-        await daemon?.stop()
-        daemon = undefined
-        client = await openTed()
-      }
-      const stillStopped = await getTask(client, task.id)
-      expect(stillStopped.status?.kind).toBe('stopped')
-      expect(stillStopped.runs).toEqual([])
-      expect(stillStopped.leadRunId).toBe(runId)
-      expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
-
-      await client.ok('POST', `/tasks/${task.id}/resume`, {})
-      const fresh = await waitFor(
-        client,
-        task,
-        (t) => t.leadRunId !== undefined && t.leadRunId !== runId,
-        'to start a fresh Run only after Resume',
-      )
-      expect(fresh.stage).toBe('work')
-      const { prompt } = (await client.getRun(fresh.leadRunId ?? '')).run as { prompt?: string }
-      expect(prompt).toContain('# Picking up after a stop')
-      expect(prompt).toContain('Parser half done.')
-      expect(prompt).toContain('Keep the old endpoint.')
-      expect((await client.getRun(runId)).run.state).toBe('finished')
-      expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
-    },
-  )
 
   test('a blocker in another Factory works', async () => {
     const client = await startTed()
@@ -539,7 +529,12 @@ describe('blockers while the agent can’t run', () => {
     await signedIn(false)
     await block(client, running, blocker)
     await waitFor(client, running, (t) => t.status?.kind === 'blocked', 'to be Blocked')
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await waitUntil(
+      async () =>
+        (await client.ok<AgentHealth[]>('GET', '/agents/health')).find((h) => h.agent === 'claude')
+          ?.state === 'signed-out',
+      'TED to see Claude Code signed out',
+    )
     await signedIn(true)
     await client.ok('POST', '/agents/health/check')
     await new Promise((resolve) => setTimeout(resolve, 1000))

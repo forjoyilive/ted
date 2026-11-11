@@ -16,6 +16,12 @@ Incorporation records the resulting repo heads in a new append-only FailureRepai
 
 Current failure-context comparison invalidates acceptance when the revision changes. A fresh matching Check can verify an incorporated repair. A fresh failure creates another case and retains its link to the previous failed execution. Reported Findings still need fresh evidence. When a repair replaces or removes a Check, current coverage and a recorded explanation are required; the affected Task does not need a Work visit solely to satisfy that verification rule. Merge progression remains owned by the merge watcher.
 
+## Integration with current main
+
+TED’s Work hand-off found seven conflicts against main at c49fd4b2. The merge preserves main’s shared Markdown rendering and required-reason controls, failure-request purpose metadata, prepared Task stop reason, interrupted hand-off Check recovery, protocol exports and updated validation guidance alongside the repair additions. Typecheck and lint pass after restoring the dependencies from main’s frozen lockfile.
+
+The results below were obtained before this integration and are historical coverage, not a test pass on the merged revision. Main now forwards the parent lock PID to the nested cleanup fixture, addressing the diagnosed missing-PID path. That repair has not been executed in this Task after integration. The user’s prior acceptance remains in history but is no longer current. A fresh context and decision are required. Current repository policy runs no test files in Work and limits the Lead’s Validate visit to one batch of at most three files; the handoff brief lists the proposed batch and remaining coverage.
+
 ## Verification status
 
 Implementation and native verification are complete. One unrelated process-cleanup test failure awaits the user’s decision; broad coverage is not reported as passing.

@@ -7,13 +7,25 @@ const maxTitle = 120
 export function chatList() {
   const order: string[] = []
   const byKey = new Map<string, AgentChatEntry>()
+  const userFrom = new Map<string, number>()
+  let reading = 0
+  let listed: AgentChatEntry[] | undefined
   return {
+    reading(offset: number) {
+      reading = offset
+    },
     put(entry: AgentChatEntry) {
       if (!byKey.has(entry.key)) order.push(entry.key)
       byKey.set(entry.key, entry)
+      if (entry.kind === 'user' && !userFrom.has(entry.key)) userFrom.set(entry.key, reading)
+      listed = undefined
     },
     get: (key: string) => byKey.get(key),
-    entries: () => order.flatMap((key) => byKey.get(key) ?? []),
+    entries(): readonly AgentChatEntry[] {
+      listed ??= order.flatMap((key) => byKey.get(key) ?? [])
+      return listed
+    },
+    userFrom: (key: string) => userFrom.get(key),
   }
 }
 

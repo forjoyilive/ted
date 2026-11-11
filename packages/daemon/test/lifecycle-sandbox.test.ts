@@ -13,6 +13,8 @@ import {
   waitUntil,
 } from './helpers.ts'
 
+import { observe } from './support/execution-observations.ts'
+
 let home: string
 let cleanup: () => Promise<void>
 let origin: string
@@ -108,6 +110,7 @@ const log = (kind: string) =>
 test.runIf(process.platform === 'darwin')(
   'setup and agent-edited teardown use private caches and cannot read or write the rest of TED_HOME',
   async () => {
+    process.env.TED_SANDBOX_BIN = '/usr/bin/sandbox-exec'
     const outside = path.join(home, 'escaped')
     const secret = path.join(home, 'private-secret')
     await writeFile(secret, 'secret')
@@ -153,6 +156,14 @@ test.runIf(process.platform === 'darwin')(
     await expect(readFile(outside)).rejects.toThrow()
     expect(await readFile(secret, 'utf8')).toBe('secret')
     await expect(readdir(path.join(home, 'sandbox', 'NB-1'))).rejects.toThrow()
+    await observe('lifecycle-native-sandbox', {
+      platform: process.platform,
+      nativeProgram: '/usr/bin/sandbox-exec',
+      setupAndTeardown: 'passed',
+      outOfRootWriteRefused: true,
+      privateReadRefused: true,
+      worktreeAndCacheWritesAllowed: true,
+    })
   },
 )
 

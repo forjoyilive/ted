@@ -11,6 +11,7 @@ import {
 } from '@ted/protocol'
 
 export interface TaskFacts {
+  preparing?: boolean
   snoozedUntil?: string
   stage: StageId
   runs: readonly RunState[]
@@ -22,7 +23,11 @@ export interface TaskFacts {
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
   checksWaiting?: { place: number }
-  stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' | 'repair-incorporation' }
+  stopped?: {
+    at: string
+    runs: number
+    why: 'human' | 'blockers-removed' | 'repair-incorporation' | 'prepared'
+  }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
@@ -77,7 +82,12 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.tedWorking || facts.settingUp || facts.runs.includes('working')) {
     return { kind: 'working' }
   }
-  if (facts.stopped) return { kind: 'stopped', at: facts.stopped.at }
+  if (facts.stopped)
+    return {
+      kind: 'stopped',
+      at: facts.stopped.at,
+      ...(facts.stopped.why === 'prepared' && { prepared: true }),
+    }
   if (facts.stage === 'backlog') return undefined
   const blocker = facts.blockedBy?.[0]
   if (blocker !== undefined && facts.runs.length === 0) {
@@ -127,6 +137,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
   if (facts.archived) return []
   const blocker = facts.blockedBy?.[0]
   return [
+    ...(facts.preparing ? [{ kind: 'preparing' } as const] : []),
     ...(facts.snoozedUntil && facts.stage === 'backlog'
       ? [{ kind: 'snoozed' as const, until: facts.snoozedUntil }]
       : []),
@@ -184,6 +195,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
 function stoppedActivity({ runs, why }: NonNullable<TaskFacts['stopped']>): string {
   if (why === 'repair-incorporation')
     return 'Repair incorporation needs attention. See the thread, then Resume.'
+  if (why === 'prepared') return 'Ready for Work · Resume or turn on Overnight mode.'
   if (why === 'blockers-removed') return 'Its blockers are gone. Resume to carry on.'
   if (runs === 0) return 'Worktree and Apps kept.'
   return `Worktree and Apps kept. ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped.`
