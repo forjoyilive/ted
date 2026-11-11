@@ -142,7 +142,7 @@ const type = (ted: Client, task: Task, data: string) =>
   ted.ok('POST', shellRoute(task, '/input'), { data })
 
 describe('Task shell', () => {
-  test('opens the login shell in the worktree with worktree.env and TED_TASK but no TED_RUN', async () => {
+  test('opens the login shell in the worktree with worktree.env and TED_TASK but no TED_RUN, keeps one shell per repo across opens, and Restart starts a new one', async () => {
     const ted = await startTed()
     const task = await startedTask(ted)
     const repo = task.repos[0]
@@ -165,20 +165,16 @@ describe('Task shell', () => {
       'hello',
       '30 100',
     ])
-  })
 
-  test('keeps one shell per repo across opens, and Restart starts a new one', async () => {
-    const ted = await startTed()
-    const task = await startedTask(ted)
-    const first = await ted.ok<TaskShell>('POST', shellRoute(task), size)
+    const first = shell
     await type(ted, task, 'MARK=kept; echo "[$MARK]"\r')
     await readUntil(ted, task, first, (t) => t.includes('[kept]'))
 
     const again = await ted.ok<TaskShell>('POST', shellRoute(task), size)
     await type(ted, task, 'echo "<$MARK>"\r')
-    const text = await readUntil(ted, task, again, (t) => t.includes('<kept>'))
+    const kept = await readUntil(ted, task, again, (t) => t.includes('<kept>'))
     expect(again.generation).toBe(first.generation)
-    expect(text).toContain('[kept]')
+    expect(kept).toContain('[kept]')
 
     const fresh = await ted.ok<TaskShell>('POST', shellRoute(task, '/restart'), size)
     await type(ted, task, 'echo "{$MARK}"\r')
@@ -209,23 +205,6 @@ describe('Task shell', () => {
     expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 0 })
     expect((await ted.call('POST', shellRoute(task, '/input'), { data: 'x' })).status).toBe(404)
   })
-
-  test('only the app can open or read a shell', async () => {
-    const ted = await startTed()
-    const task = await startedTask(ted)
-    const shell = await ted.ok<TaskShell>('POST', shellRoute(task), size)
-    const token = JSON.parse(await readFile(path.join(home, 'daemon.json'), 'utf8')).token as string
-    const file = api(daemon?.port ?? 0, token)
-
-    const read = await file.call(
-      'GET',
-      shellRoute(task, `/output?generation=${shell.generation}&from=0`),
-    )
-    const open = await file.call('POST', shellRoute(task), size)
-
-    expect(read.status).toBe(403)
-    expect(open.status).toBe(403)
-  })
 })
 
 const workspaceRoute = (task: Task) => `${shellRoute(task)}s`
@@ -240,7 +219,7 @@ function firstShell(workspace: ShellWorkspace): TaskShell {
 }
 
 describe('Task shell panes', () => {
-  test('a refused split leaves the original layout intact when its worktree is missing', async () => {
+  test('a split refused for a missing worktree leaves the layout intact; a PTY launch failure preserves the workspace and activity, then splitting can retry', async () => {
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -263,12 +242,7 @@ describe('Task shell panes', () => {
       await rename(`${worktree}.away`, worktree)
     }
     expect(await ted.ok('GET', workspaceRoute(task))).toEqual(opened)
-  })
 
-  test('a PTY launch failure preserves the original workspace and activity, then splitting can retry', async () => {
-    const ted = await startTed()
-    const task = await startedTask(ted)
-    const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
     const activity = await ted.ok('GET', '/activity')
     const failure = vi.spyOn(pty, 'spawn').mockImplementationOnce(() => {
       throw new Error('fixture refuses PTY launch')
@@ -405,7 +379,10 @@ describe('Task shell panes', () => {
       failure.mockRestore()
       await stopping
       expect(rejected).toBeUndefined()
-      expect(alive(firstRoot)).toBe(false)
+      await waitUntil(
+        async () => !alive(firstRoot) || undefined,
+        'the refused pane’s shell to exit once shutdown retries',
+      )
     } finally {
       failure.mockRestore()
       await stopping
@@ -418,12 +395,150 @@ describe('Task shell panes', () => {
     }
   })
 
-  test.each([
-    ...(['close', 'restart', 'archive', 'shutdown'] as const).flatMap((ending) =>
-      [false, true].map((exited) => ({ ending, exited })),
-    ),
-    { ending: 'reopen' as const, exited: true },
-  ])('$ending ends child jobs (shell exited: $exited)', async ({ ending, exited }) => {
+  test('close, restart and reopen end a pane’s child jobs and keep its sibling; archive and shutdown end every pane’s child jobs (shell running or exited)', async () => {
+    const ted = await startTed()
+    const pids: number[] = []
+    type Job = { child: number; root: number }
+    const split = async (task: Task, ws: ShellWorkspace, from: TaskShell) => {
+      const next = await changeWorkspace(ted, task, {
+        kind: 'split',
+        revision: ws.revision,
+        shellId: from.id,
+        direction: 'right',
+        size,
+      })
+      const pane = next.shells.find((s) => !ws.shells.some((old) => old.id === s.id))
+      if (!pane) throw new Error('no new pane')
+      return { ws: next, pane }
+    }
+    const marked = async (task: Task, sibling: TaskShell) => {
+      await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
+        data: 'MARK=kept; echo "sibling=$MARK"\r',
+      })
+      await readUntil(ted, task, sibling, (t) => t.includes('sibling=kept'), sibling.id)
+    }
+    const jobIn = async (task: Task, pane: TaskShell, exited: boolean, name: string) => {
+      await ted.ok('POST', paneRoute(task, pane.id, '/input'), {
+        data: 'trap "" HUP; nohup sleep 120 >/dev/null 2>&1 & printf "CHILD_PID="; jobs -p; printf "ROOT_PID=%s\\n" "$$"\r',
+      })
+      const text = await readUntil(
+        ted,
+        task,
+        pane,
+        (t) => /CHILD_PID=\d+/.test(t) && /ROOT_PID=\d+/.test(t),
+        pane.id,
+      )
+      const job: Job = {
+        child: Number(/CHILD_PID=(\d+)/.exec(text)?.[1]),
+        root: Number(/ROOT_PID=(\d+)/.exec(text)?.[1]),
+      }
+      pids.push(job.child, job.root)
+      expect(alive(job.child), `${name}: the job runs`).toBe(true)
+      if (exited) {
+        await ted.ok('POST', paneRoute(task, pane.id, '/input'), { data: 'exit 7\r' })
+        await waitUntil(async () => {
+          const state = await ted.ok<ShellWorkspace>('GET', workspaceRoute(task))
+          return state.shells.find((s) => s.id === pane.id)?.exitCode === 7 || undefined
+        }, `${name}: the parent shell to exit before cleanup`)
+        expect(alive(job.child), `${name}: the job outlives its exited shell`).toBe(true)
+      }
+      return job
+    }
+    const ended = (name: string, job: Job) =>
+      waitUntil(
+        async () => (!alive(job.root) && !alive(job.child)) || undefined,
+        `${name}: the shell and its HUP-resistant job to exit`,
+      )
+    const caseName = (ending: string, exited: boolean) => `${ending} (shell exited: ${exited})`
+    try {
+      const task = await startedTask(ted)
+      let ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+      const first = firstShell(ws)
+      const withSibling = await split(task, ws, first)
+      ws = withSibling.ws
+      const sibling = withSibling.pane
+      await marked(task, sibling)
+      const siblingKept = async (name: string) => {
+        await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
+          data: `echo "${name} still=$MARK"\r`,
+        })
+        await readUntil(ted, task, sibling, (t) => t.includes(`${name} still=kept`), sibling.id)
+      }
+
+      for (const ending of ['close', 'restart'] as const)
+        for (const exited of [false, true]) {
+          const name = caseName(ending, exited)
+          const added = await split(task, ws, sibling)
+          ws = added.ws
+          const job = await jobIn(task, added.pane, exited, name)
+          if (ending === 'close')
+            ws = await changeWorkspace(ted, task, {
+              kind: 'close',
+              revision: ws.revision,
+              shellId: added.pane.id,
+            })
+          else {
+            const restarted = await ted.ok<TaskShell>(
+              'POST',
+              paneRoute(task, added.pane.id, '/restart'),
+              size,
+            )
+            expect(restarted.generation, name).toBeGreaterThan(added.pane.generation)
+          }
+          await ended(name, job)
+          await siblingKept(name)
+        }
+
+      const reopen = caseName('reopen', true)
+      const reopenJob = await jobIn(task, first, true, reopen)
+      const reopened = await ted.ok<TaskShell>('POST', shellRoute(task), size)
+      expect(reopened.generation, reopen).toBeGreaterThan(first.generation)
+      ws = await changeWorkspace(ted, task, {
+        kind: 'close',
+        revision: ws.revision,
+        shellId: first.id,
+      })
+      await ended(reopen, reopenJob)
+      await siblingKept(reopen)
+
+      const archived: { name: string; job: Job }[] = []
+      for (const exited of [false, true]) {
+        const name = caseName('archive', exited)
+        const added = await split(task, ws, sibling)
+        ws = added.ws
+        archived.push({ name, job: await jobIn(task, added.pane, exited, name) })
+      }
+      await ted.ok('POST', `/tasks/${task.id}/stop`)
+      await ted.ok('POST', `/tasks/${task.id}/archive`)
+      for (const { name, job } of archived) await ended(name, job)
+
+      const other = await startedTask(ted)
+      const otherOpened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(other), size)
+      const otherFirst = firstShell(otherOpened)
+      const otherSibling = await split(other, otherOpened, otherFirst)
+      await marked(other, otherSibling.pane)
+      const otherPane = (await split(other, otherSibling.ws, otherFirst)).pane
+      const stopped: { name: string; job: Job }[] = []
+      for (const [pane, exited] of [
+        [otherFirst, false],
+        [otherPane, true],
+      ] as const) {
+        const name = caseName('shutdown', exited)
+        stopped.push({ name, job: await jobIn(other, pane, exited, name) })
+      }
+      await daemon?.stop()
+      daemon = undefined
+      for (const { name, job } of stopped) await ended(name, job)
+    } finally {
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {}
+      }
+    }
+  }, 90_000)
+
+  test('close and restart leave a detached, reparented service outside terminal cleanup', async () => {
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -437,108 +552,21 @@ describe('Task shell panes', () => {
     })
     const sibling = ws.shells[1]
     if (!sibling) throw new Error('no sibling')
-    await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
-      data: 'MARK=kept; echo "sibling=$MARK"\r',
-    })
-    await readUntil(ted, task, sibling, (t) => t.includes('sibling=kept'), sibling.id)
-    await ted.ok('POST', paneRoute(task, first.id, '/input'), {
-      data: 'trap "" HUP; nohup sleep 120 >/dev/null 2>&1 & printf "CHILD_PID="; jobs -p; printf "ROOT_PID=%s\\n" "$$"\r',
-    })
-    const text = await readUntil(
-      ted,
-      task,
-      first,
-      (t) => /CHILD_PID=\d+/.test(t) && /ROOT_PID=\d+/.test(t),
-      first.id,
-    )
-    const child = Number(/CHILD_PID=(\d+)/.exec(text)?.[1])
-    const root = Number(/ROOT_PID=(\d+)/.exec(text)?.[1])
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+    const pidFiles: string[] = []
     try {
-      expect(alive(child)).toBe(true)
-      if (exited) {
-        await ted.ok('POST', paneRoute(task, first.id, '/input'), { data: 'exit 7\r' })
-        await waitUntil(async () => {
-          const state = await ted.ok<ShellWorkspace>('GET', workspaceRoute(task))
-          return state.shells.find((s) => s.id === first.id)?.exitCode === 7 || undefined
-        }, 'the parent shell to exit before cleanup')
-        expect(alive(child)).toBe(true)
-      }
-      if (ending === 'close')
-        await changeWorkspace(ted, task, {
-          kind: 'close',
-          revision: ws.revision,
-          shellId: first.id,
-        })
-      else if (ending === 'restart') {
-        const restarted = await ted.ok<TaskShell>(
-          'POST',
-          paneRoute(task, first.id, '/restart'),
-          size,
-        )
-        expect(restarted.generation).toBeGreaterThan(first.generation)
-      } else if (ending === 'reopen') {
-        const reopened = await ted.ok<TaskShell>('POST', shellRoute(task), size)
-        expect(reopened.generation).toBeGreaterThan(first.generation)
-        await changeWorkspace(ted, task, {
-          kind: 'close',
-          revision: ws.revision,
-          shellId: first.id,
-        })
-      } else if (ending === 'shutdown') {
-        await daemon?.stop()
-        daemon = undefined
-      } else {
-        await ted.ok('POST', `/tasks/${task.id}/stop`)
-        await ted.ok('POST', `/tasks/${task.id}/archive`)
-      }
-      await waitUntil(
-        async () => (!alive(root) && !alive(child)) || undefined,
-        'the shell and its HUP-resistant job to exit',
-      )
-      if (ending !== 'archive' && ending !== 'shutdown') {
-        await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
-          data: 'echo "still=$MARK"\r',
-        })
-        await readUntil(ted, task, sibling, (t) => t.includes('still=kept'), sibling.id)
-      }
-    } finally {
-      for (const pid of [child, root]) {
-        try {
-          process.kill(pid, 'SIGKILL')
-        } catch {}
-      }
-    }
-  })
-
-  test.each(['close', 'restart'] as const)(
-    '%s leaves a detached, reparented service outside terminal cleanup',
-    async (ending) => {
-      const ted = await startTed()
-      const task = await startedTask(ted)
-      const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
-      const first = firstShell(opened)
-      const ws = await changeWorkspace(ted, task, {
-        kind: 'split',
-        revision: opened.revision,
-        shellId: first.id,
-        direction: 'right',
-        size,
-      })
-      const sibling = ws.shells[1]
-      if (!sibling) throw new Error('no sibling')
-      const pidFile = path.join(scratch, 'detached.pid')
-      const childCode = `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`
-      const parentCode = `const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { detached: true, stdio: 'ignore', env: { ...process.env } }); child.unref()`
-      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
-      let child: number | undefined
-      try {
+      for (const ending of ['restart', 'close'] as const) {
+        const pidFile = path.join(scratch, `detached-${ending}.pid`)
+        pidFiles.push(pidFile)
+        const childCode = `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`
+        const parentCode = `const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { detached: true, stdio: 'ignore', env: { ...process.env } }); child.unref()`
         await ted.ok('POST', paneRoute(task, first.id, '/input'), {
           data: `${quote(process.execPath)} -e ${quote(parentCode)}\r`,
         })
-        child = await waitUntil(async () => {
+        const child = await waitUntil(async () => {
           const value = await readFile(pidFile, 'utf8').catch(() => '')
           return Number(value) || undefined
-        }, 'the detached service to report its PID')
+        }, `${ending}: the detached service to report its PID`)
         await waitUntil(
           async () =>
             Number(
@@ -546,7 +574,7 @@ describe('Task shell panes', () => {
                 encoding: 'utf8',
               }).trim(),
             ) === 1 || undefined,
-          'the detached service to be reparented before terminal cleanup',
+          `${ending}: the detached service to be reparented before terminal cleanup`,
         )
         if (ending === 'close') {
           const closed = await changeWorkspace(ted, task, {
@@ -554,35 +582,44 @@ describe('Task shell panes', () => {
             revision: ws.revision,
             shellId: first.id,
           })
-          expect(closed.shells.map((shell) => shell.id)).toEqual([sibling.id])
+          expect(
+            closed.shells.map((shell) => shell.id),
+            ending,
+          ).toEqual([sibling.id])
         } else {
           const restarted = await ted.ok<TaskShell>(
             'POST',
             paneRoute(task, first.id, '/restart'),
             size,
           )
-          expect(restarted.generation).toBeGreaterThan(first.generation)
+          expect(restarted.generation, ending).toBeGreaterThan(first.generation)
         }
-        expect(alive(child)).toBe(true)
+        expect(alive(child), ending).toBe(true)
         await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
-          data: 'printf "SIBLING_OK\\n"\r',
+          data: `printf "SIBLING_OK_${ending}\\n"\r`,
         })
-        await readUntil(ted, task, sibling, (text) => text.includes('SIBLING_OK\r\n'), sibling.id)
-      } finally {
-        child ??= Number(await readFile(pidFile, 'utf8').catch(() => '')) || undefined
-        if (child) {
-          const fixturePid = child
-          try {
-            process.kill(fixturePid, 'SIGKILL')
-          } catch {}
-          await waitUntil(
-            async () => !alive(fixturePid) || undefined,
-            'the exact fixture service to end',
-          )
-        }
+        await readUntil(
+          ted,
+          task,
+          sibling,
+          (text) => text.includes(`SIBLING_OK_${ending}\r\n`),
+          sibling.id,
+        )
       }
-    },
-  )
+    } finally {
+      for (const pidFile of pidFiles) {
+        const fixturePid = Number(await readFile(pidFile, 'utf8').catch(() => '')) || undefined
+        if (!fixturePid) continue
+        try {
+          process.kill(fixturePid, 'SIGKILL')
+        } catch {}
+        await waitUntil(
+          async () => !alive(fixturePid) || undefined,
+          'the exact fixture service to end',
+        )
+      }
+    }
+  })
 
   test('splits independent PTYs, preserves them on reopen, and restarts only the chosen pane', async () => {
     const ted = await startTed()
@@ -795,7 +832,7 @@ describe('Task shell panes', () => {
       ).toBe(404)
   })
 
-  test('all workspace and per-pane routes refuse file and Run tokens', async () => {
+  test('all workspace, per-pane and single-shell routes refuse file and Run tokens', async () => {
     const ted = await startTed()
     const task = await startedTask(ted)
     const ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -818,6 +855,8 @@ describe('Task shell panes', () => {
         ['POST', paneRoute(task, shell.id, '/input'), { data: 'x' }],
         ['POST', paneRoute(task, shell.id, '/resize'), size],
         ['GET', paneRoute(task, shell.id, '/output?generation=0&from=0'), undefined],
+        ['POST', shellRoute(task), size],
+        ['GET', shellRoute(task, `/output?generation=${shell.generation}&from=0`), undefined],
       ] as const)
         expect((await caller.call(method, route, body)).status).toBe(403)
     }
@@ -876,8 +915,8 @@ describe('Open in editor', () => {
     expect(settings.editor).toBeNull()
   })
 
-  test('refuses until an editor is chosen, then opens the worktree and a file at a line', async () => {
-    const { bin, log } = await fakeEditors(['code', 'cursor', 'zed'])
+  test('refuses until an editor is chosen and refuses files outside the worktree, then opens the worktree and a file at a line; a custom command gets the path, line and column as separate arguments, never through a shell', async () => {
+    const { bin, log } = await fakeEditors(['code', 'cursor', 'zed', 'my editor'])
     vi.stubEnv('PATH', `${bin}${path.delimiter}${process.env.PATH ?? ''}`)
     const ted = await startTed()
     const task = await startedTask(ted)
@@ -887,6 +926,14 @@ describe('Open in editor', () => {
     expect((await ted.call('POST', route)).status).toBe(409)
 
     await ted.ok('PATCH', '/settings', { editor: 'code' })
+    await symlink(scratch, path.join(worktree, 'escape'))
+    const open = (file: string) => ted.call('POST', route, { file })
+    expect((await open('../../../../etc/passwd')).status).toBe(400)
+    expect((await open('/etc/passwd')).status).toBe(400)
+    expect((await open('escape/bin/code')).status).toBe(400)
+    expect((await open('missing.txt')).status).toBe(404)
+    expect(await readFile(log, 'utf8').catch(() => '')).toBe('')
+
     await ted.ok('POST', route)
     await ted.ok('POST', route, { file: 'README.md', line: 12, column: 3 })
     await ted.ok('PATCH', '/settings', { editor: 'cursor' })
@@ -901,45 +948,20 @@ describe('Open in editor', () => {
       `cursor [${worktree}] [--goto] [${file}:4:1]`,
       `zed [${worktree}] [${file}:7:2]`,
     ])
-  })
 
-  test('a custom command gets the path, line and column as separate arguments, never through a shell', async () => {
-    const { bin, log } = await fakeEditors(['my editor'])
-    const ted = await startTed()
-    const task = await startedTask(ted)
-    const worktree = task.repos[0]?.worktree ?? ''
     const name = 'odd $(touch pwned); name.txt'
     await writeFile(path.join(worktree, name), 'x\n')
-
     await ted.ok('PATCH', '/settings', {
       editor: 'custom',
       editorCommand: `"${path.join(bin, 'my editor')}" --at {line}:{column} {path}`,
     })
-    await ted.ok('POST', `/tasks/${task.id}/repos/widgets/open-in-editor`, {
-      file: name,
-      line: 5,
-      column: 9,
-    })
+    await ted.ok('POST', route, { file: name, line: 5, column: 9 })
 
-    expect(await opened(log, 1)).toEqual([`my editor [--at] [5:9] [${path.join(worktree, name)}]`])
+    const lines = await opened(log, 5)
+    expect(lines).toHaveLength(5)
+    expect(lines.filter((line) => line.startsWith('my editor'))).toEqual([
+      `my editor [--at] [5:9] [${path.join(worktree, name)}]`,
+    ])
     await expect(readFile(path.join(worktree, 'pwned'))).rejects.toThrow()
-  })
-
-  test('refuses files outside the worktree', async () => {
-    const { bin, log } = await fakeEditors(['code'])
-    vi.stubEnv('PATH', `${bin}${path.delimiter}${process.env.PATH ?? ''}`)
-    const ted = await startTed()
-    const task = await startedTask(ted)
-    const worktree = task.repos[0]?.worktree ?? ''
-    await ted.ok('PATCH', '/settings', { editor: 'code' })
-    await symlink(scratch, path.join(worktree, 'escape'))
-    const open = (file: string) =>
-      ted.call('POST', `/tasks/${task.id}/repos/widgets/open-in-editor`, { file })
-
-    expect((await open('../../../../etc/passwd')).status).toBe(400)
-    expect((await open('/etc/passwd')).status).toBe(400)
-    expect((await open('escape/bin/code')).status).toBe(400)
-    expect((await open('missing.txt')).status).toBe(404)
-    expect(await readFile(log, 'utf8').catch(() => '')).toBe('')
   })
 })

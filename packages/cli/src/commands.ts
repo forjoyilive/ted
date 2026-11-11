@@ -834,6 +834,15 @@ export const commands = [
     options: options(),
   },
   {
+    name: 'dev slow',
+    handler: 'showSlow',
+    min: 0,
+    max: 0,
+    help: '  ted dev slow                               Show the daemon’s slow requests and event-loop stalls',
+    callers: 'Terminal',
+    options: options(),
+  },
+  {
     name: 'automation list',
     handler: 'automationList',
     min: 0,

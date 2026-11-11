@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, screen, within } from '@testing-library/react'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
 import { required, user } from './support/component.ts'
 import { comment, createdAt, task } from './support/fixtures.ts'
@@ -12,6 +12,42 @@ async function openTask(a: ReturnType<typeof appState>) {
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   return screen.findByRole('region', { name: 'Task thread' })
 }
+
+test('thread notes show relative ages and keep advancing while open', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+  vi.setSystemTime(new Date('2026-11-09T12:02:00.000Z'))
+  try {
+    const a = appState()
+    a.handle('markCommentsRead', () => ({ read: 2 }))
+    a.handle('listComments', () => [
+      comment({
+        kind: 'note',
+        body: 'The fix is ready.',
+        author: { kind: 'run', runId: 'r1' },
+      }),
+      comment({
+        id: 'c2',
+        kind: 'note',
+        body: 'Trying it now.',
+        author: { kind: 'human' },
+        createdAt: '2026-11-09T12:02:00.000Z',
+      }),
+    ])
+    const thread = await openTask(a)
+    const lead = within(
+      required((await within(thread).findByText('The fix is ready.')).closest('li')),
+    )
+    const human = within(required(within(thread).getByText('Trying it now.').closest('li')))
+    expect(lead.getByText('2m ago', { exact: true })).toBeTruthy()
+    expect(human.getByText('just now', { exact: true })).toBeTruthy()
+    await act(async () => vi.advanceTimersByTime(60_000))
+    expect(lead.getByText('3m ago', { exact: true })).toBeTruthy()
+    expect(human.getByText('1m ago', { exact: true })).toBeTruthy()
+    expect(human.getByText('Goes to the next Task Lead Run')).toBeTruthy()
+  } finally {
+    vi.useRealTimers()
+  }
+})
 
 test('Task back links restore Board, List and All Tasks', async () => {
   const a = appState()

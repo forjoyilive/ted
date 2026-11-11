@@ -98,6 +98,7 @@ variant(P.parseSetFactoryLinearIntakeRequest, { scope: null })
 
 roundTrip(P.parseRestoreBackupRequest, { name: 'backup', stopRuns: true })
 roundTrip(P.parseShutdownRequest, { keepRuns: true })
+roundTrip(P.parseProfileRequest, { seconds: 45 })
 roundTrip(P.parseBannerActionInput, { folder: '/tmp/repo' })
 roundTrip(P.parseDraftLineCommentRequest, {
   repo: 'ted',
@@ -123,6 +124,8 @@ roundTrip(P.parseResolveFailureRequest, {
 })
 
 rejects(P.parseAppRef, {}, 'name the App')
+rejects(P.parseProfileRequest, { seconds: 121 }, 'whole number from 5 to 120')
+rejects(P.parseProfileRequest, { seconds: '30' }, 'whole number from 5 to 120')
 rejects(P.parseStartAppRequest, { name: 'Dev', shutDown: 2 }, 'shutDown must name')
 rejects(P.parseRecordAppRequest, { name: 'Dev', action: 'other' }, 'action must be')
 rejects(P.parseStartSubAgentRequest, { prompt: '' }, 'prompt file is empty')
@@ -172,6 +175,7 @@ test('permissive optional bodies retain defaults', () => {
   expect(P.parseBannerActionInput({ folder: 2 })).toEqual({})
   expect(P.parseRestoreBackupRequest(null)).toEqual({ name: '', stopRuns: false })
   expect(P.parseShutdownRequest(null)).toEqual({ keepRuns: false })
+  expect(P.parseProfileRequest(null)).toEqual({ seconds: 30 })
   expect(P.parseOpenInEditorRequest(null)).toEqual({})
   expect(P.parseSendRunMessageRequest({ text: ' Hi ' })).toEqual({ text: 'Hi', interrupt: false })
   expect(P.parseStartAppRequest({ name: ' Dev ', reason: 'x'.repeat(501) }).reason).toHaveLength(

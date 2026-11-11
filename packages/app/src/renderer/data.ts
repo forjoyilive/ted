@@ -555,18 +555,25 @@ function useReloading<T>(
   return useReloadingState(load, affects, key).value
 }
 
+const outputEveryMs = 1_000
+
+const outputLines = (event: TedEvent) => event.type === 'run-output' && event.lines === true
+
 function useReloadingState<T>(
   load: () => Promise<T>,
   affects: (event: TedEvent, current: Loaded<T>) => boolean,
   key: string,
+  paced: (event: TedEvent) => boolean = () => false,
 ) {
   const [state, setState] = useState<{ key: string; value?: T; error?: string }>()
   const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
   const loadRef = useRef(load)
   const affectsRef = useRef(affects)
+  const pacedRef = useRef(paced)
   loadRef.current = load
   affectsRef.current = affects
+  pacedRef.current = paced
 
   useEffect(() => {
     void epoch
@@ -575,6 +582,8 @@ function useReloadingState<T>(
     let running = false
     let again = false
     let latest: T | undefined
+    let pacedAt = Number.NEGATIVE_INFINITY
+    let timer: ReturnType<typeof setTimeout> | undefined
     setState((previous) => ({
       key,
       ...(previous?.key === key && previous.value !== undefined && { value: previous.value }),
@@ -605,12 +614,22 @@ function useReloadingState<T>(
           }
         })
     }
+    const now = () => {
+      clearTimeout(timer)
+      timer = undefined
+      pacedAt = Date.now()
+      run()
+    }
     const unsubscribe = ted.onEvent((event) => {
-      if (affectsRef.current(event, { value: latest, loading: running })) run()
+      if (!affectsRef.current(event, { value: latest, loading: running })) return
+      const wait = pacedRef.current(event) ? pacedAt + outputEveryMs - Date.now() : 0
+      if (wait <= 0) now()
+      else timer ??= setTimeout(now, wait)
     })
     run()
     return () => {
       active = false
+      clearTimeout(timer)
       unsubscribe()
     }
   }, [key, epoch, attempt])
@@ -662,6 +681,7 @@ export function useCoordinatorChatState(factoryId: string, runIds: readonly stri
       (event.type === 'run-updated' && runIds.includes(event.run.id)) ||
       event.type === 'agent-health-changed',
     factoryId,
+    outputLines,
   )
 }
 
@@ -732,6 +752,7 @@ export function useRunChatState(runId: string) {
         event.comment.author.kind === 'run' &&
         event.comment.author.runId === runId),
     runId,
+    outputLines,
   )
 }
 

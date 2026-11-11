@@ -48,7 +48,13 @@ afterEach(async () => {
 const setStub = (agent: 'claude' | 'codex', state: Record<string, unknown>) =>
   writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
-async function start(options: { stallAfterMs?: number; healthIntervalMs?: number } = {}) {
+async function start(
+  options: {
+    stallAfterMs?: number
+    healthIntervalMs?: number
+    isOnline?: () => Promise<boolean>
+  } = {},
+) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
@@ -57,7 +63,11 @@ async function start(options: { stallAfterMs?: number; healthIntervalMs?: number
     checkAgentsOnStart: true,
     limitProbeMs: 1000,
     ...(options.healthIntervalMs !== undefined && { healthIntervalMs: options.healthIntervalMs }),
-    online: { isOnline: async () => online, onlineEveryMs: 100, offlineEveryMs: 100 },
+    online: {
+      isOnline: options.isOnline ?? (async () => online),
+      onlineEveryMs: 100,
+      offlineEveryMs: 100,
+    },
     ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -300,7 +310,20 @@ describe('Usage limits', () => {
 
 describe('Offline', () => {
   test('going offline pauses every agent kind and stops the no-output clock; coming back carries on', async () => {
-    const client = await start({ stallAfterMs: 1500 })
+    let transient = false
+    let recoveredChecks = 0
+    const client = await start({
+      stallAfterMs: 1500,
+      isOnline: async () => {
+        if (transient) {
+          transient = false
+          recoveredChecks = 0
+          return false
+        }
+        recoveredChecks++
+        return online
+      },
+    })
     const go = path.join(scratch, 'go')
     const task = await startTask(client, steps({ say: 'hi' }, { waitFor: go }, { endTurn: true }))
     const runId = await leadRunOf(client, task.id)
@@ -308,6 +331,12 @@ describe('Offline', () => {
       async () => (await getTask(client, task.id))?.status?.kind === 'working' || undefined,
       'the Run to work',
     )
+
+    transient = true
+    await waitUntil(() => !transient && recoveredChecks >= 2, 'the transient failure to recover')
+    expect(await bannerWith(client, 'offline:app')).toBeUndefined()
+    expect((await healthOf(client, 'claude'))?.state).toBe('ready')
+    expect((await getTask(client, task.id))?.status?.kind).toBe('working')
 
     online = false
     const banner = await waitUntil(() => bannerWith(client, 'offline:app'), 'the offline banner')

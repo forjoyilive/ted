@@ -274,6 +274,21 @@ describe('ted task', () => {
   })
 })
 
+describe('ted dev slow', () => {
+  test('prints the daemon’s slow requests and stalls for the last minute and hour', async () => {
+    const { stdout } = await ted(['dev', 'slow'])
+
+    const lines = stdout.trim().split('\n')
+    expect(lines[0]).toMatch(
+      /^Measured since \d{4}-\d\d-\d\dT[\d:.]+Z\. A request is slow over 100 ms; the event loop is blocked over 200 ms\.$/,
+    )
+    expect(lines).toContain('Last minute')
+    expect(lines).toContain('Last hour')
+    expect(lines.filter((line) => line.startsWith('  Event loop: '))).toHaveLength(2)
+    expect(lines.filter((line) => line.startsWith('  Requests: '))).toHaveLength(2)
+  })
+})
+
 describe('ted dev run', () => {
   async function shownWhenFinished(id: string): Promise<string> {
     const daemon = await client()

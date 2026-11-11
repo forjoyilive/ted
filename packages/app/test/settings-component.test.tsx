@@ -8,7 +8,7 @@ import { LimitsPage } from '../src/renderer/settings/LimitsPage.tsx'
 import { NotificationsPage } from '../src/renderer/settings/NotificationsPage.tsx'
 import { StoragePage } from '../src/renderer/settings/StoragePage.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 
 const _nav = () => screen.getByRole('navigation', { name: 'Settings' })
 
@@ -259,6 +259,31 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: false })
   view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+})
+
+test('Record a CPU profile asks for one profile at a time and shows where it was saved', async () => {
+  const { DeveloperPage } = await import('../src/renderer/settings/DeveloperPage.tsx')
+  const result = deferred<{ file: string; seconds: number; bytes: number }>()
+  const api = bridge({
+    tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    recordProfile: () => result.promise,
+  })
+  render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
+  expect(api.request).toHaveBeenCalledWith('recordProfile', 30)
+  expect(screen.getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+  await act(async () =>
+    result.resolve({ file: '~/.ted/logs/profiles/daemon-1.cpuprofile', seconds: 30, bytes: 10 }),
+  )
+  expect(screen.getByText('Saved to ~/.ted/logs/profiles/daemon-1.cpuprofile')).toBeTruthy()
+  api.handle('recordProfile', () => {
+    throw new Error(
+      "Error invoking remote method 'ted:request': DaemonRequestError: TED is already recording a CPU profile",
+    )
+  })
+  await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
+  await screen.findByText('Couldn’t record a profile: TED is already recording a CPU profile')
+  expect(api.request).toHaveBeenCalledTimes(3)
 })
 
 test('resource readings refresh while Developer mode is visible and stop when hidden', async () => {

@@ -185,6 +185,61 @@ describe('test slots', () => {
     await release?.()
   })
 
+  test('waiting runs get the locks in the order they asked', async () => {
+    const held = [liveProcess(), liveProcess()]
+    await mkdir(path.join(dir, 'slots'))
+    await writeFile(slot(0), `${held[0]}\n`)
+    await writeFile(slot(1), `${held[1]}\n`)
+    const order: string[] = []
+    const firstSmall = liveProcess()
+    const full = liveProcess()
+    const lastSmall = liveProcess()
+    const small = acquireSlot({ ...slots(), pid: firstSmall }).then((release) => {
+      order.push('first small')
+      return release
+    })
+    await pause(30)
+    const big = acquireFullRun({ ...slots(), pid: full }).then((release) => {
+      order.push('full')
+      return release
+    })
+    await pause(30)
+    const late = acquireSlot({ ...slots(), pid: lastSmall }).then((release) => {
+      order.push('last small')
+      return release
+    })
+    await pause(200)
+    expect(order).toEqual([])
+    await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+
+    children[0]?.kill()
+    const releaseSmall = await small
+    expect(await readFile(slot(0), 'utf8')).toBe(`${firstSmall}\n`)
+    await pause(200)
+    expect(await readFile(file, 'utf8')).toBe(`${full}\n`)
+    expect(order).toEqual(['first small'])
+
+    children[1]?.kill()
+    await releaseSmall?.()
+    const releaseFull = await big
+    expect(order).toEqual(['first small', 'full'])
+    await pause(100)
+    expect(order).toEqual(['first small', 'full'])
+    await releaseFull()
+    await (await late)?.()
+    expect(order).toEqual(['first small', 'full', 'last small'])
+  })
+
+  test('a waiting run whose process died doesn’t hold up the runs behind it', async () => {
+    const holder = liveProcess()
+    await mkdir(path.join(dir, 'slots', 'queue'), { recursive: true })
+    await writeFile(slot(0), `${holder}\n`)
+    await writeFile(path.join(dir, 'slots', 'queue', `000000000000001-${await deadPid()}`), '')
+    const release = await acquireSlot({ ...slots(), pid: 4242 })
+    expect(await readFile(slot(1), 'utf8')).toBe('4242\n')
+    await release?.()
+  })
+
   test('a slot folder that can’t be made runs without a slot', async () => {
     await writeFile(path.join(dir, 'slots'), '')
     expect(await acquireSlot({ ...slots(), pid: 4242 })).toBeUndefined()
