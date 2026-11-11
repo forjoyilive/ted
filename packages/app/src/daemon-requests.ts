@@ -149,6 +149,8 @@ export const forwardedRequests = [
   'installCommandLine',
   'getProfile',
   'getDiagnostics',
+  'getSlowMoments',
+  'recordProfile',
   'readDaemonLog',
   'readRunOutput',
   'getStorage',

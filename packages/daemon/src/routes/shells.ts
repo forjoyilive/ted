@@ -88,6 +88,7 @@ export const shellRoutes: Route[] = [
   {
     method: 'GET',
     path: shellPath('/output\\?(.*)'),
+    waits: true,
     async handle({ res, params: [ref = '', repo = '', id, search = ''], caller }, { shells }) {
       appOnly(caller)
       const closed = new AbortController()

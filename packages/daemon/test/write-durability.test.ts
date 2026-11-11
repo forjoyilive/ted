@@ -2,6 +2,7 @@ import type http from 'node:http'
 import { expect, test } from 'vitest'
 import type { Data, Services } from '../src/data.ts'
 import { type BaseOptions, listen } from '../src/server.ts'
+import { createSlowMonitor } from '../src/slow-moments.ts'
 import { api } from './helpers.ts'
 
 async function serve(services: Partial<Services>): Promise<{ server: http.Server; port: number }> {
@@ -16,6 +17,7 @@ async function serve(services: Partial<Services>): Promise<{ server: http.Server
     runTokens: { verify: () => undefined },
     appStreams: new Set(),
     onShutdown: () => undefined,
+    slow: createSlowMonitor({ timer: false }),
   } as unknown as BaseOptions)
 }
 

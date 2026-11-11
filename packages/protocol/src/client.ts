@@ -133,6 +133,7 @@ import type {
 } from './shell.ts'
 import type { SideChat } from './side-chat.ts'
 import type { RunSlots } from './slots.ts'
+import type { ProfileResult, SlowMoments } from './slow.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AgentStageId,
@@ -962,6 +963,14 @@ export class DaemonClient {
 
   getReport(): Promise<{ text: string }> {
     return this.#request('GET', '/diagnostics/report')
+  }
+
+  getSlowMoments(): Promise<SlowMoments> {
+    return this.#request('GET', '/diagnostics/slow')
+  }
+
+  recordProfile(seconds?: number): Promise<ProfileResult> {
+    return this.#request('POST', '/diagnostics/profile', seconds === undefined ? {} : { seconds })
   }
 
   readDaemonLog(): Promise<LogText> {
