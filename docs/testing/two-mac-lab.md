@@ -183,6 +183,10 @@ bounded evidence. Failed runs never become passes through missing observations.
 Acceptance collects results before cleanup, stops owned processes, verifies exit,
 removes only the owned run directories and preserves the root/runtime and siblings.
 Signals require the recorded PID, UID, start time, command path and generation token.
+After a verified termination request, polling tolerates transient exit-state changes;
+ownership is checked again before any forced signal. Cleanup attempts both hosts
+even if one fails, and an already-removed run succeeds only after verifying no
+marked processes remain.
 Interrupted build descendants are found by exact run/home environment markers;
 their full identities are rechecked before signals and never copied into reports.
 If inspection or ownership fails, cleanup refuses and leaves scratch for recovery.

@@ -21,6 +21,7 @@ import {
   manifestDigest,
   markedListing,
   serviceEnvironment,
+  waitForProcessExit,
 } from './execution-lab/host.ts'
 import {
   bootstrap,
@@ -200,6 +201,53 @@ describe('lab configuration and SSH control', () => {
       await expect(callHost(value, value.hosts[1], request, async () => output)).rejects.toThrow()
   })
 
+  it('attempts recovery on the second host even if the first host cannot complete cleanup', async () => {
+    const directory = await scratch()
+    const value = config()
+    value.knownHosts = `${directory}/known_hosts`
+    value.identityFile = `${directory}/identity`
+    value.reportDir = `${directory}/reports`
+    await writeFile(value.knownHosts, '')
+    await writeFile(value.identityFile, '', { mode: 0o600 })
+    const file = `${directory}/config.json`
+    await writeFile(file, JSON.stringify(value))
+    const seen: string[] = []
+    const result = await runLab(
+      {
+        optIn: true,
+        configFile: file,
+        root: process.cwd(),
+        action: 'cleanup',
+        scenarios: ['lab-access'],
+        runId: '33333333-3333-3333-3333-333333333333',
+      },
+      async (command) => {
+        const prefix = 'await dispatch('
+        const begin = command.input.lastIndexOf(prefix) + prefix.length
+        const end = command.input.indexOf('))) } catch', begin)
+        const request = JSON.parse(command.input.slice(begin, end)) as {
+          action: string
+          host: { role: string; machineId: string }
+        }
+        seen.push(`${request.host.role}:${request.action}`)
+        if (request.host.role === 'controller' && request.action === 'cleanup')
+          return { code: 1, stdout: '', stderr: 'controller unavailable' }
+        return {
+          code: 0,
+          stdout: `TED_LAB_RESULT=${JSON.stringify({ machineId: request.host.machineId, alreadyAbsent: true })}\n`,
+          stderr: '',
+        }
+      },
+    )
+    expect(result.code).toBe(1)
+    expect(seen).toEqual([
+      'controller:identity',
+      'controller:cleanup',
+      'executor:identity',
+      'executor:cleanup',
+    ])
+  })
+
   it('bootstraps only the configured hosts using the same pinned SSH control', async () => {
     const commands: LabCommand[] = []
     const value = parseConfig(config())
@@ -215,6 +263,25 @@ describe('lab configuration and SSH control', () => {
 })
 
 describe('candidate content and standalone overrides', () => {
+  it('waits through changing exit-state details without using them to authorize another signal', async () => {
+    const states = ['owned command', '(exiting)', '']
+    await expect(
+      waitForProcessExit(
+        123,
+        3,
+        async () => states.shift() ?? '',
+        async () => {},
+      ),
+    ).resolves.toBe(true)
+    await expect(
+      waitForProcessExit(
+        123,
+        2,
+        async () => 'still running',
+        async () => {},
+      ),
+    ).resolves.toBe(false)
+  })
   async function installation() {
     const directory = await scratch()
     const machineId = '11111111-1111-1111-1111-111111111111'
@@ -304,6 +371,9 @@ describe('candidate content and standalone overrides', () => {
       rootPreserved: true,
     })
     await expect(access(fixture.run)).rejects.toThrow()
+    await expect(
+      dispatch({ ...fixture.request, action: 'cleanup' }, fixture.identity),
+    ).resolves.toMatchObject({ alreadyAbsent: true, processStopped: true })
     expect(await readFile(`${fixture.request.host.root}/runtime/keep`, 'utf8')).toBe('runtime')
     expect(await readFile(`${fixture.request.host.root}/runs/sibling/keep`, 'utf8')).toBe('sibling')
   })

@@ -305,13 +305,14 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
     )
       throw new Error('commit candidate before lab execution')
     const preflight = []
+    const recovering = ['cleanup', 'stop', 'disconnect', 'observe'].includes(options.action)
     const readiness = ['preflight', 'acceptance', 'deploy', 'build', 'probe', 'scenario'].includes(
       options.action,
     )
       ? 'preflight'
       : 'identity'
-    for (const host of config.hosts) preflight.push(await step(host, readiness))
-    if (preflight[0]?.machineId === preflight[1]?.machineId)
+    if (!recovering) for (const host of config.hosts) preflight.push(await step(host, readiness))
+    if (!recovering && preflight[0]?.machineId === preflight[1]?.machineId)
       throw new Error('same actual Mac returned for both roles')
     if (options.action === 'preflight') report.result = 'pass'
     else if (options.action === 'acceptance' || options.action === 'deploy') {
@@ -363,7 +364,14 @@ export async function runLab(options: LabOptions, run: Execute = execute) {
     } else {
       if (options.action === 'scenario' && !selected.length)
         throw new Error('select implementation scenarios, not lab-access')
-      for (const host of config.hosts) await step(host, options.action)
+      for (const host of config.hosts) {
+        try {
+          if (recovering) await step(host, 'identity')
+          await step(host, options.action)
+        } catch (error) {
+          report.errors.push(redactSecrets(`${host.role}: ${error}`))
+        }
+      }
       report.result = 'pass'
     }
   } catch (error) {

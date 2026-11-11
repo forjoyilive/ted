@@ -261,6 +261,19 @@ interface ProcessReceipt {
   token: string
 }
 
+export async function waitForProcessExit(
+  pid: number,
+  attempts: number,
+  inspect: (pid: number) => Promise<string>,
+  pause: () => Promise<unknown> = () => delay(100),
+) {
+  for (let tries = 0; tries < attempts; tries++) {
+    if (!(await inspect(pid))) return true
+    await pause()
+  }
+  return !(await inspect(pid))
+}
+
 export function markedListing(text: string, uid: number, runId: string, home: string) {
   const marker = (name: string, value: string) =>
     new RegExp(`(?:^|\\s)${name}=${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`).test(
@@ -411,6 +424,13 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
     await writeFile(path.join(run, 'gh.json'), '{}')
     return { ...identity, runId, contentHash: manifestDigest(files), files: files.length }
   }
+  if (action === 'cleanup' && (await missing(run))) {
+    if ((await markedProcesses(identity.uid ?? -1, runId, env.TED_HOME ?? '', minimal)).length)
+      throw new Error(
+        'run metadata absent but marked processes remain; refusing unverified cleanup',
+      )
+    return { removed: runId, alreadyAbsent: true, processStopped: true, rootPreserved: true }
+  }
   await plain(run)
   await plain(path.join(run, '.owner'), false)
   if ((await readFile(path.join(run, '.owner'), 'utf8')) !== owner)
@@ -556,12 +576,12 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
     const receipt = await readReceipt()
     if (await owned(receipt)) {
       process.kill(receipt.pid, 'SIGTERM')
-      for (let tries = 0; tries < 50 && (await owned(receipt)); tries++) await delay(100)
-      if (await owned(receipt)) {
-        process.kill(receipt.pid, 'SIGKILL')
-        for (let tries = 0; tries < 30 && (await owned(receipt)); tries++) await delay(100)
+      const inspect = (pid: number) => processIdentity(pid, minimal)
+      if (!(await waitForProcessExit(receipt.pid, 50, inspect))) {
+        if (await owned(receipt)) process.kill(receipt.pid, 'SIGKILL')
+        if (!(await waitForProcessExit(receipt.pid, 30, inspect)))
+          throw new Error('owned process did not exit')
       }
-      if (await owned(receipt)) throw new Error('owned process did not exit')
     }
     await rm(receiptFile)
     return { stopped: true, pid: receipt.pid }
@@ -737,10 +757,17 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
       (await readFile(allowed, 'utf8')) !== 'allowed'
     )
       throw new Error('native sandbox failed allow/deny probe')
-    const fixture = path.join(run, 'fixtures')
-    await plain(fixture)
+    const fixtures = path.join(run, 'fixtures')
+    await plain(fixtures)
+    await mkdir(fixtures, { recursive: true })
+    const fixture = path.join(fixtures, randomUUID())
     await mkdir(fixture)
-    await must('/usr/bin/git', ['init', '--bare', path.join(fixture, 'remote.git')], env, run)
+    await must(
+      '/usr/bin/git',
+      ['init', '--bare', '--initial-branch=main', path.join(fixture, 'remote.git')],
+      env,
+      run,
+    )
     await must('/usr/bin/git', ['init', '-b', 'main', path.join(fixture, 'seed')], env, run)
     await writeFile(path.join(fixture, 'seed/README.md'), 'Synthetic lab repository\n')
     await must('/usr/bin/git', ['add', 'README.md'], env, path.join(fixture, 'seed'))
@@ -756,12 +783,24 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
       env,
       path.join(fixture, 'seed'),
     )
+    await must(
+      '/usr/bin/git',
+      ['clone', '--local', path.join(fixture, 'remote.git'), path.join(fixture, 'read-probe')],
+      env,
+      run,
+    )
+    if (
+      (await readFile(path.join(fixture, 'read-probe/README.md'), 'utf8')) !==
+      'Synthetic lab repository\n'
+    )
+      throw new Error('fixture endpoint could not be read')
     return {
       scratchWrite: true,
       nativeAllowed: true,
       nativeDenied: true,
       denial: refusal.stderr,
       fixtureRemote: path.join(fixture, 'remote.git'),
+      fixtureReadVerified: true,
       fixtureScope:
         'reachable on this host only; future cross-host scenarios must arrange reachable endpoints',
     }
