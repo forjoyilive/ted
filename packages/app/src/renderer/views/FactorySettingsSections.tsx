@@ -19,6 +19,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { StageEffort } from '../components/StageEffort.tsx'
 import {
   agentEdited,
   driftLine,
@@ -197,10 +198,10 @@ export function WorkflowSection({
       <SectionHeading
         id="workflow"
         title="Workflow"
-        help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory."
+        help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort."
       />
       <OvernightNotice />
-      <div className={styles.table}>
+      <div className={`${styles.table} ${styles.workflowTable}`}>
         <div className={`${styles.workflowRow} ${styles.headRow}`}>
           <span>Stage</span>
           <span>On</span>
@@ -213,6 +214,7 @@ export function WorkflowSection({
           </span>
           <span>Send-backs</span>
           <span>Clarify depth</span>
+          <span>Task Lead effort</span>
           <span>From</span>
           <span className={base.visuallyHidden}>Actions</span>
         </div>
@@ -355,6 +357,19 @@ function StageRow({
                 </option>
               ))}
             </select>
+          ) : (
+            dash
+          )}
+        </span>
+        <span>
+          {agent ? (
+            <StageEffort
+              stage={name}
+              value={stage?.effort}
+              inherited={row.inheritedEffort}
+              source={row.inheritedEffortFrom}
+              onChange={(effort) => onStage({ effort })}
+            />
           ) : (
             dash
           )}

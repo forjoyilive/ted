@@ -121,6 +121,7 @@ export interface Coordinators {
   messageRemoved(runId: string): void
   holdFactoryRemoval(factoryId: string): () => void
   removeFactory(factoryId: string): Promise<void>
+  reset(factoryId: string): Promise<void>
   close(): Promise<void>
 }
 
@@ -138,6 +139,12 @@ export function createCoordinators(options: {
   const launching = new Set<string>()
   const stopping = new Set<string>()
   const removing = new Set<string>()
+  const resetting = new Set<string>()
+  const held = (id: string) => removing.has(id) || resetting.has(id)
+  const notResetting = (id: string) => {
+    if (resetting.has(id))
+      throw new RequestError(409, 'The Coordinator is being reset; send the message again')
+  }
   const chains = new Map<string, Promise<unknown>>()
   const background = new Set<Promise<unknown>>()
   let closed = false
@@ -155,7 +162,7 @@ export function createCoordinators(options: {
     return c
   }
   const save = (c: StoredCoordinator, canceled: readonly RunMessage[] = []) => {
-    if (!closed && !removing.has(c.factoryId)) saved.save(c, canceled)
+    if (!closed && !held(c.factoryId)) saved.save(c, canceled)
   }
   const status = (c: StoredCoordinator): Coordinator['status'] =>
     c.phase === 'failed'
@@ -231,9 +238,7 @@ export function createCoordinators(options: {
     queued: () =>
       saved
         .list()
-        .filter(
-          (c) => c.phase === 'queued' && !launching.has(c.factoryId) && !removing.has(c.factoryId),
-        )
+        .filter((c) => c.phase === 'queued' && !launching.has(c.factoryId) && !held(c.factoryId))
         .map((c) => ({ id: c.factoryId, factoryId: c.factoryId, kind: 'coordinator', rank: 0 })),
     runnable: (id) => {
       const c = saved.get(id)
@@ -309,7 +314,7 @@ export function createCoordinators(options: {
   async function startNew(c: StoredCoordinator): Promise<void> {
     const id = c.factoryId
     const cwd = await folder(c.runId)
-    if (stopping.has(id) || removing.has(id) || closed) return
+    if (stopping.has(id) || held(id) || closed) return
     const messages = pending(c.runId)
     const { prompt, parts } = withMessages(c.launch?.prompt ?? instructions, messages)
     const stored = saved.get(id)
@@ -319,7 +324,7 @@ export function createCoordinators(options: {
         prompts: { ...stored.prompts, [c.runId]: [...(c.launch?.parts ?? []), ...parts] },
       })
     await store.persisted()
-    if (stopping.has(id) || removing.has(id) || closed) return
+    if (stopping.has(id) || held(id) || closed) return
     await runs.start({
       id: c.runId,
       ...c.lead,
@@ -355,7 +360,7 @@ export function createCoordinators(options: {
     c = { ...c, phase: 'working', error: undefined }
     save(c)
     await store.persisted()
-    if (stopping.has(id) || removing.has(id) || closed) return
+    if (stopping.has(id) || held(id) || closed) return
     const run = store.getRun(c.runId)
     if (!run) {
       const prepared = await lstat(path.join(home, 'runs', c.runId)).catch((error) => {
@@ -377,14 +382,14 @@ export function createCoordinators(options: {
         }
         save(c)
         await store.persisted()
-        if (stopping.has(id) || removing.has(id) || closed) return
+        if (stopping.has(id) || held(id) || closed) return
       }
       await startNew(c)
     } else if (run.state === 'finished') {
       if (run.sessionId && !run.ended?.resumeFailed && run.ended?.how !== 'stopped') {
         const messages = pending(c.runId)
         await store.persisted()
-        if (stopping.has(id) || removing.has(id) || closed) return
+        if (stopping.has(id) || held(id) || closed) return
         await runs.revive(run.id, {
           messageIds: messages.map((message) => message.id),
           prompt:
@@ -424,7 +429,7 @@ export function createCoordinators(options: {
         }
         save(c)
         await store.persisted()
-        if (stopping.has(id) || removing.has(id) || closed) return
+        if (stopping.has(id) || held(id) || closed) return
         await startNew(c)
       }
     } else if ((await steering.deliverAdmitted(c.runId)) === 0) {
@@ -471,7 +476,7 @@ export function createCoordinators(options: {
       const work = (async () => {
         await launches.get(c.factoryId)
         await steering.drain(c.runId)
-        if (closed || removing.has(c.factoryId)) return
+        if (closed || held(c.factoryId)) return
         const latest = saved.get(c.factoryId)
         if (!latest) return
         if (pending(latest.runId).length === 0)
@@ -679,10 +684,11 @@ export function createCoordinators(options: {
     statuses: () =>
       saved
         .list()
-        .filter((c) => !removing.has(c.factoryId))
+        .filter((c) => !held(c.factoryId))
         .map((c) => ({ factoryId: c.factoryId, status: status(c) })),
     async message(id, input) {
       const factory = requireFactory(id)
+      notResetting(id)
       if (input.text.trim() === '' || input.text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
       const c = saved.get(id)
@@ -692,6 +698,7 @@ export function createCoordinators(options: {
       }
       const defaults = await tasks.defaults(factory.id)
       requireFactory(id)
+      notResetting(id)
       const lead = {
         ...defaults.planner,
         ...(input.agent && { agent: input.agent }),
@@ -745,14 +752,14 @@ export function createCoordinators(options: {
         c.phase === 'working' &&
         !closed &&
         !stopping.has(c.factoryId) &&
-        !removing.has(c.factoryId) &&
+        !held(c.factoryId) &&
         (admitted || (!launching.has(c.factoryId) && store.getRun(runId)?.state === 'working'))
       )
     },
     deliveryFinished(runId, error) {
       if (closed) return
       const c = saved.forRun(runId)
-      if (!c || c.runId !== runId || stopping.has(c.factoryId) || removing.has(c.factoryId)) return
+      if (!c || c.runId !== runId || stopping.has(c.factoryId) || held(c.factoryId)) return
       if (error) fail(c.factoryId, error)
       else if (c.phase === 'working' && store.getRun(runId)?.state === 'idle')
         save({ ...c, phase: pending(runId).length > 0 ? 'queued' : 'ready' })
@@ -1088,6 +1095,17 @@ export function createCoordinators(options: {
         saved.remove(id)
         await store.persisted()
       } finally {
+        if (!closed) pump()
+      }
+    },
+    async reset(id) {
+      requireFactory(id)
+      if (resetting.has(id)) throw new RequestError(409, 'The Coordinator is already being reset')
+      resetting.add(id)
+      try {
+        await service.removeFactory(id)
+      } finally {
+        resetting.delete(id)
         if (!closed) pump()
       }
     },

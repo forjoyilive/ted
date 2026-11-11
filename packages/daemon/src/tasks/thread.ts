@@ -492,7 +492,8 @@ export function threadEvents(
         break
       }
       case 'v1.TaskStageEntered':
-      case 'v2.TaskStageEntered': {
+      case 'v2.TaskStageEntered':
+      case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
         if (sentBackTo === stage) {

@@ -35,6 +35,8 @@ interface StubHealth {
   resumeFails?: boolean
   stopWaitsFor?: string
   resumeWaitsFor?: string
+  resumeInputWaitsFor?: string
+  inputWaitsFor?: string
   apiKeySource?: string
   authMethod?: string
   interruptEndsAfterMs?: number
@@ -131,7 +133,10 @@ const hook = (name: string) => {
 }
 
 let everyMessage: Step[] = flag('--resume') !== undefined ? (stubHealth().resumeSteps ?? []) : []
-let inputGate: string | undefined
+let inputGate =
+  stubHealth().inputWaitsFor ??
+  (flag('--resume') !== undefined ? stubHealth().resumeInputWaitsFor : undefined)
+if (inputGate !== undefined) emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
 let interrupted = false
 let gating = false
 let gate: ReturnType<typeof spawn> | undefined

@@ -7,6 +7,7 @@ import type {
 } from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import { Button } from '../components/Button.tsx'
+import { Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
 import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
@@ -71,6 +72,9 @@ export function AgentDefaults() {
       label="Defaults for all Factories"
       help="Saved in your Library’s workflow.yaml. A Factory can override each one in its own settings."
     >
+      {!view && !error && (
+        <Skeleton shape="settings" framed={false} label="Loading agent defaults…" />
+      )}
       {view?.agents.map((row) => (
         <AgentDefault
           key={`${row.role}:${view.version}`}

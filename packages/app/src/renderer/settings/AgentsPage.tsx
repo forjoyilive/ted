@@ -9,8 +9,9 @@ import {
 } from '@ted/protocol/health'
 import { useEffect, useId, useState } from 'react'
 import { Help } from '../components/Help.tsx'
+import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
-import { useAgentHealth } from '../data.ts'
+import { useAgentHealthState } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { timePreferences } from '../time.ts'
@@ -237,7 +238,7 @@ function AgentCard({
             </Button>
           )}
           <Button onClick={onCheck} disabled={checking}>
-            {checking ? 'Checking…' : 'Check again'}
+            {checking ? <Loading compact label="Checking…" /> : 'Check again'}
           </Button>
           {health.fix && (
             <Button primary onClick={onFix}>
@@ -295,7 +296,8 @@ function AgentCard({
 }
 
 export function AgentsPage({ settings }: SettingsPageProps) {
-  const health = useAgentHealth()
+  const resource = useAgentHealthState()
+  const health = resource.health
   const [opened, setOpened] = useState<Partial<Record<AgentKind, boolean>>>({})
   const [checking, setChecking] = useState(false)
   const [errors, setErrors] = useState<Partial<Record<AgentKind, string>>>({})
@@ -351,7 +353,10 @@ export function AgentsPage({ settings }: SettingsPageProps) {
   return (
     <SettingsPage title="Agents">
       <div className={styles.cards}>
-        {health.length === 0 && <p className={styles.line}>Checking your agents…</p>}
+        {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
+        {!resource.loaded && health.length === 0 && !resource.error && (
+          <Skeleton shape="settings" label="Checking your agents…" />
+        )}
         {health.map((h) => (
           <AgentCard
             key={h.agent}

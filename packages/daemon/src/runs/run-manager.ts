@@ -103,6 +103,7 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
 }
 
 export interface ReviveRunInput {
+  flags?: RunFlags
   prompt: string
   messageIds?: string[]
   env?: Record<string, string>
@@ -240,7 +241,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const generation = await generationBefore(files.log, offset, (line) =>
       agent.sessionContinuedFrom(line),
     )
-    let awaitingStart = revived ? Date.now() + stopGraceMs : undefined
+    let awaitingStart = revived || offset === 0 ? Date.now() + stopGraceMs : undefined
     const last = await lastStartRecord(path.join(runsDir, runId))
     if (last?.permissions !== undefined) store.setRunPermissions(runId, last.permissions)
     if (last !== undefined && !(last.v >= oldestHost)) {
@@ -248,7 +249,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (store.getRun(runId)?.state === 'idle') void replaceWhenIdle(runId)
     }
     while (!closed) {
-      const hostGone = offset > 0 && awaitingStart === undefined && !isLockHeld(files.lock)
+      const hostGone = awaitingStart === undefined && !isLockHeld(files.lock)
       const batch = await readRecords(files.log, offset)
       if (
         awaitingStart !== undefined &&
@@ -785,7 +786,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         if (!handedOff) release()
       }
     },
-    async revive(runId, { prompt, env = {}, messageIds }) {
+    async revive(runId, { prompt, env = {}, messageIds, flags }) {
       refuseWhileShuttingDown()
       const run = store.getRun(runId)
       if (run?.state !== 'finished' || following.has(runId)) {
@@ -803,13 +804,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           await sleep(pollMs)
         }
         const permissions = runPermissions(store, run)
+        const choice = flags ?? run
         const launch = agents.get(run.agent).launch({
           prompt,
           runDir,
           env: runEnv(runId, env),
           resume: sessionId,
-          ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
-          ...(run.effort !== undefined && { effort: run.effort }),
+          ...(choice.model !== undefined && !choice.usesDefaultModel && { model: choice.model }),
+          ...(choice.effort !== undefined && { effort: choice.effort }),
           permissions,
           ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
           billing: billingOf(run.agent),
@@ -829,7 +831,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         await writeFile(files.env, JSON.stringify(env), { mode: 0o600 })
         refuseWhileShuttingDown()
         stopRequested.delete(runId)
-        const revived = store.reviveRun(runId)
+        const revived = store.reviveRun(runId, flags)
+        await store.persisted()
         const before = await startRecordCount(runDir)
         const host = spawnHost(runDir, launch.env)
         follow(runId, { revived: true })

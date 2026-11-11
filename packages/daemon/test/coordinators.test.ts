@@ -377,6 +377,27 @@ test('Factory removal deletes Coordinator history, pending work and managed file
   ).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+test('reset deletes the conversation and the next message starts a new one', async () => {
+  const s = await setup()
+  const { c, run } = await s.start()
+  await s.ok('POST', `${s.base}/reset`)
+  expect(await s.chat()).toBeNull()
+  expect((await s.client.call('GET', `/runs/${c.runId}/chat`)).status).toBe(404)
+  expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
+  expect(existsSync(path.join(home, 'coordinators', c.runId))).toBe(false)
+  expect((await api(s.port, s.tokens.issue(c.runId)).call('POST', `${s.base}/reset`)).status).toBe(
+    403,
+  )
+
+  const next = await s.start([{ say: 'A fresh start' }, { endTurn: true }])
+  expect(next.c.runId).not.toBe(c.runId)
+  expect(next.c.runIds).toEqual([next.c.runId])
+  expect(next.c.receipts).toEqual([])
+  await s.ok('POST', `${s.base}/reset`)
+  await s.ok('POST', `${s.base}/reset`)
+  expect(await s.chat()).toBeNull()
+})
+
 test('agent health pauses queued responses and sending advice leaves Tasks unchanged', async () => {
   const s = await setup()
   const task = await s.task()
@@ -1363,14 +1384,14 @@ test('answer resolves a failure decision and leaves line comment drafts unsent',
     'with a choice',
   )
   const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-    operation: 'accept',
+    operation: 'not-applicable',
     version: read.version,
     request: requestId,
-    choice: 'Accept this failure',
+    choice: 'No longer applicable',
   })
   expect(answered.status, JSON.stringify(answered.body)).toBe(200)
   const comment = (await s.comments(task.id)).find((c) => c.id === requestId)
-  expect(comment?.answer).toMatchObject({ kind: 'answered', choice: 'Accept this failure' })
+  expect(comment?.answer).toMatchObject({ kind: 'answered', choice: 'No longer applicable' })
   expect(comment?.lineComments ?? []).toEqual([])
   expect(await unsent()).toHaveLength(1)
 })

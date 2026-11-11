@@ -153,6 +153,36 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
   expect(stop).toHaveBeenCalledWith('f1')
 })
 
+test('New conversation asks first, then resets the Coordinator and shows the empty composer', async () => {
+  const { a, shown, open } = withCoordinator()
+  const reset = vi.fn(() => {
+    shown.coordinator = null
+    shown.chat = null
+    return null
+  })
+  a.handle('resetCoordinator', reset)
+  a.mount()
+  const pane = await open()
+  await user().click(await within(pane).findByRole('button', { name: 'New conversation' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(dialog.textContent).toContain('Start a new Coordinator conversation?')
+  await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(reset).not.toHaveBeenCalled()
+  expect(screen.queryByRole('dialog')).toBeNull()
+
+  await user().click(within(pane).getByRole('button', { name: 'New conversation' }))
+  await user().click(
+    within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete and start new' }),
+  )
+  await vi.waitFor(() => expect(reset).toHaveBeenCalledWith('f1'))
+  await act(async () => {
+    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
+  })
+  await within(pane).findByText('What needs your attention in widgets?')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(within(pane).queryByRole('button', { name: 'New conversation' })).toBeNull()
+})
+
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
   const { a, open } = withCoordinator()
   a.mount()
@@ -324,4 +354,27 @@ test('the notice follows the setting live and its link opens Settings → Genera
   )
   await screen.findByRole('heading', { name: 'Library' })
   expect(notice()).toBeNull()
+})
+
+test('Coordinator loading failures can retry without losing the combined conversation', async () => {
+  const { a, open } = withCoordinator()
+  a.handle('getCoordinator', () => Promise.reject(new Error('Coordinator unavailable')))
+  a.handle('getCoordinatorChat', () => Promise.reject(new Error('Conversation unavailable')))
+  a.mount()
+  const region = await open()
+  expect((await within(region).findByRole('alert')).textContent).toContain(
+    'Coordinator unavailable',
+  )
+  a.handle('getCoordinator', () => coordinator())
+  await user().click(within(region).getByRole('button', { name: 'Try again' }))
+  expect((await within(region).findByRole('alert')).textContent).toContain(
+    'Conversation unavailable',
+  )
+  a.handle('getCoordinatorChat', () => conversation())
+  await user().click(within(region).getByRole('button', { name: 'Try again' }))
+  await within(region).findByText('Start with NB-1.')
+  a.handle('getCoordinatorChat', () => Promise.reject(new Error('Refresh unavailable')))
+  act(() => a.emit({ type: 'coordinator-changed', factoryId: 'f1' }))
+  await within(region).findByRole('alert')
+  expect(within(region).getByText('Start with NB-1.')).toBeTruthy()
 })

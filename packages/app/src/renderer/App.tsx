@@ -55,7 +55,7 @@ import {
   useFactoryList,
   useInbox,
   usePlanInbox,
-  useSettings,
+  useSettingsState,
   useSimulators,
   useSlots,
   useTasks,
@@ -216,7 +216,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const navigation = history.now
   const tasks = useTasks()
   const { factories, loaded: factoriesLoaded } = useFactoryList()
-  const settings = useSettings()
+  const settingsResource = useSettingsState()
+  const settings = settingsResource.settings
   const settingsOpen = navigation.settings !== undefined
   const slots = useSlots()
   const drift = useDrift()
@@ -308,6 +309,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   useEffect(() => {
     if (settings === undefined) return
+    document.documentElement.style.setProperty('--text-scale', String(settings.textSize / 100))
     document.documentElement.style.setProperty(
       '--terminal-font-size',
       `${settings.terminalFontSize}px`,
@@ -1028,6 +1030,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           <div ref={panes} className={styles.panes}>
             {find}
             <SettingsShell
+              error={settingsResource.error}
+              retry={settingsResource.retry}
               section={navigation.settings.section}
               settings={settings}
               factories={factories}
@@ -1055,6 +1059,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           navigation={navigation}
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
+          developerMode={settings?.developerMode ?? false}
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}

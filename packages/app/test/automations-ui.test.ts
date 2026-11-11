@@ -87,6 +87,13 @@ async function openFirstFactory(window: Page) {
 }
 
 describe('Automations in the app', () => {
+  test('a missing Automation crosses the bridge as deleted rather than a request failure', async () => {
+    const { window } = await launch()
+    expect(
+      await window.evaluate(() => globalThis.window.ted.request('getAutomation', 'missing')),
+    ).toBeNull()
+  })
+
   test('the empty page offers templates; a template fills the form and the schedule checks itself', async () => {
     const { window, ted } = await launch()
     await openAutomations(window)

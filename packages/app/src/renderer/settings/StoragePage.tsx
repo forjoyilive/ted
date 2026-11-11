@@ -2,6 +2,7 @@ import type { StorageSummary, StoredBackup } from '@ted/protocol'
 import { runOutputDayLimits } from '@ted/protocol/settings'
 import { formatBytes } from '@ted/protocol/storage'
 import { useCallback, useEffect, useState } from 'react'
+import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
@@ -81,13 +82,16 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
 
   const subtitle = storage
     ? `${formatBytes(storage.usedBytes)} used under ${storage.home} · ${formatBytes(storage.freeBytes)} free${storage.volume === '' ? '' : ` on ${storage.volume}`}`
-    : 'Measuring…'
+    : error
+      ? undefined
+      : 'Measuring…'
   const shown = storage?.categories.filter((c) => c.bytes > 0) ?? []
   const largest = Math.max(1, ...shown.map((c) => c.bytes))
 
   return (
     <SettingsPage title="Storage" subtitle={subtitle}>
       {error !== undefined && <p className={styles.error}>{error}</p>}
+      {!storage && !error && <Skeleton shape="settings" label="Loading storage…" />}
       {storage && (
         <>
           <SettingsGroup label="Space used">

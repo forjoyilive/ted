@@ -16,6 +16,7 @@ import {
   DaemonClient,
   DaemonUnreachableError,
   type DesignFileInput,
+  type DesignFileSpec,
   type DesignReviewInput,
   type Effort,
   efforts,
@@ -24,10 +25,15 @@ import {
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
+  type LocalDesignReviewInput,
   minGhVersion,
-  type ProposalInput,
+  parseDesignReviewInput,
   parseLinearUrl,
+  parseLocalDesignReviewInput,
+  parseProposalInput,
+  parseRoundInput,
   type RepoSetupReport,
+  RequestValidationError,
   type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
@@ -156,7 +162,7 @@ const usage = `Usage:
                                              Export a Factory’s retained Tasks and history
   ted backup list                            List backups of TED’s data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
-  ted task lead <id> claude|codex [--model <name>] [--effort <level>]
+  ted task lead <id> claude|codex [--model <name>] [--effort <level> | --stage-effort]
                                              Set the Task Lead’s agent, model and effort
   ted task lead <id> --default-model         Run this Task Lead on the CLI’s default model
                                              when its model isn’t available
@@ -198,6 +204,7 @@ function parse() {
         design: { type: 'string' },
         tutorial: { type: 'boolean' },
         effort: { type: 'string' },
+        'stage-effort': { type: 'boolean' },
         model: { type: 'string' },
         name: { type: 'string' },
         description: { type: 'string' },
@@ -507,7 +514,7 @@ try {
     const input =
       group === 'ask'
         ? { round: await readRound(options.round ?? '') }
-        : { proposal: await readJsonFile<ProposalInput>(options.file ?? '', 'proposal') }
+        : { proposal: await readParsedFile(options.file ?? '', 'proposal', parseProposalInput) }
     const request = await withDaemon(home, (client) =>
       client.postPlanRequest({ ...input, ...(supersedes !== undefined && { supersedes }) }),
     )
@@ -561,7 +568,7 @@ try {
   } else if (group === 'task' && command === 'propose' && rest.length === 0) {
     const ref = taskRef()
     if (options.file === undefined) throw new UsageError('give the proposal with --file <file>')
-    const proposal = await readJsonFile<ProposalInput>(options.file, 'proposal')
+    const proposal = await readParsedFile(options.file, 'proposal', parseProposalInput)
     const supersedes = options.supersedes
     const request = await withDaemon(home, (client) =>
       client.postComment(ref, { proposal, ...(supersedes !== undefined && { supersedes }) }),
@@ -788,6 +795,8 @@ try {
   } else if (group === 'task' && command === 'lead' && rest.length === 2) {
     const [ref = '', agent = ''] = rest
     const { model, effort } = options
+    if (options['stage-effort'] && effort !== undefined)
+      throw new UsageError('choose --stage-effort or --effort')
     if (!agentKinds.includes(agent as AgentKind))
       throw new UsageError('agent must be claude or codex')
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
@@ -795,10 +804,20 @@ try {
     }
     const lead: TaskLead = {
       agent: agent as AgentKind,
+      ...(options['stage-effort'] && { effortMode: 'stage' as const }),
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort: effort as Effort }),
     }
-    const task = await withDaemon(home, (client) => client.setTaskLead(ref, lead))
+    const task = await withDaemon(home, async (client) => {
+      const saved = options['stage-effort']
+        ? (await client.listTasks()).find((task) => task.id === ref || task.displayId === ref)?.lead
+            ?.effort
+        : undefined
+      return client.setTaskLead(ref, {
+        ...lead,
+        ...(saved !== undefined && { effort: saved }),
+      })
+    })
     console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
@@ -1134,8 +1153,12 @@ async function workflowCheck(target: string): Promise<void> {
   if (errors > 0) process.exitCode = 1
 }
 
-function describeLead({ agent, model, effort }: TaskLead): string {
-  return [agent, model ?? 'default model', effort ?? 'default effort'].join(' · ')
+function describeLead({ agent, model, effort, effortMode }: TaskLead): string {
+  return [
+    agent,
+    model ?? 'default model',
+    effortMode === 'stage' ? 'Follow Stage settings' : (effort ?? 'default effort'),
+  ].join(' · ')
 }
 
 function formatRun({ run, conversation }: RunWithConversation): string {
@@ -1179,55 +1202,14 @@ function summarize(line: string): string {
   return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
 }
 
-interface DesignFileSpec {
-  path: string
-  caption?: string
-}
-
-interface DesignSpec extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
-  screenshots?: DesignFileSpec[]
-  video?: DesignFileSpec
-  prototype?: DesignFileSpec
-}
-
-function fileSpec(value: unknown, what: string): DesignFileSpec {
-  if (typeof value === 'string') return { path: value }
-  const { path: file, caption } = (value ?? {}) as Record<string, unknown>
-  if (typeof file !== 'string' || (caption !== undefined && typeof caption !== 'string')) {
-    throw new UsageError(`the design file’s ${what} needs a path, as text or as { "path": … }`)
-  }
-  return { path: file, ...(caption !== undefined && { caption }) }
-}
-
-async function readDesign(file: string): Promise<DesignSpec> {
-  const text = await readFile(path.resolve(file), 'utf8')
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (error) {
-    throw new UsageError(
-      `the design file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
-    )
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new UsageError('the design file must hold a JSON object')
-  }
-  const { screenshots, video, prototype, ...rest } = parsed as Record<string, unknown>
-  if (screenshots !== undefined && !Array.isArray(screenshots)) {
-    throw new UsageError('the design file’s screenshots must be a list')
-  }
-  return {
-    ...(rest as Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'>),
-    ...(screenshots && { screenshots: screenshots.map((s) => fileSpec(s, 'screenshot')) }),
-    ...(video !== undefined && { video: fileSpec(video, 'video') }),
-    ...(prototype !== undefined && { prototype: fileSpec(prototype, 'prototype') }),
-  }
+async function readDesign(file: string): Promise<LocalDesignReviewInput> {
+  return readParsedFile(file, 'design', parseLocalDesignReviewInput)
 }
 
 async function uploadDesign(
   client: DaemonClient,
   ref: string,
-  { screenshots, video, prototype, ...rest }: DesignSpec,
+  { screenshots, video, prototype, ...rest }: LocalDesignReviewInput,
 ): Promise<DesignReviewInput> {
   const upload = async ({ path: file, caption }: DesignFileSpec): Promise<DesignFileInput> => {
     const bytes = new Uint8Array(await readFile(path.resolve(file)))
@@ -1240,26 +1222,37 @@ async function uploadDesign(
   }
   const shots = []
   for (const shot of screenshots ?? []) shots.push(await upload(shot))
-  return {
+  return parseDesignReviewInput({
     ...rest,
     ...(shots.length > 0 && { screenshots: shots }),
     ...(video && { video: await upload(video) }),
     ...(prototype && { prototype: await upload(prototype) }),
-  }
+  })
 }
 
 function readRound(file: string): Promise<RoundInput> {
-  return readJsonFile<RoundInput>(file, 'round')
+  return readParsedFile(file, 'round', parseRoundInput)
 }
 
-async function readJsonFile<T>(file: string, what: string): Promise<T> {
+async function readParsedFile<T>(
+  file: string,
+  what: string,
+  parser: (value: unknown) => T,
+): Promise<T> {
   const text = await readFile(path.resolve(file), 'utf8')
+  let value: unknown
   try {
-    return JSON.parse(text) as T
+    value = JSON.parse(text)
   } catch (error) {
     throw new UsageError(
       `the ${what} file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
     )
+  }
+  try {
+    return parser(value)
+  } catch (error) {
+    if (error instanceof RequestValidationError) throw new UsageError(error.message)
+    throw error
   }
 }
 

@@ -155,6 +155,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.messageCoordinator(String(id), input as CoordinatorMessage),
   stopCoordinator: (client, id) => client.stopCoordinator(String(id)),
   retryCoordinator: (client, id) => client.retryCoordinator(String(id)),
+  resetCoordinator: (client, id) => client.resetCoordinator(String(id)),
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body, attachments) =>
@@ -317,11 +318,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openInEditor: (client, taskId, repo, at) => {
     const given = (at ?? {}) as Record<string, unknown>
     return client.openInEditor(String(taskId), String(repo), {
+      ...(typeof given.snapshot === 'boolean' && { snapshot: given.snapshot }),
       ...(typeof given.file === 'string' && { file: given.file }),
       ...(typeof given.line === 'number' && { line: given.line }),
       ...(typeof given.column === 'number' && { column: given.column }),
     })
   },
+  taskFiles: (client, taskId) => client.taskFiles(String(taskId)),
+  taskFile: (client, taskId, repo, file) =>
+    client.taskFile(String(taskId), String(repo), String(file)),
   taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
   fileDiffs: (client, taskId, repo, file) =>
     client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
@@ -528,7 +533,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   listAutomations: (client, factory) =>
     client.listAutomations(factory === undefined ? undefined : String(factory)),
-  getAutomation: (client, id) => client.getAutomation(String(id)),
+  getAutomation: (client, id) =>
+    client.getAutomation(String(id)).catch((error: unknown) => {
+      if (error instanceof DaemonRequestError && error.status === 404) return null
+      throw error
+    }),
   draftAutomationPrompt: (client, input) =>
     client.draftAutomationPrompt(input as DraftAutomationPromptRequest),
   getAutomationPromptDraft: (client, id) => client.getAutomationPromptDraft(String(id)),

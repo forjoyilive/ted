@@ -44,11 +44,6 @@ const sections: readonly SheetSection[] = [
     rows: [
       { id: 'reply', label: 'Reply', keys: ['R'] },
       { id: 'approve', label: 'Approve, then ↵ to confirm', keys: ['A'] },
-      {
-        id: 'accept-recommended',
-        label: 'Accept all recommended, then ↵ to confirm',
-        keys: ['⇧A'],
-      },
       { id: 'request-changes', label: 'Request changes', keys: ['⇧R'] },
       {
         id: 'send-message',
@@ -72,6 +67,7 @@ const sections: readonly SheetSection[] = [
       { id: 'move-up', label: 'Move up in rank (Manual order)', keys: ['⌥↑'] },
       { id: 'move-down', label: 'Move down in rank (Manual order)', keys: ['⌥↓'] },
       { id: 'archive', label: 'Archive', keys: ['⌘⌫'] },
+      { id: 'quick-open', label: 'Open a file', keys: ['⌘P'] },
       { id: 'shell', label: 'Open the Task’s shell', keys: ['⌃`'] },
     ],
   },
