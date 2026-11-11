@@ -842,10 +842,10 @@ test.each(['revert', 'remove', 'replace', 'accepted'])(
 
 test('generated Check evidence survives unsafe links', async () => {
   const command = [
-    "printf 'https://example.test/path?%s=value\\n' token",
     'echo https://user:password@example.test/api',
     "echo 'https://[redacted]@example.test/api'",
     "echo 'https://['",
+    "printf 'https://example.test/path?%s=value' token",
     'exit 1',
   ].join('; ')
   const s = await setup([
@@ -991,6 +991,7 @@ test(
           async () => (await s.runs()).at(-1)?.checks.some((c) => c.state === 'running'),
           'remaining Check running',
         )
+        const release = () => writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
         try {
           expect((await s.client.call('POST', endpoint, body)).status).toBe(409)
           expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
@@ -998,12 +999,14 @@ test(
           expect((await s.cases()).find((c) => c.id === finding.id)?.resolutions).toEqual([])
           const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
           expect(comments.find((c) => c.id === requestId)?.answer).toBeUndefined()
-        } finally {
-          await writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
+        } catch (error) {
+          await release()
+          throw error
         }
-        return { s, finding, endpoint, body }
+        return { s, finding, endpoint, body, release }
       }),
     )
+    for (const scene of scenes) await scene.release()
     const client = await restart()
     await all(scenes, async ({ s, finding, endpoint, body }) => {
       await waitUntil(async () => {
