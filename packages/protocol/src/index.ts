@@ -141,8 +141,10 @@ export {
   type CheckRun,
   type CheckRunOutcome,
   type CheckRunReport,
+  type CheckRunTiming,
   type CheckRunTrigger,
   type CheckState,
+  type CheckTimingInterval,
   checkFailed,
   checkLabel,
   type DeclaredSendBackCause,
@@ -747,6 +749,7 @@ export {
   parseTaskLead,
   parseWriteBriefRequest,
 } from './task-parsers.ts'
+export * from './test-invocations.ts'
 export {
   effectiveTimeZone,
   formatClockTime,

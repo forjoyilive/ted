@@ -596,7 +596,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
       if (request.action === 'request-changes') {
         if (text === '') throw new RequestError(400, 'Request changes needs your comment')
       } else if (request.action !== 'approve') {
-        throw new RequestError(400, 'answer a Gate request with Approve or Request changes')
+        throw new RequestError(400, 'answer a sign-off request with Approve or Request changes')
       }
     } else if (comment.kind !== 'question') {
       throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)

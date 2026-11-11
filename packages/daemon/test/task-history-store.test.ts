@@ -34,6 +34,31 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
+test('Task first-start time survives later Stages, resume and reopening', async () => {
+  const task = () => store.listTasks().find((task) => task.id === id)
+  expect(task()?.startedAt).toBeUndefined()
+  store.queueTask(id, 'intake')
+  expect(task()?.startedAt).toBeUndefined()
+  vi.setSystemTime(initial + 60_000)
+  store.startTask({
+    taskId: id,
+    stage: 'intake',
+    branch: 'task',
+    worktree: dir,
+    entry,
+    repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+  })
+  expect(task()?.startedAt).toBe('2026-11-01T12:01:00.000Z')
+  vi.setSystemTime(initial + 120_000)
+  store.changeStage(id, 'work', entry)
+  store.stopTask(id, { runs: 0, why: 'human' })
+  store.resumeTask(id, { waitForBlockers: false })
+  expect(task()?.startedAt).toBe('2026-11-01T12:01:00.000Z')
+  await store.close()
+  store = await openStore({ directory: dir })
+  expect(task()?.startedAt).toBe('2026-11-01T12:01:00.000Z')
+})
+
 test('merge history shares pending/canceled facts and isolates Stage visits', () => {
   store.startTask({
     taskId: id,

@@ -40,6 +40,7 @@ import {
   parseLocalDesignReviewInput,
   parseProposalInput,
   parseRecordFailureRequest,
+  parseRegisterTestInvocation,
   parseRoundInput,
   parseVerifyFailureRequest,
   type RepoSetupReport,
@@ -1113,6 +1114,21 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           : `Saved ${printable(capture.attachment?.name ?? 'the recording')} to the Task`,
       )
     },
+    testInvocations: async () => {
+      const ref = taskRef()
+      const result = await withDaemon(home, (client) => client.testInvocations(ref))
+      console.log(JSON.stringify(result, null, 2))
+    },
+    registerTestInvocation: async () => {
+      const ref = taskRef()
+      const text =
+        options.file === undefined
+          ? await readStdin()
+          : await readFile(path.resolve(options.file), 'utf8')
+      const input = parseRegisterTestInvocation(JSON.parse(text))
+      const result = await withDaemon(home, (client) => client.registerTestInvocation(ref, input))
+      console.log(JSON.stringify(result))
+    },
     checks: async () => {
       const ref = taskRef()
       const name = options.name
@@ -1250,6 +1266,29 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     },
     workflowCheck: async () => {
       await workflowCheck(args[0] ?? '.ted')
+    },
+    seedDemo: async () => {
+      if (
+        tedEnv('TED_RUN', env) ||
+        tedEnv('TED_TASK', env) ||
+        tedEnv('TED_PLAN', env) ||
+        runTokenFrom(env)
+      )
+        throw new UsageError('Run demo seeding from a local terminal, outside a Run.')
+      const started = Date.now()
+      const { demoHome, demoEnvironment, seedDemoFromCli } = await import('@ted/daemon/demo')
+      const demo = runtime.home ?? demoHome(env)
+      const prepared = demoEnvironment(demo, env)
+      const original = { ...process.env }
+      try {
+        for (const key of Object.keys(process.env)) delete process.env[key]
+        Object.assign(process.env, prepared)
+        await seedDemoFromCli(demo, options.reset)
+      } finally {
+        for (const key of Object.keys(process.env)) delete process.env[key]
+        Object.assign(process.env, original)
+      }
+      console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
     },
     showSlow: async () => {
       console.log(formatSlowMoments(await withDaemon(home, (client) => client.getSlowMoments())))

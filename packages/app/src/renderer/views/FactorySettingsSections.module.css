@@ -22,7 +22,7 @@
 
 .workflowRow {
   min-width: 860px;
-  grid-template-columns: 92px 36px 56px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
+  grid-template-columns: 92px 36px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
 }
 
 .checkRow {

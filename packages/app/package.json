@@ -6,7 +6,7 @@
   "main": "src/main.ts",
   "scripts": {
     "build": "vite build",
-    "start": "vite build && electron .",
+    "start": "node scripts/start.ts",
     "package": "node scripts/package.ts",
     "smoke": "node scripts/smoke.ts",
     "icons": "node scripts/icons.ts"

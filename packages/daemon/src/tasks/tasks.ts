@@ -6423,13 +6423,19 @@ export function createTasks(options: {
     libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
     signal: stopping.signal,
     lowPriority: () => store.settings().lowPriorityWork,
-    takeCheckSlot: async (taskId) => {
+    takeCheckSlot: async (taskId, checkRunId) => {
       const wait = new AbortController()
       checkWaits.set(taskId, wait)
       try {
         return await options.checkSlots.take({
           taskId,
           signal: AbortSignal.any([stopping.signal, wait.signal]),
+          observe: (boundary, at) =>
+            store.checkSlotBoundary(
+              checkRunId,
+              boundary === 'canceled' && stopping.signal.aborted ? 'interrupted' : boundary,
+              at,
+            ),
         })
       } finally {
         checkWaits.delete(taskId)
@@ -7366,7 +7372,7 @@ export function createTasks(options: {
       if (old.sizeCheck) {
         throw new RequestError(400, 'replace a size check with `ted clarify too-big --supersedes`')
       }
-      if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
+      if (old.gate) throw new RequestError(409, 'a sign-off request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
       }
@@ -7390,7 +7396,7 @@ export function createTasks(options: {
 
     async setTaskGates(ref, caller, request) {
       if (caller.kind !== 'app')
-        throw new RequestError(403, 'only the TED app can change Task Gates')
+        throw new RequestError(403, 'only the TED app can change Task sign-offs')
       const id = find(ref).id
       await untilFree(id)
       return holding(find(id), async () => {
@@ -7398,7 +7404,7 @@ export function createTasks(options: {
         if (before.revision !== request.revision) {
           throw new RequestError(
             409,
-            'Task Gates changed while you were editing. Reopen the editor and try again.',
+            'Task sign-offs changed while you were editing. Reopen the editor and try again.',
           )
         }
         const keys = new Set([...Object.keys(before.overrides), ...Object.keys(request.overrides)])
@@ -7642,7 +7648,7 @@ export function createTasks(options: {
           if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
             throw new RequestError(
               409,
-              `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
+              `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design`,
             )
           }
           const declared =
@@ -7696,7 +7702,7 @@ export function createTasks(options: {
         if (changesAsked) {
           throw new RequestError(
             409,
-            `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
+            `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
           )
         }
         if (stage === 'merge') {
@@ -7745,13 +7751,13 @@ export function createTasks(options: {
           if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
             throw new RequestError(
               409,
-              `${stageTitle(stage)} has already posted its Gate request, so it can’t skip itself`,
+              `${stageTitle(stage)} has already posted its sign-off request, so it can’t skip itself`,
             )
           }
           store.postComment({
             taskId: task.id,
             body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
-              gateOn(current, workflow, stage) ? ' Its Gate was skipped too.' : ''
+              gateOn(current, workflow, stage) ? ' Its sign-off was skipped too.' : ''
             }`,
             author: { kind: 'ted' },
           })
@@ -7802,7 +7808,7 @@ export function createTasks(options: {
           )
           return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
         }
-        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} Gate`
+        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} sign-off`
         if (openGateRequest(current)) {
           throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
         }
@@ -8343,7 +8349,7 @@ function storedDesign({ title: _, ...design }: DesignSubmission): DesignReview {
 
 function gateName(comment: Comment): string {
   if (comment.stage === 'clarify') return 'Clarify sign-off'
-  return `${stageTitle(comment.stage ?? '')} Gate`
+  return `${stageTitle(comment.stage ?? '')} sign-off`
 }
 
 function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {

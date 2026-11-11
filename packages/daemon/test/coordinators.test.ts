@@ -909,7 +909,7 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
   expect((again.body as { error: string }).error).toContain('already closed')
 })
 
-test('answer approves a Gate request or asks for changes, and refuses permission prompts', async () => {
+test('answer approves a sign-off request or asks for changes, and refuses permission prompts', async () => {
   await commitToOrigin(scratch, { 'app.txt': 'one\ntwo\nthree\n' })
   const s = await setup(undefined, 'version: 1\norder: [intake, design, work, merge]\n')
   const briefFile = path.join(scratch, 'brief.md')
@@ -942,7 +942,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   const request = (id: string, wanted: (c: Comment) => boolean, what: string) =>
     waitUntil(async () => (await s.comments(id)).find(wanted), what)
   const openGate = (c: Comment) => c.gate !== undefined && c.answer === undefined
-  const gate = await request(gated.task.id, openGate, 'a Gate request')
+  const gate = await request(gated.task.id, openGate, 'a sign-off request')
   const permission = await request(
     prompted.task.id,
     (c) => c.kind === 'permission',
@@ -1007,7 +1007,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   })
   expect(changes.status).toBe(200)
   expect((changes.body as CoordinatorReceipt).text).toContain(
-    `Requested changes on ${gated.task.displayId}’s Gate request`,
+    `Requested changes on ${gated.task.displayId}’s Sign-off request`,
   )
   const asked = (await s.comments(gated.task.id)).find((c) => c.id === gate.id)
   expect(asked?.answer).toEqual({
@@ -1021,7 +1021,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   const second = await request(
     gated.task.id,
     (c) => openGate(c) && c.id !== gate.id,
-    'a second Gate request',
+    'a second Sign-off request',
   )
   const approved = await answer(gated.task, {
     operation: 'approve',
@@ -1030,7 +1030,7 @@ test('answer approves a Gate request or asks for changes, and refuses permission
   })
   expect(approved.status).toBe(200)
   const receipt = approved.body as CoordinatorReceipt
-  expect(receipt.text).toContain(`Approved ${gated.task.displayId}’s Gate request`)
+  expect(receipt.text).toContain(`Approved ${gated.task.displayId}’s Sign-off request`)
   expect(receipt.before?.stage).toBe('design')
   expect(receipt.after?.stage).not.toBe('design')
   expect((await s.comments(gated.task.id)).find((c) => c.id === second.id)?.answer).toMatchObject({

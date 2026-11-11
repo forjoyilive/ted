@@ -54,14 +54,21 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startTed(maxChecksAtOnce?: number) {
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+function connect() {
+  if (!daemon) throw new Error('daemon not started')
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T
   }
+  return { ...client, ok }
+}
+
+async function startTed(maxChecksAtOnce?: number) {
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const client = connect()
+  const { ok } = client
   const factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   if (maxChecksAtOnce !== undefined) await ok('PATCH', '/settings', { maxChecksAtOnce })
   return { ...client, ok, factory }
@@ -138,6 +145,11 @@ describe('Checks running at once', () => {
     const waiting = await checkRun(client, second)
     expect(waiting).toMatchObject({ waiting: true, checks: [{ name: 'Wait', state: 'waiting' }] })
     expect(waiting?.finishedAt).toBeUndefined()
+    expect(waiting?.timing?.queue).toMatchObject({ status: 'ongoing' })
+    expect((await checkRun(client, first))?.timing?.queue).toMatchObject({
+      status: 'complete',
+      durationMs: 0,
+    })
     expect((await checkRun(client, first))?.waiting).toBeUndefined()
     expect((await getTask(client, second.id))?.status).toEqual({ kind: 'working' })
     expect(await started(client, second)).toBe(false)
@@ -156,7 +168,17 @@ describe('Checks running at once', () => {
       .poll(() => client.ok<Activity>('GET', '/activity'))
       .toMatchObject({ checksRunning: 1, checksWaiting: 0 })
     await go(client, second)
-    expect((await finished(client, second)).outcome).toBe('passed')
+    const measured = await finished(client, second)
+    expect(measured.outcome).toBe('passed')
+    expect(measured.timing?.queue).toMatchObject({
+      status: 'complete',
+      durationMs: expect.any(Number),
+    })
+    if (measured.timing?.queue.status === 'complete')
+      expect(measured.timing.queue.durationMs).toBeGreaterThan(0)
+    expect(measured.timing?.execution).toMatchObject([
+      { position: 0, status: 'complete', durationMs: measured.checks[0]?.durationMs },
+    ])
   })
 
   test('raising the limit starts a waiting Check run at once, and lowering it stops nothing', async () => {
@@ -189,7 +211,10 @@ describe('Checks running at once', () => {
     await waitingAt(client, third, '2nd')
 
     await client.ok('POST', `/tasks/${second.id}/stop`)
-    expect((await finished(client, second)).outcome).toBe('interrupted')
+    const canceled = await finished(client, second)
+    expect(canceled.outcome).toBe('interrupted')
+    expect(canceled.timing?.queue).toMatchObject({ status: 'canceled' })
+    expect(canceled.timing?.execution).toEqual([{ position: 0, status: 'unavailable' }])
     await waitingAt(client, third, '1st')
     expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
       checksRunning: 1,
@@ -211,7 +236,10 @@ describe('Checks running at once', () => {
     await waitingAt(client, second, '1st')
 
     await client.ok('POST', `/tasks/${second.id}/archive`)
-    expect((await finished(client, second)).outcome).toBe('interrupted')
+    const canceled = await finished(client, second)
+    expect(canceled.outcome).toBe('interrupted')
+    expect(canceled.timing?.queue).toMatchObject({ status: 'canceled' })
+    expect(canceled.timing?.execution).toEqual([{ position: 0, status: 'unavailable' }])
     await waitUntil(
       async () => (await client.ok<Activity>('GET', '/activity')).checksWaiting === 0 || undefined,
       'nothing to wait for Checks',
@@ -219,6 +247,45 @@ describe('Checks running at once', () => {
     expect(await checkState(client, first)).toBe('running')
     await go(client, first)
     expect((await finished(client, first)).outcome).toBe('passed')
+  })
+
+  test('deleting a waiting Task cancels admission without starting its commands', async () => {
+    const client = await startTed(1)
+    const first = await startTask(client)
+    await running(client, first)
+    const second = await startTask(client)
+    await waitingAt(client, second, '1st')
+    await client.ok('POST', `/tasks/${second.id}/delete`)
+    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
+      checksWaiting: 0,
+      checksRunning: 1,
+    })
+    await go(client, first)
+    expect((await finished(client, first)).outcome).toBe('passed')
+  })
+
+  test('restart preserves the observed wait interruption and starts a separate Check run', async () => {
+    let client = await startTed(1)
+    const first = await startTask(client)
+    await running(client, first)
+    const second = await startTask(client)
+    await waitingAt(client, second, '1st')
+    const old = await checkRun(client, second)
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    client = { ...connect(), factory: client.factory }
+    const history = await client.ok<CheckRun[]>('GET', `/tasks/${second.id}/check-runs`)
+    const interrupted = history.find((r) => r.id === old?.id)
+    expect(interrupted).toMatchObject({
+      outcome: 'interrupted',
+      timing: { queue: { status: 'interrupted', endedAt: expect.any(String) } },
+    })
+    expect(interrupted?.timing?.execution).toEqual([{ position: 0, status: 'unavailable' }])
+    await go(client, first)
+    await running(client, second)
+    expect((await checkRun(client, second))?.id).not.toBe(old?.id)
+    await go(client, second)
+    expect((await finished(client, second)).outcome).toBe('passed')
   })
 
   test('Run now in Factory settings waits for a place and says so', async () => {

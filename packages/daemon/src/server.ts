@@ -22,6 +22,7 @@ import {
   requestMac,
   responseMac,
   responseMacHeader,
+  testReporterPrefix,
 } from '@ted/protocol'
 import { maxAttachmentBytes } from './attachments.ts'
 import type { Data } from './data.ts'
@@ -50,6 +51,7 @@ import { runRoutes } from './routes/runs.ts'
 import { searchRoutes } from './routes/search.ts'
 import { shellRoutes } from './routes/shells.ts'
 import { taskRoutes } from './routes/tasks.ts'
+import { testInvocationRoutes } from './routes/test-invocations.ts'
 import type { Caller } from './tasks/tasks.ts'
 
 export type { BaseOptions, ServerOptions } from './routes/route.ts'
@@ -162,6 +164,7 @@ async function settled(data: Data): Promise<void> {
 
 const routes: Route[] = [
   ...taskRoutes,
+  ...testInvocationRoutes,
   ...peerRoutes,
   ...shellRoutes,
   ...appRoutes,
@@ -243,7 +246,11 @@ async function handle(
   if (signed) signedResponses.set(res, { key: options.appToken, nonce: signed.nonce })
   const request = signed ? replay(req, await readSignedBody(req, url)) : req
 
-  if (caller.kind === 'run') {
+  if (caller.kind === 'run' && caller.runId.startsWith(testReporterPrefix)) {
+    const id = caller.runId.slice(testReporterPrefix.length).split(':')[0]
+    if (req.method !== 'POST' || url !== `/test-invocations/${id}/reports`)
+      throw new HttpError(403, 'test reporters may only report their own invocation')
+  } else if (caller.kind === 'run') {
     const services = await options.data.services()
     if (!services.store.getRun(caller.runId)) throw new HttpError(403, 'This Run no longer exists')
     if (services.store.sideChats.forRun(caller.runId))

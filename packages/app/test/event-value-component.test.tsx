@@ -133,7 +133,7 @@ test('Library event refresh preserves a draft until Discard reloads the current 
     }),
   })
   render(<LibraryPage settings={defaultMachineSettings} dispatch={() => undefined} />)
-  const gate = await screen.findByRole('switch', { name: 'Review Gate' })
+  const gate = await screen.findByRole('switch', { name: 'Review sign-off' })
   await user().click(gate)
   expect(gate.getAttribute('aria-checked')).toBe('false')
   version = 'v2'

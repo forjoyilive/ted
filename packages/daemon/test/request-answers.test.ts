@@ -95,7 +95,7 @@ beforeEach(async () => {
       return port.find(taskId)
     },
     linesText: () => undefined,
-    gateName: () => 'Design Gate',
+    gateName: () => 'Design sign-off',
     firstLine: (text) => text.split('\n')[0] ?? '',
   }
 })
@@ -171,7 +171,7 @@ test('the stored idle purpose nudges its current Lead', async () => {
   expect(effects).toEqual(['nudged'])
 })
 
-test('a Gate approves only after checking obligations and advances, without sending drafts', async () => {
+test('a sign-off approves only after checking obligations and advances, without sending drafts', async () => {
   const comment = post({ kind: 'gate' }, { kind: 'review', gate: { approveLabel: 'Approve' } })
   await expect(answer(comment)).rejects.toThrow('Approve or Request changes')
   await answer(comment, { action: 'approve' })
@@ -180,7 +180,7 @@ test('a Gate approves only after checking obligations and advances, without send
   expect(store.listOpenRequests()).toEqual([])
 })
 
-test('a Gate keeps its request open when obligations fail', async () => {
+test('a sign-off keeps its request open when obligations fail', async () => {
   port.requireObligations = async () => {
     throw new Error('unresolved failure')
   }
@@ -887,7 +887,7 @@ test('a simulator App that stopped cannot consume its pending approval', async (
   expect(effects).toEqual([])
 })
 
-test('Gate obligations receive the next Stage so a repair may return through validation', async () => {
+test('Sign-off obligations receive the next Stage so a repair may return through validation', async () => {
   const comment = post({ kind: 'gate' }, { kind: 'signoff', gate: { approveLabel: 'Approve' } })
   const resolution = await port.gateWorkflow(port.find(taskId))
   port.gateWorkflow = async () => ({
@@ -901,7 +901,7 @@ test('Gate obligations receive the next Stage so a repair may return through val
   expect(effects).toEqual(['obligations:work', 'approval', 'moved'])
 })
 
-test('a preparation Gate validates its Workflow before recording approval', async () => {
+test('a preparation Sign-off validates its Workflow before recording approval', async () => {
   store.queueTask(taskId, 'design', { prepare: true })
   expect(store.getTask(taskId)?.preparation).toBe('preparing')
   const comment = post({ kind: 'gate' }, { kind: 'review', gate: { approveLabel: 'Approve' } })
