@@ -1,4 +1,4 @@
-import type { FailureCase } from '@ted/protocol'
+import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol'
 import { useState } from 'react'
 import { useCheckRuns, useFailures, useValidationObligations } from '../data.ts'
@@ -134,8 +134,30 @@ export function ValidationSummary({ taskId }: { taskId: string }) {
   const failures = useFailures(taskId)
   const obligations = useValidationObligations(taskId)
   const runs = useCheckRuns(taskId)
+  return <ValidationResults progress={obligations?.progress} failures={failures} runs={runs} />
+}
+
+export function RecordedValidationSummary({
+  taskId,
+  snapshot,
+}: {
+  taskId: string
+  snapshot: ValidationSnapshot
+}) {
+  const runs = useCheckRuns(taskId)
+  return <ValidationResults progress={snapshot.progress} failures={snapshot.failures} runs={runs} />
+}
+
+function ValidationResults({
+  progress,
+  failures,
+  runs,
+}: {
+  progress: ValidationProgress | undefined
+  failures: readonly FailureCase[]
+  runs: readonly CheckRun[]
+}) {
   const [output, setOutput] = useState<{ runId: string; position: number }>()
-  const progress = obligations?.progress
   const run = runs.find((r) => r.id === output?.runId)
   if (!progress) return null
   const accepted = progress.checks.flatMap((_check, position) => {
@@ -163,6 +185,7 @@ export function ValidationSummary({ taskId }: { taskId: string }) {
       {run && output && (
         <CheckOutputDialog
           checkRun={run}
+          failures={failures}
           position={output.position}
           onClose={() => setOutput(undefined)}
         />

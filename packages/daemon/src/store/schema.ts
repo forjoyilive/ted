@@ -2307,6 +2307,26 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  validateJudgedV2: Events.synced({
+    name: 'v2.ValidateJudged',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      outcome: Schema.String,
+      checkRunId: Schema.NullOr(Schema.String),
+      review: Schema.NullOr(
+        Schema.Struct({ passed: Schema.Boolean, notes: Schema.NullOr(Schema.Number) }),
+      ),
+      visual: Schema.NullOr(
+        Schema.Struct({ passed: Schema.Boolean, notes: Schema.NullOr(Schema.Number) }),
+      ),
+      reviewer: Schema.NullOr(
+        Schema.Struct({ agent: Schema.String, unavailable: Schema.NullOr(Schema.String) }),
+      ),
+      validation: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   loopCheckStarted: Events.synced({
     name: 'v1.LoopCheckStarted',
     schema: Schema.Struct({
@@ -2772,6 +2792,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       visual: args.visual,
       reviewer: args.reviewer,
     }),
+  'v2.ValidateJudged': (args) =>
+    task(args, {
+      outcome: args.outcome,
+      validation: args.validation,
+      checkRunId: args.checkRunId,
+      review: args.review,
+      visual: args.visual,
+      reviewer: args.reviewer,
+    }),
   'v1.LoopCheckStarted': (args) => task(args, { runId: args.runId, round: args.round }),
   'v1.SendBackAsked': (args) =>
     task(args, {
@@ -3169,6 +3198,8 @@ const materializers = counted(
       'v1.SubAgentRequestDropped': ({ id }) => subAgentRequests.delete().where({ id }),
       'v1.ReviewerChosen': (row) => reviewers.insert(row),
       'v1.ValidateJudged': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v2.ValidateJudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.LoopCheckStarted': ({ to, ...row }) =>
         loopChecks.insert({ ...row, toStage: to, verdict: null }),

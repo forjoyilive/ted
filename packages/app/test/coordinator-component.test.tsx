@@ -80,8 +80,8 @@ function withCoordinator() {
     chat: RunChat | null
     statuses: CoordinatorStatus[]
   } = { coordinator: coordinator(), chat: conversation(), statuses: [] }
-  a.handle('getCoordinator', () => shown.coordinator)
-  a.handle('getCoordinatorChat', () => shown.chat)
+  a.handle('coordinator', () => shown.coordinator)
+  a.handle('coordinatorChat', () => shown.chat)
   a.handle('coordinatorStatuses', () => shown.statuses)
   a.handle('taskDefaults', () => ({ lead: { agent: 'claude' }, planner: { agent: 'claude' } }))
   const open = async () => {
@@ -358,22 +358,22 @@ test('the notice follows the setting live and its link opens Settings → Genera
 
 test('Coordinator loading failures can retry without losing the combined conversation', async () => {
   const { a, open } = withCoordinator()
-  a.handle('getCoordinator', () => Promise.reject(new Error('Coordinator unavailable')))
-  a.handle('getCoordinatorChat', () => Promise.reject(new Error('Conversation unavailable')))
+  a.handle('coordinator', () => Promise.reject(new Error('Coordinator unavailable')))
+  a.handle('coordinatorChat', () => Promise.reject(new Error('Conversation unavailable')))
   a.mount()
   const region = await open()
   expect((await within(region).findByRole('alert')).textContent).toContain(
     'Coordinator unavailable',
   )
-  a.handle('getCoordinator', () => coordinator())
+  a.handle('coordinator', () => coordinator())
   await user().click(within(region).getByRole('button', { name: 'Try again' }))
   expect((await within(region).findByRole('alert')).textContent).toContain(
     'Conversation unavailable',
   )
-  a.handle('getCoordinatorChat', () => conversation())
+  a.handle('coordinatorChat', () => conversation())
   await user().click(within(region).getByRole('button', { name: 'Try again' }))
   await within(region).findByText('Start with NB-1.')
-  a.handle('getCoordinatorChat', () => Promise.reject(new Error('Refresh unavailable')))
+  a.handle('coordinatorChat', () => Promise.reject(new Error('Refresh unavailable')))
   act(() => a.emit({ type: 'coordinator-changed', factoryId: 'f1' }))
   await within(region).findByRole('alert')
   expect(within(region).getByText('Start with NB-1.')).toBeTruthy()

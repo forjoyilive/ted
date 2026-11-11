@@ -3735,11 +3735,18 @@ export async function openStore({
       const judged = (j: { passed: boolean; notes?: number } | undefined) =>
         j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }
       commit(
-        events.validateJudged({
+        events.validateJudgedV2({
           id: randomUUID(),
           taskId,
           outcome,
           checkRunId: checkRunId ?? null,
+          validation:
+            outcome === 'passed'
+              ? JSON.stringify({
+                  progress: failureStore.progress(taskId),
+                  failures: failureStore.list(taskId).filter((failure) => failure.validation),
+                })
+              : null,
           review: judged(review),
           visual: judged(visual),
           reviewer:

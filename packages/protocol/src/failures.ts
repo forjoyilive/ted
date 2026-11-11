@@ -103,6 +103,11 @@ export const validateFailureChoices = {
   accepted: 'Accept this failure',
 } as const
 
+export interface ValidationSnapshot {
+  progress?: ValidationProgress
+  failures: FailureCase[]
+}
+
 export interface ValidationProgress {
   taskId: string
   visit: string

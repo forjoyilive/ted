@@ -1,6 +1,7 @@
 import type { SimulatorAsk } from './app.ts'
 import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
+import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
 import { RequestValidationError } from './validation.ts'
@@ -698,6 +699,7 @@ export interface ThreadEvent {
   checkRunId?: string
   judgments?: Judgment[]
   validate?: 'passed' | 'sent-back'
+  validation?: ValidationSnapshot
   changes?: ChatDiff
   planId?: string
 }

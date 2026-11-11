@@ -1,3 +1,4 @@
+import type { FailureCase } from '@ted/protocol'
 import { type CheckRun, checkLabel } from '@ted/protocol/checks'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useFailures } from '../data.ts'
@@ -7,16 +8,32 @@ import { FailureDetails } from './FailureDetails.tsx'
 import { CloseIcon } from './icons.tsx'
 import { Loading } from './Loading.tsx'
 
-export function CheckOutputDialog({
-  checkRun,
-  position,
-  onClose,
-}: {
+interface CheckOutputProps {
   checkRun: CheckRun
   position: number
   onClose: () => void
-}) {
-  const failures = useFailures(checkRun.taskId)
+  failures?: readonly FailureCase[] | undefined
+}
+
+export function CheckOutputDialog(props: CheckOutputProps) {
+  return props.failures ? (
+    <RecordedCheckOutput {...props} failures={props.failures} />
+  ) : (
+    <CurrentCheckOutput {...props} />
+  )
+}
+
+function CurrentCheckOutput(props: CheckOutputProps) {
+  const failures = useFailures(props.checkRun.taskId)
+  return <RecordedCheckOutput {...props} failures={failures} />
+}
+
+function RecordedCheckOutput({
+  checkRun,
+  position,
+  onClose,
+  failures,
+}: CheckOutputProps & { failures: readonly FailureCase[] }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const headingId = useId()
   const [shown, setShown] = useState(position)
