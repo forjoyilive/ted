@@ -114,6 +114,44 @@ describe('daemon HTTP API', () => {
     expect(JSON.parse(listed.body)).toEqual([JSON.parse(created.body)])
   })
 
+  test('shared parser errors keep their HTTP status behind the token guards', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const token = await tokenFor(home)
+    const port = daemon.port
+    const body = JSON.stringify({ start: 'yes' })
+    const post = (headers: Record<string, string>) =>
+      rawRequest(port, {
+        method: 'POST',
+        path: '/tasks',
+        headers: { 'content-type': 'application/json', ...headers },
+        body,
+      })
+    expect((await post({})).status).toBe(401)
+    const invalid = await post({ authorization: `Bearer ${token}` })
+    expect(invalid.status).toBe(400)
+    expect(JSON.parse(invalid.body)).toEqual({ error: 'start must be true or false' })
+
+    const message = JSON.stringify({ text: 'Hi', interrupt: 1 })
+    const denied = await rawRequest(daemon.port, {
+      method: 'POST',
+      path: '/runs/r1/messages',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: message,
+    })
+    expect(denied.status).toBe(403)
+    const signed = await rawRequest(daemon.port, {
+      method: 'POST',
+      path: '/runs/r1/messages',
+      headers: {
+        ...appHeaders(daemon.appToken, 'POST', '/runs/r1/messages', message),
+        'content-type': 'application/json',
+      },
+      body: message,
+    })
+    expect(signed.status).toBe(400)
+    expect(JSON.parse(signed.body)).toEqual({ error: 'interrupt must be true or false' })
+  })
+
   test('refuses a Task without a title', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const token = await tokenFor(home)

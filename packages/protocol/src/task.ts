@@ -764,3 +764,19 @@ export interface WriteBriefRequest {
 }
 
 export type SetTaskLeadRequest = TaskLead
+
+export type SaveTaskDraftRequest = Omit<NewTaskDraft, 'attachments'> & {
+  attachments: AttachmentRef[]
+}
+
+export interface DesignFileSpec {
+  path: string
+  caption?: string
+}
+
+export interface LocalDesignReviewInput
+  extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
+  screenshots?: DesignFileSpec[]
+  video?: DesignFileSpec
+  prototype?: DesignFileSpec
+}

@@ -94,7 +94,14 @@ import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
-import type { Plan, PlanDetail, PlanInboxItem, PlanRequest, StartPlanRequest } from './plan.ts'
+import type {
+  Plan,
+  PlanDetail,
+  PlanInboxItem,
+  PlanRequest,
+  PostPlanRequest,
+  StartPlanRequest,
+} from './plan.ts'
 import type {
   AgentKind,
   Run,
@@ -135,15 +142,13 @@ import type {
   FollowUpRequest,
   InboxItem,
   MoveTaskRequest,
-  NewTaskDraft,
   OutcomeResult,
   PostCommentRequest,
   Priority,
-  ProposalInput,
   ReportOutcomeRequest,
   RepoSetupReport,
   ResumeTaskRequest,
-  RoundInput,
+  SaveTaskDraftRequest,
   SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
@@ -324,6 +329,10 @@ export class DaemonClient {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/retry`)
   }
 
+  resetCoordinator(factoryId: string): Promise<null> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
+  }
+
   coordinatorTasks(offset = 0): Promise<{ context: string }> {
     return this.#request('GET', `/coordinator/tasks?offset=${offset}`)
   }
@@ -368,11 +377,7 @@ export class DaemonClient {
     return this.#request('GET', '/plan-requests')
   }
 
-  postPlanRequest(input: {
-    round?: RoundInput
-    proposal?: ProposalInput
-    supersedes?: string
-  }): Promise<PlanRequest> {
+  postPlanRequest(input: PostPlanRequest): Promise<PlanRequest> {
     return this.#request('POST', '/plan-runs/requests', input)
   }
 
@@ -411,7 +416,7 @@ export class DaemonClient {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/task-draft`)
   }
 
-  saveTaskDraft(factoryId: string, draft: NewTaskDraft): Promise<TaskDraftState> {
+  saveTaskDraft(factoryId: string, draft: SaveTaskDraftRequest): Promise<TaskDraftState> {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/task-draft`, draft)
   }
 

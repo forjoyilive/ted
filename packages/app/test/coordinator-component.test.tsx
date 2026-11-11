@@ -153,6 +153,36 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
   expect(stop).toHaveBeenCalledWith('f1')
 })
 
+test('New conversation asks first, then resets the Coordinator and shows the empty composer', async () => {
+  const { a, shown, open } = withCoordinator()
+  const reset = vi.fn(() => {
+    shown.coordinator = null
+    shown.chat = null
+    return null
+  })
+  a.handle('resetCoordinator', reset)
+  a.mount()
+  const pane = await open()
+  await user().click(await within(pane).findByRole('button', { name: 'New conversation' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(dialog.textContent).toContain('Start a new Coordinator conversation?')
+  await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(reset).not.toHaveBeenCalled()
+  expect(screen.queryByRole('dialog')).toBeNull()
+
+  await user().click(within(pane).getByRole('button', { name: 'New conversation' }))
+  await user().click(
+    within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete and start new' }),
+  )
+  await vi.waitFor(() => expect(reset).toHaveBeenCalledWith('f1'))
+  await act(async () => {
+    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
+  })
+  await within(pane).findByText('What needs your attention in widgets?')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(within(pane).queryByRole('button', { name: 'New conversation' })).toBeNull()
+})
+
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
   const { a, open } = withCoordinator()
   a.mount()

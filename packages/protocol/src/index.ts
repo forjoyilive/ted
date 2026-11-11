@@ -39,9 +39,11 @@ export {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
+export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
 export type {
   AnswerAutomationRequest,
   Automation,
+  AutomationCommentRequest,
   AutomationDetail,
   AutomationInput,
   AutomationNow,
@@ -57,8 +59,18 @@ export type {
   DraftAutomationPromptRequest,
   EditAutomationRequest,
   SchedulePreview,
+  SchedulePreviewRequest,
 } from './automation.ts'
 export { automationTemplateIds } from './automation.ts'
+export {
+  parseAnswerAutomationRequest,
+  parseAutomationCommentRequest,
+  parseAutomationSchedule,
+  parseCreateAutomationRequest,
+  parseDraftAutomationPromptRequest,
+  parseEditAutomationRequest,
+  parseSchedulePreviewRequest,
+} from './automation-parsers.ts'
 export {
   type Banner,
   type BannerAction,
@@ -73,6 +85,7 @@ export {
   isShowing,
   type RaiseBanner,
 } from './banner.ts'
+export { parseBannerActionInput } from './banner-parsers.ts'
 export {
   type ChangeFile,
   changeKey,
@@ -89,6 +102,11 @@ export {
   type RepoChanges,
   type TaskChanges,
 } from './changes.ts'
+export {
+  maxLineCommentLength,
+  parseDraftLineCommentRequest,
+  parseEditLineCommentRequest,
+} from './changes-parsers.ts'
 export type {
   ChatDiff,
   ChatDiffLine,
@@ -132,6 +150,7 @@ export type {
   CoordinatorTask,
   CoordinatorTaskSummary,
 } from './coordinator.ts'
+export { parseCoordinatorAction, parseCoordinatorMessage } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export {
   type Backup,
@@ -143,6 +162,7 @@ export {
   type RestoreBackupResult,
   type ShutdownRequest,
 } from './data.ts'
+export { parseRestoreBackupRequest, parseShutdownRequest } from './data-parsers.ts'
 export type {
   Diagnostics,
   LogText,
@@ -162,6 +182,11 @@ export {
   formatExport,
   type SaveExportResult,
 } from './export.ts'
+export type {
+  AutoStartBacklogRequest,
+  SetRepoFolderRequest,
+  StopCheckTryRequest,
+} from './factory.ts'
 export {
   type AddFactoryRequest,
   type CheckRepoRequest,
@@ -189,6 +214,23 @@ export {
   suggestRepoName,
   type TaskRef,
 } from './factory.ts'
+export {
+  parseAddFactoryRequest,
+  parseAutoStartBacklogRequest,
+  parseCheckRepoRequest,
+  parseCheckTryRequest,
+  parseCreateFactoryRequest,
+  parseFactorySettingsChanges,
+  parseLibraryChanges,
+  parseRemoveFactoryRequest,
+  parseRenameFactoryRequest,
+  parseReorderFactoriesRequest,
+  parseSaveLibraryRequest,
+  parseSaveSettingsRequest,
+  parseSetLocalFolderRequest,
+  parseSetRepoFolderRequest,
+  parseStopCheckTryRequest,
+} from './factory-parsers.ts'
 export {
   type AgentChoiceInput,
   type AgentRole,
@@ -237,6 +279,12 @@ export {
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from './factory-settings.ts'
+export {
+  parseAddFailureEvidenceRequest,
+  parseAssessFailureRequest,
+  parseRecordFailureRequest,
+  parseResolveFailureRequest,
+} from './failure-parsers.ts'
 export type * from './failures.ts'
 export { failureChoices } from './failures.ts'
 export {
@@ -262,6 +310,7 @@ export {
   usageLimitProblem,
   usageLimitText,
 } from './health.ts'
+export { parseRunFixRequest } from './integration-parsers.ts'
 export {
   type FixCommand,
   type GitHealth,
@@ -279,6 +328,7 @@ export {
   type RunFixRequest,
   type RunFixResult,
 } from './integrations.ts'
+export type { AllowLinearTeamRequest } from './linear.ts'
 export {
   findLinearUrl,
   isLinearTeamKey,
@@ -297,6 +347,11 @@ export {
   type SaveLinearKeyRequest,
 } from './linear.ts'
 export {
+  parseAllowLinearTeamRequest,
+  parseLinearLookupRequest,
+  parseSaveLinearKeyRequest,
+} from './linear-parsers.ts'
+export {
   type ArchivedFilter,
   allTasksScope,
   archivedFilters,
@@ -311,6 +366,7 @@ export {
   type StatusFilter,
 } from './list-view.ts'
 export { tedHome, tedPaths } from './paths.ts'
+export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
   PeerDetail,
   PeerInbox,
@@ -319,6 +375,7 @@ export type {
   PeerSummary,
   SendPeerMessage,
 } from './peers.ts'
+export type { PostPlanRequest, RenamePlanRequest } from './plan.ts'
 export {
   openPlanRequest,
   type Plan,
@@ -335,6 +392,11 @@ export {
   planTitleLength,
   type StartPlanRequest,
 } from './plan.ts'
+export {
+  parsePostPlanRequest,
+  parseRenamePlanRequest,
+  parseStartPlanRequest,
+} from './plan-parsers.ts'
 export {
   type ProposalPlan,
   type ProposalPlanRow,
@@ -362,6 +424,12 @@ export {
   type SubAgentState,
   type SubAgentWait,
 } from './run.ts'
+export {
+  parseSendRunMessageRequest,
+  parseSendSubAgentRequest,
+  parseStartDevRunRequest,
+  parseStartSubAgentRequest,
+} from './run-parsers.ts'
 export {
   type AutomationSchedule,
   checkSchedule,
@@ -401,9 +469,11 @@ export {
   runOutputDayLimits,
   type TimeFormat,
   terminalFontSizes,
+  textSizeLimits,
   timeFormats,
   workingRunLimits,
 } from './settings.ts'
+export type { ShellInputRequest } from './shell.ts'
 export {
   type EditorChoice,
   type EditorId,
@@ -419,6 +489,11 @@ export {
   shellSizeLimits,
   type TaskShell,
 } from './shell.ts'
+export {
+  parseOpenInEditorRequest,
+  parseShellInputRequest,
+  parseShellSize,
+} from './shell-parsers.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export { busyHold } from './slots.ts'
 export {
@@ -433,6 +508,7 @@ export {
   storageCategories,
   type WorktreeUse,
 } from './storage.ts'
+export type { DesignFileSpec, LocalDesignReviewInput, SaveTaskDraftRequest } from './task.ts'
 export {
   type AgentStageId,
   type AnswerRequest,
@@ -567,6 +643,37 @@ export type {
   TaskGates,
 } from './task-gates.ts'
 export {
+  parseAnswerRequest,
+  parseArchiveTaskRequest,
+  parseAttachmentRefs,
+  parseBlockTaskRequest,
+  parseCancelMergeRequest,
+  parseCloseRoundRequest,
+  parseCreateTaskRequest,
+  parseDeleteTaskRequest,
+  parseDesignFileSpec,
+  parseDesignReviewInput,
+  parseEditTaskRequest,
+  parseFollowUpRequest,
+  parseLocalDesignReviewInput,
+  parseMoveTaskRequest,
+  parsePostCommentRequest,
+  parseProposalInput,
+  parseReportOutcomeRequest,
+  parseResumeTaskRequest,
+  parseRoundInput,
+  parseRunChecksRequest,
+  parseSaveTaskDraftRequest,
+  parseSetActivityRequest,
+  parseSetClarifyDepthRequest,
+  parseSetPriorityRequest,
+  parseSetTaskGatesRequest,
+  parseSetTaskReposRequest,
+  parseSizeCheckInput,
+  parseTaskLead,
+  parseWriteBriefRequest,
+} from './task-parsers.ts'
+export {
   effectiveTimeZone,
   formatClockTime,
   systemTimeZone,
@@ -575,6 +682,7 @@ export {
   uses12HourTime,
 } from './time.ts'
 export type { UpdateWork } from './update.ts'
+export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
 export type { WaitingRequest } from './waiting.ts'
 export type {

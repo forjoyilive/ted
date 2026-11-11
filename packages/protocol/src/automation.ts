@@ -149,3 +149,11 @@ export interface AutomationPromptDraft {
   error?: string
   paused?: string
 }
+
+export interface SchedulePreviewRequest {
+  schedule: AutomationSchedule
+}
+export interface AutomationCommentRequest {
+  body: string
+  choices?: string[]
+}
