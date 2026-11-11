@@ -4,6 +4,18 @@ TED (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
+**Controller**:
+The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when TED uses several machines.
+_Avoid_: Primary server, master
+
+**Execution machine**:
+The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
+_Avoid_: Worker node, remote host
+
+**Task assignment**:
+The durable ownership of a Task’s execution by one machine; losing contact does not move that ownership elsewhere.
+_Avoid_: Lease, placement hint
+
 **Factory**:
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
 _Avoid_: Project (when meaning the whole pipeline), pipeline

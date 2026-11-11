@@ -92,6 +92,7 @@ import {
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
@@ -441,6 +442,7 @@ export interface HeldRun {
 }
 
 export interface TedStore {
+  execution: ExecutionStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
@@ -2199,7 +2201,26 @@ export async function openStore({
     },
   })
 
+  const execution = createExecutionStore({
+    store,
+    commit,
+    task(id) {
+      const row = taskRow(id)
+      return (
+        row && {
+          started:
+            row.branch !== null ||
+            row.worktree !== null ||
+            taskRuns(id).length > 0 ||
+            store.query(queryDb(taskRepos.where({ taskId: id }))).length > 0,
+        }
+      )
+    },
+  })
+  await persisted()
+
   return {
+    execution,
     automationDrafts: createAutomationDraftStore({ store, commit }),
     isPeerMessage: (id) => store.query(queryDb(peerMessages.where({ id }))).length > 0,
     peerMessages() {
@@ -2560,6 +2581,7 @@ export async function openStore({
       checkingTasks.delete(taskId)
       const at = new Date().toISOString()
       commit(
+        events.taskExecutionForgotten({ taskId, at }),
         events.taskDeleted({
           taskId,
           factoryId: row.factoryId,

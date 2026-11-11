@@ -167,6 +167,7 @@ import {
   touchesSettings,
 } from './checks.ts'
 import { type CommandSandbox, runTaskCommand } from './command.ts'
+import { createTaskExecution } from './execution.ts'
 import {
   ciFailureKey,
   createFailureCases,
@@ -519,6 +520,7 @@ export function createTasks(options: {
     health,
     attachmentFile,
   } = options
+  const execution = createTaskExecution(store)
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
   const promptComments = new Set<string>()
@@ -3591,6 +3593,7 @@ export function createTasks(options: {
   ): Promise<void> {
     const current = find(task.id)
     if (current.archived || current.stopped) return
+    await execution.local(task.id)
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     const agent = lead.agent
     const note = pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined)
@@ -4496,6 +4499,7 @@ export function createTasks(options: {
   ): Promise<void> {
     const before = find(task.id)
     if (before.stopped || before.archived) return
+    await execution.local(task.id)
     if (store.queue().some((q) => q.id === task.id)) store.dequeue(task.id)
     const cancel = new AbortController()
     settingUp.set(task.id, cancel)
@@ -5779,6 +5783,7 @@ export function createTasks(options: {
   }
 
   async function launchQueued(taskId: string): Promise<void> {
+    await execution.local(taskId)
     const task = find(taskId)
     const factory = factoryOf(task)
     if (task.repos.some((r) => !r.removed)) {
@@ -6258,6 +6263,7 @@ export function createTasks(options: {
     if (!pending) return release()
     const { task, run, reason } = pending
     try {
+      await execution.local(taskId)
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       await runs.revive(run.id, {
