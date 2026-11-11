@@ -884,6 +884,7 @@ export function TaskThread({
                         request={comment}
                         task={task}
                         newer={newer}
+                        onOpenTask={onOpenTask}
                         expanded={comment.id === answeredId}
                         onOpenRun={onOpenRun}
                       />
@@ -924,6 +925,7 @@ export function TaskThread({
                 onOpenFile={onOpenFile}
                 onAllChanges={onAllChanges}
                 request={pinned}
+                onOpenTask={onOpenTask}
                 task={task}
                 onOpenRun={onOpenRun}
                 onOpenApp={onOpenApp}

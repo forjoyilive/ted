@@ -59,6 +59,7 @@ export const forwardedRequests = [
   'setClarifyDepth',
   'listStageEntries',
   'listFailures',
+  'resolveFailure',
   'validationObligations',
   'listCheckRuns',
   'checkOutput',

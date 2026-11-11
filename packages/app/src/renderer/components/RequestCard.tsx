@@ -43,6 +43,7 @@ import {
   RecordedValidationSummary,
   ValidationSummary,
 } from './FailureDetails.tsx'
+import { FailureRepairForm } from './FailureRepairForm.tsx'
 import { Help } from './Help.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
@@ -424,6 +425,7 @@ export function RequestCard({
   task,
   readOnly = false,
   onOpenRun,
+  onOpenTask,
   onOpenApp,
   onOpenPlan,
   taskChanges,
@@ -437,10 +439,12 @@ export function RequestCard({
   onAllChanges?: (() => void) | undefined
   readOnly?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
+  onOpenTask?: ((id: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onOpenPlan?: ((planId: string) => void) | undefined
 }) {
   const now = useNow()
+  const [repairing, setRepairing] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
@@ -537,8 +541,14 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
-      ) : request.choices?.includes('Retry') && request.choices.includes('Accept this failure') ? (
-        <FailureRequestDetails taskId={task.id} requestId={request.id} fallback={request.body} />
+      ) : request.choices?.includes('Wait for a repair Task') ||
+        (request.choices?.includes('Retry') && request.choices.includes('Accept this failure')) ? (
+        <FailureRequestDetails
+          taskId={task.id}
+          requestId={request.id}
+          fallback={request.body}
+          onOpenTask={onOpenTask}
+        />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (
@@ -613,22 +623,37 @@ export function RequestCard({
           onChoose={setPicked}
         />
       )}
-      {actionChoice === undefined && request.choices && request.choices.length > 0 && (
-        <div className={styles.choices}>
-          {request.choices.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              className={styles.choice}
-              disabled={sending || readOnly}
-              onClick={() => void send({ action: 'answer', choice, ...withText })}
-            >
-              {choice}
-            </button>
-          ))}
-        </div>
+      {repairing && !readOnly && (
+        <FailureRepairForm
+          task={task}
+          request={request}
+          reason={text}
+          onCancel={() => setRepairing(false)}
+        />
       )}
-      {!readOnly && !request.round && !request.proposal && (
+      {!repairing &&
+        actionChoice === undefined &&
+        request.choices &&
+        request.choices.length > 0 && (
+          <div className={styles.choices}>
+            {request.choices.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                className={styles.choice}
+                disabled={sending || readOnly}
+                onClick={() =>
+                  choice === 'Wait for a repair Task'
+                    ? setRepairing(true)
+                    : void send({ action: 'answer', choice, ...withText })
+                }
+              >
+                {choice}
+              </button>
+            ))}
+          </div>
+        )}
+      {!repairing && !readOnly && !request.round && !request.proposal && (
         <>
           {!request.linearTeam && (
             <textarea
@@ -929,12 +954,14 @@ export function AnsweredCard({
   newer,
   expanded = false,
   onOpenRun,
+  onOpenTask,
 }: {
   request: Comment
   task: Task
   newer?: Comment | undefined
   expanded?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
+  onOpenTask?: ((id: string) => void) | undefined
 }) {
   const now = useNow()
   const permission = request.kind === 'permission'
@@ -1016,7 +1043,9 @@ export function AnsweredCard({
         </div>
       )}
       {quoted !== undefined && quoted !== '' && <p className={styles.quote}>“{quoted}”</p>}
-      {!permission && showing && <RequestCard request={request} task={task} readOnly />}
+      {!permission && showing && (
+        <RequestCard request={request} task={task} onOpenTask={onOpenTask} readOnly />
+      )}
     </section>
   )
 }

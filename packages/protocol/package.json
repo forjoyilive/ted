@@ -20,6 +20,7 @@
     "./list-view": "./src/list-view.ts",
     "./storage": "./src/storage.ts",
     "./slots": "./src/slots.ts",
+    "./failures": "./src/failures.ts",
     "./checks": "./src/checks.ts",
     "./changes": "./src/changes.ts",
     "./diff": "./src/diff.ts",

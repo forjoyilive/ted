@@ -1,7 +1,7 @@
 import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
-import { validationExecution } from '@ted/protocol'
+import { validationExecution } from '@ted/protocol/failures'
 import { useState } from 'react'
-import { useCheckRuns, useFailures, useValidationObligations } from '../data.ts'
+import { useCheckRuns, useFailures, useTasks, useValidationObligations } from '../data.ts'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import styles from './RequestCard.module.css'
@@ -28,9 +28,11 @@ export function acceptedPositions(failures: readonly FailureCase[], runId: strin
 export function FailureDetails({
   failure,
   requestId,
+  onOpenTask,
 }: {
   failure: FailureCase
   requestId?: string
+  onOpenTask?: ((id: string) => void) | undefined
 }) {
   const request = requestId ? failure.decisions.find((d) => d.commentId === requestId) : undefined
   const assessment = request
@@ -99,6 +101,9 @@ export function FailureDetails({
       <p className={styles.sectionBody}>
         Tested context: {(requestId ? request?.contextId : failure.contextId) ?? 'unknown'}
       </p>
+      {decision?.repairTask && (
+        <RepairDetails failure={failure} decision={decision} onOpenTask={onOpenTask} />
+      )}
       {decision && (
         <p className={styles.sectionBody}>
           Human decision: {decision.resolution} · {decision.reason}
@@ -112,19 +117,73 @@ export function FailureDetails({
   )
 }
 
+function RepairDetails({
+  failure,
+  decision,
+  onOpenTask,
+}: {
+  failure: FailureCase
+  decision: FailureCase['resolutions'][number]
+  onOpenTask?: ((id: string) => void) | undefined
+}) {
+  const tasks = useTasks()
+  const repair = decision.repairTask
+  if (!repair) return null
+  const current = tasks.find((t) => t.id === repair.id)
+  const affected = tasks.find((t) => t.id === failure.taskId)
+  const incorporated = failure.repairProgress?.some((p) => p.requestId === decision.requestId)
+  const message = !affected
+    ? 'Loading repair status…'
+    : incorporated
+      ? failure.verifications?.length
+        ? 'Merged repair incorporated. Later verification is recorded; the original execution remains failed.'
+        : 'Merged repair incorporated. Fresh validation is required; the original execution remains failed.'
+      : current?.stage === 'done'
+        ? 'Repair merged. Continuation waits for a working-Run slot and repair incorporation before fresh validation.'
+        : !current
+          ? 'Repair deleted. The failure remains unresolved unless fresh verification resolves it.'
+          : current.archived
+            ? 'Repair archived without merging. Check the blocker in Task details; this does not pass validation.'
+            : affected.blockedBy.includes(repair.id)
+              ? 'Waiting for the repair to merge. This Task keeps its Stage and worktree without a working-Run slot.'
+              : 'Repair blocker removed without merging. Use Resume in Task details to reassess the unresolved failure.'
+
+  return (
+    <>
+      <h3 className={styles.sectionHeading}>Repair Task</h3>
+      <p className={styles.sectionBody}>
+        {current && onOpenTask ? (
+          <button
+            type="button"
+            className={styles.showRequest}
+            onClick={() => onOpenTask(repair.id)}
+          >
+            {repair.displayId} · {repair.title}
+          </button>
+        ) : (
+          `${repair.displayId} · ${repair.title}`
+        )}
+      </p>
+      <p className={styles.sectionBody}>{message}</p>
+    </>
+  )
+}
+
 export function FailureRequestDetails({
   taskId,
   requestId,
   fallback,
+  onOpenTask,
 }: {
   taskId: string
   requestId: string
   fallback: string
+  onOpenTask?: ((id: string) => void) | undefined
 }) {
   const failures = useFailures(taskId)
   const failure = failures.find((f) => f.decisions.some((d) => d.commentId === requestId))
   return failure ? (
-    <FailureDetails failure={failure} requestId={requestId} />
+    <FailureDetails failure={failure} requestId={requestId} onOpenTask={onOpenTask} />
   ) : (
     <p className={styles.summary}>{fallback}</p>
   )

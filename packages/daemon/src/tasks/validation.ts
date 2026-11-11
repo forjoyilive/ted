@@ -71,7 +71,7 @@ export function createValidation(options: ValidationOptions) {
   }
 
   function sourceCheck(value: FailureCase) {
-    return value.source.kind === 'factory-check'
+    return value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
       ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
           value.originalCheck)
       : value.originalCheck
@@ -81,15 +81,26 @@ export function createValidation(options: ValidationOptions) {
     for (const prior of store.failures.list(task.id)) {
       const original = sourceCheck(prior)
       if (
-        !prior.validation ||
+        (!prior.validation &&
+          !(
+            prior.source.kind === 'post-rebase-check' &&
+            prior.resolutions.at(-1)?.resolution === 'repair'
+          )) ||
         prior.verifications?.length ||
-        prior.source.kind !== 'factory-check' ||
+        (prior.source.kind !== 'factory-check' && prior.source.kind !== 'post-rebase-check') ||
         prior.source.checkRunId === run.id ||
         !original ||
         run.startedAt < prior.createdAt
       )
         continue
       const decision = prior.resolutions.at(-1)
+      if (
+        decision?.resolution === 'repair' &&
+        !prior.repairProgress?.some(
+          (p) => p.requestId === decision.requestId && run.startedAt >= p.at,
+        )
+      )
+        continue
       if (
         decision?.resolution === 'accepted' &&
         !prior.invalidations.some((i) => i.requestId === decision.requestId)
@@ -281,6 +292,11 @@ export function createValidation(options: ValidationOptions) {
               )
                 continue
               const decision = previous.resolutions.at(-1)
+              if (
+                decision?.resolution === 'repair' &&
+                !previous.repairProgress?.some((p) => p.requestId === decision.requestId)
+              )
+                continue
               if (
                 decision?.resolution === 'accepted' &&
                 !previous.invalidations.some((i) => i.requestId === decision.requestId)
@@ -560,18 +576,32 @@ export function createValidation(options: ValidationOptions) {
     const current = await currentCoverage(task)
     const progress = store.failures.progress(task.id)
     const original = sourceCheck(value)
+    const decision = value.resolutions.at(-1)
+    const incorporation =
+      decision?.resolution === 'repair'
+        ? value.repairProgress?.findLast((p) => p.requestId === decision.requestId)
+        : undefined
+    const freshRepair =
+      incorporation &&
+      progress &&
+      (progress.checks.length === 0 ||
+        progress.executions.some((execution) => {
+          const run = store.getCheckRun(execution.runId)
+          return run?.finishedAt !== undefined && run.startedAt >= incorporation.at
+        }))
     if (
       !current ||
       !progress ||
       progress.pending ||
       !source ||
-      source.startedAt >= progress.visit ||
-      !store
-        .listStageEntries(task.id)
-        .some(
-          (entry) =>
-            entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
-        ) ||
+      (!freshRepair &&
+        (source.startedAt >= progress.visit ||
+          !store
+            .listStageEntries(task.id)
+            .some(
+              (entry) =>
+                entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
+            ))) ||
       !original ||
       progress.checks.some((c, position) => {
         if (c.state === 'passed' || c.state === 'skipped') return false
@@ -602,7 +632,7 @@ export function createValidation(options: ValidationOptions) {
     )
       throw new RequestError(
         409,
-        'complete current Checks in a fresh Validate visit and explain why the old Check is now skipped, removed or replaced',
+        'complete current Checks after repair incorporation or in a fresh Validate visit, and explain why the old Check is now skipped, removed or replaced',
       )
     return failures.verifyResult(
       task,
@@ -619,10 +649,35 @@ export function createValidation(options: ValidationOptions) {
       )
   }
 
+  function pendingRepair(task: Task): boolean {
+    return store.failures.list(task.id).some((value) => {
+      const decision = value.resolutions.at(-1)
+      if (decision?.resolution !== 'repair' || value.verifications?.length) return false
+      const incorporation = value.repairProgress?.findLast(
+        (p) => p.requestId === decision.requestId,
+      )
+      return (
+        incorporation !== undefined &&
+        !store
+          .listCheckRuns()
+          .some(
+            (run) =>
+              run.taskId === task.id &&
+              run.stage === task.stage &&
+              run.trigger === task.stage &&
+              run.startedAt >= incorporation.at &&
+              run.finishedAt !== undefined &&
+              run.outcome !== 'interrupted',
+          )
+      )
+    })
+  }
+
   function recover() {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
-      const restart = checkRun.trigger === 'validate' && task?.stage === 'validate'
+      const restart =
+        checkRun.trigger === 'validate' && task?.stage === 'validate' && !pendingRepair(task)
       if (restart) options.setChecking(task.id, true)
       store.finishChecks(checkRun.id, 'interrupted')
       if (restart) {
@@ -640,7 +695,17 @@ export function createValidation(options: ValidationOptions) {
         decision?.resolution === 'fix'
       if (
         task.stage === 'validate' &&
+        !pendingRepair(task) &&
         !task.archived &&
+        !store.failures.list(task.id).some((f) => {
+          const decision = f.resolutions.at(-1)
+          return (
+            decision?.resolution === 'repair' &&
+            !f.verifications?.length &&
+            !f.repairProgress?.some((p) => p.requestId === decision.requestId)
+          )
+        }) &&
+        !find(task.id).waitsForBlockers &&
         !find(task.id).stopped &&
         (!progress ||
           progress.visit !== visitStart(task) ||
@@ -658,6 +723,7 @@ export function createValidation(options: ValidationOptions) {
   }
 
   return {
+    pendingRepair,
     begin: beginChecks,
     enter: validateChecks,
     resume: resumeValidation,

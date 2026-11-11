@@ -22,7 +22,7 @@ export interface TaskFacts {
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
   checksWaiting?: { place: number }
-  stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' }
+  stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' | 'repair-incorporation' }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
@@ -182,6 +182,8 @@ export function taskActivity(facts: TaskFacts): string | undefined {
 }
 
 function stoppedActivity({ runs, why }: NonNullable<TaskFacts['stopped']>): string {
+  if (why === 'repair-incorporation')
+    return 'Repair incorporation needs attention. See the thread, then Resume.'
   if (why === 'blockers-removed') return 'Its blockers are gone. Resume to carry on.'
   if (runs === 0) return 'Worktree and Apps kept.'
   return `Worktree and Apps kept. ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped.`

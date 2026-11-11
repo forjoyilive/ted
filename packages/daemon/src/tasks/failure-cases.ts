@@ -177,7 +177,9 @@ export function createFailureCases(options: {
           ? 'retried'
           : value.verifications?.length
             ? 'fixed'
-            : resolution?.resolution === 'retry' || resolution?.resolution === 'fix'
+            : resolution?.resolution === 'retry' ||
+                resolution?.resolution === 'fix' ||
+                resolution?.resolution === 'repair'
               ? 'unresolved'
               : (resolution?.resolution ?? 'unresolved')
       const context = tested(task, resolution?.contextId ?? value.contextId)
@@ -500,8 +502,8 @@ export function createFailureCases(options: {
           ),
           `Assessment: ${assessment.assessment}\nRecommendation: ${assessment.recommendation}`,
           value.validation
-            ? 'Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. Accept this failure allows only this execution in its tested context and resumes remaining Checks and validation. Acceptance never means passed or grants merge approval.'
-            : 'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
+            ? 'Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. Wait for a repair Task lets you select existing work or approve a new repair before waiting; it never accepts this failure. Accept this failure allows only this execution in its tested context and resumes remaining Checks and validation. Acceptance never means passed or grants merge approval.'
+            : 'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Wait for a repair Task is available at Validate and Merge and requires an existing selection or explicit approval of new work. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
         ].join('\n\n'),
       )
     },
@@ -515,6 +517,8 @@ export function createFailureCases(options: {
       )
     },
     async resolve(task: Task, id: string, request: ResolveFailureRequest, sendDrafts = true) {
+      if (request.resolution === 'repair')
+        throw new RequestError(400, 'choose a repair through Tasks')
       await obligations(task)
       pendingDecision(task, id, request.requestId)
       const reason = failureText(request.reason?.trim() ?? '')

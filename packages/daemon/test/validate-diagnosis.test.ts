@@ -17,7 +17,7 @@ import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import { api, commitToOrigin, stubClaudePath, stubCodexPath, waitUntil } from './helpers.ts'
-import { ctx, getTask, start, useMergeHarness } from './merge-harness.ts'
+import { ctx, getTask, run, start, useMergeHarness } from './merge-harness.ts'
 
 useMergeHarness()
 
@@ -120,7 +120,12 @@ test('a failed Check stays in Validate with evidence and no send-back; acceptanc
   const comment = (await s.client.ok<Comment[]>('GET', `${s.root}/comments`)).find(
     (c) => c.id === decision.decisions.at(-1)?.commentId,
   )
-  expect(comment?.choices).toEqual(['Retry', 'Fix in this Task', 'Accept this failure'])
+  expect(comment?.choices).toEqual([
+    'Retry',
+    'Fix in this Task',
+    'Accept this failure',
+    'Wait for a repair Task',
+  ])
   expect((await s.answer(decision, 'Accept this failure')).status).toBe(200)
   await waitUntil(async () => (await s.obligations()).satisfied, 'remaining Checks completed')
   const runs = await s.runs()
@@ -315,6 +320,114 @@ async function restart() {
     },
   }
 }
+
+test.each(
+  (['validate', 'merge'] as const).flatMap((stage) =>
+    (['retained', 'reset', 'held', 'interrupted'] as const).map((state) => ({ stage, state })),
+  ),
+)('$stage restart after persisted repair incorporation: $state', async ({ stage, state }) => {
+  const s = await setup(
+    ['      - { name: Tests, run: "test -f timezone.txt" }'],
+    'intake, work, validate, review, merge',
+  )
+  const decision = await s.ask(s.one)
+  const task = await getTask(s.client, s.task.id)
+  const repo = task.repos[0]
+  if (!repo) throw new Error('missing worktree')
+  await ctx.daemon?.stop()
+  ctx.daemon = undefined
+  await writeFile(path.join(repo.worktree, 'timezone.txt'), 'restored\n')
+  await run('git', ['add', 'timezone.txt'], { cwd: repo.worktree })
+  await run(
+    'git',
+    ['-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '-qm', 'incorporated repair'],
+    { cwd: repo.worktree },
+  )
+  const head = (await run('git', ['rev-parse', 'HEAD'], { cwd: repo.worktree })).stdout.trim()
+  const store = await openStore({ directory: tedPaths(ctx.home).store })
+  if (stage === 'merge') store.changeStage(task.id, 'merge')
+  const saved = store.failures.get(s.one.id)
+  const requestId = decision.decisions.at(-1)?.commentId
+  const assessment = saved?.assessments.at(-1)
+  if (!saved || !requestId || !assessment) throw new Error('missing repair decision')
+  const at = new Date().toISOString()
+  const resolved = {
+    ...saved,
+    resolutions: [
+      ...saved.resolutions,
+      {
+        requestId,
+        assessmentId: assessment.id,
+        resolution: 'repair' as const,
+        at,
+        ...(assessment.contextId && { contextId: assessment.contextId }),
+        repair: { kind: 'existing' as const, taskId: 'merged-repair' },
+        repairTask: { id: 'merged-repair', displayId: 'NB-2', title: 'Merged repair' },
+      },
+    ],
+  }
+  store.resolveFailure(
+    resolved,
+    requestId,
+    { kind: 'answered', at, choice: 'Wait for a repair Task' },
+    [],
+  )
+  store.failures.save(
+    {
+      ...resolved,
+      repairProgress: [{ requestId, at, repos: [{ repo: repo.repo, head, onto: head }] }],
+    },
+    'repair',
+  )
+  const before = store.listCheckRuns(task.id).length
+  if (state === 'interrupted')
+    store.startChecks({
+      taskId: task.id,
+      stage,
+      trigger: stage,
+      checks: [
+        { name: 'Tests', command: 'test -f timezone.txt', timeout: '10s', state: 'not-run' },
+      ],
+    })
+  if (state === 'held')
+    store.stopTask(task.id, { runs: task.runs.length, why: 'repair-incorporation' })
+  await store.persisted()
+  await store.close()
+  if (state === 'reset' || state === 'held')
+    await run('git', ['reset', '--keep', 'HEAD^'], { cwd: repo.worktree })
+  const client = await restart()
+  if (state === 'reset' || state === 'held') {
+    await waitUntil(
+      async () =>
+        (await client.read<Task[]>('/tasks'))
+          .find((t) => t.id === task.id)
+          ?.statuses.includes('stopped'),
+      'old worktree held before validation',
+    )
+    await waitUntil(
+      async () =>
+        (await client.read<Task[]>('/tasks'))
+          .find((t) => t.id === task.id)
+          ?.runs.every((r) => r.state === 'finished'),
+      'incorporation hold to stop the restored Lead',
+    )
+    const failures = await client.read<FailureCase[]>(`${s.root}/failures`)
+    expect(failures.find((f) => f.id === s.one.id)?.verifications).toBeUndefined()
+    expect(await client.read<CheckRun[]>(`${s.root}/check-runs`)).toHaveLength(before)
+    return
+  }
+  const verified = await waitUntil(async () => {
+    const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
+    return cases[0]?.verifications?.at(-1)
+  }, 'fresh verification after incorporated repair recovery')
+  expect(verified.checkRunId).toBeDefined()
+  expect(await client.read<CheckRun[]>(`${s.root}/check-runs`)).toHaveLength(
+    before + (state === 'interrupted' ? 2 : 1),
+  )
+  expect((await client.read<FailureCase[]>(`${s.root}/failures`))[0]?.originalCheck?.state).toBe(
+    'failed',
+  )
+})
 
 test.each(['ordinary', 'unsafe output'])(
   'restart reconstructs a persisted failed execution before its case was recorded: %s',
