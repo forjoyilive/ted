@@ -120,6 +120,7 @@ A change also gets a security review before merging if it touches any of these: 
 
 ## Designs: Figma
 
+- Light-mode images alone are sufficient when sharing results for review or at Design.
 - File: https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=0-1 (file key `SLTyztzQXHFdz4sk3TcePk`)
 - Put designs and prototypes on that page or on sibling pages in the same file. Link the frame from the Linear issue it answers.
 
