@@ -6,6 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 export const suiteLockFile = path.join(homedir(), '.cache', 'ted', 'test-suite.lock')
 export const heldLockEnv = 'TED_TEST_SUITE_LOCK_PID'
 export const smallRunFiles = 10
+export const runTestFiles = 3
 export const slotDir = path.join(homedir(), '.cache', 'ted', 'test-slots')
 export const testSlots = 2
 export const fullRunYieldMs = 5 * 60_000
@@ -334,19 +335,19 @@ export function waitingMessage(pid: number): string {
   return `Waiting for another TED test run (pid ${pid}) to finish…`
 }
 
-export function fullRunRefusal(
+export function runRefusal(
   fileCount: number,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  if (fileCount < smallRunFiles || !env.TED_RUN) return undefined
-  return `A Run can’t start a test run of ${fileCount} files. ${smallRunFiles} or more files is a full run, which takes the whole machine and makes every other Run wait; only the human or a merge starts one. Name the test files your change touches: pnpm vitest run <files>.`
+  if (fileCount <= runTestFiles || !env.TED_RUN) return undefined
+  return `A Run can’t start a test run of ${fileCount} files: its limit is ${runTestFiles}, because every test run makes other Runs wait. Run only the test files your change touches, in Validate: pnpm vitest run <files>. The human or a merge runs the rest.`
 }
 
 export async function lockRun(
   fileCount: number,
   options: SlotOptions = {},
 ): Promise<(() => Promise<void>) | undefined> {
-  const refusal = fullRunRefusal(fileCount)
+  const refusal = runRefusal(fileCount)
   if (refusal) throw new Error(refusal)
   const held = Number(process.env[heldLockEnv])
   if (held) {

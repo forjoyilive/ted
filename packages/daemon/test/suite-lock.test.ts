@@ -7,10 +7,10 @@ import {
   acquireFullRun,
   acquireSlot,
   acquireSuiteLock,
-  fullRunRefusal,
   heldLockEnv,
   lockRun,
   pidAlive,
+  runRefusal,
   type WaitRecord,
 } from './support/suite-lock.ts'
 
@@ -350,16 +350,18 @@ describe('the wait log', () => {
   })
 })
 
-describe('a full run started by a Run', () => {
-  test('is refused at 10 files, and lockRun takes no lock', async () => {
-    expect(fullRunRefusal(9, { TED_RUN: 'run-1' })).toBeUndefined()
-    expect(fullRunRefusal(10, {})).toBeUndefined()
-    expect(fullRunRefusal(10, { TED_RUN: 'run-1' })).toContain('pnpm vitest run <files>')
+describe('a test run started by a Run', () => {
+  test('is refused over 3 files, and lockRun takes no lock', async () => {
+    expect(runRefusal(3, { TED_RUN: 'run-1' })).toBeUndefined()
+    expect(runRefusal(40, {})).toBeUndefined()
+    expect(runRefusal(4, { TED_RUN: 'run-1' })).toContain('pnpm vitest run <files>')
 
     vi.stubEnv('TED_RUN', 'run-1')
     const slots = { dir: path.join(dir, 'slots'), suiteLock: file }
-    await expect(lockRun(10, slots)).rejects.toThrow('A Run can’t start a test run of 10 files')
-    await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    await (await lockRun(9, slots))?.()
+    await expect(lockRun(4, slots)).rejects.toThrow('A Run can’t start a test run of 4 files')
+    await expect(readFile(path.join(slots.dir, '0.lock'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+    await (await lockRun(3, slots))?.()
   })
 })
