@@ -69,3 +69,15 @@ Conflicting assignment: rejected (409)
 No agent Run or App was started. The isolated daemon and its hosts were stopped. An initial CLI start with a 1000 ms idle override stopped during startup; the 60000 ms retry listed the persisted Task successfully.
 
 The same configured reviewer confirmed the original Finding is resolved and reported no remaining blocking Finding. Its follow-up typecheck and focused lint passed; its own test attempt hit sandbox cleanup restrictions and its escalated rerun was canceled while waiting for a lock, so those attempts are not counted as regression passes. The Lead’s escalated four-file run completed all 31 tests successfully.
+
+## Latest-base merge checkpoint
+
+Commit `29eef47040008de338fcce0babfe25099bfdb787` merges fetched base `eab2dc9a8ac209d96426e654d3aca739e9103117` into `30718370`. The latest base merged cleanly; it adds typed app daemon request forwarding. The ownership implementation and regression tests are unchanged. The diff against the new base remains the same 14 ownership, documentation and test files, without app or `.ted/` changes.
+
+After TED-46 explicitly released its quiet-window hold:
+
+- `pnpm vitest run packages/daemon/test/sub-agent-execution.test.ts packages/daemon/test/sub-agents.test.ts packages/daemon/test/execution-store.test.ts packages/daemon/test/execution.test.ts`: passed, 4 files / 31 tests, reported duration 79.35 seconds including the initial shared-slot wait. No lock was bypassed.
+- `ted checks`: passed Typecheck and Lint.
+- The same configured reviewer checked only the earlier Finding and merge regressions: no blocking Findings. It confirmed the persistence barrier, subsequent cancellation/lifecycle checks and regression tests remain intact. It ran no additional tests or Checks.
+
+The earlier broad-run baseline failure and manual CLI startup note remain historical notes, not new failures in this rerun. No network execution, real-Mac validation or new UI behavior is claimed.
