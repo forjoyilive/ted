@@ -1,5 +1,4 @@
 import { mkdtemp } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +8,7 @@ import { daemonAsApp, makeOriginRepo, removeHome, stopDaemonIn } from '../../dae
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 test('Backlog stays collapsed after visiting Inbox and reloading the app', async () => {
   await buildRenderer()
@@ -21,7 +21,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     await daemon.addFactory({ repo: origin, key: 'NB' })
     await daemon.createTask({ factory: 'NB', title: 'Remember collapsed groups' })
     app = await electron.launch({
-      executablePath: createRequire(import.meta.url)('electron') as string,
+      executablePath: resolveElectron(),
       args: [fileURLToPath(new URL('..', import.meta.url))],
       env,
     })

@@ -1,13 +1,13 @@
 import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { createRequire } from 'node:module'
 import { createServer, type Server, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { DaemonClient, DaemonUnreachableError } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
+import { resolveElectron } from './support/electron-installation.ts'
 
-const electronPath = createRequire(import.meta.url)('electron') as string
+const electronPath = resolveElectron()
 const serverPath = fileURLToPath(new URL('./fixtures/reset-server.ts', import.meta.url))
 const clientPath = fileURLToPath(new URL('./fixtures/reset-client.ts', import.meta.url))
 const run = promisify(execFile)

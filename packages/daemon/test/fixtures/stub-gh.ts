@@ -13,6 +13,7 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 interface StubState {
+  healthGate?: { entered: string; release: string }
   mergeGate?: { entered: string; release: string }
   graphqlGate?: { entered: string; release: string; after?: number }
   version?: string
@@ -135,6 +136,10 @@ const headOf = (number: string): string => {
 }
 
 const logPath = process.env.TED_STUB_GH_LOG
+if (args[0] === '--version' && state.healthGate) {
+  writeFileSync(state.healthGate.entered, 'waiting')
+  while (!existsSync(state.healthGate.release)) await sleep(5)
+}
 if (logPath) {
   appendFileSync(
     logPath,

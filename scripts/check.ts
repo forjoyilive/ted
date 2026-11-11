@@ -325,14 +325,16 @@ function recordTimes(reports: JsonReport[], save: boolean): void {
 }
 
 export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
-  console.log('\n== Install')
-  if (spawnSync('pnpm', ['install', '--frozen-lockfile'], { cwd: root, stdio: 'inherit' }).status) {
-    console.error('check: Install failed')
-    return false
-  }
-  mkdirSync(cacheDir, { recursive: true })
   const unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
   try {
+    console.log('\n== Install')
+    if (
+      spawnSync('pnpm', ['install', '--frozen-lockfile'], { cwd: root, stdio: 'inherit' }).status
+    ) {
+      console.error('check: Install failed')
+      return false
+    }
+    mkdirSync(cacheDir, { recursive: true })
     return await checkInParallel(appOnly)
   } finally {
     await unlock()
