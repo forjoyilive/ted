@@ -154,6 +154,7 @@ import {
 } from './schema.ts'
 import { createSideChatStore, type SideChatStore } from './side-chats.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
+import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
@@ -813,6 +814,7 @@ export interface TedStore extends TaskHistory {
   ): PeerMessage
   sideChats: SideChatStore
   coordinators: CoordinatorStore
+  testInvocations: TestInvocationStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
   postFailureDecision(value: FailureCase, body: string): FailureCase
@@ -2242,6 +2244,27 @@ export async function openStore({
     changed: () => noteActivity(),
   })
 
+  const testInvocationStore = createTestInvocationStore({
+    store,
+    commit,
+    checks: (taskId) =>
+      checkRunRows(taskId).map((row) => ({
+        id: row.id,
+        checks: checkResultRows(row.id).map((result) => ({
+          state: result.state,
+          started: result.reportingStarted,
+        })),
+      })),
+    run: (id) => {
+      const row = runRow(id)
+      return row && toRun(row)
+    },
+    check: (id) => {
+      const row = store.query(queryDb(checkRuns.where({ id })))[0]
+      return row && toCheckRun(row)
+    },
+  })
+
   const failureStore = createFailureStore({
     store,
     commit,
@@ -2323,6 +2346,7 @@ export async function openStore({
     coordinators: coordinatorStore,
     automations: automationStore,
     plans: planStore,
+    testInvocations: testInvocationStore,
     failures: failureStore,
     invalidateFailure(value, note) {
       const { id, event, attached } = commentPosted(
