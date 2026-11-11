@@ -27,6 +27,7 @@ import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   commitToOrigin,
+  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -309,6 +310,14 @@ test('concurrent first messages share one Coordinator and survive daemon restart
     ),
   )
   expect(chats[0]?.runId).toBe(chats[1]?.runId)
+  const leadRunId = await waitUntil(
+    async () => (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId,
+    'the Task Lead Run',
+  )
+  await waitUntil(
+    async () => (await hostRecords(home, leadRunId)).some((r) => r.t === 'start'),
+    'the Task Lead’s host to start',
+  )
   await daemon?.stop()
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
