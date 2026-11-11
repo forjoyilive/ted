@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Comment, Factory, Task } from '@ted/protocol'
+import type { AgentHealth, Comment, Factory, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -125,7 +125,7 @@ const userMessages = async (client: Client, runId: string) =>
   })
 
 describe('adding a blocker', () => {
-  test('a blocker that would make a cycle is refused, naming the cycle', async () => {
+  test('a blocker that would make a cycle is refused, naming the cycle; a Backlog Task stays in Backlog and shows the blocker as a marker; removing the last blocker by hand never starts a Task', async () => {
     const client = await startTed()
     const a = await create(client, 'A')
     const b = await create(client, 'B', { blockedBy: [a.id] })
@@ -135,26 +135,38 @@ describe('adding a blocker', () => {
 
     expect(refused.status).toBe(409)
     expect(refused.body.error).toBe(
-      'NB-3 can’t block NB-1: that makes a cycle, NB-1 → NB-3 → NB-2 → NB-1',
+      `${c.displayId} can’t block ${a.displayId}: that makes a cycle, ${a.displayId} → ${c.displayId} → ${b.displayId} → ${a.displayId}`,
     )
     expect((await block(client, a, a)).status).toBe(409)
     expect((await getTask(client, a.id)).blockedBy).toEqual([])
-  })
 
-  test('a Backlog Task stays in Backlog and shows the blocker as a marker', async () => {
-    const client = await startTed()
-    const a = await create(client, 'A')
-    const b = await create(client, 'B')
+    const d = await create(client, 'D')
+    const e = await create(client, 'E')
 
-    const res = await block(client, b, a)
+    const marked = await block(client, e, d)
+
+    expect(marked.status).toBe(200)
+    expect(marked.body).toMatchObject({
+      stage: 'backlog',
+      blockedBy: [d.id],
+      markers: [{ kind: 'blocked-by', by: d.displayId }],
+      activity: `Starts when ${d.displayId} merges`,
+    })
+
+    const blocker = await create(client, 'Blocker')
+    const task = await create(client, 'Task', { start: true, blockedBy: [blocker.id] })
+
+    const res = await client.call('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
 
     expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({
-      stage: 'backlog',
-      blockedBy: [a.id],
-      markers: [{ kind: 'blocked-by', by: 'NB-1' }],
-      activity: 'Starts when NB-1 merges',
-    })
+    expect(res.body).toMatchObject({ stage: 'backlog', blockedBy: [], markers: [] })
+    expect(
+      (await client.call('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)).status,
+    ).toBe(404)
+    await block(client, task, blocker)
+    expect((await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)).blockedBy).toEqual([])
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await getTask(client, task.id)).stage).toBe('backlog')
   })
 
   test('a Queued Task goes back to Backlog and starts when its blocker reaches Done', async () => {
@@ -336,22 +348,6 @@ describe('starting when the blocker merges', () => {
     await client.ok('POST', `/tasks/${blocker.id}/start`)
     await writeFile(gate, '')
     await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start')
-  })
-
-  test('removing the last blocker by hand never starts a Task', async () => {
-    const client = await startTed()
-    const blocker = await create(client, 'Blocker')
-    const task = await create(client, 'Task', { start: true, blockedBy: [blocker.id] })
-
-    const res = await client.call('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
-
-    expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ stage: 'backlog', blockedBy: [], markers: [] })
-    expect((await client.call('DELETE', `/tasks/${task.id}/blockers/NB-1`)).status).toBe(404)
-    await block(client, task, blocker)
-    expect((await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)).blockedBy).toEqual([])
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    expect((await getTask(client, task.id)).stage).toBe('backlog')
   })
 
   test.each(['one', 'all'] as const)(
@@ -539,7 +535,12 @@ describe('blockers while the agent can’t run', () => {
     await signedIn(false)
     await block(client, running, blocker)
     await waitFor(client, running, (t) => t.status?.kind === 'blocked', 'to be Blocked')
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await waitUntil(
+      async () =>
+        (await client.ok<AgentHealth[]>('GET', '/agents/health')).find((h) => h.agent === 'claude')
+          ?.state === 'signed-out',
+      'TED to see Claude Code signed out',
+    )
     await signedIn(true)
     await client.ok('POST', '/agents/health/check')
     await new Promise((resolve) => setTimeout(resolve, 1000))
