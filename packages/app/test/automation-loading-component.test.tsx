@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { AttachmentBytes, AutomationDetail, RunChat } from '@ted/protocol'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { DesignReviewContent } from '../src/renderer/components/DesignReview.tsx'
 import { AutomationRunView, AutomationView } from '../src/renderer/views/Automations.tsx'
@@ -134,4 +134,19 @@ test('screenshot loading is non-interactive and does not queue a viewer to open 
   expect(screen.queryByRole('dialog')).toBeNull()
   await user().click(button)
   expect(screen.getByRole('dialog', { name: 'preview.png' })).toBeTruthy()
+})
+
+test('Automation header right-click shares actions with ⋯ and Delete still asks for confirmation', async () => {
+  const api = bridge({ getAutomation: detail, setAutomationOn: vi.fn(), deleteAutomation: vi.fn() })
+  render(view('details'))
+  const heading = await screen.findByRole('heading', { name: 'Weekly triage' })
+  fireEvent.contextMenu(heading)
+  await user().click(screen.getByRole('menuitem', { name: 'Turn on' }))
+  await vi.waitFor(() =>
+    expect(api.request).toHaveBeenCalledWith('setAutomationOn', 'automation-a', true),
+  )
+  await user().click(screen.getByRole('button', { name: 'Automation actions' }))
+  await user().click(screen.getByRole('menuitem', { name: 'Delete…' }))
+  expect(await screen.findByRole('dialog', { name: 'Delete “Weekly triage”?' })).toBeTruthy()
+  expect(api.request).not.toHaveBeenCalledWith('deleteAutomation', 'automation-a')
 })

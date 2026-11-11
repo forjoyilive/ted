@@ -1,6 +1,7 @@
 import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef } from 'react'
 import { Button } from '../components/Button.tsx'
+import { contextMenu, useActionMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
@@ -49,6 +50,13 @@ export function Inbox({
   onNewTask: () => void
   children?: ReactNode
 }) {
+  const requestMenu = (label: string, body: string, open: (() => void) | undefined) =>
+    contextMenu((at) =>
+      actions.open(at, label, [
+        { label: 'Open request', disabled: !open, action: open },
+        { label: 'Copy message text', action: () => navigator.clipboard.writeText(body) },
+      ]),
+    )
   const now = useNow()
   const manyFactories = factories.length > 1
   const waiting = inFactory(items, factoryId)
@@ -59,6 +67,14 @@ export function Inbox({
   const planRows = showAnswered
     ? []
     : plans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
+
+  const actions = useActionMenu(
+    JSON.stringify([
+      shown.map((item) => item.request.id),
+      planRows.map((item) => item.request.id),
+      asked.map((question) => question.id),
+    ]),
+  )
 
   const rows = [
     ...planRows.map((item) => ({ request: item.request, open: () => onOpenPlan?.(item) })),
@@ -76,6 +92,7 @@ export function Inbox({
 
   return (
     <>
+      {actions.menu}
       <section className={`${views.pane} ${views.listPane}`} aria-label="Inbox" data-fixed-pane>
         <header className={styles.header}>
           <div className={styles.titleRow}>
@@ -136,6 +153,12 @@ export function Inbox({
                   <button
                     type="button"
                     className={styles.row}
+                    data-nav-item
+                    {...requestMenu(
+                      request.title ?? 'Planning request',
+                      request.body || request.title || '',
+                      onOpenPlan ? () => onOpenPlan(item) : undefined,
+                    )}
                     data-plan-request={request.id}
                     onClick={() => onOpenPlan?.(item)}
                   >
@@ -166,6 +189,11 @@ export function Inbox({
                     type="button"
                     className={styles.row}
                     data-nav-item
+                    {...requestMenu(
+                      `${task.displayId} · ${headline(request)}`,
+                      request.body || request.title || '',
+                      () => onOpen(item),
+                    )}
                     aria-current={request.id === selected ? 'true' : undefined}
                     onClick={() => onOpen(item)}
                   >
@@ -204,6 +232,12 @@ export function Inbox({
                   <button
                     type="button"
                     className={styles.row}
+                    data-nav-item
+                    {...requestMenu(
+                      question.automationName,
+                      question.body,
+                      onOpenQuestion ? () => onOpenQuestion(question) : undefined,
+                    )}
                     aria-current={question.id === selected ? 'true' : undefined}
                     onClick={() => onOpenQuestion?.(question)}
                   >

@@ -185,3 +185,79 @@ test('List groups remember closed and open choices through Inbox and remounting'
   expect(backlog().getAttribute('aria-expanded')).toBe('false')
   expect(done().getAttribute('aria-expanded')).toBe('true')
 })
+
+test('right-click uses all selected Tasks, while an unselected row has its own actions', async () => {
+  const a = await list()
+  a.handle('setPriority', vi.fn())
+  a.handle('setTaskLead', vi.fn())
+  await a.emitTask(
+    task({ title: 'Export notes', priority: 'low', lead: { agent: 'codex', model: 'custom' } }),
+  )
+  const u = user()
+  for (const id of ['NB-1', 'MS-1'])
+    fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')), {
+    clientX: 50,
+    clientY: 80,
+  })
+  let menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await u.click(within(menu).getByRole('menuitem', { name: 'Priority' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Priority' })).getByRole('menuitem', {
+      name: 'Urgent',
+    }),
+  )
+  await vi.waitFor(() => {
+    expect(a.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
+    expect(a.request).toHaveBeenCalledWith('setPriority', 'MS-1', 'urgent')
+  })
+  expect(a.request).not.toHaveBeenCalledWith('setPriority', 'NB-2', 'urgent')
+  expect(screen.getByRole('toolbar', { name: 'Selected Tasks' }).textContent).toContain(
+    '2 selected',
+  )
+  expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+  menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await u.click(within(menu).getByRole('menuitem', { name: 'Task Lead' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Task Lead' })).getByRole('menuitem', {
+      name: 'Codex',
+    }),
+  )
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('setTaskLead', 'MS-1', { agent: 'codex' }),
+  )
+  expect(a.request).not.toHaveBeenCalledWith('setTaskLead', 'NB-1', expect.anything())
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-2"]')))
+  menu = await screen.findByRole('menu', { name: 'Task actions · NB-2' })
+  expect(within(menu).getByRole('menuitem', { name: /^Edit title/ })).toBeTruthy()
+  expect(screen.queryByRole('menu', { name: '2 selected Tasks' })).toBeNull()
+  fireEvent.keyDown(menu, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: 'Task actions · NB-2' })).toBeNull()
+})
+
+test('bulk context-menu Archive confirms the group and preserves blocker choices', async () => {
+  const a = await list()
+  a.handle('archiveTask', vi.fn())
+  await a.emitTask(
+    task({ id: 'NB-2', displayId: 'NB-2', title: 'Sync notes', blockedBy: ['NB-1'] }),
+  )
+  for (const id of ['NB-1', 'MS-1'])
+    fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+  const row = required(document.querySelector<HTMLElement>('[data-task="NB-1"]'))
+  row.focus()
+  fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
+  const menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await user().click(within(menu).getByRole('menuitem', { name: 'Archive…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Archive 2 Tasks?' })
+  expect(a.request.mock.calls.some(([name]) => name === 'archiveTask')).toBe(false)
+  await user().click(within(dialog).getByRole('radio', { name: 'Keep them blocked' }))
+  await user().click(within(dialog).getByRole('button', { name: 'Archive 2 Tasks' }))
+  for (const id of ['NB-1', 'MS-1'])
+    await vi.waitFor(() =>
+      expect(a.request).toHaveBeenCalledWith('archiveTask', id, {
+        closePullRequests: false,
+        blocked: 'keep',
+      }),
+    )
+})

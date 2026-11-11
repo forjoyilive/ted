@@ -2,6 +2,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { ArchiveDialog, DeleteDialog } from '../src/renderer/components/ArchiveDialogs.tsx'
+import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { appState } from './support/app.tsx'
@@ -190,10 +191,8 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
     expect(id).toBe('NB-1')
     expect(choices).toEqual({ blocked: 'unblock' })
     a.state.tasks = [task({ ...blocked, blockedBy: [] })]
-    await act(async () => {
-      a.emit({ type: 'task-deleted', taskId: 'NB-1' })
-      a.emit({ type: 'task-updated', task: task({ ...blocked, blockedBy: [] }) })
-    })
+    a.emit({ type: 'task-deleted', taskId: 'NB-1' })
+    a.emit({ type: 'task-updated', task: task({ ...blocked, blockedBy: [] }) })
   })
   a.mount()
   const u = user()
@@ -221,4 +220,48 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
   )
   expect(document.querySelector('tr[data-task="NB-2"]')?.textContent).not.toContain('Blocked')
   expect(a.request).toHaveBeenCalledWith('deleteTask', 'NB-1', { blocked: 'unblock' })
+})
+
+test('Task actions opens and chooses actions without opening the enclosing Task', async () => {
+  const open = vi.fn()
+  const api = bridge({ setPriority: vi.fn() })
+  await act(async () => {
+    render(
+      <table>
+        <tbody>
+          <tr onClick={open} onKeyDown={() => undefined} tabIndex={0}>
+            <td>
+              <TaskActionsMenu task={task()} />
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    )
+  })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  expect(screen.getByRole('menu', { name: /Task actions/ })).toBeTruthy()
+  expect(open).not.toHaveBeenCalled()
+  await u.click(screen.getByRole('menuitem', { name: /^Priority/ }))
+  await u.click(screen.getByRole('menuitemradio', { name: 'Urgent' }))
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
+  expect(open).not.toHaveBeenCalled()
+})
+
+test('Task menu keyboard navigation reaches choices, dismisses and restores focus', async () => {
+  bridge({ setPriority: vi.fn() })
+  await act(async () => {
+    render(<TaskActionsMenu task={task()} />)
+  })
+  const trigger = await screen.findByRole('button', { name: 'Task actions' })
+  await user().click(trigger)
+  const menu = screen.getByRole('menu', { name: /Task actions/ })
+  expect(document.activeElement?.textContent).toContain('Start')
+  fireEvent.keyDown(document.activeElement ?? menu, { key: 'End' })
+  expect(document.activeElement?.textContent).toContain('Delete')
+  fireEvent.keyDown(document.activeElement ?? menu, { key: 'Home' })
+  expect(document.activeElement?.textContent).toContain('Start')
+  fireEvent.keyDown(document.activeElement ?? menu, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: /Task actions/ })).toBeNull()
+  expect(document.activeElement).toBe(trigger)
 })

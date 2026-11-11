@@ -219,7 +219,7 @@ describe('Board', () => {
     await thread.getByText('You followed up in NB-2').waitFor()
 
     await thread.getByRole('button', { name: 'Task actions' }).click()
-    await thread.getByRole('menuitem', { name: /Follow up…/ }).click()
+    await window.getByRole('menuitem', { name: /Follow up…/ }).click()
     const dialog = window.getByRole('dialog', { name: 'Follow up NB-1?' })
     await dialog.getByRole('textbox').fill(forever())
     await dialog.getByRole('button', { name: 'Follow up' }).click()

@@ -37,6 +37,7 @@ const sections: readonly SheetSection[] = [
       { id: 'column-left', label: 'Column to the left (Board)', keys: ['H', '←'] },
       { id: 'column-right', label: 'Column to the right (Board)', keys: ['L', '→'] },
       { id: 'open', label: 'Open', keys: ['↵'] },
+      { id: 'context-menu', label: 'Open actions menu', keys: ['⇧F10', 'ContextMenu'] },
     ],
   },
   {
@@ -81,7 +82,7 @@ export function shortcutSheet(): readonly SheetSection[] {
   return sections
 }
 
-const displayOnly = new Set(['open-factory', 'send-message'])
+const displayOnly = new Set(['context-menu', 'open-factory', 'send-message'])
 
 const byId = new Map(sections.flatMap((s) => s.rows.map((r) => [r.id, r.keys] as const)))
 
@@ -110,4 +111,19 @@ export function sidebarResizeKey(event: {
   if (event.key === 'ArrowLeft') return -step
   if (event.key === 'ArrowRight') return step
   return undefined
+}
+
+export function contextMenuKey(event: {
+  key: string
+  shiftKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+  altKey: boolean
+}): boolean {
+  return (
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))
+  )
 }
