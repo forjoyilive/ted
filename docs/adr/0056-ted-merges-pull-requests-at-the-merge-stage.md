@@ -4,7 +4,7 @@ The daemon merges a Task’s pull requests itself (spec 9.9, ADR 0007). When a T
 
 **The signed-off commit.** The human approves a specific commit per repo. When a Gate before Merge is approved, TED waits for the Task’s pull request queue and records each ready pull request’s last pushed commit as its signed-off commit (`v1.PullRequestSignedOff`); a repo whose push failed at sign-off, or whose pull request is still a draft, gets an explicit none. Every push, failed push, pull request opened and move out of Merge clears it, so an old approval never carries into a later Merge visit. With no Gate before Merge, TED pushes and marks the pull requests ready at Merge entry and records that commit instead. After an approval TED never pushes at Merge. Every check, auto-merge and merge uses the signed-off commit (`--match-head-commit`). A pull request with no signed-off commit, still a draft, or whose head differs from it (other than the rebase below) sends the Task back to Validate for a new sign-off.
 
-**One cycle.** The watcher waits for the Task’s pull request queue (ADR 0048), then reads every open pull request of the Task in one batched GraphQL query: state, draft, head commit, mergeability, review decision, auto-merge, the head commit’s checks with which are required, and the repo’s allowed merge methods and auto-merge setting. `nextStep` in `packages/daemon/src/tasks/merge.ts` turns each into one step, and the Tasks module acts on it:
+**One cycle.** The Tasks module constructs `packages/daemon/src/tasks/merge-watcher.ts`. Its `cycle(taskId, read)` returns done, wait or busy, owns rebase and auto-merge memory and tracks in-flight cycles. A Tasks port supplies shared serialization, Workflow resolution, ordered targets, failure obligations, Checks, send-back, Gate posting and completion. The scheduling loop waits for the Task’s pull request queue (ADR 0048), then for the poller in `tasks/github-watch.ts`; the watcher never queries GitHub itself. The poller’s batched GraphQL read includes: state, draft, head commit, mergeability, review decision, auto-merge, the head commit’s checks with which are required, and the repo’s allowed merge methods and auto-merge setting. `nextStep` in `packages/daemon/src/tasks/merge.ts` turns each into one step, and the Tasks module acts on it:
 
 - **Merged on GitHub** (auto-merge, or the human): recorded, branch deleted.
 - **Head isn’t the signed-off commit**: back to Validate, unless it is exactly the head GitHub returned for the rebase TED asked for.
@@ -29,7 +29,7 @@ Events: `v1.PullRequestWaitChanged`, `v1.PullRequestAutoMergeEnabled`, `v1.PullR
 
 - **Rebasing in the worktree with `git rebase`, then pushing.** Rejected: a local rebase runs merge drivers and filters from config the agent can write, outside the agent’s sandbox. GitHub’s rebase needs only a fetch, which can run outside that config.
 - **Always turning on auto-merge.** Rejected: auto-merge waits only for required checks, and the spec waits for every check when none is required. TED turns it on only when GitHub blocks the merge.
-- **Polling through KRI-133’s GitHub watcher.** That ticket doesn’t exist yet; its batched poller can replace the per-Task query later.
+- **A per-Task GitHub query.** Replaced by the batched poller in `tasks/github-watch.ts` (ADR 0065); every fresh read, including a read after a failed merge, comes through that poller.
 
 ## Consequences
 
