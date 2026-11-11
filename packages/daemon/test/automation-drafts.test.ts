@@ -1,7 +1,13 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Activity, AutomationPromptDraft, RunSlots, RunWithConversation } from '@ted/protocol'
+import type {
+  Activity,
+  AutomationPromptDraft,
+  RunSlots,
+  RunWithConversation,
+  Task,
+} from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -9,6 +15,7 @@ import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import {
   api,
+  commitToOrigin,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -23,12 +30,14 @@ let scratch: string
 let cleanup: () => Promise<void>
 let daemon: RunningDaemon | undefined
 let free = 500e9
+let load = 0
 
 beforeEach(async () => {
   ;({ home, cleanup } = await makeTempHome())
   scratch = await mkdtemp(path.join(tmpdir(), 'ted-draft-origin-'))
   await makeOriginRepo(scratch)
   free = 500e9
+  load = 0
 })
 afterEach(async () => {
   await daemon?.stop()
@@ -46,6 +55,7 @@ async function start(add = true, timeout?: number, limitProbeMs?: number) {
     codexBin: stubCodexPath,
     automations: { ...(timeout !== undefined && { draftTimeoutMs: timeout }) },
     disk: { freeBytes: async () => free, checkEveryMs: 30 },
+    load: { ratio: () => load, checkEveryMs: 30 },
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   if (add) {
@@ -248,7 +258,8 @@ describe('Automation Prompt drafting', () => {
     expect((await file.call('DELETE', `/automation-prompt-drafts/${draft.id}`)).status).toBe(403)
   })
 
-  test('uses the queue and releases slots when canceled, ignoring late output', async () => {
+  test('drafts start over slot limits and load holds, count as holders and ignore canceled output', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
     const client = await start()
     await client.call('PATCH', '/settings', { maxWorkingRuns: 1 })
     const first = await request(client, {
@@ -259,21 +270,37 @@ describe('Automation Prompt drafting', () => {
       ),
     })
     await until(client, first.id, 'working')
-    const second = await request(client)
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect((await read(client, second.id)).state).toBe('queued')
+    load = 2
+    await client.call('PATCH', '/settings', { adjustRunsToLoad: true })
+    const second = await request(client, {
+      request: script(
+        { waitFor: path.join(scratch, 'second-release') },
+        { say: 'Second Prompt' },
+        { endTurn: true },
+      ),
+    })
+    await until(client, second.id, 'working')
+    const ordinary = await client.call('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: 'Ordinary queued work',
+    })
+    expect(ordinary.status).toBe(201)
     await expect
       .poll(async () => (await client.call('GET', '/activity')).body as Activity)
-      .toMatchObject({ runs: { active: 1, queued: 1 } })
+      .toMatchObject({ runs: { active: 2, queued: 1 } })
     const slots = (await client.call('GET', '/slots')).body as RunSlots
-    expect(slots.holders.some((h) => h.kind === 'automation-draft')).toBe(true)
-    expect(slots.queue.some((q) => q.kind === 'automation-draft' && q.runId === second.id)).toBe(
-      true,
+    expect(slots).toMatchObject({ working: 2, heldForLoad: true })
+    expect(slots.holders.filter((h) => h.kind === 'automation-draft').map((h) => h.runId)).toEqual(
+      expect.arrayContaining([first.id, second.id]),
     )
+    expect(slots.queue.map((q) => q.kind)).toEqual(['task'])
+    expect((ordinary.body as Task).leadRunId).toBeUndefined()
     expect((await client.call('DELETE', `/automation-prompt-drafts/${first.id}`)).status).toBe(200)
     await writeFile(path.join(scratch, 'release'), '')
     expect((await read(client, first.id)).state).toBe('canceled')
     expect((await read(client, first.id)).prompt).toBeUndefined()
+    await writeFile(path.join(scratch, 'second-release'), '')
     await until(client, second.id, 'ready')
   })
 
@@ -284,7 +311,10 @@ describe('Automation Prompt drafting', () => {
       request: script({ waitFor: path.join(scratch, 'release') }),
     })
     await until(client, first.id, 'working')
-    const second = await request(client)
+    await writeFile(path.join(home, 'stub-codex.json'), JSON.stringify({ signedIn: false }))
+    await client.call('POST', '/agents/health/check')
+    const second = await request(client, { agent: 'codex' })
+    expect((await read(client, second.id)).state).toBe('queued')
     await client.call('DELETE', `/automation-prompt-drafts/${second.id}`)
     expect((await read(client, second.id)).state).toBe('canceled')
     expect((await client.call('GET', `/runs/${second.id}`)).status).toBe(404)
@@ -445,7 +475,7 @@ describe('Automation Prompt drafting', () => {
     },
   )
 
-  test('a paused exit remains queued behind slots and disk holds, and cancellation prevents revival', async () => {
+  test('a paused exit remains queued behind a disk hold, and cancellation prevents revival', async () => {
     const client = await start()
     await client.call('PATCH', '/settings', { maxWorkingRuns: 1 })
     const release = path.join(scratch, 'pause')
@@ -469,9 +499,6 @@ describe('Automation Prompt drafting', () => {
       request: script({ waitFor: path.join(scratch, 'hold') }),
     })
     await until(client, blocker.id, 'working')
-    await writeFile(healthFile, '{}')
-    await client.call('POST', '/agents/health/check')
-    expect((await read(client, draft.id)).state).toBe('queued')
     free = 0
     await waitUntil(
       async () =>
@@ -483,6 +510,8 @@ describe('Automation Prompt drafting', () => {
         ).status === 409,
       'disk hold',
     )
+    await writeFile(healthFile, '{}')
+    await client.call('POST', '/agents/health/check')
     await client.call('DELETE', `/automation-prompt-drafts/${blocker.id}`)
     expect((await read(client, draft.id)).state).toBe('queued')
     await client.call('DELETE', `/automation-prompt-drafts/${draft.id}`)

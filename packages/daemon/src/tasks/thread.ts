@@ -596,7 +596,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskGatesChanged':
-        add(entry, 'edit', 'You changed this Task’s Gates')
+        add(entry, 'edit', 'You changed this Task’s sign-offs')
         break
       case 'v1.GateKeptOvernight':
         add(
@@ -606,14 +606,14 @@ export function threadEvents(
             data.reason === 'unreadable'
               ? 'TED couldn’t read this Task’s changes'
               : 'this Task changes .ted/'
-          }, so its ${stageTitle(text(data.stage))} Gate stays on`,
+          }, so its ${stageTitle(text(data.stage))} sign-off stays on`,
         )
         break
       case 'v1.GateSkippedOvernight':
         add(
           entry,
           'quiet',
-          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} Gate`,
+          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} sign-off`,
         )
         break
       case 'v1.TaskLeadSet':

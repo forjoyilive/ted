@@ -1,6 +1,6 @@
 # Setting up this Factory
 
-This Task is the Factory’s setup Task. It decides TED’s settings for this Factory: Factory notes in `.ted/notes.md`, Stage overrides in `.ted/stages/<id>.md`, and `.ted/workflow.yaml`. For this Task the Design and Review Gates are always on and Clarify runs at grilling depth. Change only files in `.ted/`, in the primary repo; the pull request goes to its default branch.
+This Task is the Factory’s setup Task. It decides TED’s settings for this Factory: Factory notes in `.ted/notes.md`, Stage overrides in `.ted/stages/<id>.md`, and `.ted/workflow.yaml`. For this Task the Design and Review sign-offs are always on and Clarify runs at grilling depth. Change only files in `.ted/`, in the primary repo; the pull request goes to its default branch.
 
 If the primary repo already has `.ted/` on its default branch, this is a later setup Task: propose changes to the current files and show each change as a diff in the design review, instead of writing the files from scratch.
 
@@ -12,7 +12,7 @@ TED filled in this Task. Run `ted outcome advance`.
 
 ## Clarify
 
-Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests, CI workflows, test and lint scripts, and how the product runs locally. Then ask the human how they work, in rounds with `ted ask --round <file>`: which Stages they want, where Gates go, how they merge (merge method, waiting for CI or for a review), and what the Factory notes should say. Recommend an answer to each question from what you read.
+Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests, CI workflows, test and lint scripts, and how the product runs locally. Then ask the human how they work, in rounds with `ted ask --round <file>`: which Stages they want, where sign-offs go, how they merge (merge method, waiting for CI or for a review), and what the Factory notes should say. Recommend an answer to each question from what you read.
 
 ## Design
 
@@ -27,7 +27,7 @@ Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests
      "setup": {
        "workflow": [
          { "stage": "intake" },
-         { "stage": "design", "setting": "Gate on" },
+         { "stage": "design", "setting": "Sign-off on" },
          { "stage": "validate", "setting": "Send back at most 5 times · validate.md for Notebook" }
        ],
        "checks": [

@@ -1,5 +1,12 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
-import type { DaemonEvent, ExportFormat, RunFixRequest } from '@ted/protocol'
+import type {
+  AutomationRequest,
+  Comment,
+  DaemonEvent,
+  ExportFormat,
+  PlanRequest,
+  RunFixRequest,
+} from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 import { type CustomRequests, customRequest } from '../custom-requests.ts'
 import { daemonRequests } from '../daemon-requests.ts'
@@ -46,8 +53,49 @@ function request<K extends keyof CustomRequests>(
   return customRequest(invoke, name, ...args)
 }
 
+export type AnsweredRequest = { order: number } & (
+  | { source: 'task'; request: Comment }
+  | { source: 'plan'; request: PlanRequest }
+  | { source: 'automation'; request: AutomationRequest }
+)
+
+let answerOrder = 0
+
+const answerListeners = new Set<(answer: AnsweredRequest) => void>()
+
+export function onRequestAnswered(listener: (answer: AnsweredRequest) => void): () => void {
+  answerListeners.add(listener)
+  return () => {
+    answerListeners.delete(listener)
+  }
+}
+
+function answered(answer: AnsweredRequest) {
+  for (const listener of answerListeners) listener(answer)
+}
+
+const daemon = daemonRequests(invoke)
+
 export const ted = {
-  ...daemonRequests(invoke),
+  ...daemon,
+  answerRequest: async (...args: Parameters<typeof daemon.answerRequest>) => {
+    const order = ++answerOrder
+    const request = await daemon.answerRequest(...args)
+    answered({ source: 'task', request, order })
+    return request
+  },
+  answerPlanRequest: async (...args: Parameters<typeof daemon.answerPlanRequest>) => {
+    const order = ++answerOrder
+    const request = await daemon.answerPlanRequest(...args)
+    answered({ source: 'plan', request, order })
+    return request
+  },
+  answerAutomationRequest: async (...args: Parameters<typeof daemon.answerAutomationRequest>) => {
+    const order = ++answerOrder
+    const request = await daemon.answerAutomationRequest(...args)
+    answered({ source: 'automation', request, order })
+    return request
+  },
   getAutomation: (id: string) => request('getAutomation', id),
   exportFactory: (factoryId: string, format: ExportFormat) =>
     request('exportFactory', factoryId, format),
@@ -56,6 +104,7 @@ export const ted = {
   openPullRequest: (taskId: string, repoName: string) =>
     request('openPullRequest', taskId, repoName),
   openFigmaLink: (taskId: string, commentId: string) => request('openFigmaLink', taskId, commentId),
+  openMarkdownLink: (url: string) => request('openMarkdownLink', url),
   presentBrowser: (
     taskId: string,
     repo: string,

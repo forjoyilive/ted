@@ -60,7 +60,11 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
   const started: T[] = []
   for (const entry of ordered) {
     const factory = entry.factoryId
-    if (!use.handoffs?.has(entry.id)) {
+    if (
+      entry.kind !== 'automation' &&
+      entry.kind !== 'automation-draft' &&
+      !use.handoffs?.has(entry.id)
+    ) {
       if (working >= use.limit) continue
       if (use.heldForLoad && working > 0) continue
       const cap = factory === undefined ? undefined : use.caps[factory]

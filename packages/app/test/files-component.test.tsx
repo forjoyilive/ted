@@ -2,14 +2,17 @@
 import type { TaskFiles, TaskRepo } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import { CommentFiles } from '../src/renderer/components/CommentFiles.tsx'
+import { DesignReviewContent } from '../src/renderer/components/DesignReview.tsx'
 import { FilesSection } from '../src/renderer/components/FilesSection.tsx'
 import { FileView } from '../src/renderer/components/FileView.tsx'
 import { QuickOpen } from '../src/renderer/components/QuickOpen.tsx'
+import { Viewer } from '../src/renderer/components/Viewer.tsx'
 import { ConnectionContext } from '../src/renderer/data.ts'
 import { useTaskFiles } from '../src/renderer/files.ts'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
-import { task } from './support/fixtures.ts'
+import { comment, task } from './support/fixtures.ts'
 
 const repo: TaskRepo = {
   name: 'web',
@@ -223,3 +226,156 @@ test.each(['binary', 'too-large', 'unavailable'] as const)(
     expect(a.request.mock.calls.some(([name]) => name === 'openInEditor')).toBe(false)
   },
 )
+
+test('a Comment’s image buttons browse in display order, wrap, and restore the opened thumbnail', async () => {
+  bridge({ readAttachment: () => ({ data: 'aW1hZ2U=' }) })
+  const image = (name: string) => ({ hash: name, name, mediaType: 'image/png', size: 5 })
+  render(
+    <>
+      <CommentFiles
+        files={[
+          image('first.png'),
+          { ...image('notes.pdf'), mediaType: 'application/pdf' },
+          image('middle.png'),
+          image('last.png'),
+        ]}
+      />
+      <CommentFiles files={[image('other-comment.png')]} />
+    </>,
+  )
+  const thumbnail = await screen.findByRole('button', { name: 'View middle.png' })
+  await user().click(thumbnail)
+  const dialog = screen.getByRole('dialog', { name: 'middle.png' })
+  expect(within(dialog).getByRole('status').textContent).toBe('2 of 3')
+  await user().click(within(dialog).getByRole('button', { name: 'Next image' }))
+  await within(dialog).findByRole('img', { name: 'last.png' })
+  await user().click(within(dialog).getByRole('button', { name: 'Next image' }))
+  await within(dialog).findByRole('img', { name: 'first.png' })
+  expect(within(dialog).getByRole('status').textContent).toBe('1 of 3')
+  await user().click(within(dialog).getByRole('button', { name: 'Previous image' }))
+  await within(dialog).findByRole('img', { name: 'last.png' })
+  await user().click(within(dialog).getByRole('button', { name: /^Close$/ }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(thumbnail)
+  await user().click(screen.getByRole('button', { name: 'View other-comment.png' }))
+  const single = screen.getByRole('dialog', { name: 'other-comment.png' })
+  expect(within(single).queryByRole('button', { name: 'Next image' })).toBeNull()
+  expect(within(single).queryByRole('status')).toBeNull()
+  fireEvent(single, new Event('cancel', { cancelable: true }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('Left and Right browse the open image group through the app keymap without modified-key or dialog interference', async () => {
+  const a = appState()
+  const image = (name: string) => ({ hash: name, name, mediaType: 'image/png', size: 5 })
+  a.state.tasks = [task()]
+  a.handle('listComments', () => [
+    comment({
+      kind: 'note',
+      author: { kind: 'human' },
+      attachments: [image('first.png'), image('second.png')],
+    }),
+  ])
+  a.handle('readAttachment', () => ({ data: 'aW1hZ2U=' }))
+  a.mount()
+  const nav = await screen.findByRole('navigation', { name: 'Sidebar' })
+  await user().click(within(nav).getByRole('button', { name: 'All Tasks' }))
+  await user().click(await screen.findByRole('row', { name: /NB-1/ }))
+  const thumbnail = await screen.findByRole('button', { name: 'View first.png' })
+  await user().click(thumbnail)
+  const dialog = screen.getByRole('dialog', { name: 'first.png' })
+  await user().keyboard('{ArrowLeft}')
+  await within(dialog).findByRole('img', { name: 'second.png' })
+  expect(within(dialog).getByRole('status').textContent).toBe('2 of 2')
+  await user().keyboard('{ArrowRight}')
+  await within(dialog).findByRole('img', { name: 'first.png' })
+  await user().keyboard(
+    '{Control>}{ArrowRight}{/Control}{Alt>}{ArrowLeft}{/Alt}{Shift>}{ArrowRight}{/Shift}{Meta>}{ArrowLeft}{/Meta}',
+  )
+  expect(within(dialog).getByRole('heading', { name: 'first.png' })).toBeTruthy()
+  const blocker = render(
+    <Viewer title="Another dialog" onClose={vi.fn()}>
+      <input aria-label="Editable text" />
+      <button type="button">Other action</button>
+    </Viewer>,
+  )
+  await user().click(screen.getByRole('button', { name: 'Other action' }))
+  await user().keyboard('{ArrowRight}')
+  expect(within(dialog).getByRole('heading', { name: 'first.png' })).toBeTruthy()
+  await user().click(screen.getByRole('textbox', { name: 'Editable text' }))
+  await user().keyboard('{ArrowRight}')
+  expect(within(dialog).getByRole('heading', { name: 'first.png' })).toBeTruthy()
+  blocker.unmount()
+  fireEvent(dialog, new Event('cancel', { cancelable: true }))
+  expect(document.activeElement).toBe(thumbnail)
+  await user().click(screen.getByRole('button', { name: 'View second.png' }))
+  await within(screen.getByRole('dialog')).findByRole('img', { name: 'second.png' })
+})
+
+test('browsing a loading or failed image never shows the previous image and can continue', async () => {
+  const pending = deferred<{ data: string }>()
+  let viewing = false
+  bridge({
+    readAttachment: (attachment) => {
+      const name = (attachment as { name: string }).name
+      if (viewing && name === 'slow.png') return pending.promise
+      if (viewing && name === 'broken.png') throw new Error('Image bytes unavailable')
+      return { data: 'aW1hZ2U=' }
+    },
+  })
+  const images = ['first.png', 'slow.png', 'broken.png'].map((name) => ({
+    hash: name,
+    name,
+    mediaType: 'image/png',
+    size: 5,
+  }))
+  render(<CommentFiles files={images} />)
+  await screen.findByRole('button', { name: 'View slow.png' })
+  await screen.findByRole('button', { name: 'View broken.png' })
+  viewing = true
+  await user().click(screen.getByRole('button', { name: 'View first.png' }))
+  const dialog = screen.getByRole('dialog')
+  await within(dialog).findByRole('img', { name: 'first.png' })
+  await user().click(within(dialog).getByRole('button', { name: 'Next image' }))
+  expect(within(dialog).queryByRole('img')).toBeNull()
+  expect(within(dialog).getByRole('status', { name: 'Loading slow.png…' })).toBeTruthy()
+  await user().click(within(dialog).getByRole('button', { name: 'Next image' }))
+  expect((await within(dialog).findByRole('alert')).textContent).toBe('Image bytes unavailable')
+  expect(within(dialog).queryByRole('img')).toBeNull()
+  await user().click(within(dialog).getByRole('button', { name: 'Next image' }))
+  await within(dialog).findByRole('img', { name: 'first.png' })
+  await act(async () => pending.resolve({ data: 'c3RhbGU=' }))
+  expect(within(dialog).getByRole('img', { name: 'first.png' }).getAttribute('src')).toBe(
+    'data:image/png;base64,aW1hZ2U=',
+  )
+  expect(within(dialog).queryByRole('alert')).toBeNull()
+})
+
+test('design review screenshots browse their displayed group using captions and the attachment media type', async () => {
+  bridge({ readAttachment: () => ({ data: 'aW1hZ2U=' }) })
+  render(
+    <DesignReviewContent
+      taskId="NB-1"
+      commentId="review"
+      files={[{ hash: 'b', name: 'second.gif', mediaType: 'image/gif', size: 5 }]}
+      design={{
+        screenshots: [
+          { hash: 'a', name: 'first.png', caption: 'Before' },
+          { hash: 'b', name: 'second.gif', caption: 'After' },
+        ],
+      }}
+    />,
+  )
+  await screen.findByRole('img', { name: 'After' })
+  const thumbnail = screen.getByRole('button', { name: 'View After' })
+  await user().click(thumbnail)
+  const dialog = screen.getByRole('dialog', { name: 'After' })
+  expect((await within(dialog).findByRole('img', { name: 'After' })).getAttribute('src')).toBe(
+    'data:image/gif;base64,aW1hZ2U=',
+  )
+  await user().click(within(dialog).getByRole('button', { name: 'Next image' }))
+  await within(dialog).findByRole('img', { name: 'Before' })
+  expect(within(dialog).getByRole('status').textContent).toBe('1 of 2')
+  await user().click(within(dialog).getByRole('button', { name: /^Close$/ }))
+  expect(document.activeElement).toBe(thumbnail)
+})

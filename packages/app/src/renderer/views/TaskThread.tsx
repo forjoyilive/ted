@@ -17,7 +17,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import { type ChangedFile, changedFiles, useTaskChanges } from '../changes.ts'
@@ -48,6 +48,7 @@ import {
   useLineComments,
 } from '../components/LineComments.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { Markdown } from '../components/Markdown.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import {
   AnsweredCard,
@@ -81,6 +82,7 @@ import {
 import { briefPart, briefSummary } from '../details.ts'
 import { openInEditor } from '../editor.ts'
 import { quickOpenEvent, takeFileRequest, useTaskFiles } from '../files.ts'
+import { InboxRequestsContext } from '../inbox-requests.ts'
 import {
   type ChangesView,
   type MiddlePaneAction,
@@ -163,7 +165,7 @@ function NoteRow({
           {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
-        {comment.body !== '' && <p className={styles.commentBody}>{comment.body}</p>}
+        {comment.body !== '' && <Markdown className={styles.commentBody} text={comment.body} />}
         {comment.attachments && <CommentFiles files={comment.attachments} />}
         {comment.lineComments && (
           <SentLineComments
@@ -615,7 +617,8 @@ export function TaskThread({
   const commentList = useCommentList(task.id)
   const eventList = useThreadEventList(task.id)
   const checkList = useCheckRunList(task.id)
-  const comments = commentList.items
+  const inbox = useContext(InboxRequestsContext)
+  const comments = commentList.items.filter((comment) => !inbox?.resolved.has(comment.id))
   const events = eventList.value ?? []
   const checkRuns = checkList.items
   const failures = useFailures(task.id)
@@ -661,7 +664,10 @@ export function TaskThread({
   const headerAction = statusAction(task)
   const now = useNow()
   const activity = mergedLine(task, now) ?? task.activity
-  const pin = (id: string) => setChosen({ from: requestId, id })
+  const pin = (id: string) => {
+    setChosen({ from: requestId, id })
+    inbox?.select(id)
+  }
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
 
   if (talk && shownRun !== undefined && shownApp === undefined) {
@@ -1044,8 +1050,8 @@ export function TaskDetails({
     <DetailsPane className={styles.detailsPane} aria-label="Task details" hidden={hidden}>
       {task.setup && (
         <p className={styles.setupNote}>
-          The Design and Review Gates are always on for a setup Task. Tasks started before it merges
-          use TED’s defaults.
+          The Design and Review sign-offs are always on for a setup Task. Tasks started before it
+          merges use TED’s defaults.
         </p>
       )}
       <dl className={styles.details}>
@@ -1098,7 +1104,7 @@ export function TaskDetails({
             </>
           )}
         </dd>
-        <dt>Gates</dt>
+        <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
           <TaskGatesField key={task.id} taskId={task.id} />
         </dd>

@@ -1183,8 +1183,8 @@ export function TaskList({
                 implementation starts.
               </p>
               <p className={dialogStyles.body}>
-                Answer questions and approve Gates as usual. Resume prepared Tasks individually or
-                in bulk, or turn on Overnight mode to let them continue.
+                Answer questions and approve sign-offs as usual. Resume prepared Tasks individually
+                or in bulk, or turn on Overnight mode to let them continue.
               </p>
               {settings?.overnightMode && (
                 <p className={dialogStyles.body}>

@@ -100,7 +100,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 - **GAP-50** Line comments. Resolved by KRI-60, KRI-63 and coordinator decision 7: drafts sent with the next Comment, never with Approve.
 - **GAP-51** Sign-off labels. Resolved by KRI-60.
 - **GAP-52** No CI or CI that never reports. Resolved by KRI-60, changed by Nabha’s review: TED detects CI at push; no CI merges at once.
-- **GAP-53** Merge Gate card. Resolved by KRI-60.
+- **GAP-53** Merge sign-off card. Resolved by KRI-60.
 - **GAP-54** Task shell. Resolved by KRI-60 and KRI-63: Shell in the Code section, opens in the middle pane.
 
 ### 8. UI
