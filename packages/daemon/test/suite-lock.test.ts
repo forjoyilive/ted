@@ -7,9 +7,11 @@ import {
   acquireFullRun,
   acquireSlot,
   acquireSuiteLock,
+  fullRunRefusal,
   heldLockEnv,
   lockRun,
   pidAlive,
+  type WaitRecord,
 } from './support/suite-lock.ts'
 
 let dir: string
@@ -196,7 +198,7 @@ describe('test slots', () => {
     await release?.()
   })
 
-  test('waiting runs get the locks in the order they asked', async () => {
+  test('a full run whose turn comes lets the small runs already waiting go first', async () => {
     const held = [liveProcess(), liveProcess()]
     await mkdir(path.join(dir, 'slots'))
     await writeFile(slot(0), `${held[0]}\n`)
@@ -205,13 +207,13 @@ describe('test slots', () => {
     const firstSmall = liveProcess()
     const full = liveProcess()
     const lastSmall = liveProcess()
-    const small = acquireSlot({ ...slots(), pid: firstSmall }).then((release) => {
-      order.push('first small')
+    const big = acquireFullRun({ ...slots(), pid: full }).then((release) => {
+      order.push('full')
       return release
     })
     await pause(30)
-    const big = acquireFullRun({ ...slots(), pid: full }).then((release) => {
-      order.push('full')
+    const small = acquireSlot({ ...slots(), pid: firstSmall }).then((release) => {
+      order.push('first small')
       return release
     })
     await pause(30)
@@ -224,21 +226,78 @@ describe('test slots', () => {
     await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
 
     children[0]?.kill()
-    const releaseSmall = await small
-    expect(await readFile(slot(0), 'utf8')).toBe(`${firstSmall}\n`)
-    await pause(200)
-    expect(await readFile(file, 'utf8')).toBe(`${full}\n`)
-    expect(order).toEqual(['first small'])
-
     children[1]?.kill()
+    const releaseSmall = await small
+    const releaseLate = await late
+    await pause(200)
+    expect(order).toEqual(['first small', 'last small'])
+    expect(await readFile(file, 'utf8')).toBe(`${full}\n`)
+
+    const afterFull = acquireSlot({ ...slots(), pid: 4242 }).then((release) => {
+      order.push('small after the full run')
+      return release
+    })
     await releaseSmall?.()
+    await releaseLate?.()
     const releaseFull = await big
-    expect(order).toEqual(['first small', 'full'])
     await pause(100)
-    expect(order).toEqual(['first small', 'full'])
+    expect(order).toEqual(['first small', 'last small', 'full'])
     await releaseFull()
-    await (await late)?.()
-    expect(order).toEqual(['first small', 'full', 'last small'])
+    await (await afterFull)?.()
+    expect(order).toEqual(['first small', 'last small', 'full', 'small after the full run'])
+  })
+
+  test('a full run stops letting small runs go first after yieldMs', async () => {
+    const held = [liveProcess(), liveProcess()]
+    await mkdir(path.join(dir, 'slots'))
+    await writeFile(slot(0), `${held[0]}\n`)
+    await writeFile(slot(1), `${held[1]}\n`)
+    let small = false
+    const waiting = acquireSlot({ ...slots(), pid: liveProcess() }).then((release) => {
+      small = true
+      return release
+    })
+    await pause(30)
+    const full = acquireFullRun({ ...slots(), pid: 4242, yieldMs: 100 })
+    await pause(60)
+    await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await pause(200)
+    expect(await readFile(file, 'utf8')).toBe('4242\n')
+    expect(small).toBe(false)
+
+    children[0]?.kill()
+    children[1]?.kill()
+    await (await full)()
+    await (await waiting)?.()
+  })
+
+  test('a full run doesn’t let small runs go first while a run from a checkout with the older lock code waits', async () => {
+    const held = [liveProcess(), liveProcess()]
+    const queue = path.join(dir, 'slots', 'queue')
+    await mkdir(queue, { recursive: true })
+    await writeFile(slot(0), `${held[0]}\n`)
+    await writeFile(slot(1), `${held[1]}\n`)
+    const big = acquireFullRun({ ...slots(), pid: 4242 })
+    await pause(30)
+    const older = `${String(Date.now()).padStart(15, '0')}-${liveProcess()}`
+    await writeFile(path.join(queue, older), '')
+    await pause(5)
+    let small = false
+    const waiting = acquireSlot({ ...slots(), pid: liveProcess() }).then((release) => {
+      small = true
+      return release
+    })
+    await pause(100)
+    children[0]?.kill()
+    children[1]?.kill()
+    const releaseFull = await big
+    expect(small).toBe(false)
+
+    await releaseFull()
+    await pause(100)
+    expect(small).toBe(false)
+    await rm(path.join(queue, older))
+    await (await waiting)?.()
   })
 
   test('a waiting run whose process died doesn’t hold up the runs behind it', async () => {
@@ -254,5 +313,53 @@ describe('test slots', () => {
   test('a slot folder that can’t be made runs without a slot', async () => {
     await writeFile(path.join(dir, 'slots'), '')
     expect(await acquireSlot({ ...slots(), pid: 4242 })).toBeUndefined()
+  })
+})
+
+describe('the wait log', () => {
+  const slots = () => ({ dir: path.join(dir, 'slots'), suiteLock: file, slots: 2, pollMs: 20 })
+  const records = async (): Promise<WaitRecord[]> =>
+    (await readFile(path.join(dir, 'test-waits.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+
+  test('a small run and a full run each record when they started and ended', async () => {
+    const holder = liveProcess()
+    await mkdir(path.join(dir, 'slots'))
+    await writeFile(path.join(dir, 'slots', '0.lock'), `${holder}\n`)
+    await writeFile(path.join(dir, 'slots', '1.lock'), `${holder}\n`)
+    setTimeout(() => children[0]?.kill(), 150)
+    const small = await lockRun(3, slots())
+    await small?.()
+    const full = await lockRun(12, slots())
+    await full?.()
+    await (await acquireSlot({ ...slots(), log: path.join(dir, 'elsewhere.jsonl') }))?.()
+
+    const lines = await records()
+    expect(lines).toMatchObject([
+      { event: 'start', kind: 'small', files: 3, pid: process.pid, cwd: process.cwd() },
+      { event: 'end', kind: 'small', files: 3 },
+      { event: 'start', kind: 'full', files: 12 },
+      { event: 'end', kind: 'full', files: 12 },
+    ])
+    expect(lines[0]?.waitedMs).toBeGreaterThanOrEqual(100)
+    expect(lines[1]?.waitedMs).toBe(lines[0]?.waitedMs)
+    expect(lines[1]?.heldMs).toBeGreaterThanOrEqual(0)
+    expect(lines[2]?.waitedMs).toBeLessThan(lines[0]?.waitedMs ?? 0)
+  })
+})
+
+describe('a full run started by a Run', () => {
+  test('is refused at 10 files, and lockRun takes no lock', async () => {
+    expect(fullRunRefusal(9, { TED_RUN: 'run-1' })).toBeUndefined()
+    expect(fullRunRefusal(10, {})).toBeUndefined()
+    expect(fullRunRefusal(10, { TED_RUN: 'run-1' })).toContain('pnpm vitest run <files>')
+
+    vi.stubEnv('TED_RUN', 'run-1')
+    const slots = { dir: path.join(dir, 'slots'), suiteLock: file }
+    await expect(lockRun(10, slots)).rejects.toThrow('A Run can’t start a test run of 10 files')
+    await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await (await lockRun(9, slots))?.()
   })
 })

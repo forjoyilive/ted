@@ -436,7 +436,17 @@ async function checkInParallel(appOnly: boolean): Promise<boolean> {
   return failed.length === 0
 }
 
+export function runRefusal(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!env.TED_RUN) return undefined
+  return 'A Run can’t run pnpm check. It runs every test, takes the whole machine and makes every other Run wait; only the human or a merge runs it. Run pnpm typecheck, pnpm lint and the test files your change touches: pnpm vitest run <files>.'
+}
+
 export async function checkAndRecord({ all = false } = {}): Promise<boolean> {
+  const refusal = runRefusal()
+  if (refusal) {
+    console.error(`check: ${refusal}`)
+    return false
+  }
   const clean = git('status', '--porcelain') === ''
   const commit = git('rev-parse', 'HEAD')
   const appOnly = !all && onlyAppChanged(changedSinceMain())
