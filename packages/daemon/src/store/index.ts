@@ -762,6 +762,7 @@ export interface TedStore extends TaskHistory {
   lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
   listRuns(): Run[]
+  liveRuns(): Run[]
   busyTaskIds(): string[]
   tasksIn(ids: ReadonlySet<string>): Task[]
   backlogTasks(): { id: string; snoozed: boolean }[]
@@ -911,6 +912,9 @@ export async function openStore({
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
+  const liveRuns = queryDb(
+    runs.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
+  )
 
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
   const taskDraft = (factoryId: string): TaskDraftState => {
@@ -2073,7 +2077,7 @@ export async function openStore({
 
   let shellsRunning = 0
   const activity = (): Activity => {
-    const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    const active = store.query(liveRuns)
     const held = store.query(queryDb(heldRuns)).length
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveAutomations = store
@@ -4069,6 +4073,7 @@ export async function openStore({
       return comment
     },
     listRuns: () => store.query(allRuns).map(toRun),
+    liveRuns: () => store.query(liveRuns).map(toRun),
     busyTaskIds: () => [
       ...store.query(queryDb(runs.where({ state: 'working' }))).flatMap((r) => r.taskId ?? []),
       ...store.query(queryDb(taskRepos.where({ setupState: 'running' }))).map((r) => r.taskId),
