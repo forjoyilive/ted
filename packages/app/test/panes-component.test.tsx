@@ -382,7 +382,7 @@ test.each(['response-first', 'event-first'] as const)(
       ),
     ).toBe('true')
     await user().click(
-      within(screen.getByRole('region', { name: 'Permission', exact: true })).getByRole('button', {
+      within(screen.getByRole('region', { name: 'Permission' })).getByRole('button', {
         name: 'Deny',
       }),
     )
@@ -392,9 +392,9 @@ test.each(['response-first', 'event-first'] as const)(
     if (order === 'response-first') await act(async () => reply.resolve(answered))
     else await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
     expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
-    const remaining = await screen.findByRole('region', { name: 'Question', exact: true })
+    const remaining = await screen.findByRole('region', { name: 'Question' })
     expect(within(remaining).getByText('Keep the settings?')).toBeTruthy()
-    expect(within(thread).queryByRole('region', { name: 'Permission', exact: true })).toBeNull()
+    expect(within(thread).queryByRole('region', { name: 'Permission' })).toBeNull()
     expect(within(thread).queryByText('You denied')).toBeNull()
     const draft = within(remaining).getByRole('textbox', { name: 'Your answer' })
     await user().type(draft, 'Keep this unfinished answer')
@@ -403,7 +403,7 @@ test.each(['response-first', 'event-first'] as const)(
     else await act(async () => reply.resolve(answered))
     expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
     expect(draft).toBe(
-      within(screen.getByRole('region', { name: 'Question', exact: true })).getByRole('textbox', {
+      within(screen.getByRole('region', { name: 'Question' })).getByRole('textbox', {
         name: 'Your answer',
       }),
     )
@@ -449,12 +449,11 @@ test('a delayed earlier response does not replace the newest answer confirmation
   const refresh = deferred<never[]>()
   a.handle('listInbox', () => refresh.promise)
   await user().click(
-    within(await screen.findByRole('region', { name: 'Question', exact: true })).getByRole(
-      'button',
-      { name: 'Yes' },
-    ),
+    within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+      name: 'Yes',
+    }),
   )
-  const card = await screen.findByRole('region', { name: 'Permission', exact: true })
+  const card = await screen.findByRole('region', { name: 'Permission' })
   await user().click(within(card).getByRole('button', { name: /^Approve/ }))
   await screen.findByText('Nothing waiting on you')
   const status = within(inbox).getByRole('status')
@@ -533,10 +532,9 @@ test.each(['response-first', 'event-first'] as const)(
     const refresh = deferred<never[]>()
     a.handle('listInbox', () => refresh.promise)
     await user().click(
-      within(await screen.findByRole('region', { name: 'Question', exact: true })).getByRole(
-        'button',
-        { name: 'Yes' },
-      ),
+      within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+        name: 'Yes',
+      }),
     )
     const answered: Comment = {
       ...first,
