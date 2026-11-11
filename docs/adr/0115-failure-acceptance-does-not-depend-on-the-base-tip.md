@@ -11,7 +11,7 @@ What this gives up: a pull request GitHub allows to merge while behind its base 
 The same incident showed a second trap. An assessment is bound to the `contextId` of the newest evidence, or to the original context, so a Task Lead who captures a fresh context but adds evidence without naming it asks a question bound to the old one. After a real change the human then cannot accept, and nothing told either side why. Now:
 
 - A refused acceptance says which of three things happened: the code or Checks changed, the current state could not be read, or TED has no verifiable record of what was tested.
-- For the first and third, TED posts one “Failure acceptance refused” note per decision, delivered to the Task Lead through the same path as the invalidation notice, with the commands to run. The invalidation notice names them too.
+- For the first and third, TED posts a “Failure acceptance refused” note, once per decision for the same advice (a second refusal posts again only if the steps it gives have changed, for example after the source Run ended), delivered to the Task Lead through the same path as the invalidation notice, with the commands to run. The invalidation notice names them too.
 - `ted failure ask` refuses to post a question bound to a context that differs from the current one when a fresh capture could be attached. It still posts when the case has no context, the snapshot can’t be taken, or no later capture could attest the source, because Fixed, No longer applicable, Retry and Fix in this Task remain valid answers there.
 
 The app’s card keeps Fixed and No longer applicable disabled until a reason is typed, and the renderer strips Electron’s `Error invoking remote method` prefix in the one function every `window.ted` request goes through.
