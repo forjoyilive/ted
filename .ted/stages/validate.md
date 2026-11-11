@@ -8,6 +8,8 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 If the Factory has Checks, TED runs them one after another and stops at the first failure. When the Task comes from Work, TED ran them before it left Work, a failure there kept it in Work, and the passing results are at the end of these instructions. When it comes from another Stage, TED runs them at Validate entry. A failure at entry keeps the Task in Validate with the output and a failure case ID; `ted failure list` and `ted failure show <id>` show it, and the preamble lists the other `ted failure` commands.
 
+Do not run the full test suite unless asked to or unless strictly necessary.
+
 ## Steps
 
 1. The Checks already ran Typecheck and Lint. GitHub CI runs these two commands automatically on pull requests and pushes to `main`; full-suite CI is reserved for `v*` release tags. Agents never start GitHub workflows. Work runs no tests, so this is the only place they run. Run the test files the change touches (the ones it added or changed, and the test file of each module it changed) in one `pnpm vitest run <files>` command, once per visit; run a file again only after a change to it or to the code it tests. Never `pnpm test`, `pnpm check` or a whole test folder: TED refuses a Run’s test run of more than 3 files. When the change touches more, run the 3 that cover the riskiest behaviour and name the rest in your note. A test command can sit waiting for a test slot before it starts; let it wait. When a test fails, run the same test on the base branch. If it fails there the same way, it is outside this Task: record it as a note with the test name and the error, and carry on.
