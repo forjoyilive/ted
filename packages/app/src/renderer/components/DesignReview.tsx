@@ -6,6 +6,7 @@ import { Button } from './Button.tsx'
 import { useBytes } from './CommentFiles.tsx'
 import styles from './DesignReview.module.css'
 import { Loading } from './Loading.tsx'
+import { Markdown } from './Markdown.tsx'
 import { ImageViewer, Viewer } from './Viewer.tsx'
 
 const prototypeSrc = ({ hash, name }: DesignFile) =>
@@ -294,7 +295,9 @@ export function DesignReviewContent({
   const shots = design.screenshots ?? []
   return (
     <div className={styles.review}>
-      {design.summary !== undefined && <p className={styles.summary}>{design.summary}</p>}
+      {design.summary !== undefined && (
+        <Markdown className={styles.summary} text={design.summary} />
+      )}
       {(shots.length > 0 || design.video) && (
         <div className={styles.tiles}>
           {shots.map((shot) => (
@@ -311,7 +314,9 @@ export function DesignReviewContent({
           <h3 className={styles.worthHeading}>Worth your eye</h3>
           <ol className={styles.worthList}>
             {design.worthYourEye.map((point) => (
-              <li key={point}>{point}</li>
+              <li key={point}>
+                <Markdown text={point} />
+              </li>
             ))}
           </ol>
         </section>

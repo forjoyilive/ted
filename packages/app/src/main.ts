@@ -103,6 +103,7 @@ import {
   type Updates,
   updateMenuVersion,
 } from './updates.ts'
+import { openMarkdownLink } from './web-link.ts'
 
 const githubLink =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
@@ -110,6 +111,7 @@ const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests = {
   taskBrief,
+  openMarkdownLink: (_client, url) => openMarkdownLink(url, shell.openExternal),
   openTaskSource: async (client, taskId) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const link = task?.source && parseLinearUrl(task.source.url)
@@ -248,6 +250,7 @@ const requests = {
   | 'openTaskSource'
   | 'openPullRequest'
   | 'openFigmaLink'
+  | 'openMarkdownLink'
   | 'openAppPreview'
   | 'presentBrowser'
   | 'hideBrowser'
