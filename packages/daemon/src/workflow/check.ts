@@ -400,6 +400,18 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             warn(entry.key, `unknown key \`${path}\``)
         }
       }
+      const p1From = stage.p1_only_from
+      if (
+        typeof p1From === 'number' &&
+        stage.max_back !== undefined &&
+        p1From > stage.max_back + 1
+      ) {
+        const round = stage.max_back + 1
+        warn(
+          entries(stageNode).find((entry) => entry.name === 'p1_only_from')?.key ?? stageNode,
+          `\`stages.${id}.p1_only_from\` is ${p1From}, but \`max_back: ${stage.max_back}\` in this file lets Validate reach round ${round} at most before TED asks the human, so round ${p1From} comes only if the human sends the Task back again`,
+        )
+      }
       settings.stages[id as StageId] = stage
     }
   }

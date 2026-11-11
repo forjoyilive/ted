@@ -304,6 +304,7 @@ import {
 import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
 import {
+  noEarlierFindingRefusal,
   p1OnlyAt,
   p1OnlyRefusal,
   p1OnlyReviewPrompt,
@@ -5001,7 +5002,7 @@ export function createTasks(options: {
   }
 
   async function planReview(task: StoredTask, prompt: string): Promise<PlannedReview> {
-    const { round, commits, rounds, fixes, conflict } = await reviewRound(task)
+    const { round, commits, rounds, fixes, conflict, baseConflict } = await reviewRound(task)
     const p1OnlyFrom = p1OnlyAt((await taskWorkflow(task, { fetch: false })).workflow, round)
     const p1Only = p1OnlyFrom === undefined ? {} : { p1OnlyFrom }
     if (fixes === undefined) {
@@ -5014,6 +5015,7 @@ export function createTasks(options: {
                 round,
                 from: p1OnlyFrom,
                 added: prompt,
+                ...(baseConflict && { conflict: true }),
               }),
         scope: { taskId: task.id, scope: 'full', round, commits },
         ...p1Only,
@@ -5029,8 +5031,10 @@ export function createTasks(options: {
           found: conflict.found,
           multiRepo: fixes.length > 1,
           added: prompt,
+          ...p1Only,
         }),
         scope: { taskId: task.id, scope: 'conflict', round, commits, since },
+        ...p1Only,
       }
     }
     return {
@@ -5061,7 +5065,11 @@ export function createTasks(options: {
     const { round, rounds, fixes, conflict, baseConflict } = await reviewRound(task)
     const limit = workflow.settings.stages.validate?.max_back
     if (conflict !== undefined) {
-      return conflictRoundText({ round, ...(limit !== undefined && { limit }) })
+      return conflictRoundText({
+        round,
+        ...(limit !== undefined && { limit }),
+        ...validateRoundSettings(workflow, round),
+      })
     }
     if (round === 1) return undefined
     return validateRoundText({
@@ -5090,8 +5098,14 @@ export function createTasks(options: {
   ): void {
     const round = store.sendBackCount(task.id, 'validate') + 1
     const from = p1OnlyAt(workflow, round)
-    if (from !== undefined && severity !== 'p1' && lastChangesRequested(task) === '') {
-      throw new RequestError(409, p1OnlyRefusal(round, from))
+    if (from !== undefined && lastChangesRequested(task) === '') {
+      if (severity === undefined) throw new RequestError(409, p1OnlyRefusal(round, from))
+      if (
+        severity === 'unfixed' &&
+        !countedValidateSendBacks(task.id).some((b) => b.checkRunId === undefined)
+      ) {
+        throw new RequestError(409, noEarlierFindingRefusal(round))
+      }
     }
     if (severity !== undefined) store.declareSeverity({ taskId: task.id, runId, round, severity })
   }

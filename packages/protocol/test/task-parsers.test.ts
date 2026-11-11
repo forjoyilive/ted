@@ -150,6 +150,12 @@ roundTrip(P.parseReportOutcomeRequest, {
   cause: 'base-conflict',
   severity: 'p1',
 })
+variant(P.parseReportOutcomeRequest, {
+  outcome: 'back',
+  to: 'work',
+  findings: 'Fix this',
+  severity: 'unfixed',
+})
 roundTrip(P.parseReportOutcomeRequest, {
   outcome: 'ask',
   question: 'Proceed?',
@@ -191,7 +197,7 @@ rejects(
 rejects(
   P.parseReportOutcomeRequest,
   { outcome: 'back', to: 'work', findings: 'Fix this', severity: 'p2' },
-  'severity must be one of p1',
+  'severity must be one of p1, unfixed',
 )
 rejects(P.parseSaveTaskDraftRequest, {}, 'invalid draft priority')
 rejects(P.parseResumeTaskRequest, { comment: 2 }, 'comment must be text')

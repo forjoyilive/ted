@@ -61,7 +61,7 @@ Something Validate found wrong with a Task’s work. A blocking Finding sends th
 _Avoid_: Issue, bug, comment
 
 **P1**:
-The highest severity of a Finding: the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. From Validate’s second round a new Finding about code the fixes didn’t touch is blocking only if it is P1, and a Factory can set a round from which only P1 Findings send a Task back.
+The highest severity of a Finding: the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. From Validate’s second round a new Finding about code the fixes didn’t touch is blocking only if it is P1, and a Factory can set a round from which a new Finding sends a Task back only if it is P1.
 _Avoid_: Critical, blocker, severity 1
 
 **Failure case**:

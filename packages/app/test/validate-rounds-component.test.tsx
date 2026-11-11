@@ -65,7 +65,10 @@ test('the help says what each setting trades', async () => {
   if (!p1 || !subAgents) throw new Error('no help buttons')
   await user().hover(p1)
   expect(screen.getByRole('tooltip').textContent).toContain(
-    'Every other Finding stays unfixed and is listed as a note for you at Review.',
+    'A Finding from an earlier round that is still not fixed sends it back too.',
+  )
+  expect(screen.getByRole('tooltip').textContent).toContain(
+    'Every other new Finding stays unfixed and is listed as a note for you at Review.',
   )
   expect(screen.getByRole('tooltip').textContent).toContain(
     'problems Validate found can merge if you approve without reading the notes',

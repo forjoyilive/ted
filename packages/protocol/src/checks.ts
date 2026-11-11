@@ -54,7 +54,7 @@ export const declaredSendBackCauses = ['base-conflict'] as const
 export type DeclaredSendBackCause = (typeof declaredSendBackCauses)[number]
 export type SendBackCause = 'review' | 'check' | 'human' | DeclaredSendBackCause
 
-export const findingSeverities = ['p1'] as const
+export const findingSeverities = ['p1', 'unfixed'] as const
 export type FindingSeverity = (typeof findingSeverities)[number]
 
 export interface SendBack {

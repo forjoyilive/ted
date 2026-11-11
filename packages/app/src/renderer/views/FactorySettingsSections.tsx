@@ -138,8 +138,9 @@ export function ValidateRounds({
         </select>
         <Help>
           Off: every blocking Finding sends the Task back to Work. From a round: in that round of
-          Validate and every later one, only a P1 Finding sends it back. P1 means lost or corrupted
-          data, a security hole, or broken behaviour the Task asks for. Every other Finding stays
+          Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost
+          or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from
+          an earlier round that is still not fixed sends it back too. Every other new Finding stays
           unfixed and is listed as a note for you at Review. You get fewer rounds, and problems
           Validate found can merge if you approve without reading the notes.
         </Help>

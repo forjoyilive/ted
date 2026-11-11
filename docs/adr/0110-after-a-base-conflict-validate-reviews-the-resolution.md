@@ -45,4 +45,5 @@ The conflicting files come from git, not from the Findings text: TED test-merges
 
 - A base change that breaks the Task without a textual conflict (a renamed function, say) is not in the reviewer’s scope. The Checks run on the merged branch before Validate (ADR 0109) and are what catches it.
 - `--remerge-diff` needs git 2.36 or newer; `mergeConflicts` already needs 2.38.
+- A `conflict` round can also be a round under `stages.validate.p1_only_from` (ADR 0112). `conflictReviewPrompt` and `conflictRoundText` then carry that rule as well, and count a resolution that drops or breaks what the base branch changed as P1. With `stages.validate.sub_agents: true` (ADR 0113) `conflictRoundText` doesn’t say TED refuses other sub-agents.
 - Anything new that sends a Task back with the cause `base-conflict`, or changes history under a Task’s branch, must keep `reviewRound`’s conditions true or the round falls back to a full review.

@@ -1,8 +1,11 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type {
+  CheckRun,
   Factory,
+  InboxItem,
   RunSummary,
   RunWithConversation,
   SendBack,
@@ -11,6 +14,12 @@ import type {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import {
+  conflictReviewPrompt,
+  conflictRoundText,
+  scopedReviewPrompt,
+  validateRoundText,
+} from '../src/tasks/review-rounds.ts'
 import {
   api,
   assistantTexts,
@@ -157,8 +166,20 @@ describe('stages.validate.p1_only_from', () => {
   test(
     'from its round, a send-back from Validate needs a declared P1 Finding, and a Run can’t change the setting from its worktree',
     async () => {
+      const count = 'stub-count'
       const client = await start({
-        '.ted/workflow.yaml': `${flow}stages:\n  validate: { max_back: 5, loop_check: false, p1_only_from: 2 }\n`,
+        '.gitignore': 'stub-*\n',
+        '.ted/workflow.yaml': [
+          flow.trimEnd(),
+          'stages:',
+          '  validate:',
+          '    max_back: 5',
+          '    loop_check: false',
+          '    p1_only_from: 2',
+          '    checks:',
+          `      - { name: Tests, run: "c=$(cat ${count} 2>/dev/null || echo 0); c=$((c+1)); echo $c > ${count}; [ $c -ne 2 ]" }`,
+          '',
+        ].join('\n'),
       })
       const prompt = await promptFile()
       const findings = path.join(scratch, 'findings.md')
@@ -173,12 +194,15 @@ describe('stages.validate.p1_only_from', () => {
           `2) printf '%s' '${own}' > .ted/workflow.yaml; ${save('.ted/workflow.yaml')} ted outcome advance;;`,
           `3) ${review(prompt)} ted outcome back --to work --findings "${findings}";;`,
           `4) ${commit('export.txt')} ted outcome advance;;`,
-          `5) ${review(prompt)}`,
+          '5) ted outcome advance;;',
+          `6) ${review(prompt)}`,
           `echo "NOSEV: $(ted outcome back --to work --findings "${findings}" 2>&1)";`,
           `echo "PLAIN: $(ted run start --agent claude --name Extra --prompt-file ${prompt} 2>&1)";`,
           `ted outcome back --to work --findings "${findings}" --severity p1;;`,
-          `6) ${commit('export2.txt')} ted outcome advance;;`,
-          `7) ${review(prompt)} ted outcome advance;;`,
+          `7) ${commit('export2.txt')} ted outcome advance;;`,
+          `8) ${review(prompt)} ted outcome back --to work --findings "${findings}" --severity unfixed;;`,
+          `9) ${commit('export3.txt')} ted outcome advance;;`,
+          `10) ${review(prompt)} ted outcome advance;;`,
           'esac',
         ].join(' '),
       )
@@ -189,6 +213,8 @@ describe('stages.validate.p1_only_from', () => {
       expect(refused).toContain('this is Validate round 2')
       expect(refused).toContain('`stages.validate.p1_only_from: 2`')
       expect(refused).toContain('with `--severity p1`')
+      expect(refused).toContain('An earlier round’s Finding that is still not fixed stays blocking')
+      expect(refused).toContain('add `--severity unfixed`')
       expect(refused).toContain('`ted outcome advance --review pass --review-notes <n>`')
       expect(output).toContain('PLAIN: ted: in Validate the only sub-agent is TED’s reviewer')
       expect(output).toContain('`stages.validate.sub_agents: true`')
@@ -198,36 +224,56 @@ describe('stages.validate.p1_only_from', () => {
       expect(sendBacks.map((b) => [b.cause, b.round, b.severity])).toEqual([
         ['review', 1, undefined],
         ['review', 2, 'p1'],
+        ['review', 3, 'unfixed'],
+      ])
+      const checkRuns = await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)
+      expect(checkRuns.map((r) => [r.trigger, r.outcome])).toEqual([
+        ['hand-off', 'passed'],
+        ['hand-off', 'failed'],
+        ['hand-off', 'passed'],
+        ['hand-off', 'passed'],
+        ['hand-off', 'passed'],
       ])
       const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
       const lines = events.map((e) => e.text).filter((text) => text.includes('sent this back'))
-      expect(lines).toHaveLength(2)
-      expect(lines[0]).not.toContain('P1 declared')
+      expect(lines).toHaveLength(3)
+      expect(lines[0]).not.toContain('declared')
       expect(lines[1]).toMatch(/\(round 2 of 5\).* · P1 declared$/)
+      expect(lines[2]).toMatch(/\(round 3 of 5\).* · earlier Finding unfixed declared$/)
 
-      const [first, second, third, ...more] = await reviewerPrompts(client, task)
+      const [first, second, third, fourth, ...more] = await reviewerPrompts(client, task)
       expect(more).toEqual([])
       expect(first).toContain('# Your instructions from the Task Lead of NB-1')
       expect(first).not.toContain('## Severity')
       for (const [prompted, round] of [
         [second, 2],
         [third, 3],
+        [fourth, 4],
       ] as const) {
         expect(prompted).toContain('# Your instructions from TED')
         expect(prompted).toContain(`# Review of the fixes in NB-1, Validate round ${round}`)
         expect(prompted).toContain('## Severity')
         expect(prompted).toContain(
-          'From Validate round 2 this Factory sends a Task back to Work only for a P1 Finding.',
+          'From Validate round 2 this Factory sends a Task back to Work for a new Finding only if it is P1.',
         )
+        expect(prompted).toContain(
+          'An earlier Finding that is still not fixed stays blocking, whatever its severity',
+        )
+        expect(prompted).toContain('new P1 Findings, each with its file')
+        expect(prompted).not.toContain('new blocking Findings in the changed lines')
       }
 
       const rounds = userMessages(await leadRun(client, task)).filter((m) =>
         m.includes('# Validate round'),
       )
-      expect(rounds).toHaveLength(2)
+      expect(rounds).toHaveLength(3)
       for (const round of rounds) {
         expect(round).toContain('This Factory sets `stages.validate.p1_only_from: 2`')
         expect(round).toContain('add `--severity p1` to `ted outcome back`')
+        expect(round).toContain('or `--severity unfixed` when the only blocking Findings')
+        expect(round).toContain(
+          'An earlier round’s Finding that is still not fixed stays blocking, whatever its severity.',
+        )
         expect(round).not.toContain('A new Finding about code the fixes didn’t touch is a note')
       }
     },
@@ -235,7 +281,7 @@ describe('stages.validate.p1_only_from', () => {
   )
 
   test(
-    'a failed Check still sends the Task back in those rounds, and a full review carries TED’s severity rule',
+    'a Check that fails at Validate entry still sends the Task back in those rounds, and a full review carries TED’s severity rule',
     async () => {
       const count = 'stub-count'
       const client = await start({
@@ -245,6 +291,7 @@ describe('stages.validate.p1_only_from', () => {
           'order: [intake, work, validate, review, merge]',
           'reviewer: { agent: same }',
           'stages:',
+          '  work: { gate: true }',
           '  validate:',
           '    max_back: 5',
           '    loop_check: false',
@@ -255,17 +302,53 @@ describe('stages.validate.p1_only_from', () => {
         ].join('\n'),
       })
       const prompt = await promptFile()
+      const reviewed = path.join(scratch, 'reviewed')
+      const brief = path.join(scratch, 'brief.md')
+      await writeFile(
+        brief,
+        [
+          '## Goal\n\nLet notes be exported.',
+          '## Decisions so far\n\n- Export as text.',
+          '## Current state\n\nThe branch has the change.',
+          '## Open questions\n\nNone.',
+          '## Next step\n\nValidate it.\n',
+        ].join('\n\n'),
+      )
       const task = await startTask(
         client,
         [
-          counter,
-          'case $n in',
-          '1|2|3|4) ted outcome advance;;',
-          `5) ${review(prompt)} ted outcome advance;;`,
-          'esac',
+          `c=$(cat ${count} 2>/dev/null || echo 0);`,
+          `if [ -e "${reviewed}" ]; then :;`,
+          `elif [ "$c" -ge 3 ]; then touch "${reviewed}"; ${review(prompt)}`,
+          `echo "UNFIXED: $(ted outcome back --to work --findings "${prompt}" --severity unfixed 2>&1)";`,
+          'ted outcome advance;',
+          `else ${commit('export.txt')} ted brief write --file "${brief}"; ted outcome advance; fi`,
         ].join(' '),
       )
-      await waitForStage(client, task, 'review')
+      let approving = true
+      const approver = (async () => {
+        while (approving) {
+          for (const item of await client.ok<InboxItem[]>('GET', '/inbox')) {
+            if (item.task.id === task.id && item.task.stage === 'work' && item.request.gate) {
+              await client.call('POST', `/comments/${item.request.id}/answer`, {
+                action: 'approve',
+              })
+            }
+          }
+          await sleep(100)
+        }
+      })()
+      try {
+        await waitForStage(client, task, 'review')
+      } finally {
+        approving = false
+        await approver
+      }
+
+      const output = await outputWith(client, task, 'UNFIXED:')
+      expect(output).toContain(
+        'no earlier round of Validate sent this Task back with Findings before round 3',
+      )
 
       const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
       expect(sendBacks.map((b) => [b.cause, b.round, b.severity])).toEqual([
@@ -291,6 +374,142 @@ describe('stages.validate.p1_only_from', () => {
     },
     slow,
   )
+})
+
+describe('a base conflict in a P1-only round', () => {
+  test('a verified base conflict sends back without a severity, and the conflict round after it carries the severity rule too', async () => {
+    const client = await start({
+      'export.txt': 'first\n',
+      '.ted/workflow.yaml': `${flow}stages:\n  validate: { max_back: 5, loop_check: false, p1_only_from: 2, sub_agents: true }\n`,
+    })
+    const prompt = await promptFile()
+    const findings = path.join(scratch, 'findings.md')
+    await writeFile(findings, '1. The export button does nothing.\n')
+    const validating = path.join(scratch, 'validating')
+    const moved = path.join(scratch, 'moved')
+    const refused = path.join(scratch, 'refused.out')
+    const task = await startTask(
+      client,
+      [
+        counter,
+        'case $n in',
+        '1) ted outcome advance;;',
+        `2) ${commit('export.txt')} ted outcome advance;;`,
+        `3) ${review(prompt)} ted outcome back --to work --findings "${findings}";;`,
+        `4) ${commit('export2.txt')} ted outcome advance;;`,
+        `5) ${review(prompt)} touch "${validating}"; while [ ! -e "${moved}" ]; do sleep 0.1; done;`,
+        `ted outcome advance > "${refused}" 2>&1;`,
+        `ted outcome back --to work --cause base-conflict --findings "${findings}";;`,
+        `6) sha=$(grep -o "[0-9a-f]\\{40\\}" "${refused}" | head -1);`,
+        'git -c user.name=Test -c user.email=test@example.com merge -q -X ours -m merge "$sha";',
+        'ted outcome advance;;',
+        `7) ${review(prompt)}`,
+        `echo "NOSEV: $(ted outcome back --to work --findings "${findings}" 2>&1)";`,
+        'ted outcome advance;;',
+        'esac',
+      ].join(' '),
+    )
+    await waitUntil(
+      () =>
+        access(validating).then(
+          () => true,
+          () => undefined,
+        ),
+      'the second Validate’s review to finish',
+      90_000,
+    )
+    await commitToOrigin(scratch, { 'export.txt': 'main\n' })
+    await writeFile(moved, '')
+    await waitForStage(client, task, 'review')
+
+    const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+    expect(sendBacks.map((b) => [b.from, b.cause, b.counted, b.severity])).toEqual([
+      ['validate', 'review', true, undefined],
+      ['validate', 'base-conflict', false, undefined],
+    ])
+    const output = await outputWith(client, task, 'NOSEV:')
+    expect(output).toContain('NOSEV: ted: this is Validate round 2')
+
+    const [, second, third, ...more] = await reviewerPrompts(client, task)
+    expect(more).toEqual([])
+    expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
+    expect(third).toContain('# Your instructions from TED')
+    expect(third).toContain('# Review of the conflict resolution in NB-1')
+    expect(third).toContain('## Severity')
+    expect(third).toContain(
+      'a conflict resolution that drops or breaks what the base branch changed in the conflicting lines counts as P1 too',
+    )
+    expect(third).toContain('End with two lists: P1 Findings in the resolution')
+    expect(third).not.toContain('blocking Findings in the resolution or the changed lines')
+    expect(third).not.toContain('An earlier Finding that is still not fixed')
+
+    const round = userMessages(await leadRun(client, task)).find((m) =>
+      m.includes('# Validate after a base conflict (round 2, limit 5)'),
+    )
+    expect(round).toContain('This round checks how the conflict was resolved')
+    expect(round).toContain('This Factory sets `stages.validate.p1_only_from: 2`')
+    expect(round).toContain('counts as P1 too')
+    expect(round).toContain('no sub-agent that reviews it')
+    expect(round).not.toContain('any other sub-agent in Validate')
+    expect(round).not.toContain('A new Finding about code the resolution didn’t touch')
+  }, 150_000)
+})
+
+describe('the texts TED writes for a round', () => {
+  const repos = [{ name: 'widgets', since: 'a'.repeat(40), head: 'b'.repeat(40), files: ['a.ts'] }]
+  const rounds = [{ round: 1, findings: '1. The export button does nothing.' }]
+
+  test('a conflict round says TED refuses other sub-agents only when it does', () => {
+    const plain = conflictRoundText({ round: 1 })
+    expect(plain).toContain('TED refuses a second reviewer and any other sub-agent in Validate.')
+    expect(plain).toContain('A new Finding about code the resolution didn’t touch is a note')
+    const allowed = conflictRoundText({ round: 1, subAgents: true })
+    expect(allowed).toContain('no sub-agent that reviews it')
+    expect(allowed).toContain('TED refuses a second reviewer in Validate.')
+    expect(allowed).not.toContain('any other sub-agent')
+  })
+
+  test('a P1-only round keeps an earlier unfixed Finding blocking in every text', () => {
+    for (const text of [
+      validateRoundText({ round: 3, rounds, scoped: true, p1OnlyFrom: 2 }),
+      validateRoundText({ round: 3, rounds, scoped: false, p1OnlyFrom: 2 }),
+      validateRoundText({ round: 3, rounds, scoped: false, baseConflict: true, p1OnlyFrom: 2 }),
+      conflictRoundText({ round: 3, p1OnlyFrom: 2 }),
+    ]) {
+      expect(text).toContain('a new Finding sends the Task back to Work only if it is P1')
+      expect(text).toContain('An earlier round’s Finding that is still not fixed stays blocking')
+      expect(text).toContain('`--severity unfixed`')
+      expect(text).not.toContain('a problem anywhere in the change can be blocking')
+      expect(text).not.toContain('is a note, not a blocking Finding, unless it is P1')
+    }
+    expect(validateRoundText({ round: 3, rounds, scoped: true, p1OnlyFrom: 2 })).not.toContain(
+      'counts as P1 too',
+    )
+    expect(
+      validateRoundText({ round: 3, rounds, scoped: false, baseConflict: true, p1OnlyFrom: 2 }),
+    ).toContain('counts as P1 too')
+  })
+
+  test('a scoped reviewer prompt asks for blocking Findings, or for P1 Findings under the rule', () => {
+    const input = { displayId: 'NB-1', round: 3, rounds, repos, multiRepo: false, added: 'Context' }
+    const plain = scopedReviewPrompt(input)
+    expect(plain).toContain('new blocking Findings in the changed lines')
+    expect(plain).not.toContain('## Severity')
+    const p1Only = scopedReviewPrompt({ ...input, p1OnlyFrom: 2 })
+    expect(p1Only).toContain('## Severity')
+    expect(p1Only).toContain('each earlier Finding as fixed or not fixed; new P1 Findings')
+    expect(p1Only).not.toContain('new blocking Findings')
+
+    const conflict = { displayId: 'NB-1', repos, sendBacks: [], found: [], multiRepo: false }
+    const resolved = conflictReviewPrompt({ ...conflict, added: 'Context' })
+    expect(resolved).toContain('blocking Findings in the resolution or the changed lines')
+    expect(resolved).not.toContain('## Severity')
+    const both = conflictReviewPrompt({ ...conflict, added: 'Context', p1OnlyFrom: 2 })
+    expect(both).toContain('## Severity')
+    expect(both).toContain('P1 Findings in the resolution or the changed lines')
+    expect(both).not.toContain('blocking Findings in the resolution')
+    expect(both).toContain('keeps both sides’ behaviour')
+  })
 })
 
 describe('stages.validate.sub_agents', () => {

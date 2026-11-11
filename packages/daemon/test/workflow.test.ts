@@ -458,6 +458,10 @@ describe('checking a layer', () => {
         'library',
       ),
     ).toEqual([])
+    expect(validate('max_back: 5\n    p1_only_from: 6')).toEqual([])
+    expect(validate('p1_only_from: 7\n    max_back: 5')).toEqual([
+      'warning .ted/workflow.yaml 3 5 `stages.validate.p1_only_from` is 7, but `max_back: 5` in this file lets Validate reach round 6 at most before TED asks the human, so round 7 comes only if the human sends the Task back again',
+    ])
     expect(
       problems({ 'workflow.yaml': 'stages:\n  work: { p1_only_from: 3, sub_agents: true }\n' }),
     ).toEqual([

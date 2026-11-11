@@ -14,7 +14,7 @@ When it is `true`, `ted run start` without `--reviewer` works in Validate as it 
 
 When it is `false`, the refusal names the setting and says only the human changes it.
 
-`validateRoundText` tells the Task Lead in round two and later not to review the diff with a sub-agent, in either case; with the setting on it stops saying TED refuses other sub-agents.
+`validateRoundText` and `conflictRoundText` (ADR 0110) tell the Task Lead not to review the diff with a sub-agent, in either case; with the setting on they stop saying TED refuses other sub-agents.
 
 **Where the value is read.** `SubAgents.request` asks `validateSubAgents`, which resolves the Task’s Workflow through `taskWorkflow` without a fetch. That is the Factory’s default branch as TED last fetched it, usually when the Task Lead reported the outcome that moved the Task into Validate. A later fetch for any Task of the Factory brings in a newer value. TED doesn’t store resolved settings per Stage entry, and `max_back` and `loop_check` are read the same way.
 
