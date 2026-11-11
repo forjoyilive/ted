@@ -418,6 +418,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       taskDeliveryAllowed = (runId) => tasks.deliveryAllowed(runId)
       const shells = createShells({
+        env: environment.current,
         async target(ref, repo) {
           const access = await tasks.worktreeAccess(ref, repo)
           return { ...access, env: { ...access.env, TED_HOME: paths.home } }
@@ -578,8 +579,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         async close() {
+          const shellsClosed = shells.close()
           await sideChats.close()
-          shells.close()
           await coordinators.close()
           await automations.close()
           plans.close()
@@ -597,6 +598,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           await factories.close()
           await tasks.close()
           await runs.close()
+          await shellsClosed
         },
       }
     },

@@ -305,21 +305,55 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   readAttachment: (client, hash, name) =>
     client.readAttachment({ hash: String(hash), name: String(name) }),
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
-  openShell: (client, taskId, repo, size) =>
-    client.openShell(String(taskId), String(repo), shellSize(size)),
-  restartShell: (client, taskId, repo, size) =>
-    client.restartShell(String(taskId), String(repo), shellSize(size)),
-  writeShell: (client, taskId, repo, data) =>
-    client.writeShell(String(taskId), String(repo), String(data)),
-  resizeShell: (client, taskId, repo, size) =>
-    client.resizeShell(String(taskId), String(repo), shellSize(size)),
-  readShell: (client, taskId, repo, query) => {
+  shellWorkspace: (client, taskId, repo) => client.shellWorkspace(String(taskId), String(repo)),
+  openShellWorkspace: (client, taskId, repo, size, create) =>
+    client.openShellWorkspace(String(taskId), String(repo), shellSize(size), create === true),
+  changeShellWorkspace: (client, taskId, repo, change) =>
+    client.changeShellWorkspace(
+      String(taskId),
+      String(repo),
+      change as import('@ted/protocol').ShellChange,
+    ),
+  openShell: (client, taskId, repo, size, id) =>
+    client.openShell(
+      String(taskId),
+      String(repo),
+      shellSize(size),
+      typeof id === 'string' ? id : undefined,
+    ),
+  restartShell: (client, taskId, repo, size, id) =>
+    client.restartShell(
+      String(taskId),
+      String(repo),
+      shellSize(size),
+      typeof id === 'string' ? id : undefined,
+    ),
+  writeShell: (client, taskId, repo, data, id) =>
+    client.writeShell(
+      String(taskId),
+      String(repo),
+      String(data),
+      typeof id === 'string' ? id : undefined,
+    ),
+  resizeShell: (client, taskId, repo, size, id) =>
+    client.resizeShell(
+      String(taskId),
+      String(repo),
+      shellSize(size),
+      typeof id === 'string' ? id : undefined,
+    ),
+  readShell: (client, taskId, repo, query, id) => {
     const given = (query ?? {}) as Record<string, unknown>
-    return client.readShell(String(taskId), String(repo), {
-      generation: Number(given.generation),
-      from: Number(given.from),
-      waitMs: Number(given.waitMs ?? 0),
-    })
+    return client.readShell(
+      String(taskId),
+      String(repo),
+      {
+        generation: Number(given.generation),
+        from: Number(given.from),
+        waitMs: Number(given.waitMs ?? 0),
+      },
+      typeof id === 'string' ? id : undefined,
+    )
   },
   listEditors: (client) => client.listEditors(),
   openInEditor: (client, taskId, repo, at) => {

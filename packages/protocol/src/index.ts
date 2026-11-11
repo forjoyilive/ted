@@ -482,17 +482,24 @@ export {
   editorPlaceholders,
   type FoundEditor,
   maxShellInputChars,
+  maxShellPanes,
   type OpenInEditorRequest,
+  type ShellChange,
+  type ShellLayout,
   type ShellOutput,
   type ShellOutputQuery,
   type ShellSize,
+  type ShellWorkspace,
+  type ShellWorkspaceRequest,
   shellSizeLimits,
   type TaskShell,
 } from './shell.ts'
 export {
   parseOpenInEditorRequest,
+  parseShellChange,
   parseShellInputRequest,
   parseShellSize,
+  parseShellWorkspaceRequest,
 } from './shell-parsers.ts'
 export {
   parseSideChatMessageRequest,

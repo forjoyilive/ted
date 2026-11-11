@@ -3,9 +3,43 @@ export interface ShellSize {
   rows: number
 }
 
+export interface ShellWorkspaceRequest extends ShellSize {
+  create?: boolean
+}
+
 export const shellSizeLimits = { min: 2, max: 1000 } as const
 
+export const maxShellPanes = 8
+
+export type ShellLayout =
+  | { shellId: string }
+  | {
+      id: string
+      direction: 'right' | 'below'
+      ratio: number
+      first: ShellLayout
+      second: ShellLayout
+    }
+
+export interface ShellWorkspace {
+  revision: number
+  layout: ShellLayout | null
+  shells: TaskShell[]
+}
+
+export type ShellChange =
+  | {
+      kind: 'split'
+      revision: number
+      shellId: string
+      direction: 'right' | 'below'
+      size: ShellSize
+    }
+  | { kind: 'close'; revision: number; shellId: string }
+  | { kind: 'ratio'; revision: number; branchId: string; ratio: number }
+
 export interface TaskShell {
+  id: string
   taskId: string
   repo: string
   path: string

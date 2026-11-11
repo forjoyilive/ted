@@ -1,8 +1,10 @@
 import {
   maxShellInputChars,
   type OpenInEditorRequest,
+  type ShellChange,
   type ShellInputRequest,
   type ShellSize,
+  type ShellWorkspaceRequest,
   shellSizeLimits,
 } from './shell.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
@@ -52,4 +54,48 @@ export function parseShellInputRequest(value: unknown): ShellInputRequest {
   if (typeof data !== 'string' || data.length === 0 || data.length > maxShellInputChars)
     throw new HttpError(400, `data must be text of 1 to ${maxShellInputChars} characters`)
   return { data }
+}
+
+function object(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body))
+    throw new HttpError(400, 'body must be an object')
+  return body as Record<string, unknown>
+}
+
+function identifier(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(value))
+    throw new HttpError(400, 'a shell or divider ID is required')
+  return value
+}
+
+export function parseShellChange(body: unknown): ShellChange {
+  const given = object(body)
+  const revision = whole('revision', given.revision, 0, Number.MAX_SAFE_INTEGER)
+  if (given.kind === 'ratio') {
+    const ratio = given.ratio
+    if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 0.1 || ratio > 0.9)
+      throw new HttpError(400, 'ratio must be from 0.1 to 0.9')
+    return { kind: 'ratio', revision, branchId: identifier(given.branchId), ratio }
+  }
+  const shellId = identifier(given.shellId)
+  if (given.kind === 'close') return { kind: 'close', revision, shellId }
+  if (given.kind !== 'split' || (given.direction !== 'right' && given.direction !== 'below'))
+    throw new HttpError(400, 'choose split right, split below, close or ratio')
+  return {
+    kind: 'split',
+    revision,
+    shellId,
+    direction: given.direction,
+    size: parseShellSize(given.size),
+  }
+}
+
+export function parseShellWorkspaceRequest(body: unknown): ShellWorkspaceRequest {
+  const given = object(body)
+  if (given.create !== undefined && typeof given.create !== 'boolean')
+    throw new HttpError(400, 'create must be a boolean')
+  return {
+    ...parseShellSize(given),
+    ...(given.create !== undefined && { create: given.create }),
+  }
 }
