@@ -28,8 +28,12 @@ Coverage is separate from the intervals: an absent interval means a known absenc
 
 ## Validation
 
-Typecheck and lint pass. The public store fixture has 13 passing tests; the daemon recovery integration and all 14 retention tests pass. The required full daemon/protocol run is queued behind other Tasks’ verification. Its final counts and any failures will be recorded before Work is handed off.
+Typecheck and lint pass. The public store fixture has 13 passing tests; the daemon recovery integration and all 14 retention tests pass. The required `pnpm vitest run packages/daemon/test packages/protocol/test` completed with 167/169 files and 1935/1938 tests passing. Its only three failures were assertions in the existing data/compaction fixtures described below. New interval, recovery and retention tests passed in that run. A focused two-file repair rerun is pending. Production code has not changed since the broad run.
 
 The recovery integration uses a real isolated daemon process and a stub Task Lead host, kills the daemon mid-turn, restarts it, and then queries the store through its public interface. It fails with the host reconciliation hook removed and passes with it restored. This setup differs from the existing dev-Run recovery fixture because Task attribution and the Task interval query are under test; it launches one agent host. The existing retention test is extended rather than adding another daemon launch.
 
 Manual security review found no new route, token permission, child command, credential or filesystem authority. The host follower checks its existing lock after catching up; reconciliation only records the Run’s state. Materialized source payloads omit prompts, commands, permission inputs and Comment bodies.
+
+## Broad verification findings
+
+The first required run found three test assumptions invalidated by appending recording events: the failed-rebuild fixture corrupted whichever event happened to be last but expected a TaskRanked error, and two compaction fixtures expected the entire SQLite file/log to remain identical after a daemon restart. The migration fixture now targets TaskRanked explicitly. Compaction assertions compare every column of all pre-existing events and allow only the new recording events after that prefix; the compaction byte count is captured before store startup appends its events. This preserves the checks that shipped events are unchanged. No production change was needed. Original run log: /tmp/ted156-daemon-protocol.log; repair run log: /tmp/ted156-data-compaction-repair.log. These failures are not accepted as passing; the repair must pass its focused rerun.
