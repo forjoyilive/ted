@@ -6,7 +6,7 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 ## Before you start
 
-If the Factory has Checks, TED has already run them, one after another, and their results are at the end of these instructions. If one had failed, TED would have sent the Task back to Work instead of handing you this Stage.
+If the Factory has Checks, TED has already run them, one after another, and their results are at the end of these instructions. If one had failed, TED would have kept the Task in Work, or sent it back there, instead of handing you this Stage.
 
 ## Steps
 
@@ -18,9 +18,10 @@ If the Factory has Checks, TED has already run them, one after another, and thei
    Findings from either review need evidence of the problem and its effect.
    Start one reviewer per visit. TED refuses a second reviewer and any other sub-agent in Validate. Don’t send the diff to any other review tool or service as well.
    From the second round, TED tells you which round this is and lists the earlier Findings. It gives the reviewer those Findings and the diff since the commit the last round reviewed, and limits it to checking that each Finding is fixed and that the fixes broke nothing. Your prompt file still supplies the Task, acceptance criteria and repo guidance; it can’t widen the review.
+   When the Task comes back only because its branch conflicted with the base branch, TED says so and limits the reviewer to the conflict resolution: the base commit merged in, the files that conflicted and the Task’s own commits since the last review.
 3. Check each acceptance criterion against the Task’s description, Design brief and verification evidence. Confirm reviewer Findings against the files. Look for missing cases, broken behaviour and leftover debugging code.
 4. For UI changes, take screenshots of each changed screen as the preamble describes (headless, never by taking over the human’s screen), judge them against what was wanted, and attach them to your note as evidence.
-5. Confirm both reviews cover the committed change. Sort every code and security Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). From the second round, a new Finding about code the fixes didn’t touch is a note unless it is P1. P1 means the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. When TED says the round reviews the whole change again, after a send-back for a conflict with the base branch, sort Findings as in the first round. Lead the human note with pass or fail and the remaining concerns, explaining their effect. Summarize relevant test coverage and the security review’s scope, method and outcome. Attach the detailed review and test evidence rather than repeating its inventory, revisions and Run IDs in the note.
+5. Confirm both reviews cover the committed change. Sort every code and security Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). From the second round, a new Finding about code the fixes didn’t touch is a note unless it is P1. P1 means the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. When TED says the round checks a conflict resolution, a new Finding about code the resolution didn’t touch is a note unless it is P1. When TED says the round reviews the whole change again, sort Findings as in the first round. Lead the human note with pass or fail and the remaining concerns, explaining their effect. Summarize relevant test coverage and the security review’s scope, method and outcome. Attach the detailed review and test evidence rather than repeating its inventory, revisions and Run IDs in the note.
 
 ## Done when
 

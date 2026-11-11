@@ -332,6 +332,38 @@ export async function isAncestor(repo: string, ancestor: string, commit: string)
   )
 }
 
+export interface OwnCommit {
+  commit: string
+  parents: string[]
+}
+
+export async function ownCommits(
+  repo: string,
+  input: { from: string; to: string },
+): Promise<OwnCommit[] | undefined> {
+  if (input.from === input.to) return []
+  const out = await git(
+    repo,
+    '--no-replace-objects',
+    ...noHooks,
+    'rev-list',
+    '--first-parent',
+    '--parents',
+    '--reverse',
+    `${input.from}..${input.to}`,
+    '--',
+  ).catch(() => undefined)
+  if (out === undefined) return undefined
+  const commits = out
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => {
+      const [commit = '', ...parents] = line.split(' ')
+      return { commit, parents }
+    })
+  return commits[0]?.parents[0] === input.from ? commits : undefined
+}
+
 export async function mergeBase(repo: string, a: string, b: string): Promise<string> {
   return git(repo, ...noHooks, 'merge-base', a, b)
 }

@@ -1,6 +1,6 @@
 import { access, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { SendBack, Task } from '@ted/protocol'
+import type { BaseConflictFound, SendBack, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
 import { type Client, ctx, getTask, lines, start, useMergeHarness } from './merge-harness.ts'
@@ -17,6 +17,8 @@ const exists = (name: string) =>
 const output = (name: string) => readFile(scratchFile(name), 'utf8')
 const sendBacks = (client: Client, task: Task) =>
   client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+const conflicts = (client: Client, task: Task) =>
+  client.ok<BaseConflictFound[]>('GET', `/tasks/${task.id}/base-conflicts`)
 
 const work = () =>
   [
@@ -76,7 +78,15 @@ describe('A branch that conflicts with its base', () => {
     expect(refused).toContain('conflicts with main, so TED kept it in Work')
     expect(refused).toContain('`notes.txt`')
     expect(await sendBacks(client, task)).toEqual([])
-    expect((await lines(client, task)).some((l) => l.includes('sent this back'))).toBe(false)
+    const thread = await lines(client, task)
+    expect(thread.some((l) => l.includes('sent this back'))).toBe(false)
+    expect(thread).toContain('TED kept this Task in Work: its branch conflicts with main in 1 file')
+    const found = await conflicts(client, task)
+    expect(found).toMatchObject([
+      { taskId: task.id, stage: 'work', base: 'main', fileCount: 1, files: ['notes.txt'] },
+    ])
+    expect(found[0]?.tip).toMatch(/^[0-9a-f]{40}$/)
+    expect(found[0]).not.toHaveProperty('sendBackId')
   })
 
   test('is sent back from Validate with its cause recorded and not counted', async () => {
@@ -111,7 +121,16 @@ describe('A branch that conflicts with its base', () => {
     const refused = await output('refused.out')
     expect(refused).toContain('conflicts with main, so TED kept it in Validate')
     expect(refused).toContain('--cause base-conflict')
-    expect(await lines(client, task)).toContain('Validate sent this back to Work · base conflict')
+    const thread = await lines(client, task)
+    expect(thread).toContain('Validate sent this back to Work · base conflict')
+    expect(
+      thread.filter((l) => l.startsWith('TED kept this Task in Validate: its branch conflicts')),
+    ).toHaveLength(1)
+    const found = await conflicts(client, task)
+    expect(found.map((c) => [c.stage, c.files, c.sendBackId])).toEqual([
+      ['validate', ['notes.txt'], undefined],
+      ['validate', ['notes.txt'], sendBack?.id],
+    ])
 
     await waitUntil(
       async () =>

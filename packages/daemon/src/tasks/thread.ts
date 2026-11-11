@@ -485,10 +485,22 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          data.from === data.to
+            ? `Checks kept failing as this Task tried to leave ${stageTitle(text(data.from))}, so TED asked the human`
+            : `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
           text(data.findings).trim(),
           text(data.checkRunId) || undefined,
         )
+        break
+      case 'v1.BaseConflictFound':
+        if (text(data.sendBackId) === '') {
+          const count = typeof data.fileCount === 'number' ? data.fileCount : 0
+          add(
+            entry,
+            'failure',
+            `TED kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
+          )
+        }
         break
       case 'v1.LoopCheckStarted':
         add(

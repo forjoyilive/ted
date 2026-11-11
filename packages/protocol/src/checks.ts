@@ -20,7 +20,7 @@ export interface CheckResult {
   builtIn?: 'ted-settings'
 }
 
-export type CheckRunTrigger = 'validate' | 'agent' | 'merge'
+export type CheckRunTrigger = 'validate' | 'agent' | 'merge' | 'hand-off'
 
 export type CheckRunOutcome = 'passed' | 'failed' | 'interrupted'
 
@@ -65,6 +65,19 @@ export interface SendBack {
   limit?: number
   checkRunId?: string
   cause?: SendBackCause
+  at: string
+}
+
+export interface BaseConflictFound {
+  id: string
+  taskId: string
+  stage: StageId
+  repo: string
+  base: string
+  tip: string
+  fileCount: number
+  files: string[]
+  sendBackId?: string
   at: string
 }
 

@@ -1,5 +1,7 @@
 # From round two, TED scopes Validate’s reviewer to the fixes
 
+_ADR 0110 adds a third scope: after send-backs that are all for a base conflict, the reviewer checks the conflict resolution, not the whole change. It also changes the `fixes` command when Work merged the base in between rounds. ADR 0109 means a Check failure straight after Work is no longer a send-back._
+
 In two days of history, 17 Tasks had three or more send-backs and made up 102 of 137. Their rounds didn’t converge: each round’s Findings were a new edge case in different code, because the Task Lead ran a fresh full-branch review every round. The Stage file already said to give the reviewer the earlier Findings and ask only whether they were fixed. An instruction the Task Lead may skip wasn’t enough, so TED now writes the reviewer’s scope itself.
 
 **What TED records.** When the Task Lead requests a reviewer in Validate, `v1.ReviewScopeRecorded` stores, keyed by the reviewer’s Run ID: the round, `full` or `fixes`, the HEAD commit of each of the Task’s worktrees at that moment (`commits`), and for `fixes` the commits the review starts from (`since`). The round is one more than Validate’s counted send-backs in the current series, the same count `max_back` uses.

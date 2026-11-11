@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { mergeConflicts, workingChanges } from '../src/git.ts'
+import { mergeConflicts, ownCommits, workingChanges } from '../src/git.ts'
 
 const run = promisify(execFile)
 let dir: string
@@ -286,4 +286,29 @@ test('a test-merge names the files that conflict and leaves the repo as it was',
   expect(await mergeConflicts(repo, { ours: head, theirs: 'no-such-commit' })).toBeUndefined()
   expect(await git('for-each-ref')).toBe(refs)
   expect(await git('status', '--porcelain')).toBe('')
+})
+
+test('a branch’s own commits since a reviewed commit are its first-parent chain, with each merge’s parents', async () => {
+  await taskBranch()
+  const reviewed = await git('rev-parse', 'task')
+  expect(await ownCommits(repo, { from: reviewed, to: reviewed })).toEqual([])
+  await git('checkout', '-q', 'main')
+  const moved = await commit({ 'docs/base.md': 'main\n' }, 'main moved')
+  await git('checkout', '-q', 'task')
+  await git('merge', '-q', '--no-ff', '-m', 'merge main', moved)
+  const merge = await git('rev-parse', 'HEAD')
+  const fix = await commit({ 'docs/fix.md': 'fix\n' }, 'a fix')
+
+  expect(await ownCommits(repo, { from: reviewed, to: fix })).toEqual([
+    { commit: merge, parents: [reviewed, moved] },
+    { commit: fix, parents: [merge] },
+  ])
+  expect(await ownCommits(repo, { from: moved, to: fix })).toBeUndefined()
+  expect(await ownCommits(repo, { from: 'no-such-commit', to: fix })).toBeUndefined()
+
+  await git('replace', merge, reviewed)
+  expect(await ownCommits(repo, { from: reviewed, to: fix })).toEqual([
+    { commit: merge, parents: [reviewed, moved] },
+    { commit: fix, parents: [merge] },
+  ])
 })

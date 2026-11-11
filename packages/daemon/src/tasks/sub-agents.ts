@@ -203,7 +203,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : shared
     const fromTed =
       store.reviewerOf(request.id)?.purpose === 'loop-check' ||
-      store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope === 'fixes')
+      store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope !== 'full')
     const prompt = fromTed
       ? await tedSubAgentPrompt(request.prompt)
       : await subAgentPrompt(task.displayId, request.prompt)

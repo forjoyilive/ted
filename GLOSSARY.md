@@ -53,7 +53,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly, and a failure sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
+A command a Factory lists for Validate, which TED runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work, and a failure at Validate entry sends it back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:
@@ -141,7 +141,7 @@ A Run the Task Lead starts on its Task for one piece of work, such as exploring 
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
 A sub-agent TED starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.

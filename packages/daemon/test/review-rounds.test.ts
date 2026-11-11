@@ -1,7 +1,14 @@
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Factory, RunSummary, RunWithConversation, SendBack, Task } from '@ted/protocol'
+import type {
+  BaseConflictFound,
+  Factory,
+  RunSummary,
+  RunWithConversation,
+  SendBack,
+  Task,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -199,49 +206,45 @@ describe('Validate rounds', () => {
   )
 
   test(
-    'a round after a failed Check has no earlier review, so its reviewer gets the Task Lead’s prompt',
+    'a round with no finished review before it is a full review, and the Task Lead is told any Finding can be blocking',
     async () => {
-      const flag = 'stub-failed-once'
       const client = await start({
-        '.gitignore': 'stub-*\n',
-        '.ted/workflow.yaml': [
-          'version: 1',
-          'order: [intake, work, validate, review, merge]',
-          'reviewer: { agent: same }',
-          'stages:',
-          '  validate:',
-          '    max_back: 5',
-          '    loop_check: false',
-          '    checks:',
-          `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; exit 1; fi" }`,
-          '',
-        ].join('\n'),
+        '.ted/workflow.yaml':
+          'version: 1\norder: [intake, work, validate, review, merge]\nreviewer: { agent: same }\nstages:\n  validate: { max_back: 5, loop_check: false }\n',
       })
       const prompt = await promptFile()
+      const findings = path.join(scratch, 'findings.md')
+      await writeFile(findings, '1. The export button does nothing.\n')
       const task = await startTask(
         client,
         [
           counter,
           'case $n in',
-          '1|2|3) ted outcome advance;;',
-          `4) ${review(prompt)} ted outcome advance;;`,
+          '1|2) ted outcome advance;;',
+          `3) ted outcome back --to work --findings "${findings}";;`,
+          `4) ${commit('export.txt')} ted outcome advance;;`,
+          `5) ${review(prompt)} ted outcome advance;;`,
           'esac',
         ].join(' '),
       )
       await waitForStage(client, task, 'review')
 
       const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
-      expect(sendBacks.map((b) => b.cause)).toEqual(['check'])
+      expect(sendBacks.map((b) => b.cause)).toEqual(['review'])
       expect(await reviewerPrompts(client, task)).toEqual([
         expect.stringContaining('# Your instructions from the Task Lead of NB-1'),
       ])
       const messages = userMessages(await leadRun(client, task))
       const back = messages.find((m) => m.startsWith('TED moved this Task back to Work.'))
       expect(back).toContain('# Send-back 1 of 5 from Validate')
-      expect(back).toContain('Fix what the failing Check reports and nothing else.')
+      expect(back).toContain('TED runs the Factory’s Checks before the Task leaves Work')
       const round = messages.find((m) => m.includes('# Validate round 2'))
       expect(round).toContain('TED has no finished review from the last round to build on')
-      expect(round).not.toContain('<<<FINDINGS')
+      expect(round).toContain('this round reviews the whole change again')
+      expect(round).toContain('a problem anywhere in the change can be blocking')
+      expect(round).not.toContain('This round checks the fixes.')
+      expect(round).not.toContain('is a note, not a blocking Finding')
+      expect(round).toContain('1. The export button does nothing.')
     },
     slow,
   )
@@ -308,4 +311,141 @@ describe('Validate rounds', () => {
     expect(rounds[1]).toContain('this round reviews the whole change again')
     expect(rounds[1]).not.toContain('This round checks the fixes.')
   }, 120_000)
+
+  const flow =
+    'version: 1\norder: [intake, work, validate, review, merge]\nreviewer: { agent: same }\nstages:\n  validate: { max_back: 5, loop_check: false }\n'
+  const mergeBase = (refused: string) =>
+    `sha=$(grep -o "[0-9a-f]\\{40\\}" "${refused}" | head -1); git -c user.name=Test -c user.email=test@example.com merge -q -X ours -m merge "$sha";`
+  const reached = (file: string, what: string) =>
+    waitUntil(
+      () =>
+        access(file).then(
+          () => true,
+          () => undefined,
+        ),
+      what,
+      60_000,
+    )
+
+  test('after a base-conflict send-back from Review, TED scopes the reviewer to the conflict resolution', async () => {
+    const client = await start({ 'export.txt': 'first\n', '.ted/workflow.yaml': flow })
+    const prompt = await promptFile()
+    const findings = path.join(scratch, 'findings.md')
+    await writeFile(findings, 'The branch conflicts with main.\n')
+    const reviewing = path.join(scratch, 'reviewing')
+    const moved = path.join(scratch, 'moved')
+    const refused = path.join(scratch, 'refused.out')
+    const task = await startTask(
+      client,
+      [
+        counter,
+        'case $n in',
+        '1) ted outcome advance;;',
+        `2) ${commit('export.txt')} ted outcome advance;;`,
+        `3) ${review(prompt)} ted outcome advance;;`,
+        `4) touch "${reviewing}"; while [ ! -e "${moved}" ]; do sleep 0.1; done;`,
+        `ted outcome advance > "${refused}" 2>&1;`,
+        `ted outcome back --to work --cause base-conflict --findings "${findings}";;`,
+        `5) ${mergeBase(refused)} ted outcome advance;;`,
+        `6) ${review(prompt)} ted outcome advance; touch "${path.join(scratch, 'second')}";;`,
+        'esac',
+      ].join(' '),
+    )
+    await reached(reviewing, 'the Task Lead to reach Review')
+    await commitToOrigin(scratch, { 'export.txt': 'main\n', 'other.txt': 'from main\n' })
+    await writeFile(moved, '')
+    await reached(path.join(scratch, 'second'), 'the second Validate to finish')
+    await waitForStage(client, task, 'review')
+
+    const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+    expect(sendBacks.map((b) => [b.from, b.cause, b.counted])).toEqual([
+      ['review', 'base-conflict', false],
+    ])
+    const conflicts = await client.ok<BaseConflictFound[]>(
+      'GET',
+      `/tasks/${task.id}/base-conflicts`,
+    )
+    expect(conflicts).toMatchObject([
+      { stage: 'review', repo: 'widgets', base: 'main', fileCount: 1, files: ['export.txt'] },
+      {
+        stage: 'review',
+        repo: 'widgets',
+        base: 'main',
+        fileCount: 1,
+        files: ['export.txt'],
+        sendBackId: sendBacks[0]?.id,
+      },
+    ])
+    expect(conflicts[0]).not.toHaveProperty('sendBackId')
+    const tip = conflicts[1]?.tip ?? ''
+    expect(tip).toMatch(/^[0-9a-f]{40}$/)
+
+    const [first, second, ...more] = await reviewerPrompts(client, task)
+    expect(more).toEqual([])
+    expect(first).toContain('# Your instructions from the Task Lead of NB-1')
+    expect(second).toContain('# Your instructions from TED')
+    expect(second).toContain('# Review of the conflict resolution in NB-1')
+    expect(second).toMatch(/`git show --remerge-diff [0-9a-f]{40}`/)
+    expect(second).toContain(`brought in base commit ${tip}. Files that conflicted:`)
+    expect(second).toContain('    - export.txt')
+    expect(second).not.toContain('other.txt')
+    expect(second).toContain('keeps both sides’ behaviour')
+    expect(second).toMatch(
+      /<<<FINDINGS [0-9a-f-]{36}>>>\n## Sent back from Review\n\nThe branch conflicts with main\./,
+    )
+    expect(second).toMatch(
+      /<<<TASK LEAD [0-9a-f-]{36}>>>\n# Review the whole branch[\s\S]*<<<TASK LEAD [0-9a-f-]{36}>>>$/,
+    )
+    const messages = userMessages(await leadRun(client, task))
+    const round = messages.filter((m) => m.includes('# Validate after a base conflict'))
+    expect(round).toHaveLength(1)
+    expect(round[0]).toContain('This round checks how the conflict was resolved')
+    expect(messages.some((m) => m.includes('# Validate round'))).toBe(false)
+  }, 150_000)
+
+  test('a base merged in at Work between two rounds stays out of the fixes the reviewer reads', async () => {
+    const client = await start({ 'export.txt': 'first\n', '.ted/workflow.yaml': flow })
+    const prompt = await promptFile()
+    const findings = path.join(scratch, 'findings.md')
+    await writeFile(findings, '1. The export button does nothing.\n')
+    const working = path.join(scratch, 'working')
+    const moved = path.join(scratch, 'moved')
+    const refused = path.join(scratch, 'refused.out')
+    const task = await startTask(
+      client,
+      [
+        counter,
+        'case $n in',
+        '1) ted outcome advance;;',
+        `2) ${commit('export.txt')} ted outcome advance;;`,
+        `3) ${review(prompt)} ted outcome back --to work --findings "${findings}";;`,
+        `4) touch "${working}"; while [ ! -e "${moved}" ]; do sleep 0.1; done;`,
+        `ted outcome advance > "${refused}" 2>&1;`,
+        `${mergeBase(refused)} ${commit('fix.txt')} ted outcome advance;;`,
+        `5) ${review(prompt)} ted outcome advance;;`,
+        'esac',
+      ].join(' '),
+    )
+    await reached(working, 'the Task Lead to come back to Work')
+    await commitToOrigin(scratch, { 'export.txt': 'main\n', 'other.txt': 'from main\n' })
+    await writeFile(moved, '')
+    await waitForStage(client, task, 'review')
+
+    const conflicts = await client.ok<BaseConflictFound[]>(
+      'GET',
+      `/tasks/${task.id}/base-conflicts`,
+    )
+    expect(conflicts).toMatchObject([{ stage: 'work', files: ['export.txt'] }])
+    expect(conflicts[0]).not.toHaveProperty('sendBackId')
+    const [, second] = await reviewerPrompts(client, task)
+    expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
+    expect(second).toMatch(
+      /`git log -p --reverse --first-parent --remerge-diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/,
+    )
+    expect(second).toContain('not what the base branch brought in')
+    expect(second).toContain('  - fix.txt')
+    expect(second).toContain('  - export.txt')
+    expect(second).not.toContain('other.txt')
+    expect(second).not.toMatch(/`git diff [0-9a-f]{40} [0-9a-f]{40}`/)
+  }, 150_000)
 })

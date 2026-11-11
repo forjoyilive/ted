@@ -31,6 +31,8 @@ The poller’s conflict notice outside Work now names the flag.
 
 ## Not done here
 
+_The first item is now built (ADR 0110), and conflicts caught at Work are now in the store (ADR 0111)._
+
 - **Scoping the next Validate to the conflict resolution.** After a `base-conflict` send-back from Review or Merge, Validate had already passed on the last commit TED pushed (`pushed.commit`). The next Validate could give the reviewer only the resolution: `git show --remerge-diff` for a merge, `git range-diff` against `pushed.commit` for a rebase. Not built: `reviewRound` (ADR 0105) gives the Validate round after a `base-conflict` send-back a full review from the Task Lead’s prompt, never a `fixes` round, because the earlier Findings say nothing about the resolution. The recorded cause is what a narrower scope would need.
 - **Resolving in place at Validate.** Letting the Task Lead resolve the conflict inside Validate would skip the Work visit, but TED would have to rerun the Checks itself and decide who reviews the resolution. Nothing is signed off at Validate, so it is possible; it needs a decision on Validate’s rule that fixes belong in Work.
 - **A merge update when GitHub’s rebase conflicts.** At `BEHIND`, TED could ask GitHub for `updateMethod: MERGE` after a failed rebase and verify the result the way `adoptRebase` does. It matters only for repos that require up-to-date branches.

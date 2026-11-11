@@ -1463,7 +1463,6 @@ test('answer gives a choice on TED’s idle question, and refuses free text alon
 })
 
 test('answer gives Try again on Validate’s send-back limit; the receipt shows the Stage change', async () => {
-  await commitToOrigin(scratch, { '.gitignore': 'stub-*\n' })
   const s = await setup(
     undefined,
     [
@@ -1472,18 +1471,28 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
       'stages:',
       '  validate:',
       '    max_back: 1',
-      '    checks:',
-      '      - { name: Tests, run: "echo nope; exit 1" }',
       '',
     ].join('\n'),
   )
-  const advance = { run: ['ted', 'outcome', 'advance'] }
-  const { task } = await s.led(
-    { everyMessage: [advance] },
-    { run: ['sh', '-c', 'echo x > a.txt'] },
-    advance,
-    { endTurn: true },
-  )
+  const findings = path.join(scratch, 'findings.md')
+  await writeFile(findings, '1. The export button does nothing.\n')
+  const count = path.join(scratch, 'lead-messages')
+  const each = {
+    run: [
+      'sh',
+      '-c',
+      [
+        `n=$(cat "${count}" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "${count}";`,
+        'case $n in',
+        '1|2|4) ted outcome advance;;',
+        `3|5) ted outcome back --to work --findings "${findings}";;`,
+        'esac',
+      ].join(' '),
+    ],
+  }
+  const { task } = await s.led({ everyMessage: [each, { endTurn: true }] }, each, {
+    endTurn: true,
+  })
   const limit = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
     'TED to ask about the send-back limit',

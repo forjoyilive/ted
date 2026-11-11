@@ -274,6 +274,23 @@ export const reviewScopes = State.SQLite.table({
   },
 })
 
+export const baseConflicts = State.SQLite.table({
+  name: 'baseConflicts',
+  indexes: [{ name: 'idx_baseConflicts_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    base: State.SQLite.text(),
+    tip: State.SQLite.text(),
+    fileCount: State.SQLite.integer(),
+    files: State.SQLite.text(),
+    sendBackId: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 export const loopChecks = State.SQLite.table({
   name: 'loopChecks',
   indexes: [{ name: 'idx_loopChecks_taskId', columns: ['taskId'] }],
@@ -2347,6 +2364,21 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  baseConflictFound: Events.synced({
+    name: 'v1.BaseConflictFound',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      stage: Schema.String,
+      repo: Schema.String,
+      base: Schema.String,
+      tip: Schema.String,
+      fileCount: Schema.Number,
+      files: Schema.Array(Schema.String),
+      sendBackId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   validateJudged: Events.synced({
     name: 'v1.ValidateJudged',
     schema: Schema.Struct({
@@ -2755,6 +2787,14 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       checkRunId: args.checkRunId,
     }),
   'v1.SendBackCauseRecorded': (args) => task(args, { cause: args.cause }),
+  'v1.BaseConflictFound': (args) =>
+    task(args, {
+      stage: args.stage,
+      repo: args.repo,
+      base: args.base,
+      fileCount: args.fileCount,
+      sendBackId: args.sendBackId,
+    }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
   'v4.RunStarted': (args) => {
@@ -3141,6 +3181,7 @@ const materializers = counted(
         taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
         reviewScopes.delete().where({ taskId }),
+        baseConflicts.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
@@ -3233,6 +3274,8 @@ const materializers = counted(
         }),
       'v1.SendBackCauseRecorded': ({ sendBackId, cause }) =>
         sendBacks.update({ cause }).where({ id: sendBackId }),
+      'v1.BaseConflictFound': ({ files, ...row }) =>
+        baseConflicts.insert({ ...row, files: JSON.stringify(files) }),
       'v1.ValidateJudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.LoopCheckStarted': ({ to, ...row }) =>
@@ -3711,6 +3754,7 @@ const state = State.SQLite.makeState({
     subAgentRequests,
     reviewers,
     reviewScopes,
+    baseConflicts,
     loopChecks,
     sendBackAsks,
     runMessages,

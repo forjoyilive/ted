@@ -16,6 +16,7 @@ import {
   type Banner,
   type BannerAction,
   type BannerSeverity,
+  type BaseConflictFound,
   type BlockerEnded,
   bannerOrder,
   type CheckResult,
@@ -103,6 +104,7 @@ import {
   automations,
   automationTasks,
   banners,
+  baseConflicts,
   checkResults,
   checkRuns,
   commentAttachments,
@@ -362,11 +364,20 @@ export interface RepoCommit {
 export interface ReviewScope {
   runId: string
   taskId: string
-  scope: 'full' | 'fixes'
+  scope: 'full' | 'fixes' | 'conflict'
   round: number
   commits: RepoCommit[]
   since?: RepoCommit[]
   at: string
+}
+
+export interface FoundConflict {
+  stage: StageId
+  repo: string
+  base: string
+  tip: string
+  fileCount: number
+  files: readonly string[]
 }
 
 export type LoopVerdict = 'converging' | 'looping' | 'failed'
@@ -711,8 +722,11 @@ export interface TedStore extends TaskHistory {
     limit?: number
     checkRunId?: string
     cause?: SendBackCause
+    conflict?: FoundConflict
   }): SendBack
   listSendBacks(taskId: string): SendBack[]
+  recordBaseConflict(taskId: string, conflict: FoundConflict): BaseConflictFound
+  baseConflicts(taskId?: string): BaseConflictFound[]
   startChecks(input: {
     taskId: string
     trigger: CheckRunTrigger
@@ -1820,6 +1834,34 @@ export async function openStore({
     updatedTask(checkRun.taskId)
     return checkRun
   }
+  const conflictFound = (
+    taskId: string,
+    conflict: FoundConflict,
+    at: string,
+    sendBackId: string | null,
+  ) =>
+    events.baseConflictFound({
+      id: randomUUID(),
+      taskId,
+      stage: conflict.stage,
+      repo: conflict.repo,
+      base: conflict.base,
+      tip: conflict.tip,
+      fileCount: conflict.fileCount,
+      files: [...conflict.files],
+      sendBackId,
+      at,
+    })
+  const toBaseConflict = ({
+    files,
+    sendBackId,
+    ...row
+  }: typeof baseConflicts.Type): BaseConflictFound => ({
+    ...row,
+    stage: row.stage as StageId,
+    files: JSON.parse(files) as string[],
+    ...(sendBackId !== null && { sendBackId }),
+  })
   const toSendBack = (row: typeof sendBacks.Type): SendBack => ({
     id: row.id,
     taskId: row.taskId,
@@ -3576,7 +3618,18 @@ export async function openStore({
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
     },
-    recordSendBack({ taskId, from, to, findings, counted, round, limit, checkRunId, cause }) {
+    recordSendBack({
+      taskId,
+      from,
+      to,
+      findings,
+      counted,
+      round,
+      limit,
+      checkRunId,
+      cause,
+      conflict,
+    }) {
       const id = randomUUID()
       const at = new Date().toISOString()
       commit(
@@ -3595,6 +3648,7 @@ export async function openStore({
         ...(cause === undefined
           ? []
           : [events.sendBackCauseRecorded({ sendBackId: id, taskId, cause, at })]),
+        ...(conflict === undefined ? [] : [conflictFound(taskId, conflict, at, id)]),
       )
       const row = store.query(queryDb(sendBacks.where({ id }))).at(0)
       if (!row) throw new Error(`no send-back ${id}`)
@@ -3602,6 +3656,24 @@ export async function openStore({
       emit({ type: 'sent-back', sendBack })
       return sendBack
     },
+    recordBaseConflict(taskId, conflict) {
+      const event = conflictFound(taskId, conflict, new Date().toISOString(), null)
+      commit(event)
+      const row = store.query(queryDb(baseConflicts.where({ id: event.args.id }))).at(0)
+      if (!row) throw new Error(`no base conflict ${event.args.id}`)
+      return toBaseConflict(row)
+    },
+    baseConflicts: (taskId) =>
+      store
+        .query(
+          queryDb(
+            (taskId === undefined ? baseConflicts : baseConflicts.where({ taskId })).orderBy(
+              'at',
+              'asc',
+            ),
+          ),
+        )
+        .map(toBaseConflict),
     listSendBacks: (taskId) =>
       store.query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc'))).map(toSendBack),
     startChecks({ taskId, trigger, stage, checks }) {

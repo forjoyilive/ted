@@ -135,6 +135,7 @@ export type {
   SendRunMessageRequest,
 } from './chat.ts'
 export {
+  type BaseConflictFound,
   type CheckOutput,
   type CheckResult,
   type CheckRun,
