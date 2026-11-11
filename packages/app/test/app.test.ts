@@ -176,7 +176,10 @@ describe('TED app', () => {
     const files = path.join(ctx.home, 'design')
     await mkdir(files)
     const at = (name: string) => path.join(files, name)
-    await writeFile(at('welcome.png'), Buffer.from(onePixelPng, 'base64'))
+    await writeFile(
+      at('welcome.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="1000"><rect width="100" height="1000" fill="#eeeeee"/></svg>',
+    )
     await writeFile(at('walkthrough.webm'), 'not really a video')
     await writeFile(
       at('onboarding.html'),
@@ -200,7 +203,7 @@ describe('TED app', () => {
       at('design.json'),
       JSON.stringify({
         summary: 'Merged the welcome and sync screens into one.',
-        screenshots: [{ path: at('welcome.png'), caption: 'Step 1 · Welcome' }],
+        screenshots: [{ path: at('welcome.svg'), caption: 'Step 1 · Welcome' }],
         video: { path: at('walkthrough.webm'), caption: 'Walkthrough · 0:42' },
         prototype: at('onboarding.html'),
         figma: { url: 'https://www.figma.com/design/abc/Onboarding', label: 'Onboarding v2' },
@@ -239,6 +242,29 @@ describe('TED app', () => {
     await card.getByText('Merged the welcome and sync screens into one.').waitFor()
     await card.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
     const screenshot = card.getByRole('button', { name: 'View Step 1 · Welcome' })
+    await expect
+      .poll(() =>
+        screenshot.locator('img').evaluate((el) => (el as HTMLImageElement).naturalHeight),
+      )
+      .toBe(1000)
+    const client = await daemonClient()
+    await ctx.app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setSize(1280, 1600),
+    )
+    for (const textSize of [100, 200]) {
+      await client.updateSettings({ textSize, appearance: textSize === 200 ? 'dark' : 'light' })
+      await expect
+        .poll(() => screenshot.evaluate((el) => el.getBoundingClientRect().height))
+        .toBe(108)
+      await expect
+        .poll(() => screenshot.locator('span').evaluate((el) => getComputedStyle(el).fontSize))
+        .toBe(`${(12.5 * textSize) / 100}px`)
+      await mkdir(path.resolve('node_modules/.cache/ted-100/app'), { recursive: true })
+      await screenshot.screenshot({
+        path: path.resolve(`node_modules/.cache/ted-100/app/design-review-${textSize}.png`),
+      })
+    }
+    await client.updateSettings({ textSize: 100 })
     await screenshot.click()
     const imageViewer = window.getByRole('dialog', { name: 'Step 1 · Welcome', exact: true })
     await imageViewer.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()

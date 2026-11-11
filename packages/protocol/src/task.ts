@@ -3,6 +3,7 @@ import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import { RequestValidationError } from './validation.ts'
 
 export const agentStageIds = [
   'intake',
@@ -166,7 +167,7 @@ export interface SetTaskSnoozeRequest {
 
 export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TypeError('body must be a JSON object')
+    throw new RequestValidationError(400, 'body must be a JSON object')
   }
   const until = (value as Record<string, unknown>).snoozedUntil
   if (until === null) return { snoozedUntil: null }
@@ -176,7 +177,7 @@ export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest 
     !Number.isFinite(Date.parse(until)) ||
     new Date(until).toISOString() !== until
   ) {
-    throw new TypeError('snoozedUntil must be an ISO instant or null')
+    throw new RequestValidationError(400, 'snoozedUntil must be an ISO instant or null')
   }
   return { snoozedUntil: until }
 }
@@ -787,3 +788,19 @@ export interface WriteBriefRequest {
 }
 
 export type SetTaskLeadRequest = TaskLead
+
+export type SaveTaskDraftRequest = Omit<NewTaskDraft, 'attachments'> & {
+  attachments: AttachmentRef[]
+}
+
+export interface DesignFileSpec {
+  path: string
+  caption?: string
+}
+
+export interface LocalDesignReviewInput
+  extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
+  screenshots?: DesignFileSpec[]
+  video?: DesignFileSpec
+  prototype?: DesignFileSpec
+}

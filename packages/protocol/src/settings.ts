@@ -15,6 +15,8 @@ export const workingRunLimits = { min: 1, max: 99 } as const
 
 export const checkLimits = { min: 1, max: 16 } as const
 
+export const textSizeLimits = { min: 80, max: 200, step: 5 } as const
+
 export const terminalFontSizes = { min: 10, max: 20 } as const
 
 export const runOutputDayLimits = { min: 1, max: 365 } as const
@@ -26,6 +28,7 @@ export type QuitChoice = (typeof quitChoices)[number]
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string
+  textSize: number
   appearance: Appearance
   terminalFontSize: number
   profilePicture: string | null
@@ -60,6 +63,7 @@ export interface MachineSettings {
 export const defaultMachineSettings: MachineSettings = {
   timeFormat: 'system',
   timeZone: 'system',
+  textSize: 100,
   appearance: 'system',
   terminalFontSize: 13,
   profilePicture: null,

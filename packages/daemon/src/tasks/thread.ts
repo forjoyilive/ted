@@ -476,6 +476,15 @@ export function threadEvents(
           { judgments: judgmentsIn(data), validate: 'passed' },
         )
         break
+      case 'v1.SendBackAsked':
+        add(
+          entry,
+          'failure',
+          `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          text(data.findings).trim(),
+          text(data.checkRunId) || undefined,
+        )
+        break
       case 'v1.LoopCheckStarted':
         add(
           entry,

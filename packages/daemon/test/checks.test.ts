@@ -14,6 +14,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -45,7 +46,12 @@ afterEach(async () => {
 })
 
 async function startTed() {
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
+  })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -439,7 +445,9 @@ describe('Checks over the send-back limit and across restarts', () => {
     const client = await startTed()
     const task = await startTask(
       client,
-      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance),
+      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance, {
+        endTurn: true,
+      }),
     )
 
     const question = await waitUntil(
@@ -462,7 +470,14 @@ describe('Checks over the send-back limit and across restarts', () => {
       const all = await leadMessages(client, task)
       return all.some((m) => m.includes('# A Check failed')) ? all : undefined
     }, 'the note that TED asked the human')
-    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the human')
+    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('checking progress')
+    await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).some(
+          (m) => m.includes('TED’s loop check') && m.includes('asked the human'),
+        ),
+      'the assessment to tell the Task Lead it asked the human',
+    )
     await waitUntil(async () => {
       const id = (await getTask(client, task.id))?.leadRunId
       if (!id) return undefined

@@ -38,6 +38,7 @@ function stubHealth(): {
   rateLimits?: Record<string, unknown>
   resumeSteps?: Step[]
   turnStartDelayMs?: number
+  turnStartWaitFor?: string
 } {
   try {
     return JSON.parse(
@@ -290,6 +291,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
   } else if (message.method === 'turn/start') {
     await sleep(stubHealth().turnStartDelayMs ?? 0)
+    const waitFor = stubHealth().turnStartWaitFor
+    while (waitFor && !existsSync(waitFor)) await sleep(25)
     turnActive = true
     interrupted = false
     const turn = ++turnNumber

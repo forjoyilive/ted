@@ -1,7 +1,16 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, TaskBrief, TaskGates } from '@ted/protocol'
+import type {
+  Comment,
+  Factory,
+  InboxItem,
+  Run,
+  Task,
+  TaskBrief,
+  TaskGates,
+  ThreadEvent,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -573,7 +582,12 @@ describe('outcomes', () => {
       title: 'Work wants to send this Task back to Design again',
       choices: ['Send it back to Design', 'Keep it in Work'],
     })
-    expect(request.body).toContain('The sync test fails on a clash.')
+    expect(request.body).not.toContain('The sync test fails on a clash.')
+    expect(request.body).toContain('history')
+    const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(
+      history.find((e) => e.text === 'Work wants to send this Task back to Design')?.findings,
+    ).toContain('The sync test fails on a clash.')
     expect((await getTask(client, task.id)).stage).toBe('work')
     const backMessage = (await userMessages(client, task)).find((m) =>
       m.startsWith('TED moved this Task back to Design.'),
