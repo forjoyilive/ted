@@ -231,9 +231,9 @@ export function TaskShell({
                 {confirm.kind === 'close' ? 'Close' : 'Restart'} Shell {numbers.get(confirm.id)}?
               </h2>
               <p className={dialogStyles.body}>
-                This ends this shell and its child processes.{' '}
-                {confirm.kind === 'restart' && 'Its output will be cleared. '}Other panes keep
-                running.
+                This ends this shell and its jobs. Programs that detached into separate sessions may
+                keep running. {confirm.kind === 'restart' && 'Its output will be cleared. '}Other
+                panes keep running.
               </p>
               <div className={dialogStyles.actions}>
                 <Button onClick={() => setConfirm(undefined)}>Cancel</Button>

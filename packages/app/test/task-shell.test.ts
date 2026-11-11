@@ -226,6 +226,9 @@ describe('Task shell', () => {
       .poll(() => shell.getByRole('separator').first().getAttribute('aria-valuenow'))
       .toBe('55')
     await second.getByRole('button', { name: 'Restart shell', exact: true }).click()
+    expect(await window.getByRole('dialog', { name: 'Restart Shell 2?' }).textContent()).toContain(
+      'Programs that detached into separate sessions may keep running.',
+    )
     await window
       .getByRole('dialog', { name: 'Restart Shell 2?' })
       .getByRole('button', { name: 'Restart shell', exact: true })
@@ -371,6 +374,9 @@ describe('Task shell', () => {
     const first = shell.getByRole('region', { name: 'Shell 1', exact: true })
     await first.getByRole('button', { name: 'Split below' }).click()
     await shell.getByRole('button', { name: 'Close Shell 2', exact: true }).click()
+    expect(await window.getByRole('dialog', { name: 'Close Shell 2?' }).textContent()).toContain(
+      'Programs that detached into separate sessions may keep running.',
+    )
     await window
       .getByRole('dialog', { name: 'Close Shell 2?' })
       .getByRole('button', { name: 'Cancel' })

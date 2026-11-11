@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import {
   mkdir,
   mkdtemp,
@@ -508,6 +509,80 @@ describe('Task shell panes', () => {
       }
     }
   })
+
+  test.each(['close', 'restart'] as const)(
+    '%s leaves a detached, reparented service outside terminal cleanup',
+    async (ending) => {
+      const ted = await startTed()
+      const task = await startedTask(ted)
+      const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+      const first = firstShell(opened)
+      const ws = await changeWorkspace(ted, task, {
+        kind: 'split',
+        revision: opened.revision,
+        shellId: first.id,
+        direction: 'right',
+        size,
+      })
+      const sibling = ws.shells[1]
+      if (!sibling) throw new Error('no sibling')
+      const pidFile = path.join(scratch, 'detached.pid')
+      const childCode = `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`
+      const parentCode = `const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { detached: true, stdio: 'ignore', env: { ...process.env } }); child.unref()`
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+      let child: number | undefined
+      try {
+        await ted.ok('POST', paneRoute(task, first.id, '/input'), {
+          data: `${quote(process.execPath)} -e ${quote(parentCode)}\r`,
+        })
+        child = await waitUntil(async () => {
+          const value = await readFile(pidFile, 'utf8').catch(() => '')
+          return Number(value) || undefined
+        }, 'the detached service to report its PID')
+        await waitUntil(
+          async () =>
+            Number(
+              execFileSync('/bin/ps', ['-p', String(child), '-o', 'ppid='], {
+                encoding: 'utf8',
+              }).trim(),
+            ) === 1 || undefined,
+          'the detached service to be reparented before terminal cleanup',
+        )
+        if (ending === 'close') {
+          const closed = await changeWorkspace(ted, task, {
+            kind: 'close',
+            revision: ws.revision,
+            shellId: first.id,
+          })
+          expect(closed.shells.map((shell) => shell.id)).toEqual([sibling.id])
+        } else {
+          const restarted = await ted.ok<TaskShell>(
+            'POST',
+            paneRoute(task, first.id, '/restart'),
+            size,
+          )
+          expect(restarted.generation).toBeGreaterThan(first.generation)
+        }
+        expect(alive(child)).toBe(true)
+        await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
+          data: 'printf "SIBLING_OK\\n"\r',
+        })
+        await readUntil(ted, task, sibling, (text) => text.includes('SIBLING_OK\r\n'), sibling.id)
+      } finally {
+        child ??= Number(await readFile(pidFile, 'utf8').catch(() => '')) || undefined
+        if (child) {
+          const fixturePid = child
+          try {
+            process.kill(fixturePid, 'SIGKILL')
+          } catch {}
+          await waitUntil(
+            async () => !alive(fixturePid) || undefined,
+            'the exact fixture service to end',
+          )
+        }
+      }
+    },
+  )
 
   test('splits independent PTYs, preserves them on reopen, and restarts only the chosen pane', async () => {
     const ted = await startTed()
