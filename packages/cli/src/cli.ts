@@ -27,10 +27,10 @@ import {
   type LocalDesignReviewInput,
   minGhVersion,
   parseDesignReviewInput,
+  parseLinearUrl,
   parseLocalDesignReviewInput,
   parseProposalInput,
   parseRoundInput,
-  parseLinearUrl,
   type RepoSetupReport,
   RequestValidationError,
   type RoundInput,
@@ -1144,7 +1144,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (options.file === undefined) {
         throw new UsageError('give the proposal with --file <file>')
       }
-      const input = { proposal: await readParsedFile(options.file ?? '', 'proposal', parseProposalInput) }
+      const input = {
+        proposal: await readParsedFile(options.file ?? '', 'proposal', parseProposalInput),
+      }
       const request = await withDaemon(home, (client) =>
         client.postPlanRequest({ ...input, ...(supersedes !== undefined && { supersedes }) }),
       )

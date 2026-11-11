@@ -571,3 +571,60 @@ describe('invalid command input is rejected before connecting', () => {
     expect(error).not.toContain('connector must not be reached')
   })
 })
+
+describe('shared file parsers after CLI relocation', () => {
+  test.each([
+    {
+      argv: ['ask', '--round'],
+      context: { TED_TASK: 'NB-1' },
+      error: 'a round must be an object',
+    },
+    {
+      argv: ['ask', '--round'],
+      context: { TED_PLAN: 'plan' },
+      error: 'a round must be an object',
+    },
+    {
+      argv: ['task', 'propose', '--file'],
+      context: { TED_TASK: 'NB-1' },
+      error: 'a proposal must be an object',
+    },
+    {
+      argv: ['task', 'propose', '--file'],
+      context: { TED_PLAN: 'plan' },
+      error: 'a proposal must be an object',
+    },
+    {
+      argv: ['outcome', 'advance', '--design'],
+      context: { TED_TASK: 'NB-1' },
+      error: 'the design file must hold a JSON object',
+    },
+  ])('rejects invalid $argv files in $context', async ({ argv, context, error }) => {
+    const home = await mkdtemp(path.join(tmpdir(), 'ted-cli-parser-'))
+    try {
+      const file = path.join(home, 'invalid.json')
+      await writeFile(file, '[]')
+      let connections = 0
+      let stderr = ''
+      const code = await runCli([...argv, file], {
+        home,
+        env: context,
+        stdout: () => {},
+        stderr: (text) => {
+          stderr += text
+        },
+        connect: async () => {
+          connections++
+          throw new Error('connector must not be reached')
+        },
+      })
+      expect({ code, connections, stderr }).toEqual({
+        code: 2,
+        connections: 0,
+        stderr: `ted: ${error}\n`,
+      })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+})
