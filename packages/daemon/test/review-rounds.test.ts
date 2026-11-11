@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -128,6 +128,21 @@ const review = (prompt: string) =>
 const commit = (file: string) =>
   `echo fixed > ${file}; git add ${file}; git -c user.name=Test -c user.email=test@example.com commit -qm fix;`
 
+const late = (out: string) =>
+  `echo late > late.txt; git add late.txt; git -c user.name=Test -c user.email=test@example.com commit -qm late; ted outcome advance > "${out}" 2>&1; git reset -q --hard HEAD~1;`
+
+async function expectRefusedAfterReview(out: string) {
+  const refused = await readFile(out, 'utf8')
+  expect(refused).toMatch(
+    /NB-1’s code changed after this Validate visit’s reviewer \(Run [0-9a-f-]{36}\)/,
+  )
+  expect(refused).toMatch(
+    /- widgets: the reviewer read [0-9a-f]{40}, and HEAD is now [0-9a-f]{40}\./,
+  )
+  expect(refused).toContain('Each Validate visit gets one review')
+  expect(refused).toContain('`ted outcome back --to work --findings <file>`')
+}
+
 async function promptFile() {
   const file = path.join(scratch, 'review.md')
   await writeFile(
@@ -148,6 +163,7 @@ describe('Validate rounds', () => {
       const prompt = await promptFile()
       const findings = path.join(scratch, 'findings.md')
       await writeFile(findings, '1. The export button does nothing.\n')
+      const moved = path.join(scratch, 'moved.out')
       const task = await startTask(
         client,
         [
@@ -161,12 +177,13 @@ describe('Validate rounds', () => {
           `5) ${review(prompt)}`,
           `echo "SECOND: $(ted run start --reviewer --prompt-file ${prompt} 2>&1)";`,
           `echo "PLAIN: $(ted run start --agent codex --name 'Independent Codex review' --prompt-file ${prompt} 2>&1)";`,
-          'ted outcome advance;;',
+          `${late(moved)} ted outcome advance;;`,
           'esac',
         ].join(' '),
       )
       await waitForStage(client, task, 'review')
 
+      await expectRefusedAfterReview(moved)
       const [first, second, ...more] = await reviewerPrompts(client, task)
       expect(more).toEqual([])
       expect(first).toContain('# Your instructions from the Task Lead of NB-1')
@@ -228,12 +245,13 @@ describe('Validate rounds', () => {
           '1|2) ted outcome advance;;',
           `3) ted outcome back --to work --findings "${findings}";;`,
           `4) ${commit('export.txt')} ted outcome advance;;`,
-          `5) ${review(prompt)} ted outcome advance;;`,
+          `5) ${review(prompt)} ${late(path.join(scratch, 'moved.out'))} ted outcome advance;;`,
           'esac',
         ].join(' '),
       )
       await waitForStage(client, task, 'review')
 
+      await expectRefusedAfterReview(path.join(scratch, 'moved.out'))
       const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
       expect(sendBacks.map((b) => b.cause)).toEqual(['review'])
       expect(await reviewerPrompts(client, task)).toEqual([
@@ -352,7 +370,7 @@ describe('Validate rounds', () => {
         `ted outcome advance > "${refused}" 2>&1;`,
         `ted outcome back --to work --cause base-conflict --findings "${findings}";;`,
         `5) ${mergeBase(refused)} ted outcome advance;;`,
-        `6) ${review(prompt)} ted outcome advance; touch "${path.join(scratch, 'second')}";;`,
+        `6) ${review(prompt)} ${late(path.join(scratch, 'moved.out'))} ted outcome advance; touch "${path.join(scratch, 'second')}";;`,
         'esac',
       ].join(' '),
     )
@@ -362,6 +380,7 @@ describe('Validate rounds', () => {
     await reached(path.join(scratch, 'second'), 'the second Validate to finish')
     await waitForStage(client, task, 'review')
 
+    await expectRefusedAfterReview(path.join(scratch, 'moved.out'))
     const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
     expect(sendBacks.map((b) => [b.from, b.cause, b.counted])).toEqual([
       ['review', 'base-conflict', false],

@@ -318,3 +318,32 @@ export function conflictReviewPrompt(input: {
     `${fence}\n${added.trim()}\n${fence}`,
   ].join('\n\n')
 }
+
+export interface MovedRepo {
+  name: string
+  reviewed?: string
+  now?: string
+  gone?: boolean
+}
+
+export function reviewMovedRefusal(input: {
+  displayId: string
+  runId: string
+  repos: readonly MovedRepo[]
+}): string {
+  const { displayId, runId, repos } = input
+  const lines = repos.map(({ name, reviewed, now, gone }) =>
+    gone
+      ? `- ${name}: the reviewer read ${reviewed}, and it is no longer one of the Task’s repos.`
+      : reviewed === undefined
+        ? `- ${name}: the reviewer didn’t read it.`
+        : now === undefined
+          ? `- ${name}: the reviewer read ${reviewed}, and TED can’t read its HEAD now.`
+          : `- ${name}: the reviewer read ${reviewed}, and HEAD is now ${now}.`,
+  )
+  return [
+    `${displayId}’s code changed after this Validate visit’s reviewer (Run ${runId}) was given it, so TED kept it in Validate.`,
+    lines.join('\n'),
+    'Each Validate visit gets one review, so TED can’t have the change reviewed in this visit. Send the Task back to Work with `ted outcome back --to work --findings <file>` and say in the Findings what changed after the review; the next Validate round reviews everything since the commit the reviewer read. If the later commits aren’t meant to be part of the Task, put the branch back at that commit and report the outcome again.',
+  ].join('\n\n')
+}

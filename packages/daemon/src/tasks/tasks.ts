@@ -275,7 +275,9 @@ import {
   type EarlierRound,
   type FixesSince,
   type MergedBase,
+  type MovedRepo,
   type RecordedConflict,
+  reviewMovedRefusal,
   scopedReviewPrompt,
   validateRoundText,
   workRoundText,
@@ -4908,6 +4910,35 @@ export function createTasks(options: {
     }
   }
 
+  async function movedSinceReview(task: StoredTask): Promise<string | undefined> {
+    const runId = subAgents.visitReviewer(task)
+    const scope = store.reviewScopes(task.id).find((s) => s.runId === runId)
+    if (runId === undefined || scope === undefined) return undefined
+    await execution.local(task.id)
+    const heads = await Promise.all(
+      task.repos
+        .filter((r) => !r.removed)
+        .map(async (r) => ({
+          name: r.name,
+          now: await git.headCommit(r.worktree).catch(() => undefined),
+        })),
+    )
+    const repos: MovedRepo[] = [
+      ...heads.flatMap(({ name, now }) => {
+        const reviewed = scope.commits.find((c) => c.name === name)?.commit
+        if (reviewed !== undefined && reviewed === now) return []
+        return [
+          { name, ...(reviewed !== undefined && { reviewed }), ...(now !== undefined && { now }) },
+        ]
+      }),
+      ...scope.commits
+        .filter((c) => !heads.some((h) => h.name === c.name))
+        .map((c) => ({ name: c.name, reviewed: c.commit, gone: true })),
+    ]
+    if (repos.length === 0) return undefined
+    return reviewMovedRefusal({ displayId: task.displayId, runId, repos })
+  }
+
   async function ownChanges(
     task: StoredTask,
     head: { name: string; worktree: string },
@@ -8102,6 +8133,8 @@ export function createTasks(options: {
             throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
           }
         }
+        const moved = stage === 'validate' ? await movedSinceReview(current) : undefined
+        if (moved !== undefined) throw new RequestError(409, moved)
         const waiting = stage === 'clarify' ? openRound(current) : undefined
         if (waiting) {
           throw new RequestError(

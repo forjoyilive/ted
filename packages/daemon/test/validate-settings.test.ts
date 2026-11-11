@@ -18,6 +18,7 @@ import { conflictChecked, conflictRefusal } from '../src/tasks/base-conflict.ts'
 import {
   conflictReviewPrompt,
   conflictRoundText,
+  reviewMovedRefusal,
   scopedReviewPrompt,
   validateRoundText,
 } from '../src/tasks/review-rounds.ts'
@@ -528,6 +529,29 @@ describe('the texts TED writes for a round', () => {
     expect(both).toContain('P1 Findings in the resolution or the changed lines')
     expect(both).not.toContain('blocking Findings in the resolution')
     expect(both).toContain('keeps both sides’ behaviour')
+  })
+
+  test('the refusal after the code changed names each repo that differs from the review', () => {
+    const read = 'a'.repeat(40)
+    const now = 'b'.repeat(40)
+    const text = reviewMovedRefusal({
+      displayId: 'NB-1',
+      runId: 'run-1',
+      repos: [
+        { name: 'widgets', reviewed: read, now },
+        { name: 'api', now },
+        { name: 'docs', reviewed: read },
+        { name: 'old', reviewed: read, gone: true },
+      ],
+    })
+    expect(text).toContain('this Validate visit’s reviewer (Run run-1)')
+    expect(text).toContain(`- widgets: the reviewer read ${read}, and HEAD is now ${now}.`)
+    expect(text).toContain('- api: the reviewer didn’t read it.')
+    expect(text).toContain(`- docs: the reviewer read ${read}, and TED can’t read its HEAD now.`)
+    expect(text).toContain(
+      `- old: the reviewer read ${read}, and it is no longer one of the Task’s repos.`,
+    )
+    expect(text).toContain('`ted outcome back --to work --findings <file>`')
   })
 
   test('file names are one line each, inside a fence that says they are data', () => {

@@ -36,6 +36,7 @@ export interface SubAgents {
   ): string | undefined
   result(runId: string): Promise<SubAgentWait>
   reviewed(runId: string): boolean
+  visitReviewer(task: StoredTask): string | undefined
   queued(): QueueEntry[]
   begin(id: string): void
   starting(taskId: string): number
@@ -544,6 +545,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       const run = store.getRun(runId)
       return run !== undefined && run.failure === undefined && finalMessage(run) !== undefined
     },
+    visitReviewer: (task) => (task.stage === 'validate' ? validateReviewer(task) : undefined),
     requestForTed(task, { name, prompt, choice, purpose }) {
       const leadRunId = task.leadRunId
       const leadRun = leadRunId === undefined ? undefined : store.getRun(leadRunId)
