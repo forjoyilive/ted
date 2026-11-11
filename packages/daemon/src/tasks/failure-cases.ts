@@ -14,6 +14,7 @@ import { failureChoices, validateFailureChoices } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
+import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
 export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' }>): string {
   return createHash('sha256')
@@ -55,7 +56,14 @@ const freshContextSteps = (id: string) =>
 const newCaseSteps =
   'A newly captured context can’t be attached to this failure, because TED can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory Check); a failure that happens again is a new case to record, assess and ask about.'
 
-function acceptedResolution(value: FailureCase): boolean {
+export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
+  return workflow.settings.stages.work?.lead_closes_failures === true
+}
+
+export const leadClosesRefusal =
+  'only the human closes a failure recorded outside Validate: assess it with a recommendation of Fixed and run `ted failure ask <id>`. A Factory lets the Task Lead close its own Finding with passing evidence with `stages.work.lead_closes_failures: true` in its `.ted/workflow.yaml`; only the human changes that'
+
+export function acceptedResolution(value: FailureCase): boolean {
   const resolution = value.resolutions.at(-1)
   return (
     resolution?.resolution === 'accepted' &&

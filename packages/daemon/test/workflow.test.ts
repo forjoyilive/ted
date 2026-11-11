@@ -468,6 +468,16 @@ describe('checking a layer', () => {
       'warning .ted/workflow.yaml 2 11 unknown key `stages.work.p1_only_from`',
       'warning .ted/workflow.yaml 2 28 unknown key `stages.work.sub_agents`',
     ])
+    const work = (line: string) => problems({ 'workflow.yaml': `stages:\n  work:\n    ${line}\n` })
+    expect(work('lead_closes_failures: 1')).toEqual([
+      'error .ted/workflow.yaml 3 27 `stages.work.lead_closes_failures` must be true or false',
+    ])
+    for (const value of ['true', 'false']) {
+      expect(work(`lead_closes_failures: ${value}`)).toEqual([])
+    }
+    expect(validate('lead_closes_failures: true')).toEqual([
+      'warning .ted/workflow.yaml 3 5 unknown key `stages.validate.lead_closes_failures`',
+    ])
   })
 
   test('Checks are Factory only', () => {

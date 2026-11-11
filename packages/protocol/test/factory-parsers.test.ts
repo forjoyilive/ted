@@ -19,7 +19,14 @@ const repos = [
 ] satisfies P.RepoSettingsInput[]
 const library = {
   stages: {
-    work: { enabled: true, gate: false, maxBack: 2, depth: 'few', effort: 'high' },
+    work: {
+      enabled: true,
+      gate: false,
+      maxBack: 2,
+      depth: 'few',
+      effort: 'high',
+      leadClosesFailures: true,
+    },
     validate: { p1OnlyFrom: 3, subAgents: true },
   },
   stageFiles: { work: '# Work', review: null },
@@ -117,6 +124,11 @@ rejects(
   P.parseLibraryChanges,
   { stages: { work: { subAgents: true } } },
   'work.subAgents must be true or false, on Validate',
+)
+rejects(
+  P.parseLibraryChanges,
+  { stages: { validate: { leadClosesFailures: true } } },
+  'validate.leadClosesFailures must be true or false, on Work',
 )
 rejects(
   P.parseSaveSettingsRequest,
