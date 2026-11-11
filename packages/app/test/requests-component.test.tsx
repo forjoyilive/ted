@@ -311,6 +311,46 @@ test('pending answers disable actions and rejected answers preserve text with an
   )
 })
 
+test('a failure decision asks for a reason before Fixed or No longer applicable and shows only the daemon’s refusal', async () => {
+  const refusal =
+    'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
+  const answer = vi.fn((_id: unknown, request: unknown) => {
+    if ((request as { choice?: string }).choice === 'Accept this failure')
+      throw new Error(`Error invoking remote method 'ted:request': Error: ${refusal}`)
+    return comment()
+  })
+  bridge({ simulators: () => ({ supported: false }), answerRequest: answer })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'question',
+        author: { kind: 'ted' },
+        choices: ['Accept this failure', 'Fixed', 'No longer applicable'],
+      })}
+    />,
+  )
+  const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
+  expect(button('Accept this failure').disabled).toBe(false)
+  expect(button('Fixed').disabled).toBe(true)
+  expect(button('No longer applicable').disabled).toBe(true)
+  expect(button('Fixed').title).toBe('Write your reason below first')
+  expect(
+    screen.getByPlaceholderText('Your reason. Fixed and No longer applicable need one…'),
+  ).toBeTruthy()
+  const u = user()
+  await u.click(button('Accept this failure'))
+  expect((await screen.findByRole('alert')).textContent).toBe(refusal)
+  await u.type(screen.getByLabelText('Your answer'), 'A rerun passed.')
+  expect(button('No longer applicable').disabled).toBe(false)
+  await u.click(button('Fixed'))
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    choice: 'Fixed',
+    text: 'A rerun passed.',
+  })
+})
+
 function inboxProps() {
   return {
     items: [],

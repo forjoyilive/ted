@@ -1,11 +1,11 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { FailureCase } from '@ted/protocol'
+import type { FailureCase, FailureContext } from '@ted/protocol'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { openStore } from '../src/store/index.ts'
-import { createFailureCases, failureText } from '../src/tasks/failure-cases.ts'
+import { acceptRefusals, createFailureCases, failureText } from '../src/tasks/failure-cases.ts'
 
 const lead = 'run-lead-7f3a'
 const secret = 'abcdefghijklmnopqrstuvwxyz'
@@ -24,7 +24,7 @@ async function setup() {
   })
   const task = await store.createTask({ title: 'Failure cases' })
   store.startRun({ id: lead, taskId: task.id, agent: 'codex', prompt: '', cwd: directory })
-  const worktree = { fingerprint: 'A', readable: true }
+  const worktree = { fingerprint: 'A', readable: true, base: 'base-1', head: 'head-1' }
   let reads = 0
   const service = createFailureCases({
     store,
@@ -35,9 +35,17 @@ async function setup() {
         taskId: task.id,
         version: 2,
         capturedAt: new Date().toISOString(),
-        fingerprint: worktree.fingerprint,
-        repos: [],
-        checks: 'checks',
+        fingerprint: `${worktree.fingerprint}-${worktree.base}-${worktree.head}`,
+        repos: [
+          {
+            repo: 'acme/widgets',
+            head: worktree.head,
+            base: worktree.base,
+            tree: 'tree-1',
+            mergeBase: 'merge-base-1',
+          },
+        ],
+        checks: worktree.fingerprint,
       }
     },
     assertLead: () => {},
@@ -77,7 +85,17 @@ async function setup() {
     })
   const obligations = () => service.obligations(task)
   const comment = (id?: string) => store.listComments(task.id).find((c) => c.id === id)
+  const notes = (title: string) => store.listComments(task.id).filter((c) => c.title === title)
+  const endRun = () =>
+    store.recordRunOutput(lead, {
+      toOffset: 0,
+      state: 'finished',
+      ending: { how: 'exited', errorLines: [], at: new Date().toISOString() },
+    })
   return {
+    store,
+    notes,
+    endRun,
     service,
     task,
     worktree,
@@ -91,6 +109,16 @@ async function setup() {
     obligations,
     comment,
   }
+}
+
+async function refusalText(work: () => unknown): Promise<string | undefined> {
+  try {
+    await work()
+  } catch (error) {
+    if (error instanceof RequestError) return error.message
+    throw error
+  }
+  return undefined
 }
 
 async function refusal(work: () => unknown): Promise<number | undefined> {
@@ -230,4 +258,129 @@ test('rejected evidence and assessments preserve requests; fresh decisions expos
   expect(question?.body).toContain(lead)
   expect(asked.evidence).toBe(first.evidence)
   expect((await s.resolve(asked)).resolutions.at(-1)?.resolution).toBe('accepted')
+})
+
+test('a moved base tip alone neither blocks acceptance nor invalidates it', async () => {
+  const s = await setup()
+  const context = await s.capture()
+  const asked = await s.request(await s.record(context.id))
+  s.worktree.base = 'base-2'
+  const moved = await s.capture()
+  expect(moved.fingerprint).not.toBe(context.fingerprint)
+  expect((await s.resolve(asked)).resolutions.at(-1)).toMatchObject({
+    resolution: 'accepted',
+    contextId: context.id,
+  })
+  s.worktree.base = 'base-3'
+  expect(await s.obligations()).toMatchObject({
+    satisfied: true,
+    cases: [{ disposition: 'accepted', context: 'current' }],
+  })
+  expect(s.notes('Failure acceptance invalidated')).toEqual([])
+})
+
+test('asking again with evidence that names no context is acceptable when only the base moved', async () => {
+  const s = await setup()
+  const context = await s.capture()
+  const value = await s.record(context.id)
+  await s.request(value)
+  s.worktree.base = 'base-2'
+  await s.capture()
+  s.evidence(value, 'Looked again')
+  const again = await s.request(value)
+  expect(again.decisions.at(-1)?.contextId).toBe(context.id)
+  expect((await s.resolve(again)).resolutions.at(-1)?.resolution).toBe('accepted')
+})
+
+test('a changed HEAD refuses acceptance in plain words, tells the Task Lead once, and stops a stale ask', async () => {
+  const s = await setup()
+  const context = await s.capture()
+  const value = await s.record(context.id)
+  const asked = await s.request(value)
+  s.worktree.base = 'base-2'
+  s.worktree.head = 'head-2'
+  expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.changed)
+  expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.changed)
+  const told = s.notes('Failure acceptance refused')
+  expect(told).toHaveLength(1)
+  expect(told[0]?.author).toEqual({ kind: 'ted' })
+  expect(told[0]?.body).toContain(`failure case ${value.id}`)
+  expect(told[0]?.body).toContain('`ted failure context`')
+  expect(told[0]?.body).toContain(`\`ted failure evidence ${value.id} --file <json>\``)
+  expect(told[0]?.body).toContain(`\`ted failure ask ${value.id}\``)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)?.answer).toBeUndefined()
+  s.evidence(value, 'Looked again without a new context')
+  await s.assess(value)
+  const stale = await refusalText(() => s.decision(value))
+  expect(stale).toContain(`tested context ${context.id}`)
+  expect(stale).toContain('`ted failure context`')
+  const fresh = await s.capture()
+  s.evidence(value, 'Reproduced on the new commit', fresh.id)
+  const again = await s.request(value)
+  expect((await s.resolve(again)).resolutions.at(-1)).toMatchObject({
+    resolution: 'accepted',
+    contextId: fresh.id,
+  })
+})
+
+test('a stale ask is still posted when no new context could be attached or read', async () => {
+  const s = await setup()
+  const context = await s.capture()
+  const ended = await s.record(context.id)
+  const unreadable = await s.record(context.id)
+  s.worktree.head = 'head-2'
+  s.worktree.readable = false
+  const first = await s.request(unreadable)
+  expect(await refusalText(() => s.resolve(first))).toBe(acceptRefusals.unverified)
+  expect(s.notes('Failure acceptance refused')).toEqual([])
+  s.worktree.readable = true
+  s.endRun()
+  const asked = await s.request(ended)
+  expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.changed)
+  expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
+  expect((await s.resolve(asked, 'fixed', 'A later commit repaired it.')).resolutions).toHaveLength(
+    1,
+  )
+})
+
+test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
+  const s = await setup()
+  const asked = await s.request(await s.record())
+  expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.unknown)
+  expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
+})
+
+test('stored contexts are compared by what was tested, not by their fingerprint or base tip', async () => {
+  const s = await setup()
+  const current = await s.capture()
+  s.endRun()
+  const stored = (id: string, change: Partial<FailureContext>): FailureContext =>
+    s.store.failures.capture({
+      ...current,
+      id,
+      fingerprint: `sha256-of-a-context-with-its-base-tip-${id}`,
+      repos: current.repos.map((r) => ({ ...r, base: 'older-base-tip' })),
+      ...change,
+    })
+  const accept = async (context: FailureContext) =>
+    refusalText(async () => s.resolve(await s.request(await s.record(context.id))))
+  expect(await accept(stored('version-2', {}))).toBeUndefined()
+  expect(await accept(stored('version-1', { version: 1 }))).toBe(acceptRefusals.changed)
+  expect(
+    await accept(
+      stored('other-merge-base', {
+        repos: current.repos.map((r) => ({ ...r, mergeBase: 'merge-base-0' })),
+      }),
+    ),
+  ).toBe(acceptRefusals.changed)
+  expect(
+    await accept(
+      stored('other-tree', { repos: current.repos.map((r) => ({ ...r, tree: 'tree-0' })) }),
+    ),
+  ).toBe(acceptRefusals.changed)
+  expect(await accept(stored('other-ci', { ci: 'CI-A' }))).toBe(acceptRefusals.changed)
+  expect(await accept(stored('other-ci-failures', { ciFailures: ['x'] }))).toBe(
+    acceptRefusals.changed,
+  )
+  expect(await accept(stored('other-checks', { checks: 'B' }))).toBe(acceptRefusals.changed)
 })
