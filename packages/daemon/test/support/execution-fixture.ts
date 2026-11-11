@@ -39,7 +39,14 @@ export async function removeFixtureRoot(root: string): Promise<void> {
 }
 
 export async function createExecutionFixture() {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-execution-')))
+  const parent = process.env.TED_VALIDATION_FIXTURE_ROOT ?? (await realpath(tmpdir()))
+  if (
+    !path.isAbsolute(parent) ||
+    (await realpath(parent)) !== parent ||
+    !(await lstat(parent)).isDirectory()
+  )
+    throw new Error('fixture parent must be a canonical plain directory')
+  const root = await realpath(await mkdtemp(path.join(parent, 'ted-execution-')))
   const machines: FixtureMachine[] = []
   let closed = false
   return {

@@ -15,6 +15,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { workingChanges } from '../../src/git.ts'
 import { redactSecrets } from '../../src/redact.ts'
+import { ExecutionDiagnostics } from './execution-diagnostics.ts'
 import type { EvidenceKind } from './execution-manifest.ts'
 
 const exec = promisify(execFile)
@@ -52,8 +53,18 @@ export async function reportDirectory(requested: string, checkout: string, scrat
   const forbidden = [
     await realpath(checkout),
     ...(scratch ? [await realpath(scratch)] : []),
-    path.join(homedir(), '.ted'),
-    path.join(homedir(), '.ted-dev'),
+    ...(await Promise.all(
+      [
+        path.join(homedir(), '.ted'),
+        path.join(homedir(), '.ted-dev'),
+        ...(process.env.TED_HOME ? [path.resolve(process.env.TED_HOME)] : []),
+      ].map((home) =>
+        realpath(home).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'ENOENT') throw error
+          return home
+        }),
+      ),
+    )),
   ]
   let cursor = path.parse(absolute).root
   for (const part of absolute.slice(cursor.length).split(path.sep).filter(Boolean)) {
@@ -125,6 +136,31 @@ export async function saveEvidence(directory: string, name: string, text: string
     { mode: 0o600 },
   )
   return name
+}
+
+export async function readTestReport(file: string) {
+  if ((await stat(file)).size > 8 * 1024 * 1024) throw new Error('test report exceeds limit')
+  const report: unknown = JSON.parse(await readFile(file, 'utf8'))
+  const details = new ExecutionDiagnostics()
+  const record = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object'
+  if (record(report) && Array.isArray(report.testResults)) {
+    for (const suite of report.testResults) {
+      if (!record(suite)) continue
+      if (suite.status === 'failed' && typeof suite.name === 'string')
+        details.push(`File: ${suite.name}\n`)
+      if (typeof suite.message === 'string' && suite.message) details.push(`${suite.message}\n`)
+      if (!Array.isArray(suite.assertionResults)) continue
+      for (const assertion of suite.assertionResults) {
+        if (!record(assertion) || assertion.status !== 'failed') continue
+        if (typeof assertion.fullName === 'string') details.push(`Test: ${assertion.fullName}\n`)
+        if (Array.isArray(assertion.failureMessages))
+          for (const message of assertion.failureMessages)
+            if (typeof message === 'string') details.push(`${message}\n`)
+      }
+    }
+  }
+  return { report, failureDetails: details.text || 'No assertion failure details in test report.' }
 }
 
 export async function publishReport(directory: string, report: ValidationReport) {

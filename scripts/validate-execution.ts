@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,10 +19,12 @@ import {
   prerequisiteVersions,
   publishReport,
   readObservations,
+  readTestReport,
   reportDirectory,
   saveEvidence,
   type ValidationReport,
 } from '../packages/daemon/test/support/execution-report.ts'
+import { findMarked, killMarked } from '../packages/daemon/test/support/processes.ts'
 
 export interface ScenarioCommand {
   argv: string[]
@@ -113,6 +116,14 @@ function completedTests(value: unknown): boolean {
   )
 }
 
+async function stopOwnedRuns(runs: string[]) {
+  for (const run of runs) {
+    await killMarked('TED_TEST_RUN', run)
+    if ((await findMarked('TED_TEST_RUN', run)).length)
+      throw new Error(`owned scenario processes remain after cleanup: ${run}`)
+  }
+}
+
 export interface ValidationOptions {
   root: string
   reportDir: string
@@ -131,7 +142,8 @@ export async function runValidation(
   dependencies: ValidationDependencies = {},
 ) {
   const selected = selectScenarios(options.scenarios)
-  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-validation-'))
+  const scratch = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-validation-')))
+  const ownedRuns: string[] = []
   const started = Date.now()
   let directory: string
   try {
@@ -182,6 +194,7 @@ export async function runValidation(
     report.errors.push(redactSecrets(String(error)))
   } finally {
     try {
+      await stopOwnedRuns(ownedRuns)
       await (dependencies.cleanup ?? ((dir) => rm(dir, { recursive: true, force: true })))(scratch)
     } catch (error) {
       report.errors.push(redactSecrets(`cleanup failed: ${error}`))
@@ -242,12 +255,18 @@ export async function runValidation(
       return result
     }
     let output: CommandResult | undefined
+    let testFailureDetails = 'No readable test report was produced.'
     try {
       await writeFile(observationsFile, '')
+      const fixtureRoot = path.join(scratch, `${scenario.id}-fixtures`)
+      await mkdir(fixtureRoot)
+      const run = randomUUID()
+      ownedRuns.push(run)
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         TED_VALIDATION_OBSERVATIONS: observationsFile,
         TED_VALIDATION_DIAGNOSTICS: path.join(scratch, `${scenario.id}-diagnostics.txt`),
+        TED_VALIDATION_FIXTURE_ROOT: fixtureRoot,
       }
       for (const name of [
         'TED_RUN',
@@ -257,9 +276,12 @@ export async function runValidation(
         'TED_PLAN',
         'TED_TEST_SUITE_LOCK_PID',
         'TED_TEST_RUN_ID',
+        'TED_TEST_FILE',
         'TED_EXIT_WITH_PID',
       ])
         delete env[name]
+      env.TED_TEST_RUN = run
+      env.TED_TEST_RUN_ID = run
       output = await (dependencies.execute ?? executeScenario)({
         argv,
         cwd: options.root,
@@ -268,9 +290,10 @@ export async function runValidation(
         resultFile,
         observationsFile,
       })
+      const { report: testReport, failureDetails } = await readTestReport(resultFile)
+      testFailureDetails = failureDetails
       const observations = await readObservations(observationsFile)
       result.observed = observations
-      const testReport: unknown = JSON.parse(await readFile(resultFile, 'utf8'))
       if (output.code !== 0 || !completedTests(testReport))
         throw new Error(`test command failed or incomplete (exit ${output.code})`)
       const missing = scenario.invariants.filter(
@@ -284,6 +307,7 @@ export async function runValidation(
         ['stdout', output?.stdout ?? ''],
         ['stderr', output?.stderr ?? ''],
         ['failure', result.reason],
+        ['tests', testFailureDetails],
         [
           'diagnostics',
           await readFile(path.join(scratch, `${scenario.id}-diagnostics.txt`), 'utf8').catch(

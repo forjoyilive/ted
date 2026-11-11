@@ -1,11 +1,21 @@
 import { execFile } from 'node:child_process'
-import { access, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { makeOriginRepo, waitUntil } from '../packages/daemon/test/helpers.ts'
 import { ExecutionDiagnostics } from '../packages/daemon/test/support/execution-diagnostics.ts'
+import { removeFixtureRoot } from '../packages/daemon/test/support/execution-fixture.ts'
 import { selectScenarios } from '../packages/daemon/test/support/execution-manifest.ts'
 import { observe } from '../packages/daemon/test/support/execution-observations.ts'
 import {
@@ -14,6 +24,7 @@ import {
   evidenceBytes,
   reportDirectory,
 } from '../packages/daemon/test/support/execution-report.ts'
+import { findMarked, killMarked } from '../packages/daemon/test/support/processes.ts'
 import {
   executeScenario,
   runValidation,
@@ -26,6 +37,7 @@ beforeEach(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-report-test-')))
 })
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await rm(root, { recursive: true, force: true })
 })
 const candidate = async () => ({
@@ -127,6 +139,61 @@ test('nonzero command preserves bounded redacted evidence and replay argv', asyn
   await expect(access(scratch)).rejects.toThrow()
 })
 
+test('assertion details survive scratch cleanup as bounded redacted evidence', async () => {
+  let failure = ''
+  try {
+    expect('Bearer secret-token-value').toBe('row-1-invariant')
+  } catch (error) {
+    failure = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  }
+  let scratch = ''
+  const result = await runValidation(options(), {
+    candidate,
+    versions,
+    execute: async (command) => {
+      scratch = path.dirname(command.resultFile)
+      await successful(command)
+      await writeFile(
+        command.resultFile,
+        JSON.stringify({
+          ...passed,
+          success: false,
+          numPassedTests: 0,
+          numFailedTests: 1,
+          testResults: [
+            {
+              name: 'synthetic-ownership.test.ts',
+              status: 'failed',
+              assertionResults: [
+                {
+                  fullName: 'ownership assignment is saved before start',
+                  status: 'failed',
+                  failureMessages: [failure, 'x'.repeat(evidenceBytes * 2)],
+                },
+              ],
+            },
+          ],
+        }),
+      )
+      return { code: 1, stdout: '', stderr: '' }
+    },
+  })
+  expect(result.code).toBe(1)
+  const evidence = (
+    await Promise.all(
+      result.report.scenarios
+        .flatMap((s) => s.evidencePaths)
+        .map((file) => readFile(path.join(result.directory, file), 'utf8')),
+    )
+  ).join('\n')
+  expect(evidence).toContain('ownership assignment is saved before start')
+  expect(evidence).toContain('row-1-invariant')
+  expect(evidence).toContain('AssertionError')
+  expect(evidence).not.toContain('secret-token-value')
+  expect(Buffer.byteLength(evidence)).toBeLessThan(2 * 1024 * 1024)
+  await expect(access(scratch)).rejects.toThrow()
+})
+
 test.each(['missing-observations', 'missing-report', 'malformed-report', 'unfinished', 'throw'])(
   'fails closed for %s',
   async (mode) => {
@@ -162,6 +229,35 @@ test('cleanup failure fails the report even when scenario passed', async () => {
   expect(result.code).toBe(1)
   expect(result.report.errors.join(' ')).toContain('cleanup failed')
 })
+
+test('runner cleans real fixture roots and processes after a worker crashes before teardown', async () => {
+  let owned: { root: string; home: string } | undefined
+  try {
+    const result = await runValidation(options(), {
+      candidate,
+      versions,
+      execute: async (command) => {
+        const output = await executeScenario({
+          ...command,
+          argv: [process.execPath, 'packages/daemon/test/fixtures/crash-execution-fixture.ts'],
+          timeoutMs: 30_000,
+        })
+        owned = JSON.parse(output.stdout.trim())
+        return output
+      },
+    })
+    expect(result.code).toBe(1)
+    expect(result.report.errors).toEqual([])
+    if (!owned) throw new Error('fixture never reached its readiness barrier')
+    expect((await findMarked('TED_HOME', owned.home)).map((process) => process.pid)).toEqual([])
+    await expect(access(owned.root)).rejects.toThrow()
+  } finally {
+    if (owned) {
+      await killMarked('TED_HOME', owned.home)
+      await removeFixtureRoot(owned.root)
+    }
+  }
+}, 60_000)
 
 test('skip-only run supplies no passing evidence and never invokes executor or machine discovery', async () => {
   const result = await runValidation(
@@ -216,6 +312,18 @@ test('candidate identity includes untracked, dirty and binary content without sa
   expect(untracked.dirtyPatchIdentity).not.toBeNull()
   await writeFile(path.join(seed, 'new.bin'), Buffer.from([0, 1, 3]))
   expect((await candidateIdentity(seed)).dirtyPatchIdentity).not.toBe(untracked.dirtyPatchIdentity)
+})
+
+test('report storage excludes a configured home even through its canonical path', async () => {
+  const home = path.join(root, 'configured-home')
+  const alias = path.join(root, 'configured-home-alias')
+  await mkdir(home)
+  await symlink(home, alias)
+  vi.stubEnv('TED_HOME', alias)
+  await expect(reportDirectory(path.join(home, 'reports'), process.cwd())).rejects.toThrow(
+    'outside',
+  )
+  await expect(access(path.join(home, 'reports'))).rejects.toThrow()
 })
 
 test('real failing subprocess propagates exit code and bounded timeout', async () => {

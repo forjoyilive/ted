@@ -9,9 +9,10 @@ node scripts/validate-execution.ts \
 ```
 
 The report directory is required. Use an absolute, persistent directory outside the
-checkout, fixture scratch folders and personal `.ted` / `.ted-dev` homes, with no
-symlink components. Reports survive removal of the Task’s worktree. There is no
-automatic report deletion. The runner prints the unique run directory’s `summary.md`;
+checkout, fixture scratch folders, personal `.ted` / `.ted-dev` homes and the
+configured `TED_HOME`, with no symlink components. Existing home aliases resolve
+to their canonical paths for exclusion. Reports survive removal of the Task’s
+worktree. There is no automatic report deletion. The runner prints the unique run directory’s `summary.md`;
 `report.json` beside it is the versioned machine-readable result. Attach the summary
 with `ted comment --attach <absolute-summary-path> "<result and limitations>"`.
 The runner itself never posts to a Task or accesses configured machines.
@@ -85,6 +86,13 @@ requests, stops/reaps its child, kills only processes marked with its unique hom
 verifies their exit, then removes only its owned scratch directory. Sibling homes
 and processes stay intact. Startup failures follow the same cleanup path.
 
+Runner-launched fixtures live beneath the runner’s scratch folder. Each scenario
+receives a unique `TED_TEST_RUN` marker, also supplied to Vitest’s existing global
+setup through `TED_TEST_RUN_ID`. If a worker crashes or times out before teardown,
+the runner kills and verifies only processes with that scenario’s marker before
+deleting scratch, including fixture homes and detached Run hosts. A failed process
+cleanup leaves scratch intact and makes the report fail.
+
 ## Reports and replay
 
 Reports identify the candidate commit and content tree, plus a dirty-content digest
@@ -101,13 +109,16 @@ evidence, 1 for failure and 2 for skipped-only runs (no passing evidence).
 On macOS and Linux, a timed-out command’s owned process group receives termination
 and then forced cleanup, so descendants cannot keep the scenario’s pipes open.
 
-On failure, reports retain redacted stdout/stderr, failure details and selected
-fixture diagnostics, capped at 256 KiB per artifact (four artifacts, below 2 MiB per
-scenario), with truncation markers. Stream collectors also bound retained memory
+On failure, reports retain redacted stdout/stderr, failure details, failed test
+names/messages/stacks and selected fixture diagnostics, capped at 256 KiB per
+artifact (five artifacts, below 2 MiB per scenario), with truncation markers.
+Stream collectors also bound retained memory
 and omit oversized lines. Reports use `redactSecrets`; no raw homes, environment
 dumps, credential databases or personal integration data are copied. JSON and
 summary publication each use temporary-file rename. Successful and failed runs
 clean scratch after collecting evidence; a cleanup failure is reported as failure.
+Vitest JSON input is capped at 8 MiB; malformed, missing and incomplete reports
+still fail. Only selected failure fields are retained.
 
 Replay instructions include exact argv and the required candidate identity. Restore
 that commit and matching dirty content, install the recorded prerequisites and run
