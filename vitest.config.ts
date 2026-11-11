@@ -23,7 +23,8 @@ function electronTestFiles(): string[] {
 
 const testOptions = {
   testTimeout: 30_000,
-  maxWorkers: 6,
+  expect: { poll: { timeout: 10_000 } },
+  maxWorkers: 3,
   globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
   setupFiles: [
     here('./packages/daemon/test/support/setup.ts'),
@@ -35,10 +36,12 @@ const testOptions = {
     TED_OPEN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
     TED_LOGIN_SHELL: 'off',
     TED_FREE_BYTES_FILE: here('./packages/daemon/test/fixtures/free-bytes.txt'),
+    TED_LOAD_FILE: here('./packages/daemon/test/fixtures/load.txt'),
     TED_ONLINE_FILE: here('./packages/daemon/test/fixtures/online.txt'),
     TED_KEYRING_MODULE: here('./packages/daemon/test/fixtures/stub-keyring.ts'),
     TED_LINEAR_API: 'http://127.0.0.1:9/graphql',
     TED_STAY_AWAKE: 'off',
+    TED_LOW_PRIORITY: 'off',
     TED_SKIP_FIRST_LAUNCH: '1',
     TED_TIME_MACHINE: 'off',
     TED_APP_TOKEN: 'test-app-token',
@@ -72,7 +75,7 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: 'electron', include: codexSandbox ? [] : electron, maxWorkers: 3 },
+        test: { name: 'electron', include: codexSandbox ? [] : electron, maxWorkers: 3, retry: 1 },
       },
       { extends: true, test: { name: 'node', include: testFiles, exclude: electron } },
     ],

@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import {
   type ChatItem,
   type Factory,
@@ -27,6 +26,7 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -76,10 +76,14 @@ async function working(client: Client, steps: unknown[], agent = 'claude') {
 }
 
 async function said(client: Client, runId: string, text: string) {
-  return waitUntil(async () => {
-    const texts = assistantTexts((await client.getRun(runId)).conversation)
-    return texts.includes(text) ? texts : undefined
-  }, `the agent to say “${text}”`)
+  return eventWait(
+    client.subscribe,
+    async () => {
+      const texts = assistantTexts((await client.getRun(runId)).conversation)
+      return texts.includes(text) ? texts : undefined
+    },
+    `the agent to say “${text}”`,
+  )
 }
 
 const send = (client: Client, runId: string, text: string, interrupt?: boolean) =>
@@ -89,7 +93,8 @@ const send = (client: Client, runId: string, text: string, interrupt?: boolean) 
   })
 
 const waitForState = (client: Client, runId: string, state: string) =>
-  waitUntil(
+  eventWait(
+    client.subscribe,
     async () => ((await chatOf(client, runId)).run.state === state ? true : undefined),
     `the Run to be ${state}`,
   )
@@ -111,7 +116,6 @@ describe('Steering a working Run', () => {
       expect.objectContaining({ id: queued.id, queued: true, sent: false }),
     ])
     expect(existsSync(path.join(home, 'runs', runId, 'queued'))).toBe(true)
-    await sleep(400)
     expect(JSON.stringify((await client.getRun(runId)).conversation)).not.toContain(
       'archived notes',
     )
@@ -167,7 +171,6 @@ describe('Steering a working Run', () => {
     await writeFile(file('a'), '')
     await said(client, runId, 'done')
     await waitForState(client, runId, 'idle')
-    await sleep(300)
     expect(JSON.stringify((await client.getRun(runId)).conversation)).not.toContain('Never mind')
   })
 
@@ -216,7 +219,6 @@ describe('Steering a working Run', () => {
 
     await client.ok('POST', `/runs/${runId}/interrupt`)
     await waitForState(client, runId, 'idle')
-    await sleep(400)
     const chat = await chatOf(client, runId)
     expect(chat.items.some((i) => i.kind === 'interrupted')).toBe(true)
     expect(humans(chat)).toEqual([expect.objectContaining({ id: queued.id, queued: true })])
@@ -256,7 +258,6 @@ describe('Steering a working Run', () => {
       'codex',
     )
     const queued = await send(client, runId, 'Keep the API unchanged.')
-    await sleep(300)
     const requests = path.join(scratch, 'stub-requests.jsonl')
     expect(await readFile(requests, 'utf8')).not.toContain('turn/steer')
 

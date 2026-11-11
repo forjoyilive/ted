@@ -8,7 +8,7 @@ import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
 import type { CheckSettings } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
-import { type CommandSandbox, runTaskCommand } from './command.ts'
+import { type CommandLaunch, runTaskCommand } from './command.ts'
 import { durationMs } from './worktree.ts'
 
 export const defaultCheckTimeout = '10m'
@@ -32,6 +32,10 @@ export interface CheckRunnerResult {
   outcome: 'passed' | 'failed' | 'interrupted'
   failed?: { position: number; check: PlannedCheck; state: CheckState; exitCode?: number }
   notFound: string[]
+}
+
+export function touchesSettings(files: readonly string[] | undefined): boolean {
+  return files?.some((f) => f.startsWith('.ted/')) === true
 }
 
 export async function planChecks(input: {
@@ -69,8 +73,11 @@ export async function planChecks(input: {
         : { check, cwd: repo.worktree, env: repo.env }
     })
   const primary = input.repos.find((r) => r.name === input.primary)
-  const touchesSettings = changes.get(input.primary)?.some((f) => f.startsWith('.ted/')) === true
-  if (primary && touchesSettings && (input.only === undefined || input.only === tedSettingsCheck)) {
+  if (
+    primary &&
+    touchesSettings(changes.get(input.primary)) &&
+    (input.only === undefined || input.only === tedSettingsCheck)
+  ) {
     planned.push({
       check: {
         name: tedSettingsCheck,
@@ -91,8 +98,9 @@ export async function runChecks(input: {
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
-  sandbox?: CommandSandbox
+  prepareLaunch: () => Promise<CommandLaunch>
   signal?: AbortSignal
+  lowPriority: boolean
   onStart: (position: number) => void
   onFinish: (
     position: number,
@@ -116,8 +124,9 @@ export async function runChecks(input: {
             env: checkEnv(input.taskDisplayId, env ?? {}, input.env),
             log,
             shell: [loginShell(input.env), '-lc'],
+            lowPriority: input.lowPriority,
             ...(input.signal !== undefined && { signal: input.signal }),
-            ...(input.sandbox !== undefined && { sandbox: input.sandbox }),
+            prepareLaunch: input.prepareLaunch,
           })
     if (result.outcome === 'interrupted') return { outcome: 'interrupted', notFound }
     const state: CheckState = result.outcome

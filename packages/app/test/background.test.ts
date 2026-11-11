@@ -207,6 +207,13 @@ describe('the app menu holds every menu-bar item', () => {
 describe('quitting', () => {
   const working = activity({ working: 1, active: 2 })
 
+  test('scheduled Tasks count as background work and explain why TED should keep running', () => {
+    const pending = activity({ scheduledTasks: 2 })
+    expect(quitPlan(pending, 'ask')).toBe('ask')
+    expect(quitDialog(pending).message).toContain('2 Tasks are scheduled to start')
+    expect(quitPlan(pending, 'stop')).toBe('stop')
+  })
+
   test('with nothing running, Quit ends TED without asking', () => {
     expect(quitPlan(noActivity, 'ask')).toBe('stop')
     expect(quitPlan(noActivity, 'keep-running')).toBe('stop')
@@ -223,7 +230,7 @@ describe('quitting', () => {
     expect(quitDialog(working)).toEqual({
       title: 'Quit TED?',
       message: '2 Runs are still going. Keep TED running in the background so they finish?',
-      buttons: ['Keep running', 'Stop them and quit', 'Cancel'],
+      buttons: ['Keep running in the background', 'Stop them and quit', 'Cancel'],
       defaultId: 0,
       cancelId: 2,
       checkboxLabel: 'Don’t ask again',

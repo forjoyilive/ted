@@ -58,20 +58,32 @@ test('automatic Backlog starting disables during save and keeps its value on err
   expect(toggle.getAttribute('aria-checked')).toBe('false')
 })
 
-test('Workflow, Permissions and notes collect in one Save and require Bypass confirmation', async () => {
+test('Workflow and notes stay staged while confirmed permissions save locally', async () => {
+  let permissions: 'auto' | 'bypass' = 'auto'
   const save = vi.fn(() => ({
     merged: true,
     pullRequest: { number: 1, url: 'https://github.com/acme/widgets/pull/1' },
   }))
   const api = open({
+    factorySettings: () => ({ ...settingsView(), permissions }),
+    setFactoryPermissions: (_id, mode) => {
+      if (mode !== 'auto' && mode !== 'bypass') throw new Error('Unexpected permission mode')
+      permissions = mode
+      return { mode }
+    },
     previewFactorySettings: () => ({
       valid: true,
       sideEffects: [],
-      turnsOnBypass: true,
+      turnsOnBypass: false,
       problems: [],
       files: [
         { path: '.ted/notes.md', before: '', after: '# Notebook\n', lines: [] },
-        { path: '.ted/workflow.yaml', before: '', after: 'permissions: bypass', lines: [] },
+        {
+          path: '.ted/workflow.yaml',
+          before: '',
+          after: 'stages: {design: {gate: false}}',
+          lines: [],
+        },
       ],
     }),
     saveFactorySettings: save,
@@ -85,28 +97,34 @@ test('Workflow, Permissions and notes collect in one Save and require Bypass con
   expect(
     (screen.getByRole('textbox', { name: 'Typecheck command' }) as HTMLInputElement).value,
   ).toBe('npm run typecheck')
-  await u.click(screen.getByRole('radio', { name: /^Bypass/ }))
+  await u.click(screen.getByRole('button', { name: 'Enable Bypass…' }))
+  const confirmation = screen.getByRole('dialog', { name: 'Enable Bypass on this computer?' })
+  const enable = within(confirmation).getByRole('button', { name: 'Enable Bypass' })
+  expect(enable.hasAttribute('disabled')).toBe(true)
+  await u.click(within(confirmation).getByRole('checkbox'))
+  await u.click(enable)
+  expect(api.request).toHaveBeenCalledWith('setFactoryPermissions', 'f1', 'bypass', true)
+  expect(save).not.toHaveBeenCalled()
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
   await u.type(screen.getByRole('textbox', { name: 'Factory notes' }), '# Notebook')
-  expect(screen.getByText('3 unsaved changes to 2 files in .ted/')).toBeTruthy()
+  expect(screen.getByText('2 unsaved changes to 2 files in .ted/')).toBeTruthy()
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
   for (const name of ['Changes to .ted/notes.md', 'Changes to .ted/workflow.yaml'])
     expect(within(dialog).getByRole('region', { name })).toBeTruthy()
   const button = within(dialog).getByRole('button', { name: 'Save and merge' }) as HTMLButtonElement
-  expect(button.disabled).toBe(true)
-  await u.click(within(dialog).getByRole('checkbox', { name: 'Turn on Bypass for widgets' }))
+  expect(within(dialog).queryByRole('checkbox', { name: /Bypass/ })).toBeNull()
   expect(button.disabled).toBe(false)
   await u.click(button)
   const changes = {
     repos: [{ was: 'widgets', repo: 'acme/widgets', name: 'widgets', env: [], copy: [], apps: [] }],
     stages: { design: { gate: false } },
-    permissions: 'bypass',
     notes: '# Notebook',
   }
   expect(api.request).toHaveBeenCalledWith('previewFactorySettings', 'f1', changes)
   expect(api.request).toHaveBeenCalledWith('saveFactorySettings', 'f1', {
     changes,
-    confirmBypass: true,
     version: 'v1',
     mode: 'merge',
   })

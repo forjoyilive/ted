@@ -9,7 +9,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest
 import { removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -63,9 +63,8 @@ async function launchApp(): Promise<Page> {
       TED_FIX_LOG: fixLog,
     },
   })
-  const window = await firstWindow(app)
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await window.getByRole('navigation', { name: 'Sidebar' }).waitFor()
   return window
 }
 

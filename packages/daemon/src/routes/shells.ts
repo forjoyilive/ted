@@ -1,52 +1,21 @@
 import {
-  maxShellInputChars,
-  type OpenInEditorRequest,
-  type ShellSize,
-  shellSizeLimits,
+  parseOpenInEditorRequest,
+  parseShellChange,
+  parseShellInputRequest,
+  parseShellSize,
+  parseShellWorkspaceRequest,
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
 import type { Caller } from '../tasks/tasks.ts'
-import { type Route, readJson, readOptionalJson } from './route.ts'
+import { jsonRoute, type Route } from './route.ts'
 
-const shellPath = (rest: string) => new RegExp(`^/tasks/([^/]+)/repos/([^/]+)/shell${rest}$`)
+const shellPath = (rest: string) =>
+  new RegExp(`^/tasks/([^/]+)/repos/([^/]+)/shell(?:/panes/([^/]+))?${rest}$`)
+
+const workspacePath = (rest: string) => new RegExp(`^/tasks/([^/]+)/repos/([^/]+)/shells${rest}$`)
 
 function appOnly(caller: Caller): void {
   if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can do this')
-}
-
-function whole(name: string, value: unknown, min: number, max: number): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
-    throw new HttpError(400, `${name} must be a whole number from ${min} to ${max}`)
-  }
-  return value
-}
-
-function size(body: unknown): ShellSize {
-  const given = (body ?? {}) as Partial<Record<keyof ShellSize, unknown>>
-  const { min, max } = shellSizeLimits
-  return { cols: whole('cols', given.cols, min, max), rows: whole('rows', given.rows, min, max) }
-}
-
-const maxPosition = 10_000_000
-
-function editorRequest(body: unknown): OpenInEditorRequest {
-  if (body === null || body === undefined) return {}
-  if (typeof body !== 'object' || Array.isArray(body)) {
-    throw new HttpError(400, 'body must be an object')
-  }
-  const given = body as Record<string, unknown>
-  if (given.file === undefined) {
-    if (given.line !== undefined || given.column !== undefined) {
-      throw new HttpError(400, 'line and column need a file')
-    }
-    return {}
-  }
-  if (typeof given.file !== 'string') throw new HttpError(400, 'file must be a path')
-  return {
-    file: given.file,
-    ...(given.line !== undefined && { line: whole('line', given.line, 1, maxPosition) }),
-    ...(given.column !== undefined && { column: whole('column', given.column, 1, maxPosition) }),
-  }
 }
 
 function query(search: string): { generation: number; from: number; waitMs: number } {
@@ -65,50 +34,67 @@ function query(search: string): { generation: number; from: number; waitMs: numb
 
 export const shellRoutes: Route[] = [
   {
+    method: 'GET',
+    path: workspacePath(''),
+    async handle({ params: [ref = '', repo = ''], caller }, { shells }) {
+      appOnly(caller)
+      return [200, await shells.workspace(ref, repo)]
+    },
+  },
+  jsonRoute(parseShellWorkspaceRequest, {
+    method: 'POST',
+    path: workspacePath(''),
+    async handle({ body, params: [ref = '', repo = ''] }, { shells }) {
+      return [200, await shells.workspace(ref, repo, body, body.create === true)]
+    },
+  }),
+  jsonRoute(parseShellChange, {
+    method: 'POST',
+    path: workspacePath('/change'),
+    async handle({ body, params: [ref = '', repo = ''] }, { shells }) {
+      return [200, await shells.change(ref, repo, body)]
+    },
+  }),
+  jsonRoute(parseShellSize, {
     method: 'POST',
     path: shellPath(''),
-    async handle({ req, params: [ref = '', repo = ''] }, { shells }) {
-      return [200, await shells.open(ref, repo, size(await readJson(req)))]
+    async handle({ body, params: [ref = '', repo = '', id] }, { shells }) {
+      return [200, await shells.open(ref, repo, body, id || undefined)]
     },
-  },
-  {
+  }),
+  jsonRoute(parseShellSize, {
     method: 'POST',
     path: shellPath('/restart'),
-    async handle({ req, params: [ref = '', repo = ''] }, { shells }) {
-      return [200, await shells.restart(ref, repo, size(await readJson(req)))]
+    async handle({ body, params: [ref = '', repo = '', id] }, { shells }) {
+      return [200, await shells.restart(ref, repo, body, id || undefined)]
     },
-  },
-  {
+  }),
+  jsonRoute(parseShellInputRequest, {
     method: 'POST',
     path: shellPath('/input'),
-    async handle({ req, params: [ref = '', repo = ''] }, { shells }) {
-      const body = (await readJson(req)) as { data?: unknown } | null
-      const data = body?.data
-      if (typeof data !== 'string' || data.length === 0 || data.length > maxShellInputChars) {
-        throw new HttpError(400, `data must be text of 1 to ${maxShellInputChars} characters`)
-      }
-      await shells.write(ref, repo, data)
+    async handle({ body, params: [ref = '', repo = '', id] }, { shells }) {
+      await shells.write(ref, repo, body.data, id || undefined)
       return [200, {}]
     },
-  },
-  {
+  }),
+  jsonRoute(parseShellSize, {
     method: 'POST',
     path: shellPath('/resize'),
-    async handle({ req, params: [ref = '', repo = ''] }, { shells }) {
-      await shells.resize(ref, repo, size(await readJson(req)))
+    async handle({ body, params: [ref = '', repo = '', id] }, { shells }) {
+      await shells.resize(ref, repo, body, id || undefined)
       return [200, {}]
     },
-  },
+  }),
   {
     method: 'GET',
     path: shellPath('/output\\?(.*)'),
-    async handle({ res, params: [ref = '', repo = '', search = ''], caller }, { shells }) {
+    async handle({ res, params: [ref = '', repo = '', id, search = ''], caller }, { shells }) {
       appOnly(caller)
       const closed = new AbortController()
       const abort = () => closed.abort()
       res.on('close', abort)
       try {
-        return [200, await shells.read(ref, repo, query(search), closed.signal)]
+        return [200, await shells.read(ref, repo, query(search), closed.signal, id || undefined)]
       } finally {
         res.off('close', abort)
       }
@@ -119,14 +105,14 @@ export const shellRoutes: Route[] = [
     path: /^\/editors$/,
     handle: async (_, { editors }) => [200, await editors.found()],
   },
-  {
+  jsonRoute(parseOpenInEditorRequest, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/open-in-editor$/,
-    async handle({ req, params: [ref = '', repo = ''] }, { tasks, editors }) {
-      const request = editorRequest(await readOptionalJson(req))
-      const { worktree } = await tasks.worktreeAccess(ref, repo)
-      await editors.open({ worktree }, request)
+    async handle({ body, params: [ref = '', repo = ''] }, { tasks, editors }) {
+      const { worktree, fileScope } = await tasks.worktreeAccess(ref, repo)
+      await editors.open({ worktree, fileScope }, body)
       return [200, {}]
     },
-  },
+  }),
 ]

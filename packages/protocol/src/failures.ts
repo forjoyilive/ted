@@ -87,3 +87,8 @@ export interface ValidationObligations {
   }[]
   blockers: string[]
 }
+
+export interface AddFailureEvidenceRequest {
+  evidence: string
+  contextId?: string
+}

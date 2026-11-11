@@ -27,6 +27,7 @@ export interface CheckSettings {
 }
 
 export interface StageSettings {
+  effort?: string
   enabled?: boolean
   gate?: boolean
   max_back?: number
@@ -336,6 +337,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           continue
         }
         switch (entry.name) {
+          case 'effort':
+            if (!oneOf(node, efforts))
+              error(node, `\`${path}\` must be one of ${efforts.join(', ')}`)
+            else stage.effort = scalar(node) as string
+            break
           case 'enabled':
           case 'gate':
             if (typeof scalar(node) !== 'boolean') {

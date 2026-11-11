@@ -1,6 +1,7 @@
 import type {
   AutomationHit,
   CommentHit,
+  ConversationHit,
   Factory,
   FactoryHit,
   PlanHit,
@@ -15,6 +16,7 @@ import { stageName } from '../list-view.ts'
 import { ago } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { factoryName } from '../views/TaskViews.tsx'
+import { ConversationSearchView } from './ConversationSearchView.tsx'
 import { SearchIcon } from './icons.tsx'
 import styles from './SearchPalette.module.css'
 
@@ -169,6 +171,7 @@ export function SearchPalette({
   const input = useRef<HTMLInputElement>(null)
   const listId = useId()
   const [query, setQuery] = useState('')
+  const [conversation, setConversation] = useState<ConversationHit>()
   const [results, setResults] = useState<SearchResults>()
   const [selected, setSelected] = useState(0)
   const [choosing, setChoosing] = useState<Command | undefined>(chosen)
@@ -199,6 +202,11 @@ export function SearchPalette({
       clearTimeout(timer)
     }
   }, [query, factoryId, choosing])
+
+  function backToResults() {
+    setConversation(undefined)
+    requestAnimationFrame(() => input.current?.focus())
+  }
 
   const terms = searchTerms(query)
   const items: Item[] = []
@@ -297,6 +305,28 @@ export function SearchPalette({
         run: () => onOpenFactory(hit.factoryId),
       })
     }
+    for (const hit of found?.conversations ?? []) {
+      items.push({
+        key: `conversation:${hit.runId}:${hit.itemId}`,
+        group: 'Conversations',
+        label: `${hit.ref} ${hit.snippet}`,
+        content: (
+          <>
+            <span className={styles.ref}>{hit.ref}</span>
+            <span className={styles.main}>
+              <span className={styles.quote}>{`“${hit.snippet}”`}</span>
+              <span className={styles.byline}>
+                {`${factoryName(context.factories, hit.factoryId)} · ${hit.title} · ${hit.runName} · ${hit.kind === 'human' ? 'You' : hit.kind === 'tool' ? 'Tool' : 'Agent message'} · ${ago(hit.at, now)}`}
+              </span>
+            </span>
+          </>
+        ),
+        run: () => {
+          setConversation(hit)
+          return 'stay'
+        },
+      })
+    }
   }
 
   const searched = results !== undefined && results.query === query
@@ -369,11 +399,12 @@ export function SearchPalette({
   return (
     <dialog
       ref={dialog}
-      className={styles.palette}
+      className={`${styles.palette} ${conversation ? styles.viewer : ''}`}
       aria-label="Search and commands"
       onCancel={(event) => {
         event.preventDefault()
-        if (choosing && !chosen) {
+        if (conversation) backToResults()
+        else if (choosing && !chosen) {
           setChoosing(undefined)
           setQuery('')
           setSelected(0)
@@ -383,77 +414,87 @@ export function SearchPalette({
         if (event.target === dialog.current) onClose()
       }}
     >
-      <div className={styles.inputRow}>
-        <SearchIcon className={styles.icon} />
-        {choosing && <span className={styles.crumb}>{choosing.label.replace(/…$/, '')}</span>}
-        <input
-          ref={input}
-          className={styles.input}
-          role="combobox"
-          aria-expanded
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={items.length > 0 ? optionId(active) : undefined}
-          aria-label={choosing ? choosing.label : 'Search or run a command'}
-          placeholder={choosing ? 'Choose…' : 'Search Tasks, Comments and commands'}
-          value={query}
-          spellCheck={false}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setSelected(0)
-            setError(undefined)
-          }}
-          onKeyDown={onKeyDown}
+      {conversation ? (
+        <ConversationSearchView
+          key={`${conversation.runId}:${conversation.itemId}`}
+          hit={conversation}
+          onBack={backToResults}
         />
-        {!choosing && <span className={styles.scope}>All Factories</span>}
-      </div>
-      {nothing && <p className={styles.none}>{`No results for ‘${query.trim()}’`}</p>}
-      {choosing && items.length === 0 && <p className={styles.none}>No matches</p>}
-      {error !== undefined && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
+      ) : (
+        <>
+          <div className={styles.inputRow}>
+            <SearchIcon className={styles.icon} />
+            {choosing && <span className={styles.crumb}>{choosing.label.replace(/…$/, '')}</span>}
+            <input
+              ref={input}
+              className={styles.input}
+              role="combobox"
+              aria-expanded
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={items.length > 0 ? optionId(active) : undefined}
+              aria-label={choosing ? choosing.label : 'Search or run a command'}
+              placeholder={choosing ? 'Choose…' : 'Search Tasks, Conversations and commands'}
+              value={query}
+              spellCheck={false}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setSelected(0)
+                setError(undefined)
+              }}
+              onKeyDown={onKeyDown}
+            />
+            {!choosing && <span className={styles.scope}>All Factories</span>}
+          </div>
+          {nothing && <p className={styles.none}>{`No results for ‘${query.trim()}’`}</p>}
+          {choosing && items.length === 0 && <p className={styles.none}>No matches</p>}
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div id={listId} role="listbox" aria-label="Results" className={styles.list}>
+            {groups.map((group) => {
+              const options = group.items.map(({ item, index }) => (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  key={item.key}
+                  id={optionId(index)}
+                  role="option"
+                  aria-selected={index === active}
+                  aria-label={item.label}
+                  className={styles.option}
+                  onMouseMove={() => index !== active && setSelected(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => void choose(item)}
+                >
+                  {item.content}
+                  {index === active && (
+                    <span className={styles.enter} aria-hidden>
+                      ↵
+                    </span>
+                  )}
+                </button>
+              ))
+              if (group.name === '') return options
+              return (
+                <fieldset key={group.name} aria-label={group.name} className={styles.group}>
+                  <div className={styles.groupLabel} aria-hidden>
+                    {group.name}
+                  </div>
+                  {options}
+                </fieldset>
+              )
+            })}
+          </div>
+          <footer className={styles.footer}>
+            <span>↑↓ Move</span>
+            <span>↵ Open</span>
+            <span>esc Close</span>
+          </footer>
+        </>
       )}
-      <div id={listId} role="listbox" aria-label="Results" className={styles.list}>
-        {groups.map((group) => {
-          const options = group.items.map(({ item, index }) => (
-            <button
-              type="button"
-              tabIndex={-1}
-              key={item.key}
-              id={optionId(index)}
-              role="option"
-              aria-selected={index === active}
-              aria-label={item.label}
-              className={styles.option}
-              onMouseMove={() => index !== active && setSelected(index)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void choose(item)}
-            >
-              {item.content}
-              {index === active && (
-                <span className={styles.enter} aria-hidden>
-                  ↵
-                </span>
-              )}
-            </button>
-          ))
-          if (group.name === '') return options
-          return (
-            <fieldset key={group.name} aria-label={group.name} className={styles.group}>
-              <div className={styles.groupLabel} aria-hidden>
-                {group.name}
-              </div>
-              {options}
-            </fieldset>
-          )
-        })}
-      </div>
-      <footer className={styles.footer}>
-        <span>↑↓ Move</span>
-        <span>↵ Open</span>
-        <span>esc Close</span>
-      </footer>
     </dialog>
   )
 }

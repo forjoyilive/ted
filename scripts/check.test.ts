@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { failedTests, parseReport } from './check.ts'
+import { failedTests, onlyAppChanged, parseReport, parseRetries } from './check.ts'
 import {
   appendRun,
   type FailureRun,
@@ -19,6 +19,34 @@ import {
   parseHistory,
   recordFailureRun,
 } from './check-history.ts'
+
+describe('which tests a change needs', () => {
+  test('a change inside the app’s source and tests needs only the app’s tests', () => {
+    expect(onlyAppChanged(['packages/app/src/renderer/views/Board.tsx'])).toBe(true)
+    expect(
+      onlyAppChanged([
+        'packages/app/test/board-component.test.tsx',
+        'packages/app/src/main.ts',
+        'docs/spec/ted-v1-spec.md',
+        'AGENTS.md',
+      ]),
+    ).toBe(true)
+  })
+
+  test.each([
+    ['daemon code', ['packages/app/src/main.ts', 'packages/daemon/src/server.ts']],
+    ['protocol code', ['packages/app/src/main.ts', 'packages/protocol/src/task.ts']],
+    ['the CLI', ['packages/cli/src/main.ts']],
+    ['the app’s own config', ['packages/app/src/main.ts', 'packages/app/package.json']],
+    ['the repo’s config', ['packages/app/src/main.ts', 'vitest.config.ts']],
+    ['the lockfile', ['packages/app/src/main.ts', 'pnpm-lock.yaml']],
+    ['the check script', ['packages/app/src/main.ts', 'scripts/check.ts']],
+    ['docs alone', ['docs/adr/0001-workflow-needs-ted.md', 'AGENTS.md']],
+    ['nothing', []],
+  ])('a change that touches %s needs every test', (_, files) => {
+    expect(onlyAppChanged(files)).toBe(false)
+  })
+})
 
 const at = '2026-11-10T00:00:00.000Z'
 const run = (failures: string[] = [], problems: string[] = []): FailureRun => ({
@@ -93,6 +121,22 @@ describe('failure window', () => {
     expect(summary).not.toContain('test-10')
   })
 
+  test('lists tests that passed on retry apart from failures, once per run', () => {
+    const retried = { ...run(), passedOnRetry: ['flaky', 'flaky'] }
+    const runs = appendRun(appendRun([run(['broken'])], retried), retried)
+    expect(runs[2]?.passedOnRetry).toEqual(['flaky'])
+    expect(runs[2]?.ok).toBe(true)
+    expect(failureSummary(runs)).toBe(
+      [
+        '== Most frequently observed test failures (last 3 runs; 0 incomplete)',
+        '  1 run  broken',
+        '== Tests that failed, then passed on retry (last 3 runs)',
+        '  2 runs  flaky',
+      ].join('\n'),
+    )
+    expect(appendRun([], { ...run(), passedOnRetry: [] })).toEqual([run()])
+  })
+
   test('shows incomplete windows even when no named failure is available', () => {
     expect(failureSummary([run([], ['electron: missing report'])])).toContain('1 incomplete')
     expect(failureSummary([run([], ['electron: missing report'])])).toContain(
@@ -123,6 +167,27 @@ describe('history persistence', () => {
       expect(parseHistory(readFileSync(file, 'utf8'))).toEqual([run()])
     },
   )
+
+  test('reads history written before retries were recorded, and history with them', () => {
+    const file = historyFile()
+    writeFileSync(file, JSON.stringify({ version: 1, runs: [run(['old'])] }))
+    recordFailureRun(file, { ...run(), passedOnRetry: ['flaky'] }, () => {})
+    expect(parseHistory(readFileSync(file, 'utf8'))).toEqual([
+      run(['old']),
+      { ...run(), passedOnRetry: ['flaky'] },
+    ])
+    expect(() =>
+      parseHistory(JSON.stringify({ version: 1, runs: [{ ...run(), passedOnRetry: [7] }] })),
+    ).toThrow()
+  })
+
+  test('reads a retry report and rejects a malformed one', () => {
+    expect(parseRetries('{"passedOnRetry":["a > b"]}')).toEqual(['a > b'])
+    expect(parseRetries('{"passedOnRetry":[]}')).toEqual([])
+    for (const text of ['', '{', '{}', '{"passedOnRetry":[1]}', '[]']) {
+      expect(parseRetries(text)).toBeUndefined()
+    }
+  })
 
   test('rejects invalid fields and caps loaded history', () => {
     expect(() =>
@@ -299,6 +364,7 @@ describe('project reports', () => {
 describe('check runner integration with stub processes', () => {
   test.each([
     'passed',
+    'retried',
     'failed',
     'missing',
     'malformed',
@@ -408,6 +474,10 @@ describe('check runner integration with stub processes', () => {
           const project = args[args.indexOf('--project') + 1]
           const file = args[args.indexOf('--outputFile.json') + 1]
           const omit = project === 'electron' && ${JSON.stringify(mode === 'missing')}
+          if (${JSON.stringify(mode === 'retried')}) {
+            const retried = project === 'electron' ? ['packages/app/test/a.test.ts > opens'] : []
+            fs.writeFileSync(process.env.TED_RETRY_REPORT, JSON.stringify({ passedOnRetry: retried }))
+          }
           if (!omit) fs.writeFileSync(file, project === 'node' ? ${JSON.stringify(mode === 'malformed' ? '{' : JSON.stringify(nodeReport))} : ${JSON.stringify(mode === 'malformed' ? '{' : JSON.stringify(value))})
           console.log(' Test Files 1 ' + ${JSON.stringify(failed ? 'failed' : 'passed')})
           process.exit(project === 'node' ? ${nodeReport.success === false ? 1 : 0} : ${failed ? 1 : 0})
@@ -425,7 +495,7 @@ describe('check runner integration with stub processes', () => {
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(0)
     const output = result.stdout
-    expect(output).toContain(`RESULT=${mode === 'passed'}`)
+    expect(output).toContain(`RESULT=${mode === 'passed' || mode === 'retried'}`)
     if (mode.startsWith('timing-error')) {
       expect(result.stderr).toContain('Could not save test timings')
       expect(result.stderr).toContain('Timing reporting')
@@ -437,14 +507,24 @@ describe('check runner integration with stub processes', () => {
     if (mode === 'write-error') return
     const runs = parseHistory(readFileSync(path.join(cache, 'ted-test-failures.json'), 'utf8'))
     expect(runs).toHaveLength(1)
-    expect(runs[0]?.ok).toBe(mode === 'passed')
+    expect(runs[0]?.ok).toBe(mode === 'passed' || mode === 'retried')
+    expect(commands).toContain('retry-reporter.ts')
+    if (mode === 'retried') {
+      expect(runs[0]?.passedOnRetry).toEqual(['packages/app/test/a.test.ts > opens'])
+      expect(output).toContain('↻ passed on retry: packages/app/test/a.test.ts > opens')
+      expect(output).toContain('Tests that failed, then passed on retry (last 1 runs)')
+      expect(result.stderr).not.toContain('no retry report')
+    } else {
+      expect(runs[0]?.passedOnRetry).toBeUndefined()
+      expect(result.stderr).toContain('no retry report')
+    }
     expect(output).toContain('Most frequently observed test failures (last 1 runs;')
     if (failed) {
       expect(runs[0]?.failures).toHaveLength(1)
       expect(output).toContain('× ')
       if (!mode.startsWith('timing-error')) expect(output).toContain('Slowest test files')
     }
-    if (!['passed', 'failed'].includes(mode) && !mode.startsWith('timing-error')) {
+    if (!['passed', 'retried', 'failed'].includes(mode) && !mode.startsWith('timing-error')) {
       expect(runs[0]?.problems.length).toBeGreaterThan(0)
       expect(output).toContain('1 incomplete')
     }

@@ -448,7 +448,7 @@ export function createFailureCases(options: {
           .find((v) => v.decisions.some((d) => d.commentId === commentId))
       )
     },
-    async resolve(task: Task, id: string, request: ResolveFailureRequest) {
+    async resolve(task: Task, id: string, request: ResolveFailureRequest, sendDrafts = true) {
       await obligations(task)
       pendingDecision(task, id, request.requestId)
       const reason = failureText(request.reason?.trim() ?? '')
@@ -491,7 +491,12 @@ export function createFailureCases(options: {
           text: reason,
           at,
         }
-        store.resolveFailure(next, request.requestId, answer, options.drafts(task.id))
+        store.resolveFailure(
+          next,
+          request.requestId,
+          answer,
+          sendDrafts ? options.drafts(task.id) : [],
+        )
         await store.persisted()
         await options.tell(task, store.getComment(request.requestId) as Comment)
         return next

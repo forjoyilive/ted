@@ -64,6 +64,9 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ tedWorking: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ settingUp: true }))).toEqual({ kind: 'working' })
     expect(taskActivity(at({ settingUp: true }))).toBe('Setting up the worktree')
+    expect(taskActivity(at({ tedWorking: true, checksWaiting: { place: 2 } }))).toBe(
+      'Waiting to run Checks · 2nd',
+    )
   })
 
   test('an open request or a Run waiting on the human makes it Waiting on you', () => {
@@ -109,6 +112,14 @@ describe('taskStatus', () => {
       kind: 'queued',
       hold: 'disk full',
     })
+    expect(taskStatus(at({ stage: 'intake', queue: { place: 2 }, heldForLoad: true }))).toEqual({
+      kind: 'queued',
+      hold: 'this computer is busy',
+    })
+    expect(
+      taskStatus(at({ stage: 'intake', queue: { hold: 'disk full' }, heldForLoad: true })),
+    ).toEqual({ kind: 'queued', hold: 'disk full' })
+    expect(taskStatus(at({ runs: ['working'], heldForLoad: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ stage: 'merge', github: 'review' }))).toEqual({
       kind: 'waiting-for-github',
       on: 'review',
@@ -173,4 +184,16 @@ describe('taskActivity', () => {
     expect(taskMarkers(facts, taskStatus(facts))).toEqual([{ kind: 'blocked-by', by: 'NB-41' }])
     expect(taskActivity(facts)).toBeUndefined()
   })
+})
+
+test('a snoozed Backlog Task carries its schedule alongside blockers without inventing a Stage', () => {
+  const until = '2099-11-11T09:00:00.000Z'
+  const facts = at({ stage: 'backlog', snoozedUntil: until, blockedBy: ['NB-2'] })
+  expect(taskStatus(facts)).toBeUndefined()
+  expect(taskMarkers(facts, undefined)).toEqual([
+    { kind: 'snoozed', until },
+    { kind: 'blocked-by', by: 'NB-2' },
+  ])
+  expect(taskActivity(at({ stage: 'backlog', snoozedUntil: until }))).toBe('Scheduled to start')
+  expect(taskMarkers({ ...facts, archived: true }, undefined)).toEqual([])
 })

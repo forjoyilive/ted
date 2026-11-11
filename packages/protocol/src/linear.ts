@@ -129,3 +129,12 @@ export function isLinearIntakeScope(value: unknown): value is LinearIntakeScope 
     )
   )
 }
+
+export interface AllowLinearTeamRequest {
+  factoryId: string
+  team: string
+}
+
+export interface SetFactoryLinearIntakeRequest {
+  scope: LinearIntakeScope | null
+}

@@ -12,6 +12,7 @@ import type { Coordinators } from './coordinators/coordinators.ts'
 import { RequestError } from './errors.ts'
 import type { Factories } from './factory-setup.ts'
 import type { Plans } from './plans/plans.ts'
+import type { SideChats } from './side-chats/side-chats.ts'
 import type { Storage } from './storage.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import type { Tasks } from './tasks/tasks.ts'
@@ -27,6 +28,7 @@ export function createFactoryRemovals(options: {
   banners: Banners
   tasks: Pick<Tasks, 'removeFactoryTasks'>
   automations: Pick<Automations, 'removeFactory'>
+  sideChats?: Pick<SideChats, 'removeFactory'>
   coordinators?: Pick<Coordinators, 'removeFactory' | 'holdFactoryRemoval'>
   plans: Pick<Plans, 'removeFactory'>
   factories: Pick<Factories, 'forget'>
@@ -83,6 +85,7 @@ export function createFactoryRemovals(options: {
       const releaseCoordinator = options.coordinators?.holdFactoryRemoval(factory.id)
       try {
         await options.factories.forget(factory.id)
+        await options.sideChats?.removeFactory(factory.id)
         await options.automations.removeFactory(factory.id)
         await options.coordinators?.removeFactory(factory.id)
         await options.plans.removeFactory(factory.id)
@@ -97,8 +100,10 @@ export function createFactoryRemovals(options: {
         const { [factory.id]: __, ...declined } = settings.linearSyncDeclined
         const { [factory.id]: ___, ...outside } = settings.appsOutsideSandbox
         const { [factory.id]: removedScope, ...scopes } = settings.linearIntakeScopes
+        const { [factory.id]: permissionsRemoved, ...permissions } = settings.factoryPermissions
         store.updateSettings({
           linearIntakeScopes: scopes,
+          factoryPermissions: permissions,
           linearSyncTeams: teams,
           linearSyncDeclined: declined,
           appsOutsideSandbox: outside,

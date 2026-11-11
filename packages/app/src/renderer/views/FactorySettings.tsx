@@ -20,6 +20,7 @@ import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
 import {
   editedFields,
@@ -244,6 +245,7 @@ export function FactorySettings({
         <div className={styles.scroller} ref={scroller}>
           <div className={styles.column}>
             {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
+            {!view && !loadError && <Skeleton shape="settings" label="Loading Factory settings…" />}
             {view?.invalid && <InvalidNotice invalid={view.invalid} />}
             <GeneralSection factory={factory} />
             <LinearIntakeSection key={factory.id} factoryId={factory.id} />

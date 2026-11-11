@@ -58,6 +58,8 @@ export interface CheckInput {
 }
 
 export interface StageSettingsInput {
+  effort?: Effort | null
+
   enabled?: boolean
   gate?: boolean
   maxBack?: number
@@ -77,10 +79,15 @@ export interface FactorySettingsChanges {
 }
 
 export interface StageRowView {
+  effort?: Effort | null
+  inheritedEffort?: Effort
+  inheritedEffortFrom?: LayerKind
+
   id: StageId
   inOrder: boolean
   enabled: boolean
   gate: boolean
+  overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
   from: LayerKind
@@ -123,6 +130,7 @@ export interface CheckTry {
   name: string
   repo: string
   state: CheckTryState
+  waiting?: boolean
   exitCode?: number
   setupFailed?: boolean
   durationMs?: number
@@ -185,6 +193,7 @@ export interface FactorySettingsView {
   tries: CheckTry[]
   agents: AgentRowView[]
   permissions: PermissionMode
+  repoPermissions?: PermissionMode
   maxWorkingRuns?: number
   machineMaxWorkingRuns: number
   notes: string
@@ -270,10 +279,15 @@ export interface LibraryChanges {
 }
 
 export interface LibraryStageRow {
+  effort?: Effort | null
+  inheritedEffort?: Effort
+  inheritedEffortFrom?: LayerKind
+
   id: StageId
   inOrder: boolean
   enabled: boolean
   gate: boolean
+  overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
   from: LayerKind

@@ -231,15 +231,6 @@
   color: var(--text-secondary);
 }
 
-.answeredCommand {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-13);
-  line-height: var(--leading-body);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .quote {
   margin: 0 0 0 20px;
   color: var(--text-secondary);
@@ -531,4 +522,9 @@
 
 .removed {
   color: var(--diff-removed-count);
+}
+
+.reviewFiles {
+  max-height: 240px;
+  overflow-y: auto;
 }
