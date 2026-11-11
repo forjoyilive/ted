@@ -62,7 +62,7 @@ test('Task details sends Priority and human Clarify depth changes', async () => 
   await u.selectOptions(screen.getByLabelText('Priority'), 'high')
   await u.selectOptions(screen.getByLabelText('Clarify depth'), 'few')
   expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'high')
-  expect(api.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', 'few')
+  expect(api.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', { depth: 'few' })
   expect(screen.queryByRole('list', { name: 'Repos' })).toBeNull()
 })
 
@@ -170,7 +170,7 @@ test('Task details displays saved Priority, menu depth attribution and a success
     return current
   })
   a.handle('setClarifyDepth', async (_id, depth) => {
-    expect(depth).toBe('few')
+    expect(depth).toEqual({ depth: 'few' })
     current = { ...current, clarifyDepth: 'few', clarifyDepthBy: 'human' }
     a.state.tasks = [current, other]
     a.emit({ type: 'task-updated', task: current })
@@ -206,6 +206,6 @@ test('Task details displays saved Priority, menu depth attribution and a success
   await u.click(screen.getByRole('option', { name: /NB-2/ }))
   expect(within(details).getByText('Offline editing')).toBeTruthy()
   expect(screen.getAllByText(/Starts when NB-2 merges/)[0]).toBeTruthy()
-  expect(a.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', 'few')
+  expect(a.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', { depth: 'few' })
   expect(a.request).toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-2')
 })

@@ -255,7 +255,7 @@ export function taskCommands(task: Task): Command[] {
           id: depth,
           label: clarifyDepthLabels[depth],
           checked: task.clarifyDepth === depth,
-          run: () => ted.setClarifyDepth(task.id, depth),
+          run: () => ted.setClarifyDepth(task.id, { depth: depth }),
         })),
     })
   }

@@ -101,7 +101,7 @@ function LogBody({ taskId, shown }: { taskId: string; shown: ShownApp }) {
     let stopped = false
     const load = () =>
       ted
-        .appLog(taskId, shown.repo, shown.name)
+        .appLog(taskId, { repo: shown.repo, name: shown.name })
         .then((next) => {
           if (stopped) return
           setError(undefined)

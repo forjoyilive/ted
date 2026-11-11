@@ -10,49 +10,19 @@ import {
   superviseDaemon,
   watchExitWith,
 } from '@ted/daemon/launch'
-import type { CoordinatorMessage, NewTaskDraft } from '@ted/protocol'
 import {
   type Activity,
-  type AgentKind,
-  type AgentStageId,
-  type AnswerAutomationRequest,
-  type AnswerRequest,
-  type AttachmentRef,
-  type AutomationSchedule,
-  agentKinds,
   type Banner,
-  type BannerActionInput,
-  blockedChoices,
-  type CheckRepoRequest,
-  type CheckTryRequest,
-  type ClarifyDepth,
-  type CreateAutomationRequest,
-  type CreateFactoryRequest,
-  type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
-  DaemonRequestError,
-  type DraftAutomationPromptRequest,
-  type DraftLineCommentRequest,
   defaultMachineSettings,
   downloadUrl,
-  type EditAutomationRequest,
-  type EditTaskRequest,
   edition,
-  type FactorySettingsChanges,
   isLoopbackUrl,
-  type LibraryChanges,
   linearKeyPage,
   type MachineSettings,
-  type MoveTaskRequest,
   noActivity,
-  type Priority,
   parseLinearUrl,
-  type RestoreBackupRequest,
-  type RunFixRequest,
-  type SaveLibraryRequest,
-  type SaveSettingsRequest,
-  type StartPlanRequest,
   tedEnv,
   tedHome,
   tedPaths,
@@ -94,7 +64,10 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
-import { type BrowserBounds, createTaskBrowsers } from './browser.ts'
+import { createTaskBrowsers } from './browser.ts'
+import type { CustomHandlers, CustomRequests } from './custom-requests.ts'
+import { getAutomation, taskBrief } from './daemon-adapters.ts'
+import { forwardDaemonRequest, isForwardedRequest } from './daemon-requests.ts'
 import { saveFactoryExport } from './export.ts'
 import { openIntegrationInstructions } from './integration-instructions.ts'
 import {
@@ -135,147 +108,13 @@ const githubLink =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
-function attachmentRefs(value: unknown): AttachmentRef[] {
-  if (!Array.isArray(value)) return []
-  return value.map((item: unknown) => {
-    const { hash, name, mediaType } = (item ?? {}) as Record<string, unknown>
-    return { hash: String(hash), name: String(name), mediaType: String(mediaType) }
-  })
-}
-
-function shellSize(value: unknown): { cols: number; rows: number } {
-  const { cols, rows } = (value ?? {}) as Record<string, unknown>
-  return { cols: Number(cols), rows: Number(rows) }
-}
-
-const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
-  getCoordinator: (client, id) => client.coordinator(String(id)),
-  getCoordinatorChat: (client, id) => client.coordinatorChat(String(id)),
-  coordinatorStatuses: (client) => client.coordinatorStatuses(),
-  messageCoordinator: (client, id, input) =>
-    client.messageCoordinator(String(id), input as CoordinatorMessage),
-  stopCoordinator: (client, id) => client.stopCoordinator(String(id)),
-  retryCoordinator: (client, id) => client.retryCoordinator(String(id)),
-  resetCoordinator: (client, id) => client.resetCoordinator(String(id)),
-  listTasks: (client) => client.listTasks(),
-  listComments: (client, taskId) => client.listComments(String(taskId)),
-  postComment: (client, taskId, body, attachments) =>
-    client.postComment(String(taskId), {
-      body: String(body),
-      attachments: attachmentRefs(attachments),
-    }),
-  cancelMerge: (client, taskId, comment, attachments) =>
-    client.cancelMerge(String(taskId), String(comment), attachmentRefs(attachments)),
-  markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
-  listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
-  listInbox: (client) => client.listInbox(),
-  listWaiting: (client) => client.listWaiting(),
-  listPlans: (client, factory) =>
-    client.listPlans(typeof factory === 'string' ? factory : undefined),
-  getPlan: (client, id) => client.getPlan(String(id)),
-  startPlan: (client, input) => client.startPlan(input as StartPlanRequest),
-  renamePlan: (client, id, title) => client.renamePlan(String(id), String(title)),
-  stopPlan: (client, id) => client.stopPlan(String(id)),
-  retryPlan: (client, id) => client.retryPlan(String(id)),
-  deletePlan: (client, id) => client.deletePlan(String(id)),
-  planInbox: (client) => client.planInbox(),
-  answerPlanRequest: (client, id, answer) =>
-    client.answerPlanRequest(String(id), answer as AnswerRequest),
-  listAnswered: (client) => client.listAnswered(),
-  answerRequest: (client, commentId, answer) =>
-    client.answerRequest(String(commentId), answer as AnswerRequest),
-  talkThrough: (client, commentId) => client.talkThrough(String(commentId)),
-  doneTalking: (client, commentId) => client.doneTalking(String(commentId)),
-  getRun: async (client, runId) => (await client.getRun(String(runId))).run,
-  getSideChat: (client, id) => client.getSideChat(String(id)),
-  openSideChat: (client, id) => client.openSideChat(String(id)),
-  sendSideChat: (client, id, text) => client.sendSideChat(String(id), String(text)),
-  stopSideChat: (client, id) => client.stopSideChat(String(id)),
-  retrySideChat: (client, id) => client.retrySideChat(String(id)),
-  getRunChat: (client, runId) => client.getRunChat(String(runId)),
-  sendRunMessage: (client, runId, text, interrupt) =>
-    client.sendRunMessage(String(runId), String(text), { interrupt: interrupt === true }),
-  interruptRun: (client, runId) => client.interruptRun(String(runId)),
-  sendQueuedMessageNow: (client, runId, messageId) =>
-    client.sendQueuedMessageNow(String(runId), String(messageId)),
-  deleteQueuedMessage: (client, runId, messageId) =>
-    client.deleteQueuedMessage(String(runId), String(messageId)),
-  restartRun: (client, runId) => client.restartRun(String(runId)),
-  stopRun: (client, runId) => client.stopRun(String(runId)),
-  listTaskRuns: (client, taskId) => client.listTaskRuns(String(taskId)),
-  openRunTab: (client, taskId, runId) => client.openRunTab(String(taskId), String(runId)),
-  closeRunTab: (client, taskId, runId) => client.closeRunTab(String(taskId), String(runId)),
-  setTaskLead: (client, taskId, lead) =>
-    client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
-  useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
-  editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
-  taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
-  taskBrief: (client, taskId) =>
-    client.getBrief(String(taskId)).catch((error: unknown) => {
-      if (error instanceof DaemonRequestError && error.status === 404) return null
-      throw error
-    }),
-  search: (client, query, factoryId) =>
-    client.search(String(query), typeof factoryId === 'string' ? factoryId : undefined),
-  taskGates: (client, taskId) => client.taskGates(String(taskId)),
-  setTaskGates: (client, taskId, request) =>
-    client.setTaskGates(String(taskId), request as Parameters<DaemonClient['setTaskGates']>[1]),
-  setClarifyDepth: (client, taskId, depth) =>
-    client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
-  listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
-  listCheckRuns: (client, taskId) => client.listCheckRuns(String(taskId)),
-  checkOutput: (client, checkRunId, position) =>
-    client.checkOutput(String(checkRunId), Number(position)),
-  listFactories: (client) => client.listFactories(),
-  createTask: (client, input) => client.createTask(input as CreateTaskRequest),
-  taskDraft: (client, factoryId) => client.taskDraft(String(factoryId)),
-  saveTaskDraft: (client, factoryId, draft) =>
-    client.saveTaskDraft(String(factoryId), draft as NewTaskDraft),
-  taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
-  factoryBoard: (client, factoryId) => client.factoryBoard(String(factoryId)),
-  setTaskSnooze: (client, taskId, until) =>
-    client.setTaskSnooze(String(taskId), until === null ? null : String(until)),
-  startTask: (client, taskId) => client.startTask(String(taskId)),
-  moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
-  stopTask: (client, taskId) => client.stopTask(String(taskId)),
-  resumeTask: (client, taskId, comment, attachments) =>
-    client.resumeTask(
-      String(taskId),
-      typeof comment === 'string' ? comment : undefined,
-      attachmentRefs(attachments),
-    ),
+const requests = {
+  taskBrief,
   openTaskSource: async (client, taskId) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const link = task?.source && parseLinearUrl(task.source.url)
     if (!link) throw new Error('This Task has no Linear issue to open')
     await shell.openExternal(link.url)
-  },
-  moveTask: (client, taskId, request) =>
-    client.moveTask(String(taskId), request as MoveTaskRequest),
-  setPriority: (client, taskId, priority) =>
-    client.setPriority(String(taskId), String(priority) as Priority),
-  archiveTask: (client, taskId, options) => {
-    const given = options as { closePullRequests?: unknown; blocked?: unknown } | undefined
-    const blocked = blockedChoices.find((c) => c === given?.blocked)
-    return client.archiveTask(String(taskId), {
-      closePullRequests: given?.closePullRequests === true,
-      ...(blocked !== undefined && { blocked }),
-    })
-  },
-  unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
-  allowLinearSync: (client, taskId) => client.allowLinearSync(String(taskId)),
-  followUpTask: (client, taskId, comment, attachments) =>
-    client.followUpTask(
-      String(taskId),
-      typeof comment === 'string' ? comment : undefined,
-      attachmentRefs(attachments),
-    ),
-  archiveDone: (client, factoryId) => client.archiveDone(String(factoryId)),
-  deleteTask: (client, taskId, options) => {
-    const blocked = blockedChoices.find(
-      (c) => c === (options as { blocked?: unknown } | undefined)?.blocked,
-    )
-    return client.deleteTask(String(taskId), { ...(blocked !== undefined && { blocked }) })
   },
   openPullRequest: async (client, taskId, repoName) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
@@ -293,108 +132,6 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     if (url === undefined || !isFigmaLink(url)) throw new Error('That design has no Figma link')
     await shell.openExternal(url)
   },
-  blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
-  unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
-  getSlots: (client) => client.getSlots(),
-  uploadAttachment: (client, name, mediaType, bytes) => {
-    if (!(bytes instanceof Uint8Array)) throw new Error('attachment bytes must be a Uint8Array')
-    return client.uploadAttachment(
-      { name: String(name), mediaType: String(mediaType) },
-      new Uint8Array(bytes),
-    )
-  },
-  readAttachment: (client, hash, name) =>
-    client.readAttachment({ hash: String(hash), name: String(name) }),
-  setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
-  shellWorkspace: (client, taskId, repo) => client.shellWorkspace(String(taskId), String(repo)),
-  openShellWorkspace: (client, taskId, repo, size, create) =>
-    client.openShellWorkspace(String(taskId), String(repo), shellSize(size), create === true),
-  changeShellWorkspace: (client, taskId, repo, change) =>
-    client.changeShellWorkspace(
-      String(taskId),
-      String(repo),
-      change as import('@ted/protocol').ShellChange,
-    ),
-  openShell: (client, taskId, repo, size, id) =>
-    client.openShell(
-      String(taskId),
-      String(repo),
-      shellSize(size),
-      typeof id === 'string' ? id : undefined,
-    ),
-  restartShell: (client, taskId, repo, size, id) =>
-    client.restartShell(
-      String(taskId),
-      String(repo),
-      shellSize(size),
-      typeof id === 'string' ? id : undefined,
-    ),
-  writeShell: (client, taskId, repo, data, id) =>
-    client.writeShell(
-      String(taskId),
-      String(repo),
-      String(data),
-      typeof id === 'string' ? id : undefined,
-    ),
-  resizeShell: (client, taskId, repo, size, id) =>
-    client.resizeShell(
-      String(taskId),
-      String(repo),
-      shellSize(size),
-      typeof id === 'string' ? id : undefined,
-    ),
-  readShell: (client, taskId, repo, query, id) => {
-    const given = (query ?? {}) as Record<string, unknown>
-    return client.readShell(
-      String(taskId),
-      String(repo),
-      {
-        generation: Number(given.generation),
-        from: Number(given.from),
-        waitMs: Number(given.waitMs ?? 0),
-      },
-      typeof id === 'string' ? id : undefined,
-    )
-  },
-  listEditors: (client) => client.listEditors(),
-  openInEditor: (client, taskId, repo, at) => {
-    const given = (at ?? {}) as Record<string, unknown>
-    return client.openInEditor(String(taskId), String(repo), {
-      ...(typeof given.snapshot === 'boolean' && { snapshot: given.snapshot }),
-      ...(typeof given.file === 'string' && { file: given.file }),
-      ...(typeof given.line === 'number' && { line: given.line }),
-      ...(typeof given.column === 'number' && { column: given.column }),
-    })
-  },
-  taskFiles: (client, taskId) => client.taskFiles(String(taskId)),
-  taskFile: (client, taskId, repo, file) =>
-    client.taskFile(String(taskId), String(repo), String(file)),
-  taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
-  fileDiffs: (client, taskId, repo, file) =>
-    client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
-  lineComments: (client, taskId) => client.lineComments(String(taskId)),
-  draftLineComment: (client, taskId, request) =>
-    client.draftLineComment(String(taskId), request as DraftLineCommentRequest),
-  editLineComment: (client, id, body) => client.editLineComment(String(id), String(body)),
-  deleteLineComment: (client, id) => client.deleteLineComment(String(id)),
-  discardLineComments: (client, taskId) => client.discardLineComments(String(taskId)),
-  sendLineComments: (client, taskId) => client.sendLineComments(String(taskId)),
-  listApps: (client, taskId) => client.listApps(String(taskId)),
-  startApp: (client, taskId, repo, name, shutDown) =>
-    client.startApp(String(taskId), {
-      repo: String(repo),
-      name: String(name),
-      ...(typeof shutDown === 'string' && { shutDown }),
-    }),
-  showApp: (client, taskId, repo, name) =>
-    client.showApp(String(taskId), { repo: String(repo), name: String(name) }),
-  simulators: (client) => client.simulators(),
-  stopApp: (client, taskId, repo, name) =>
-    client.stopApp(String(taskId), { repo: String(repo), name: String(name) }),
-  restartApp: (client, taskId, repo, name) =>
-    client.restartApp(String(taskId), { repo: String(repo), name: String(name) }),
-  appLog: (client, taskId, repo, name) =>
-    client.appLog(String(taskId), { repo: String(repo), name: String(name) }),
   openAppPreview: async (client, taskId, repo, name) => {
     const app = (await client.listApps(String(taskId))).find(
       (a) => a.repo === String(repo) && a.name === String(name),
@@ -408,10 +145,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       app: { repo: app.repo, name: app.name, browser: true },
     })
   },
-  browserCommand: (client, taskId, request) =>
-    client.browserCommand(String(taskId), request as import('@ted/protocol').BrowserRequest),
   presentBrowser: async (_client, taskId, _repo, _name, bounds) => {
-    const rect = bounds as BrowserBounds
+    const rect = bounds
     if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite))
       throw new Error('Invalid browser view')
     await taskBrowsers?.present(String(taskId), rect)
@@ -430,8 +165,6 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     }
     await shell.openExternal(url)
   },
-  setTaskRepos: (client, taskId, request) =>
-    client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
   exportFactory: (client, factoryId, format) =>
     saveFactoryExport(client, factoryId, format, async (filename, extension) => {
       const options = {
@@ -456,44 +189,6 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     return chosen.canceled ? undefined : folder
   },
   homeFolder: async () => homedir(),
-  checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
-  createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
-  retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
-  setFactoryPermissions: (client, factoryId, mode, confirmBypass) =>
-    client.setFactoryPermissions(
-      String(factoryId),
-      mode as 'auto' | 'bypass',
-      confirmBypass === true,
-    ),
-  factorySettings: (client, factoryId) => client.factorySettings(String(factoryId)),
-  previewFactorySettings: (client, factoryId, changes) =>
-    client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),
-  saveFactorySettings: (client, factoryId, request) =>
-    client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
-  library: (client) => client.library(),
-  previewLibrary: (client, changes) => client.previewLibrary(changes as LibraryChanges),
-  saveLibrary: (client, request) => client.saveLibrary(request as SaveLibraryRequest),
-  drift: (client) => client.drift(),
-  mergeInherited: (client, factoryId, stage) =>
-    client.mergeInherited(String(factoryId), stage as AgentStageId),
-  setFactoryAutoStartBacklog: (client, factoryId, enabled) => {
-    if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false')
-    return client.setFactoryAutoStartBacklog(String(factoryId), enabled)
-  },
-  renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
-  reorderFactories: (client, factoryIds) =>
-    client.reorderFactories(Array.isArray(factoryIds) ? factoryIds.map(String) : []),
-  newSetupTask: (client, factoryId) => client.newSetupTask(String(factoryId)),
-  factoryRemoval: (client, factoryId) => client.factoryRemoval(String(factoryId)),
-  removeFactory: (client, factoryId, request) => {
-    const given = request as { key?: unknown; closePullRequests?: unknown } | undefined
-    return client.removeFactory(String(factoryId), {
-      key: String(given?.key ?? ''),
-      closePullRequests: given?.closePullRequests !== false,
-    })
-  },
-  repoRemoval: (client, factoryId, repoName) =>
-    client.repoRemoval(String(factoryId), String(repoName)),
   showFactoryFolder: async (client, factoryId) => {
     const factory = (await client.listFactories()).find((f) => f.id === String(factoryId))
     const folder = factory?.localFolder
@@ -501,15 +196,6 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     const error = await shell.openPath(folder.path)
     if (error !== '') throw new Error(error)
   },
-  tryCheck: (client, factoryId, request) =>
-    client.tryCheck(String(factoryId), request as CheckTryRequest),
-  stopCheckTry: (client, factoryId, name) => client.stopCheckTry(String(factoryId), String(name)),
-  checkTryOutput: (client, factoryId, name) =>
-    client.checkTryOutput(String(factoryId), String(name)),
-  setRepoLocalFolder: (client, factoryId, repoName, folder) =>
-    client.setRepoLocalFolder(String(factoryId), String(repoName), String(folder)),
-  clearRepoLocalFolder: (client, factoryId, repoName) =>
-    client.clearRepoLocalFolder(String(factoryId), String(repoName)),
   openOnGitHub: async (_, target) => {
     const url = String(target)
     if (!githubLink.test(url)) {
@@ -517,16 +203,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     }
     await shell.openExternal(url)
   },
-  getSettings: (client) => client.getSettings(),
-  updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
-  getDataStatus: (client) => client.getDataStatus(),
-  listBackups: (client) => client.listBackups(),
-  restoreBackup: (client, name) =>
-    client.restoreBackup({ name: String(name) } satisfies RestoreBackupRequest),
   copyText: async (_, text) => clipboard.writeText(String(text)),
   downloadTed: () => shell.openExternal(downloadUrl),
-  getCommandLine: (client) => client.getCommandLine(),
-  installCommandLine: (client) => client.installCommandLine(),
   thirdPartyLicenses: async () => {
     const root = path.resolve(import.meta.dirname, '../../..')
     return readFile(path.join(root, 'THIRD_PARTY_LICENSES.txt'), 'utf8').catch(() =>
@@ -534,10 +212,6 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     )
   },
   quit: async () => app.quit(),
-  getProfile: (client) => client.getProfile(),
-  getDiagnostics: (client) => client.getDiagnostics(),
-  readDaemonLog: (client) => client.readDaemonLog(),
-  readRunOutput: (client, runId) => client.readRunOutput(String(runId)),
   copyReport: async (client) => {
     clipboard.writeText((await client.getReport()).text)
   },
@@ -547,8 +221,6 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     const shown = folder.startsWith(`${home}${path.sep}`) ? `~${folder.slice(home.length)}` : folder
     return { path: `${shown}${path.sep}`, platform: process.platform }
   },
-  getStorage: (client) => client.getStorage(),
-  removeUnusedClones: (client) => client.removeUnusedClones(),
   showBackupInFolder: async (_, name) => {
     const backup = String(name)
     if (!backupName.test(backup)) throw new Error('no such backup')
@@ -564,57 +236,42 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       ? client.getSettings()
       : client.updateSettings({ profilePicture: picture })
   },
-  listBanners: (client) => client.listBanners(),
-  dismissBanner: (client, id) => client.dismissBanner(String(id)),
-  actOnBanner: (client, id, input) =>
-    client.actOnBanner(String(id), input as BannerActionInput | undefined),
-  agentHealth: (client) => client.agentHealth(),
-  checkAgentHealth: (client) => client.checkAgentHealth(),
-  fixAgent: (client, agent) => {
-    const kind = agentKinds.find((k) => k === agent)
-    if (!kind) throw new Error('unknown agent')
-    return client.fixAgent(kind satisfies AgentKind)
-  },
-  getIntegrations: (client) => client.getIntegrations(),
-  checkIntegrations: (client) => client.checkIntegrations(),
   runFix: async (client, request) => {
-    const result = await client.runFix(request as RunFixRequest)
+    const result = await client.runFix(request)
     if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
     return result
   },
-  getLinear: (client) => client.getLinear(),
-  saveLinearKey: (client, key, inFile) =>
-    client.saveLinearKey({ key: String(key), inFile: inFile === true }),
-  testLinear: (client) => client.testLinear(),
-  removeLinearKey: (client) => client.removeLinearKey(),
-  lookupLinear: (client, url) => client.lookupLinear(String(url)),
-  allowLinearTeam: (client, factoryId, team) =>
-    client.allowLinearTeam(String(factoryId), String(team)),
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
-  listAutomations: (client, factory) =>
-    client.listAutomations(factory === undefined ? undefined : String(factory)),
-  getAutomation: (client, id) =>
-    client.getAutomation(String(id)).catch((error: unknown) => {
-      if (error instanceof DaemonRequestError && error.status === 404) return null
-      throw error
-    }),
-  draftAutomationPrompt: (client, input) =>
-    client.draftAutomationPrompt(input as DraftAutomationPromptRequest),
-  getAutomationPromptDraft: (client, id) => client.getAutomationPromptDraft(String(id)),
-  cancelAutomationPromptDraft: (client, id) => client.cancelAutomationPromptDraft(String(id)),
-  automationTemplates: (client) => client.automationTemplates(),
-  automationRequests: (client) => client.automationRequests(),
-  previewSchedule: (client, schedule) => client.previewSchedule(schedule as AutomationSchedule),
-  createAutomation: (client, input) => client.createAutomation(input as CreateAutomationRequest),
-  editAutomation: (client, id, input) =>
-    client.editAutomation(String(id), input as EditAutomationRequest),
-  setAutomationOn: (client, id, on) => client.setAutomationOn(String(id), on === true),
-  runAutomation: (client, id) => client.runAutomation(String(id)),
-  retryAutomationRun: (client, runId) => client.retryAutomationRun(String(runId)),
-  deleteAutomation: (client, id) => client.deleteAutomation(String(id)),
-  answerAutomationRequest: (client, id, answer) =>
-    client.answerAutomationRequest(String(id), answer as AnswerAutomationRequest),
-}
+  getAutomation,
+} satisfies CustomHandlers<
+  | 'taskBrief'
+  | 'openTaskSource'
+  | 'openPullRequest'
+  | 'openFigmaLink'
+  | 'openAppPreview'
+  | 'presentBrowser'
+  | 'hideBrowser'
+  | 'browserState'
+  | 'externalBrowser'
+  | 'openHostedPreview'
+  | 'exportFactory'
+  | 'chooseFolder'
+  | 'homeFolder'
+  | 'showFactoryFolder'
+  | 'openOnGitHub'
+  | 'copyText'
+  | 'downloadTed'
+  | 'thirdPartyLicenses'
+  | 'quit'
+  | 'copyReport'
+  | 'tedFolder'
+  | 'showBackupInFolder'
+  | 'showTedFolder'
+  | 'chooseProfilePicture'
+  | 'runFix'
+  | 'openLinearKeyPage'
+  | 'getAutomation'
+>
 
 const pictureSize = 256
 
@@ -1171,7 +828,7 @@ async function start(): Promise<void> {
   servePrototypes((file) => supervised.client.readAttachment(file))
   await loadStateWhenReady()
 
-  const appRequests: Record<string, () => Promise<unknown>> = {
+  const appRequests = {
     connection: async () => supervised.connection,
     loginItem: async () => {
       await loginItemWork
@@ -1200,19 +857,41 @@ async function start(): Promise<void> {
         }),
       )
     },
-  }
+  } satisfies Pick<
+    CustomRequests,
+    | 'connection'
+    | 'loginItem'
+    | 'openLoginItemsSettings'
+    | 'notificationsOff'
+    | 'openNotificationSettings'
+    | 'restartDaemon'
+    | 'updateStatus'
+    | 'checkForUpdates'
+    | 'copyCrashReport'
+    | 'restartToUpdate'
+  >
 
-  ipcMain.handle('ted:request', (event, name: string, ...args: unknown[]) => {
+  ipcMain.handle('ted:request', (event, name: unknown, ...args: unknown[]) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window?.webContents.mainFrame)
       throw new Error('Untrusted request sender')
-    const appRequest = Object.hasOwn(appRequests, name) ? appRequests[name] : undefined
+    if (typeof name !== 'string') throw new Error('unknown request')
+    const appRequest = Object.hasOwn(appRequests, name)
+      ? appRequests[name as keyof typeof appRequests]
+      : undefined
     if (appRequest) return appRequest()
-    const request = Object.hasOwn(requests, name) ? requests[name] : undefined
-    if (!request) throw new Error(`unknown request ${name}`)
+    const request = Object.hasOwn(requests, name)
+      ? requests[name as keyof typeof requests]
+      : undefined
+    const forwarded = isForwardedRequest(name)
+    if (!request && !forwarded) throw new Error(`unknown request ${name}`)
     if (supervised.connection.state !== 'connected') {
       throw new Error('TED’s background process isn’t running')
     }
-    return request(supervised.client, ...args)
+    if (forwarded) return forwardDaemonRequest(supervised.client, name, args)
+    return (request as (client: DaemonClient, ...args: unknown[]) => Promise<unknown>)(
+      supervised.client,
+      ...args,
+    )
   })
 
   if (hiddenWindow) app.dock?.hide()

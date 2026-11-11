@@ -83,11 +83,9 @@ test('inline Save stores the entered key and immediately repeats lookup', async 
   )
   await user().click(screen.getByRole('button', { name: 'Save' }))
   await screen.findByText('NOTE-212 · Search ignores accents')
-  expect(request).toHaveBeenCalledWith(
-    'saveLinearKey',
-    'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD',
-    false,
-  )
+  expect(request).toHaveBeenCalledWith('saveLinearKey', {
+    key: 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD',
+  })
   expect(request.mock.calls.filter(([name]) => name === 'lookupLinear')).toHaveLength(2)
 })
 
@@ -159,7 +157,10 @@ test('Linear source images render from attachment bytes and retain the source on
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: url } })
   const image = await screen.findByRole('img', { name: 'search results.gif' })
   expect(image.getAttribute('src')).toBe('data:image/gif;base64,R0lGODlhAQABAAAAADs=')
-  expect(api.request).toHaveBeenCalledWith('readAttachment', 'hash1', 'search results.gif')
+  expect(api.request).toHaveBeenCalledWith('readAttachment', {
+    hash: 'hash1',
+    name: 'search results.gif',
+  })
   await user().click(screen.getByRole('button', { name: 'Create' }))
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ source: url }))
 })
@@ -194,7 +195,10 @@ test('Linear key Save, masking, Test errors and Remove update the connected row'
   await screen.findByText('Connected as Nabha · Kriya Design')
   expect((screen.getByLabelText('Linear API key') as HTMLInputElement).value).toMatch(/•+ABCD$/)
   expect(screen.getByText(/stored in the macOS Keychain/)).toBeTruthy()
-  expect(api.request).toHaveBeenCalledWith('saveLinearKey', 'lin_api_fixtureABCD', false)
+  expect(api.request).toHaveBeenCalledWith('saveLinearKey', {
+    key: 'lin_api_fixtureABCD',
+    inFile: false,
+  })
   await user().click(screen.getByRole('button', { name: 'Test' }))
   await screen.findByText('Linear didn’t accept this key')
   await user().click(screen.getByRole('button', { name: 'Remove' }))
@@ -221,7 +225,10 @@ test('without a keyring, saving a Linear key requires the explicit file button',
   await user().type(screen.getByLabelText('Linear API key'), 'lin_api_fixture')
   expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
   await user().click(screen.getByRole('button', { name: 'Save in a file only you can read' }))
-  expect(api.request).toHaveBeenCalledWith('saveLinearKey', 'lin_api_fixture', true)
+  expect(api.request).toHaveBeenCalledWith('saveLinearKey', {
+    key: 'lin_api_fixture',
+    inFile: true,
+  })
   await screen.findByText('Connected as Nabha · Kriya Design')
   expect(screen.getByText(/stored in .*secrets\/linear-api-key/)).toBeTruthy()
 })

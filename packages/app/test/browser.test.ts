@@ -207,7 +207,14 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     expect(bounds.y).toBeGreaterThanOrEqual(0)
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(560)
   }
-  await panel.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await postCapture.click()
+  await expect
+    .poll(async () =>
+      (await client.listComments(task.id)).some(
+        (comment) => comment.body === 'Browser screenshot' && comment.attachments?.length === 1,
+      ),
+    )
+    .toBe(true)
   await client.editTask(task.id, { description: '' })
   await checkModalRace(app, window, new URL(running.url ?? '').href)
   await mkdir('node_modules/.cache/browser-work', { recursive: true })
