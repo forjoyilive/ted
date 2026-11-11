@@ -379,7 +379,10 @@ describe('Task shell panes', () => {
       failure.mockRestore()
       await stopping
       expect(rejected).toBeUndefined()
-      expect(alive(firstRoot)).toBe(false)
+      await waitUntil(
+        async () => !alive(firstRoot) || undefined,
+        'the refused pane’s shell to exit once shutdown retries',
+      )
     } finally {
       failure.mockRestore()
       await stopping
