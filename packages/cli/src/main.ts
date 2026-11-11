@@ -16,6 +16,7 @@ import {
   DaemonClient,
   DaemonUnreachableError,
   type DesignFileInput,
+  type DesignFileSpec,
   type DesignReviewInput,
   type Effort,
   efforts,
@@ -24,10 +25,15 @@ import {
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
+  type LocalDesignReviewInput,
   minGhVersion,
-  type ProposalInput,
+  parseDesignReviewInput,
   parseLinearUrl,
+  parseLocalDesignReviewInput,
+  parseProposalInput,
+  parseRoundInput,
   type RepoSetupReport,
+  RequestValidationError,
   type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
@@ -508,7 +514,7 @@ try {
     const input =
       group === 'ask'
         ? { round: await readRound(options.round ?? '') }
-        : { proposal: await readJsonFile<ProposalInput>(options.file ?? '', 'proposal') }
+        : { proposal: await readParsedFile(options.file ?? '', 'proposal', parseProposalInput) }
     const request = await withDaemon(home, (client) =>
       client.postPlanRequest({ ...input, ...(supersedes !== undefined && { supersedes }) }),
     )
@@ -562,7 +568,7 @@ try {
   } else if (group === 'task' && command === 'propose' && rest.length === 0) {
     const ref = taskRef()
     if (options.file === undefined) throw new UsageError('give the proposal with --file <file>')
-    const proposal = await readJsonFile<ProposalInput>(options.file, 'proposal')
+    const proposal = await readParsedFile(options.file, 'proposal', parseProposalInput)
     const supersedes = options.supersedes
     const request = await withDaemon(home, (client) =>
       client.postComment(ref, { proposal, ...(supersedes !== undefined && { supersedes }) }),
@@ -1196,55 +1202,14 @@ function summarize(line: string): string {
   return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
 }
 
-interface DesignFileSpec {
-  path: string
-  caption?: string
-}
-
-interface DesignSpec extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
-  screenshots?: DesignFileSpec[]
-  video?: DesignFileSpec
-  prototype?: DesignFileSpec
-}
-
-function fileSpec(value: unknown, what: string): DesignFileSpec {
-  if (typeof value === 'string') return { path: value }
-  const { path: file, caption } = (value ?? {}) as Record<string, unknown>
-  if (typeof file !== 'string' || (caption !== undefined && typeof caption !== 'string')) {
-    throw new UsageError(`the design file’s ${what} needs a path, as text or as { "path": … }`)
-  }
-  return { path: file, ...(caption !== undefined && { caption }) }
-}
-
-async function readDesign(file: string): Promise<DesignSpec> {
-  const text = await readFile(path.resolve(file), 'utf8')
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (error) {
-    throw new UsageError(
-      `the design file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
-    )
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new UsageError('the design file must hold a JSON object')
-  }
-  const { screenshots, video, prototype, ...rest } = parsed as Record<string, unknown>
-  if (screenshots !== undefined && !Array.isArray(screenshots)) {
-    throw new UsageError('the design file’s screenshots must be a list')
-  }
-  return {
-    ...(rest as Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'>),
-    ...(screenshots && { screenshots: screenshots.map((s) => fileSpec(s, 'screenshot')) }),
-    ...(video !== undefined && { video: fileSpec(video, 'video') }),
-    ...(prototype !== undefined && { prototype: fileSpec(prototype, 'prototype') }),
-  }
+async function readDesign(file: string): Promise<LocalDesignReviewInput> {
+  return readParsedFile(file, 'design', parseLocalDesignReviewInput)
 }
 
 async function uploadDesign(
   client: DaemonClient,
   ref: string,
-  { screenshots, video, prototype, ...rest }: DesignSpec,
+  { screenshots, video, prototype, ...rest }: LocalDesignReviewInput,
 ): Promise<DesignReviewInput> {
   const upload = async ({ path: file, caption }: DesignFileSpec): Promise<DesignFileInput> => {
     const bytes = new Uint8Array(await readFile(path.resolve(file)))
@@ -1257,26 +1222,37 @@ async function uploadDesign(
   }
   const shots = []
   for (const shot of screenshots ?? []) shots.push(await upload(shot))
-  return {
+  return parseDesignReviewInput({
     ...rest,
     ...(shots.length > 0 && { screenshots: shots }),
     ...(video && { video: await upload(video) }),
     ...(prototype && { prototype: await upload(prototype) }),
-  }
+  })
 }
 
 function readRound(file: string): Promise<RoundInput> {
-  return readJsonFile<RoundInput>(file, 'round')
+  return readParsedFile(file, 'round', parseRoundInput)
 }
 
-async function readJsonFile<T>(file: string, what: string): Promise<T> {
+async function readParsedFile<T>(
+  file: string,
+  what: string,
+  parser: (value: unknown) => T,
+): Promise<T> {
   const text = await readFile(path.resolve(file), 'utf8')
+  let value: unknown
   try {
-    return JSON.parse(text) as T
+    value = JSON.parse(text)
   } catch (error) {
     throw new UsageError(
       `the ${what} file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
     )
+  }
+  try {
+    return parser(value)
+  } catch (error) {
+    if (error instanceof RequestValidationError) throw new UsageError(error.message)
+    throw error
   }
 }
 

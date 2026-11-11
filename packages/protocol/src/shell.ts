@@ -85,3 +85,7 @@ export interface OpenInEditorRequest {
   line?: number
   column?: number
 }
+
+export interface ShellInputRequest {
+  data: string
+}
