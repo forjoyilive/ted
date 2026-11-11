@@ -153,19 +153,13 @@ describe('Merge Gate', () => {
     expect((await comments(client, task)).filter((c) => c.stage === 'merge')).toEqual([])
   })
 
-  test('with no Review Gate the Merge sign-off carries the brief, and Request changes waits for a Run that holds the Task instead of failing', async () => {
+  test('Request changes waits for a Run that holds the Task instead of failing', async () => {
     const clock = new ManualClock()
     const client = await start({
       daemon: { clock },
       workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
     })
     const { task, signoff } = await toSignoff(client, {}, clock)
-    expect(signoff.stage).toBe('merge')
-    expect(signoff.author).toEqual({ kind: 'ted' })
-    expect(signoff.body).toContain('Let notes be edited offline.')
-    expect(signoff.gate?.changes).toBeUndefined()
-    expect(signoff.gate?.pullRequests?.[0]?.checks).toEqual({ passed: 0, failed: 0, pending: 0 })
-    expect(await merges()).toEqual([])
     await writeFile(client.mergingFile, '')
     const lead = await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'a Lead')
     const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]
@@ -215,6 +209,21 @@ describe('Merge Gate', () => {
     expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
     expect(await merges()).toEqual([])
   }, 60_000)
+
+  test('with no Review Gate, the Merge sign-off carries the brief', async () => {
+    const client = await start({
+      workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
+    })
+    const { task, signoff } = await toSignoff(client)
+    expect(signoff.stage).toBe('merge')
+    expect(signoff.author).toEqual({ kind: 'ted' })
+    expect(signoff.body).toContain('Let notes be edited offline.')
+    expect(signoff.gate?.changes).toBeUndefined()
+    expect(signoff.gate?.pullRequests?.[0]?.checks).toEqual({ passed: 0, failed: 0, pending: 0 })
+    expect(await merges()).toEqual([])
+    await approve(client, signoff)
+    await waitForStage(client, task, 'done')
+  })
 })
 
 describe('Merge off', () => {
