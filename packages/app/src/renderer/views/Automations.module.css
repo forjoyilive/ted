@@ -286,7 +286,7 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 19px;
+  font-size: var(--text-19);
   font-weight: var(--weight-semibold);
   line-height: 1.45;
   text-overflow: ellipsis;

@@ -136,7 +136,11 @@ export function Stepper({
   lessLabel,
   moreLabel,
   onChange,
+  step = 1,
+  format = String,
 }: {
+  step?: number
+  format?: (value: number) => string
   value: number
   min: number
   max: number
@@ -151,19 +155,19 @@ export function Stepper({
         className={styles.step}
         aria-label={lessLabel}
         disabled={value <= min}
-        onClick={() => onChange(value - 1)}
+        onClick={() => onChange(Math.max(min, value - step))}
       >
         −
       </button>
       <output className={styles.stepValue} aria-live="polite">
-        {value}
+        {format(value)}
       </output>
       <button
         type="button"
         className={styles.step}
         aria-label={moreLabel}
         disabled={value >= max}
-        onClick={() => onChange(value + 1)}
+        onClick={() => onChange(Math.min(max, value + step))}
       >
         +
       </button>
