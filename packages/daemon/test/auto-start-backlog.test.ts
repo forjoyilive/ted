@@ -16,6 +16,7 @@ import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   commitToOrigin,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -244,6 +245,7 @@ describe('automatic Backlog starts', () => {
       const b = await create(client)
       await enable(client, factory)
       await lead(client, a)
+      await hostsStarted(home)
       await daemon?.stop()
       daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
       client = clientNow()

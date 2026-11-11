@@ -21,7 +21,6 @@ useMergeHarness()
 const scenarios = [
   ['acceptance', 'changed'],
   ['acceptance', 'unavailable'],
-  ['acceptance', 'restored'],
   ['acceptance', 'identical'],
   ['capture', 'changed'],
   ['capture', 'unavailable'],

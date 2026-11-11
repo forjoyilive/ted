@@ -80,8 +80,11 @@ async function openFirstFactory(window: Page) {
     .first()
   for (let tries = 0; tries < 30; tries++) {
     await window.keyboard.press('Meta+1')
-    if (await entry.isVisible()) return
-    await window.waitForTimeout(500)
+    const shown = await entry.waitFor({ timeout: 500 }).then(
+      () => true,
+      () => false,
+    )
+    if (shown) return
   }
   await entry.waitFor()
 }
