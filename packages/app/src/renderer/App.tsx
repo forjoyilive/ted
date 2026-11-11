@@ -81,6 +81,7 @@ import {
   pressDialogPrimary,
   pressImageNavigation,
   rankNeighbours,
+  replyBox,
   requestChangesBox,
 } from './key-targets.ts'
 import { imageNavigationKey, keyBindings } from './keymap.ts'
@@ -418,10 +419,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       setArmed(button)
       return button !== undefined
     },
-    reply: () =>
-      panes.current !== null &&
-      (focusFirst(panes.current, 'textarea[data-answer-box]') ||
-        focusFirst(panes.current, 'textarea[data-comment-box]')),
+    reply: () => {
+      const box = panes.current ? replyBox(panes.current) : undefined
+      box?.focus()
+      return box !== undefined
+    },
     requestChanges: () => {
       const box = panes.current ? requestChangesBox(panes.current) : undefined
       box?.focus()

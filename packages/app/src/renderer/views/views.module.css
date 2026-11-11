@@ -402,6 +402,10 @@
   border-radius: 10px;
 }
 
+.requestItem[hidden] {
+  display: none;
+}
+
 .threadComposer {
   flex-shrink: 0;
   padding: 14px 22px 18px;
@@ -788,4 +792,15 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
+}
+
+.threadBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.threadBody[hidden] {
+  display: none;
 }

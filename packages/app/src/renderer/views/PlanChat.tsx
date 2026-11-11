@@ -666,7 +666,11 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
   }
 
   return (
-    <section className={styles.request} aria-label={`${kind} from the planner`}>
+    <section
+      className={styles.request}
+      aria-label={`${kind} from the planner`}
+      data-request={request.id}
+    >
       <div className={styles.cardHead}>
         <span className={styles.pendingKind}>{kind}</span>
         <span>{`· ${detail} · from the planner · ${ago(request.createdAt, now)}`}</span>

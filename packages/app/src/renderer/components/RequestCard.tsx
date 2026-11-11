@@ -477,6 +477,7 @@ export function RequestCard({
         ...(readOnly ? [styles.readOnly] : []),
       ].join(' ')}
       aria-label={readOnly ? `${requestLabel(request)}, read-only` : requestLabel(request)}
+      data-request={!readOnly && request.answer === undefined ? request.id : undefined}
     >
       <div className={styles.headRow}>
         <CardHead request={request} task={task} now={now} />
