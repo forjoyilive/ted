@@ -336,7 +336,14 @@ test('a stale ask is still posted when no new context could be attached or read'
   s.worktree.readable = true
   s.endRun()
   const asked = await s.request(ended)
-  expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.changed)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)?.body).toContain(
+    'Accept this failure will be refused',
+  )
+  expect(s.comment(first.decisions.at(-1)?.commentId)?.body).not.toContain('will be refused')
+  const refused = await refusalText(() => s.resolve(asked))
+  expect(refused).toBe(acceptRefusals.changedForGood(false))
+  expect(refused).toContain('choose Fixed or No longer applicable')
+  expect(refused).not.toContain('assess it again')
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
   expect((await s.resolve(asked, 'fixed', 'A later commit repaired it.')).resolutions).toHaveLength(
     1,

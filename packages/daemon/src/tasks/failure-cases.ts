@@ -41,9 +41,16 @@ const testedInputs = (context: FailureContext) =>
 export const sameTested = (a: FailureContext, b: FailureContext) =>
   testedInputs(a) === testedInputs(b)
 
+const otherChoices = (validation: boolean) =>
+  validation
+    ? 'Choose Retry or Fix in this Task instead.'
+    : 'Type a reason and choose Fixed or No longer applicable instead.'
+
 export const acceptRefusals = {
   changed:
     'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.',
+  changedForGood: (validation: boolean) =>
+    `The Task’s code or Checks changed since this failure was tested, and TED can’t tie a later test run to it, so it can’t be accepted any more. ${otherChoices(validation)}`,
   unverified:
     'TED couldn’t read the Task’s current code, Checks and CI to compare them with what was tested, so this failure can’t be accepted right now. Try again in a moment.',
   unknown:
@@ -561,7 +568,8 @@ export function createFailureCases(options: {
         )
       const bound = tested(task, assessment.contextId)
       const current = verifiedContext(task, observed)
-      if (bound && current && !sameTested(bound, current) && attachable(task, value, current))
+      const stale = !!bound && !!current && !sameTested(bound, current)
+      if (stale && attachable(task, value, current))
         throw new RequestError(
           409,
           `The Task’s code, Checks or CI changed since tested context ${bound.id}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
@@ -582,6 +590,11 @@ export function createFailureCases(options: {
           value.validation
             ? 'Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. Accept this failure allows only this execution in its tested context and resumes remaining Checks and validation. Acceptance never means passed or grants merge approval.'
             : 'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
+          ...(stale
+            ? [
+                `Accept this failure will be refused: the Task’s code or Checks changed since it was tested, and TED can’t tie a later test run to this failure. ${otherChoices(value.validation === true)}`,
+              ]
+            : []),
         ].join('\n\n'),
       )
     },
@@ -632,7 +645,12 @@ export function createFailureCases(options: {
               value,
               why: 'the Task’s code, Checks or CI changed since the tested context this decision is bound to.',
             }
-            throw new RequestError(409, acceptRefusals.changed)
+            throw new RequestError(
+              409,
+              attachable(task, value, current)
+                ? acceptRefusals.changed
+                : acceptRefusals.changedForGood(value.validation === true),
+            )
           }
         }
         const at = new Date().toISOString()
