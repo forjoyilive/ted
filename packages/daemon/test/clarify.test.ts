@@ -518,7 +518,7 @@ describe('Clarify rounds', () => {
       return found.length >= 4 ? found : undefined
     }, 'every command to finish')
     expect(results[2]).toMatchObject({
-      code: 1,
+      code: 2,
       stderr: expect.stringContaining('question 1’s recommended answer must be one of its choices'),
     })
 

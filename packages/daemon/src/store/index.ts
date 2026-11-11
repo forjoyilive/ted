@@ -55,6 +55,7 @@ import {
   type Proposal,
   type PullRequestPreview,
   parseLinearUrl,
+  type RequestPurpose,
   type Round,
   type Run,
   type RunEnding,
@@ -96,6 +97,7 @@ import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
 import { countMaterialized } from './progress.ts'
+import { legacyPurpose, structuralPurpose } from './request-purpose.ts'
 import {
   agentPauses,
   automationComments,
@@ -396,6 +398,7 @@ export interface AcceptedLayer {
 }
 
 export interface NewComment {
+  purpose?: RequestPurpose
   taskId: string
   body: string
   author: CommentAuthor
@@ -757,6 +760,7 @@ export interface TedStore extends TaskHistory {
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
+  runProblemAt(runId: string): string | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
@@ -1539,6 +1543,7 @@ export async function openStore({
     effort,
     usesDefaultModel,
     problem,
+    problemAt: _problemAt,
     parentRunId,
     name,
     failure,
@@ -1568,6 +1573,25 @@ export async function openStore({
     ...(ended !== null && { ended: JSON.parse(ended) as RunEnding }),
   })
 
+  const withPurpose = (comment: Comment, stored: string | null): Comment => {
+    if (comment.kind === 'note') return comment
+    if (stored !== null) return { ...comment, purpose: JSON.parse(stored) as RequestPurpose }
+    const sendBack = store.query(queryDb(sendBackAsks.where({ commentId: comment.id }))).length > 0
+    const failure = failureStore
+      .list(comment.taskId)
+      .some((f) => f.decisions.some((d) => d.commentId === comment.id))
+    const modelRun = store
+      .query(queryDb(runs.where({ taskId: comment.taskId }).orderBy('startedAt', 'asc')))
+      .filter((r) => r.parentRunId === null && r.startedAt <= comment.createdAt)
+      .at(-1)
+    const purpose = sendBack
+      ? { kind: 'send-back' as const }
+      : failure
+        ? { kind: 'failure' as const }
+        : legacyPurpose(comment, modelRun?.id)
+    return purpose ? { ...comment, purpose } : comment
+  }
+
   const toComment = ({
     authorKind,
     authorRunId,
@@ -1592,42 +1616,47 @@ export async function openStore({
     design,
     tutorial,
     linearTeam,
+    purpose,
     ...row
-  }: typeof comments.Type): Comment => ({
-    ...row,
-    kind: row.kind as CommentKind,
-    author:
-      authorKind === 'run' && authorRunId !== null
-        ? { kind: 'run', runId: authorRunId }
-        : { kind: authorKind === 'ted' ? 'ted' : 'human' },
-    ...(stage !== null && { stage: stage as StageId }),
-    ...(title !== null && { title }),
-    ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
-    ...(round !== null && { round: JSON.parse(round) as Round }),
-    ...(talkRunId !== null &&
-      talkStartedAt !== null && {
-        talk: {
-          runId: talkRunId,
-          startedAt: talkStartedAt,
-          ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
-        },
-      }),
-    ...(proposal !== null && { proposal: JSON.parse(proposal) as Proposal }),
-    ...(sizeCheck !== null && { sizeCheck: JSON.parse(sizeCheck) as SizeCheck }),
-    ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
-    ...(permission !== null && { permission: publicPermission(permission) }),
-    ...(simulator !== null && { simulator: JSON.parse(simulator) as SimulatorAsk }),
-    ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
-    ...(deliveredRunId !== null &&
-      deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
-    ...(readAt !== null && { readAt }),
-    ...(failedRunId !== null && { failed: { runId: failedRunId } }),
-    ...(tutorial && { tutorial: true as const }),
-    ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
-    ...(design !== null && { design: JSON.parse(design) as DesignReview }),
-    ...withFiles(row.id),
-    ...withLineComments(row.id),
-  })
+  }: typeof comments.Type): Comment =>
+    withPurpose(
+      {
+        ...row,
+        kind: row.kind as CommentKind,
+        author:
+          authorKind === 'run' && authorRunId !== null
+            ? { kind: 'run', runId: authorRunId }
+            : { kind: authorKind === 'ted' ? 'ted' : 'human' },
+        ...(stage !== null && { stage: stage as StageId }),
+        ...(title !== null && { title }),
+        ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
+        ...(round !== null && { round: JSON.parse(round) as Round }),
+        ...(talkRunId !== null &&
+          talkStartedAt !== null && {
+            talk: {
+              runId: talkRunId,
+              startedAt: talkStartedAt,
+              ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
+            },
+          }),
+        ...(proposal !== null && { proposal: JSON.parse(proposal) as Proposal }),
+        ...(sizeCheck !== null && { sizeCheck: JSON.parse(sizeCheck) as SizeCheck }),
+        ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
+        ...(permission !== null && { permission: publicPermission(permission) }),
+        ...(simulator !== null && { simulator: JSON.parse(simulator) as SimulatorAsk }),
+        ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
+        ...(deliveredRunId !== null &&
+          deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
+        ...(readAt !== null && { readAt }),
+        ...(failedRunId !== null && { failed: { runId: failedRunId } }),
+        ...(tutorial && { tutorial: true as const }),
+        ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
+        ...(design !== null && { design: JSON.parse(design) as DesignReview }),
+        ...withFiles(row.id),
+        ...withLineComments(row.id),
+      },
+      purpose,
+    )
 
   const toLineComment = ({
     side,
@@ -1893,6 +1922,7 @@ export async function openStore({
       design,
       tutorial = false,
       linearTeam,
+      purpose,
     }: NewComment,
     createdAt: string,
   ) => {
@@ -1932,7 +1962,23 @@ export async function openStore({
         position,
       }),
     )
+    const recordedPurpose =
+      purpose ??
+      structuralPurpose({
+        kind,
+        ...(gate && { gate }),
+        ...(sizeCheck && { sizeCheck }),
+        ...(linearTeam && { linearTeam }),
+      })
     const attached = [
+      ...(recordedPurpose
+        ? [
+            events.commentPurposeRecorded({
+              commentId: id,
+              purpose: JSON.stringify(recordedPurpose),
+            }),
+          ]
+        : []),
       ...files,
       ...(design === undefined
         ? []
@@ -2308,6 +2354,7 @@ export async function openStore({
           kind: 'question',
           body,
           choices: Object.values(failureChoices),
+          purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
         at,
@@ -2791,6 +2838,10 @@ export async function openStore({
           simulator: JSON.stringify(simulator),
           createdAt: at,
         }),
+        events.commentPurposeRecorded({
+          commentId: id,
+          purpose: JSON.stringify({ kind: 'simulator' }),
+        }),
         ...(pause ? [events.runStateChanged({ runId, state: 'waiting', at })] : []),
       )
       const comment = requireComment(id)
@@ -2817,6 +2868,14 @@ export async function openStore({
           ask: ask && id ? { id, ...ask } : null,
           at,
         }),
+        ...(id
+          ? [
+              events.commentPurposeRecorded({
+                commentId: id,
+                purpose: JSON.stringify({ kind: 'failed-run' }),
+              }),
+            ]
+          : []),
       )
       if (id) emit({ type: 'comment-posted', comment: requireComment(id) })
       const task = updatedTask(taskId)
@@ -3665,6 +3724,7 @@ export async function openStore({
         steeringRelease: null,
         usesDefaultModel: false,
         problem: null,
+        problemAt: null,
         failure: null,
         permissions,
         manualPermissions: false,
@@ -3789,7 +3849,13 @@ export async function openStore({
         .map(toLoopCheck),
     askAboutSendBack({ checkRunId, ...ask }) {
       const at = new Date().toISOString()
-      commit(events.sendBackAsked({ ...ask, checkRunId: checkRunId ?? null, at }))
+      commit(
+        events.sendBackAsked({ ...ask, checkRunId: checkRunId ?? null, at }),
+        events.commentPurposeRecorded({
+          commentId: ask.commentId,
+          purpose: JSON.stringify({ kind: 'send-back' }),
+        }),
+      )
       return { ...ask, ...(checkRunId !== undefined && { checkRunId }), at }
     },
     sendBackAsk: (commentId) => {
@@ -3880,7 +3946,13 @@ export async function openStore({
           ? [events.runStateChanged({ runId, state: target, at })]
           : []),
         ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
-        ...asked.map(({ event }) => event),
+        ...asked.flatMap(({ id, event }) => [
+          event,
+          events.commentPurposeRecorded({
+            commentId: id,
+            purpose: JSON.stringify({ kind: 'permission' }),
+          }),
+        ]),
         ...withdrawnOnce.map(({ id, answer }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),
@@ -4000,6 +4072,7 @@ export async function openStore({
       updatedTask(comment.taskId)
       return comment
     },
+    runProblemAt: (runId) => runRow(runId)?.problemAt ?? undefined,
     listRuns: () => store.query(allRuns).map(toRun),
     runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),

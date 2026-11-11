@@ -256,6 +256,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       taskId: task.id,
       kind: 'question',
       author: { kind: 'ted' },
+      purpose: { kind: 'ci-stuck' },
       title: pr.checks.length === 0 ? `CI hasn’t started on ${where}` : `CI is stuck on ${where}`,
       body: [
         what,
@@ -601,12 +602,7 @@ const textOf = (error: unknown) => (error instanceof Error ? error.message : Str
 const latest = (a: string, b: string) => (a > b ? a : b)
 
 export function isCiStuck(comment: Comment): boolean {
-  return (
-    comment.author.kind === 'ted' &&
-    comment.kind === 'question' &&
-    comment.stage === 'merge' &&
-    comment.choices?.includes(keepWaitingChoice) === true
-  )
+  return comment.purpose?.kind === 'ci-stuck'
 }
 
 function conflictFindings(target: { repo: string; number: number; base: string }): string {

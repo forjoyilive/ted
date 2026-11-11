@@ -608,6 +608,7 @@ export {
   type ReportOutcomeRequest,
   type RepoSetupReport,
   type RepoToConfirm,
+  type RequestPurpose,
   type ResumeTaskRequest,
   type Round,
   type RoundAnswer,

@@ -94,7 +94,6 @@ import {
   briefHeadings,
   clarifyDepths,
   clarifyIsOver,
-  failureChoices,
   parseLinearUrl,
   sizeChoices,
 } from '@ted/protocol'
@@ -252,14 +251,13 @@ import {
   repoEntry,
   sameRepo,
 } from './repos.ts'
+import { createRequestAnswers } from './request-answers.ts'
 import {
   clarifySignoffCaption,
   depthNames,
   depthOrder,
   pickDepth,
-  roundAnswerMessage,
   roundAnswerSummary,
-  roundAnswers,
 } from './rounds.ts'
 import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import {
@@ -552,7 +550,6 @@ export function createTasks(options: {
   const released = new Map<string, Promise<void>>()
   const humanWaitMs = 15_000
   const applying = new Set<string>()
-  const asked = new Map<string, string>()
   const stoppingForBlockers = new Set<string>()
   const runUploads = new Set<string>()
   const checkOwnFiles = (task: StoredTask, files: readonly Attachment[]) => {
@@ -2808,12 +2805,18 @@ export function createTasks(options: {
     return store.recordedSetup(task.id, repo.name)?.env ?? repoEntry(entries, repo)?.env ?? {}
   }
 
-  function askAboutModel(run: Run): void {
+  async function askAboutModel(updated: Run): Promise<void> {
+    if (updated.taskId === undefined) return
+    await untilFree(updated.taskId)
+    if (closed) return
+    const run = store.getRun(updated.id)
+    if (!run) return
+    const questions = store
+      .listComments(updated.taskId)
+      .filter((comment) => comment.purpose?.kind === 'model' && comment.purpose.runId === run.id)
     if (run.problem !== 'model-unavailable') {
-      const id = asked.get(run.id)
-      asked.delete(run.id)
-      if (id !== undefined && store.getComment(id)?.answer === undefined) {
-        store.answerComment(id, {
+      for (const question of questions.filter((c) => c.answer === undefined)) {
+        store.answerComment(question.id, {
           kind: 'answered',
           at: new Date().toISOString(),
           text: 'The Task Lead no longer waits on this model.',
@@ -2821,17 +2824,22 @@ export function createTasks(options: {
       }
       return
     }
-    const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
-    if (!task || task.leadRunId !== run.id || asked.has(run.id)) return
-    const question = store.postComment({
+    const task = store.getTask(updated.taskId)
+    if (
+      !task ||
+      task.leadRunId !== run.id ||
+      questions.some((c) => c.createdAt >= (store.runProblemAt(run.id) ?? ''))
+    )
+      return
+    store.postComment({
       taskId: task.id,
       kind: 'question',
+      purpose: { kind: 'model', runId: run.id },
       author: { kind: 'ted' },
       title: `${run.model} isn’t in your plan`,
       body: `The Task Lead asked for the model “${run.model}”, which your plan doesn’t include. TED won’t switch models on its own, so the Run is waiting. Choose Use the default model to run this Run on the CLI’s default model, or Change setting to pick another model in the Task Lead field.`,
       choices: [useDefaultChoice, 'Change setting'],
     })
-    asked.set(run.id, question.id)
   }
 
   async function useDefaultModel(ref: string): Promise<Task> {
@@ -2860,7 +2868,7 @@ export function createTasks(options: {
     setImmediate(() => {
       if (closed) return
       watchIdle(run)
-      askAboutModel(run)
+      inBackground('update the model request', () => askAboutModel(run))
       if (run.taskId !== undefined) {
         const taskId = run.taskId
         inBackground('apply the Task Lead setting', () => applyLead(taskId))
@@ -3786,219 +3794,43 @@ export function createTasks(options: {
     sendDrafts: boolean,
     mark?: string,
   ): Promise<Comment> {
-    const answering = store.getComment(id)
-    if (answering) await untilFree(answering.taskId)
-    const comment = store.getComment(id)
-    if (!comment) throw new RequestError(404, `no Comment ${id}`)
-    if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
-    const task = find(comment.taskId)
-    const failure = failures.findDecision(id)
-    if (failure) {
-      if (comment.answer)
-        throw new RequestError(409, 'this failure decision is stale or already answered')
-      if (request.action === 'answer' && request.choice === undefined && request.text?.trim()) {
-        await holding(task, () =>
-          humanComment(find(task.id), failureText(request.text ?? ''), [], sendDrafts),
-        )
-        return store.getComment(id) as Comment
-      }
-      if (request.action !== 'answer' || request.choice === undefined)
-        throw new RequestError(400, 'choose a failure resolution')
-      const resolution = (Object.keys(failureChoices) as (keyof typeof failureChoices)[]).find(
-        (key) => failureChoices[key] === request.choice,
-      )
-      if (!resolution) throw new RequestError(400, 'choose a failure resolution')
-      return holding(task, async () => {
-        await failures.resolve(
-          find(task.id),
-          failure.id,
-          {
-            requestId: id,
-            resolution,
-            ...(request.text !== undefined && { reason: request.text }),
-          },
-          sendDrafts,
-        )
-        return store.getComment(id) as Comment
-      })
-    }
-    if (comment.kind === 'round') return answerRound(task, comment, request, mark)
-    if (comment.kind === 'proposal') return answerProposal(task, comment, request)
-    if (request.action === 'answer-round' || request.action === 'accept-recommended') {
-      throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
-    }
-    const text = request.text?.trim() ?? ''
-    if (comment.simulator) {
-      return holding(task, () => apps.answerSimulator(comment, request, text))
-    }
-    if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
-    if (comment.gate) {
-      if (request.action === 'request-changes') {
-        if (text === '') throw new RequestError(400, 'Request changes needs your comment')
-      } else if (request.action !== 'approve') {
-        throw new RequestError(400, 'answer a Gate request with Approve or Request changes')
-      }
-    } else if (comment.kind !== 'question') {
-      throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)
-    } else if (request.action !== 'answer') {
-      throw new RequestError(400, 'answer a question with a choice or your own words')
-    } else if (request.choice !== undefined && !comment.choices?.includes(request.choice)) {
-      throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
-    } else if (request.choice === undefined && text === '') {
-      throw new RequestError(400, 'pick a choice or write an answer')
-    }
-    if (isLinearTeamAsk(comment) && request.action === 'answer') {
-      return answerLinearTeam(task, comment, request.choice, text)
-    }
-    if (
-      comment.sizeCheck &&
-      comment.answer === undefined &&
-      request.action === 'answer' &&
-      request.choice !== undefined
-    ) {
-      return answerSizeCheck(task, comment, request.choice, text)
-    }
-    if (isCiStuck(comment) && comment.answer === undefined && request.action === 'answer') {
-      return answerCiStuck(task, comment, request.choice, text)
-    }
-    if (comment.failed !== undefined && comment.answer === undefined) {
-      if (request.action === 'answer' && request.choice === retryChoice) {
-        await resumeByHand(task.id, { comment: text, sendDrafts })
-      } else {
-        await humanComment(find(task.id), text, [], sendDrafts)
-      }
-      return store.getComment(id) ?? comment
-    }
-    return holding(task, async () => {
-      const current = store.getComment(id)
-      if (current?.answer?.kind === 'withdrawn') {
-        throw new RequestError(409, 'this request was withdrawn')
-      }
-      if (current?.answer?.kind === 'superseded') {
-        throw new RequestError(409, 'this request was replaced by a newer one')
-      }
-      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
-      const at = new Date().toISOString()
-      if (request.action === 'request-changes') {
-        const answered = answerRequest(
-          task,
-          comment,
-          { kind: 'changes-requested', at, text },
-          sendDrafts ? drafts(task.id) : undefined,
-        )
-        const picksStage = comment.stage === 'review' || comment.stage === 'merge'
-        const lines = linesText(answered)
-        await deliverAnswer(
-          task,
-          comment,
-          [
-            `The human asked for changes at the ${gateName(comment)}:`,
-            text,
-            ...(lines !== undefined ? [lines] : []),
-            picksStage
-              ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
-              : comment.stage === 'clarify'
-                ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
-                : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
-          ].join('\n\n'),
-        )
-        return answered
-      }
-      if (request.action === 'approve') {
-        const now = find(task.id)
-        const resolution = await gateWorkflow(now)
-        const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
-        await requireObligations(now)
-        const answered = answerRequest(task, comment, {
-          kind: 'approved',
-          at,
-          ...(text !== '' && { text }),
-        })
-        await bindApproval(now, comment, resolution.workflow)
-        if (!liveLead(now)) store.holdAnswer(comment.id)
-        const approved =
-          text === ''
-            ? `The human approved the ${gateName(comment)}.`
-            : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
-        if (now.stage === 'merge') {
-          startMerging(find(task.id), resolution.workflow)
-          watchMerge(task.id)
-          await deliver(
-            now,
-            `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
-          )
-          return answered
-        }
-        const signedOff = next === 'merge'
-        if (signedOff) pullRequestWork(task.id, 'signoff')
-        await move(
-          now,
-          resolution,
-          next,
-          next === 'done'
-            ? undefined
-            : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(resolution.workflow, next)}`,
-          { signedOff },
-        )
-        return answered
-      }
-      const choice = request.choice
-      if (choice !== undefined) {
-        const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
-        if (answered) return answered
-      }
-      if (isLinearQuestion(comment) && choice !== undefined) {
-        const answered = answerRequest(task, comment, {
-          kind: 'answered',
-          at,
-          choice,
-          ...(text !== '' && { text }),
-        })
-        if (choice === linearArchiveChoice && !find(task.id).archived) {
-          settleDependents(task.id, 'unblock')
-          archiveNow(find(task.id), false)
-          wake()
-        }
-        return answered
-      }
-      if (isIdleQuestion(comment) && choice === nudgeAgainChoice) {
-        const answered = answerRequest(task, comment, {
-          kind: 'answered',
-          at,
-          choice,
-          ...(text !== '' && { text }),
-        })
-        const run = liveLead(find(task.id))
-        if (run) await sendNudge(task, run)
-        return answered
-      }
-      const aboutModel = [...asked.values()].includes(comment.id)
-      if (aboutModel && choice === useDefaultChoice) await useDefaultModel(task.id)
-      const answered = answerRequest(
-        task,
-        comment,
-        {
-          kind: 'answered',
-          at,
-          ...(choice !== undefined && { choice }),
-          ...(text !== '' && { text }),
-        },
-        text !== '' && !aboutModel && sendDrafts ? drafts(task.id) : undefined,
-      )
-      if (aboutModel) return answered
-      const lines = linesText(answered)
-      await deliverAnswer(
-        task,
-        comment,
-        [
-          `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
-          ...(choice !== undefined ? [choice] : []),
-          ...(text !== '' ? [text] : []),
-          ...(lines !== undefined ? [lines] : []),
-        ].join('\n\n'),
-      )
-      return answered
-    })
+    return createRequestAnswers({
+      store,
+      untilFree,
+      find,
+      holding,
+      failures,
+      humanComment,
+      answerProposal,
+      answerRunPermission: (runId, generation, reply) =>
+        runs.answerPermission(runId, generation, reply),
+      answerLinearTeam,
+      answerSizeCheck,
+      answerCiStuck,
+      resumeByHand,
+      answerRequest,
+      drafts,
+      deliverAnswer,
+      gateWorkflow,
+      requireObligations,
+      bindApproval,
+      liveLead,
+      startMerging,
+      watchMerge,
+      deliver,
+      pullRequestWork,
+      move,
+      answerLoopAsk,
+      settleDependents,
+      archiveNow,
+      wake,
+      sendNudge,
+      useDefaultModel,
+      linesText,
+      gateName,
+      firstLine,
+      answerSimulator: (comment, request, text) => apps.answerSimulator(comment, request, text),
+    })(id, request, sendDrafts, mark)
   }
 
   function requireCommentable(task: StoredTask): void {
@@ -4247,30 +4079,6 @@ export function createTasks(options: {
     if (!(await deliver(task, text))) store.holdAnswer(comment.id)
   }
 
-  async function answerRound(task: Task, comment: Comment, request: AnswerRequest, mark?: string) {
-    if (!comment.round) throw new RequestError(409, 'this round has no questions')
-    const answers = roundAnswers(comment.round, request)
-    return holding(task, async () => {
-      const current = store.getComment(comment.id)
-      if (current?.answer?.kind === 'withdrawn') {
-        throw new RequestError(409, 'this request was withdrawn')
-      }
-      if (current?.answer?.kind === 'superseded') {
-        throw new RequestError(409, 'this request was replaced by a newer one')
-      }
-      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
-      const answered = answerRequest(task, comment, {
-        kind: 'answered',
-        at: new Date().toISOString(),
-        answers,
-        ...(mark !== undefined && { text: mark }),
-      })
-      const message = roundAnswerMessage(comment, answers, find(task.id).clarifyDepth)
-      await deliverAnswer(task, comment, mark === undefined ? message : `${mark}\n\n${message}`)
-      return answered
-    })
-  }
-
   function openTalkRound(commentId: string): { task: StoredTask; round: Comment } {
     const round = store.getComment(commentId)
     if (!round) throw new RequestError(404, `no Comment ${commentId}`)
@@ -4451,44 +4259,6 @@ export function createTasks(options: {
     return answered
   }
 
-  async function answerPermission(
-    task: Task,
-    comment: Comment,
-    request: AnswerRequest,
-    text: string,
-  ): Promise<Comment> {
-    if (request.action !== 'approve' && request.action !== 'deny') {
-      throw new RequestError(400, 'answer a permission request with Approve or Deny')
-    }
-    const target = store.permissionTarget(comment.id)
-    if (!target) throw new RequestError(409, 'this request can’t be answered')
-    return holding(task, async () => {
-      const current = store.getComment(comment.id)
-      if (current?.answer?.kind === 'withdrawn') {
-        throw new RequestError(409, 'this request was withdrawn')
-      }
-      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
-      if (store.getRun(target.runId)?.state === 'finished') {
-        throw new RequestError(409, 'the Run that asked has stopped')
-      }
-      const approved = request.action === 'approve'
-      const at = new Date().toISOString()
-      const answered = store.answerPermission(comment.id, {
-        kind: approved ? 'approved' : 'denied',
-        at,
-        ...(text !== '' && { text }),
-      })
-      const said = permissionMessage(approved, target.command, text)
-      await runs.answerPermission(target.runId, target.generation, {
-        requestId: target.requestId,
-        approved,
-        ...(target.input !== undefined && { input: target.input }),
-        ...(said !== undefined && { text: said }),
-      })
-      return answered
-    })
-  }
-
   function visitStart(task: Task): string {
     return store.listStageEntries(task.id).findLast((e) => e.stage === task.stage)?.at ?? ''
   }
@@ -4579,6 +4349,7 @@ export function createTasks(options: {
         kind: 'question',
         author: { kind: 'ted' },
         title: `${stageTitle(from)} wants to send this Task back to ${stageTitle(to)} again`,
+        purpose: { kind: 'send-back' },
         body: `${stageTitle(from)} has reached its send-back limit (${count}) and needs your decision. Send it back to ${stageTitle(to)} for another attempt, or keep it in ${stageTitle(from)} to revisit the approach. Full Findings are in the Task’s history.`,
         choices: [`Send it back to ${stageTitle(to)}`, `Keep it in ${stageTitle(from)}`],
       })
@@ -4668,6 +4439,7 @@ export function createTasks(options: {
       kind: 'question',
       author: { kind: 'ted' },
       title: input.title,
+      purpose: { kind: 'send-back' },
       body: [
         input.intro,
         recommendation,
@@ -4988,6 +4760,7 @@ export function createTasks(options: {
       kind: 'question',
       author: { kind: 'ted' },
       title: marked,
+      purpose: { kind: 'linear-closed' },
       body: pastSignOff
         ? `Someone marked ${issue.identifier} ${issue.state} in Linear after you signed off on this Task. TED keeps going until you choose.`
         : `Someone marked ${issue.identifier} ${issue.state} in Linear while this Task is still being worked on. TED keeps going until you choose.`,
@@ -6087,6 +5860,7 @@ export function createTasks(options: {
       kind: 'question',
       author: { kind: 'ted' },
       title: idleTitle,
+      purpose: { kind: 'idle-run' },
       body:
         quoted === undefined
           ? 'It went idle again after the nudge, with nothing open, and wrote no message.'
@@ -7902,29 +7676,20 @@ const linearAllowChoice = 'Allow'
 const linearNotNowChoice = 'Not now'
 
 function isLinearTeamAsk(comment: Comment): boolean {
-  return (
-    comment.author.kind === 'ted' && comment.kind === 'question' && comment.linearTeam !== undefined
-  )
+  return comment.purpose?.kind === 'linear-team'
 }
 
 function isLinearQuestion(comment: Comment): boolean {
-  return (
-    comment.author.kind === 'ted' &&
-    comment.kind === 'question' &&
-    comment.title?.endsWith(' in Linear') === true &&
-    comment.choices?.includes(linearArchiveChoice) === true &&
-    comment.choices.includes(linearKeepChoice)
-  )
+  return comment.purpose?.kind === 'linear-closed'
 }
 
 const idleTitle = 'The Task Lead stopped without saying why'
 const nudgeAgainChoice = 'Nudge again'
 
 function isIdleQuestion(comment: Comment): boolean {
-  return (
-    comment.author.kind === 'ted' && comment.title === idleTitle && comment.answer === undefined
-  )
+  return comment.purpose?.kind === 'idle-run' && comment.answer === undefined
 }
+
 const useDefaultChoice = 'Use the default model'
 const tryAgainChoice = 'Try again'
 const backToDesignChoice = 'Back to Design'
@@ -8064,17 +7829,6 @@ function briefGoal(text: string): string | undefined {
 
 const continueMessage =
   'TED paused you because your agent couldn’t run (a usage limit, no connection, or a sign-in, version or credential problem). It can run again now. Carry on where you left off.'
-
-function permissionMessage(approved: boolean, command: string, text: string): string | undefined {
-  if (approved) {
-    return text === ''
-      ? undefined
-      : `The human approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
-  }
-  return text === ''
-    ? 'The human denied this request. Don’t retry it; find another way or ask with `ted ask`.'
-    : `The human denied this request and said:\n\n${text}`
-}
 
 function editMessage(
   task: Task,
