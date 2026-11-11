@@ -81,6 +81,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   tokens: '64px',
   created: '56px',
   updated: '56px',
+  started: '56px',
 }
 
 const sortHints: Partial<Record<ListSort, string>> = { manual: 'Priority, then rank' }
@@ -662,10 +663,12 @@ export function TaskList({
         return archivedOnly && task.archived
           ? shortDate(task.archived.at)
           : age(task.updatedAt, now)
+      case 'started':
+        return task.startedAt ? age(task.startedAt, now) : <span className={styles.none}>—</span>
     }
   }
 
-  const rightAligned = new Set<ListColumn>(['updated', 'created', 'tokens'])
+  const rightAligned = new Set<ListColumn>(['updated', 'created', 'tokens', 'started'])
 
   function row(task: Task, group: TaskGroup, index: number) {
     const isSelected = selected.includes(task.id)
@@ -1180,8 +1183,8 @@ export function TaskList({
                 implementation starts.
               </p>
               <p className={dialogStyles.body}>
-                Answer questions and approve Gates as usual. Resume prepared Tasks individually or
-                in bulk, or turn on Overnight mode to let them continue.
+                Answer questions and approve sign-offs as usual. Resume prepared Tasks individually
+                or in bulk, or turn on Overnight mode to let them continue.
               </p>
               {settings?.overnightMode && (
                 <p className={dialogStyles.body}>

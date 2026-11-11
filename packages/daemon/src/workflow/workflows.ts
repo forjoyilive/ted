@@ -19,6 +19,7 @@ export interface Workflows {
   resolve(factory: StoredFactory, options?: { fetch?: boolean }): Promise<WorkflowResolution>
   inherited(): Promise<CheckedLayer[]>
   drift(): DriftCounts
+  forget(factoryId: string): void
 }
 
 export const invalidSettingsProblem = 'workflow-invalid'
@@ -37,6 +38,8 @@ export function createWorkflows(options: {
 }): Workflows {
   const { store, banners, libraryDir, reposDir } = options
   const factoryLayers = new Map<string, CheckedLayer | undefined>()
+  const factoryFiles = new Map<string, { commit: string; read: ReturnType<typeof readGitLayer> }>()
+  const factoryRefs = new Map<string, { key: string; read: Promise<string | undefined> }>()
   const counts = new Map<string, number>()
   let libraryCount = 0
 
@@ -141,6 +144,39 @@ export function createWorkflows(options: {
     )
   }
 
+  async function factoryFilesAt(factory: StoredFactory, clone: string) {
+    const ref = `origin/${factory.defaultBranch}`
+    const key = `${clone}\0${ref}`
+    let pending = factoryRefs.get(factory.id)
+    if (!pending || pending.key !== key) {
+      const read = git.revParse(clone, ref).catch(async (error: unknown) => {
+        if (await git.hasCommits(clone)) throw error
+        return undefined
+      })
+      pending = { key, read }
+      if (store.getFactory(factory.id)) factoryRefs.set(factory.id, pending)
+      const forget = () => {
+        if (factoryRefs.get(factory.id)?.read === read) factoryRefs.delete(factory.id)
+      }
+      void read.then(forget, forget)
+    }
+    const commit = await pending.read
+    if (!commit) return undefined
+    let cached = factoryFiles.get(factory.id)
+    if (!cached || cached.commit !== commit) {
+      const read = readGitLayer(clone, commit)
+      cached = { commit, read }
+      if (store.getFactory(factory.id)) factoryFiles.set(factory.id, cached)
+      const forget = () => {
+        if (factoryFiles.get(factory.id)?.read === read) factoryFiles.delete(factory.id)
+      }
+      void read.then((layer) => {
+        if (layer && Object.values(layer.files).some((text) => text === null)) forget()
+      }, forget)
+    }
+    return cached.read
+  }
+
   return {
     async inherited() {
       const library = await libraryLayer()
@@ -151,6 +187,12 @@ export function createWorkflows(options: {
       return layers
     },
     drift,
+    forget(factoryId) {
+      factoryRefs.delete(factoryId)
+      factoryFiles.delete(factoryId)
+      factoryLayers.delete(factoryId)
+      counts.delete(factoryId)
+    },
     async resolve(factory, { fetch = true } = {}) {
       const clone = clonePath(reposDir, factory)
       if (fetch) {
@@ -163,9 +205,7 @@ export function createWorkflows(options: {
       const factoryLayer = choose(
         'factory',
         `factory:${factory.id}`,
-        (await exists(clone))
-          ? await readGitLayer(clone, `origin/${factory.defaultBranch}`)
-          : undefined,
+        (await exists(clone)) ? await factoryFilesAt(factory, clone) : undefined,
         factory.repo,
       )
       remember([defaults, ...(library.layer ? [library.layer] : [])])

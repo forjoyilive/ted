@@ -48,6 +48,7 @@ import {
   useLineComments,
 } from '../components/LineComments.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { Markdown } from '../components/Markdown.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
 import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
@@ -63,6 +64,7 @@ import { TaskBrowserView } from '../components/TaskBrowserView.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
+  useBrowserOpen,
   useCheckRunList,
   useCommentList,
   useComments,
@@ -158,7 +160,7 @@ function NoteRow({
           {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
-        {comment.body !== '' && <p className={styles.commentBody}>{comment.body}</p>}
+        {comment.body !== '' && <Markdown className={styles.commentBody} text={comment.body} />}
         {comment.attachments && <CommentFiles files={comment.attachments} />}
         {comment.lineComments && (
           <SentLineComments
@@ -328,15 +330,9 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [state, setState] = useState<MiddlePaneState>({})
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type === 'browser-open' && event.taskId === task.id) {
-          setState((s) => middlePaneStep(s, task.id, { kind: 'app', app: event.app }))
-        }
-      }),
-    [task.id],
-  )
+  useBrowserOpen(task.id, (app) => {
+    setState((s) => middlePaneStep(s, task.id, { kind: 'app', app }))
+  })
 
   const go = (action: MiddlePaneAction) => setState((s) => middlePaneStep(s, task.id, action))
   useEffect(() => {
@@ -1050,8 +1046,8 @@ export function TaskDetails({
     <DetailsPane className={styles.detailsPane} aria-label="Task details" hidden={hidden}>
       {task.setup && (
         <p className={styles.setupNote}>
-          The Design and Review Gates are always on for a setup Task. Tasks started before it merges
-          use TED’s defaults.
+          The Design and Review sign-offs are always on for a setup Task. Tasks started before it
+          merges use TED’s defaults.
         </p>
       )}
       <dl className={styles.details}>
@@ -1104,7 +1100,7 @@ export function TaskDetails({
             </>
           )}
         </dd>
-        <dt>Gates</dt>
+        <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
           <TaskGatesField key={task.id} taskId={task.id} />
         </dd>

@@ -230,7 +230,7 @@ test.each([
           : /Run stopped before you answered/,
     ),
   ).toBeTruthy()
-  if (answer.kind !== 'withdrawn') expect(screen.getByText('“For this request”')).toBeTruthy()
+  if (answer.kind !== 'withdrawn') expect(screen.getByText('For this request')).toBeTruthy()
   view.rerender(<AnsweredCard task={task()} request={{ ...request, answer }} expanded />)
   expect(screen.getAllByText(/npm install --save yjs@13\.6\.27/)).toHaveLength(1)
   expect(api.answer).not.toHaveBeenCalled()
@@ -431,7 +431,7 @@ test('idle ask quotes the last response and sends Nudge again', async () => {
     />,
   )
   expect(screen.getByText('The Task Lead stopped without saying why')).toBeTruthy()
-  expect(screen.getByText('“I’ll check the empty template next.”')).toBeTruthy()
+  expect(screen.getByText('I’ll check the empty template next.')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Nudge again' }))
   expect(answer).toHaveBeenCalledWith('c1', { action: 'answer', choice: 'Nudge again' })
 })
@@ -1139,4 +1139,77 @@ test('previous Review retains its recorded Check plan and acceptance after later
   await user().click(within(history).getByTitle('Open Old remaining Check’s output'))
   await screen.findByRole('dialog', { name: 'Old remaining Check output' })
   expect(api.request).toHaveBeenCalledWith('checkOutput', 'old-tail', 0)
+})
+
+test('request bodies and expanded answered history share nested Markdown formatting', async () => {
+  requestApi()
+  const request = comment({
+    title: 'Choose the rollout',
+    body: '## Rollout\n\n- **First**\n  - Nested\n\n```sh\necho one\n\necho two\n```',
+    choices: ['Proceed'],
+  })
+  const view = render(<RequestCard task={task()} request={request} />)
+  expect(screen.getByRole('heading', { name: 'Rollout' })).toBeTruthy()
+  expect(screen.getByText('First').tagName).toBe('STRONG')
+  expect(screen.getByText('Nested').closest('ul')?.parentElement?.tagName).toBe('LI')
+  expect(screen.getByRole('region', { name: 'Code block' }).textContent).toBe(
+    'echo one\n\necho two\n',
+  )
+  view.rerender(
+    <AnsweredCard
+      task={task()}
+      request={{ ...request, answer: { kind: 'answered', at: createdAt, choice: 'Proceed' } }}
+    />,
+  )
+  await user().click(screen.getByRole('button', { name: 'Show request' }))
+  expect(screen.getByRole('heading', { name: 'Rollout' })).toBeTruthy()
+  expect(screen.getByText('First').tagName).toBe('STRONG')
+})
+
+test('sign-off sections preserve headings inside fenced code and formatted user answers', () => {
+  requestApi()
+  const request = comment({
+    kind: 'signoff',
+    stage: 'review',
+    gate: { approveLabel: 'Approve' },
+    body: '## Goal\n\n**Readable** messages\n\n## Current state\n\n```md\n# This is code\n\n**literal**\n```',
+  })
+  const view = render(<RequestCard task={task()} request={request} readOnly />)
+  expect(screen.getByText('Readable').tagName).toBe('STRONG')
+  expect(screen.getByRole('region', { name: 'Code block' }).textContent).toBe(
+    '# This is code\n\n**literal**\n',
+  )
+  expect(screen.queryByRole('heading', { name: 'This is code' })).toBeNull()
+  view.rerender(
+    <AnsweredCard
+      task={task()}
+      request={{
+        ...request,
+        answer: { kind: 'approved', at: createdAt, text: '## Feedback\n\n**Looks good**' },
+      }}
+    />,
+  )
+  expect(screen.getByRole('heading', { name: 'Feedback' }).closest('blockquote')).toBeTruthy()
+  expect(screen.getByText('Looks good').tagName).toBe('STRONG')
+})
+
+test('design summaries and review points use Markdown without changing media controls', () => {
+  requestApi()
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'review',
+        title: 'Design',
+        design: {
+          summary: 'A **shared** renderer.',
+          worthYourEye: ['Inspect `code` in narrow panels.'],
+        },
+      })}
+      readOnly
+    />,
+  )
+  expect(screen.getByText('shared').tagName).toBe('STRONG')
+  expect(screen.getByText('code').tagName).toBe('CODE')
+  expect(screen.getByRole('region', { name: 'Worth your eye' })).toBeTruthy()
 })

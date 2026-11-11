@@ -19,13 +19,16 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
+import { useEventValue } from '../data.ts'
 import {
   agentEdited,
   driftLine,
   lastRunText,
   lastValidLine,
   type SettingsDraft,
+  type StageDraft,
   stageEdited,
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
@@ -101,6 +104,64 @@ export function Toggle({
     >
       <span className={styles.knob} />
     </button>
+  )
+}
+
+export function ValidateRounds({
+  stage,
+  onStage,
+}: {
+  stage: Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'> | undefined
+  onStage: (fields: Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'>) => void
+}) {
+  const from = stage?.p1OnlyFrom ?? false
+  const rounds = [2, 3, 4, 5, 6]
+  if (from !== false && !rounds.includes(from)) rounds.push(from)
+  return (
+    <div className={styles.validateRounds}>
+      <span className={styles.roundSetting}>
+        Send back only for P1 Findings
+        <select
+          aria-label="Validate sends back only for P1 Findings"
+          className={styles.cellSelect}
+          value={from === false ? 'off' : String(from)}
+          onChange={(event) =>
+            onStage({
+              p1OnlyFrom: event.target.value === 'off' ? false : Number(event.target.value),
+            })
+          }
+        >
+          <option value="off">Off</option>
+          {rounds.map((round) => (
+            <option key={round} value={round}>
+              From round {round}
+            </option>
+          ))}
+        </select>
+        <Help>
+          Off: every blocking Finding sends the Task back to Work. From a round: in that round of
+          Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost
+          or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from
+          an earlier round that is still not fixed sends it back too. Every other new Finding stays
+          unfixed and is listed as a note for you at Review. You get fewer rounds, and problems
+          Validate found can merge if you approve without reading the notes.
+        </Help>
+      </span>
+      <span className={styles.roundSetting}>
+        Other sub-agents in Validate
+        <Toggle
+          label="Other sub-agents in Validate"
+          checked={stage?.subAgents === true}
+          onChange={(subAgents) => onStage({ subAgents })}
+        />
+        <Help>
+          Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can
+          also start other sub-agents, for example to run slow tests. Each one takes a working Run,
+          and a sub-agent that reviews the diff adds Findings that can cost another round. The
+          one-reviewer rule stays either way.
+        </Help>
+      </span>
+    </div>
   )
 }
 
@@ -206,10 +267,10 @@ export function WorkflowSection({
           <span>Stage</span>
           <span>On</span>
           <span className={styles.gateHeading}>
-            Gate
+            Sign-off
             <Help>
-              A Gate makes the Task wait for your sign-off at the end of this Stage before moving
-              on. If the Stage skips itself, its Gate is skipped too.
+              When on, the Task waits for your approval at the end of this Stage before moving on.
+              If the Stage skips itself, its sign-off is skipped too.
             </Help>
           </span>
           <span>Send-backs</span>
@@ -238,7 +299,7 @@ export function WorkflowSection({
           <span className={styles.warnMark} aria-hidden>
             ▲
           </span>{' '}
-          The Review Gate is off, so Merge runs right after Validate without your sign-off.
+          The Review sign-off is off, so Merge runs right after Validate without your sign-off.
         </p>
       )}
       {view.ignoredStageFiles.map((file) => (
@@ -319,7 +380,7 @@ function StageRow({
         <span>
           {agent ? (
             <Toggle
-              label={`${name} Gate`}
+              label={`${name} sign-off`}
               checked={stage?.gate ?? row.gate}
               onChange={(gate) => onStage({ gate })}
             />
@@ -345,9 +406,10 @@ function StageRow({
         </span>
         <span>
           {row.id === 'clarify' ? (
-            <select
+            <Select
+              fullWidth
               aria-label="Clarify depth"
-              className={styles.cellSelect}
+              controlClassName={styles.cellSelect}
               value={stage?.depth ?? 'auto'}
               onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
             >
@@ -356,7 +418,7 @@ function StageRow({
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : (
             dash
           )}
@@ -413,6 +475,7 @@ function StageRow({
           )}
         </span>
       </div>
+      {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}
@@ -516,7 +579,7 @@ export function DriftNotice({
             </Button>
             <Help>
               Creates a Task in this Factory that folds the inherited changes into your copy and
-              updates based_on. Its Review Gate is always on, so you see the result before it
+              updates based_on. Its Review sign-off is always on, so you see the result before it
               merges.
             </Help>
           </>
@@ -621,9 +684,10 @@ export function ChecksSection({
                 onChange={(event) => setCheck(index, { run: event.target.value })}
               />
               {multiRepo && (
-                <select
+                <Select
+                  fullWidth
                   aria-label={`${check.name || 'Check'} repo`}
-                  className={styles.cellSelect}
+                  controlClassName={styles.cellSelect}
                   value={check.repo ?? draft.repos[0]?.name ?? ''}
                   onChange={(event) =>
                     setCheck(index, {
@@ -636,7 +700,7 @@ export function ChecksSection({
                       {repo.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
               <input
                 aria-label={`${check.name || 'Check'} timeout`}
@@ -842,9 +906,10 @@ function AgentRow({
         </span>
         <span className={`${base.mono} ${styles.agentKey}`}>{row.role}</span>
       </span>
-      <select
+      <Select
+        fullWidth
         aria-label={`${name} agent`}
-        className={styles.cellSelect}
+        controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.agent ?? 'claude'}
         onChange={(event) => update({ agent: event.target.value })}
@@ -854,7 +919,7 @@ function AgentRow({
             {label}
           </option>
         ))}
-      </select>
+      </Select>
       <input
         aria-label={`${name} model`}
         className={`${styles.cellInput} ${base.mono}`}
@@ -863,9 +928,10 @@ function AgentRow({
         value={shown.model ?? ''}
         onChange={(event) => update({ model: event.target.value })}
       />
-      <select
+      <Select
+        fullWidth
         aria-label={`${name} effort`}
-        className={styles.cellSelect}
+        controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.effort ?? ''}
         onChange={(event) => {
@@ -882,7 +948,7 @@ function AgentRow({
             {effort}
           </option>
         ))}
-      </select>
+      </Select>
       <FromChip layer={own ? 'factory' : row.inheritedFrom} />
       <span className={styles.actions}>
         {own ? (
@@ -915,28 +981,27 @@ export function PermissionsSection({
   onDraft: Update
 }) {
   const id = useId()
-  const [mode, setMode] = useState(view.permissions)
+  const { value: mode, update } = useEventValue({
+    initial: view.permissions,
+    key: view.factoryId,
+    load: async () => view.permissions,
+    event: (event) =>
+      event.type === 'settings-changed'
+        ? () => (event.settings.factoryPermissions[view.factoryId] === 'bypass' ? 'bypass' : 'auto')
+        : undefined,
+  })
+  const setMode = (mode: typeof view.permissions) => update(() => mode)
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const dialog = useRef<HTMLDialogElement>(null)
   const bypass = mode === 'bypass'
-  useEffect(() => setMode(view.permissions), [view])
+  useEffect(() => update(() => view.permissions), [view.permissions, update])
   useEffect(() => {
     if (confirming) dialog.current?.showModal()
   }, [confirming])
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type === 'settings-changed') {
-          setMode(
-            event.settings.factoryPermissions[view.factoryId] === 'bypass' ? 'bypass' : 'auto',
-          )
-        }
-      }),
-    [view.factoryId],
-  )
+
   const save = async (next: 'auto' | 'bypass') => {
     setBusy(true)
     setError(undefined)

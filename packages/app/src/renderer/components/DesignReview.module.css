@@ -9,7 +9,6 @@
   color: var(--text-secondary);
   font-size: var(--text-13);
   line-height: var(--leading-body);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

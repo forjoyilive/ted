@@ -63,6 +63,7 @@ import {
   useDrift,
   useFactoryList,
   useInbox,
+  useMenuCommands,
   usePlanInbox,
   useSettingsState,
   useSimulators,
@@ -78,10 +79,11 @@ import {
   focusFirst,
   moveFocus,
   pressDialogPrimary,
+  pressImageNavigation,
   rankNeighbours,
   requestChangesBox,
 } from './key-targets.ts'
-import { keyBindings } from './keymap.ts'
+import { imageNavigationKey, keyBindings } from './keymap.ts'
 import { doneView, failedView, queueView, rankMove } from './list-view.ts'
 import {
   backLink,
@@ -376,13 +378,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   const onMenuCommand = useRef<(command: MenuCommand) => void>(() => undefined)
 
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type === 'menu-command') onMenuCommand.current(event.command)
-      }),
-    [],
-  )
+  useMenuCommands((command) => onMenuCommand.current(command))
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
@@ -459,7 +455,14 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const sequences = useRef(keySequences(keyBindings))
   const onShortcut = useRef<(event: KeyboardEvent) => void>(() => undefined)
   onShortcut.current = (event) => {
-    if (event.defaultPrevented || event.isComposing || offline) return
+    if (event.defaultPrevented || event.isComposing) return
+    const imageDirection = imageNavigationKey(event)
+    if (imageDirection && !isTyping(event.target) && pressImageNavigation(imageDirection)) {
+      sequences.current.reset()
+      event.preventDefault()
+      return
+    }
+    if (offline) return
     if (resizeSidebarFromKey(event)) {
       sequences.current.reset()
       return

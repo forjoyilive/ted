@@ -171,6 +171,7 @@ export function threadEvents(
   let sentBackTo: string | undefined
   let held = false
   let judged: Record<string, unknown> | undefined
+  let declared: string | undefined
   let depthSet = false
   const splits = new Set(log.filter((e) => e.name === 'v1.TaskSplit').map((e) => e.at))
   const descriptionChanges = (version: unknown) => {
@@ -182,6 +183,11 @@ export function threadEvents(
   }
   const edits = new Map(
     log.filter((e) => e.name === 'v1.TaskEdited').map((e) => [e.at, e.data.version] as const),
+  )
+  const causes = new Map(
+    log
+      .filter((e) => e.name === 'v1.SendBackCauseRecorded')
+      .map((e) => [e.at, e.data.cause] as const),
   )
   const add = (
     entry: LoggedEvent,
@@ -445,11 +451,19 @@ export function threadEvents(
           text(data.findings).trim(),
         )
         break
+      case 'v1.SendBackSeverityDeclared':
+        declared = text(data.severity)
+        break
       case 'v2.TaskSentBack': {
         sentBackTo = text(data.to)
         const fromValidate = text(data.from) === 'validate'
         const judgedNow = fromValidate ? judged : undefined
         judged = undefined
+        const severity =
+          fromValidate && typeof data.round === 'number' && !text(data.checkRunId)
+            ? declared
+            : undefined
+        declared = undefined
         const round =
           typeof data.round !== 'number'
             ? ''
@@ -463,7 +477,7 @@ export function threadEvents(
           'failure',
           `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
             judgedNow ? reviewedBy(judgedNow) : ''
-          }`,
+          }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}${severity === 'p1' ? ' · P1 declared' : severity === 'unfixed' ? ' · earlier Finding unfixed declared' : ''}`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
           checkRunId ?? (judgedNow ? text(judgedNow.checkRunId) || undefined : undefined),
           {
@@ -499,10 +513,22 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          data.from === data.to
+            ? `Checks kept failing as this Task tried to leave ${stageTitle(text(data.from))}, so TED asked the human`
+            : `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
           text(data.findings).trim(),
           text(data.checkRunId) || undefined,
         )
+        break
+      case 'v1.BaseConflictFound':
+        if (text(data.sendBackId) === '') {
+          const count = typeof data.fileCount === 'number' ? data.fileCount : 0
+          add(
+            entry,
+            'failure',
+            `TED kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
+          )
+        }
         break
       case 'v1.LoopCheckStarted':
         add(
@@ -530,6 +556,7 @@ export function threadEvents(
       case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
+        declared = undefined
         if (sentBackTo === stage) {
           sentBackTo = undefined
           const fallback = settingsFallback(data.layers)
@@ -569,7 +596,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskGatesChanged':
-        add(entry, 'edit', 'You changed this Task’s Gates')
+        add(entry, 'edit', 'You changed this Task’s sign-offs')
         break
       case 'v1.GateKeptOvernight':
         add(
@@ -579,14 +606,14 @@ export function threadEvents(
             data.reason === 'unreadable'
               ? 'TED couldn’t read this Task’s changes'
               : 'this Task changes .ted/'
-          }, so its ${stageTitle(text(data.stage))} Gate stays on`,
+          }, so its ${stageTitle(text(data.stage))} sign-off stays on`,
         )
         break
       case 'v1.GateSkippedOvernight':
         add(
           entry,
           'quiet',
-          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} Gate`,
+          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} sign-off`,
         )
         break
       case 'v1.TaskLeadSet':

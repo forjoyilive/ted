@@ -208,6 +208,8 @@ test.each([
   await watcher.cycle(id, read(remote(changes)))
   expect(current().stage).toBe(validate ? 'validate' : 'work')
   expect(gh.run).not.toHaveBeenCalled()
+  const cause = vi.mocked(port.sendBack).mock.calls[0]?.[4]?.cause
+  expect(cause).toBe(validate ? undefined : 'base-conflict')
 })
 
 test('a missing signed-off head goes back to Validate even without a read', async () => {
@@ -435,6 +437,13 @@ test('a rebase command conflict sends back without adopting an unverified head',
   vi.mocked(gh.graphql).mockRejectedValueOnce(new Error('conflict'))
   await watcher.cycle(id, read(remote({ mergeStateStatus: 'BEHIND' })))
   expect(current().stage).toBe('work')
+  expect(port.sendBack).toHaveBeenCalledWith(
+    id,
+    expect.stringContaining('conflicts with main'),
+    undefined,
+    false,
+    { cause: 'base-conflict' },
+  )
   expect(gh.run).not.toHaveBeenCalled()
 })
 

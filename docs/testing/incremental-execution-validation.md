@@ -41,9 +41,10 @@ Selections are explicit; empty and unknown selections fail.
 | `fixture-controls` | Independent homes, daemons and loopback ports; sibling-preserving cleanup; process kill/restart; held/dropped acknowledgments; readiness, disk, load and Run capacity controls | isolated loopback integration; fixture controls |
 | `ownership` | Row 1’s real assignment persistence before start, immutable retry receipt, stable machine identity, process restart and full event-log replay; conflict/stale-reference rejection and refusal of local execution on another machine’s assignment | isolated loopback integration; production behavior |
 | `reporting` | Selection, source identity, durable publication, failed/incomplete subprocess results, redaction, bounded evidence, replay instructions and scratch cleanup | isolated loopback integration; fixture controls |
+| `local-lifecycle` | Real local adapter handles, clone/create/copy/removal and the child-daemon setup/copy/teardown fixture; existing ordering, interrupted setup, multi-repo and setup-Task regressions | isolated loopback integration; production behavior |
 | `production-transport` | Skipped until an owning implementation Task adds its adapter | isolated loopback integration |
 | `two-mac` | Skipped until lab access and a real-machine adapter exist | actual two-Mac execution |
-| `native-sandbox` | Skipped; no qualifying scenario supplied | native-sandbox evidence |
+| `native-sandbox` | On macOS, actual `/usr/bin/sandbox-exec` permits worktree/cache writes and refuses writes and private reads elsewhere in the synthetic TED home, during setup and teardown; missing-sandbox and local Bypass regressions also run | native-sandbox evidence |
 | `gui` | Skipped; no GUI scenario supplied | GUI evidence |
 
 Loopback success never counts as two-Mac, native-sandbox or GUI evidence. The
@@ -124,3 +125,42 @@ Replay instructions include exact argv and the required candidate identity. Rest
 that commit and matching dirty content, install the recorded prerequisites and run
 the argv from the checkout root. Replay creates fresh synthetic resources; it needs
 no saved home, personal Task, billing account, Linear/Sentry or real GitHub access.
+
+## Local lifecycle checkpoint (TED-111)
+
+```sh
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/validate-execution.ts \
+  --report-dir "$HOME/.cache/ted/execution-validation" \
+  --scenario local-lifecycle --scenario native-sandbox
+```
+
+The native scenario requires a Mac with working `sandbox-exec`. A non-Mac run
+cannot supply its required observation and therefore cannot pass this checkpoint.
+An agent sandbox may need command escalation to run the actual native sandbox and
+inspect owned child processes. An unavailable native sandbox is unresolved evidence.
+The scenarios use synthetic homes and local bare origins, never personal TED homes.
+The process fixture copies `.env`, runs setup before the stub Lead, retains the
+worktree on Stop, runs teardown on Archive and checks Delete cleanup. The other
+selected files cover restart with the recorded setup, copy containment, rollback,
+multi-repo setup/removal and setup Tasks. Only external agents and integrations are
+stubbed; the lifecycle adapter, Git, copy, process and sandbox implementations are real.
+
+`TaskWorktreeLifecycle` in `tasks/local-lifecycle.ts` is the lifecycle interface.
+`createLocalLifecycle` is its local adapter. Clone/worktree handles contain an
+assignment reference and an opaque ID; resource paths stay inside the adapter.
+Handles can be reconstructed from stored Task/repo/Run records after restart.
+Repo handles include the latest recorded removal event’s identity, so removing and
+recreating the same path cannot revive an old handle. Resolution requires a current
+authoritative resource or a pending creation binding with an unchanged removal
+identity; a cached entry alone grants no access.
+Operations recheck local ownership and await persistence before filesystem work.
+Tasks retains Workflow resolution, state, command consent/cancellation and ordering.
+Its local compatibility calls to `localPath` populate the existing Task records and
+branch selection; Run hosts, Checks, inspection and publication still use their
+existing local interfaces. No remote backend, route or generic shell API is enabled.
+Sub-agent allocation and Run launch remain in their existing module; final Task
+cleanup resolves their recorded worktree handles through this adapter.
+
+The two-Mac extension uses TED-110's explicit opt-in lab when available. A local
+pass is not evidence of two-Mac execution, and unavailable lab access is recorded
+separately rather than represented by a simulated pass.

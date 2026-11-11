@@ -135,17 +135,25 @@ export type {
   SendRunMessageRequest,
 } from './chat.ts'
 export {
+  type BaseConflictFound,
   type CheckOutput,
   type CheckResult,
   type CheckRun,
   type CheckRunOutcome,
   type CheckRunReport,
+  type CheckRunTiming,
   type CheckRunTrigger,
   type CheckState,
+  type CheckTimingInterval,
   checkFailed,
   checkLabel,
+  type DeclaredSendBackCause,
+  declaredSendBackCauses,
+  type FindingSeverity,
+  findingSeverities,
   type RunChecksRequest,
   type SendBack,
+  type SendBackCause,
 } from './checks.ts'
 export {
   DaemonClient,
@@ -642,6 +650,7 @@ export {
   type ReportOutcomeRequest,
   type RepoSetupReport,
   type RepoToConfirm,
+  type RequestPurpose,
   type ResumeTaskRequest,
   type Round,
   type RoundAnswer,
@@ -740,6 +749,7 @@ export {
   parseTaskLead,
   parseWriteBriefRequest,
 } from './task-parsers.ts'
+export * from './test-invocations.ts'
 export {
   effectiveTimeZone,
   formatClockTime,

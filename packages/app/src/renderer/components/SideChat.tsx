@@ -1,6 +1,6 @@
 import type { SideChat as Chat } from '@ted/protocol'
-import { useEffect, useRef, useState } from 'react'
-import { useConnection, useRunChatState } from '../data.ts'
+import { useRef, useState } from 'react'
+import { useEventValue, useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
@@ -20,53 +20,35 @@ function RunSideChat({
 }: { runId: string; onStopTask?: (() => void) | undefined } & ChatOptions) {
   const resource = useRunChatState(runId)
   const chat = resource.value
-  const [side, setSide] = useState<Chat | null>()
   const [open, setOpen] = useState(false)
   const [which, setWhich] = useState<'source' | 'side'>('source')
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
-  const { epoch } = useConnection()
   const sideId = useRef<string | undefined>(undefined)
-  sideId.current = side?.id
   const eligible = chat?.run.role === 'lead'
-  useEffect(() => {
-    void epoch
-    if (!eligible) return
-    let active = true
-    let version = 0
-    const reload = () => {
-      const request = ++version
-      void ted.getSideChat(runId).then(
-        (value) => {
-          if (active && request === version) setSide(value)
-        },
-        (failed) => {
-          if (active) setError(readableError(failed))
-        },
-      )
-    }
-    const unsubscribe = ted.onEvent((event) => {
-      if (
-        (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
-        (event.type === 'run-output' && event.runId === sideId.current) ||
-        (event.type === 'run-updated' && event.run.id === sideId.current) ||
-        event.type === 'agent-health-changed' ||
-        event.type === 'slots-changed'
-      )
-        reload()
-    })
-    reload()
-    return () => {
-      active = false
-      unsubscribe()
-    }
-  }, [runId, eligible, epoch])
+  const { value: side, update } = useEventValue<Chat | null | undefined>({
+    initial: undefined,
+    key: runId,
+    enabled: eligible,
+    load: () => ted.getSideChat(runId),
+    event: (event) =>
+      (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
+      (event.type === 'run-output' && event.runId === sideId.current) ||
+      (event.type === 'run-updated' && event.run.id === sideId.current) ||
+      event.type === 'agent-health-changed' ||
+      event.type === 'slots-changed'
+        ? 'reload'
+        : undefined,
+    error: (failed) => setError(readableError(failed)),
+  })
+  sideId.current = side?.id
 
   const act = async (request: () => Promise<Chat>) => {
     setBusy(true)
     setError(undefined)
     try {
-      setSide(await request())
+      const next = await request()
+      update(() => next)
     } catch (failed) {
       setError(readableError(failed))
       throw failed

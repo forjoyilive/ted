@@ -13,6 +13,7 @@ import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import { LoadingError, Skeleton } from './Loading.tsx'
+import { Markdown } from './Markdown.tsx'
 import { type RequestJump, RequestJumpBar } from './RequestJumpBar.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
@@ -256,7 +257,7 @@ function AgentMessage({
           <span className={styles.author}>{run.name}</span>
           {item.at !== undefined && <span className={styles.when}>{ago(item.at, now)}</span>}
         </div>
-        <p className={styles.text}>{item.text}</p>
+        <Markdown className={styles.text} text={item.text} />
       </div>
     </div>
   )
@@ -349,7 +350,7 @@ function HumanMessage({
             />
           )}
         </div>
-        <p className={styles.text}>{item.text}</p>
+        <Markdown className={styles.text} text={item.text} />
       </div>
     </div>
   )
