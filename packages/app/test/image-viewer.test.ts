@@ -49,6 +49,21 @@ test('chat images close on surrounding space and backdrop clicks, keeping image 
     await expect
       .poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth))
       .toBe(shape.width)
+    if (shape.name === 'portrait.svg') {
+      await viewer.getByRole('button', { name: 'Next image', exact: true }).click()
+      const landscape = page.getByRole('dialog', { name: 'landscape.svg', exact: true })
+      await landscape.getByRole('img', { name: 'landscape.svg' }).waitFor()
+      expect(await landscape.getByRole('status').textContent()).toBe('2 of 2')
+      await page.keyboard.press('ArrowRight')
+      await image.waitFor()
+      expect(await viewer.getByRole('status').textContent()).toBe('1 of 2')
+      await page.keyboard.press('ArrowLeft')
+      await landscape.waitFor()
+      await landscape.getByRole('button', { name: 'Previous image', exact: true }).click()
+      await expect
+        .poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth))
+        .toBe(shape.width)
+    }
     await image.click()
     expect(await viewer.isVisible()).toBe(true)
     const box = await viewer.boundingBox()
