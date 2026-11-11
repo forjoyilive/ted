@@ -194,7 +194,7 @@ describe('Factory settings draft', () => {
         { ...base, state: 'passed', durationMs: 38_000, finishedAt: '2026-11-09T10:00:38Z' },
         now,
       ),
-    ).toBe('✓ 38s · 1h ago')
+    ).toBe('✓ 38s · 1h 59m ago')
     expect(
       lastRunText(
         { ...base, state: 'failed', exitCode: 1, finishedAt: '2026-11-09T11:00:00Z' },

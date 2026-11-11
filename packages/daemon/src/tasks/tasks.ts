@@ -116,6 +116,7 @@ import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
 import { machineLoadRatio } from '../load.ts'
+import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import { type WorktreeFileScope, worktreeFileScope } from '../regular-file.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -175,7 +176,7 @@ import {
   tedSettingsCheck,
   touchesSettings,
 } from './checks.ts'
-import { type CommandSandbox, runTaskCommand } from './command.ts'
+import { type CommandLaunch, runTaskCommand } from './command.ts'
 import {
   ciFailureKey,
   createFailureCases,
@@ -659,16 +660,25 @@ export function createTasks(options: {
     }
   }
 
-  async function lifecycleSandbox(
+  async function prepareCommandLaunch(
     task: StoredTask,
     repos: readonly TaskRepo[] = task.repos,
-  ): Promise<CommandSandbox | undefined> {
-    if (runsInBypass(await taskWorkflow(task, { fetch: false }))) return undefined
-    await sandboxProblem(task.factoryId)
-    return {
-      sandbox: options.sandbox,
-      scope: sandboxScope(task, repos),
-      tmpRoot: path.join(sandboxDir, task.displayId),
+  ): Promise<CommandLaunch> {
+    const release = await acquireFactoryPermissions(store, task.factoryId)
+    try {
+      if (factoryPermissions(store, task.factoryId) === 'bypass') return { release }
+      await sandboxProblem(task.factoryId)
+      return {
+        release,
+        sandbox: {
+          sandbox: options.sandbox,
+          scope: sandboxScope(task, repos),
+          tmpRoot: path.join(sandboxDir, task.displayId),
+        },
+      }
+    } catch (error) {
+      release()
+      throw error
     }
   }
 
@@ -1586,14 +1596,7 @@ export function createTasks(options: {
       ...(only !== undefined && { only }),
     })
     if (plan.length === 0) return undefined
-    const sandbox = runsInBypass(resolution)
-      ? undefined
-      : {
-          sandbox: options.sandbox,
-          scope: sandboxScope(task),
-          tmpRoot: path.join(sandboxDir, task.displayId),
-        }
-    if (sandbox !== undefined) await sandboxProblem(factory.id)
+    if (factoryPermissions(store, factory.id) !== 'bypass') await sandboxProblem(factory.id)
     const checkRun = store.startChecks({
       taskId: task.id,
       trigger,
@@ -1618,7 +1621,7 @@ export function createTasks(options: {
         libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
         env: options.env?.() ?? process.env,
         logFor: (position) => checkLog(task, checkRun.id, position),
-        ...(sandbox !== undefined && { sandbox }),
+        prepareLaunch: () => prepareCommandLaunch(task),
         signal: stopping.signal,
         lowPriority: store.settings().lowPriorityWork,
         onStart: (position) => store.checkStarted(checkRun.id, position),
@@ -3537,10 +3540,9 @@ export function createTasks(options: {
     const teardown = entry?.teardown
     if (!teardown) return undefined
     const current = find(task.id)
-    const sandbox = await lifecycleSandbox(current, remainingRepos ?? current.repos)
     const result: CommandResult = await runTaskCommand({
       label: 'teardown',
-      ...(sandbox !== undefined && { sandbox }),
+      prepareLaunch: () => prepareCommandLaunch(current, remainingRepos ?? current.repos),
       command: teardown,
       cwd: repo.worktree,
       env: commandEnv(task, entry.env),
@@ -4605,10 +4607,9 @@ export function createTasks(options: {
     { untilStopped }: { untilStopped: boolean },
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
     const log = commandLog(task, 'setup', repo.name)
-    const sandbox = await lifecycleSandbox(find(task.id))
     const result = await runTaskCommand({
       label: 'setup',
-      ...(sandbox !== undefined && { sandbox }),
+      prepareLaunch: () => prepareCommandLaunch(find(task.id)),
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
       cwd: repo.worktree,
       env: commandEnv(task, setup.env),

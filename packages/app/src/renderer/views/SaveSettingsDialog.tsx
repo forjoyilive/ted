@@ -12,11 +12,9 @@ import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { readableError, ted } from '../ted.ts'
 import styles from './FactorySettings.module.css'
-import sections from './FactorySettingsSections.module.css'
 
 export function SaveSettingsDialog({
   factoryId,
-  factoryName,
   view,
   changes: given,
   onClose,
@@ -36,7 +34,6 @@ export function SaveSettingsDialog({
   const [mode, setMode] = useState<SettingsSaveMode>('merge')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  const [bypassConfirmed, setBypassConfirmed] = useState(false)
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -61,8 +58,7 @@ export function SaveSettingsDialog({
     : preview && !preview.valid && preview.problems.length === 0
       ? 'Nothing changed in the file.'
       : undefined
-  const needsBypass = preview?.turnsOnBypass === true && !bypassConfirmed
-  const canSave = preview?.valid === true && view.github.ready && !busy && !needsBypass
+  const canSave = preview?.valid === true && view.github.ready && !busy
 
   async function save() {
     if (!canSave) return
@@ -74,7 +70,6 @@ export function SaveSettingsDialog({
           changes,
           mode,
           version: view.version,
-          ...(preview?.turnsOnBypass === true && { confirmBypass: bypassConfirmed }),
         }),
       )
     } catch (failure) {
@@ -116,25 +111,6 @@ export function SaveSettingsDialog({
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-        {preview?.turnsOnBypass === true && (
-          <div className={sections.confirmBypass} role="alert">
-            <p>
-              <strong>This save turns on Bypass.</strong> Every Run in {factoryName} will act
-              without asking: it can run any command, change any file and use the network. Use it
-              only when Runs happen in an isolated machine or VM. Automations always run in Auto
-              permissions.
-            </p>
-            <label>
-              <input
-                type="checkbox"
-                checked={bypassConfirmed}
-                disabled={busy}
-                onChange={(event) => setBypassConfirmed(event.target.checked)}
-              />
-              Turn on Bypass for {factoryName}
-            </label>
           </div>
         )}
         {preview?.sideEffects.map((effect) => (

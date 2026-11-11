@@ -752,6 +752,7 @@ export interface TedStore extends TaskHistory {
   recordRunOutput(runId: string, output: RunOutput): void
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
+  setRunPermissions(runId: string, permissions: PermissionMode): void
   restartRun(runId: string, flags: RunFlags): Run
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
@@ -3897,6 +3898,14 @@ export async function openStore({
         if (taskId !== undefined) updatedTask(taskId)
       }
       if (stateChanged) noteActivity()
+    },
+    setRunPermissions(runId, permissions) {
+      const row = runRow(runId)
+      if (!row || row.permissions === permissions) return
+      commit(events.runPermissionsSet({ runId, permissions, at: new Date().toISOString() }))
+      emit({ type: 'run-updated', run: toRun(runRow(runId) ?? row) })
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined) updatedTask(taskId)
     },
     restartRun(runId, { model, effort, usesDefaultModel = false }) {
       const at = new Date().toISOString()
