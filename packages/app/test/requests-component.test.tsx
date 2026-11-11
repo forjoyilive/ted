@@ -319,7 +319,11 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
       throw new Error(`Error invoking remote method 'ted:request': Error: ${refusal}`)
     return comment()
   })
-  bridge({ simulators: () => ({ supported: false }), answerRequest: answer })
+  bridge({
+    simulators: () => ({ supported: false }),
+    answerRequest: answer,
+    listFailures: () => [],
+  })
   render(
     <RequestCard
       task={task()}
@@ -369,6 +373,7 @@ function inboxProps() {
 }
 
 test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', async () => {
+  requestApi()
   const props = inboxProps()
   const view = render(<Inbox {...props} />)
   await user().click(screen.getByRole('button', { name: 'New Task' }))
@@ -383,6 +388,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
 })
 
 test('resolving a selected request opens the next request and clears when none remain', () => {
+  requestApi()
   const props = inboxProps()
   const first = { task: task(), request: comment({ id: 'c1' }) }
   const second = { task: task(), request: comment({ id: 'c2', body: 'Second question?' }) }
@@ -488,7 +494,7 @@ test('Validate failure decisions display evidence and send the selected action',
   )
   await screen.findByText('Reproduced before the changed code executes.')
   expect(screen.getByText('Visual failure')).toBeTruthy()
-  expect(screen.getByText('uncertain')).toBeTruthy()
+  expect(screen.getByText('The cause isn’t known')).toBeTruthy()
   expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
   expect(answer).toHaveBeenCalledWith(
@@ -564,7 +570,7 @@ test('historical failure request keeps its own assessment and decision', async (
   await screen.findByText('Original Finding')
   expect(screen.queryByText(/Human decision: accepted/)).toBeNull()
   expect(screen.getByText(/Human decision: retry/)).toBeTruthy()
-  expect(screen.getByText('uncertain')).toBeTruthy()
+  expect(screen.getByText('The cause isn’t known')).toBeTruthy()
 })
 
 test('a Review confirmation shows completed Checks once when progress is available', async () => {

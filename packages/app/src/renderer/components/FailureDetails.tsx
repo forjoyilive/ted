@@ -25,6 +25,12 @@ export function acceptedPositions(failures: readonly FailureCase[], runId: strin
   )
 }
 
+const assessmentWords = {
+  regression: 'This Task caused it',
+  unrelated: 'This Task didn’t cause it',
+  uncertain: 'The cause isn’t known',
+} as const
+
 export function FailureDetails({
   failure,
   requestId,
@@ -59,54 +65,59 @@ export function FailureDetails({
               ? 'verified by a later execution'
               : 'verified with recorded evidence'
             : (decision?.resolution ?? 'unresolved')
+  const what =
+    failure.source.kind === 'finding'
+      ? failure.source.finding
+      : failure.source.kind === 'github-ci'
+        ? `CI on ${failure.source.repo}#${failure.source.number}`
+        : `The ${failure.originalCheck?.name ?? 'Factory'} Check`
   return (
     <section className={styles.content} aria-label="Failure assessment and decision">
+      <h3 className={styles.sectionHeading}>Failed</h3>
+      <p className={styles.sectionBody}>{what}</p>
+      <h3 className={styles.sectionHeading}>Task Lead’s assessment</h3>
       <p className={styles.sectionBody}>
-        Failure {failure.id} · {disposition}
+        {assessment ? assessmentWords[assessment.assessment] : 'Investigation in progress'}
       </p>
-      {failure.source.kind === 'finding' && (
-        <>
-          <h3 className={styles.sectionHeading}>Finding</h3>
-          <p className={styles.sectionBody}>{failure.source.finding}</p>
-        </>
-      )}
-      <h3 className={styles.sectionHeading}>Assessment</h3>
-      <p className={styles.sectionBody}>{assessment?.assessment ?? 'Investigation in progress'}</p>
-      <h3 className={styles.sectionHeading}>Evidence</h3>
-      <p className={styles.sectionBody}>{failure.evidence}</p>
-      {failure.additions
-        .slice(0, requestId ? assessment?.evidenceCount : undefined)
-        .map((addition) => (
-          <p
-            key={`${addition.runId}:${addition.at}:${addition.evidence}`}
-            className={styles.sectionBody}
-          >
-            {addition.evidence}
-          </p>
-        ))}
       {assessment && (
         <>
           <h3 className={styles.sectionHeading}>Recommendation</h3>
           <p className={styles.sectionBody}>{assessment.recommendation}</p>
         </>
       )}
-      {!requestId &&
-        failure.verifications?.map((verification) => (
-          <p key={`${verification.at}:${verification.evidence}`} className={styles.sectionBody}>
-            Verification: {verification.evidence}
-          </p>
-        ))}
-      <p className={styles.sectionBody}>
-        Tested context: {(requestId ? request?.contextId : failure.contextId) ?? 'unknown'}
-      </p>
       {decision && (
         <p className={styles.sectionBody}>
           Human decision: {decision.resolution} · {decision.reason}
         </p>
       )}
+      <details>
+        <summary className={styles.caption}>Evidence and history</summary>
+        <p className={styles.sectionBody}>
+          Failure {failure.id} · {disposition}
+        </p>
+        <p className={styles.sectionBody}>{failure.evidence}</p>
+        {failure.additions
+          .slice(0, requestId ? assessment?.evidenceCount : undefined)
+          .map((addition) => (
+            <p
+              key={`${addition.runId}:${addition.at}:${addition.evidence}`}
+              className={styles.sectionBody}
+            >
+              {addition.evidence}
+            </p>
+          ))}
+        {!requestId &&
+          failure.verifications?.map((verification) => (
+            <p key={`${verification.at}:${verification.evidence}`} className={styles.sectionBody}>
+              Verification: {verification.evidence}
+            </p>
+          ))}
+        <p className={styles.sectionBody}>
+          Tested context: {(requestId ? request?.contextId : failure.contextId) ?? 'unknown'}
+        </p>
+      </details>
       <p className={styles.caption}>
-        Acceptance applies only to this failure. Remaining Checks, validation and merge approval are
-        still required.
+        Accepting covers only this failure. It doesn’t count as passed or approve a merge.
       </p>
     </section>
   )
