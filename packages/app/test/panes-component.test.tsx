@@ -187,3 +187,49 @@ test('live Task and Comment events update the List and an open thread through Do
     }),
   ).toBeTruthy()
 })
+
+test('Review opens repo-specific file and full diffs, then returns with the answer draft intact', async () => {
+  const a = appState()
+  const request = comment({
+    kind: 'signoff',
+    stage: 'review',
+    gate: { approveLabel: 'Approve' },
+    body: '## Goal\n\nReview sync.',
+  })
+  a.handle('listComments', () => [request])
+  a.handle('markCommentsRead', () => ({ read: 1 }))
+  a.handle('taskChanges', () => ({
+    taskId: 'NB-1',
+    files: 2,
+    repos: ['widgets', 'api'].map((name) => ({
+      name,
+      baseBranch: 'main',
+      added: 1,
+      removed: 0,
+      files: [{ path: 'src/sync.ts', added: 1, removed: 0, uncommitted: false }],
+    })),
+  }))
+  a.handle('fileDiffs', () => [])
+  const thread = await openTask(a)
+  const u = user()
+  await u.type(within(thread).getByLabelText('Your answer'), 'Check the retry.')
+  const review = within(await screen.findByRole('region', { name: 'Current Task changes' }))
+  await u.click(
+    within(review.getByRole('list', { name: 'api' })).getByRole('button', { name: /sync.ts/ }),
+  )
+  await screen.findByRole('region', { name: 'Diff' })
+  expect(a.request).toHaveBeenCalledWith('fileDiffs', 'NB-1', 'api', 'src/sync.ts')
+  await u.click(screen.getByRole('button', { name: '← Back to sign-off' }))
+  expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
+    'Check the retry.',
+  )
+  await u.click(screen.getByRole('button', { name: 'View all changes' }))
+  await screen.findByRole('region', { name: 'All changes' })
+  expect(a.request).toHaveBeenCalledWith('fileDiffs', 'NB-1', 'widgets', undefined)
+  expect(a.request).toHaveBeenCalledWith('fileDiffs', 'NB-1', 'api', undefined)
+  await u.click(screen.getByRole('button', { name: '← Back to sign-off' }))
+  expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
+    'Check the retry.',
+  )
+  expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
+})

@@ -63,6 +63,7 @@ export function appState() {
     listCheckRuns: () => [],
     listTaskRuns: () => [],
     taskBrief: () => null,
+    taskGates: () => ({ rows: [], overrides: {}, revision: 'test' }),
     taskDescriptions: () => [],
     taskChanges: () => ({ repos: [] }),
     lineComments: () => [],
