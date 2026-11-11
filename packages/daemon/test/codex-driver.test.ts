@@ -1,5 +1,9 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
 import { type CodexPlan, drive } from '../src/agents/codex-driver.ts'
+import { createAgents } from '../src/agents/index.ts'
 
 describe('Codex text drafting transport', () => {
   test.each(['thread/start', 'thread/resume'] as const)(
@@ -96,4 +100,58 @@ describe('Codex text drafting transport', () => {
       expect(methods).not.toContain('turn/start')
     },
   )
+})
+
+describe('Codex persistent storage', () => {
+  test('a new Run resuming a thread keeps its private home even without the original Run folder', async () => {
+    const home = await mkdtemp(path.join(tmpdir(), 'ted-codex-storage-'))
+    try {
+      const agent = createAgents({ home }).get('codex')
+      const launch = agent.launch({
+        prompt: 'Hello',
+        runDir: path.join(home, 'old-run'),
+        env: {},
+        permissions: 'auto',
+      })
+      const stop = vi.fn()
+      let turnStarted = false
+      const driver = drive({
+        input: launch.input,
+        stop,
+        send(line) {
+          const message = JSON.parse(line)
+          if (message.id === undefined) return
+          if (message.method === 'turn/start') turnStarted = true
+          const result =
+            message.method === 'thread/start'
+              ? { thread: { id: 'private-thread' } }
+              : message.method === 'turn/start'
+                ? { turn: { id: 'turn' } }
+                : {}
+          queueMicrotask(() => driver.onLine(JSON.stringify({ id: message.id, result })))
+        },
+      })
+      await vi.waitFor(() => expect(turnStarted).toBe(true))
+      expect(stop).not.toHaveBeenCalled()
+      const resumed = createAgents({ home })
+        .get('codex')
+        .launch({
+          prompt: 'Continue',
+          runDir: path.join(home, 'new-run'),
+          env: { CODEX_HOME: '/personal/codex', CODEX_SQLITE_HOME: '/personal/db' },
+          resume: 'private-thread',
+          permissions: 'auto',
+        })
+      expect(resumed.env).toMatchObject({
+        CODEX_HOME: path.join(home, 'codex'),
+        CODEX_SQLITE_HOME: path.join(home, 'codex'),
+      })
+      expect(JSON.parse(resumed.input).thread).toEqual({
+        method: 'thread/resume',
+        params: { threadId: 'private-thread' },
+      })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  })
 })
