@@ -391,6 +391,8 @@ Task branches in `api` start from `develop` and their pull requests target it; `
 
 ### 4.8 Stage files
 
+For an explanation of Factory validation controls and TED’s own repo-specific testing rules, see [Factory validation](../testing/factory-validation.md).
+
 - `stages/<id>.md`. The Stage id is the filename, title-cased for display. Plain Markdown, no frontmatter. Suggested headings, not checked: Goal, Skip when, Steps, Done when, Send back when, Ask the human when. (KRI-12)
 - Stage files hold plain instructions (“ask the human”, “report the outcome”). At Run start TED adds a preamble that maps them to `ted` commands and points to `ted help`. Nothing needs installing. (KRI-11, ADR 0001)
 - On every Stage change, TED hands the live Task Lead Run the next Stage file. (KRI-11)

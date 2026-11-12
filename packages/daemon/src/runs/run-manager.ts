@@ -3,13 +3,17 @@ import { randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
+  constants,
   fstatSync,
   fsyncSync,
   ftruncateSync,
   openSync,
   readFileSync,
   readSync,
+  renameSync,
+  rmSync,
   statSync,
+  writeFileSync,
   writeSync,
 } from 'node:fs'
 import { appendFile, mkdir, open, readFile, rename, stat, writeFile } from 'node:fs/promises'
@@ -246,6 +250,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     signal: AbortSignal,
   ): Promise<void> {
     const files = runFiles(path.join(runsDir, runId))
+    const held = heldRead(files)
+    if (held !== undefined) store.holdRunOutput(runId, held)
     let offset = store.runReadOffset(runId)
     const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
     const generation = await generationBefore(files.log, offset, (line) =>
@@ -354,6 +360,49 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
+  function heldRead(
+    files: ReturnType<typeof runFiles>,
+  ): { from: number; toOffset: number; lastOutputAt?: string } | undefined {
+    let fd: number | undefined
+    try {
+      fd = openSync(files.readTo, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+      const { size } = fstatSync(fd)
+      if (!fstatSync(fd).isFile() || size > 1024) return undefined
+      const bytes = Buffer.alloc(size)
+      readSync(fd, bytes, 0, size, 0)
+      const { from, toOffset, lastOutputAt } = JSON.parse(bytes.toString('utf8')) as Record<
+        string,
+        unknown
+      >
+      const offset = (value: unknown): value is number =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+      if (!offset(from) || !offset(toOffset)) return undefined
+      if (toOffset > statSync(files.log).size) return undefined
+      return { from, toOffset, ...(typeof lastOutputAt === 'string' && { lastOutputAt }) }
+    } catch {
+      return undefined
+    } finally {
+      if (fd !== undefined) closeSync(fd)
+    }
+  }
+
+  function holdRead(runId: string, toOffset: number): void {
+    const { readTo } = runFiles(path.join(runsDir, runId))
+    const held = {
+      from: store.savedReadOffset(runId),
+      toOffset,
+      lastOutputAt: store.lastOutputAt(runId),
+    }
+    const temporary = `${readTo}.tmp`
+    try {
+      rmSync(temporary, { force: true })
+      writeFileSync(temporary, JSON.stringify(held), { mode: 0o600, flag: 'wx' })
+      renameSync(temporary, readTo)
+    } catch (error) {
+      console.error(`could not save the read offset of Run ${runId}:`, error)
+    }
+  }
+
   function commitBatch(
     runId: string,
     batch: RecordBatch,
@@ -449,7 +498,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const asked = askable
       ? prompts.filter((prompt) => prompt.refuse !== true && prompt.generation === generation.count)
       : []
-    store.recordRunOutput(runId, {
+    const saved = store.recordRunOutput(runId, {
       ...(asked.length > 0 && { permissionPrompts: asked }),
       ...(closedPermissions.length > 0 && { closedPermissions }),
       ...(agentRestarted && { agentRestarted }),
@@ -462,6 +511,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(state === 'finished' && { ending: ending(runId, exit, generation) }),
       ...(retrying !== undefined && { retrying }),
     })
+    if (!saved) holdRead(runId, batch.toOffset)
     if (credential) {
       const report = credential
       tellObservers(runId, (observer, run) => observer.credential?.(run, report))

@@ -314,7 +314,7 @@ describe('Full Inbox', () => {
       steps: [{ run: ['ted', 'outcome', 'ask', '--choice', 'Yes', question] }, { endTurn: true }],
     })
 
-  test('rows from every Factory sort by Priority, chips filter, rows stay bold until opened, answering moves on, and Answered looks back', async () => {
+  test('rows from every Factory sort newest first, chips filter, rows stay bold until opened, answering moves on, and Answered looks back', async () => {
     await twoFactories()
     const window = await launchApp()
     const client = await daemonClient()
@@ -325,6 +325,9 @@ describe('Full Inbox', () => {
     ] as const) {
       const task = await client.createTask({ factory, priority, title: asking(question) })
       await client.startTask(task.id)
+      await expect
+        .poll(async () => (await client.listInbox()).some((i) => i.task.id === task.id))
+        .toBe(true)
     }
 
     const inbox = window.getByRole('region', { name: 'Inbox' })
@@ -334,7 +337,7 @@ describe('Full Inbox', () => {
         .evaluateAll((rows) => rows.map((row) => row.querySelector('[data-headline]')?.textContent))
     await expect
       .poll(headlines, { timeout: 30_000 })
-      .toEqual(['Urgent question?', 'Low question?', 'Site question?'])
+      .toEqual(['Site question?', 'Urgent question?', 'Low question?'])
     const weight = (text: string) =>
       inbox.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).fontWeight)
     expect(await weight('Low question?')).toBe('600')

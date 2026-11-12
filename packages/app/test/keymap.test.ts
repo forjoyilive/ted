@@ -83,6 +83,8 @@ describe('the shortcut sheet', () => {
     expect(press('r')).toMatchObject({ id: 'reply' })
     expect(press('g')).toBe('pending')
     expect(press('b')).toMatchObject({ id: 'go-to-board' })
+    expect(press('g')).toBe('pending')
+    expect(press('d')).toMatchObject({ id: 'go-to-dashboard' })
     expect(press('[', { metaKey: true })).toMatchObject({ id: 'back' })
     expect(press('Enter')).toMatchObject({ id: 'open' })
   })

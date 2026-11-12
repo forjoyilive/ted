@@ -238,6 +238,99 @@ test.each(['binary', 'too-large', 'unavailable'] as const)(
   },
 )
 
+test('attached guides preview formatted Markdown and escaped plain text, with loading and focus restoration', async () => {
+  const pending = deferred<{ data: string }>()
+  const a = bridge({ readAttachment: () => pending.promise, showAttachmentInFolder: () => {} })
+  render(
+    <CommentFiles
+      files={[
+        { hash: 'guide', name: 'setup.MD', mediaType: 'application/octet-stream', size: 20 },
+        { hash: 'text', name: 'notes.txt', mediaType: 'text/plain', size: 20 },
+      ]}
+    />,
+  )
+  expect(a.request).not.toHaveBeenCalled()
+  const preview = screen.getByRole('button', { name: 'Preview setup.MD' })
+  preview.focus()
+  await user().keyboard('{Enter}')
+  const dialog = screen.getByRole('dialog', { name: 'setup.MD' })
+  expect(within(dialog).getByRole('status', { name: 'Loading setup.MD…' })).toBeTruthy()
+  await act(async () =>
+    pending.resolve({ data: Buffer.from('# Guide\n\nCafé **ready**').toString('base64') }),
+  )
+  expect(await within(dialog).findByRole('heading', { name: 'Guide' })).toBeTruthy()
+  expect(within(dialog).getByText('ready').tagName).toBe('STRONG')
+  fireEvent(dialog, new Event('cancel', { cancelable: true }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(preview)
+  a.handle('readAttachment', () => ({
+    data: Buffer.from('<img src=x onerror=alert(1)>\n  keep spacing').toString('base64'),
+  }))
+  await user().click(screen.getByRole('button', { name: 'Preview notes.txt' }))
+  const textDialog = screen.getByRole('dialog', { name: 'notes.txt' })
+  const text = await within(textDialog).findByText(/keep spacing/)
+  expect(text.tagName).toBe('PRE')
+  expect(text.textContent).toBe('<img src=x onerror=alert(1)>\n  keep spacing')
+  expect(textDialog.querySelector('img')).toBeNull()
+  await user().click(within(textDialog).getByRole('button', { name: /Show in/ }))
+  expect(a.request).toHaveBeenCalledWith('showAttachmentInFolder', {
+    hash: 'text',
+    name: 'notes.txt',
+  })
+  await user().click(within(textDialog).getByRole('button', { name: 'Close' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('unsupported attachments offer a file-manager action, with visible failures and retry', async () => {
+  const reveal = deferred<void>()
+  const a = bridge({ showAttachmentInFolder: () => reveal.promise })
+  render(
+    <CommentFiles
+      files={[{ hash: 'pdf', name: 'guide.pdf', mediaType: 'application/pdf', size: 30 }]}
+    />,
+  )
+  const button = screen.getByRole('button', { name: /Show in.*guide.pdf/ })
+  await user().click(button)
+  expect(button.hasAttribute('disabled')).toBe(true)
+  await act(async () => reveal.reject(new Error('Unable to read guide.pdf')))
+  expect((await screen.findByRole('alert')).textContent).toBe('Unable to read guide.pdf')
+  a.handle('showAttachmentInFolder', () => {})
+  await user().click(button)
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(a.request).toHaveBeenLastCalledWith('showAttachmentInFolder', {
+    hash: 'pdf',
+    name: 'guide.pdf',
+  })
+})
+
+test.each([
+  { data: '', message: 'This file is empty.' },
+  { data: Buffer.from([0, 1, 2]).toString('base64'), message: 'cannot be previewed as text' },
+  { data: Buffer.from([255]).toString('base64'), message: 'cannot be previewed as text' },
+  { data: Buffer.alloc(1024 * 1024 + 1, 65).toString('base64'), message: 'too large to preview' },
+  { error: 'Attachment is missing', message: 'Attachment is missing' },
+])('document preview handles empty, binary, large and missing files: $message', async (result) => {
+  bridge({
+    readAttachment: () => {
+      if ('error' in result) throw new Error(result.error)
+      return { data: result.data }
+    },
+  })
+  render(
+    <CommentFiles
+      files={[{ hash: 'text', name: 'guide.txt', mediaType: 'text/plain', size: 5 }]}
+    />,
+  )
+  await user().click(screen.getByRole('button', { name: 'Preview guide.txt' }))
+  const dialog = screen.getByRole('dialog', { name: 'guide.txt' })
+  expect(
+    await within(dialog).findByText(
+      new RegExp(result.message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+    ),
+  ).toBeTruthy()
+  expect(within(dialog).getByRole('button', { name: /Show in/ })).toBeTruthy()
+})
+
 test('a Comment’s image buttons browse in display order, wrap, and restore the opened thumbnail', async () => {
   bridge({ readAttachment: () => ({ data: 'aW1hZ2U=' }) })
   const image = (name: string) => ({ hash: name, name, mediaType: 'image/png', size: 5 })

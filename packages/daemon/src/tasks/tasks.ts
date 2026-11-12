@@ -2142,33 +2142,34 @@ export function createTasks(options: {
   }
 
   function watchedPullRequests(): PullRequestRef[] {
-    return store.listTasks().flatMap((task) =>
-      task.archived
-        ? []
-        : task.repos.flatMap((repo) => {
-            const pr = repo.pullRequest
-            if (repo.removed || !pr) return []
-            if (
-              pr.state === 'merged' &&
-              (task.stage === 'done' || store.failures.list(task.id).length === 0)
-            )
-              return []
-            return [
-              {
-                key: `${task.id}:${repo.name}`,
-                repo: repo.repo,
-                number: pr.number,
-                host: hostOfPullRequest(pr.url),
-              },
-            ]
-          }),
+    return store.unarchivedTaskRepos().flatMap((task) =>
+      task.repos.flatMap((repo) => {
+        const pr = repo.pullRequest
+        if (repo.removed || !pr) return []
+        if (
+          pr.state === 'merged' &&
+          (task.stage === 'done' || store.failures.list(task.id).length === 0)
+        )
+          return []
+        return [
+          {
+            key: `${task.id}:${repo.name}`,
+            repo: repo.repo,
+            number: pr.number,
+            host: hostOfPullRequest(pr.url),
+          },
+        ]
+      }),
     )
   }
 
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
     if (closed) return
-    for (const task of store.listTasks()) {
-      if (task.archived || task.stage === 'done') continue
+    const unarchived = store.unarchivedTaskRepos()
+    for (const { id, stage } of unarchived) {
+      if (stage === 'done') continue
+      const task = store.getTask(id)
+      if (!task) continue
       let ci: string | null | undefined
       try {
         ci = failureCi(task, read).ci
@@ -2178,8 +2179,9 @@ export function createTasks(options: {
       const effects = failures.observeCi(task, ci)
       inBackground(`apply ${task.displayId}’s failure observation`, () => effects)
     }
-    for (const { id } of store.listTasks()) {
+    for (const { id, stage, repos } of unarchived) {
       if (closed) return
+      if (stage === 'done' && !repos.some((repo) => read.pulls.has(`${id}:${repo.name}`))) continue
       const task = store.getTask(id)
       if (!task || task.archived) continue
       try {
@@ -7077,7 +7079,15 @@ export function createTasks(options: {
     },
 
     async reportOutcome(ref, caller, outcome) {
+      const asked = taskLead(ref, caller, 'reports outcomes').task
+      await untilFree(asked.id)
       const { task, runId } = taskLead(ref, caller, 'reports outcomes')
+      if (task.stage !== asked.stage) {
+        throw new RequestError(
+          409,
+          `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
+        )
+      }
       if (task.stage === 'backlog' || task.stage === 'done') {
         throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
       }

@@ -116,7 +116,8 @@ describe('Agent health', () => {
 
   test('a CLI signed in with an API key under Subscription offers a subscription sign-in', async () => {
     await setStub('claude', { authMethod: 'console' })
-    const client = await start()
+    await setStub('codex', { signedIn: false })
+    const client = await start({ codex: true })
 
     const claude = await waitUntil(async () => {
       const h = await healthOf(client, 'claude')
@@ -126,6 +127,16 @@ describe('Agent health', () => {
 
     await client.ok('POST', '/agents/claude/fix')
     expect(opened).toEqual(['claude auth login'])
+
+    const codex = await waitUntil(async () => {
+      const h = await healthOf(client, 'codex')
+      return h?.state === 'signed-out' ? h : undefined
+    }, 'Codex to offer sign-in for TED storage')
+    const folder = path.join(home, 'codex')
+    const command = `env CODEX_HOME='${folder}' CODEX_SQLITE_HOME='${folder}' codex login`
+    expect(codex.fix).toEqual({ label: 'Sign in', command })
+    await client.ok('POST', '/agents/codex/fix')
+    expect(opened).toEqual(['claude auth login', command])
   })
 
   test('an agent below the minimum version is too old and offers its update command', async () => {

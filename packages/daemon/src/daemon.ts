@@ -89,6 +89,7 @@ export interface DaemonOptions {
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
+  outputDrop?: DataOptions['outputDrop']
   slow?: { requestMs?: number; stallMs?: number }
 }
 
@@ -179,6 +180,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const environment = createEnvironment({ loginShell: given.loginShell ?? false })
   const environmentRead = environment.reload()
   const agents = createAgents({
+    home: paths.home,
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
     env: environment.current,
@@ -189,6 +191,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
     ...(options.compaction && { compaction: options.compaction }),
+    ...(options.outputDrop && { outputDrop: options.outputDrop }),
     async startServices(store, emit) {
       await environmentRead
       const runs = await startRunManager({
