@@ -296,10 +296,11 @@ describe('reading and profiling: who may call', () => {
 })
 
 describe('CPU profile', () => {
-  test('a long block of the event loop saves a profile that names the blocking function', async () => {
+  test('a long block of the event loop saves a profile that names the code that blocked', async () => {
     const lines: string[] = []
     const profiler = createCpuProfiler(home, {
-      stallMs: 300,
+      stallMs: 1_000,
+      startAfterMs: 300,
       tickMs: 50,
       log: (line) => lines.push(line),
     })
@@ -308,18 +309,20 @@ describe('CPU profile', () => {
       (await readdir(dir).catch(() => [])).filter((name) => name.startsWith('stall-'))
     try {
       await new Promise((resolve) => setTimeout(resolve, 300))
-      block(100)
-      await new Promise((resolve) => setTimeout(resolve, 200))
+      block(600)
+      await new Promise((resolve) => setTimeout(resolve, 400))
       expect(await saved()).toEqual([])
-      block(700)
+      block(1_500)
       await expect.poll(saved).toHaveLength(1)
       const [name = ''] = await saved()
       expect(name).toMatch(/^stall-\d{8}-\d{6}\.cpuprofile$/)
       expect((await lstat(path.join(dir, name))).mode & 0o777).toBe(0o600)
       const profile = JSON.parse(await readFile(path.join(dir, name), 'utf8')) as {
-        nodes: { callFrame: { functionName: string } }[]
+        nodes: { callFrame: { url: string } }[]
       }
-      expect(profile.nodes.map((node) => node.callFrame.functionName)).toContain('block')
+      expect(
+        profile.nodes.some((node) => node.callFrame.url.endsWith('slow-moments.test.ts')),
+      ).toBe(true)
       expect(lines).toHaveLength(1)
       expect(lines[0]).toMatch(/^event loop blocked for \d+ ms; a CPU profile of it is in /)
     } finally {

@@ -176,6 +176,33 @@ test('the window is marked loaded once the first Factories load finishes', async
   expect(screen.getByRole('button', { name: 'widgets' })).toBeTruthy()
 })
 
+test('a first Factories load that fails is tried again until it succeeds', async () => {
+  vi.useFakeTimers()
+  try {
+    const a = appState()
+    let calls = 0
+    a.handle('listFactories', () =>
+      ++calls < 3 ? Promise.reject(new Error('can’t reach TED’s daemon')) : [factory()],
+    )
+    const view = a.mount()
+    await act(async () => vi.advanceTimersByTimeAsync(0))
+    const root = required(view.container.querySelector('[data-loaded]'))
+    expect(root.getAttribute('data-loaded')).toBe('false')
+    expect(screen.queryByRole('button', { name: 'widgets' })).toBeNull()
+    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    expect(calls).toBe(2)
+    expect(root.getAttribute('data-loaded')).toBe('false')
+    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    expect(calls).toBe(3)
+    expect(root.getAttribute('data-loaded')).toBe('true')
+    expect(screen.getByRole('button', { name: 'widgets' })).toBeTruthy()
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(calls).toBe(3)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 test('sidebar expansion survives a component remount', async () => {
   const a = appState()
   a.state.factories.push(factory({ id: 'f2', key: 'MS', name: 'site' }))

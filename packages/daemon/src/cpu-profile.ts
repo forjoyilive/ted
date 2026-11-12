@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { Worker } from 'node:worker_threads'
 import type { ProfileResult } from '@ted/protocol'
 import { displayPath } from './backups.ts'
 import { RequestError } from './errors.ts'
@@ -13,7 +14,7 @@ export interface CpuProfiler {
 
 export interface StallProfiles {
   stallMs?: number
-  windowMs?: number
+  startAfterMs?: number
   tickMs?: number
   log?: (line: string) => void
 }
@@ -27,7 +28,12 @@ const stallSamplingMicros = 10_000
 
 export function createCpuProfiler(home: string, stalls?: StallProfiles): CpuProfiler {
   let running: AbortController | undefined
-  const watch = stalls && watchStalls(home, stalls)
+  let watch: ReturnType<typeof watchStalls> | undefined
+  try {
+    watch = stalls && watchStalls(home, stalls)
+  } catch (error) {
+    console.warn('the stall watch couldn’t start:', error)
+  }
   return {
     async record(seconds) {
       if (running) throw new RequestError(409, 'TED is already recording a CPU profile')
@@ -57,82 +63,121 @@ export function createCpuProfiler(home: string, stalls?: StallProfiles): CpuProf
   }
 }
 
-type Session = Awaited<ReturnType<typeof connect>>
+// Plain JavaScript run in a worker thread, so it works from source and from the staged build.
+// It hears a beat from the daemon’s thread; when the beats stop it profiles that thread through
+// the inspector and, when they come back, posts the profile and how long they were missing.
+const watchdog = `
+const { parentPort, workerData } = require('node:worker_threads')
+const { Session } = require('node:inspector/promises')
+const { tickMs, startAfterMs, samplingMicros } = workerData
+let beat = Date.now()
+let tick = Date.now()
+let paused = false
+let session
+let busy = false
+parentPort.on('message', (message) => {
+  if (message === 'beat') beat = Date.now()
+  else if (message === 'pause') paused = true
+  else if (message === 'resume') paused = false
+})
+async function start() {
+  const next = new Session()
+  next.connectToMainThread()
+  try {
+    await next.post('Profiler.enable')
+    await next.post('Profiler.setSamplingInterval', { interval: samplingMicros })
+    await next.post('Profiler.start')
+  } catch (error) {
+    next.disconnect()
+    throw error
+  }
+  session = next
+}
+async function stop(ms) {
+  const current = session
+  session = undefined
+  try {
+    const { profile } = await current.post('Profiler.stop')
+    parentPort.postMessage({ ms, profile: JSON.stringify(profile) })
+  } finally {
+    current.disconnect()
+  }
+}
+let since = 0
+const report = (error) => parentPort.postMessage({ error: String((error && error.message) || error) })
+setInterval(() => {
+  const now = Date.now()
+  const slept = now - tick > tickMs + 2000
+  tick = now
+  if (slept) beat = now
+  if (busy) return
+  const quiet = now - beat
+  if (!session && !paused && quiet >= startAfterMs) {
+    busy = true
+    since = beat
+    start().catch(report).finally(() => { busy = false })
+  } else if (session && (quiet < startAfterMs || paused)) {
+    busy = true
+    stop(slept || paused ? 0 : beat - since).catch(report).finally(() => { busy = false })
+  }
+}, tickMs)
+`
 
-// ADR 0124: keeps a coarse profile of the last minute and saves it when the event loop was
-// blocked for `stallMs` or more, so a freeze names the code that caused it. The sampler runs
-// on V8’s own thread, so it keeps sampling while the loop is blocked.
+// ADR 0124: when the daemon’s thread stops answering, a worker thread profiles it until it
+// answers again, and a stall of `stallMs` or more is saved. Nothing runs while the daemon
+// is healthy: keeping the profiler on all the time made CPU-bound work several times slower.
 function watchStalls(home: string, options: StallProfiles) {
   const stallMs = options.stallMs ?? 5_000
-  const windowMs = options.windowMs ?? 60_000
-  const tickMs = options.tickMs ?? 1_000
+  const tickMs = options.tickMs ?? 250
   const log = options.log ?? ((line: string) => console.warn(line))
-  let session: Session | undefined
-  let startedAt = 0
-  let lastTick = Date.now()
   let closed = false
-  let paused = false
-  let work: Promise<void> = Promise.resolve()
-  const queue = (step: () => Promise<void>) => {
-    work = work.then(step).catch((error: unknown) => {
-      session?.disconnect()
-      session = undefined
-      log(`couldn’t keep a profile for stalls: ${error instanceof Error ? error.message : error}`)
-    })
-    return work
-  }
-  const start = async () => {
-    if (closed || paused || session) return
-    const next = await connect()
-    await next.post('Profiler.enable')
-    await next.post('Profiler.setSamplingInterval', { interval: stallSamplingMicros })
-    await next.post('Profiler.start')
-    session = next
-    startedAt = Date.now()
-  }
-  const stop = async (keep?: number) => {
-    const current = session
-    if (!current) return
-    session = undefined
-    try {
-      const { profile } = await current.post('Profiler.stop')
-      if (keep === undefined) return
-      const dir = await profilesDir(home)
-      const name = `stall-${stamp(new Date())}.cpuprofile`
-      await save(path.join(dir, name), JSON.stringify(profile))
-      await prune(dir, stallName)
-      log(
-        `event loop blocked for ${keep} ms; a CPU profile of it is in ${displayPath(path.join(home, 'logs', 'profiles', name))}`,
-      )
-    } finally {
-      current.disconnect()
+  let saving: Promise<void> = Promise.resolve()
+  const worker = new Worker(watchdog, {
+    eval: true,
+    workerData: {
+      tickMs,
+      startAfterMs: options.startAfterMs ?? 2_000,
+      samplingMicros: stallSamplingMicros,
+    },
+  })
+  worker.unref()
+  worker.on('error', (error) => log(`the stall watch stopped: ${error.message}`))
+  worker.on('message', (message: { ms?: number; profile?: string; error?: string }) => {
+    if (closed) return
+    if (message.error !== undefined) {
+      log(`couldn’t profile a stall: ${message.error}`)
+      return
     }
-  }
-  const timer = setInterval(() => {
-    const now = Date.now()
-    const late = now - lastTick - tickMs
-    lastTick = now
-    // A machine that slept looks like one very long stall; that profile is thrown away.
-    if (late >= stallMs && late < 10 * 60_000) void queue(() => stop(late)).then(() => queue(start))
-    else if (session && now - startedAt >= windowMs)
-      void queue(() => stop()).then(() => queue(start))
-  }, tickMs)
+    const { ms = 0, profile } = message
+    if (profile === undefined || ms < stallMs) return
+    saving = saving
+      .then(async () => {
+        const dir = await profilesDir(home)
+        const name = `stall-${stamp(new Date())}.cpuprofile`
+        await save(path.join(dir, name), profile)
+        await prune(dir, stallName)
+        log(
+          `event loop blocked for ${ms} ms; a CPU profile of it is in ${displayPath(path.join(home, 'logs', 'profiles', name))}`,
+        )
+      })
+      .catch((error: unknown) =>
+        log(`couldn’t save a stall’s profile: ${error instanceof Error ? error.message : error}`),
+      )
+  })
+  const timer = setInterval(() => worker.postMessage('beat'), tickMs)
   timer.unref()
-  void queue(start)
   return {
-    pause() {
-      paused = true
-      return queue(() => stop())
+    async pause() {
+      worker.postMessage('pause')
+      await sleep(tickMs * 2, undefined, { ref: false })
     },
     resume() {
-      paused = false
-      lastTick = Date.now()
-      void queue(start)
+      worker.postMessage('resume')
     },
     close() {
       closed = true
       clearInterval(timer)
-      void queue(() => stop())
+      void worker.terminate()
     },
   }
 }

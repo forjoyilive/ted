@@ -257,6 +257,7 @@ function useLiveList<T extends { id: string }>(
   pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
   drop: (event: TedEvent) => string | undefined = keepAll,
+  retryEveryMs?: number,
 ): { items: T[]; loaded: boolean; error: string | undefined; retry: () => void } {
   const [items, setItems] = useState<T[]>([])
   const [done, setDone] = useState(false)
@@ -276,6 +277,7 @@ function useLiveList<T extends { id: string }>(
     setError(undefined)
     loaded.current = load
     let active = true
+    let again: ReturnType<typeof setTimeout> | undefined
     let fresh: T[] | undefined = []
     const dropped = new Set<string>()
     const unsubscribe = ted.onEvent((event) => {
@@ -302,14 +304,18 @@ function useLiveList<T extends { id: string }>(
         fresh = undefined
       },
       (failure: unknown) => {
-        if (active) setError(readableError(failure))
+        if (!active) return
+        setError(readableError(failure))
+        if (retryEveryMs !== undefined)
+          again = setTimeout(() => setAttempt((n) => n + 1), retryEveryMs)
       },
     )
     return () => {
       active = false
+      clearTimeout(again)
       unsubscribe()
     }
-  }, [load, pick, order, drop, epoch, attempt])
+  }, [load, pick, order, drop, epoch, attempt, retryEveryMs])
 
   const current = loaded.current === load
   return {
@@ -346,7 +352,15 @@ export function useFactories(): Factory[] {
 }
 
 export function useFactoryList(): { factories: Factory[]; loaded: boolean } {
-  const { items, loaded } = useLiveList(ted.listFactories, factoryFrom, byPosition, removedFactory)
+  // The window has no Factories until this load succeeds, so a failed one is tried again:
+  // a daemon too busy to answer once must not leave the sidebar empty.
+  const { items, loaded } = useLiveList(
+    ted.listFactories,
+    factoryFrom,
+    byPosition,
+    removedFactory,
+    2_000,
+  )
   return { factories: items, loaded }
 }
 
