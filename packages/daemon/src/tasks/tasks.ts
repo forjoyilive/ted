@@ -3827,6 +3827,7 @@ export function createTasks(options: {
       find,
       holding,
       failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+      holdingSignoff,
       humanComment,
       answerRunPermission: (runId, generation, reply) =>
         runs.answerPermission(runId, generation, reply),
@@ -4004,6 +4005,23 @@ export function createTasks(options: {
       released.delete(task.id)
       release()
     }
+  }
+
+  async function holdingSignoff<T>(task: Task, work: () => Promise<T>): Promise<T> {
+    const deadline = clock.now() + 60_000
+    for (let held = released.get(task.id); held; held = released.get(task.id)) {
+      const left = deadline - clock.now()
+      if (left <= 0) {
+        throw new RequestError(
+          409,
+          `${task.displayId} is still busy after waiting a minute. No answer was applied; try again when its current operation finishes.`,
+        )
+      }
+      const timer = new AbortController()
+      await Promise.race([held, clockWait(clock, left, timer.signal)])
+      timer.abort()
+    }
+    return holding(find(task.id), work)
   }
 
   async function untilFree(taskId: string): Promise<void> {

@@ -37,6 +37,7 @@ beforeEach(async () => {
     },
     untilFree: async () => {},
     holding: async (_task, work) => work(),
+    holdingSignoff: async (_task, work) => work(),
     failures: { findDecision: () => undefined, resolve: unexpected },
     humanComment: unexpected,
     answerRunPermission: unexpected,
@@ -189,6 +190,35 @@ test('a sign-off keeps its request open when obligations fail', async () => {
   expect(store.getComment(comment.id)?.answer).toBeUndefined()
   expect(effects).toEqual([])
 })
+
+test.each(['withdrawn', 'superseded', 'approved'] as const)(
+  'a sign-off that becomes %s while waiting cannot approve or advance again',
+  async (kind) => {
+    const comment = post({ kind: 'gate' }, { kind: 'signoff', gate: { approveLabel: 'Merge' } })
+    port.untilFree = unexpected
+    port.holding = unexpected
+    port.holdingSignoff = async (_task, work) => {
+      store.answerComment(
+        comment.id,
+        kind === 'withdrawn'
+          ? { kind, at: at(), cancelled: true }
+          : kind === 'superseded'
+            ? { kind, at: at(), by: 'replacement' }
+            : { kind, at: at() },
+      )
+      return work()
+    }
+    await expect(answer(comment, { action: 'approve' })).rejects.toThrow(
+      kind === 'withdrawn'
+        ? 'withdrawn'
+        : kind === 'superseded'
+          ? 'replaced'
+          : 'already been answered',
+    )
+    expect(effects).toEqual([])
+    expect(store.getComment(comment.id)?.answer?.kind).toBe(kind)
+  },
+)
 
 test('Request changes requires words and delivers them without approving', async () => {
   const comment = post({ kind: 'gate' }, { kind: 'review', gate: { approveLabel: 'Approve' } })
