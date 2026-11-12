@@ -878,6 +878,17 @@ export const automationComments = State.SQLite.table({
   },
 })
 
+export const requestSnoozes = State.SQLite.table({
+  name: 'requestSnoozes',
+  indexes: [{ name: 'idx_requestSnoozes_ownerId', columns: ['ownerId'] }],
+  columns: {
+    requestId: State.SQLite.text({ primaryKey: true }),
+    ownerId: State.SQLite.text(),
+    factoryId: State.SQLite.text(),
+    until: State.SQLite.text(),
+  },
+})
+
 export const sideChats = State.SQLite.table({
   name: 'sideChats',
   columns: { sourceRunId: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
@@ -1187,6 +1198,20 @@ export const events = {
   taskSnoozeCleared: Events.synced({
     name: 'v1.TaskSnoozeCleared',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  requestSnoozed: Events.synced({
+    name: 'v1.RequestSnoozed',
+    schema: Schema.Struct({
+      requestId: Schema.String,
+      ownerId: Schema.String,
+      factoryId: Schema.String,
+      until: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  requestSnoozeCleared: Events.synced({
+    name: 'v1.RequestSnoozeCleared',
+    schema: Schema.Struct({ requestId: Schema.String, at: Schema.String }),
   }),
   taskStartRequestChanged: Events.synced({
     name: 'v1.TaskStartRequestChanged',
@@ -3292,6 +3317,11 @@ const materializers = counted(
         tasks.update({ snoozedUntil: until, startRequested: false }).where({ id: taskId }),
       'v1.TaskSnoozeCleared': ({ taskId }) =>
         tasks.update({ snoozedUntil: null }).where({ id: taskId }),
+      'v1.RequestSnoozed': ({ requestId, ownerId, factoryId, until }) =>
+        requestSnoozes
+          .insert({ requestId, ownerId, factoryId, until })
+          .onConflict('requestId', 'replace'),
+      'v1.RequestSnoozeCleared': ({ requestId }) => requestSnoozes.delete().where({ requestId }),
       'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
         tasks.update({ startRequested }).where({ id: taskId }),
       'v1.TaskWaitingForBlockers': ({ taskId }) => [
@@ -3498,6 +3528,7 @@ const materializers = counted(
         subAgentRequests.delete().where({ taskId }),
         conversationTabs.delete().where({ taskId }),
         comments.delete().where({ taskId }),
+        requestSnoozes.delete().where({ ownerId: taskId }),
         taskLog.delete().where({ taskId }),
         taskBriefs.delete().where({ taskId }),
         peerMessages.delete().where({ recipientTaskId: taskId }),
@@ -3582,7 +3613,10 @@ const materializers = counted(
       'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAcceptanceInvalidated': (row) =>
         failureCases.insert(row).onConflict('id', 'replace'),
-      'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
+      'v1.CommentAnswered': ({ id, answer }) => [
+        comments.update({ answer }).where({ id }),
+        requestSnoozes.delete().where({ requestId: id }),
+      ],
       'v1.RoundTalkStarted': ({ id, runId, at }) =>
         comments.update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null }).where({ id }),
       'v1.RoundTalkDone': ({ id, at }) => comments.update({ talkDoneAt: at }).where({ id }),
@@ -4007,6 +4041,7 @@ const materializers = counted(
         deletedTasks.delete().where({ factoryId }),
         banners.delete().where({ factoryId }),
         workflowLayers.delete().where({ layer: `factory:${factoryId}` }),
+        requestSnoozes.delete().where({ factoryId }),
       ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
@@ -4063,6 +4098,7 @@ const materializers = counted(
         automations.delete().where({ id }),
         automationFirings.delete().where({ automationId: id }),
         automationComments.delete().where({ automationId: id }),
+        requestSnoozes.delete().where({ ownerId: id }),
       ],
       'v1.AutomationFired': ({ skipped, retryOf, slotAt, ...firing }) => [
         automationFirings.insert({
@@ -4098,8 +4134,10 @@ const materializers = counted(
           choices: choices === null ? null : JSON.stringify(choices),
           createdAt: at,
         }),
-      'v1.AutomationCommentAnswered': ({ id, text, at }) =>
+      'v1.AutomationCommentAnswered': ({ id, text, at }) => [
         automationComments.update({ answer: text, answeredAt: at }).where({ id }),
+        requestSnoozes.delete().where({ requestId: id }),
+      ],
       'v1.AutomationPromptDraftRequested': ({ at, ...draft }) =>
         automationPromptDrafts.insert({
           ...draft,
@@ -4137,6 +4175,7 @@ const materializers = counted(
       'v1.PlanDeleted': ({ id }) => [
         plans.delete().where({ id }),
         planRequests.delete().where({ planId: id }),
+        requestSnoozes.delete().where({ ownerId: id }),
         runs.delete().where({ id }),
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
@@ -4150,7 +4189,10 @@ const materializers = counted(
         plans.update({ state: 'ended', outcome, error, finishedAt: at }).where({ id }),
       'v1.PlanRequestPosted': ({ at, ...request }) =>
         planRequests.insert({ ...request, createdAt: at }),
-      'v1.PlanRequestAnswered': ({ id, answer }) => planRequests.update({ answer }).where({ id }),
+      'v1.PlanRequestAnswered': ({ id, answer }) => [
+        planRequests.update({ answer }).where({ id }),
+        requestSnoozes.delete().where({ requestId: id }),
+      ],
       'v1.PlanTaskCreated': (link) => planTasks.insert(link).onConflict('taskId', 'ignore'),
       'v1.PlanContinued': ({ id, fromPlanId, fromTitle, context }) =>
         plans.update({ fromPlanId, fromPlanTitle: fromTitle, context }).where({ id }),
@@ -4248,6 +4290,7 @@ const state = State.SQLite.makeState({
     planTasks,
     coordinators,
     sideChats,
+    requestSnoozes,
   },
   materializers,
 })

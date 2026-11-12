@@ -20,6 +20,8 @@ export const forwardedRequests = [
   'listThreadEvents',
   'listInbox',
   'listWaiting',
+  'listSnoozed',
+  'snoozeRequest',
   'listPlans',
   'getPlan',
   'startPlan',

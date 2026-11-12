@@ -26,6 +26,7 @@ import type {
   RunSlots,
   RunSummary,
   SimulatorSlots,
+  SnoozedRequest,
   StageEntry,
   StageId,
   Task,
@@ -981,6 +982,14 @@ export function useWaitingCount(): number {
       event: (event) => (event.type === 'inbox-changed' ? () => event.waiting.length : undefined),
     }).value ?? 0
   )
+}
+
+export function useSnoozedRequests(): SnoozedRequest[] {
+  return useEventValue<SnoozedRequest[]>({
+    initial: [],
+    load: ted.listSnoozed,
+    event: (event) => (event.type === 'inbox-changed' ? () => event.snoozed : undefined),
+  }).value
 }
 
 export function useAutomationRequests(): AutomationRequest[] {

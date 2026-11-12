@@ -80,6 +80,7 @@ import {
   type SendBackCause,
   type SimulatorAsk,
   type SizeCheck,
+  type SnoozedRequest,
   type StageEntry,
   type StageId,
   type Task,
@@ -151,6 +152,7 @@ import {
   plans,
   planTasks,
   pullRequests,
+  requestSnoozes,
   reviewers,
   reviewScopes,
   runInterrupts,
@@ -912,6 +914,13 @@ export interface TedStore extends TaskHistory {
   settings(): MachineSettings
   activity(): Activity
   waiting(): WaitingRequest[]
+  snoozed(): SnoozedRequest[]
+  snoozeRequest(
+    requestId: string,
+    until: string | null,
+  ): SnoozedRequest | WaitingRequest | undefined
+  returnDueRequests(now: number): string[]
+  requestSnoozesPending(): boolean
   setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
@@ -1666,6 +1675,10 @@ export async function openStore({
       pausedRuns,
       runs: live.map((r) => r.state as RunState),
       openRequests: requests.filter((r) => r.linearTeam === null).length,
+      ...requestsSnoozed(
+        row.id,
+        requests.filter((r) => r.linearTeam === null),
+      ),
       ...permissionWait(requests, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
@@ -2088,6 +2101,21 @@ export async function openStore({
     )
 
   const isOpenRequest = (row: typeof comments.Type) => row.kind !== 'note' && row.answer === null
+
+  const requestsSnoozed = (
+    taskId: string,
+    open: readonly { id: string }[],
+  ): { requestsSnoozedUntil?: string } => {
+    if (open.length === 0) return {}
+    const until = new Map(
+      store
+        .query(queryDb(requestSnoozes.where({ ownerId: taskId })))
+        .map((row) => [row.requestId, row.until]),
+    )
+    const times = open.flatMap((request) => until.get(request.id) ?? [])
+    const first = times.sort()[0]
+    return times.length < open.length || first === undefined ? {} : { requestsSnoozedUntil: first }
+  }
 
   const openRequestRows = (taskId?: string) => commentRows(taskId).filter(isOpenRequest)
 
@@ -2571,7 +2599,7 @@ export async function openStore({
       shellsRunning,
     }
   }
-  const waiting = (): WaitingRequest[] => {
+  const openRequests = (): WaitingRequest[] => {
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveTasks = new Map(
       store
@@ -2648,7 +2676,24 @@ export async function openStore({
       a.createdAt.localeCompare(b.createdAt),
     )
   }
-  let lastWaiting: WaitingRequest[] | undefined
+  const inbox = (): { waiting: WaitingRequest[]; snoozed: SnoozedRequest[] } => {
+    const until = new Map(
+      store.query(queryDb(requestSnoozes.select())).map((row) => [row.requestId, row.until]),
+    )
+    const open = openRequests()
+    return {
+      waiting: open.filter((request) => !until.has(request.id)),
+      snoozed: open
+        .flatMap((request): SnoozedRequest[] => {
+          const snoozedUntil = until.get(request.id)
+          return snoozedUntil === undefined ? [] : [{ ...request, snoozedUntil }]
+        })
+        .sort((a, b) => a.snoozedUntil.localeCompare(b.snoozedUntil)),
+    }
+  }
+  const waiting = (): WaitingRequest[] => inbox().waiting
+  const snoozed = (): SnoozedRequest[] => inbox().snoozed
+  let lastWaiting: { waiting: WaitingRequest[]; snoozed: SnoozedRequest[] } | undefined
   let waitingNoted = false
   noteWaiting = () => {
     if (waitingNoted) return
@@ -2656,13 +2701,13 @@ export async function openStore({
     queueMicrotask(() => {
       waitingNoted = false
       if (shutDown) return
-      const next = waiting()
+      const next = inbox()
       if (lastWaiting !== undefined && isDeepStrictEqual(next, lastWaiting)) return
       lastWaiting = next
-      emit({ type: 'inbox-changed', waiting: next })
+      emit({ type: 'inbox-changed', ...next })
     })
   }
-  lastWaiting = waiting()
+  lastWaiting = inbox()
 
   let lastActivity = activity()
   const noteActivity = () => {
@@ -5129,6 +5174,44 @@ export async function openStore({
     settings,
     activity,
     waiting,
+    snoozed,
+    snoozeRequest(requestId, until) {
+      const request = openRequests().find((r) => r.id === requestId)
+      if (!request) return undefined
+      const at = new Date().toISOString()
+      const ownerId =
+        request.source === 'task'
+          ? request.taskId
+          : request.source === 'plan'
+            ? request.planId
+            : request.automationId
+      commit(
+        until === null
+          ? events.requestSnoozeCleared({ requestId, at })
+          : events.requestSnoozed({
+              requestId,
+              ownerId,
+              factoryId: request.factoryId,
+              until,
+              at,
+            }),
+      )
+      if (request.source === 'task') updatedTask(request.taskId)
+      return until === null ? request : { ...request, snoozedUntil: until }
+    },
+    returnDueRequests(now) {
+      const due = store
+        .query(queryDb(requestSnoozes.select()))
+        .filter((row) => Date.parse(row.until) <= now)
+      if (due.length === 0) return []
+      const at = new Date().toISOString()
+      commit(...due.map((row) => events.requestSnoozeCleared({ requestId: row.requestId, at })))
+      for (const ownerId of new Set(due.map((row) => row.ownerId))) {
+        if (taskRow(ownerId)) updatedTask(ownerId)
+      }
+      return due.map((row) => row.requestId)
+    },
+    requestSnoozesPending: () => store.query(queryDb(requestSnoozes.select())).length > 0,
     setQueueActivity(value) {
       const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, entry.place]))
       const after = new Map(value.taskPlaces?.map((entry) => [entry.id, entry.place]))

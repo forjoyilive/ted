@@ -69,6 +69,7 @@ import type {
   SimulatorSlots,
   SizeCheckInput,
   SlotHolder,
+  SnoozedRequest,
   StageId,
   StartAppRequest,
   StartSubAgentRequest,
@@ -90,6 +91,7 @@ import type {
   ThreadEvent,
   ValidateJudgments,
   ValidationObligations,
+  WaitingRequest,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
@@ -434,6 +436,7 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setTaskSnooze(ref: string, until: string | null): Task
+  snoozeRequest(requestId: string, until: string | null): WaitingRequest | SnoozedRequest
   setPriority(ref: string, priority: Priority): Task
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
@@ -6295,10 +6298,14 @@ export function createTasks(options: {
   let snoozeTimer: Timer | undefined
   let releaseSnoozeIdle: (() => void) | undefined
   function refreshSnoozes(): void {
-    const pending = store.backlogTasks().some((task) => task.snoozed)
+    const pending =
+      store.backlogTasks().some((task) => task.snoozed) || store.requestSnoozesPending()
     if (pending && !snoozeTimer) {
       releaseSnoozeIdle = options.idle?.hold()
-      snoozeTimer = clock.interval(() => void pump(), options.snoozes?.checkEveryMs ?? 30_000)
+      snoozeTimer = clock.interval(() => {
+        store.returnDueRequests(snoozeNow())
+        void pump()
+      }, options.snoozes?.checkEveryMs ?? 30_000)
       snoozeTimer.unref()
     } else if (!pending && snoozeTimer) {
       snoozeTimer.cancel()
@@ -6307,9 +6314,11 @@ export function createTasks(options: {
       releaseSnoozeIdle = undefined
     }
   }
+  store.returnDueRequests(snoozeNow())
   refreshSnoozes()
   const stopPumping = store.subscribe((event) => {
     if (
+      event.type === 'inbox-changed' ||
       event.type === 'task-created' ||
       event.type === 'task-updated' ||
       event.type === 'task-deleted' ||
@@ -7139,6 +7148,15 @@ export function createTasks(options: {
       }
       autoStartFailures.delete(task.id)
       return store.setTaskSnooze(task.id, until)
+    },
+    snoozeRequest(requestId, until) {
+      if (until !== null && Date.parse(until) <= snoozeNow()) {
+        throw new RequestError(400, 'Choose a future date and time')
+      }
+      const request = store.snoozeRequest(requestId, until)
+      if (!request) throw new RequestError(404, 'No open request has that ID')
+      refreshSnoozes()
+      return request
     },
     setPriority(ref, priority) {
       return store.setPriority(live(ref).id, priority)

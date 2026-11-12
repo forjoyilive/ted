@@ -19,7 +19,9 @@ const apply = (change: ReturnType<typeof inboxChange>, to = items) => {
 test.each(['waiting', 'answered'] as const)(
   'the %s list reloads for requests and what is waiting, not for notes or new Tasks',
   (list) => {
-    expect(inboxChange({ type: 'inbox-changed', waiting: [] }, items, list)).toBe('reload')
+    expect(inboxChange({ type: 'inbox-changed', waiting: [], snoozed: [] }, items, list)).toBe(
+      'reload',
+    )
     expect(inboxChange({ type: 'comment-posted', comment: comment() }, items, list)).toBe('reload')
     expect(inboxChange({ type: 'comment-updated', comment: comment() }, items, list)).toBe('reload')
     const note = comment({ kind: 'note' })

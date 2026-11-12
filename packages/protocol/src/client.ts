@@ -197,7 +197,7 @@ import type {
   TestInvocationUpdate,
 } from './test-invocations.ts'
 import type { UpdateWork } from './update.ts'
-import type { WaitingRequest } from './waiting.ts'
+import type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -730,6 +730,14 @@ export class DaemonClient {
 
   listWaiting(): Promise<WaitingRequest[]> {
     return this.#request('GET', '/inbox/waiting')
+  }
+
+  listSnoozed(): Promise<SnoozedRequest[]> {
+    return this.#request('GET', '/inbox/snoozed')
+  }
+
+  snoozeRequest(requestId: string, until: string | null): Promise<WaitingRequest | SnoozedRequest> {
+    return this.#request('PUT', `/requests/${encodeURIComponent(requestId)}/snooze`, { until })
   }
 
   answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {

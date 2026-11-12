@@ -28,6 +28,7 @@ import {
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
   parseSetTaskSnoozeRequest,
+  parseSnoozeRequestRequest,
   parseStartTaskRequest,
   parseTaskLead,
   parseVerifyFailureRequest,
@@ -199,6 +200,13 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/snooze$/,
     async handle({ body, params: [ref = ''] }, { tasks }) {
       return [200, tasks.setTaskSnooze(ref, body.snoozedUntil)]
+    },
+  }),
+  jsonRoute(parseSnoozeRequestRequest, {
+    method: 'PUT',
+    path: /^\/requests\/([^/]+)\/snooze$/,
+    async handle({ body, params: [id = ''] }, { tasks }) {
+      return [200, tasks.snoozeRequest(id, body.until)]
     },
   }),
   jsonRoute(parseStartTaskRequest, {
@@ -521,6 +529,11 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/inbox\/waiting$/,
     handle: async (_, { store }) => [200, store.waiting()],
+  },
+  {
+    method: 'GET',
+    path: /^\/inbox\/snoozed$/,
+    handle: async (_, { store }) => [200, store.snoozed()],
   },
   {
     method: 'POST',

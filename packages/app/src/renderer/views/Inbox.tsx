@@ -1,7 +1,12 @@
 import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useContext, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
-import { contextMenu, useActionMenu } from '../components/ContextMenu.tsx'
+import {
+  buttonPosition,
+  contextMenu,
+  type MenuPosition,
+  useActionMenu,
+} from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
@@ -9,6 +14,7 @@ import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import { inboxChips, inFactory, nextSelection } from '../inbox.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
 import { inboxLabel } from '../plans.ts'
+import { openSnoozeMenu, SnoozedContext, snoozeTime } from '../request-snooze.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
 import { onRequestAnswered, ted } from '../ted.ts'
 import styles from './Inbox.module.css'
@@ -52,10 +58,25 @@ export function Inbox({
   onNewTask: () => void
   children?: ReactNode
 }) {
-  const requestMenu = (label: string, body: string, open: (() => void) | undefined) =>
+  const snoozed = useContext(SnoozedContext)
+  const [showSnoozed, setShowSnoozed] = useState(false)
+  const snoozeMenu = (requestId: string, at: MenuPosition) =>
+    openSnoozeMenu({ requestId, at, snoozedUntil: snoozed.get(requestId) })
+  const requestMenu = (id: string, label: string, body: string, open: (() => void) | undefined) =>
     contextMenu((at) =>
       actions.open(at, label, [
         { label: 'Open request', disabled: !open, action: open },
+        ...(showAnswered
+          ? []
+          : [
+              {
+                label: snoozed.has(id) ? 'Change snooze…' : 'Snooze…',
+                action: () => snoozeMenu(id, at),
+              },
+              ...(snoozed.has(id)
+                ? [{ label: 'Unsnooze', action: () => ted.snoozeRequest(id, null) }]
+                : []),
+            ]),
         { label: 'Copy message text', action: () => navigator.clipboard.writeText(body) },
       ]),
     )
@@ -76,7 +97,7 @@ export function Inbox({
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'comment-updated' && event.comment.answer) resolve([event.comment.id])
       if (event.type === 'inbox-changed') {
-        const waiting = new Set(event.waiting.map((request) => request.id))
+        const waiting = new Set([...event.waiting, ...event.snoozed].map((request) => request.id))
         resolve([...known.current.keys()].filter((id) => !waiting.has(id)))
       }
     })
@@ -96,6 +117,8 @@ export function Inbox({
   const pendingQuestions = questions.filter(
     (question) => !question.answer && !resolved.has(question.id),
   )
+  const awake = <T,>(list: readonly T[], id: (item: T) => string) =>
+    list.filter((item) => !snoozed.has(id(item)))
   const waiting = inFactory(pending, factoryId)
   const shown = showAnswered ? inFactory(answered, factoryId) : waiting
   const asked = showAnswered
@@ -119,7 +142,7 @@ export function Inbox({
     request: item.request,
     open: () => onOpen(item),
   }))
-  const rows = showAnswered
+  const allRows = showAnswered
     ? taskRows
     : [
         ...planRows.map((item) => ({
@@ -140,14 +163,142 @@ export function Inbox({
           b.request.createdAt.localeCompare(a.request.createdAt) ||
           a.request.id.localeCompare(b.request.id),
       )
-  const before = useRef(rows)
-  const next = showAnswered ? undefined : nextSelection(before.current, rows, selected)
+  const rows = showAnswered ? allRows : allRows.filter((row) => !snoozed.has(row.request.id))
+  const snoozedRows = showAnswered
+    ? []
+    : allRows
+        .filter((row) => snoozed.has(row.request.id))
+        .sort((a, b) =>
+          (snoozed.get(a.request.id) ?? '').localeCompare(snoozed.get(b.request.id) ?? ''),
+        )
+  const selectable = showSnoozed ? [...rows, ...snoozedRows] : rows
+  const before = useRef(selectable)
+  const next = showAnswered ? undefined : nextSelection(before.current, selectable, selected)
   useLayoutEffect(() => {
     if (showAnswered) return
-    before.current = rows
+    before.current = selectable
     if (next === null) onClear()
     else next?.open()
   })
+
+  const until = (id: string) => {
+    const at = snoozed.get(id)
+    return at === undefined || showAnswered ? null : (
+      <span className={styles.until}>Returns {snoozeTime(at)}</span>
+    )
+  }
+  const rowButton = (row: (typeof allRows)[number]) => {
+    if (row.kind === 'plan') {
+      const item = row.item
+      const { request, plan } = item
+      const where = [
+        plan.title,
+        ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
+      ].join(' · ')
+      return (
+        <button
+          type="button"
+          className={styles.row}
+          data-nav-item
+          data-snooze-request={request.id}
+          data-plan-request={request.id}
+          aria-current={request.id === selected ? 'true' : undefined}
+          {...requestMenu(
+            request.id,
+            request.title ?? 'Planning request',
+            request.body || request.title || '',
+            onOpenPlan ? () => onOpenPlan(item) : undefined,
+          )}
+          onClick={() => onOpenPlan?.(item)}
+        >
+          <span className={styles.top}>
+            <span className={styles.kind}>{inboxLabel(request)}</span>
+            <span className={styles.age}>{age(request.createdAt, now)}</span>
+          </span>
+          <span data-headline className={`${styles.headline} ${styles.unread}`}>
+            {request.title ?? ''}
+          </span>
+          <span className={styles.where}>{where}</span>
+          {until(row.request.id)}
+        </button>
+      )
+    }
+    if (row.kind === 'task') {
+      const item = row.item
+      const { request, task } = item
+      const where = [
+        task.displayId,
+        task.title,
+        stageName(request.stage ?? task.stage),
+        ...(manyFactories ? [factoryName(factories, task.factoryId)] : []),
+      ].join(' · ')
+      const unread = !showAnswered && request.readAt === undefined
+      return (
+        <button
+          type="button"
+          className={styles.row}
+          data-nav-item
+          data-snooze-request={showAnswered ? undefined : request.id}
+          aria-current={request.id === selected ? 'true' : undefined}
+          {...requestMenu(
+            request.id,
+            `${task.displayId} · ${headline(request)}`,
+            request.body || request.title || '',
+            () => onOpen(item),
+          )}
+          onClick={() => onOpen(item)}
+        >
+          <span className={styles.top}>
+            <PriorityIcon priority={task.priority} />
+            <span className={request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind}>
+              {requestLabel(request)}
+            </span>
+            <span className={styles.age}>{age(request.answer?.at ?? request.createdAt, now)}</span>
+          </span>
+          <span
+            data-headline
+            className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
+          >
+            {headline(request)}
+          </span>
+          <span className={styles.where}>{where}</span>
+          {until(row.request.id)}
+        </button>
+      )
+    }
+    const question = row.item
+    const where = [
+      question.automationName,
+      'Automation',
+      ...(manyFactories ? [factoryName(factories, question.factoryId)] : []),
+    ].join(' · ')
+    return (
+      <button
+        type="button"
+        className={styles.row}
+        aria-current={question.id === selected ? 'true' : undefined}
+        data-nav-item
+        data-snooze-request={question.id}
+        {...requestMenu(
+          question.id,
+          question.automationName,
+          question.body,
+          onOpenQuestion ? () => onOpenQuestion(question) : undefined,
+        )}
+        onClick={() => onOpenQuestion?.(question)}
+      >
+        <span className={styles.top}>
+          <span className={styles.kind}>Question</span>
+          <span className={styles.age}>{age(question.createdAt, now)}</span>
+        </span>
+        <span data-headline className={`${styles.headline} ${styles.unread}`}>
+          {question.body.split('\n')[0]}
+        </span>
+        <span className={styles.where}>{where}</span>
+        {until(row.request.id)}
+      </button>
+    )
+  }
 
   return (
     <>
@@ -174,7 +325,12 @@ export function Inbox({
           </div>
           {manyFactories && (
             <div className={styles.chips}>
-              {inboxChips(pending, factories, pendingQuestions, pendingPlans).map((chip) => (
+              {inboxChips(
+                awake(pending, (item) => item.request.id),
+                factories,
+                awake(pendingQuestions, (question) => question.id),
+                awake(pendingPlans, (item) => item.request.id),
+              ).map((chip) => (
                 <button
                   key={chip.factoryId ?? 'all'}
                   type="button"
@@ -188,7 +344,7 @@ export function Inbox({
             </div>
           )}
         </header>
-        {shown.length === 0 && asked.length === 0 && planRows.length === 0 ? (
+        {allRows.length === 0 ? (
           <InboxEmptyState
             empty={inboxEmpty({
               showAnswered,
@@ -201,121 +357,61 @@ export function Inbox({
           />
         ) : (
           <ul className={styles.rows}>
-            {rows.map((row) => {
-              if (row.kind === 'plan') {
-                const item = row.item
-                const { request, plan } = item
-                const where = [
-                  plan.title,
-                  ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
-                ].join(' · ')
-                return (
-                  <li key={request.id}>
-                    <button
-                      type="button"
-                      className={styles.row}
-                      data-nav-item
-                      data-plan-request={request.id}
-                      aria-current={request.id === selected ? 'true' : undefined}
-                      {...requestMenu(
-                        request.title ?? 'Planning request',
-                        request.body || request.title || '',
-                        onOpenPlan ? () => onOpenPlan(item) : undefined,
-                      )}
-                      onClick={() => onOpenPlan?.(item)}
-                    >
-                      <span className={styles.top}>
-                        <span className={styles.kind}>{inboxLabel(request)}</span>
-                        <span className={styles.age}>{age(request.createdAt, now)}</span>
-                      </span>
-                      <span data-headline className={`${styles.headline} ${styles.unread}`}>
-                        {request.title ?? ''}
-                      </span>
-                      <span className={styles.where}>{where}</span>
-                    </button>
-                  </li>
-                )
-              }
-              if (row.kind === 'task') {
-                const item = row.item
-                const { request, task } = item
-                const where = [
-                  task.displayId,
-                  task.title,
-                  stageName(request.stage ?? task.stage),
-                  ...(manyFactories ? [factoryName(factories, task.factoryId)] : []),
-                ].join(' · ')
-                const unread = !showAnswered && request.readAt === undefined
-                return (
-                  <li key={request.id}>
-                    <button
-                      type="button"
-                      className={styles.row}
-                      data-nav-item
-                      aria-current={request.id === selected ? 'true' : undefined}
-                      {...requestMenu(
-                        `${task.displayId} · ${headline(request)}`,
-                        request.body || request.title || '',
-                        () => onOpen(item),
-                      )}
-                      onClick={() => onOpen(item)}
-                    >
-                      <span className={styles.top}>
-                        <PriorityIcon priority={task.priority} />
-                        <span
-                          className={
-                            request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind
-                          }
-                        >
-                          {requestLabel(request)}
-                        </span>
-                        <span className={styles.age}>
-                          {age(request.answer?.at ?? request.createdAt, now)}
-                        </span>
-                      </span>
-                      <span
-                        data-headline
-                        className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
-                      >
-                        {headline(request)}
-                      </span>
-                      <span className={styles.where}>{where}</span>
-                    </button>
-                  </li>
-                )
-              }
-              const question = row.item
-              const where = [
-                question.automationName,
-                'Automation',
-                ...(manyFactories ? [factoryName(factories, question.factoryId)] : []),
-              ].join(' · ')
-              return (
-                <li key={question.id}>
+            {rows.map((row) => (
+              <li key={row.request.id} className={styles.item}>
+                {rowButton(row)}
+                {!showAnswered && (
                   <button
                     type="button"
-                    className={styles.row}
-                    aria-current={question.id === selected ? 'true' : undefined}
-                    data-nav-item
-                    {...requestMenu(
-                      question.automationName,
-                      question.body,
-                      onOpenQuestion ? () => onOpenQuestion(question) : undefined,
-                    )}
-                    onClick={() => onOpenQuestion?.(question)}
+                    className={styles.snooze}
+                    title="Snooze (H)"
+                    aria-label="Snooze"
+                    onClick={(event) =>
+                      snoozeMenu(row.request.id, buttonPosition(event.currentTarget))
+                    }
                   >
-                    <span className={styles.top}>
-                      <span className={styles.kind}>Question</span>
-                      <span className={styles.age}>{age(question.createdAt, now)}</span>
-                    </span>
-                    <span data-headline className={`${styles.headline} ${styles.unread}`}>
-                      {question.body.split('\n')[0]}
-                    </span>
-                    <span className={styles.where}>{where}</span>
+                    Snooze <span className={styles.key}>H</span>
                   </button>
+                )}
+              </li>
+            ))}
+            {snoozedRows.length > 0 && (
+              <li>
+                <button
+                  type="button"
+                  className={styles.group}
+                  aria-expanded={showSnoozed}
+                  onClick={() => setShowSnoozed(!showSnoozed)}
+                >
+                  <span aria-hidden>{showSnoozed ? '▾' : '▸'}</span> Snoozed{' '}
+                  <span className={styles.chipCount}>{snoozedRows.length}</span>
+                </button>
+              </li>
+            )}
+            {showSnoozed &&
+              snoozedRows.map((row) => (
+                <li key={row.request.id} className={`${styles.item} ${styles.snoozedItem}`}>
+                  {rowButton(row)}
+                  <div className={styles.rowActions}>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        ted.snoozeRequest(row.request.id, null).catch(console.error)
+                      }}
+                    >
+                      Unsnooze
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={(event) =>
+                        snoozeMenu(row.request.id, buttonPosition(event.currentTarget))
+                      }
+                    >
+                      Change snooze…
+                    </Button>
+                  </div>
                 </li>
-              )
-            })}
+              ))}
           </ul>
         )}
       </section>
@@ -326,7 +422,7 @@ export function Inbox({
             : {
                 selected,
                 resolved,
-                select: (id) => rows.find((row) => row.request.id === id)?.open(),
+                select: (id) => allRows.find((row) => row.request.id === id)?.open(),
               }
         }
       >

@@ -236,6 +236,7 @@ export function MenuSubmenu({
 
 export interface MenuAction {
   label: string
+  hint?: string
   action?: (() => unknown | Promise<unknown>) | undefined
   disabled?: boolean
   danger?: boolean
@@ -264,6 +265,7 @@ export function MenuItems({
         onClick={() => choose(item)}
       >
         {item.label}
+        {item.hint !== undefined && <span className={styles.hint}>{item.hint}</span>}
       </button>
     ),
   )

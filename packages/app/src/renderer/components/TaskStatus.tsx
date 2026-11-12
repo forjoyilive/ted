@@ -1,4 +1,5 @@
 import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
+import { snoozeTime } from '../request-snooze.ts'
 import { ago, useNow } from '../requests.ts'
 import { formatDate } from '../time.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
@@ -32,7 +33,9 @@ export function statusLabel(status: TaskStatus): string {
     case 'partly-merged':
       return 'Partly merged'
     case 'waiting-on-you':
-      return 'Waiting on you'
+      return status.snoozedUntil === undefined
+        ? 'Waiting on you'
+        : `Snoozed until ${snoozeTime(status.snoozedUntil)}`
     case 'paused':
       return `Paused · ${status.reason}`
     case 'working':
@@ -55,7 +58,7 @@ function look(status: TaskStatus): { tone: StatusTone; glyph: StatusGlyph } {
     case 'partly-merged':
       return { tone: 'failed', glyph: 'partly' }
     case 'waiting-on-you':
-      return { tone: 'waiting', glyph: 'waiting' }
+      return { tone: status.snoozedUntil === undefined ? 'waiting' : 'neutral', glyph: 'waiting' }
     case 'paused':
       return { tone: 'neutral', glyph: 'paused' }
     case 'working':
