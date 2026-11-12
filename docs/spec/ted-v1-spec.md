@@ -213,6 +213,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 
 ### 3.9 Menu-bar menu, and Linux without a tray
 
+- **Snoozed requests:** any Inbox row can be snoozed until a time the human picks: **Snooze** on the row, in its right-click menu or beside the open request, or `H`. The menu offers An hour from now, Tomorrow, Next week and A month from now, each with the exact date and time it picks, and Custom… with a date and time. Tomorrow, Next week (the coming Monday; on a Monday, the one after) and A month from now (the same date next month, or that month’s last day) are at 9:00 in TED’s app-wide timezone. A snoozed request leaves the Inbox list, the sidebar count, the Dock badge and the menu-bar count, and sits in a collapsed **Snoozed** group at the bottom of the Inbox with its return time, **Unsnooze** and **Change snooze…**. It stays open in its thread and can be answered there; answering, withdrawing or replacing it ends the snooze. At the chosen time it returns to its place in the list and notifies like a new Inbox item. While every open request of a Task is snoozed, the Task’s status reads “Snoozed until <time>” in grey and still counts as Waiting on you in filters and groups. Snoozes survive restart, overdue ones return when TED next runs, and a pending snooze keeps TED running in the background. Only the human snoozes, from the app. (KRI-346, ADR 0127)
 - On macOS the icon shows the Inbox count when above zero, and a warning dot while an app-wide banner is up. (KRI-59)
 - The menu, top to bottom: (KRI-59, KRI-64)
   1. “3 waiting on you”: opens the Inbox.
@@ -1185,7 +1186,7 @@ Fixed; rebinding is later (KRI-35). KRI-56’s map wins over shortcuts the proto
 
 - **Global:** ⌘K search and commands; ⌘N or `C` New Task; `G` `I` Inbox, `G` `A` All Tasks, `G` `B` Board, `G` `L` List, `G` `P` Plans; ⌘1–⌘9 Factory 1–9; ⌘[ / ⌘] back and forward; Esc closes an open Task back to where it came from, and leaves Settings; ⌘, Settings; `?` or ⌘/ shortcut sheet; ⌘Q quit.
 - **Moving:** `J`/`K` or ↓/↑ next and previous; on the Board `H`/`L` or ←/→ change column; Enter opens.
-- **Answering:** `R` reply; `A` Approve; ⇧`R` Request changes; ↵ sends from a comment box or chat and ⇧↵ adds a new line; ⌘↵ also sends, interrupts and sends in a working Run’s chat, and presses the primary button of any dialog. `A` takes two keystrokes: the key highlights the button with “↵ to confirm”, Enter sends, Esc cancels.
+- **Answering:** `R` reply; `A` Approve; ⇧`R` Request changes; in the Inbox `H` snoozes the selected request; ↵ sends from a comment box or chat and ⇧↵ adds a new line; ⌘↵ also sends, interrupts and sends in a working Run’s chat, and presses the primary button of any dialog. `A` takes two keystrokes: the key highlights the button with “↵ to confirm”, Enter sends, Esc cancels.
 - **Task actions:** `S` Start, Resume or Retry; `P` Priority menu; `B` Blocked by; `E` Edit title and description; ⌥↑/⌥↓ move in rank (Manual only); ⌘⌫ Archive; ⌃` open the Task’s shell. Stop and Delete have no shortcut.
 - **Filter:** `/` focuses the Board or List filter box.
 - Plain number keys stay free for answering choices later (KRI-46).

@@ -95,6 +95,15 @@ describe('Inbox item notifications', () => {
     ])
   })
 
+  test('a request that left the waiting list while snoozed notifies again when it returns', () => {
+    const { notifications, shown } = harness()
+    notifications.waiting([request('old'), request('later')])
+    notifications.waiting([request('old')])
+    expect(shown).toEqual([])
+    notifications.waiting([request('old'), request('later')])
+    expect(shown.map((s) => s.notice.body)).toEqual(['Question: Question later'])
+  })
+
   test.each(['all-tasks', 'inbox'] as const)(
     'clicking a Task notification leaves %s for its request in the unanswered Inbox',
     (kind) => {

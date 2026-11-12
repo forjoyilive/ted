@@ -27,6 +27,7 @@ export function appState() {
     listInbox: () => state.inbox,
     listAnswered: () => [],
     listWaiting: () => [],
+    listSnoozed: () => [],
     listBanners: () => [],
     listPlans: () => [],
     coordinatorStatuses: () => [],

@@ -1636,6 +1636,7 @@ test('Inbox right-click opens the clicked request and copies its full message wi
   fireEvent.contextMenu(screen.getByText('Automation question'))
   expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual([
     'Open request',
+    'Snooze…',
     'Copy message text',
   ])
   await u.click(screen.getByRole('menuitem', { name: 'Open request' }))
