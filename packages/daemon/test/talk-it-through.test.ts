@@ -416,6 +416,10 @@ describe('Talk it through', () => {
   })
 
   test('a queued talk survives a restart, starts once, and is cancelled by stopping or answering the round', async () => {
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+    )
     let client = await start()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
@@ -451,7 +455,13 @@ describe('Talk it through', () => {
       const round = (await comments(client, task)).find((c) => c.id === item.request.id)
       return round?.talk?.runId !== first && round?.talk ? round : undefined
     }, 'the queued talk to bind after restart')
-    expect(talking.talkRequested).toBeUndefined()
+    const ready = await waitUntil(async () => {
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      return round?.talk?.notifiedAt && round.talk.runId === talking.talk?.runId
+        ? round
+        : undefined
+    }, 'the queued talk to be acknowledged after binding')
+    expect(ready.talkRequested).toBeUndefined()
     expect(
       (await getTask(client, task.id)).runs.filter((r) => r.state !== 'finished'),
     ).toHaveLength(1)
@@ -463,9 +473,13 @@ describe('Talk it through', () => {
     )
 
     await client.ok('POST', `/tasks/${task.id}/stop`)
-    await client.ok('POST', `/tasks/${blocker.id}/resume`, {})
+    const nextBlocker = await startTask(
+      client,
+      { waitFor: path.join(scratch, 'never-again') },
+      { endTurn: true },
+    )
     await waitUntil(
-      async () => (await getTask(client, blocker.id)).runs.some((r) => r.state === 'working'),
+      async () => (await getTask(client, nextBlocker.id)).runs.some((r) => r.state === 'working'),
       'the slot to be occupied again',
     )
     await client.ok('POST', `/comments/${item.request.id}/talk`, { confirmResume: true })
@@ -496,13 +510,20 @@ describe('Talk it through', () => {
       async () => (await client.getRun(await leadId(client, task))).run.state !== 'working',
       'the initial Lead to settle',
     )
+    const lead = await leadId(client, task)
+    const inputReady = path.join(scratch, 'resume-input-ready')
+    await writeFile(inputReady, '')
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ resumeInputWaitsFor: inputReady, resumeSteps: [{ endTurn: true }] }),
+    )
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', model: 'unavailable-9' })
+    await client.ok('POST', `/runs/${lead}/messages`, { text: 'Continue on the selected model.' })
     await waitUntil(
       async () =>
         (await client.getRun(await leadId(client, task))).run.problem === 'model-unavailable',
       'the live Lead to wait for a model',
     )
-    const lead = await leadId(client, task)
     const pending = await client.ok<Comment>('POST', `/comments/${item.request.id}/talk`)
     expect(pending.talkRequested).toBe(true)
     expect(pending.talk).toBeUndefined()
@@ -513,7 +534,7 @@ describe('Talk it through', () => {
     await client.ok('POST', `/tasks/${task.id}/lead/use-default-model`)
     await waitUntil(async () => {
       const round = (await comments(client, task)).find((c) => c.id === item.request.id)
-      return round?.talk?.runId === lead && !round.talkRequested
+      return round?.talk?.runId === lead && round.talk.notifiedAt && !round.talkRequested
     }, 'the recovered live Lead to acknowledge the talk')
     expect(
       (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1')),
