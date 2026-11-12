@@ -109,8 +109,21 @@ export async function folderRemotes(
   return { root, remotes }
 }
 
-export async function fetch(repo: string): Promise<void> {
-  await git(repo, 'fetch', '--prune', 'origin')
+export async function fetch(repo: string, timeoutMs?: number): Promise<void> {
+  if (timeoutMs === undefined) {
+    await git(repo, 'fetch', '--prune', 'origin')
+    return
+  }
+  try {
+    await execFileAsync('git', ['fetch', '--prune', 'origin'], {
+      cwd: repo,
+      env: env(),
+      timeout: timeoutMs,
+    })
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr?.trim()
+    throw new GitError(redactSecrets(`git fetch failed${stderr ? `: ${stderr}` : ''}`))
+  }
 }
 
 export async function defaultBranch(repo: string): Promise<string> {
