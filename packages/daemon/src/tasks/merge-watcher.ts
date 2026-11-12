@@ -7,16 +7,20 @@ import { redactSecrets } from '../redact.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
+import { unscoped } from './ci-failures.ts'
 import { checkList } from './github-activity.ts'
 import {
+  acceptedFailing,
   chooseMethod,
   ciState,
   deleteBranch,
   disableAutoMerge,
+  failingChecks,
   type MergeTarget,
   mergePullRequest,
   nextStep,
   type PullRequestRead,
+  type RemoteCheck,
   type RemotePullRequest,
   rebasePullRequest,
   relevantChecks,
@@ -50,6 +54,14 @@ export interface MergePort {
   recordPullRequests(task: StoredTask, read: PullRequestRead): void
   requireObligations(task: StoredTask, read?: PullRequestRead): Promise<void>
   read(): Promise<PullRequestRead | undefined>
+  ciFailures?(id: string, read: PullRequestRead): Promise<void>
+  acceptedCi?(id: string): ReadonlySet<string>
+  ciBlocked?(
+    id: string,
+    target: MergeWork,
+    pr: RemotePullRequest,
+    checks: readonly RemoteCheck[],
+  ): Promise<void>
   beforeMerge?: ((id: string) => Promise<void>) | undefined
 }
 
@@ -366,6 +378,10 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (mode === undefined) return 'done'
     if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
     if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
+    if (mode !== 'off' && read && port.ciFailures) {
+      await port.ciFailures(taskId, read)
+      if (find(taskId).stage !== 'merge') return 'done'
+    }
     if (mode !== 'off') {
       if (read) recordPullRequests(task, read)
       // Adopt our verified rebase before checking consent: the new remote head can
@@ -428,6 +444,8 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const ready: { target: MergeWork; pr: RemotePullRequest; noCi: boolean }[] = []
     const waitingForCi: { target: MergeWork; pr: RemotePullRequest }[] = []
     const anyway = mergeAnyway(task)
+    const accepted = port.acceptedCi?.(taskId) ?? new Set<string>()
+    const ci = { mergeAnyway: anyway, accepted }
     let open = 0
     for (const target of targets) {
       const pr = remote.get(target.name)
@@ -436,7 +454,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         continue
       }
       const key = `${taskId}:${target.name}`
-      const step = nextStep(target, pr, { mergeAnyway: anyway })
+      const step = nextStep(target, pr, ci)
       if (step.kind !== 'merged') open++
       switch (step.kind) {
         case 'merged': {
@@ -496,25 +514,33 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
           setWait(taskId, target.name, 'ci')
           break
         case 'ci-failed':
-          return mergeSendBack(
-            taskId,
-            `CI failed on ${target.repo}#${target.number} at Merge: ${checkList(
-              pr,
-              relevantChecks(pr).filter((c) => c.state === 'failed'),
-            )}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
-          )
+          // Without an attempt identity for every check, a decision can’t be tied to one
+          // attempt, so the failure is sent back as before.
+          if (!port.ciFailures || [...remote.values()].some(unscoped)) {
+            return mergeSendBack(
+              taskId,
+              `CI failed on ${target.repo}#${target.number} at Merge: ${checkList(
+                pr,
+                failingChecks(pr, ci),
+              )}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
+            )
+          }
+          setWait(taskId, target.name, 'ci')
+          return 'wait'
         case 'wait':
           if (
             mode === 'gate' &&
             step.on === 'review' &&
-            ciState(target, pr, { mergeAnyway: anyway }) === 'passed' &&
+            ciState(target, pr, ci) === 'passed' &&
             pr.mergeable === 'MERGEABLE'
           ) {
             ready.push({ target, pr, noCi: !target.hasCi })
             break
           }
           setWait(taskId, target.name, step.on)
-          if (ciState(target, pr, { mergeAnyway: anyway }) === 'pending') {
+          if (step.on === 'required-check')
+            await port.ciBlocked?.(taskId, target, pr, acceptedFailing(pr, ci))
+          if (ciState(target, pr, ci) === 'pending') {
             waitingForCi.push({ target, pr })
           }
           if (step.autoMerge && mode === 'merge' && targets.length === 1)

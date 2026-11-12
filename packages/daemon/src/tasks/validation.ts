@@ -727,7 +727,9 @@ export function createValidation(options: ValidationOptions) {
         throw new RequestError(400, 'this failure does not support Validate actions')
       return failures.resolve(task, id, input, sendDrafts)
     }
-    const merging = task.stage === 'merge' && value.source.kind === 'post-rebase-check'
+    const merging =
+      task.stage === 'merge' &&
+      (value.source.kind === 'post-rebase-check' || value.source.kind === 'github-ci')
     if (task.stage !== 'validate' && !merging)
       throw new RequestError(409, 'this Check decision is no longer current')
     if (input.resolution === 'fixed' || input.resolution === 'no-longer-applicable')
