@@ -168,6 +168,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { answerMessage } from './answer-message.ts'
 import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
 import {
   type BaseConflict,
@@ -1277,7 +1278,11 @@ export function createTasks(options: {
         if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
         if (holds.has(id) || advancing.has(id) || leadLifecycle.applying(id)) return []
         if (!includeFailures && continuationFailures.has(id)) return []
-        if (!task.pendingLeadMessages.some((message) => message.waitForSlot)) return []
+        if (
+          !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
+          !queuedAnswers(id).length
+        )
+          return []
         const run = liveLeadOf(store, task)
         if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
         const nextAgent = task.lead?.agent ?? run.agent
@@ -1299,18 +1304,61 @@ export function createTasks(options: {
     )
   }
 
+  function queuedAnswers(taskId: string): Comment[] {
+    return store
+      .heldAnswers(taskId)
+      .filter((comment) => comment.answerDelivery && !promptComments.has(comment.id))
+  }
+
   function beginContinuation(taskId: string): void {
     continuing.add(taskId)
     const release = hold(taskId)
     inBackground('continue an answered Task', async () => {
       try {
         await applyLead(taskId)
+        const current = find(taskId)
+        const run = liveLeadOf(store, current)
+        const answers = queuedAnswers(taskId)
+        if (run && atIdlePoint(run) && answers.length > 0) {
+          const accepted = await runs.dispatch(
+            run.id,
+            answers.map((comment) => ({
+              id: comment.id,
+              text: `${answerMessage(comment, linesText(comment))}\n\n${overnightGuidance(taskAutopilot(current), current.setup)}`,
+            })),
+            false,
+            (id) => {
+              const now = find(taskId)
+              const nextAgent = now.lead?.agent ?? run.agent
+              return (
+                !now.stopped &&
+                !now.archived &&
+                !now.waitsForBlockers &&
+                !agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined) &&
+                store.newWorkHold() === undefined &&
+                now.leadRunId === run.id &&
+                store.getRun(run.id)?.state !== 'finished' &&
+                store.agentPauses()[run.agent] === undefined &&
+                (id === undefined || queuedAnswers(taskId).some((comment) => comment.id === id))
+              )
+            },
+          )
+          if (accepted) {
+            store.answersDelivered(
+              answers.map((comment) => comment.id),
+              run.id,
+            )
+            await store.persisted()
+          }
+        }
       } catch (error) {
         continuationFailures.add(taskId)
         throw error
       } finally {
         continuing.delete(taskId)
         release()
+        const run = liveLeadOf(store, find(taskId))
+        if (run) await options.steering.refresh(run.id)
       }
     })
   }
@@ -3140,7 +3188,12 @@ export function createTasks(options: {
     hold,
     mayContinue: (id) => {
       const task = store.getTask(id)
-      if (!task?.pendingLeadMessages.some((message) => message.waitForSlot)) return true
+      if (!task) return true
+      if (
+        !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
+        !queuedAnswers(id).length
+      )
+        return true
       const run = liveLeadOf(store, task)
       return (
         continuing.has(id) &&
@@ -3636,6 +3689,13 @@ export function createTasks(options: {
             },
           ]
         }
+        if (
+          c.kind === 'question' &&
+          c.purpose?.kind === 'question' &&
+          c.answer?.kind === 'answered'
+        ) {
+          return [{ at: c.answer.at, line: answerMessage(c, linesText(c)) }]
+        }
         const answer = answerText(c)
         return answer === undefined
           ? []
@@ -3664,7 +3724,9 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
-    if (waitingForRun(taskId).comments.length > 0) await sendComment(run.id)
+    const waiting = waitingForRun(taskId)
+    if (waiting.comments.length > 0 || waiting.answers.some((c) => c.answerDelivery))
+      await sendComment(run.id)
   }
 
   async function sendComment(runId: string): Promise<void> {
@@ -4316,6 +4378,12 @@ export function createTasks(options: {
   }
 
   async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
+    if (store.getComment(comment.id)?.answerDelivery) {
+      await store.persisted()
+      await sendWaiting(task.id)
+      void pump()
+      return
+    }
     if (!(await deliver(task, text, true))) store.holdAnswer(comment.id)
   }
 
@@ -6014,11 +6082,11 @@ export function createTasks(options: {
 
   function wake(): void {
     const queued = new Set(store.queue().map((q) => q.id))
-    for (const { id } of store.listTasks()) {
-      const task = store.getTask(id)
-      if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
-      if (task.archived || task.stopped) continue
+    for (const id of store.openBlockedTasks()) {
+      if (queued.has(id) || starting.has(id)) continue
       if (unmergedBlockers(id).length > 0) continue
+      const task = store.getTask(id)
+      if (!task || task.archived || task.stopped) continue
       if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
         inBackground(`start ${task.displayId}`, async () => {
           await start(id)
@@ -6154,7 +6222,12 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
     if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
-    if (merging.has(task.id) || task.pendingLeadMessages.length > 0) return
+    if (
+      merging.has(task.id) ||
+      task.pendingLeadMessages.length > 0 ||
+      queuedAnswers(task.id).length > 0
+    )
+      return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
@@ -6301,10 +6374,50 @@ export function createTasks(options: {
     finished: leadLifecycle.finished,
   })
 
-  health.onReady(leadLifecycle.ready)
+  health.onReady((agent) => {
+    leadLifecycle.ready(agent)
+    for (const run of store.liveRuns()) {
+      if (
+        run.agent === agent &&
+        run.taskId !== undefined &&
+        store.getTask(run.taskId)?.leadRunId === run.id
+      ) {
+        inBackground('refresh reply delivery after agent recovery', () =>
+          options.steering.refresh(run.id),
+        )
+      }
+    }
+  })
   health.onPaused((agent, state) => {
     if (state === 'offline') leadLifecycle.offline(agent)
   })
+  options.steering.addSource({
+    pending(run) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (
+        !task ||
+        liveLead(task)?.id !== run.id ||
+        task.stopped ||
+        task.archived ||
+        run.state !== 'working' ||
+        continuing.has(task.id) ||
+        store.agentPauses()[run.agent] !== undefined
+      )
+        return []
+      return store
+        .heldAnswers(task.id)
+        .filter((comment) => comment.answerDelivery && !promptComments.has(comment.id))
+        .map((comment) => ({
+          id: comment.id,
+          text: answerMessage(comment, linesText(comment)),
+          at: comment.answerDelivery?.queuedAt ?? comment.createdAt,
+        }))
+    },
+    delivered(run, ids) {
+      store.answersDelivered(ids, run.id)
+    },
+  })
+
   health.onProbe(leadLifecycle.probe)
 
   const failures = createFailureCases({

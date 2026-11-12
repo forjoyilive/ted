@@ -7,6 +7,7 @@ import {
   antigravityPlanNotice,
   type Banner,
   type Factory,
+  type RunChat,
   type Task,
   tedPaths,
 } from '@ted/protocol'
@@ -438,7 +439,7 @@ test('a retained off-kind Run clears a runtime credential warning and continues 
     const current = await client.getRun(run.id)
     return current.conversation.some((entry) => entry.line.includes('Carry on where you left off.'))
   }, 'same-ID credential recovery')
-  expect((await healthOf(client, 'claude'))?.pausedRuns).toBe(0)
+  expect((await client.ok<RunChat>('GET', `/runs/${run.id}/chat`)).run.paused).toBeUndefined()
   expect((await client.getRun(run.id)).run.state).not.toBe('finished')
   expect(
     (await client.ok<{ enabledAgents: string[] }>('GET', '/settings')).enabledAgents,

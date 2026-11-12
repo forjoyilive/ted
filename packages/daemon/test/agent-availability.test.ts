@@ -391,6 +391,11 @@ test('an answered idle Task waits for an off replacement agent instead of stoppi
       current.status.hold.includes('off')
     )
   }, 'disabled replacement waiting')
+  const waitingAnswer = (await client.listComments(task.id)).find(
+    (comment) => comment.id === question.id,
+  )
+  expect(waitingAnswer?.answerDelivery).toBeDefined()
+  expect(waitingAnswer?.answerDelivery?.sent).toBeUndefined()
   expect((await client.getRun(leadId)).run.state).not.toBe('finished')
   await client.changeAgentAvailability({ agent: 'codex', enabled: true })
   const replacement = await waitUntil(async () => {
@@ -398,6 +403,12 @@ test('an answered idle Task waits for an off replacement agent instead of stoppi
     return current.leadRunId && current.leadRunId !== leadId ? current.leadRunId : undefined
   }, 'enabled replacement Task Lead')
   expect((await client.getRun(replacement)).run.agent).toBe('codex')
+  await waitUntil(async () => {
+    const answer = (await client.listComments(task.id)).find(
+      (comment) => comment.id === question.id,
+    )
+    return answer?.answerDelivery?.sent?.runId === replacement
+  }, 'answer delivered to the enabled replacement')
 })
 
 test('a Coordinator refused after queue admission releases its slot and retries after re-enable', async () => {
