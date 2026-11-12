@@ -152,13 +152,22 @@ test('Inbox answers close before its list refresh without recaps and remain in A
   )
   expect(within(inbox).queryByRole('status')).toBeNull()
   expect(screen.queryByRole('region', { name: 'Question, answered' })).toBeNull()
+  const openFilter = async () => {
+    if (!within(inbox).queryByRole('menu', { name: 'Filter' })) {
+      await user().click(within(inbox).getByRole('button', { name: /^Filter/ }))
+    }
+  }
+  await openFilter()
   await user().click(within(inbox).getByRole('button', { name: 'Marketing 0' }))
   expect(within(inbox).queryByRole('status')).toBeNull()
+  await openFilter()
   await user().click(within(inbox).getByRole('button', { name: 'All 1' }))
   a.handle('listAnswered', () => [{ task: task(), request: required(comments[0]) }])
+  await openFilter()
   await user().click(within(inbox).getByRole('switch', { name: 'Answered' }))
   expect(await within(inbox).findByText('First question?')).toBeTruthy()
   expect(within(inbox).queryByRole('status')).toBeNull()
+  await openFilter()
   await user().click(within(inbox).getByRole('switch', { name: 'Answered' }))
   await user().click(within(inbox).getByText('Second request'))
   a.handle('answerRequest', () => {
