@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
+import { QuestionCard } from '../src/renderer/views/Automations.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
@@ -22,7 +23,9 @@ const round: Round = {
 }
 
 function requestApi() {
-  const answer = vi.fn(() => comment())
+  const answer = vi.fn<(...args: unknown[]) => ReturnType<typeof comment> | Promise<never>>(() =>
+    comment(),
+  )
   const api = bridge({
     listThreadEvents: () => [],
     listCheckRuns: () => [],
@@ -39,6 +42,110 @@ function requestApi() {
   })
   return { ...api, answer }
 }
+
+test('question choices wait for Send, preserve drafts when switching, and retain selection after errors', async () => {
+  const { answer, handle } = requestApi()
+  const pending = deferred<never>()
+  handle(
+    'answerRequest',
+    answer.mockImplementation(() => pending.promise),
+  )
+  render(<RequestCard task={task()} request={comment({ choices: ['Compact', 'Comfortable'] })} />)
+  const u = user()
+  const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
+  expect(send.disabled).toBe(true)
+  expect(screen.getAllByRole('radio').every((r) => !(r as HTMLInputElement).checked)).toBe(true)
+  await u.click(screen.getByRole('radio', { name: 'Compact' }))
+  await u.type(screen.getByLabelText('Your answer'), 'Keep it readable.')
+  await u.click(screen.getByRole('radio', { name: 'Other answer' }))
+  expect(send.disabled).toBe(true)
+  await u.type(screen.getByLabelText('Your answer'), 'Use a custom layout.')
+  await u.click(screen.getByRole('radio', { name: 'Comfortable' }))
+  expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
+    'Keep it readable.',
+  )
+  expect(answer).not.toHaveBeenCalled()
+  await u.click(send)
+  expect(answer).toHaveBeenCalledExactlyOnceWith('c1', {
+    action: 'answer',
+    choice: 'Comfortable',
+    text: 'Keep it readable.',
+  })
+  expect(send.disabled).toBe(true)
+  expect(screen.getByRole('radio', { name: 'Compact' }).matches(':disabled')).toBe(true)
+  fireEvent.keyDown(screen.getByLabelText('Your answer'), { key: 'Enter' })
+  expect(answer).toHaveBeenCalledOnce()
+  await act(async () => pending.reject(new Error('Try again')))
+  expect(screen.getByRole('alert').textContent).toBe('Try again')
+  expect((screen.getByRole('radio', { name: 'Comfortable' }) as HTMLInputElement).checked).toBe(
+    true,
+  )
+  await u.click(screen.getByRole('radio', { name: 'Other answer' }))
+  expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
+    'Use a custom layout.',
+  )
+  handle(
+    'answerRequest',
+    answer.mockImplementation(() => comment()),
+  )
+  await u.click(screen.getByLabelText('Your answer'))
+  await u.keyboard('{Enter}')
+  expect(answer).toHaveBeenLastCalledWith('c1', { action: 'answer', text: 'Use a custom layout.' })
+})
+
+test('Linear team questions select before Send and offer only supported answers', async () => {
+  const { answer } = requestApi()
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        choices: ['Allow', 'Not now'],
+        linearTeam: { name: 'Design', key: 'DES' },
+      })}
+    />,
+  )
+  const u = user()
+  expect(screen.queryByRole('radio', { name: 'Other answer' })).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  await u.click(screen.getByRole('radio', { name: 'Allow', exact: true }))
+  await u.click(screen.getByRole('radio', { name: 'Not now' }))
+  expect(answer).not.toHaveBeenCalled()
+  await u.click(screen.getByRole('button', { name: 'Send' }))
+  expect(answer).toHaveBeenCalledExactlyOnceWith('c1', { action: 'answer', choice: 'Not now' })
+})
+
+test('Automation question choices and written answers wait for Send', async () => {
+  const answer = vi.fn(() => ({}))
+  bridge({ answerAutomationRequest: answer })
+  render(
+    <QuestionCard
+      request={{
+        id: 'aq',
+        kind: 'question',
+        automationId: 'a',
+        automationName: 'Daily triage',
+        runId: 'r',
+        factoryId: 'f1',
+        body: 'Keep this item?',
+        createdAt,
+        choices: ['Keep', 'Skip'],
+      }}
+    />,
+  )
+  const u = user()
+  const send = screen.getByRole('button', { name: /Send/ }) as HTMLButtonElement
+  expect(send.disabled).toBe(true)
+  await u.click(screen.getByRole('radio', { name: 'Keep', exact: true }))
+  await u.click(screen.getByRole('radio', { name: 'Skip', exact: true }))
+  expect(answer).not.toHaveBeenCalled()
+  await u.click(send)
+  expect(answer).toHaveBeenCalledExactlyOnceWith('aq', { choice: 'Skip' })
+  await u.click(screen.getByRole('radio', { name: 'Other answer' }))
+  expect(send.disabled).toBe(true)
+  await u.type(screen.getByLabelText('Your answer'), 'Ask tomorrow.')
+  await u.keyboard('{Enter}')
+  expect(answer).toHaveBeenLastCalledWith('aq', { text: 'Ask tomorrow.' })
+})
 
 test('rounds require explicit choices and keep written recommendations prefilled', async () => {
   const { answer } = requestApi()
@@ -198,9 +305,7 @@ test('answered and superseded cards expand read-only and never send again', asyn
   await u.click(screen.getByRole('button', { name: 'Show request' }))
   const full = screen.getByRole('region', { name: 'Question, read-only' })
   expect(within(full).queryByRole('textbox')).toBeNull()
-  expect((within(full).getByRole('button', { name: 'A hint' }) as HTMLButtonElement).disabled).toBe(
-    true,
-  )
+  expect(within(full).getByRole('radio', { name: 'A hint' }).matches(':disabled')).toBe(true)
   await u.click(screen.getByRole('button', { name: 'Hide request' }))
   expect(screen.queryByRole('region', { name: 'Question, read-only' })).toBeNull()
   view.rerender(
@@ -360,20 +465,23 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
       })}
     />,
   )
-  const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
-  expect(button('Accept this failure').disabled).toBe(false)
-  expect(button('Fixed').disabled).toBe(true)
-  expect(button('No longer applicable').disabled).toBe(true)
-  expect(button('Fixed').title).toBe('Write your reason below first')
-  expect(
-    screen.getByPlaceholderText('Your reason. Fixed and No longer applicable need one…'),
-  ).toBeTruthy()
   const u = user()
-  await u.click(button('Accept this failure'))
+  const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
+  await u.click(screen.getByRole('radio', { name: 'Fixed', exact: true }))
+  expect(send.disabled).toBe(true)
+  fireEvent.keyDown(screen.getByLabelText('Your answer'), { key: 'Enter' })
+  expect(answer).not.toHaveBeenCalled()
+  expect(screen.getByText('Write a reason before sending this decision.')).toBeTruthy()
+  await u.click(screen.getByRole('radio', { name: 'No longer applicable' }))
+  expect(send.disabled).toBe(true)
+  await u.click(screen.getByRole('radio', { name: 'Accept this failure' }))
+  expect(answer).not.toHaveBeenCalled()
+  await u.click(send)
   expect((await screen.findByRole('alert')).textContent).toBe(refusal)
+  await u.click(screen.getByRole('radio', { name: 'Fixed', exact: true }))
   await u.type(screen.getByLabelText('Your answer'), 'A rerun passed.')
-  expect(button('No longer applicable').disabled).toBe(false)
-  await u.click(button('Fixed'))
+  expect(send.disabled).toBe(false)
+  await u.keyboard('{Enter}')
   expect(answer).toHaveBeenLastCalledWith('c1', {
     action: 'answer',
     choice: 'Fixed',
@@ -592,7 +700,9 @@ test('idle ask quotes the last response and sends Nudge again', async () => {
   )
   expect(screen.getByText('The Task Lead stopped without saying why')).toBeTruthy()
   expect(screen.getByText('I’ll check the empty template next.')).toBeTruthy()
-  await user().click(screen.getByRole('button', { name: 'Nudge again' }))
+  await user().click(screen.getByRole('radio', { name: 'Nudge again' }))
+  expect(answer).not.toHaveBeenCalled()
+  await user().click(screen.getByRole('button', { name: 'Send' }))
   expect(answer).toHaveBeenCalledWith('c1', { action: 'answer', choice: 'Nudge again' })
 })
 
@@ -651,7 +761,9 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.getByText('The cause isn’t known')).toBeTruthy()
   expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
   expect(screen.getByText(/Accepting covers only this failure/)).toBeTruthy()
-  await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
+  await user().click(screen.getByRole('radio', { name: 'Accept this failure' }))
+  expect(answer).not.toHaveBeenCalled()
+  await user().click(screen.getByRole('button', { name: 'Send' }))
   expect(answer).toHaveBeenCalledWith(
     expect.anything(),
     expect.objectContaining({ action: 'answer', choice: 'Accept this failure' }),
@@ -668,7 +780,7 @@ test('Validate failure decisions display evidence and send the selected action',
     />,
   )
   expect(await screen.findByText(/This failure can’t be accepted/)).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Accept this failure' })).toBeNull()
+  expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
 })
 
 test('historical failure request keeps its own assessment and decision', async () => {
@@ -1361,7 +1473,7 @@ test('repair creation stays a draft until approval and queues by default', async
     screen.getByRole('textbox', { name: 'Your answer' }),
     'Keep the filter change focused.',
   )
-  await u.click(screen.getByRole('button', { name: 'Wait for a repair Task' }))
+  await u.click(screen.getByRole('radio', { name: 'Wait for a repair Task' }))
   await u.click(await screen.findByRole('radio', { name: 'Create a repair Task' }))
   expect(resolve).not.toHaveBeenCalled()
   expect(answer).not.toHaveBeenCalled()
@@ -1376,9 +1488,14 @@ test('repair creation stays a draft until approval and queues by default', async
   await u.type(screen.getByRole('textbox', { name: 'Repair title' }), 'Fix export labels')
   await u.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(resolve).not.toHaveBeenCalled()
-  await u.click(screen.getByRole('button', { name: 'Wait for a repair Task' }))
+  await u.click(screen.getByRole('radio', { name: 'Wait for a repair Task' }))
+  await u.click(screen.getByRole('radio', { name: 'Retry', exact: true }))
+  expect(screen.queryByRole('region', { name: 'Wait for a repair Task' })).toBeNull()
+  expect(resolve).not.toHaveBeenCalled()
+  expect(answer).not.toHaveBeenCalled()
+  await u.click(screen.getByRole('radio', { name: 'Wait for a repair Task' }))
   await u.click(await screen.findByRole('radio', { name: 'Create a repair Task' }))
-  await u.click(screen.getByRole('button', { name: 'Approve, create and queue repair' }))
+  await u.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() =>
     expect(resolve).toHaveBeenCalledWith('NB-1', 'repair-failure', {
       requestId: 'c1',

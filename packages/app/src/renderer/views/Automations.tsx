@@ -39,6 +39,7 @@ import {
 } from '../components/ContextMenu.tsx'
 import { DotIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
@@ -751,9 +752,12 @@ export function QuestionCard({
 }) {
   const now = useNow()
   const [text, setText] = useState('')
+  const [otherText, setOtherText] = useState('')
+  const [selection, setSelection] = useState<QuestionSelection>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const answer = (input: { choice?: string; text?: string }) => {
+    if (busy) return
     setBusy(true)
     setError(undefined)
     ted.answerAutomationRequest(request.id, input).then(
@@ -767,6 +771,20 @@ export function QuestionCard({
         setBusy(false)
       },
     )
+  }
+  const hasChoices = (request.choices?.length ?? 0) > 0
+  const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
+  const other = selection && 'other' in selection
+  const answerText = hasChoices && other ? otherText : text
+  const ready = hasChoices
+    ? selectedChoice !== undefined || (other && otherText.trim() !== '')
+    : text.trim() !== ''
+  function sendAnswer() {
+    if (!ready || busy) return
+    answer({
+      ...(hasChoices && selectedChoice !== undefined && { choice: selectedChoice }),
+      ...(answerText.trim() !== '' && { text: answerText }),
+    })
   }
   const minutes = Math.max(Math.round((now - Date.parse(request.createdAt)) / 60_000), 0)
   const age =
@@ -782,26 +800,24 @@ export function QuestionCard({
         {` · from ${request.automationName} · ${age}`}
       </p>
       <p className={styles.questionBody}>{request.body}</p>
-      {request.choices?.map((choice) => (
-        <button
-          key={choice}
-          type="button"
-          className={styles.choice}
+      {hasChoices && (
+        <QuestionChoices
+          choices={request.choices ?? []}
+          selection={selection}
+          onSelect={setSelection}
           disabled={busy}
-          onClick={() => answer({ choice })}
-        >
-          {choice}
-        </button>
-      ))}
+        />
+      )}
       <textarea
         className={styles.answer}
         aria-label="Your answer"
-        placeholder={request.choices ? 'Or write your own answer…' : 'Write your answer…'}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={sendOnEnter(() => {
-          if (!busy) answer({ text })
-        })}
+        placeholder={hasChoices && !other ? 'Add to this answer…' : 'Write your answer…'}
+        value={answerText}
+        disabled={busy}
+        onChange={(event) =>
+          hasChoices && other ? setOtherText(event.target.value) : setText(event.target.value)
+        }
+        onKeyDown={sendOnEnter(sendAnswer, () => !!ready && !busy)}
       />
       {error !== undefined && (
         <p className={styles.error} role="alert">
@@ -813,8 +829,8 @@ export function QuestionCard({
           variant="primary"
           size="small"
           shortcut="↵"
-          disabled={busy || text.trim() === ''}
-          onClick={() => answer({ text })}
+          disabled={busy || !ready}
+          onClick={sendAnswer}
         >
           Send
         </Button>

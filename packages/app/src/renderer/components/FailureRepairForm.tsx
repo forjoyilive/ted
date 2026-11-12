@@ -12,9 +12,11 @@ export function FailureRepairForm({
   request,
   onCancel,
   reason,
+  onSendingChange,
 }: {
   task: Task
   request: Comment
+  onSendingChange(sending: boolean): void
   onCancel(): void
   reason?: string | undefined
 }) {
@@ -62,6 +64,7 @@ export function FailureRepairForm({
         ? { kind, taskId: selected ?? '' }
         : { kind, title: draftTitle, description: draftDescription, start }
     setSending(true)
+    onSendingChange(true)
     setError(undefined)
     try {
       await ted.resolveFailure(task.id, failure.id, {
@@ -75,6 +78,7 @@ export function FailureRepairForm({
       setError(readableError(error))
     } finally {
       setSending(false)
+      onSendingChange(false)
     }
   }
   if (done)
@@ -171,11 +175,7 @@ export function FailureRepairForm({
           }
           onClick={() => void approve()}
         >
-          {kind === 'existing'
-            ? `Wait for ${repair?.displayId ?? 'repair'}`
-            : start
-              ? 'Approve, create and queue repair'
-              : 'Approve and create repair'}
+          Send
         </Button>
       </div>
     </section>
