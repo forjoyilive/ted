@@ -457,9 +457,7 @@ describe('Talk it through', () => {
     }, 'the queued talk to bind after restart')
     const ready = await waitUntil(async () => {
       const round = (await comments(client, task)).find((c) => c.id === item.request.id)
-      return round?.talk?.notifiedAt && round.talk.runId === talking.talk?.runId
-        ? round
-        : undefined
+      return round?.talk?.notifiedAt && round.talk.runId === talking.talk?.runId ? round : undefined
     }, 'the queued talk to be acknowledged after binding')
     expect(ready.talkRequested).toBeUndefined()
     expect(
