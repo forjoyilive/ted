@@ -10,11 +10,12 @@ import { Root } from './Root.tsx'
 import { WorkerWindow } from './WorkerWindow.tsx'
 
 function Connected() {
+  const connection = useConnectionState()
   useEffect(() => {
-    void recoverMessageDrafts()
-  }, [])
+    if (connection.connection.state === 'connected') void recoverMessageDrafts()
+  }, [connection])
   return (
-    <ConnectionContext value={useConnectionState()}>
+    <ConnectionContext value={connection}>
       <Root />
     </ConnectionContext>
   )

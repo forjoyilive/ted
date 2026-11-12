@@ -82,6 +82,7 @@ export function messageDraftSession(
   let dirty = false
   let timer: ReturnType<typeof setTimeout> | undefined
   let saving: Promise<void> | undefined
+  let loading: Promise<DraftContent> | undefined
 
   const guarded = (action: () => void) => {
     try {
@@ -126,27 +127,48 @@ export function messageDraftSession(
     options.changed(current)
   }
 
-  return {
-    async load() {
-      let kept: DraftContent | undefined
+  async function read(): Promise<DraftContent> {
+    let kept: DraftContent | undefined
+    try {
+      kept = fromDraft((await options.read()).draft)
+    } catch (error) {
+      options.failed(error)
+    }
+    let recovery: DraftContent | undefined
+    guarded(() => {
+      const text = options.storage.getItem(key)
+      if (text === null) return
       try {
-        kept = fromDraft((await options.read()).draft)
-      } catch (error) {
-        options.failed(error)
+        recovery = fromDraft(JSON.parse(text))
+      } finally {
+        if (!recovery && options.storage.getItem(key) === text) options.storage.removeItem(key)
       }
-      let recovery: DraftContent | undefined
-      guarded(() => {
-        const text = options.storage.getItem(key)
-        if (text !== null) recovery = fromDraft(JSON.parse(text))
-      })
-      if (touched) return current
-      current = recovery ?? kept ?? emptyDraftContent()
-      options.changed(current)
-      if (recovery) {
-        dirty = true
-        void persist()
-      }
-      return current
+    })
+    if (touched) return current
+    current = recovery ?? kept ?? emptyDraftContent()
+    options.changed(current)
+    if (recovery) {
+      dirty = true
+      void persist()
+    }
+    return current
+  }
+
+  async function flush() {
+    if (dirty) await persist()
+    else if (saving) await saving
+  }
+
+  const load = (): Promise<DraftContent> => {
+    loading ??= read()
+    return loading
+  }
+
+  return {
+    load,
+    async settled() {
+      await load()
+      await flush()
     },
     get: () => current,
     update(next: (content: DraftContent) => DraftContent) {
@@ -158,10 +180,7 @@ export function messageDraftSession(
       change(emptyDraftContent())
       return persist()
     },
-    async flush() {
-      if (dirty) await persist()
-      else if (saving) await saving
-    },
+    flush,
   }
 }
 
@@ -182,70 +201,58 @@ export function messageDraftSessions(options: {
 }) {
   const shared = new Map<string, Shared>()
 
+  function open(box: MessageBox): Shared {
+    const key = messageDraftStorageKey(box)
+    const known = shared.get(key)
+    if (known) return known
+    const listeners = new Set<(content: DraftContent) => void>()
+    const session = messageDraftSession(box, {
+      storage: options.storage,
+      read: () => options.read(box),
+      save: (draft) => options.save(box, draft),
+      changed: (content) => {
+        for (const each of listeners) each(content)
+      },
+      failed: options.failed,
+      ...(options.delayMs !== undefined && { delayMs: options.delayMs }),
+    })
+    const entry = { session, listeners, users: 0 }
+    shared.set(key, entry)
+    void session.load()
+    return entry
+  }
+
+  async function release(box: MessageBox, entry: Shared): Promise<void> {
+    await entry.session.settled()
+    const key = messageDraftStorageKey(box)
+    if (entry.users === 0 && shared.get(key) === entry) shared.delete(key)
+  }
+
   return {
     find: (box: MessageBox): Session | undefined =>
       shared.get(messageDraftStorageKey(box))?.session,
     join(box: MessageBox, listener: (content: DraftContent) => void): () => void {
-      const key = messageDraftStorageKey(box)
-      let entry = shared.get(key)
-      if (entry) {
-        listener(entry.session.get())
-      } else {
-        const listeners = new Set<(content: DraftContent) => void>()
-        const session = messageDraftSession(box, {
-          storage: options.storage,
-          read: () => options.read(box),
-          save: (draft) => options.save(box, draft),
-          changed: (content) => {
-            for (const each of listeners) each(content)
-          },
-          failed: options.failed,
-          ...(options.delayMs !== undefined && { delayMs: options.delayMs }),
-        })
-        entry = { session, listeners, users: 0 }
-        shared.set(key, entry)
-        void session.load()
-      }
-      const joined = entry
+      const fresh = !shared.has(messageDraftStorageKey(box))
+      const joined = open(box)
+      if (!fresh) listener(joined.session.get())
       joined.listeners.add(listener)
       joined.users += 1
       return () => {
         joined.listeners.delete(listener)
         joined.users -= 1
-        if (joined.users > 0) return
-        void joined.session.flush().then(() => {
-          if (joined.users === 0 && shared.get(key) === joined) shared.delete(key)
-        })
+        if (joined.users === 0) void release(box, joined)
       }
     },
     async recover(): Promise<void> {
-      const keys: string[] = []
+      const waiting: Promise<void>[] = []
       for (let i = 0; i < options.storage.length; i++) {
         const key = options.storage.key(i)
-        if (key?.startsWith(storagePrefix)) keys.push(key)
+        if (!key?.startsWith(storagePrefix) || shared.has(key)) continue
+        const [kind = '', ...rest] = key.slice(storagePrefix.length).split('.')
+        const box = { kind: kind as MessageBox['kind'], id: rest.join('.') }
+        waiting.push(release(box, open(box)))
       }
-      for (const key of keys) {
-        if (shared.has(key)) continue
-        try {
-          const stored = options.storage.getItem(key)
-          if (stored === null) continue
-          const [kind = '', ...rest] = key.slice(storagePrefix.length).split('.')
-          let content: DraftContent | undefined
-          try {
-            content = fromDraft(JSON.parse(stored))
-          } catch {
-            content = undefined
-          }
-          if (content) {
-            const box = { kind: kind as MessageBox['kind'], id: rest.join('.') }
-            await options.save(box, toDraft(content))
-          }
-          if (!shared.has(key) && options.storage.getItem(key) === stored)
-            options.storage.removeItem(key)
-        } catch (error) {
-          options.failed(error)
-        }
-      }
+      await Promise.all(waiting)
     },
   }
 }

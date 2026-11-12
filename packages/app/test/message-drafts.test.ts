@@ -217,9 +217,10 @@ describe('unsent message text', () => {
     setup.storage.setItem(chat, 'not json')
     setup.storage.setItem(offline, JSON.stringify({ text: 'Later', attachments: [] }))
     setup.storage.setItem('ted.other', 'keep')
+    let online = false
     const save = vi.fn(
       async (asked: MessageBox, draft: MessageDraft): Promise<MessageDraftState> => {
-        if (asked.kind === 'coordinator') throw new Error('offline')
+        if (asked.kind === 'coordinator' && !online) throw new Error('offline')
         return asked.kind === 'request'
           ? { draft: null, refused: 'this request is already answered' }
           : { draft }
@@ -232,22 +233,98 @@ describe('unsent message text', () => {
       failed: setup.failed,
     })
     await sessions.recover()
-    expect(save.mock.calls).toEqual([
-      [box, { text: 'Left by a quit', attachments: [] }],
-      [
-        { kind: 'request', id: 'c.1' },
-        { text: 'Answer', attachments: [], fields: '{"a":1}' },
-      ],
-      [
-        { kind: 'coordinator', id: 'f1' },
-        { text: 'Later', attachments: [] },
-      ],
-    ])
+    expect(save.mock.calls).toHaveLength(3)
+    expect(save.mock.calls).toEqual(
+      expect.arrayContaining([
+        [box, { text: 'Left by a quit', attachments: [] }],
+        [
+          { kind: 'request', id: 'c.1' },
+          { text: 'Answer', attachments: [], fields: '{"a":1}' },
+        ],
+        [
+          { kind: 'coordinator', id: 'f1' },
+          { text: 'Later', attachments: [] },
+        ],
+      ]),
+    )
     expect(setup.storage.getItem(key)).toBeNull()
     expect(setup.storage.getItem(answer)).toBeNull()
     expect(setup.storage.getItem(chat)).toBeNull()
     expect(setup.storage.getItem(offline)).toContain('Later')
-    expect(setup.failed).toHaveBeenCalledOnce()
+    expect(setup.failed).toHaveBeenCalledTimes(2)
     expect(setup.storage.getItem('ted.other')).toBe('keep')
+    expect(sessions.find(box)).toBeUndefined()
+
+    online = true
+    await sessions.recover()
+    expect(save).toHaveBeenCalledTimes(4)
+    expect(save.mock.calls.at(-1)).toEqual([
+      { kind: 'coordinator', id: 'f1' },
+      { text: 'Later', attachments: [] },
+    ])
+    expect(setup.storage.getItem(offline)).toBeNull()
+  })
+
+  test('a box opened while the start-up pass saves its text shares that queue', async () => {
+    const setup = options()
+    setup.storage.setItem(key, JSON.stringify({ text: 'Left by a quit', attachments: [] }))
+    const first = Promise.withResolvers<MessageDraftState>()
+    const save = vi
+      .fn(async (_box: MessageBox, draft: MessageDraft): Promise<MessageDraftState> => ({ draft }))
+      .mockImplementationOnce(() => first.promise)
+    const sessions = messageDraftSessions({
+      storage: setup.storage,
+      read: setup.read,
+      save,
+      failed: setup.failed,
+      delayMs: 60_000,
+    })
+    const recovering = sessions.recover()
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    const seen = vi.fn()
+    const leave = sessions.join(box, seen)
+    expect(seen).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'Left by a quit' }))
+    const cleared = sessions.find(box)?.clear()
+    first.resolve({ draft: null })
+    await cleared
+    await recovering
+    expect(save.mock.calls.map(([, draft]) => draft.text)).toEqual(['Left by a quit', ''])
+    expect(setup.storage.getItem(key)).toBeNull()
+    expect(sessions.find(box)).toBeDefined()
+    leave()
+    await vi.waitFor(() => expect(sessions.find(box)).toBeUndefined())
+  })
+
+  test('a box closed during its first read and reopened keeps the same session', async () => {
+    const setup = options()
+    setup.storage.setItem(key, JSON.stringify({ text: 'Left by a quit', attachments: [] }))
+    const reading = Promise.withResolvers<MessageDraftState>()
+    const read = vi.fn(() => reading.promise)
+    const save = vi.fn(
+      async (_box: MessageBox, draft: MessageDraft): Promise<MessageDraftState> => ({ draft }),
+    )
+    const sessions = messageDraftSessions({
+      storage: setup.storage,
+      read,
+      save,
+      failed: setup.failed,
+      delayMs: 60_000,
+    })
+    const leave = sessions.join(box, vi.fn())
+    const session = sessions.find(box)
+    leave()
+    const seen = vi.fn()
+    const leaveAgain = sessions.join(box, seen)
+    expect(sessions.find(box)).toBe(session)
+    reading.resolve({ draft: null })
+    await vi.waitFor(() =>
+      expect(seen).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'Left by a quit' })),
+    )
+    expect(read).toHaveBeenCalledTimes(1)
+    await sessions.find(box)?.clear()
+    expect(save.mock.calls.map(([, draft]) => draft.text)).toEqual(['Left by a quit', ''])
+    expect(setup.storage.getItem(key)).toBeNull()
+    leaveAgain()
+    await vi.waitFor(() => expect(sessions.find(box)).toBeUndefined())
   })
 })
