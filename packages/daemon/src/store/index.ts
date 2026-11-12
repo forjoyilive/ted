@@ -2311,14 +2311,16 @@ export async function openStore({
   const emit = (event: DaemonEvent) => {
     emitting.push(event)
     if (emitting.length > 1) return
-    try {
-      for (let next = emitting[0]; next; next = emitting[0]) {
+    let failure: { error: unknown } | undefined
+    for (let next = emitting[0]; next; next = emitting[0]) {
+      try {
         for (const listener of listeners) listener(next)
-        emitting.shift()
+      } catch (error) {
+        failure ??= { error }
       }
-    } finally {
-      emitting.length = 0
+      emitting.shift()
     }
+    if (failure) throw failure.error
   }
 
   const getComment = (id: string) => {
