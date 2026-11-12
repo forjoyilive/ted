@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { type FocusEvent, useEffect, useId, useRef, useState } from 'react'
 import { modelOptions } from '../task-fields.ts'
 import { CloseIcon } from './icons.tsx'
 import styles from './ModelSelect.module.css'
@@ -81,11 +81,16 @@ export function ModelSelect({
     if (keep && model !== '' && model !== value) onChange(model)
   }
 
+  const leave = (event: FocusEvent<HTMLElement>) => {
+    if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) finish(true, false)
+  }
+
   return (
     <span
       className={[styles.wrap, fullWidth && styles.fullWidth, className].filter(Boolean).join(' ')}
     >
       <input
+        onBlur={leave}
         // biome-ignore lint/a11y/noAutofocus: the box replaces the list the user just chose Other… from
         autoFocus
         id={selectId}
@@ -95,10 +100,10 @@ export function ModelSelect({
         size={14}
         value={typed}
         onChange={(event) => setTyped(event.target.value)}
-        onBlur={() => finish(true, false)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault()
+            event.stopPropagation()
             finish(true, true)
           } else if (event.key === 'Escape') {
             event.preventDefault()
@@ -112,10 +117,9 @@ export function ModelSelect({
         className={styles.back}
         aria-label="Back to the list"
         title="Back to the list"
-        onMouseDown={(event) => {
-          event.preventDefault()
-          finish(false, true)
-        }}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => finish(false, true)}
+        onBlur={leave}
       >
         <CloseIcon size={12} />
       </button>

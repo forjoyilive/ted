@@ -88,9 +88,18 @@ test('More retains Clarify and Task Lead choices when collapsed and submits them
   await u.click(more)
   expect(screen.getByText('Clarify depth Grill · Task Lead Codex · high')).toBeTruthy()
   await u.type(screen.getByLabelText('Description'), 'Deep one')
+  await u.click(more)
+  await u.selectOptions(screen.getByLabelText('Model'), 'Other…')
+  await u.type(screen.getByLabelText('Model'), 'gpt-5.5')
+  await u.keyboard('{Meta>}{Enter}{/Meta}')
+  expect(created).not.toHaveBeenCalled()
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('gpt-5.5')
   await u.click(screen.getByRole('button', { name: 'Create' }))
   expect(created).toHaveBeenCalledWith(
-    expect.objectContaining({ clarifyDepth: 'grilling', lead: { agent: 'codex', effort: 'high' } }),
+    expect.objectContaining({
+      clarifyDepth: 'grilling',
+      lead: { agent: 'codex', model: 'gpt-5.5', effort: 'high' },
+    }),
   )
 })
 
@@ -149,6 +158,12 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
   await u.selectOptions(model(), 'gpt-6.1-sol')
   await u.selectOptions(model(), 'Other…')
   await u.type(screen.getByLabelText('Model'), 'not-kept{Escape}')
+  expect(model().value).toBe('gpt-6.1-sol')
+  await u.selectOptions(model(), 'Other…')
+  await u.type(screen.getByLabelText('Model'), 'also-not-kept')
+  await u.tab()
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back to the list' }))
+  await u.keyboard('{Enter}')
   expect(model().value).toBe('gpt-6.1-sol')
   await u.selectOptions(model(), 'Other…')
   await u.type(screen.getByLabelText('Model'), ' gpt-6-mini {Enter}')
