@@ -95,7 +95,11 @@ test('copies each block literally by keyboard and confirms only a successful cop
   await user().keyboard('{Enter}')
   expect(api.request).toHaveBeenCalledExactlyOnceWith('copyText', '  echo "**raw**"\n\necho done\n')
   expect(first).toHaveProperty('disabled', true)
-  expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual(['', ''])
+  expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual([
+    'Working…',
+    '',
+    '',
+  ])
   await act(async () => pending.resolve())
   expect(first.title).toBe('Copied')
   expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual(['Copied', ''])

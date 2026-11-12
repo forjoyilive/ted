@@ -90,7 +90,7 @@ export function SnoozeTaskDialog({
             <Button onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={() => void save()} disabled={busy || !instant}>
+            <Button variant="primary" onClick={() => save()} disabled={busy || !instant}>
               {busy
                 ? 'Saving…'
                 : tasks.length > 1

@@ -22,7 +22,9 @@ import {
   type Appearance,
   type AppStarter,
   type Attachment,
+  type AutopilotChoice,
   agentStageIds,
+  autopilotEnabled,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -116,6 +118,7 @@ import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
+import { createPairingStore, type PairingStore } from './execution-pairing.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { intervalBoundaries } from './interval-schema.ts'
@@ -536,6 +539,7 @@ export interface HeldRun {
 
 export interface TedStore extends TaskHistory {
   execution: ExecutionStore
+  pairing: PairingStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
@@ -576,6 +580,11 @@ export interface TedStore extends TaskHistory {
     push: { commit: string; ci: boolean; ciSignals: CiSignal[] },
   ): void
   branchPushFailed(taskId: string, name: string, message: string): void
+  pushRecordReconciled(
+    taskId: string,
+    name: string,
+    found: { recorded: string; remote: string },
+  ): void
   pullRequestOpened(
     taskId: string,
     name: string,
@@ -673,6 +682,7 @@ export interface TedStore extends TaskHistory {
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
   blockedBy(blockerId: string): string[]
+  openBlockedTasks(): string[]
   queue(): QueuedTask[]
   dequeue(taskId: string): Task
   blockers(taskId: string): BlockerLink[]
@@ -741,6 +751,7 @@ export interface TedStore extends TaskHistory {
   tasksWithQueuedContinuations(): string[]
   holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean): void
   deliveredLeadMessages(taskId: string, ids: readonly string[]): void
+  setTaskAutopilot(taskId: string, choice: AutopilotChoice): Task
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
     taskId: string,
@@ -758,7 +769,13 @@ export interface TedStore extends TaskHistory {
   removeTaskDraft(factoryId: string): void
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
-  answerComment(id: string, answer: CommentAnswer, lineComments?: readonly string[]): Comment
+  answerComment(
+    id: string,
+    answer: CommentAnswer,
+    lineComments?: readonly string[],
+    autopilot?: boolean,
+    queueAnswer?: boolean,
+  ): Comment
   draftLineComment(input: NewLineComment): LineComment
   editLineComment(id: string, body: string): LineComment
   deleteLineComments(taskId: string, ids: readonly string[]): void
@@ -1324,6 +1341,11 @@ export async function openStore({
       }
     })
 
+  const startRequestUsed = (taskId: string, at: string) =>
+    taskRow(taskId)?.startRequested
+      ? [events.taskStartRequestChanged({ taskId, startRequested: false, at })]
+      : []
+
   const commentFiles = (commentId: string): Attachment[] =>
     store
       .query(queryDb(commentAttachments.where({ commentId }).orderBy('position', 'asc')))
@@ -1545,6 +1567,7 @@ export async function openStore({
       followUpOf,
       forcedGates,
       gateOverrides,
+      autopilotChoice,
       changesSettings,
       splitFrom,
       needsPlanningAt,
@@ -1592,7 +1615,10 @@ export async function openStore({
     const queued = reads.queued(row.id).at(0)
     const paused = reads.pauses()
     const held = reads.held(row.id).at(0)
-    const queuedContinuation = pendingMessages.some((message) => message.waitForSlot)
+    const taskComments = reads.comments(row.id)
+    const queuedContinuation =
+      pendingMessages.some((message) => message.waitForSlot) ||
+      taskComments.some((comment) => comment.answerHeld && comment.answerQueuedAt !== null)
     const place =
       queued || queuedContinuation
         ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
@@ -1632,7 +1658,6 @@ export async function openStore({
       partlyMergedAt !== null && mergedRepos.length > 0 && openRepos.length > 0
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
-    const taskComments = reads.comments(row.id)
     const requests = taskComments.filter(isOpenRequest)
     const facts: TaskFacts = {
       ...(preparation === 'preparing' && { preparing: true }),
@@ -1659,18 +1684,31 @@ export async function openStore({
         !recovering &&
         !waitsForBlockers &&
         repos.some((r) => !r.removed) && { interrupted: true }),
-      ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
+      ...((place > 0 || held) && {
+        queue:
+          (leadAgent ?? held?.agent) &&
+          !reads.settings().enabledAgents.includes((leadAgent ?? held?.agent) as AgentKind) &&
+          (!leadLive || lead?.agent !== (leadAgent ?? held?.agent))
+            ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Agents.` }
+            : place > 0
+              ? newWorkHeld === undefined
+                ? { place }
+                : { hold: newWorkHeld }
+              : { hold: 'Waiting for the agent' },
+      }),
       ...(place > 0 && heldForLoad && { heldForLoad }),
       queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({
         id: r.id,
         ...(paused[r.agent as AgentKind] !== undefined && {
           paused: paused[r.agent as AgentKind],
         }),
-        ...(newWorkHeld !== undefined
-          ? { hold: newWorkHeld }
-          : heldForLoad
-            ? { hold: busyHold }
-            : {}),
+        ...(!reads.settings().enabledAgents.includes(r.agent as AgentKind)
+          ? { hold: `${r.agent} is off. Enable it in Settings → Agents.` }
+          : newWorkHeld !== undefined
+            ? { hold: newWorkHeld }
+            : heldForLoad
+              ? { hold: busyHold }
+              : {}),
       })),
       pausedRuns,
       runs: live.map((r) => r.state as RunState),
@@ -1794,6 +1832,13 @@ export async function openStore({
       waitsForBlockers,
       stopped: stoppedAt !== null,
       ...((preparation === 'preparing' || preparation === 'ready') && { preparation }),
+      autopilot: {
+        choice: (autopilotChoice ?? 'inherit') as AutopilotChoice,
+        enabled: autopilotEnabled(
+          (autopilotChoice ?? 'inherit') as AutopilotChoice,
+          reads.settings().overnightMode,
+        ),
+      },
       gateOverrides: gateOverrides === null ? {} : (JSON.parse(gateOverrides) as TaskGateOverrides),
       forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
       changesSettings,
@@ -1974,6 +2019,9 @@ export async function openStore({
     permission,
     simulator,
     answerHeld: _,
+    answerQueuedAt,
+    answerSentRunId,
+    answerSentAt,
     failedRunId,
     talkRunId,
     talkStartedAt,
@@ -2012,6 +2060,15 @@ export async function openStore({
         ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
         ...(deliveredRunId !== null &&
           deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
+        ...(answerQueuedAt !== null && {
+          answerDelivery: {
+            queuedAt: answerQueuedAt,
+            ...(answerSentRunId !== null &&
+              answerSentAt !== null && {
+                sent: { runId: answerSentRunId, at: answerSentAt },
+              }),
+          },
+        }),
         ...(readAt !== null && { readAt }),
         ...(failedRunId !== null && { failed: { runId: failedRunId } }),
         ...(tutorial && { tutorial: true as const }),
@@ -2317,8 +2374,20 @@ export async function openStore({
   const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
+  const emitting: DaemonEvent[] = []
   const emit = (event: DaemonEvent) => {
-    for (const listener of listeners) listener(event)
+    emitting.push(event)
+    if (emitting.length > 1) return
+    let failure: { error: unknown } | undefined
+    for (let next = emitting[0]; next; next = emitting[0]) {
+      try {
+        for (const listener of listeners) listener(next)
+      } catch (error) {
+        failure ??= { error }
+      }
+      emitting.shift()
+    }
+    if (failure) throw failure.error
   }
 
   const getComment = (id: string) => {
@@ -2908,6 +2977,7 @@ export async function openStore({
 
   return {
     execution,
+    pairing: createPairingStore(store, commit),
     sideChats: createSideChatStore({
       store,
       commit,
@@ -2976,7 +3046,7 @@ export async function openStore({
           kind: 'question',
           body,
           ...(value.validation && {
-            title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
+            title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
           choices: Object.values(value.validation ? validateFailureChoices : failureChoices).filter(
             (choice) =>
@@ -3207,6 +3277,7 @@ export async function openStore({
       const at = new Date().toISOString()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...startRequestUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskQueued({ taskId, stage, rank, at }),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
@@ -3255,6 +3326,7 @@ export async function openStore({
       const rank = nextRank()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...startRequestUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
@@ -3368,6 +3440,12 @@ export async function openStore({
     },
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),
+    openBlockedTasks: () =>
+      [...new Set(store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId))]
+        .flatMap((id) => taskRow(id) ?? [])
+        .filter((row) => row.stage !== 'done' && row.archivedAt === null)
+        .sort((a, b) => a.number - b.number)
+        .map((row) => row.id),
     queue,
     dequeue(taskId) {
       commit(events.taskDequeued({ taskId, at: new Date().toISOString() }))
@@ -3660,6 +3738,18 @@ export async function openStore({
     },
     branchPushFailed(taskId, name, message) {
       commit(events.taskBranchPushFailed({ taskId, name, message, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    pushRecordReconciled(taskId, name, { recorded, remote }) {
+      commit(
+        events.taskPushRecordReconciled({
+          taskId,
+          name,
+          recorded,
+          remote,
+          at: new Date().toISOString(),
+        }),
+      )
       updatedTask(taskId)
     },
     pullRequestOpened(taskId, name, { number, url, base }) {
@@ -4069,15 +4159,22 @@ export async function openStore({
     setLeadRestartPending(taskId, pending) {
       commit(events.taskLeadRestartPendingSet({ taskId, pending, at: new Date().toISOString() }))
     },
-    tasksWithQueuedContinuations: () =>
-      store
-        .query(queryDb(tasks.where({ pendingLeadDeliveries: { op: '!=', value: null } })))
-        .filter((row) =>
-          (JSON.parse(row.pendingLeadDeliveries ?? '[]') as LeadMessage[]).some(
-            (message) => message.waitForSlot,
-          ),
-        )
-        .map((row) => row.id),
+    tasksWithQueuedContinuations: () => [
+      ...new Set([
+        ...store
+          .query(queryDb(tasks.where({ pendingLeadDeliveries: { op: '!=', value: null } })))
+          .filter((row) =>
+            (JSON.parse(row.pendingLeadDeliveries ?? '[]') as LeadMessage[]).some(
+              (message) => message.waitForSlot,
+            ),
+          )
+          .map((row) => row.id),
+        ...store
+          .query(queryDb(comments.where({ answerHeld: true })))
+          .filter((comment) => comment.answerQueuedAt !== null)
+          .map((comment) => comment.taskId),
+      ]),
+    ],
     holdLeadMessage(taskId, text, waitForSlot = false) {
       const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
       commit(
@@ -4102,6 +4199,10 @@ export async function openStore({
           at: new Date().toISOString(),
         }),
       )
+    },
+    setTaskAutopilot(taskId, choice) {
+      commit(events.taskAutopilotChanged({ taskId, choice, at: new Date().toISOString() }))
+      return updatedTask(taskId)
     },
     setTaskGates(taskId, overrides) {
       commit(
@@ -4228,9 +4329,19 @@ export async function openStore({
         .map(toComment)
     },
     getComment,
-    answerComment(id, answer, sending) {
+    answerComment(id, answer, sending, autopilot = false, queueAnswer = false) {
       commit(
         events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }),
+        ...(autopilot
+          ? [
+              events.commentAnsweredByAutopilot({
+                taskId: requireComment(id).taskId,
+                commentId: id,
+                at: answer.at,
+              }),
+            ]
+          : []),
+        ...(queueAnswer ? [events.commentAnswerQueued({ id, at: answer.at })] : []),
         ...lineCommentsSent(sending, id, answer.at),
       )
       const comment = emitComment(id)
@@ -4297,7 +4408,8 @@ export async function openStore({
         .map(toComment),
     answersDelivered(ids, runId) {
       if (ids.length === 0) return
-      commit(events.commentAnswersDelivered({ ids, runId, at: new Date().toISOString() }))
+      commit(events.commentAnswersSent({ ids, runId, at: new Date().toISOString() }))
+      for (const id of ids) updatedTask(emitComment(id).taskId)
     },
     ...history,
     taskIntervalHistory(taskId, asOf = new Date().toISOString()) {
@@ -5241,6 +5353,11 @@ export async function openStore({
           }),
         )
         emit({ type: 'settings-changed', settings: settings() })
+        if (changes.enabledAgents) {
+          updatedQueue()
+          for (const held of store.query(queryDb(heldRuns))) updatedTask(held.taskId)
+        }
+        if ('overnightMode' in changed) for (const row of store.query(allTasks)) updatedTask(row.id)
       }
       return settings()
     },

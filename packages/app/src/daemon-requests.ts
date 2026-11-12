@@ -5,6 +5,13 @@ type MethodName = {
 }[keyof DaemonClient]
 
 export const forwardedRequests = [
+  'cancelExecutionEnrollment',
+  'executionMachines',
+  'configureExecution',
+  'createExecutionEnrollment',
+  'approveExecution',
+  'rejectExecution',
+  'revokeExecution',
   'coordinator',
   'coordinatorChat',
   'coordinatorStatuses',
@@ -58,6 +65,7 @@ export const forwardedRequests = [
   'search',
   'taskGates',
   'setTaskGates',
+  'setTaskAutopilot',
   'setClarifyDepth',
   'listStageEntries',
   'listFailures',
@@ -146,6 +154,8 @@ export const forwardedRequests = [
   'checkTryOutput',
   'setRepoLocalFolder',
   'clearRepoLocalFolder',
+  'agentAvailability',
+  'changeAgentAvailability',
   'getSettings',
   'updateSettings',
   'getDataStatus',

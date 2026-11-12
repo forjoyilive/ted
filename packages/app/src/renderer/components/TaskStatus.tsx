@@ -11,6 +11,8 @@ const gitHubLabels: Record<GitHubWait, string> = {
   review: 'Waiting for GitHub review',
   merge: 'Waiting for merge',
   'sign-in': 'Waiting for GitHub sign-in',
+  rerun: 'Waiting for a CI rerun on GitHub',
+  'required-check': 'Waiting: GitHub requires a failed check',
 }
 
 const gitHubGlyphs: Record<GitHubWait, StatusGlyph> = {
@@ -18,6 +20,8 @@ const gitHubGlyphs: Record<GitHubWait, StatusGlyph> = {
   review: 'review',
   merge: 'merge',
   'sign-in': 'ci',
+  rerun: 'ci',
+  'required-check': 'ci',
 }
 
 export function ordinal(n: number): string {

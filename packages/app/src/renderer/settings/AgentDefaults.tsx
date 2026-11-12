@@ -6,6 +6,7 @@ import type {
   LibraryView,
 } from '@ted/protocol'
 import { useState } from 'react'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
@@ -35,7 +36,8 @@ export function AgentDefaults() {
   } = useEventValue<LibraryView | undefined>({
     initial: undefined,
     load: ted.library,
-    event: (event) => (event.type === 'library-changed' ? 'reload' : undefined),
+    event: (event) =>
+      event.type === 'library-changed' || event.type === 'settings-changed' ? 'reload' : undefined,
   })
   const error = saveError ?? loadError
 
@@ -70,7 +72,7 @@ export function AgentDefaults() {
           key={`${row.role}:${view.version}`}
           row={row}
           busy={busy}
-          onChange={(choice) => void save(row.role, choice)}
+          onChange={(choice) => save(row.role, choice)}
         />
       ))}
       {view?.invalid && (
@@ -95,19 +97,6 @@ function AgentDefault({
   const shown = row.own ?? row.default
   const [model, setModel] = useState(shown.model ?? '')
   const name = roleNames[row.role]
-  const agents: [string, string][] =
-    row.role === 'reviewer'
-      ? [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-          ['same', 'Same as Task Lead'],
-        ]
-      : [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-        ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...shown, ...fields }
     for (const key of ['model', 'effort'] as const) if (!next[key]) delete next[key]
@@ -131,11 +120,7 @@ function AgentDefault({
         value={shown.agent ?? 'claude'}
         onChange={(event) => update({ agent: event.target.value })}
       >
-        {agents.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
+        <AgentOptions current={shown.agent} same={row.role === 'reviewer'} />
       </Select>
       <input
         aria-label={`${name} model`}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol/settings'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
 import { GeneralPage } from '../src/renderer/settings/GeneralPage.tsx'
@@ -271,7 +271,9 @@ test('Record a CPU profile asks for one profile at a time and shows where it was
   render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
   expect(api.request).toHaveBeenCalledWith('recordProfile', 30)
-  expect(screen.getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+  const recording = screen.getByRole('button', { name: 'Record 30 seconds' })
+  expect(recording.hasAttribute('disabled')).toBe(true)
+  expect(recording.getAttribute('aria-busy')).toBe('true')
   await act(async () =>
     result.resolve({ file: '~/.ted/logs/profiles/daemon-1.cpuprofile', seconds: 30, bytes: 10 }),
   )
@@ -396,4 +398,26 @@ test('App settings navigation selects real pages and Factory settings leaves the
   await screen.findByRole('heading', { name: /widgets.*Settings/, level: 1 })
   expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
   expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeTruthy()
+})
+
+test('an asynchronous settings switch acknowledges activation and blocks repeat saves', async () => {
+  const completion = deferred<unknown>()
+  const update = vi.fn(() => completion.promise)
+  bridge({
+    updateSettings: update,
+    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    simulators: () => ({ supported: false }),
+  })
+  render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const toggle = screen.getByRole('switch', { name: 'Start fewer Runs when this computer is busy' })
+  await user().click(toggle)
+  expect(toggle.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(toggle)
+  expect(update).toHaveBeenCalledTimes(1)
+  await user().click(screen.getByRole('button', { name: 'More working Runs' }))
+  expect(update).toHaveBeenCalledWith({
+    adjustRunsToLoad: !defaultMachineSettings.adjustRunsToLoad,
+  })
+  await act(async () => completion.resolve({}))
+  expect(toggle.getAttribute('aria-busy')).toBeNull()
 })

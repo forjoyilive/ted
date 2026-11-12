@@ -1,5 +1,5 @@
 import { effectiveTimeZone, requestSnoozePresets } from '@ted/protocol/time'
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { useSettings } from '../data.ts'
 import {
   openSnoozeMenu,
@@ -23,6 +23,7 @@ export function RequestSnoozeHost() {
   const actions = useActionMenu()
   const [custom, setCustom] = useState<SnoozeRequestDetail>()
   const open = actions.open
+  const opened = useRef(0)
   useEffect(() => {
     const listener = (event: Event) => {
       if (!(event instanceof CustomEvent)) return
@@ -41,6 +42,7 @@ export function RequestSnoozeHost() {
             ? [{ label: 'Unsnooze', action: () => ted.snoozeRequest(detail.requestId, null) }]
             : []),
         ],
+        `snooze:${detail.requestId}:${++opened.current}`,
       )
     }
     window.addEventListener(snoozeRequestEvent, listener)

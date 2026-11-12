@@ -169,13 +169,15 @@ describe('adding a blocker', () => {
     expect((await getTask(client, task.id)).stage).toBe('backlog')
   })
 
-  test('a Queued Task goes back to Backlog and starts when its blocker reaches Done', async () => {
+  test('a Queued Task goes back to Backlog and starts when its blocker reaches Done, once: moved back to Backlog by hand it stays there', async () => {
     const client = await startTed()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const gate = path.join(scratch, 'gate')
+    const hold = path.join(scratch, 'hold')
     const blocker = await create(client, doneWhen(gate), { start: true })
     const queued = await create(client, steps({ endTurn: true }), { start: true })
     expect(queued.status).toEqual({ kind: 'queued', place: 1 })
+    const ahead = await create(client, doneWhen(hold), { start: true })
 
     const res = await block(client, queued, blocker)
     expect(res.body).toMatchObject({ stage: 'backlog', markers: [{ kind: 'blocked-by' }] })
@@ -183,6 +185,16 @@ describe('adding a blocker', () => {
 
     await writeFile(gate, '')
     await waitFor(client, blocker, (t) => t.stage === 'done', 'to reach Done')
+    await waitFor(client, ahead, (t) => t.leadRunId !== undefined, 'to take the free slot')
+    await waitFor(client, queued, (t) => t.status?.kind === 'queued', 'to queue again')
+
+    await client.ok('POST', `/tasks/${queued.id}/backlog`)
+    await writeFile(hold, '')
+    await waitFor(client, ahead, (t) => t.stage === 'done', 'to reach Done')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await getTask(client, queued.id)).stage).toBe('backlog')
+
+    await client.ok('POST', `/tasks/${queued.id}/start`)
     const started = await waitFor(client, queued, (t) => t.leadRunId !== undefined, 'to start')
     expect(started.markers).toEqual([])
   })
