@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { systemClock } from '../src/clock.ts'
+import { RequestError } from '../src/errors.ts'
 import { type Gh, GhError } from '../src/github/gh.ts'
 import { type NewStageEntry, openStore, type TedStore } from '../src/store/index.ts'
 import type { PullRequestRead, RemotePullRequest } from '../src/tasks/merge.ts'
@@ -232,13 +233,27 @@ test('missing reads or pull requests wait without merging', async () => {
   expect(gh.run).not.toHaveBeenCalled()
 })
 
-test('read authentication errors set the sign-in wait and release the in-flight cycle', async () => {
+test('read authentication errors set the sign-in wait and release the in-flight cycle; a good read clears it while obligations hold the merge, and the hold is logged once', async () => {
   const failed = read()
   failed.failed.set('github.com', new GhError('auth', 'sign in'))
   await expect(watcher.cycle(id, failed)).rejects.toThrow('sign in')
   expect(pr()?.waiting).toBe('sign-in')
   expect(watcher.inFlightCount()).toBe(0)
   await watcher.settled(id)
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.mocked(port.requireObligations).mockRejectedValue(
+    new RequestError(409, 'Unresolved failure cases hold this Task: abc'),
+  )
+  await expect(watcher.cycle(id, read())).rejects.toThrow('Unresolved')
+  expect(pr()?.waiting).toBeUndefined()
+  await expect(watcher.cycle(id, read())).rejects.toThrow('Unresolved')
+  expect(log.mock.calls).toEqual([
+    [expect.stringContaining('merge is waiting: Unresolved failure cases hold this Task: abc')],
+  ])
+  expect(gh.run).not.toHaveBeenCalled()
+  vi.mocked(port.requireObligations).mockResolvedValue(undefined)
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(pr()?.state).toBe('merged')
 })
 
 test('auto-merge uses an allowed method once and observes an external merge', async () => {
@@ -553,12 +568,14 @@ test('an already posted Gate remains active overnight and forced unseen Gates st
   expect(mergeMode(store, current(), resolution.workflow)).toBe('gate')
 })
 
-test('mutation authentication failure waits for sign-in without claiming a merge', async () => {
+test('mutation authentication failure waits for sign-in without claiming a merge, and the next cycle merges', async () => {
   vi.mocked(gh.run).mockRejectedValueOnce(new GhError('auth', 'sign in'))
   await expect(watcher.cycle(id, read())).rejects.toThrow('sign in')
   expect(pr()?.waiting).toBe('sign-in')
   expect(port.read).not.toHaveBeenCalled()
   expect(pr()?.state).toBe('ready')
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(pr()?.state).toBe('merged')
 })
 
 test.each(['pure', 'extra commit', 'file mode', 'local commit'] as const)(
