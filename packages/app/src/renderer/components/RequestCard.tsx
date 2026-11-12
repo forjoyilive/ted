@@ -554,7 +554,7 @@ export function RequestAnswer({
                 ? 'Explain what changed…'
                 : request.permission
                   ? 'Comment, or say why you’re denying…'
-                  : request.design
+                  : request.design || request.gate
                     ? 'Comment, or say what to change…'
                     : questionChoices
                       ? other

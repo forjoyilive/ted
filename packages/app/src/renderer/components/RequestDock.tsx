@@ -1,5 +1,5 @@
 import type { Comment, Task } from '@ted/protocol'
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
 import { headline, requestLabel } from '../requests.ts'
 import { dockable, RequestAnswer } from './RequestCard.tsx'
 import styles from './RequestDock.module.css'
@@ -8,7 +8,9 @@ export function RequestDock({
   task,
   open,
   current,
+  commenting,
   onCurrent,
+  onCommenting,
   onJump,
   onOpenRun,
   onOpenPlan,
@@ -17,13 +19,14 @@ export function RequestDock({
   task: Task
   open: readonly Comment[]
   current: string | undefined
+  commenting: string | undefined
   onCurrent: (id: string) => void
+  onCommenting: (id: string | undefined) => void
   onJump: (id: string) => void
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenPlan?: ((planId: string) => void) | undefined
   children: ReactNode
 }) {
-  const [commenting, setCommenting] = useState<string>()
   const requests = [...open].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const shown = requests.find((request) => request.id === current) ?? requests[0]
   const at = shown ? requests.indexOf(shown) : 0
@@ -60,7 +63,11 @@ export function RequestDock({
 
   return (
     <>
-      <div className={styles.stack} hidden={answering}>
+      <div
+        className={styles.stack}
+        hidden={answering}
+        data-others={requests.length > 1 ? '' : undefined}
+      >
         {shown && !answering && (
           <div className={styles.pointer} role="note" aria-label="Open request">
             <span className={styles.pointerText}>
@@ -77,11 +84,7 @@ export function RequestDock({
             </span>
             {switcher}
             {dockable(shown) ? (
-              <button
-                type="button"
-                className={styles.link}
-                onClick={() => setCommenting(undefined)}
-              >
+              <button type="button" className={styles.link} onClick={() => onCommenting(undefined)}>
                 Back to the answer
               </button>
             ) : (
@@ -122,7 +125,7 @@ export function RequestDock({
                   <button
                     type="button"
                     className={`${styles.link} ${styles.comment}`}
-                    onClick={() => setCommenting(request.id)}
+                    onClick={() => onCommenting(request.id)}
                   >
                     Comment without answering
                   </button>

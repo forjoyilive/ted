@@ -400,6 +400,10 @@
 }
 
 .threadComposer:has(> [data-request]) {
+  flex-shrink: 1;
+  min-height: 0;
+  max-height: 60%;
+  overflow-y: auto;
   border-top-color: var(--status-waiting-fg);
 }
 
