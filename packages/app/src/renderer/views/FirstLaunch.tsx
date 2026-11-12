@@ -138,9 +138,7 @@ function CommandLine({
   return (
     <div className={styles.command}>
       <code className={styles.code}>{command}</code>
-      <Button size="small" onClick={onCopy}>
-        Copy
-      </Button>
+      <Button onClick={onCopy}>Copy</Button>
       {children}
     </div>
   )

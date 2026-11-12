@@ -17,14 +17,16 @@
 
 .jump {
   max-width: 100%;
-  min-height: var(--button-height-small);
+  height: var(--button-height-small);
   padding: 0 8px;
   border: 1px solid var(--status-warning-border);
   border-radius: var(--radius-control);
   background: var(--status-waiting-bg);
   color: var(--status-warning-text);
   font: inherit;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 

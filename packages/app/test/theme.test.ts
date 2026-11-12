@@ -96,10 +96,10 @@ describe('button heights', () => {
   })
 
   test('hand-made buttons take their height from the same tokens', async () => {
-    const buttons: [file: string, name: string, height: string][] = [
+    const buttons: [file: string, name: string, height: string, grows?: 'grows'][] = [
       ['components/TaskConversationTabs.module.css', 'historyButton', regular],
       ['components/BannerStack.module.css', 'action', regular],
-      ['views/TaskLeadField.module.css', 'button', regular],
+      ['views/TaskLeadField.module.css', 'button', regular, 'grows'],
       ['views/FactorySettings.module.css', 'dangerButton', regular],
       ['settings/settings.module.css', 'button', regular],
       ['views/DataScreen.module.css', 'primary', regular],
@@ -108,14 +108,13 @@ describe('button heights', () => {
       ['views/Board.module.css', 'start', small],
       ['components/RequestJumpBar.module.css', 'jump', small],
       ['components/LineComments.module.css', 'chip', small],
-      ['views/Inbox.module.css', 'chip', small],
+      ['views/Inbox.module.css', 'chip', small, 'grows'],
       ['components/Markdown.module.css', 'copy', small],
     ]
 
-    for (const [file, name, height] of buttons) {
-      expect(await rule(file, name), `${file} .${name}`).toMatch(
-        new RegExp(`\\n  (?:min-)?height: ${height.replace(/[()]/g, '\\$&')};`),
-      )
+    for (const [file, name, height, grows] of buttons) {
+      const property = grows ? 'min-height' : 'height'
+      expect(await rule(file, name), `${file} .${name}`).toContain(`\n  ${property}: ${height};`)
     }
   })
 })
