@@ -240,7 +240,10 @@ describe('the queue', () => {
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const never = path.join(scratch, 'never')
     const briefFile = path.join(scratch, 'brief.md')
-    await writeFile(briefFile, '## Goal\nContinue the Task after sign-off.\n')
+    await writeFile(
+      briefFile,
+      '## Goal\n\nContinue the Task after sign-off.\n\n## Decisions so far\n\nNone.\n\n## Current state\n\nReady for sign-off.\n\n## Open questions\n\nNone.\n\n## Next step\n\nContinue.\n',
+    )
     const afterAnswer = [{ hook: 'PreToolUse' }, { waitFor: never }]
     const low = await startTask(
       client,
@@ -263,6 +266,14 @@ describe('the queue', () => {
       'high',
     )
     await waitForRunState(client, high, 'idle')
+    const { question, signoff } = await waitUntil(async () => {
+      const items = await client.ok<InboxItem[]>('GET', '/inbox')
+      const question = items.find(
+        (item) => item.task.id === low.id && item.request.choices?.includes('Continue'),
+      )?.request
+      const signoff = items.find((item) => item.task.id === high.id && item.request.gate)?.request
+      return question && signoff ? { question, signoff } : undefined
+    }, 'the question and sign-off requests')
     await client.ok('PUT', `/tasks/${low.id}/lead`, { agent: 'claude', model: 'unavailable' })
     const lowWithLead = await waitForLead(client, low)
     if (!lowWithLead.leadRunId) throw new Error('missing low Task Lead')
@@ -275,14 +286,6 @@ describe('the queue', () => {
     const blocker = await startTask(client, workingUntil(never))
     await waitForRunState(client, blocker, 'working')
     const fresh = await startTask(client, 'Fresh urgent Task', 'urgent')
-    const { question, signoff } = await waitUntil(async () => {
-      const items = await client.ok<InboxItem[]>('GET', '/inbox')
-      const question = items.find(
-        (item) => item.task.id === low.id && item.request.choices?.includes('Continue'),
-      )?.request
-      const signoff = items.find((item) => item.task.id === high.id && item.request.gate)?.request
-      return question && signoff ? { question, signoff } : undefined
-    }, 'the question and sign-off requests')
     await client.ok('POST', `/comments/${question.id}/answer`, {
       action: 'answer',
       choice: 'Continue',
