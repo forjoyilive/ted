@@ -265,6 +265,36 @@ describe('unsent message text', () => {
     expect(setup.storage.getItem(offline)).toBeNull()
   })
 
+  test('the next pass saves an open box whose save failed', async () => {
+    const setup = options()
+    const save = vi
+      .fn(async (_box: MessageBox, draft: MessageDraft): Promise<MessageDraftState> => ({ draft }))
+      .mockRejectedValueOnce(new Error('offline'))
+    const sessions = messageDraftSessions({
+      storage: setup.storage,
+      read: setup.read,
+      save,
+      failed: setup.failed,
+      delayMs: 60_000,
+    })
+    const seen = vi.fn()
+    const leave = sessions.join(box, seen)
+    await vi.waitFor(() => expect(seen).toHaveBeenCalled())
+    const session = sessions.find(box)
+    session?.update((c) => ({ ...c, text: 'Typed while offline' }))
+    await session?.flush()
+    expect(setup.failed).toHaveBeenCalledOnce()
+    expect(setup.storage.getItem(key)).toContain('Typed while offline')
+
+    await sessions.recover()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save.mock.calls.at(-1)?.[1].text).toBe('Typed while offline')
+    expect(setup.storage.getItem(key)).toBeNull()
+    expect(sessions.find(box)).toBe(session)
+    leave()
+    await vi.waitFor(() => expect(sessions.find(box)).toBeUndefined())
+  })
+
   test('a box opened while the start-up pass saves its text shares that queue', async () => {
     const setup = options()
     setup.storage.setItem(key, JSON.stringify({ text: 'Left by a quit', attachments: [] }))

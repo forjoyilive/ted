@@ -170,6 +170,11 @@ export function messageDraftSession(
       await load()
       await flush()
     },
+    async retry() {
+      await load()
+      if (saving) await saving
+      if (dirty) await persist()
+    },
     get: () => current,
     update(next: (content: DraftContent) => DraftContent) {
       change(next(current))
@@ -247,7 +252,12 @@ export function messageDraftSessions(options: {
       const waiting: Promise<void>[] = []
       for (let i = 0; i < options.storage.length; i++) {
         const key = options.storage.key(i)
-        if (!key?.startsWith(storagePrefix) || shared.has(key)) continue
+        if (!key?.startsWith(storagePrefix)) continue
+        const existing = shared.get(key)
+        if (existing) {
+          waiting.push(existing.session.retry())
+          continue
+        }
         const [kind = '', ...rest] = key.slice(storagePrefix.length).split('.')
         const box = { kind: kind as MessageBox['kind'], id: rest.join('.') }
         waiting.push(release(box, open(box)))
