@@ -97,6 +97,7 @@ describe('Planning chats', () => {
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
     const window = await loadedWindow(app)
     await openFirstFactory(window)
+    await sidebar(window).getByRole('button', { name: 'Board', exact: true }).click()
     await window.getByRole('button', { name: 'Plan', exact: true }).first().click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
@@ -139,6 +140,20 @@ describe('Planning chats', () => {
     expect(await roundCard.getByRole('button', { name: 'Accept all recommended' }).count()).toBe(0)
     expect(await roundCard.getByRole('radio', { name: /The owner only/ }).isChecked()).toBe(true)
     await roundCard.getByRole('button', { name: 'Submit answers' }).click()
+    await row.waitFor({ state: 'detached' })
+    await window
+      .getByRole('region', { name: 'Inbox' })
+      .getByRole('status')
+      .getByText('Answered Plan notebook sharing’s Clarify round')
+      .waitFor()
+    await window.getByRole('region', { name: 'Nothing open' }).waitFor()
+    await sidebar(window)
+      .getByRole('button', { name: /^Plans/ })
+      .click()
+    await window
+      .getByRole('region', { name: 'Open planning chats' })
+      .getByRole('button', { name: 'Plan notebook sharing', exact: true })
+      .click()
     await chat.getByText(/answered by you at/).waitFor()
     await writeFile(go, '')
 

@@ -406,7 +406,7 @@ describe('Automations in the app', () => {
     await row.getByRole('button', { name: 'NB-1' }).waitFor()
 
     await view.getByRole('button', { name: 'Automation actions' }).click()
-    await view.getByRole('menuitem', { name: /Delete/ }).click()
+    await window.getByRole('menuitem', { name: /Delete/ }).click()
     const confirm = window.getByRole('dialog', { name: 'Delete “Sentry crash intake”?' })
     await confirm.getByText('Tasks it created stay.', { exact: false }).waitFor()
     await confirm.getByRole('button', { name: 'Delete' }).click()
@@ -465,7 +465,7 @@ describe('Automations in the app', () => {
     expect(await rows.nth(0).getByRole('button', { name: 'Retry' }).count()).toBe(1)
 
     await view.getByRole('button', { name: 'Automation actions' }).click()
-    await view.getByRole('menuitem', { name: /Duplicate/ }).click()
+    await window.getByRole('menuitem', { name: /Duplicate/ }).click()
     await view.getByRole('heading', { name: 'Daily triage copy' }).waitFor()
     const copy = (await ted.listAutomations()).find(
       (a: Automation) => a.name === 'Daily triage copy',
