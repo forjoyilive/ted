@@ -160,3 +160,44 @@ ownership and diagnostic-helper cases retain their earlier passing results.
 The remaining intermittent cleanup timeout is still unresolved. Retained phase
 measurements must guide any further repair. Neither the output fix nor a clean
 loaded invocation supplies a cause for the original failure.
+
+## Verified retained records and remaining scope
+
+At `ea8a06a1`, both native cases passed with `--retry=0` under six ready CPU
+workers. The runner verified actual retained cleanup records for both distinct
+cases, confirming the stderr output repair. Cleanup phases in milliseconds:
+
+| Case | closeApp | stopDaemonIn | killRunHosts | removeHome | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Receipts, reopen, new-Run history | 985 | 162 | 1 | 161 | 1309 |
+| Not sent after reopening | 913 | 223 | 1 | 202 | 1339 |
+
+Vitest reported 21.66 seconds overall. Renderer preparation happened once under
+the normal one-file test lock before added load. Both native cases executed,
+no retry was used, the workload stopped normally, and the lock was released.
+The detailed report and console are attached to the Task as Validate round 4.
+Code/security review found no new defect in reporting but kept the original
+cleanup obligation open. No product behavior or deadline changed.
+
+These successful measurements resolve the evidence-output defect. They do not
+explain or repair the earlier ten-second cleanup stall. Another identical
+focused pass is not a distinct next experiment. The remaining choice must be
+explicit: collect evidence under the original mixed-suite concurrency with a
+human-run full Check, or narrow this Task to the verified ownership repair and
+retained diagnostics while recording the cleanup cause as unreproduced.
+Neither narrowing nor failure acceptance has been authorized yet.
+
+For the original-scope route, the existing human-only collector can run one
+loaded Check from a normal terminal in this clean Task worktree:
+
+```sh
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded ted207-cleanup-mixed-1
+```
+
+The collector refuses agent execution, records the commit and machine/workload,
+keeps the full-suite lock and worker caps, captures output under
+`.suite-measurements/ted207-cleanup-mixed-1/`, and stops its owned CPU workload.
+On this 12-CPU machine it adds six busy workers. This is a new observation on
+the checked branch, not a reproduction on the frozen historical commit. Any
+Coordinator failure or retry remains evidence of a defect, not a passing repair.
+Agents must not launch this command. No full Check has been run for this route.
