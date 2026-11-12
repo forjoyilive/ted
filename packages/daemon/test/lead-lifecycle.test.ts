@@ -114,6 +114,8 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
       limited: () => {},
     },
     local: async () => {},
+    beforeLeadStart: async () => undefined,
+    afterLeadStart: () => {},
     workflow: async () => resolution,
     entries: () => [
       { name: 'widgets', repo: 'acme/widgets', cloneUrl: '', primary: true, env: {}, copy: [] },
@@ -206,6 +208,56 @@ test('the selected revival keeps the Run and applies pending messages and flags'
   })
   expect(revive.mock.calls[0]?.[1].prompt).toContain('Use the approved approach')
   expect(lifecycle.reviveCandidates()).toEqual([])
+  lifecycle.close()
+})
+
+test('incorporation refreshes launch settings and the brief before delivery and fresh Checks', async () => {
+  const order: string[] = []
+  const refreshed = {
+    workflow: resolveWorkflow([]),
+    layers: [],
+  }
+  refreshed.workflow.settings.permissions = 'bypass'
+  const { lifecycle, runs } = harness({
+    local: async () => {
+      order.push('local')
+    },
+    beforeLeadStart: async () => {
+      order.push('incorporate')
+      store.writeBrief({ taskId, text: 'Repair incorporated; fresh Checks required.' })
+      return refreshed
+    },
+    defaultLead: (settings) => {
+      expect(settings).toBe(refreshed.workflow.settings)
+      return { agent: 'codex', model: 'refreshed-default' }
+    },
+    context: async (_task, current, resolution) => {
+      order.push('context')
+      expect(resolution).toBe(refreshed)
+      return {
+        prompt: store.latestBrief(current.id)?.text ?? '',
+        cwd: home,
+        waiting: { comments: [], answers: [] },
+        overnight: false,
+      }
+    },
+    launched: () => {
+      order.push('launched')
+    },
+    deliver: async () => {
+      order.push('delivered')
+    },
+    afterLeadStart: () => {
+      order.push('checks')
+    },
+  })
+  const start = vi.spyOn(runs, 'start')
+  await lifecycle.prepare(taskId, { kind: 'existing' })
+  expect(start.mock.calls[0]?.[0]).toMatchObject({
+    permissions: 'bypass',
+    prompt: 'Repair incorporated; fresh Checks required.',
+  })
+  expect(order).toEqual(['local', 'incorporate', 'context', 'launched', 'delivered', 'checks'])
   lifecycle.close()
 })
 

@@ -275,7 +275,9 @@ export function createFailureCases(options: {
           ? 'retried'
           : value.verifications?.length
             ? 'fixed'
-            : resolution?.resolution === 'retry' || resolution?.resolution === 'fix'
+            : resolution?.resolution === 'retry' ||
+                resolution?.resolution === 'fix' ||
+                resolution?.resolution === 'repair'
               ? 'unresolved'
               : (resolution?.resolution ?? 'unresolved')
       const context = tested(task, resolution?.contextId ?? value.contextId)
@@ -613,6 +615,7 @@ export function createFailureCases(options: {
               ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
               : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
           `Failure ${value.id}`,
+          'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
         ].join('\n\n'),
         !why,
       )
@@ -627,6 +630,8 @@ export function createFailureCases(options: {
       )
     },
     async resolve(task: Task, id: string, request: ResolveFailureRequest, sendDrafts = true) {
+      if (request.resolution === 'repair')
+        throw new RequestError(400, 'choose a repair through Tasks')
       await obligations(task)
       pendingDecision(task, id, request.requestId)
       const reason = failureText(request.reason?.trim() ?? '')

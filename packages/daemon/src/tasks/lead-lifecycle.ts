@@ -41,6 +41,8 @@ export interface LeadLifecycleOptions {
   health: Pick<AgentHealthMonitor, 'ready' | 'check' | 'limited'>
   agents: Pick<Agents, 'get'>
   local(taskId: string): Promise<unknown>
+  beforeLeadStart(taskId: string): Promise<WorkflowResolution | undefined>
+  afterLeadStart(taskId: string): void
   workflow(task: StoredTask): Promise<WorkflowResolution>
   entries(task: StoredTask, resolution: WorkflowResolution): FactoryRepoEntry[]
   defaultLead(settings: WorkflowSettings): TaskLead
@@ -101,6 +103,8 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     health,
     agents,
     local,
+    beforeLeadStart,
+    afterLeadStart,
     workflow,
     entries,
     defaultLead,
@@ -268,11 +272,13 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     { resumeSession, pickUp }: LaunchIntent = {},
   ): Promise<void> {
     const previous = find(task.id)
+    if (previous.archived || previous.stopped || previous.waitsForBlockers) return
+    await local(task.id)
+    resolution = (await beforeLeadStart(task.id)) ?? resolution
     const old = previous.leadRunId && store.getRun(previous.leadRunId)
     if (old) acknowledgeLeadMessages(old)
     const current = find(task.id)
-    if (current.archived || current.stopped) return
-    await local(task.id)
+    if (current.archived || current.stopped || current.waitsForBlockers) return
     const lead = effectiveLead(current, defaultLead(resolution.workflow.settings)) as TaskLead
     const agent = lead.agent
     if (!(await health.ready(agent))) {
@@ -324,6 +330,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     )
     store.releaseTaskRun(task.id)
     await deliver(task.id)
+    afterLeadStart(task.id)
   }
 
   async function prepare(taskId: string, intent: PreparationIntent): Promise<void> {
@@ -499,11 +506,13 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const { task, run, reason } = pending
     try {
       await local(taskId)
+      const resolution = await beforeLeadStart(taskId)
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       acknowledgeLeadMessages(run)
       const current = find(taskId)
-      const lead = effectiveLead(current)
+      if (current.archived || current.stopped || current.waitsForBlockers) return
+      const lead = effectiveLead(current, resolution && defaultLead(resolution.workflow.settings))
       const messages = current.pendingLeadMessages
       await runs.revive(run.id, {
         prompt: [
@@ -527,6 +536,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
         await store.persisted()
       }
       await deliver(task.id)
+      afterLeadStart(task.id)
     } catch (error) {
       console.error(`couldn’t resume ${task.displayId}’s Task Lead session:`, error)
       const now = store.getTask(task.id)

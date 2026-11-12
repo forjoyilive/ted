@@ -3,6 +3,7 @@ import type { FailureCase, FailureContext, ValidationProgress } from '@ted/proto
 import { events, failureCases, failureContexts, type schema, validationProgress } from './schema.ts'
 
 export type FailureChange =
+  | 'repair'
   | 'verified'
   | 'recorded'
   | 'assessed'
@@ -19,6 +20,8 @@ export function failureEvent(value: FailureCase, kind: FailureChange) {
     at: new Date().toISOString(),
   }
   switch (kind) {
+    case 'repair':
+      return events.failureRepairIncorporated(input)
     case 'verified':
       return events.failureVerified(input)
     case 'recorded':
@@ -65,6 +68,7 @@ export function createFailureStore({
     if (kind === 'recorded') {
       if (
         previous ||
+        value.repairProgress?.length ||
         value.verifications?.length ||
         value.assessments.length ||
         value.additions.length ||
@@ -91,6 +95,7 @@ export function createFailureStore({
           throw new Error('original failure evidence is immutable')
       }
       const changed = {
+        repair: 'repairProgress',
         verified: 'verifications',
         assessed: 'assessments',
         evidence: 'additions',

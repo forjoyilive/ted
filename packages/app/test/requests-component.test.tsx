@@ -1289,6 +1289,82 @@ test('previous Review retains its recorded Check plan and acceptance after later
   expect(api.request).toHaveBeenCalledWith('checkOutput', 'old-tail', 0)
 })
 
+test('repair creation stays a draft until approval and queues by default', async () => {
+  const { handle, answer } = requestApi()
+  const resolve = vi.fn(() => ({}))
+  handle('resolveFailure', resolve)
+  handle('listTasks', () => [task()])
+  handle('listFailures', () => [
+    {
+      id: 'repair-failure',
+      taskId: 'NB-1',
+      recordedBy: 'run-1',
+      provenance: 'task-lead-reported',
+      source: { kind: 'finding', runId: 'run-1', finding: 'Export labels missing' },
+      evidence: 'Reproduced on main',
+      createdAt,
+      additions: [],
+      invalidations: [],
+      resolutions: [],
+      assessments: [
+        {
+          id: 'a1',
+          runId: 'run-1',
+          at: createdAt,
+          assessment: 'unrelated',
+          recommendation: 'Repair export labels',
+        },
+      ],
+      decisions: [{ commentId: 'c1', assessmentId: 'a1' }],
+    },
+  ])
+  render(
+    <RequestCard
+      request={comment({
+        kind: 'question',
+        choices: ['Retry', 'Wait for a repair Task', 'Accept this failure'],
+      })}
+      task={task()}
+    />,
+  )
+  const u = user()
+  await u.type(
+    screen.getByRole('textbox', { name: 'Your answer' }),
+    'Keep the filter change focused.',
+  )
+  await u.click(screen.getByRole('button', { name: 'Wait for a repair Task' }))
+  await u.click(await screen.findByRole('radio', { name: 'Create a repair Task' }))
+  expect(resolve).not.toHaveBeenCalled()
+  expect(answer).not.toHaveBeenCalled()
+  expect(
+    (
+      screen.getByRole('checkbox', {
+        name: 'Queue the repair to start after approval',
+      }) as HTMLInputElement
+    ).checked,
+  ).toBe(true)
+  await u.clear(screen.getByRole('textbox', { name: 'Repair title' }))
+  await u.type(screen.getByRole('textbox', { name: 'Repair title' }), 'Fix export labels')
+  await u.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(resolve).not.toHaveBeenCalled()
+  await u.click(screen.getByRole('button', { name: 'Wait for a repair Task' }))
+  await u.click(await screen.findByRole('radio', { name: 'Create a repair Task' }))
+  await u.click(screen.getByRole('button', { name: 'Approve, create and queue repair' }))
+  await waitFor(() =>
+    expect(resolve).toHaveBeenCalledWith('NB-1', 'repair-failure', {
+      requestId: 'c1',
+      resolution: 'repair',
+      reason: 'Keep the filter change focused.',
+      repair: expect.objectContaining({
+        kind: 'new',
+        start: true,
+        description: expect.stringContaining('Reproduced on main'),
+      }),
+    }),
+  )
+  expect(answer).not.toHaveBeenCalled()
+})
+
 test('Inbox right-click opens the clicked request and copies its full message without answering', async () => {
   requestApi()
   const props = inboxProps()

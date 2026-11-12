@@ -8,6 +8,7 @@ import {
   type Comment,
   type Factory,
   type FailureCase,
+  type FailureContext,
   type InboxItem,
   type Task,
   type ThreadEvent,
@@ -270,6 +271,117 @@ const waitForStage = (client: Client, task: Task, stage: string) =>
     `${task.displayId} to reach ${stage}`,
     20_000,
   )
+
+test('a repair incorporates every repo before validation and retains all worktrees on a dirty repo', async () => {
+  const client = await start()
+  const source = await client.ok<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: JSON.stringify({ steps: [{ endTurn: true }] }),
+    start: true,
+  })
+  await waitUntil(
+    async () => (await getTask(client, source.id)).runs[0]?.state === 'idle',
+    'source Lead',
+  )
+  await client.ok('PUT', `/tasks/${source.id}/repos`, { set: ['widgets', 'api', 'web'] })
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const leadRunId = (await getTask(client, source.id)).leadRunId
+  if (!daemon || !leadRunId) throw new Error('missing source Lead')
+  const lead = api(daemon.port, tokens.issue(leadRunId))
+  for (const stage of ['work', 'validate']) {
+    expect(
+      (await lead.call('POST', `/tasks/${source.id}/outcome`, { outcome: 'advance' })).status,
+    ).toBe(200)
+    await waitForStage(client, source, stage)
+  }
+  const root = `/tasks/${source.id}`
+  const context = (await lead.call('POST', `${root}/failure-contexts`, {})).body as FailureContext
+  const failure = (
+    await lead.call('POST', `${root}/failures`, {
+      source: {
+        kind: 'finding',
+        runId: (await getTask(client, source.id)).leadRunId,
+        finding: 'Shared repair needed',
+      },
+      evidence: 'All repos need the repair.',
+      contextId: context.id,
+    })
+  ).body as FailureCase
+  expect(
+    (
+      await lead.call('POST', `${root}/failures/${failure.id}/assessments`, {
+        assessment: 'unrelated',
+        recommendation: 'Wait for the shared repair',
+      })
+    ).status,
+  ).toBe(200)
+  const asked = (await lead.call('POST', `${root}/failures/${failure.id}/decision`, {}))
+    .body as FailureCase
+  const { task: repair, signoff } = await toSignoff(client)
+  const requestId = asked.decisions.at(-1)?.commentId
+  if (!requestId) throw new Error('missing failure decision')
+  expect(
+    (
+      await client.call('POST', `${root}/failures/${failure.id}/resolve`, {
+        requestId,
+        resolution: 'repair',
+        repair: { kind: 'existing', taskId: repair.id },
+      })
+    ).status,
+  ).toBe(200)
+  const original = await getTask(client, source.id)
+  const heads = await Promise.all(
+    original.repos.map(async (repo) =>
+      (await run('git', ['rev-parse', 'HEAD'], { cwd: repo.worktree })).stdout.trim(),
+    ),
+  )
+  const second = original.repos[1]
+  if (!second) throw new Error('missing second repo')
+  const dirty = path.join(second.worktree, 'draft.txt')
+  await writeFile(dirty, 'Keep this draft\n')
+  const state = JSON.parse(await readFile(ghState, 'utf8'))
+  for (const [repo, number] of Object.entries(numbers))
+    state.merge.prs[number] = {
+      ...state.merge.prs[number],
+      origin: path.join(scratch, `${repo}.git`),
+      updateBase: true,
+    }
+  await writeFile(ghState, JSON.stringify(state))
+  await approve(client, signoff)
+  await waitForStage(client, repair, 'done')
+  await waitUntil(
+    async () => (await getTask(client, source.id)).status?.kind === 'stopped',
+    'dirty incorporation held',
+  )
+  expect((await client.ok<{ text: string }>('GET', `${root}/brief`)).text).toContain(
+    'local changes',
+  )
+  expect(
+    await Promise.all(
+      original.repos.map(async (repo) =>
+        (await run('git', ['rev-parse', 'HEAD'], { cwd: repo.worktree })).stdout.trim(),
+      ),
+    ),
+  ).toEqual(heads)
+  expect(await readFile(dirty, 'utf8')).toBe('Keep this draft\n')
+  await rm(dirty)
+  await client.ok('POST', `${root}/resume`, {})
+  const incorporated = await waitUntil(async () => {
+    const values = await client.ok<FailureCase[]>('GET', `${root}/failures`)
+    return values[0]?.repairProgress?.at(-1)
+  }, 'all repair repos incorporated')
+  expect(incorporated.repos.map((r) => r.repo).sort()).toEqual([
+    'acme/api',
+    'acme/web',
+    'acme/widgets',
+  ])
+  for (const repo of original.repos)
+    expect(await readFile(path.join(repo.worktree, 'work.txt'), 'utf8')).not.toBe('')
+  expect((await getTask(client, source.id)).stage).toBe('validate')
+  expect(
+    (await client.ok<FailureCase[]>('GET', `${root}/failures`))[0]?.verifications,
+  ).toBeUndefined()
+}, 60_000)
 
 describe('Merging a multi-repo Task', () => {
   test('TED merges nothing until every pull request is green, then merges in repos order', async () => {

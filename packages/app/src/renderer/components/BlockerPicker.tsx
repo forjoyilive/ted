@@ -11,7 +11,9 @@ export function BlockerPicker({
   onRemove,
   menuAlign = 'start',
   searchRequest = 0,
+  addLabel,
 }: {
+  addLabel?: string | undefined
   menuAlign?: 'start' | 'end'
   searchRequest?: number
   tasks: readonly Task[]
@@ -112,6 +114,7 @@ export function BlockerPicker({
                 key={task.id}
                 type="button"
                 role="option"
+                data-nav-item
                 aria-selected={false}
                 className={styles.option}
                 onClick={() => choose(task)}
@@ -125,7 +128,7 @@ export function BlockerPicker({
       ) : (
         <Button size="small" onClick={() => setSearching(true)}>
           <PlusIcon />
-          {blockers.length === 0 ? 'Add blocker' : 'Add'}
+          {addLabel ?? (blockers.length === 0 ? 'Add blocker' : 'Add')}
         </Button>
       )}
     </div>

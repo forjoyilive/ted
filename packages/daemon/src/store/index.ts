@@ -310,7 +310,7 @@ export interface SeenStageFile {
   tedVersion: string
 }
 
-export type StopReason = 'human' | 'blockers-removed' | 'prepared'
+export type StopReason = 'human' | 'blockers-removed' | 'repair-incorporation' | 'prepared'
 
 export interface BlockerLink {
   blockerId: string
@@ -323,8 +323,17 @@ export interface BlockerLink {
 
 export type AfterBlocking = 'backlog' | 'wait'
 
+export interface RepairApproval {
+  drafts?: readonly string[]
+  startStage?: StageId
+  failure: FailureCase
+  request: import('@ted/protocol').ResolveFailureRequest
+  brief: string
+}
+
 export interface NewTask {
   draftRevision?: string
+  repairApproval?: RepairApproval
   title: string
   factoryId?: string
   description?: string
@@ -925,6 +934,10 @@ export interface TedStore extends TaskHistory {
     answer: CommentAnswer,
     drafts: readonly string[],
   ): FailureCase
+  approveRepair(
+    approval: RepairApproval,
+    repair: Pick<Task, 'id' | 'displayId' | 'title'>,
+  ): FailureCase
   plans: PlanStore
   close(): Promise<void>
 }
@@ -1438,11 +1451,11 @@ export async function openStore({
           at: stoppedAt,
           runs: stoppedRuns ?? 0,
           why:
+            stoppedWhy === 'blockers-removed' ||
+            stoppedWhy === 'repair-incorporation' ||
             stoppedWhy === 'prepared'
-              ? 'prepared'
-              : stoppedWhy === 'blockers-removed'
-                ? 'blockers-removed'
-                : 'human',
+              ? stoppedWhy
+              : 'human',
         },
       }),
       stage,
@@ -2586,6 +2599,68 @@ export async function openStore({
   for (const row of store.query(allTasks)) toTask(row, true)
   await persisted()
 
+  function repairApproved(
+    approval: RepairApproval,
+    repair: Pick<Task, 'id' | 'displayId' | 'title'>,
+  ) {
+    const { failure, request, brief } = approval
+    const assessment = failure.assessments.at(-1)
+    if (!assessment) throw new Error('a repair approval needs an assessment')
+    const at = new Date().toISOString()
+    const next: FailureCase = {
+      ...failure,
+      resolutions: [
+        ...failure.resolutions,
+        {
+          ...request,
+          resolution: 'repair',
+          assessmentId: assessment.id,
+          at,
+          ...(assessment.contextId && { contextId: assessment.contextId }),
+          repairTask: { id: repair.id, displayId: repair.displayId, title: repair.title },
+        },
+      ],
+    }
+    const row = taskRow(failure.taskId)
+    if (!row) throw new Error('no affected Task')
+    return {
+      next,
+      events: [
+        failureStore.event(next, 'resolved'),
+        events.commentAnswered({
+          id: request.requestId,
+          answer: JSON.stringify({
+            kind: 'answered',
+            choice: 'Wait for a repair Task',
+            text: [`Waiting for ${repair.displayId}: ${repair.title}`, request.reason]
+              .filter(Boolean)
+              .join('\n\n'),
+            at,
+          }),
+          at,
+        }),
+        events.commentAnswerHeld({ id: request.requestId, at }),
+        ...lineCommentsSent(approval.drafts, request.requestId, at),
+        events.taskBlockerAddedV2({
+          taskId: failure.taskId,
+          blockerId: repair.id,
+          runId: null,
+          at,
+        }),
+        events.taskWaitingForBlockers({ taskId: failure.taskId, at }),
+        events.taskBriefWritten({
+          id: randomUUID(),
+          taskId: failure.taskId,
+          version: (briefRows(failure.taskId).at(-1)?.version ?? 0) + 1,
+          text: brief.replace('REPAIR_TASK_REFERENCE', `${repair.displayId} (“${repair.title}”)`),
+          stage: row.stage,
+          runId: null,
+          at,
+        }),
+      ],
+    }
+  }
+
   return {
     execution,
     sideChats: createSideChatStore({
@@ -2638,6 +2713,14 @@ export async function openStore({
       emit({ type: 'comment-posted', comment: requireComment(id) })
       updatedTask(value.taskId)
     },
+    approveRepair(approval, repair) {
+      const { next, events: repairEvents } = repairApproved(approval, repair)
+      commit(...repairEvents)
+      emitComment(approval.request.requestId)
+      updatedTask(approval.failure.taskId)
+      updatedQueue(approval.failure.taskId)
+      return next
+    },
     postFailureDecision(value, body, canAccept = true) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
@@ -2651,7 +2734,10 @@ export async function openStore({
             title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
           }),
           choices: Object.values(value.validation ? validateFailureChoices : failureChoices).filter(
-            (choice) => canAccept || choice !== failureChoices.accepted,
+            (choice) =>
+              (canAccept || choice !== failureChoices.accepted) &&
+              (choice !== 'Wait for a repair Task' ||
+                ['validate', 'merge'].includes(taskRow(value.taskId)?.stage ?? '')),
           ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
@@ -2709,6 +2795,7 @@ export async function openStore({
     getFactory: (id) => listFactories().find((f) => f.id === id),
     async createTask({
       draftRevision,
+      repairApproval,
       title,
       linearConsent = false,
       factoryId = placeholderFactory.id,
@@ -2739,6 +2826,13 @@ export async function openStore({
       const number = setup && !used.includes(1) ? 1 : Math.max(awaitingSetup ? 1 : 0, ...used) + 1
       const id = randomUUID()
       const at = new Date().toISOString()
+      const repair = repairApproval
+        ? repairApproved(repairApproval, {
+            id,
+            displayId: `${listFactories().find((f) => f.id === factoryId)?.key ?? 'TASK'}-${number}`,
+            title,
+          })
+        : undefined
       commit(
         ...(draftRevision && factoryId !== placeholderFactory.id
           ? [
@@ -2769,6 +2863,17 @@ export async function openStore({
         }),
         ...(lead?.effortMode === 'stage'
           ? [events.taskLeadEffortModeSet({ taskId: id, mode: 'stage', at })]
+          : []),
+        ...(repair?.events ?? []),
+        ...(repairApproval?.startStage
+          ? [
+              events.taskQueued({
+                taskId: id,
+                stage: repairApproval.startStage,
+                rank: nextRank(),
+                at,
+              }),
+            ]
           : []),
         events.taskRanked({ taskId: id, rank: nextRank(), at }),
         ...blockedBy.map((blockerId) =>
@@ -2824,6 +2929,11 @@ export async function openStore({
       if (!row) throw new Error(`no Task ${id}`)
       const task = toPublicTask(toTask(row, true))
       emit({ type: 'task-created', task })
+      if (repairApproval) {
+        emitComment(repairApproval.request.requestId)
+        updatedTask(repairApproval.failure.taskId)
+        updatedQueue(repairApproval.failure.taskId)
+      }
       if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
       if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       return task
