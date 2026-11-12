@@ -33,6 +33,7 @@ import {
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
 import { OvernightNotice } from '../overnight.tsx'
+import type { SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import styles from './FactorySettingsSections.module.css'
@@ -119,7 +120,7 @@ export function ValidateRounds({
   if (from !== false && !rounds.includes(from)) rounds.push(from)
   return (
     <div className={styles.validateRounds}>
-      <span className={styles.roundSetting}>
+      <span className={styles.roundSetting} data-setting="factory.workflow.p1-only">
         Send back only for P1 Findings
         <select
           aria-label="Validate sends back only for P1 Findings"
@@ -147,7 +148,7 @@ export function ValidateRounds({
           Validate found can merge if you approve without reading the notes.
         </Help>
       </span>
-      <span className={styles.roundSetting}>
+      <span className={styles.roundSetting} data-setting="factory.workflow.validate-sub-agents">
         Other sub-agents in Validate
         <Toggle
           label="Other sub-agents in Validate"
@@ -174,7 +175,7 @@ export function WorkFailures({
 }) {
   return (
     <div className={styles.validateRounds}>
-      <span className={styles.roundSetting}>
+      <span className={styles.roundSetting} data-setting="factory.workflow.lead-closes-failures">
         Task Lead closes its own fixed failures
         <Toggle
           label="Task Lead closes its own fixed failures"
@@ -228,17 +229,19 @@ export function InvalidNotice({
 
 function SectionHeading({
   id,
+  setting,
   title: heading,
   help,
   where = 'repo',
 }: {
   id: string
+  setting: SettingId
   title: string
   help: ReactNode
   where?: 'repo' | 'machine'
 }) {
   return (
-    <div className={base.sectionHeading}>
+    <div className={base.sectionHeading} data-setting={setting}>
       <h2 id={id} className={base.sectionTitle}>
         {heading}
       </h2>
@@ -287,6 +290,7 @@ function WorkflowSectionView({
     <section className={base.section} aria-labelledby="workflow">
       <SectionHeading
         id="workflow"
+        setting="factory.workflow"
         title="Workflow"
         help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort."
       />
@@ -679,6 +683,7 @@ function ChecksSectionView({
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="checks">
       <SectionHeading
         id="checks"
+        setting="factory.checks"
         title="Checks"
         help="Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
       />
@@ -882,6 +887,7 @@ function AgentsSectionView({
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="agents">
       <SectionHeading
         id="agents"
+        setting="factory.agents"
         title="Agents"
         help="Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
       />
@@ -1057,6 +1063,7 @@ function PermissionsSectionView({
       <section className={`${base.section} ${base.compactSection}`} aria-labelledby="permissions">
         <SectionHeading
           id="permissions"
+          setting="factory.permissions"
           title="Permission mode"
           where="machine"
           help="Permission mode is saved only on this computer, separately for each Factory."
@@ -1162,6 +1169,7 @@ function PermissionsSectionView({
       >
         <SectionHeading
           id={`${id}-limits`}
+          setting="factory.permissions.working-run-limit"
           title="Working Run limit"
           help="This Factory’s limit follows its Workflow."
         />
@@ -1205,6 +1213,7 @@ function NotesSectionView({
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="notes">
       <SectionHeading
         id="notes"
+        setting="factory.notes"
         title="Factory notes"
         help="Facts about the product, given to every Run in this Factory: how to run it, conventions, risky areas. Stage instructions belong in Stage files."
       />

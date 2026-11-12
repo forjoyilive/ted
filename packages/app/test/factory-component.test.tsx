@@ -16,6 +16,7 @@ function props() {
     onOpenGitHubSettings: vi.fn(),
     onRemoveFactory: vi.fn(),
     onOpenTask: vi.fn(),
+    dispatch: vi.fn(),
   }
 }
 
@@ -720,4 +721,36 @@ test('the page loads once on open, shows a remote change when it has no edits an
   expect(reads).toBe(4)
   expect(api.request).toHaveBeenLastCalledWith('factorySettings', 'f1', { refresh: 'never' })
   expect(screen.queryByText(/unsaved change/)).toBeNull()
+})
+
+test('Factory settings search finds both kinds of setting and marks one on this screen', async () => {
+  const p = props()
+  bridge({
+    getSettings: () => defaultMachineSettings,
+    getLinear: () => ({ state: 'no-key' }),
+    factorySettings: settingsView,
+    homeFolder: () => '/test',
+    tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+  })
+  render(<FactorySettings {...p} />)
+  await screen.findByRole('heading', { name: 'Workflow' })
+  const nav = within(screen.getByRole('navigation', { name: 'Jump to a section' }))
+  const field = nav.getByRole<HTMLInputElement>('combobox', { name: 'Search settings' })
+
+  fireEvent.change(field, { target: { value: 'awake' } })
+  expect(nav.queryByRole('button', { name: 'Workflow' })).toBeNull()
+  await user().click(nav.getByRole('option'))
+  expect(p.dispatch).toHaveBeenCalledWith({ type: 'open-settings', section: 'general' })
+  expect(nav.getByRole('button', { name: 'Workflow' })).toBeTruthy()
+
+  fireEvent.change(field, { target: { value: 'teardown' } })
+  const option = nav.getAllByRole('option')[0] as HTMLElement
+  expect(option.textContent).toBe('Teardown commandwidgets › Settings › Repos')
+  await user().click(option)
+  expect(p.dispatch).toHaveBeenLastCalledWith({
+    type: 'open',
+    screen: { kind: 'factory', factoryId: 'f1', view: 'settings' },
+  })
+  const row = document.querySelector('[data-setting="factory.repos.worktree.teardown"]')
+  await waitFor(() => expect(row?.hasAttribute('data-found')).toBe(true))
 })

@@ -85,10 +85,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
   return (
     <SettingsPage title="Integrations">
       {problem !== undefined && <LoadingError error={problem} retry={checkAgain} />}
-      <SettingsGroup
-        label="GitHub"
-        help="TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use."
-      >
+      <SettingsGroup setting="app.integrations.github">
         {!health ? (
           problem ? null : (
             <LoadingRow />
@@ -113,7 +110,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
           ))
         )}
       </SettingsGroup>
-      <SettingsGroup label="Git">
+      <SettingsGroup setting="app.integrations.git">
         {!health ? (
           problem ? null : (
             <LoadingRow />

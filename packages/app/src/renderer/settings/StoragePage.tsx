@@ -94,7 +94,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
       {!storage && !error && <Skeleton shape="settings" label="Loading storage…" />}
       {storage && (
         <>
-          <SettingsGroup label="Space used">
+          <SettingsGroup setting="app.storage.space">
             {shown.map((category) => (
               <div key={category.id} className={styles.usageRow}>
                 <span className={styles.usageLabel}>{category.label}</span>
@@ -110,10 +110,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
           </SettingsGroup>
 
           {storage.largestWorktrees.length > 0 && (
-            <SettingsGroup
-              label="Largest worktrees"
-              help="The ten Task worktrees using the most space. A worktree is deleted when its Task is archived or done."
-            >
+            <SettingsGroup setting="app.storage.worktrees">
               {storage.largestWorktrees.map((worktree) => (
                 <div key={worktree.taskId} className={styles.worktreeRow}>
                   <span className={styles.taskId}>{worktree.displayId}</span>
@@ -140,9 +137,9 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
             </SettingsGroup>
           )}
 
-          <SettingsGroup label="Clean up">
+          <SettingsGroup setting="app.storage.clean-up">
             <SettingRow
-              title="Remove clones of removed Factories"
+              setting="app.storage.clean-up.clones"
               detail={
                 storage.removableClones.count === 0
                   ? 'None to remove'
@@ -157,7 +154,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
               </Button>
             </SettingRow>
             <SettingRow
-              title="Erase simulators not used by a running Task"
+              setting="app.storage.clean-up.simulators"
               detail={
                 storage.simulators.count === 0
                   ? 'No simulators'
@@ -170,12 +167,8 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
             </SettingRow>
           </SettingsGroup>
 
-          <SettingsGroup label="Run output">
-            <SettingRow
-              title="Keep Run output after a Task is done"
-              labelFor="run-output-days"
-              help="A Run’s chat is kept for as long as its Task is open. TED deletes it this long after the Task is done or archived. A Run without a Task, such as a planning chat or an Automation Run, is deleted this long after it finishes."
-            >
+          <SettingsGroup setting="app.storage.run-output">
+            <SettingRow setting="app.storage.run-output.days" labelFor="run-output-days">
               <Select
                 id="run-output-days"
                 value={settings.runOutputDays}
@@ -189,7 +182,9 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
           <ExportGroup />
 
           <section className={styles.backups} aria-label="Backups">
-            <h2 className={styles.backupsLabel}>Backups</h2>
+            <h2 className={styles.backupsLabel} data-setting="app.storage.backups">
+              Backups
+            </h2>
             <p className={styles.backupsNote}>
               7 daily copies and the last 3 from before updates, in {storage.backupsDir}. To restore
               one, run <code className={styles.code}>ted backup restore &lt;name&gt;</code> in a

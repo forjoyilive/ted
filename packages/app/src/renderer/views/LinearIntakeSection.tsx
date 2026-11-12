@@ -83,7 +83,11 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
       className={`${styles.section} ${styles.compactSection}`}
       aria-labelledby={`${id}-heading`}
     >
-      <div className={styles.sectionHeading} id="linear-intake">
+      <div
+        className={styles.sectionHeading}
+        id="linear-intake"
+        data-setting="factory.linear-intake"
+      >
         <h2 id={`${id}-heading`} className={styles.sectionTitle}>
           Linear intake
         </h2>
@@ -94,7 +98,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
       <span className={styles.caption}>
         Choose which Linear issues Automations can bring into this Factory.
       </span>
-      <div className={styles.field}>
+      <div className={styles.field} data-setting="factory.linear-intake.scope">
         <label className={styles.label} htmlFor={`${id}-kind`}>
           Scope
         </label>

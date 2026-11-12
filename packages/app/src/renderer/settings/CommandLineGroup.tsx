@@ -56,10 +56,10 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
   )
 
   return (
-    <SettingsGroup label="Editor and command line">
+    <SettingsGroup setting="app.general.editor">
       {children}
       <SettingRow
-        title="The ted command"
+        setting="app.general.editor.ted-command"
         help={commandHelp}
         {...(detail !== undefined && { detail })}
       >
@@ -143,11 +143,10 @@ export function AboutGroup() {
   }
 
   return (
-    <SettingsGroup label="About and updates">
+    <SettingsGroup setting="app.general.about">
       <UpdateRow />
       <SettingRow
-        title="Third-party licenses"
-        help="The open-source code TED is built from, and the license for each part."
+        setting="app.general.about.licenses"
         {...(problem !== undefined && { detail: problem })}
       >
         <Button onClick={view} disabled={loading}>

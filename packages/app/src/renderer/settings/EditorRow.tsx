@@ -43,9 +43,8 @@ export function EditorRow({ settings }: { settings: MachineSettings }) {
   return (
     <>
       <SettingRow
-        title="Editor"
+        setting="app.general.editor.editor"
         labelFor="editor"
-        help="Open in editor opens the Task’s worktree, or a file at a line from a diff, in this editor. TED lists the editors it finds on your login shell’s PATH."
         {...(detail !== undefined && { detail })}
       >
         <Select

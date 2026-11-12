@@ -302,6 +302,7 @@ test('the Factory Workflow section shows the overnight notice only while overnig
         onOpenGitHubSettings={vi.fn()}
         onRemoveFactory={vi.fn()}
         onOpenTask={vi.fn()}
+        dispatch={vi.fn()}
       />
     ),
     () => screen.findByRole('heading', { name: 'Workflow' }),

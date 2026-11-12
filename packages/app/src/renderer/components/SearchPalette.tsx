@@ -14,11 +14,14 @@ import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState 
 import { type Command, type CommandContext, paletteCommands } from '../commands.ts'
 import { stageName } from '../list-view.ts'
 import { ago } from '../requests.ts'
+import { openSetting } from '../setting-focus.ts'
+import { findSettings, platformOf, searchFactory } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { factoryName } from '../views/TaskViews.tsx'
 import { ConversationSearchView } from './ConversationSearchView.tsx'
 import { SearchIcon } from './icons.tsx'
 import styles from './SearchPalette.module.css'
+import { MatchedName } from './SettingsSearch.tsx'
 
 interface Item {
   key: string
@@ -46,6 +49,7 @@ const fieldNotes: Record<SearchField, string | undefined> = {
 }
 
 const debounceMs = 80
+const settingsLimit = 8
 
 function commandMatches(command: Command, terms: readonly string[]): boolean {
   return matchesTerms(terms, `${command.label} ${command.keywords ?? ''}`)
@@ -254,6 +258,28 @@ export function SearchPalette({
         },
       })
     }
+    for (const hit of findSettings(query, {
+      factory: searchFactory(context.factories, factoryId),
+      platform: platformOf(navigator.userAgent),
+      limit: settingsLimit,
+    })) {
+      items.push({
+        key: `setting:${hit.id}`,
+        group: 'Settings',
+        label: `${hit.name}, ${hit.where}`,
+        content: (
+          <>
+            <span className={styles.main}>
+              <span className={styles.title}>
+                <MatchedName name={hit.name} query={query} />
+              </span>
+            </span>
+            <span className={styles.meta}>{hit.where}</span>
+          </>
+        ),
+        run: () => openSetting(hit, context.dispatch),
+      })
+    }
     const found = terms.length > 0 && results?.query === query ? results : undefined
     for (const hit of found?.tasks ?? []) {
       items.push({
@@ -434,7 +460,9 @@ export function SearchPalette({
               aria-autocomplete="list"
               aria-activedescendant={items.length > 0 ? optionId(active) : undefined}
               aria-label={choosing ? choosing.label : 'Search or run a command'}
-              placeholder={choosing ? 'Choose…' : 'Search Tasks, Conversations and commands'}
+              placeholder={
+                choosing ? 'Choose…' : 'Search Tasks, Conversations, settings and commands'
+              }
               value={query}
               spellCheck={false}
               onChange={(event) => {

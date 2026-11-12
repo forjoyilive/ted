@@ -102,6 +102,7 @@ import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { searchFactory as settingsSearchFactory } from './settings-search.ts'
 import {
   type SetupNotice,
   type SetupNoticeRequest,
@@ -187,6 +188,7 @@ function isTyping(target: EventTarget | null): boolean {
 
 const allowedInSettings = new Set([
   'search',
+  'filter',
   'settings',
   'close',
   'back',
@@ -444,6 +446,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return true
     },
   }
+
+  const searchFactory = settingsSearchFactory(factories, currentFactoryId(navigation, tasks))
 
   const commandContext: CommandContext = {
     task: settingsOpen ? undefined : task,
@@ -892,6 +896,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               }
               onRemoveFactory={() => setRemoving(factory)}
               onOpenTask={openTask}
+              dispatch={dispatch}
             />
           )
         }
@@ -1130,6 +1135,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               section={navigation.settings.section}
               settings={settings}
               factories={factories}
+              searchFactory={searchFactory}
               inboxCount={inboxCount}
               stopsWork={{
                 ...sectionsStoppingWork(banners),

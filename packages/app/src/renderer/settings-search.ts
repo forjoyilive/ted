@@ -1,0 +1,395 @@
+import { foldText, matchesTerms, searchTerms } from '@ted/protocol/search'
+import type { SettingsSectionId } from './navigation.ts'
+
+export const settingsPageNames: Record<SettingsSectionId, string> = {
+  general: 'General',
+  notifications: 'Notifications',
+  agents: 'Agents',
+  limits: 'Limits',
+  integrations: 'Integrations',
+  library: 'Library',
+  storage: 'Storage',
+  developer: 'Developer',
+}
+
+export const factorySections = [
+  ['general', 'General'],
+  ['linear-intake', 'Linear intake'],
+  ['repos', 'Repos'],
+  ['workflow', 'Workflow'],
+  ['checks', 'Checks'],
+  ['agents', 'Agents'],
+  ['permissions', 'Permissions'],
+  ['notes', 'Factory notes'],
+  ['danger-zone', 'Danger zone'],
+] as const
+
+export type SettingsPlatform = 'mac' | 'linux' | 'other'
+
+interface Entry {
+  name: string
+  help?: string
+  detail?: string
+  heading?: true
+  platform?: SettingsPlatform
+}
+
+const entries = {
+  'app.general.profile': { name: 'Profile', heading: true },
+  'app.general.profile.picture': {
+    name: 'Profile picture',
+    help: 'Shown beside your Comments. TED keeps it on this computer only.',
+  },
+  'app.general.display': { name: 'Display', heading: true },
+  'app.general.display.appearance': { name: 'Appearance' },
+  'app.general.display.text-size': {
+    name: 'Text size',
+    detail: 'Changes text throughout TED. Terminal font size is separate.',
+  },
+  'app.general.display.terminal-font-size': {
+    name: 'Terminal font size',
+    help: 'The size of text in terminals and logs, in points.',
+  },
+  'app.general.date-and-time': { name: 'Date and time', heading: true },
+  'app.general.date-and-time.time-format': {
+    name: 'Time format',
+    detail: 'Used throughout TED.',
+  },
+  'app.general.date-and-time.time-zone': {
+    name: 'Time zone',
+    detail: 'Used for displayed times and all Automation schedules.',
+  },
+  'app.general.overnight': { name: 'Overnight mode', heading: true },
+  'app.general.overnight.mode': {
+    name: 'Overnight mode across all Factories',
+    help: 'Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Sign-offs set in the Workflow or on a Task are off, so Tasks move through their Stages and merge without your sign-off. Setup Tasks and Tasks that change a Factory’s settings still wait for you, and so do questions and permission prompts.',
+    detail:
+      'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.',
+  },
+  'app.general.startup': { name: 'Startup and quitting', heading: true },
+  'app.general.startup.login': {
+    name: 'Start TED in the background when you log in',
+    help: 'TED starts with no window, so notifications and Automations work. It keeps running until you choose Quit TED completely.',
+  },
+  'app.general.startup.quit': {
+    name: 'When you quit with work running',
+    help: 'Work running means Runs going or Automations on. Keeping TED running in the background lets them carry on with no window open.',
+  },
+  'app.general.startup.tray': {
+    name: 'Show tray icon',
+    help: 'Shows TED’s waiting count and problems in the system tray. Some desktops, such as stock GNOME, don’t show tray icons.',
+    platform: 'linux',
+  },
+  'app.general.startup.stay-awake': {
+    name: 'Stay Awake while Runs are working',
+    help: 'Keeps this computer from going to sleep on its own while any Run is working. Automations don’t keep it awake.',
+  },
+  'app.general.editor': { name: 'Editor and command line', heading: true },
+  'app.general.editor.editor': {
+    name: 'Editor',
+    help: 'Open in editor opens the Task’s worktree, or a file at a line from a diff, in this editor. TED lists the editors it finds on your login shell’s PATH.',
+  },
+  'app.general.editor.ted-command': { name: 'The ted command' },
+  'app.general.about': { name: 'About and updates', heading: true },
+  'app.general.about.licenses': {
+    name: 'Third-party licenses',
+    help: 'The open-source code TED is built from, and the license for each part.',
+  },
+
+  'app.notifications.send': { name: 'Send a notification for', heading: true },
+  'app.notifications.send.inbox': {
+    name: 'Inbox items',
+    help: 'One notification per new Inbox item: Failed Tasks, permission requests, sign-offs and the idle ask. Clicking it opens the Task.',
+  },
+  'app.notifications.send.problems': {
+    name: 'Problems that stop work',
+    help: 'One notification when such a problem starts, never when it clears. Warnings never notify. Clicking it opens the Settings section.',
+  },
+  'app.notifications.send.merged': {
+    name: 'Task merged',
+    help: 'One notification when a Task reaches Done. Clicking it opens the Task.',
+  },
+  'app.notifications.sound': { name: 'Sound', heading: true },
+  'app.notifications.sound.play': {
+    name: 'Play a sound',
+    help: 'Play the system sound with each notification.',
+  },
+
+  'app.agents.defaults': {
+    name: 'Defaults for all Factories',
+    help: 'Saved in your Library’s workflow.yaml. A Factory can override each one in its own settings.',
+    heading: true,
+  },
+  'app.agents.restart-idle-runs': {
+    name: 'Restart idle Runs onto new agent versions',
+    help: 'When an agent updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle.',
+  },
+
+  'app.limits.working-runs': {
+    name: 'Max working Runs on this machine',
+    help: 'A new Run starts only when a slot is free. Runs waiting on you, Paused Runs, Apps and Checks don’t take a slot; a Task setting up its worktree does. A Factory’s own max_working_runs can lower it further.',
+  },
+  'app.limits.busy': {
+    name: 'Start fewer Runs when this computer is busy',
+    help: 'While this computer is busy, TED starts no new Run unless none is working. Runs already working carry on. The limit above is still the most TED runs at once.',
+  },
+  'app.limits.simulators': {
+    name: 'Simulators booted at once',
+    help: 'iOS simulator Apps share these slots. When they’re all taken, TED asks which simulator to shut down; it never shuts one down on its own to make room.',
+    platform: 'mac',
+  },
+  'app.limits.checks': {
+    name: 'Checks running at once',
+    help: 'A Task’s Checks run one after another and count as one. When this many Tasks are running Checks, the next waits its turn; a Check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop Checks that are running.',
+  },
+  'app.limits.low-priority': {
+    name: 'Run agents and Checks at low priority',
+    help: 'For agents, Checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority.',
+    detail:
+      'Applies to work started after you change it. A Run that is already going keeps its priority.',
+  },
+
+  'app.integrations.github': {
+    name: 'GitHub',
+    help: 'TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use.',
+    heading: true,
+  },
+  'app.integrations.git': { name: 'Git', heading: true },
+  'app.integrations.linear': {
+    name: 'Linear',
+    help: 'TED uses the key to fill in a Task from a pasted Linear issue URL and to keep that issue’s status in step with the Task. It never gives the key to an agent.',
+    heading: true,
+  },
+  'app.integrations.linear.sync': {
+    name: 'Sync status with Linear',
+    help: 'When a Task comes from a Linear issue, TED moves the issue to In Progress when the Task starts, to In Review at the Review sign-off and to Done when it merges, and links the pull requests. If someone closes the issue in Linear, TED archives a Task that hasn’t started, or asks you.',
+  },
+  'app.integrations.asana': {
+    name: 'Asana',
+    help: 'Connect one account for this installation. Import and synchronization will follow separately. Agents never receive your credentials.',
+    heading: true,
+  },
+
+  'app.library.workflow': { name: 'Workflow', heading: true },
+  'app.library.stage-files': { name: 'Stage files', heading: true },
+
+  'app.storage.space': { name: 'Space used', heading: true },
+  'app.storage.worktrees': {
+    name: 'Largest worktrees',
+    help: 'The ten Task worktrees using the most space. A worktree is deleted when its Task is archived or done.',
+    heading: true,
+  },
+  'app.storage.clean-up': { name: 'Clean up', heading: true },
+  'app.storage.clean-up.clones': { name: 'Remove clones of removed Factories' },
+  'app.storage.clean-up.simulators': { name: 'Erase simulators not used by a running Task' },
+  'app.storage.run-output': { name: 'Run output', heading: true },
+  'app.storage.run-output.days': {
+    name: 'Keep Run output after a Task is done',
+    help: 'A Run’s chat is kept for as long as its Task is open. TED deletes it this long after the Task is done or archived. A Run without a Task, such as a planning chat or an Automation Run, is deleted this long after it finishes.',
+  },
+  'app.storage.export': { name: 'Export a Factory', heading: true },
+  'app.storage.backups': { name: 'Backups', heading: true },
+
+  'app.developer.mode': {
+    name: 'Developer mode',
+    help: 'Shows a compact CPU and memory readout at the bottom left of the main screen, with detailed Run and daemon process readings and logs here. Readings refresh every two seconds while visible.',
+  },
+  'app.developer.folder': { name: 'TED’s folder' },
+  'app.developer.report': {
+    name: 'Copy report',
+    help: 'Copies TED’s version, your Runs and the end of the daemon’s log to the clipboard, for you to paste into a bug report. Nothing is uploaded. TED sends no telemetry.',
+  },
+  'app.developer.profile': { name: 'Record a CPU profile' },
+
+  'factory.general': { name: 'General', heading: true },
+  'factory.general.name': {
+    name: 'Name',
+    help: 'Shown in the sidebar and the Inbox. Task IDs don’t change.',
+  },
+  'factory.general.auto-start': {
+    name: 'Start Backlog Tasks automatically',
+    detail:
+      'Start the next eligible Task when a working-Run slot is free. Uses Priority and manual order, skips blocked Tasks, and gives Queued work precedence.',
+  },
+  'factory.linear-intake': {
+    name: 'Linear intake',
+    detail: 'Choose which Linear issues Automations can bring into this Factory.',
+    heading: true,
+  },
+  'factory.linear-intake.scope': { name: 'Scope' },
+  'factory.repos': { name: 'Repos', heading: true },
+  'factory.repos.base-branch': { name: 'Base branch' },
+  'factory.repos.merge-method': { name: 'Merge method' },
+  'factory.repos.worktree': { name: 'Worktree', heading: true },
+  'factory.repos.worktree.setup': {
+    name: 'Setup command',
+    help: 'Runs once in each new worktree, after copying files, before any Run uses it.',
+  },
+  'factory.repos.worktree.teardown': {
+    name: 'Teardown command',
+    help: 'Runs before TED removes a worktree. If it fails, TED logs it and removes the worktree anyway.',
+  },
+  'factory.repos.env': {
+    name: 'Environment variables',
+    help: 'Committed to the repo, so no secrets. Put secrets in a file to copy.',
+  },
+  'factory.repos.copy': {
+    name: 'Files to copy from the local folder',
+    help: 'Untracked files such as .env, copied into each new worktree. Paths or globs.',
+  },
+  'factory.repos.apps': { name: 'Apps', heading: true },
+  'factory.workflow': {
+    name: 'Workflow',
+    help: 'The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort.',
+    heading: true,
+  },
+  'factory.workflow.p1-only': { name: 'Send back only for P1 Findings' },
+  'factory.workflow.validate-sub-agents': { name: 'Other sub-agents in Validate' },
+  'factory.workflow.lead-closes-failures': { name: 'Task Lead closes its own fixed failures' },
+  'factory.checks': {
+    name: 'Checks',
+    help: 'Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
+    heading: true,
+  },
+  'factory.agents': {
+    name: 'Agents',
+    help: 'Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here.',
+    heading: true,
+  },
+  'factory.permissions': { name: 'Permission mode', heading: true },
+  'factory.permissions.working-run-limit': {
+    name: 'Working Run limit',
+    help: 'This Factory’s limit follows its Workflow.',
+    heading: true,
+  },
+  'factory.notes': {
+    name: 'Factory notes',
+    help: 'Facts about the product, given to every Run in this Factory: how to run it, conventions, risky areas. Stage instructions belong in Stage files.',
+    heading: true,
+  },
+  'factory.danger-zone': { name: 'Danger zone', heading: true },
+  'factory.danger-zone.remove': { name: 'Remove Factory' },
+} as const satisfies Record<string, Entry>
+
+export type SettingId = keyof typeof entries
+
+export const settingIds = Object.keys(entries) as SettingId[]
+
+export function settingEntry(id: SettingId): Entry {
+  return entries[id]
+}
+
+export function parentSetting(id: string): SettingId | undefined {
+  const parent = id.slice(0, id.lastIndexOf('.'))
+  return parent in entries ? (parent as SettingId) : undefined
+}
+
+export type SettingTarget =
+  | { kind: 'app'; section: SettingsSectionId }
+  | { kind: 'factory'; factoryId: string }
+
+export interface SettingHit {
+  id: SettingId
+  name: string
+  where: string
+  target: SettingTarget
+}
+
+interface Place {
+  kind: 'app' | 'factory'
+  page: string
+  section: string
+  group: string | undefined
+  top: boolean
+}
+
+function placeOf(id: SettingId): Place {
+  const [kind, section = '', ...rest] = id.split('.')
+  const parent = rest.length > 1 ? parentSetting(id) : undefined
+  return {
+    kind: kind === 'app' ? 'app' : 'factory',
+    section,
+    page:
+      kind === 'app'
+        ? settingsPageNames[section as SettingsSectionId]
+        : (factorySections.find(([key]) => key === section)?.[1] ?? ''),
+    group: parent === undefined ? undefined : entries[parent].name,
+    top: rest.length === 0,
+  }
+}
+
+export function searchFactory<T extends { id: string }>(
+  factories: readonly T[],
+  currentId: string | undefined,
+): T | undefined {
+  return factories.find((factory) => factory.id === currentId) ?? factories[0]
+}
+
+export function platformOf(userAgent: string): SettingsPlatform {
+  if (userAgent.includes('Mac')) return 'mac'
+  if (userAgent.includes('Linux')) return 'linux'
+  return 'other'
+}
+
+export function findSettings(
+  query: string,
+  options: {
+    factory?: { id: string; name: string } | undefined
+    platform: SettingsPlatform
+    limit: number
+  },
+): SettingHit[] {
+  const terms = searchTerms(query)
+  if (terms.length === 0) return []
+  const { factory } = options
+  const found: { hit: SettingHit; rank: number }[] = []
+  for (const id of settingIds) {
+    const entry: Entry = entries[id]
+    if (entry.platform !== undefined && entry.platform !== options.platform) continue
+    const place = placeOf(id)
+    if (place.kind === 'factory' && !factory) continue
+    const text = [entry.name, place.group, place.page, entry.help, entry.detail].join(' ')
+    if (!matchesTerms(terms, text)) continue
+    const inName = matchesTerms(terms, entry.name)
+    const where =
+      place.kind === 'app'
+        ? `Settings › ${place.page}`
+        : place.top
+          ? `${factory?.name} › Settings`
+          : `${factory?.name} › Settings › ${place.page}`
+    found.push({
+      rank: (inName ? 0 : 2) + (entry.heading ? 1 : 0),
+      hit: {
+        id,
+        name: entry.name,
+        where,
+        target:
+          place.kind === 'app'
+            ? { kind: 'app', section: place.section as SettingsSectionId }
+            : { kind: 'factory', factoryId: factory?.id ?? '' },
+      },
+    })
+  }
+  return found
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, options.limit)
+    .map(({ hit }) => hit)
+}
+
+export function matchedParts(name: string, query: string): { text: string; matched: boolean }[] {
+  const folded = foldText(name)
+  if (folded.length !== name.length) return [{ text: name, matched: false }]
+  const marks = new Array<boolean>(name.length).fill(false)
+  for (const term of searchTerms(query)) {
+    const at = folded.indexOf(term)
+    if (at >= 0) marks.fill(true, at, at + term.length)
+  }
+  const parts: { text: string; matched: boolean }[] = []
+  for (let i = 0; i < name.length; i++) {
+    const matched = marks[i] === true
+    const last = parts.at(-1)
+    if (last && last.matched === matched) last.text += name[i]
+    else parts.push({ text: name[i] ?? '', matched })
+  }
+  return parts
+}

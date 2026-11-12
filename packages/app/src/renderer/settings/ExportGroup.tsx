@@ -54,7 +54,7 @@ export function ExportGroup() {
 
   return (
     <div className={styles.group}>
-      <SettingsGroup label="Export a Factory">
+      <SettingsGroup setting="app.storage.export">
         {factories === undefined ? (
           <SettingRow title={error ? 'Couldn’t load Factories' : 'Loading Factories…'}>
             {error && <Button onClick={() => setRetry((value) => value + 1)}>Try again</Button>}

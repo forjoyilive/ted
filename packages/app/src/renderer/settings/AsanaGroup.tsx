@@ -54,10 +54,7 @@ export function AsanaGroup() {
       .finally(() => setBusy(false))
   }
   return (
-    <SettingsGroup
-      label="Asana"
-      help="Connect one account for this installation. Import and synchronization will follow separately. Agents never receive your credentials."
-    >
+    <SettingsGroup setting="app.integrations.asana">
       {confirmation && (
         <Dialog onClose={() => setConfirmation(undefined)}>
           {(headingId) => (

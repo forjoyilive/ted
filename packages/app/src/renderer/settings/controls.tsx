@@ -1,6 +1,7 @@
 import { type ReactNode, useId } from 'react'
 import { Help } from '../components/Help.tsx'
 import { Select as Dropdown } from '../components/Select.tsx'
+import { type SettingId, settingEntry } from '../settings-search.ts'
 import styles from './settings.module.css'
 
 export function SettingsPage({
@@ -36,12 +37,14 @@ export function SettingsPage({
 }
 
 export function SettingsGroup({
-  label,
-  help,
+  setting,
+  label = setting && settingEntry(setting).name,
+  help = setting && settingEntry(setting).help,
   action,
   children,
 }: {
-  label?: string
+  setting?: SettingId
+  label?: string | undefined
   help?: ReactNode
   action?: ReactNode
   children: ReactNode
@@ -55,7 +58,7 @@ export function SettingsGroup({
       {label !== undefined && (
         <div className={styles.groupHeader}>
           <div className={styles.titleLine}>
-            <h2 className={styles.groupLabel} id={id}>
+            <h2 className={styles.groupLabel} id={id} data-setting={setting}>
               {label}
             </h2>
             {help !== undefined && <Help>{help}</Help>}
@@ -69,14 +72,14 @@ export function SettingsGroup({
 }
 
 export function SettingRow({
-  title,
-  help,
-  detail,
+  setting,
+  title = setting && settingEntry(setting).name,
+  help = setting && settingEntry(setting).help,
+  detail = setting && settingEntry(setting).detail,
   leading,
   labelFor,
   children,
-}: {
-  title: ReactNode
+}: ({ setting: SettingId; title?: ReactNode } | { setting?: undefined; title: ReactNode }) & {
   help?: ReactNode
   detail?: ReactNode
   leading?: ReactNode
@@ -91,7 +94,7 @@ export function SettingRow({
     <span className={styles.rowTitle}>{title}</span>
   )
   return (
-    <div className={styles.row}>
+    <div className={styles.row} data-setting={setting}>
       {leading}
       <div className={styles.rowText}>
         <div className={styles.titleLine}>

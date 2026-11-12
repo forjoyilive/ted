@@ -31,6 +31,7 @@ import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
+import { SettingsSearch } from '../components/SettingsSearch.tsx'
 import { useEventValue } from '../data.ts'
 import {
   editedFields,
@@ -43,6 +44,9 @@ import {
   unsavedChanges,
   unsavedSummary,
 } from '../factory-settings.ts'
+import type { NavigationAction } from '../navigation.ts'
+import { useShownSetting } from '../setting-focus.ts'
+import { factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
 import styles from './FactorySettings.module.css'
@@ -60,17 +64,6 @@ import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
 
-const sections = [
-  ['linear-intake', 'Linear intake'],
-  ['repos', 'Repos'],
-  ['workflow', 'Workflow'],
-  ['checks', 'Checks'],
-  ['agents', 'Agents'],
-  ['permissions', 'Permissions'],
-  ['notes', 'Factory notes'],
-  ['danger-zone', 'Danger zone'],
-] as const
-
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'
 const appKindLabels = { web: 'web', command: 'command', 'ios-simulator': 'iOS simulator' }
 const mergeLabels: Record<SettingsMergeMethod, string> = {
@@ -86,6 +79,7 @@ interface FactorySettingsProps {
   onOpenGitHubSettings: () => void
   onRemoveFactory: () => void
   onOpenTask: (task: Task) => void
+  dispatch: (action: NavigationAction) => void
 }
 
 export function FactorySettings({
@@ -95,6 +89,7 @@ export function FactorySettings({
   onOpenGitHubSettings,
   onRemoveFactory,
   onOpenTask,
+  dispatch,
 }: FactorySettingsProps) {
   const [loadError, setLoadError] = useState<string>()
   const [draft, setDraft] = useState<SettingsDraft>()
@@ -296,6 +291,7 @@ export function FactorySettings({
     }
   }
 
+  useShownSetting(scroller, 'factory')
   const scrollTo = (id: string) =>
     scroller.current?.querySelector(`#${id}`)?.scrollIntoView({ block: 'start' })
 
@@ -328,19 +324,23 @@ export function FactorySettings({
       {banners}
       <div className={styles.page}>
         <nav className={styles.nav} aria-label="Jump to a section">
-          <button type="button" className={styles.navItem} onClick={() => scrollTo('general')}>
-            General
-          </button>
-          {sections.map(([id, label]) => (
-            <button key={id} type="button" className={styles.navItem} onClick={() => scrollTo(id)}>
-              {label}
-              {id === 'workflow' && drifted > 0 && (
-                <span className={styles.navCount} title="Inherited Stage files that changed">
-                  {drifted}
-                </span>
-              )}
-            </button>
-          ))}
+          <SettingsSearch factory={factory} dispatch={dispatch}>
+            {factorySections.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={styles.navItem}
+                onClick={() => scrollTo(id)}
+              >
+                {label}
+                {id === 'workflow' && drifted > 0 && (
+                  <span className={styles.navCount} title="Inherited Stage files that changed">
+                    {drifted}
+                  </span>
+                )}
+              </button>
+            ))}
+          </SettingsSearch>
         </nav>
         <div className={styles.scroller} ref={scroller}>
           <div className={styles.column}>
@@ -534,17 +534,19 @@ function Chip({ where }: { where: 'machine' | 'repo' }) {
 
 function SectionHeading({
   id,
+  setting,
   title,
   help,
   where,
 }: {
   id: string
+  setting: SettingId
   title: string
   help?: ReactNode
   where: 'machine' | 'repo'
 }) {
   return (
-    <div className={styles.sectionHeading}>
+    <div className={styles.sectionHeading} data-setting={setting}>
       <h2 id={id} className={styles.sectionTitle}>
         {title}
       </h2>
@@ -591,9 +593,9 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
 
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="general">
-      <SectionHeading id="general" title="General" where="machine" />
+      <SectionHeading id="general" setting="factory.general" title="General" where="machine" />
       <div className={styles.fieldRow}>
-        <div className={styles.field}>
+        <div className={styles.field} data-setting="factory.general.name">
           <label className={styles.label} htmlFor={nameId}>
             Name <Help>Shown in the sidebar and the Inbox. Task IDs don’t change.</Help>
           </label>
@@ -623,7 +625,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
           />
         </div>
       </div>
-      <div className={styles.autoStartRow}>
+      <div className={styles.autoStartRow} data-setting="factory.general.auto-start">
         <div className={styles.field}>
           <span className={styles.label}>Start Backlog Tasks automatically</span>
           <span className={styles.caption}>
@@ -653,8 +655,13 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
 const DangerZoneSection = memo(function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="danger-zone">
-      <SectionHeading id="danger-zone" title="Danger zone" where="machine" />
-      <div className={styles.removeRow}>
+      <SectionHeading
+        id="danger-zone"
+        setting="factory.danger-zone"
+        title="Danger zone"
+        where="machine"
+      />
+      <div className={styles.removeRow} data-setting="factory.danger-zone.remove">
         <span className={styles.label}>
           Remove Factory{' '}
           <Help>
@@ -736,6 +743,7 @@ const ReposSection = memo(function ReposSection({
     <section className={`${styles.section} ${styles.wideSection}`} aria-labelledby="repos">
       <SectionHeading
         id="repos"
+        setting="factory.repos"
         title="Repos"
         where="repo"
         help="Saved in .ted/workflow.yaml on the primary repo’s default branch. Changes go through a pull request."
@@ -923,7 +931,7 @@ function RepoCard({
             onChange={(event) => set({ name: event.target.value })}
           />
         </div>
-        <div className={styles.field}>
+        <div className={styles.field} data-setting="factory.repos.base-branch">
           <label className={styles.label} htmlFor={`${id}-base`}>
             Base branch <Edited when={edited.has('baseBranch')} />
           </label>
@@ -935,7 +943,7 @@ function RepoCard({
             onChange={(event) => set({ baseBranch: event.target.value })}
           />
         </div>
-        <div className={styles.field}>
+        <div className={styles.field} data-setting="factory.repos.merge-method">
           <label className={styles.label} htmlFor={`${id}-merge`}>
             Merge method <Edited when={edited.has('mergeMethod')} />
           </label>
@@ -964,9 +972,12 @@ function RepoCard({
         </div>
       </div>
 
-      <h3 className={styles.groupLabel}>Worktree</h3>
+      <h3 className={styles.groupLabel} data-setting="factory.repos.worktree">
+        Worktree
+      </h3>
       <div className={styles.twoColumns}>
         <CommandField
+          setting="factory.repos.worktree.setup"
           label="Setup command"
           help="Runs once in each new worktree, after copying files, before any Run uses it."
           value={repo.setup}
@@ -975,6 +986,7 @@ function RepoCard({
           onChange={(setup) => onChange((r) => withCommand(r, 'setup', setup))}
         />
         <CommandField
+          setting="factory.repos.worktree.teardown"
           label="Teardown command"
           help="Runs before TED removes a worktree. If it fails, TED logs it and removes the worktree anyway."
           value={repo.teardown}
@@ -1018,6 +1030,7 @@ function withCommand(
 }
 
 function CommandField({
+  setting,
   label,
   help,
   value,
@@ -1026,6 +1039,7 @@ function CommandField({
   edited,
   onChange,
 }: {
+  setting: SettingId
   label: string
   help: string
   value: RepoSettingsInput['setup']
@@ -1044,7 +1058,7 @@ function CommandField({
         : { run: next.run, ...(next.timeout ? { timeout: next.timeout } : {}) },
     )
   return (
-    <div className={styles.field}>
+    <div className={styles.field} data-setting={setting}>
       <label className={styles.label} htmlFor={id}>
         {label} <Help>{help}</Help> <Edited when={edited} />
       </label>
@@ -1085,7 +1099,7 @@ function EnvTable({
   const set = (index: number, field: 'name' | 'value', text: string) =>
     onChange(env.map((v, i) => (i === index ? { ...v, [field]: text } : v)))
   return (
-    <div className={styles.block}>
+    <div className={styles.block} data-setting="factory.repos.env">
       <span className={styles.label}>
         Environment variables{' '}
         <Help>Committed to the repo, so no secrets. Put secrets in a file to copy.</Help>{' '}
@@ -1149,7 +1163,7 @@ function CopyList({
     setAdding(undefined)
   }
   return (
-    <div className={styles.block}>
+    <div className={styles.block} data-setting="factory.repos.copy">
       <span className={styles.label}>
         Files to copy from the local folder{' '}
         <Help>Untracked files such as .env, copied into each new worktree. Paths or globs.</Help>{' '}
@@ -1269,7 +1283,7 @@ function Apps({
   const rows = useRowKeys(apps.length)
   return (
     <div className={styles.block}>
-      <h3 className={styles.groupLabel}>
+      <h3 className={styles.groupLabel} data-setting="factory.repos.apps">
         Apps <Edited when={edited} />
       </h3>
       <div className={styles.apps}>

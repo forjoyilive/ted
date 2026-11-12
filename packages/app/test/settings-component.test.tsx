@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol/settings'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
 import { GeneralPage } from '../src/renderer/settings/GeneralPage.tsx'
@@ -396,4 +396,65 @@ test('App settings navigation selects real pages and Factory settings leaves the
   await screen.findByRole('heading', { name: /widgets.*Settings/, level: 1 })
   expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
   expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeTruthy()
+})
+
+const found = (setting: string) =>
+  document.querySelector(`[data-setting="${setting}"]`)?.hasAttribute('data-found') === true
+
+test('Settings search lists a setting with its page, opens that page and marks the row', async () => {
+  const a = appState()
+  a.mount()
+  await a.settings()
+  const nav = within(screen.getByRole('navigation', { name: 'Settings' }))
+  const field = nav.getByRole<HTMLInputElement>('combobox', { name: 'Search settings' })
+
+  fireEvent.change(field, { target: { value: 'checks running' } })
+  const options = nav.getAllByRole('option')
+  expect(options[0]?.textContent).toBe('Checks running at onceSettings › Limits')
+  expect(options[0]?.getAttribute('aria-selected')).toBe('true')
+  expect(nav.queryByRole('button', { name: 'General' })).toBeNull()
+  field.focus()
+  await user().keyboard('{Enter}')
+  await screen.findByRole('heading', { name: 'Limits' })
+  await waitFor(() => expect(found('app.limits.checks')).toBe(true))
+  expect(field.value).toBe('')
+  expect(nav.getByRole('button', { name: 'Limits' }).getAttribute('aria-current')).toBe('page')
+
+  fireEvent.change(field, { target: { value: 'zzz' } })
+  expect(nav.getByText('No settings match ‘zzz’')).toBeTruthy()
+  await user().keyboard('{Escape}')
+  expect(field.value).toBe('')
+  expect(nav.getByRole('button', { name: 'General' })).toBeTruthy()
+
+  fireEvent.change(field, { target: { value: 'teardown' } })
+  expect(nav.getAllByRole('option')[0]?.textContent).toBe(
+    'Teardown commandwidgets › Settings › Repos',
+  )
+})
+
+test('⌘K lists a matching setting with its page and opens it', async () => {
+  const a = appState()
+  a.handle('search', (query) => ({
+    query,
+    tasks: [],
+    comments: [],
+    plans: [],
+    automations: [],
+    factories: [],
+  }))
+  a.mount()
+  await screen.findByRole('button', { name: 'widgets' })
+  fireEvent.keyDown(window, { key: 'k', metaKey: true })
+  const palette = await screen.findByRole('dialog', { name: 'Search and commands' })
+  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: 'overnight' } })
+  const group = within(palette).getByRole('group', { name: 'Settings' })
+  const options = within(group).getAllByRole('option')
+  expect(options.map((option) => option.getAttribute('aria-label'))).toEqual([
+    'Overnight mode across all Factories, Settings › General',
+    'Overnight mode, Settings › General',
+  ])
+  await user().click(options[0] as HTMLElement)
+  expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
+  await screen.findByRole('heading', { name: 'General' })
+  await waitFor(() => expect(found('app.general.overnight.mode')).toBe(true))
 })
