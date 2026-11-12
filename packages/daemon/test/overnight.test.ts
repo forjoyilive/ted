@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Factory, InboxItem, RunSlots, RunWithConversation, Task } from '@ted/protocol'
+import { parseSetTaskAutopilotRequest } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -84,15 +85,21 @@ const messages = async (client: Client, runId: string) => {
   })
 }
 
-describe('overnight mode', () => {
+describe('Autopilot', () => {
   test('a blocking question keeps its Run and Inbox item while another Task starts', async () => {
     const { client } = await start({ nudgeAfterMs: 50 })
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const a = await create(client, {
-      title: steps({ run: ['ted', 'outcome', 'ask', 'Which search fields?'] }, { endTurn: true }),
+      title: steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['ted', 'outcome', 'ask', 'Which search fields?'] },
+        { endTurn: true },
+      ),
     })
     const b = await create(client)
     await client.ok('PATCH', '/settings', { overnightMode: true })
+    await client.ok('POST', `/tasks/${a.id}/start`)
+    await client.ok('POST', `/tasks/${b.id}/start`)
     const first = await lead(client, a)
     await lead(client, b)
     const requests = await client.ok<InboxItem[]>('GET', '/inbox')
@@ -107,15 +114,13 @@ describe('overnight mode', () => {
     expect(requests.find(({ request }) => request.taskId === a.id)?.request.answer).toBeUndefined()
     expect((await get(client, a)).runs).toHaveLength(1)
     expect((await get(client, a)).runs[0]?.state).toBe('idle')
-    expect((await messages(client, first.leadRunId ?? '')).join('\n')).toContain(
-      'Overnight mode is on',
-    )
+    expect((await messages(client, first.leadRunId ?? '')).join('\n')).toContain('Autopilot is on')
     await client.ok('PATCH', '/settings', { overnightMode: false })
     expect((await get(client, a)).runs[0]?.state).toBe('idle')
     expect(await slots(client)).toMatchObject({ working: 1 })
   })
 
-  test('a Gate request posted before the mode turned on stays in the Inbox and frees the slot', async () => {
+  test('Autopilot answers an existing routine Gate request and frees the slot', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': 'version: 1\nstages:\n  intake:\n    gate: true\n',
     })
@@ -143,13 +148,36 @@ describe('overnight mode', () => {
     )
     const b = await create(client)
     await client.ok('PATCH', '/settings', { overnightMode: true })
+    await client.ok('POST', `/tasks/${b.id}/start`)
     await lead(client, b)
-    const waiting = await get(client, a)
-    expect(waiting.stage).toBe('intake')
-    const requests = await client.ok<InboxItem[]>('GET', '/inbox')
+    const waiting = await waitUntil(async () => {
+      const task = await get(client, a)
+      return task.stage !== 'intake' ? task : undefined
+    }, 'Autopilot to approve the existing sign-off')
+    expect(waiting.stage).not.toBe('intake')
+    const comments = await client.ok<import('@ted/protocol').Comment[]>(
+      'GET',
+      `/tasks/${a.id}/comments`,
+    )
+    expect(comments.find((c) => c.gate)?.autopilotAnswered).toBe(true)
+    const answered = comments.find((c) => c.gate)
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    const recovered = clientNow()
+    for (const choice of ['on', 'off', 'on'] as const)
+      await recovered.ok('PUT', `/tasks/${a.id}/autopilot`, { choice })
+    const afterRecovery = await recovered.ok<import('@ted/protocol').Comment[]>(
+      'GET',
+      `/tasks/${a.id}/comments`,
+    )
+    expect(afterRecovery.filter((c) => c.id === answered?.id)).toEqual([answered])
+    expect((await get(recovered, a)).stage).not.toBe('intake')
+
     expect(
-      requests.some(({ request }) => request.taskId === a.id && request.gate && !request.answer),
-    ).toBe(true)
+      (await recovered.ok<InboxItem[]>('GET', '/inbox')).some(
+        ({ request }) => request.taskId === a.id && request.gate,
+      ),
+    ).toBe(false)
   })
 
   test('a toggle reaches a working lead only at its next boundary and never wakes an idle lead', async () => {
@@ -164,12 +192,10 @@ describe('overnight mode', () => {
     const runId = started.leadRunId ?? ''
     await waitUntil(async () => (await messages(client, runId)).length > 0, 'initial prompt')
     await client.ok('PATCH', '/settings', { overnightMode: true })
-    expect((await messages(client, runId)).some((m) => m.includes('Overnight mode is on'))).toBe(
-      false,
-    )
+    expect((await messages(client, runId)).some((m) => m.includes('Autopilot is on'))).toBe(false)
     await writeFile(boundary, '')
     await waitUntil(
-      async () => (await messages(client, runId)).some((m) => m.includes('Overnight mode is on')),
+      async () => (await messages(client, runId)).some((m) => m.includes('Autopilot is on')),
       'overnight steering',
     )
     await client.ok('PATCH', '/settings', { overnightMode: false })
@@ -179,15 +205,43 @@ describe('overnight mode', () => {
     expect((await get(client, a)).runs[0]?.state).toBe('idle')
   })
 
-  test('turning overnight mode off preserves a Factory’s own automatic starting', async () => {
+  test('turning Autopilot off preserves a Factory’s own automatic starting, and Autopilot starts no Backlog Task', async () => {
+    expect(parseSetTaskAutopilotRequest({ choice: 'on' })).toEqual({ choice: 'on' })
+    expect(parseSetTaskAutopilotRequest({ choice: 'off' })).toEqual({ choice: 'off' })
+    expect(parseSetTaskAutopilotRequest({ choice: 'inherit' })).toEqual({ choice: 'inherit' })
+    for (const invalid of [null, {}, { choice: true }, { choice: 'yes' }])
+      expect(() => parseSetTaskAutopilotRequest(invalid)).toThrow()
     const { client, factory } = await start()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1, overnightMode: true })
     const a = await create(client)
-    await lead(client, a)
     await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
+    await lead(client, a)
     await client.ok('PATCH', '/settings', { overnightMode: false })
     const b = await create(client)
     await client.ok('POST', `/tasks/${a.id}/stop`)
     await lead(client, b)
+    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: false })
+    const explicit = await create(client)
+    expect((await get(client, explicit)).autopilot).toEqual({ choice: 'inherit', enabled: false })
+    await client.ok('PUT', `/tasks/${explicit.id}/autopilot`, { choice: 'on' })
+    expect((await get(client, explicit)).stage).toBe('backlog')
+    expect((await get(client, explicit)).autopilot).toEqual({ choice: 'on', enabled: true })
+    const manual = await create(client)
+    await client.ok('PUT', `/tasks/${manual.id}/autopilot`, { choice: 'off' })
+    await client.ok('PATCH', '/settings', { overnightMode: true })
+    expect((await get(client, manual)).autopilot).toEqual({ choice: 'off', enabled: false })
+    expect((await get(client, manual)).stage).toBe('backlog')
+    await client.ok('PUT', `/tasks/${a.id}/autopilot`, { choice: 'on' })
+    expect((await get(client, a)).status?.kind).toBe('stopped')
+    await client.ok('POST', `/tasks/${b.id}/stop`)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await get(client, explicit)).stage).toBe('backlog')
+    expect((await get(client, manual)).stage).toBe('backlog')
+    await client.ok('PATCH', '/settings', { overnightMode: false })
+    expect((await get(client, explicit)).autopilot?.enabled).toBe(true)
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    expect((await get(clientNow(), explicit)).autopilot).toEqual({ choice: 'on', enabled: true })
+    expect((await get(clientNow(), manual)).autopilot).toEqual({ choice: 'off', enabled: false })
   })
 })

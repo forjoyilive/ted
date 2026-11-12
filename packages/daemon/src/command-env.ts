@@ -1,4 +1,4 @@
-import { filterTedEnv } from '@ted/protocol'
+import { filterTedEnv, tedEnv } from '@ted/protocol'
 import { readLoginEnv } from './cli-env.ts'
 
 export interface Environment {
@@ -70,4 +70,33 @@ export function worktreeCommandEnv(
     }),
   )
   return { ...inherited, ...repoEnv, ...set }
+}
+
+export function executionEnvironment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const names = [
+    'PATH',
+    'SHELL',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'TMPDIR',
+    'TMP',
+    'TEMP',
+    'LANG',
+    'LC_ALL',
+    'APPIMAGE',
+    'APPDIR',
+    'TED_EXECUTION_HOME',
+    'TED_LAB_RUN',
+    'TED_LOGIN_SHELL',
+    'TED_TEST_RUN',
+    'TED_TEST_FILE',
+    'TED_EXIT_WITH_PID',
+  ]
+  return Object.fromEntries(
+    Object.entries(base).flatMap(([name, value]) => {
+      const kept = name.startsWith('TED_') ? tedEnv(name, base) : value
+      return names.includes(name) && kept !== undefined ? [[name, kept]] : []
+    }),
+  )
 }

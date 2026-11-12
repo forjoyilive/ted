@@ -1,6 +1,5 @@
 import type {
   DashboardFlow,
-  DashboardRange,
   FlowPeriod,
   FlowSendBack,
   FlowStage,
@@ -38,7 +37,6 @@ export interface FlowFacts {
   checks?: readonly FlowCheck[]
 }
 
-const day = 86_400_000
 const iso = (at: number) => new Date(at).toISOString()
 const time = (at: string | null | undefined) => Date.parse(at ?? '')
 const finite = Number.isFinite
@@ -378,7 +376,8 @@ function period(
 
 export function dashboardFlow(
   input: readonly DashboardTaskFacts[],
-  range: DashboardRange,
+  from: number | null,
+  before: { from: number; to: number } | null,
   asOf: number,
   currentCompleted: readonly string[],
   previousCompleted: readonly string[],
@@ -389,12 +388,10 @@ export function dashboardFlow(
   const visits = new Map(
     facts.filter((task) => completed.has(task.id)).map((task) => [task.id, firstVisit(task, asOf)]),
   )
-  const from = range === 'all' ? null : asOf - (range === '7d' ? 7 : 30) * day
   const current = period(facts, timings, visits, from, asOf, currentCompleted)
-  const previous =
-    range === 'all' || from === null
-      ? null
-      : period(facts, timings, visits, from - (asOf - from), from, previousCompleted)
+  const previous = before
+    ? period(facts, timings, visits, before.from, before.to, previousCompleted)
+    : null
   const selected = new Set([
     ...current.taskIds,
     ...current.incomplete.map((s) => s.taskId),

@@ -9,6 +9,7 @@ import { GeneralPage } from './GeneralPage.tsx'
 import { IntegrationsPage } from './IntegrationsPage.tsx'
 import { LibraryPage } from './LibraryPage.tsx'
 import { LimitsPage } from './LimitsPage.tsx'
+import { MachinesPage } from './MachinesPage.tsx'
 import { NotificationsPage } from './NotificationsPage.tsx'
 import { StoragePage } from './StoragePage.tsx'
 import styles from './settings.module.css'
@@ -35,6 +36,7 @@ export function NotBuiltYet({ title }: { title: string }) {
 const pages: Record<SettingsSectionId, ComponentType<SettingsPageProps>> = {
   general: GeneralPage,
   notifications: NotificationsPage,
+  machines: MachinesPage,
   agents: AgentsPage,
   limits: LimitsPage,
   integrations: IntegrationsPage,

@@ -26,6 +26,7 @@ import {
   useState,
 } from 'react'
 import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
@@ -45,6 +46,7 @@ import {
   unsavedSummary,
 } from '../factory-settings.ts'
 import type { NavigationAction } from '../navigation.ts'
+import { usePendingAction } from '../pending-action.ts'
 import { useShownSetting } from '../setting-focus.ts'
 import { factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
@@ -310,10 +312,9 @@ export function FactorySettings({
           </span>
         )}
         <Button
-          size="small"
           onClick={() => {
             setSetupError(undefined)
-            ted
+            return ted
               .newSetupTask(factory.id)
               .then(onOpenTask, (error: unknown) => setSetupError(readableError(error)))
           }}
@@ -326,7 +327,7 @@ export function FactorySettings({
         <nav className={styles.nav} aria-label="Jump to a section">
           <SettingsSearch factory={factory} dispatch={dispatch}>
             {factorySections.map(([id, label]) => (
-              <button
+              <ActionButton
                 key={id}
                 type="button"
                 className={styles.navItem}
@@ -338,7 +339,7 @@ export function FactorySettings({
                     {drifted}
                   </span>
                 )}
-              </button>
+              </ActionButton>
             ))}
           </SettingsSearch>
         </nav>
@@ -351,7 +352,7 @@ export function FactorySettings({
                 merging={merging}
                 hasEdits={count > 0}
                 error={mergeError}
-                onMerge={() => void mergeSaved()}
+                onMerge={() => mergeSaved()}
                 onDismiss={() => {
                   setSaved(undefined)
                   setMergeError(undefined)
@@ -370,12 +371,14 @@ export function FactorySettings({
                   </p>
                 </div>
               )}
-              {!view && !loadError && (
-                <Skeleton shape="settings" label="Loading Factory settings…" />
-              )}
               {view?.invalid && <InvalidNotice invalid={view.invalid} />}
               <GeneralSection factory={factory} />
               <LinearIntakeSection key={factory.id} factoryId={factory.id} />
+              {!view && !loadError && (
+                <div className={styles.wideSection}>
+                  <Skeleton shape="settings" label="Loading Factory settings…" />
+                </div>
+              )}
               {loadError !== undefined && (
                 <p className={styles.loadError} role="alert">
                   {loadError}
@@ -432,10 +435,8 @@ export function FactorySettings({
             <p className={styles.saveHint}>Review your changes before creating a pull request.</p>
           </div>
           <span className={views.headerSpacer} />
-          <Button size="small" onClick={() => restart(view)}>
-            Discard
-          </Button>
-          <Button size="small" variant="primary" onClick={() => setReviewing(true)}>
+          <Button onClick={() => restart(view)}>Discard</Button>
+          <Button variant="primary" onClick={() => setReviewing(true)}>
             Review and save…
           </Button>
         </footer>
@@ -449,7 +450,7 @@ export function FactorySettings({
           onClose={() => setReviewing(false)}
           onSaved={(result) => {
             setReviewing(false)
-            void afterSave(result)
+            return afterSave(result)
           }}
         />
       )}
@@ -502,16 +503,14 @@ function SavedNotice({
         {error && <p role="alert">{error}</p>}
         <div className={styles.noticeActions}>
           {!result.merged && result.receipt && (
-            <Button size="small" variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
+            <Button variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
               {merging ? 'Merging…' : 'Merge pull request'}
             </Button>
           )}
-          <Button size="small" onClick={() => void ted.openOnGitHub(url)}>
-            Open on GitHub
-          </Button>
+          <Button onClick={() => ted.openOnGitHub(url)}>Open on GitHub</Button>
         </div>
       </div>
-      <button
+      <ActionButton
         type="button"
         className={styles.iconButton}
         aria-label="Dismiss"
@@ -519,7 +518,7 @@ function SavedNotice({
         onClick={onDismiss}
       >
         <CloseIcon size={12} />
-      </button>
+      </ActionButton>
     </div>
   )
 }
@@ -605,7 +604,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
             value={name}
             maxLength={60}
             onChange={(event) => setName(event.target.value)}
-            onBlur={() => void saveName()}
+            onBlur={() => saveName()}
             onKeyDown={(event) => {
               if (event.key === 'Enter') event.currentTarget.blur()
               if (event.key === 'Escape') setName(factory.name)
@@ -645,7 +644,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
           label="Start Backlog Tasks automatically"
           checked={autoStartBacklog}
           disabled={savingAutoStart}
-          onChange={(enabled) => void saveAutoStart(enabled)}
+          onChange={(enabled) => saveAutoStart(enabled)}
         />
       </div>
     </section>
@@ -670,9 +669,9 @@ const DangerZoneSection = memo(function DangerZoneSection({ onRemove }: { onRemo
           </Help>
         </span>
         <span className={views.headerSpacer} />
-        <button type="button" className={styles.dangerButton} onClick={onRemove}>
+        <ActionButton type="button" className={styles.dangerButton} onClick={onRemove}>
           Remove Factory…
-        </button>
+        </ActionButton>
       </div>
     </section>
   )
@@ -768,7 +767,7 @@ const ReposSection = memo(function ReposSection({
             }}
             onChange={(change) => onRepo(index, change)}
             onRemoveNew={() => onDraft((current) => current.filter((_, i) => i !== index))}
-            onRemove={() => void askToRemove(repo)}
+            onRemove={() => askToRemove(repo)}
             onFolder={shown ? (folder) => onFolder(shown, folder) : undefined}
           />
         )
@@ -810,9 +809,9 @@ const ReposSection = memo(function ReposSection({
         />
       ) : (
         <div className={styles.addRepoLine}>
-          <button type="button" className={styles.link} onClick={() => setAdding(true)}>
+          <ActionButton type="button" className={styles.link} onClick={() => setAdding(true)}>
             + Add repo
-          </button>
+          </ActionButton>
           <Help>
             Adds a repo through the same Save. Afterwards a New setup Task can set up its Checks and
             Apps.
@@ -906,14 +905,14 @@ function RepoCard({
         {isNew && <span className={styles.newChip}>Added when you save</span>}
         <span className={views.headerSpacer} />
         {isNew ? (
-          <button
+          <ActionButton
             type="button"
             className={styles.iconButton}
             aria-label={`Don’t add ${repo.repo}`}
             onClick={onRemoveNew}
           >
             <CloseIcon size={12} />
-          </button>
+          </ActionButton>
         ) : (
           !primary && <RepoMenu repo={repo.repo} onRemove={onRemove} />
         )}
@@ -1122,26 +1121,26 @@ function EnvTable({
               value={variable.value}
               onChange={(event) => set(index, 'value', event.target.value)}
             />
-            <button
+            <ActionButton
               type="button"
               className={styles.iconButton}
               aria-label={`Remove ${variable.name || 'this variable'}`}
               onClick={() => {
                 rows.removed(index)
-                onChange(env.filter((_, i) => i !== index))
+                return onChange(env.filter((_, i) => i !== index))
               }}
             >
               <CloseIcon size={12} />
-            </button>
+            </ActionButton>
           </div>
         ))}
-        <button
+        <ActionButton
           type="button"
           className={`${styles.link} ${styles.tableAdd}`}
           onClick={() => onChange([...env, { name: '', value: '' }])}
         >
           + Add variable
-        </button>
+        </ActionButton>
       </div>
     </div>
   )
@@ -1173,20 +1172,20 @@ function CopyList({
         {copy.map((file) => (
           <span className={styles.fileChip} key={file}>
             {file}
-            <button
+            <ActionButton
               type="button"
               className={styles.chipRemove}
               aria-label={`Don’t copy ${file}`}
               onClick={() => onChange(copy.filter((f) => f !== file))}
             >
               <CloseIcon size={10} />
-            </button>
+            </ActionButton>
           </span>
         ))}
         {adding === undefined ? (
-          <button type="button" className={styles.link} onClick={() => setAdding('')}>
+          <ActionButton type="button" className={styles.link} onClick={() => setAdding('')}>
             + Add
-          </button>
+          </ActionButton>
         ) : (
           <input
             aria-label="File to copy"
@@ -1245,14 +1244,8 @@ function LocalFolder({
             : 'None. Files to copy come from this folder on this machine.'}
         </span>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={() => void choose()}>
-          {missing ? 'Locate…' : 'Choose…'}
-        </Button>
-        {folder && (
-          <Button size="small" onClick={() => void act(undefined)}>
-            Clear
-          </Button>
-        )}
+        <Button onClick={() => choose()}>{missing ? 'Locate…' : 'Choose…'}</Button>
+        {folder && <Button onClick={() => act(undefined)}>Clear</Button>}
       </div>
       {missing && (
         <p className={styles.folderWarning}>
@@ -1305,14 +1298,14 @@ function Apps({
               <span className={styles.appName}>{app.name || 'Unnamed App'}</span>
               <span className={styles.appKind}>{appKindLabels[app.kind]}</span>
               <span className={styles.appRun}>{app.run}</span>
-              <button type="button" className={styles.link} onClick={() => setEditing(index)}>
+              <ActionButton type="button" className={styles.link} onClick={() => setEditing(index)}>
                 Edit
-              </button>
+              </ActionButton>
             </div>
           ),
         )}
       </div>
-      <button
+      <ActionButton
         type="button"
         className={styles.link}
         onClick={() => {
@@ -1321,7 +1314,7 @@ function Apps({
         }}
       >
         + Add App
-      </button>
+      </ActionButton>
     </div>
   )
 }
@@ -1404,13 +1397,11 @@ function AppEditor({
         </div>
       )}
       <div className={styles.appActions}>
-        <button type="button" className={styles.dangerLink} onClick={onRemove}>
+        <ActionButton type="button" className={styles.dangerLink} onClick={onRemove}>
           Remove App
-        </button>
+        </ActionButton>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={onDone}>
-          Done
-        </Button>
+        <Button onClick={onDone}>Done</Button>
       </div>
     </fieldset>
   )
@@ -1457,12 +1448,13 @@ function RepoInUseDialog({ removal, onClose }: { removal: RepoRemoval; onClose: 
 }
 
 function RepoMenu({ repo, onRemove }: { repo: string; onRemove: () => void }) {
+  const activity = usePendingAction(`repo-menu:${repo}`)
   const [open, setOpen] = useState(false)
   const close = useCallback(() => setOpen(false), [])
   const ref = usePopover(open, close)
   return (
     <div ref={ref} className={styles.menuAnchor}>
-      <button
+      <ActionButton
         type="button"
         className={styles.iconButton}
         aria-label={`More for ${repo}`}
@@ -1471,31 +1463,32 @@ function RepoMenu({ repo, onRemove }: { repo: string; onRemove: () => void }) {
         onClick={() => setOpen((o) => !o)}
       >
         ⋯
-      </button>
+      </ActionButton>
       {open && (
         <div className={styles.menu} role="menu" aria-label={repo}>
-          <button
+          <ActionButton
             type="button"
             role="menuitem"
+            disabled={activity.pending}
             className={styles.menuItem}
             onClick={() => {
-              close()
-              void ted.openOnGitHub(`https://github.com/${repo}`)
+              return activity.run(() => ted.openOnGitHub(`https://github.com/${repo}`))?.then(close)
             }}
           >
             Open on GitHub
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             role="menuitem"
+            disabled={activity.pending}
             className={`${styles.menuItem} ${styles.menuDanger}`}
             onClick={() => {
               close()
-              onRemove()
+              return onRemove()
             }}
           >
             Remove from Factory…
-          </button>
+          </ActionButton>
         </div>
       )}
     </div>
@@ -1572,13 +1565,13 @@ function AddRepo({
   const fix = (chosen: RepoFix) => {
     if (chosen.kind === 'open-factory') onOpenFactory(chosen.factoryId)
     else if (chosen.kind === 'github-settings') onOpenGitHubSettings()
-    else if (chosen.kind === 'choose-folder') void chooseFolder()
-    else if (row.source) void check(row.source)
+    else if (chosen.kind === 'choose-folder') return chooseFolder()
+    else if (row.source) return check(row.source)
   }
 
   async function chooseFolder() {
     const folder = await ted.chooseFolder('Choose the repo’s folder')
-    if (folder !== undefined) void check({ folder })
+    if (folder !== undefined) await check({ folder })
   }
 
   const rows = [...others, row]
@@ -1602,26 +1595,23 @@ function AddRepo({
         onText={(text) => setRow((r) => ({ ...r, text }))}
         onSubmitRemote={() => {
           const text = row.text.trim()
-          if (text !== '') void check({ remote: text })
+          if (text !== '') check({ remote: text })
         }}
-        onChooseFolder={() => void chooseFolder()}
+        onChooseFolder={() => chooseFolder()}
         onName={(name) => setRow((r) => ({ ...r, name, nameEdited: true }))}
         onRemove={onCancel}
         onFix={fix}
       />
       <div className={styles.addActions}>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={onCancel}>
-          Cancel
-        </Button>
+        <Button onClick={onCancel}>Cancel</Button>
         <Button
-          size="small"
           variant="primary"
           disabled={!ready}
           onClick={() => {
             const repo = row.check?.repo
             if (!ready || repo === undefined) return
-            onAdd(
+            return onAdd(
               {
                 repo,
                 remote: remoteFor(

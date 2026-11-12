@@ -6,6 +6,7 @@ import {
   searchLimits,
   searchTerms,
   snippetAround,
+  type Task,
 } from '@ted/protocol'
 import type { Conversations } from './runs/conversations.ts'
 import type { SearchRequest } from './search.ts'
@@ -29,11 +30,12 @@ export async function searchConversations(
   store: TedStore,
   conversations: Pick<Conversations, 'chat'>,
   { query, factoryId }: SearchRequest,
+  everyTask?: readonly Task[],
 ): Promise<ConversationHit[]> {
   const terms = searchTerms(query)
   if (terms.length === 0) return []
   const factories = new Set(store.listFactories().map((factory) => factory.id))
-  const tasks = new Map(store.listTasks().map((task) => [task.id, task]))
+  const tasks = new Map((everyTask ?? store.listTasks()).map((task) => [task.id, task]))
   const plans = new Map(store.plans.list().map((plan) => [plan.id, plan]))
   const automations = new Map(
     store.automations.list().map((automation) => [automation.id, automation]),

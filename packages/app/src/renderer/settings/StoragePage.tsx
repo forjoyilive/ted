@@ -2,6 +2,7 @@ import type { StorageSummary, StoredBackup } from '@ted/protocol'
 import { runOutputDayLimits } from '@ted/protocol/settings'
 import { formatBytes } from '@ted/protocol/storage'
 import { useCallback, useEffect, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
 import { ted } from '../ted.ts'
@@ -118,12 +119,12 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
                   <span className={styles.factory}>{worktree.factoryName}</span>
                   <span className={styles.spacer} />
                   <span className={styles.size}>{formatBytes(worktree.bytes)}</span>
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.link}
                     onClick={() => {
                       dispatch({ type: 'close-settings' })
-                      dispatch({
+                      return dispatch({
                         type: 'open-task',
                         taskId: worktree.taskId,
                         factoryId: worktree.factoryId,
@@ -131,7 +132,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
                     }}
                   >
                     Open Task
-                  </button>
+                  </ActionButton>
                 </div>
               ))}
             </SettingsGroup>
@@ -147,7 +148,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
               }
             >
               <Button
-                onClick={() => void removeClones()}
+                onClick={() => removeClones()}
                 disabled={removing || storage.removableClones.count === 0}
               >
                 {removing ? 'Removing…' : 'Remove'}
@@ -174,7 +175,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
                 value={settings.runOutputDays}
                 options={runOutputOptions(settings.runOutputDays)}
                 width={110}
-                onChange={(runOutputDays) => void ted.updateSettings({ runOutputDays })}
+                onChange={(runOutputDays) => ted.updateSettings({ runOutputDays })}
               />
             </SettingRow>
           </SettingsGroup>
@@ -198,7 +199,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
                     title={backupTitle(backup)}
                     detail={`${formatBytes(backup.bytes)} · ${backup.name}`}
                   >
-                    <Button onClick={() => void ted.showBackupInFolder(backup.name)}>
+                    <Button onClick={() => ted.showBackupInFolder(backup.name)}>
                       Show in folder
                     </Button>
                   </SettingRow>

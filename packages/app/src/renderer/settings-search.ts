@@ -4,6 +4,7 @@ import type { SettingsSectionId } from './navigation.ts'
 export const settingsPageNames: Record<SettingsSectionId, string> = {
   general: 'General',
   notifications: 'Notifications',
+  machines: 'Machines',
   agents: 'Agents',
   limits: 'Limits',
   integrations: 'Integrations',
@@ -28,6 +29,7 @@ export type SettingsPlatform = 'mac' | 'linux' | 'other'
 
 interface Entry {
   name: string
+  keywords?: string
   help?: string
   detail?: string
   heading?: true
@@ -59,12 +61,13 @@ const entries = {
     name: 'Time zone',
     detail: 'Used for displayed times and all Automation schedules.',
   },
-  'app.general.overnight': { name: 'Overnight mode', heading: true },
-  'app.general.overnight.mode': {
-    name: 'Overnight mode across all Factories',
-    help: 'Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Sign-offs set in the Workflow or on a Task are off, so Tasks move through their Stages and merge without your sign-off. Setup Tasks and Tasks that change a Factory’s settings still wait for you, and so do questions and permission prompts.',
+  'app.general.autopilot': { name: 'Autopilot', keywords: 'overnight mode', heading: true },
+  'app.general.autopilot.mode': {
+    name: 'Autopilot across all Factories',
+    keywords: 'overnight mode',
+    help: 'Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; each Factory’s Start Backlog Tasks automatically setting does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed Checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you.',
     detail:
-      'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.',
+      'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.',
   },
   'app.general.startup': { name: 'Startup and quitting', heading: true },
   'app.general.startup.login': {
@@ -114,6 +117,9 @@ const entries = {
     name: 'Play a sound',
     help: 'Play the system sound with each notification.',
   },
+
+  'app.machines.connect': { name: 'Connect another Mac', heading: true },
+  'app.machines.execution': { name: 'Execution Macs', heading: true },
 
   'app.agents.defaults': {
     name: 'Defaults for all Factories',
@@ -348,7 +354,14 @@ export function findSettings(
     if (entry.platform !== undefined && entry.platform !== options.platform) continue
     const place = placeOf(id)
     if (place.kind === 'factory' && !factory) continue
-    const text = [entry.name, place.group, place.page, entry.help, entry.detail].join(' ')
+    const text = [
+      entry.name,
+      entry.keywords,
+      place.group,
+      place.page,
+      entry.help,
+      entry.detail,
+    ].join(' ')
     if (!matchesTerms(terms, text)) continue
     const inName = matchesTerms(terms, entry.name)
     const where =

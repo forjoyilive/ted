@@ -168,7 +168,7 @@ export function SaveSettingsDialog({
         <Button onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="primary" disabled={!canSave} onClick={() => void save()}>
+        <Button variant="primary" disabled={!canSave} onClick={() => save()}>
           {busy ? 'Saving…' : mode === 'merge' ? 'Save and merge' : 'Save as pull request'}
         </Button>
       </footer>

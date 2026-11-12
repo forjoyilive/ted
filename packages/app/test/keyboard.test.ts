@@ -209,14 +209,15 @@ describe('Keyboard shortcuts', () => {
       .getByRole('button')
       .filter({ hasText: 'Permission' })
     await row.click()
-    const card = window.getByRole('region', { name: 'Permission', exact: true })
-    const approve = card.getByRole('button', { name: /^Approve/ })
+    await window.getByRole('region', { name: 'Permission', exact: true }).waitFor()
+    const answer = window.getByRole('region', { name: 'Answer', exact: true })
+    const approve = answer.getByRole('button', { name: /^Approve/ })
     await approve.waitFor()
 
     await press(window, 'a')
-    await card.getByText('↵ to confirm').waitFor()
+    await answer.getByText('↵ to confirm').waitFor()
     await press(window, 'Escape')
-    await card.getByText('↵ to confirm').waitFor({ state: 'detached' })
+    await answer.getByText('↵ to confirm').waitFor({ state: 'detached' })
     await window.getByRole('region', { name: 'Task thread' }).waitFor()
 
     await window.evaluate(() => {
@@ -243,11 +244,7 @@ describe('Keyboard shortcuts', () => {
       .toBe('approved')
     const inbox = window.getByRole('region', { name: 'Inbox' })
     await inbox.getByText('Nothing waiting on you').waitFor()
-    await inbox
-      .getByRole('status')
-      .getByText(`Approved ${task.displayId}’s permission request`)
-      .waitFor()
-    await inbox.getByRole('status').getByText('This request only').waitFor()
+    expect(await inbox.getByRole('status').count()).toBe(0)
     const frames = await window.evaluate(async () => {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),

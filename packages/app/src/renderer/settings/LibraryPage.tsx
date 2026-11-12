@@ -7,6 +7,7 @@ import type {
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { Skeleton } from '../components/Loading.tsx'
@@ -251,13 +252,13 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
           </section>
 
           <p className={styles.agentsLink}>
-            <button
+            <ActionButton
               type="button"
               className={base.link}
               onClick={() => dispatch({ type: 'open-settings', section: 'agents' })}
             >
               Task Lead, Reviewer and Planner are under Agents →
-            </button>
+            </ActionButton>
             <Help>
               Permissions, Checks, Apps and repos belong to each Factory, so they aren’t in the
               Library.
@@ -276,21 +277,20 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
           <span>{unsavedLibraryLine(count)}</span>
           <span className={base.spacer} />
           <Button
-            size="small"
             disabled={saving}
             onClick={() => {
               setDraft(loaded)
               setEditing(undefined)
               setError(undefined)
               if (changedOnDisk)
-                void refresh().then((next) => {
+                return refresh().then((next) => {
                   if (next) show(next)
                 })
             }}
           >
             Discard
           </Button>
-          <Button size="small" variant="primary" disabled={saving} onClick={() => void save()}>
+          <Button variant="primary" disabled={saving} onClick={() => save()}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </footer>
@@ -420,16 +420,8 @@ function StageLine({
         <span className={sections.actions}>
           {row.id === 'backlog' && <span className={sections.always}>Always first</span>}
           {row.id === 'done' && <span className={sections.always}>Always last</span>}
-          {agent && file === null && (
-            <Button size="small" onClick={onOverride}>
-              Override in Library
-            </Button>
-          )}
-          {agent && file !== null && (
-            <Button size="small" onClick={onReset}>
-              Reset to default
-            </Button>
-          )}
+          {agent && file === null && <Button onClick={onOverride}>Override in Library</Button>}
+          {agent && file !== null && <Button onClick={onReset}>Reset to default</Button>}
         </span>
       </div>
       {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
@@ -500,7 +492,7 @@ function StageFile({
             onClick={() => {
               onText(row.defaultText ?? '')
               setTab('edit')
-              onOpen(true)
+              return onOpen(true)
             }}
           >
             Edit in Library
@@ -514,7 +506,7 @@ function StageFile({
               size="small"
               onClick={() => {
                 onText(null)
-                onOpen(false)
+                return onOpen(false)
               }}
             >
               Reset to default
@@ -526,7 +518,7 @@ function StageFile({
         <div className={sections.fileEditor}>
           <div className={sections.tabs} role="tablist" aria-label={`${name} view`}>
             {tabs.map(([value, label]) => (
-              <button
+              <ActionButton
                 key={value}
                 type="button"
                 role="tab"
@@ -535,7 +527,7 @@ function StageFile({
                 onClick={() => setTab(value)}
               >
                 {label}
-              </button>
+              </ActionButton>
             ))}
           </div>
           {tab === 'edit' && (

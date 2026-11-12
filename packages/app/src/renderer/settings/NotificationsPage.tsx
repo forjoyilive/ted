@@ -36,7 +36,7 @@ function NotifySwitch({
       <Switch
         label={settingEntry(row).name}
         checked={settings[setting]}
-        onChange={(on) => void ted.updateSettings({ [setting]: on })}
+        onChange={(on) => ted.updateSettings({ [setting]: on })}
       />
     </SettingRow>
   )
@@ -58,7 +58,7 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
             <span className={styles.title}>Notifications are off for TED in System Settings</span>
             <span className={styles.detail}>TED can’t notify you until you turn them on.</span>
           </div>
-          <Button onClick={() => void ted.openNotificationSettings()}>Open System Settings</Button>
+          <Button onClick={() => ted.openNotificationSettings()}>Open System Settings</Button>
         </div>
       )}
       <SettingsGroup setting="app.notifications.send">

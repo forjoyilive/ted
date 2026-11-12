@@ -18,6 +18,7 @@ import { openSetting } from '../setting-focus.ts'
 import { findSettings, platformOf, searchFactory } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { factoryName } from '../views/TaskViews.tsx'
+import { ActionButton } from './ActionButton.tsx'
 import { ConversationSearchView } from './ConversationSearchView.tsx'
 import { SearchIcon } from './icons.tsx'
 import styles from './SearchPalette.module.css'
@@ -484,7 +485,7 @@ export function SearchPalette({
           <div id={listId} role="listbox" aria-label="Results" className={styles.list}>
             {groups.map((group) => {
               const options = group.items.map(({ item, index }) => (
-                <button
+                <ActionButton
                   type="button"
                   tabIndex={-1}
                   key={item.key}
@@ -495,7 +496,7 @@ export function SearchPalette({
                   className={styles.option}
                   onMouseMove={() => index !== active && setSelected(index)}
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => void choose(item)}
+                  onClick={() => choose(item)}
                 >
                   {item.content}
                   {index === active && (
@@ -503,7 +504,7 @@ export function SearchPalette({
                       ↵
                     </span>
                   )}
-                </button>
+                </ActionButton>
               ))
               if (group.name === '') return options
               return (

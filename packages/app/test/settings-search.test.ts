@@ -37,9 +37,13 @@ test('a setting is found by its name, group, page and description, with its page
 })
 
 test('a name match comes first, a setting before a heading with the same words', () => {
+  expect(find('autopilot').map((hit) => hit.name)).toEqual([
+    'Autopilot across all Factories',
+    'Autopilot',
+  ])
   expect(find('overnight').map((hit) => hit.name)).toEqual([
-    'Overnight mode across all Factories',
-    'Overnight mode',
+    'Autopilot across all Factories',
+    'Autopilot',
   ])
   expect(find('linear').map((hit) => hit.id)).toEqual([
     'app.integrations.linear.sync',

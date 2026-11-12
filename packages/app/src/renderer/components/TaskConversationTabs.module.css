@@ -137,13 +137,14 @@
 }
 
 .historyButton {
-  padding: 5px 10px;
+  height: var(--button-height);
+  padding: 0 12px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-control);
   background: var(--surface-app);
   color: var(--text-primary);
   font: inherit;
-  font-size: var(--text-12);
+  font-size: var(--text-13);
   cursor: pointer;
 }
 

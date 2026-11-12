@@ -23,14 +23,14 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             max={workingRunLimits.max}
             lessLabel="Fewer working Runs"
             moreLabel="More working Runs"
-            onChange={(maxWorkingRuns) => void ted.updateSettings({ maxWorkingRuns })}
+            onChange={(maxWorkingRuns) => ted.updateSettings({ maxWorkingRuns })}
           />
         </SettingRow>
         <SettingRow setting="app.limits.busy">
           <Switch
             label="Start fewer Runs when this computer is busy"
             checked={settings.adjustRunsToLoad}
-            onChange={(adjustRunsToLoad) => void ted.updateSettings({ adjustRunsToLoad })}
+            onChange={(adjustRunsToLoad) => ted.updateSettings({ adjustRunsToLoad })}
           />
         </SettingRow>
         {simulators?.supported === true && (
@@ -41,7 +41,7 @@ export function LimitsPage({ settings }: SettingsPageProps) {
               max={simulatorSlotLimits.max}
               lessLabel="Fewer simulators"
               moreLabel="More simulators"
-              onChange={(maxBootedSimulators) => void ted.updateSettings({ maxBootedSimulators })}
+              onChange={(maxBootedSimulators) => ted.updateSettings({ maxBootedSimulators })}
             />
           </SettingRow>
         )}
@@ -52,14 +52,14 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             max={checkLimits.max}
             lessLabel="Fewer Checks at once"
             moreLabel="More Checks at once"
-            onChange={(maxChecksAtOnce) => void ted.updateSettings({ maxChecksAtOnce })}
+            onChange={(maxChecksAtOnce) => ted.updateSettings({ maxChecksAtOnce })}
           />
         </SettingRow>
         <SettingRow setting="app.limits.low-priority">
           <Switch
             label="Run agents and Checks at low priority"
             checked={settings.lowPriorityWork}
-            onChange={(lowPriorityWork) => void ted.updateSettings({ lowPriorityWork })}
+            onChange={(lowPriorityWork) => ted.updateSettings({ lowPriorityWork })}
           />
         </SettingRow>
       </SettingsGroup>

@@ -271,7 +271,9 @@ test('Record a CPU profile asks for one profile at a time and shows where it was
   render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
   expect(api.request).toHaveBeenCalledWith('recordProfile', 30)
-  expect(screen.getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+  const recording = screen.getByRole('button', { name: 'Record 30 seconds' })
+  expect(recording.hasAttribute('disabled')).toBe(true)
+  expect(recording.getAttribute('aria-busy')).toBe('true')
   await act(async () =>
     result.resolve({ file: '~/.ted/logs/profiles/daemon-1.cpuprofile', seconds: 30, bytes: 10 }),
   )
@@ -446,15 +448,37 @@ test('⌘K lists a matching setting with its page and opens it', async () => {
   await screen.findByRole('button', { name: 'widgets' })
   fireEvent.keyDown(window, { key: 'k', metaKey: true })
   const palette = await screen.findByRole('dialog', { name: 'Search and commands' })
-  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: 'overnight' } })
+  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: 'autopilot' } })
   const group = within(palette).getByRole('group', { name: 'Settings' })
   const options = within(group).getAllByRole('option')
   expect(options.map((option) => option.getAttribute('aria-label'))).toEqual([
-    'Overnight mode across all Factories, Settings › General',
-    'Overnight mode, Settings › General',
+    'Autopilot across all Factories, Settings › General',
+    'Autopilot, Settings › General',
   ])
   await user().click(options[0] as HTMLElement)
   expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
   await screen.findByRole('heading', { name: 'General' })
-  await waitFor(() => expect(found('app.general.overnight.mode')).toBe(true))
+  await waitFor(() => expect(found('app.general.autopilot.mode')).toBe(true))
+})
+
+test('an asynchronous settings switch acknowledges activation and blocks repeat saves', async () => {
+  const completion = deferred<unknown>()
+  const update = vi.fn(() => completion.promise)
+  bridge({
+    updateSettings: update,
+    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    simulators: () => ({ supported: false }),
+  })
+  render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const toggle = screen.getByRole('switch', { name: 'Start fewer Runs when this computer is busy' })
+  await user().click(toggle)
+  expect(toggle.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(toggle)
+  expect(update).toHaveBeenCalledTimes(1)
+  await user().click(screen.getByRole('button', { name: 'More working Runs' }))
+  expect(update).toHaveBeenCalledWith({
+    adjustRunsToLoad: !defaultMachineSettings.adjustRunsToLoad,
+  })
+  await act(async () => completion.resolve({}))
+  expect(toggle.getAttribute('aria-busy')).toBeNull()
 })

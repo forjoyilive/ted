@@ -247,25 +247,23 @@ test('the sidebar lists Coordinator above Board and shows Working only while it 
   await vi.waitFor(() => expect(within(row()).queryByRole('img')).toBeNull())
 })
 
-test('overnight mode is switched in Settings → General, not in the sidebar', async () => {
+test('Autopilot is switched in Settings → General, not in the sidebar', async () => {
   const a = appState()
   a.mount()
   await screen.findByRole('navigation', { name: 'Sidebar' })
-  expect(within(nav()).queryByRole('button', { name: /overnight mode/i })).toBeNull()
-  expect(within(nav()).queryByText('Overnight mode is on')).toBeNull()
+  expect(within(nav()).queryByRole('button', { name: /Autopilot/i })).toBeNull()
+  expect(within(nav()).queryByText('Autopilot is on')).toBeNull()
   await a.settings()
-  await user().click(
-    await screen.findByRole('switch', { name: 'Overnight mode across all Factories' }),
-  )
+  await user().click(await screen.findByRole('switch', { name: 'Autopilot across all Factories' }))
   expect(a.request).toHaveBeenCalledWith('updateSettings', { overnightMode: true })
   await user().keyboard('{Escape}')
-  expect(await within(nav()).findByText('Overnight mode is on')).toBeTruthy()
-  expect(within(nav()).queryByRole('button', { name: /overnight mode/i })).toBeNull()
+  expect(await within(nav()).findByText('Autopilot is on')).toBeTruthy()
+  expect(within(nav()).queryByRole('button', { name: /Autopilot/i })).toBeNull()
 })
 
-const notice = () => screen.queryByRole('status', { name: 'Overnight mode is on' })
+const notice = () => screen.queryByRole('status', { name: 'Autopilot is on' })
 const noticeText =
-  '▲ Overnight mode is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks and Tasks that change a Factory’s settings still wait for you.'
+  '▲ Autopilot is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks and Tasks that change a Factory’s settings still wait for you.'
 
 function overnight(on: boolean, view: React.ReactNode) {
   const openGeneral = vi.fn()
@@ -285,7 +283,7 @@ async function checkNotice(view: () => React.ReactNode, ready: () => Promise<unk
   expect(on.openGeneral).toHaveBeenCalledOnce()
 }
 
-test('the Factory Workflow section shows the overnight notice only while overnight mode is on', async () => {
+test('the Factory Workflow section shows the overnight notice only while Autopilot is on', async () => {
   bridge({
     factorySettings: settingsView,
     homeFolder: () => '/test',
@@ -308,10 +306,10 @@ test('the Factory Workflow section shows the overnight notice only while overnig
     () => screen.findByRole('heading', { name: 'Workflow' }),
   )
   const workflow = screen.getByRole('region', { name: 'Workflow' })
-  expect(within(workflow).getByRole('status', { name: 'Overnight mode is on' })).toBeTruthy()
+  expect(within(workflow).getByRole('status', { name: 'Autopilot is on' })).toBeTruthy()
 })
 
-test('the Library page shows the overnight notice only while overnight mode is on', async () => {
+test('the Library page shows the overnight notice only while Autopilot is on', async () => {
   const a = appState()
   bridge({ library: () => new Promise(() => {}) })
   await checkNotice(
@@ -320,15 +318,11 @@ test('the Library page shows the overnight notice only while overnight mode is o
   )
 })
 
-test('a Task’s sign-offs editor shows the overnight notice only while overnight mode is on', async () => {
+test('a Task’s sign-offs editor shows the overnight notice only while Autopilot is on', async () => {
   bridge({})
-  await checkNotice(
-    () => <TaskGatesField taskId="NB-1" factoryId="factory-1" />,
-    async () => {
-      await user().click(await screen.findByRole('button', { name: /Use Workflow/ }))
-      await screen.findByRole('region', { name: 'Sign-offs for this Task' })
-    },
-  )
+  overnight(true, <TaskGatesField taskId="NB-1" factoryId="factory-1" />)
+  await user().click(await screen.findByRole('button', { name: /Use Workflow/ }))
+  expect(await screen.findByText(/Autopilot is on. Ordinary sign-offs are off/)).toBeTruthy()
 })
 
 test('the notice follows the setting live and its link opens Settings → General', async () => {
@@ -349,7 +343,7 @@ test('the notice follows the setting live and its link opens Settings → Genera
   })
   expect(notice()).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Settings → General' }))
-  const control = await screen.findByRole('switch', { name: 'Overnight mode across all Factories' })
+  const control = await screen.findByRole('switch', { name: 'Autopilot across all Factories' })
   await user().click(control)
   expect(a.state.settings.overnightMode).toBe(false)
   await user().click(

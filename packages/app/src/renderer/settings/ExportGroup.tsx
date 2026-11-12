@@ -102,7 +102,7 @@ export function ExportGroup() {
               title="Tasks, Comments, briefs and Run metadata"
               detail="Includes Done and archived Tasks, answers and saved versions."
             >
-              <Button disabled={busy || !selected} onClick={() => void save()}>
+              <Button disabled={busy || !selected} onClick={() => save()}>
                 {busy ? 'Exporting…' : 'Export…'}
               </Button>
             </SettingRow>

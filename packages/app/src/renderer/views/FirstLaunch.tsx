@@ -132,22 +132,20 @@ function CommandLine({
   children,
 }: {
   command: string
-  onCopy: () => void
+  onCopy: () => unknown
   children?: ReactNode
 }) {
   return (
     <div className={styles.command}>
       <code className={styles.code}>{command}</code>
-      <Button size="small" onClick={onCopy}>
-        Copy
-      </Button>
+      <Button onClick={onCopy}>Copy</Button>
       {children}
     </div>
   )
 }
 
 interface RowActions {
-  copy: (text: string) => void
+  copy: (text: string) => Promise<void>
   watch: () => void
 }
 
@@ -195,10 +193,8 @@ function AgentRow({
         meta={join(health.version, health.path)}
         below={
           <div className={styles.buttons}>
-            <Button size="small" onClick={() => onBilling('api-key')}>
-              Use API-key billing
-            </Button>
-            <Button size="small" onClick={() => onBilling('subscription')}>
+            <Button onClick={() => onBilling('api-key')}>Use API-key billing</Button>
+            <Button onClick={() => onBilling('subscription')}>
               Sign in with a subscription instead
             </Button>
           </div>
@@ -228,9 +224,7 @@ function AgentRow({
         below={
           fix && (
             <CommandLine command={fix.command} onCopy={() => actions.copy(fix.command)}>
-              <Button size="small" onClick={onFix}>
-                Open Terminal
-              </Button>
+              <Button onClick={onFix}>Open Terminal</Button>
             </CommandLine>
           )
         }
@@ -315,17 +309,13 @@ function GitHubRow({
         below={
           cli.fix &&
           ('url' in cli.fix ? (
-            <Button size="small" onClick={() => onFix('gh-install')}>
-              {cli.fix.label}
-            </Button>
+            <Button onClick={() => onFix('gh-install')}>{cli.fix.label}</Button>
           ) : (
             <CommandLine
               command={cli.fix.command}
               onCopy={() => actions.copy(cli.fix && 'command' in cli.fix ? cli.fix.command : '')}
             >
-              <Button size="small" onClick={() => onFix('gh-install')}>
-                Open Terminal
-              </Button>
+              <Button onClick={() => onFix('gh-install')}>Open Terminal</Button>
             </CommandLine>
           ))
         }
@@ -411,17 +401,13 @@ function GitRow({
         below={
           git.fix &&
           ('url' in git.fix ? (
-            <Button size="small" onClick={() => onFix('git-install')}>
-              {git.fix.label}
-            </Button>
+            <Button onClick={() => onFix('git-install')}>{git.fix.label}</Button>
           ) : (
             <CommandLine
               command={git.fix.command}
               onCopy={() => actions.copy(git.fix && 'command' in git.fix ? git.fix.command : '')}
             >
-              <Button size="small" onClick={() => onFix('git-install')}>
-                Open Terminal
-              </Button>
+              <Button onClick={() => onFix('git-install')}>Open Terminal</Button>
             </CommandLine>
           ))
         }
@@ -441,10 +427,7 @@ function GitRow({
           <CommandLine
             key={command}
             command={command}
-            onCopy={() => {
-              actions.copy(command)
-              actions.watch()
-            }}
+            onCopy={() => actions.copy(command).then(() => actions.watch())}
           />
         ))}
       />
@@ -474,7 +457,7 @@ export function FirstLaunch({
   useEffect(() => {
     const checkAll = () => {
       void ted.checkAgentHealth().catch(() => undefined)
-      void ted.checkIntegrations().catch(() => undefined)
+      return ted.checkIntegrations().catch(() => undefined)
     }
     window.addEventListener('focus', checkAll)
     if (watchingSince === undefined) return () => window.removeEventListener('focus', checkAll)
@@ -490,7 +473,7 @@ export function FirstLaunch({
 
   const watch = () => setWatchingSince(Date.now())
   const rowActions: RowActions = {
-    copy: (text) => void ted.copyText(text).catch(() => undefined),
+    copy: (text) => ted.copyText(text),
     watch,
   }
   const setFor = (key: string, note?: string, error?: string) => {
@@ -521,7 +504,7 @@ export function FirstLaunch({
 
   function runFix(key: string, fix: IntegrationFix, host?: string) {
     setFor(key)
-    ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
+    return ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
       (result) => {
         setFor(
           key,
@@ -576,8 +559,8 @@ export function FirstLaunch({
                 health={health}
                 note={good ? undefined : notes[agent]}
                 error={errors[agent]}
-                onFix={() => void fixAgent(agent)}
-                onBilling={(billing) => health && void chooseBilling(health, billing)}
+                onFix={() => fixAgent(agent)}
+                onBilling={(billing) => health && chooseBilling(health, billing)}
                 actions={rowActions}
               />
             )
@@ -615,10 +598,10 @@ export function FirstLaunch({
             </p>
           )}
           <span className={styles.spacer} />
-          <Button onClick={() => void finish(false)} disabled={saving}>
+          <Button onClick={() => finish(false)} disabled={saving}>
             Skip for now
           </Button>
-          <Button variant="primary" onClick={() => void finish(true)} disabled={!ready || saving}>
+          <Button variant="primary" onClick={() => finish(true)} disabled={!ready || saving}>
             Continue
           </Button>
         </div>

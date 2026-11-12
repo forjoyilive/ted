@@ -133,7 +133,8 @@
 }
 
 .chip {
-  padding: 2px 10px;
+  height: var(--button-height-small);
+  padding: 0 10px;
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-pill);
   background: var(--accent-subtle);
