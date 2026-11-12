@@ -76,7 +76,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const show = () => {
     setOpen(true)
     setWhich('side')
-    void act((source) => ted.openSideChat(source)).catch(() => undefined)
+    return act((source) => ted.openSideChat(source)).catch(() => undefined)
   }
   const working = side?.state === 'working' || side?.state === 'queued'
   return (
@@ -198,7 +198,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.stopSideChat(source)).catch(() => undefined)
+                          return act((source) => ted.stopSideChat(source)).catch(() => undefined)
                         }}
                       >
                         Stop reply
@@ -210,7 +210,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.retrySideChat(source)).catch(() => undefined)
+                          return act((source) => ted.retrySideChat(source)).catch(() => undefined)
                         }}
                       >
                         Retry

@@ -17,6 +17,7 @@
     "package": "pnpm --filter @ted/app package",
     "check": "node scripts/check.ts",
     "test-waits": "node scripts/test-waits.ts",
+    "test-failures": "node scripts/test-failures.ts",
     "release": "node scripts/release.ts"
   },
   "devDependencies": {

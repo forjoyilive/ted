@@ -211,3 +211,57 @@ failure, not permission to broaden cleanup.
 The module tests are `scripts/execution-lab.test.ts`. Validate should run that file
 and `scripts/validate-execution.test.ts`, plus Typecheck/Lint. Real two-Mac acceptance
 must also run through the lab CLI; fake SSH tests cannot satisfy that requirement.
+
+## Product pairing checkpoint (TED-112)
+
+In Validate, deploy a clean committed candidate and run:
+
+```sh
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/validate-execution-lab.ts \
+  --opt-in --config "$HOME/.config/ted-validation-lab/lab.json" \
+  --action acceptance --scenario product-pairing
+```
+
+This selects a dedicated product adapter after the existing pinned-host preflight,
+committed content verification, deployment and build on both Macs. It chooses the
+controller’s explicitly assigned local route to the approved execution Mac. Before
+pairing, it checks the OS route against the local interface/address inventory and
+macOS hardware-port inventory. Only a Wi-Fi or Ethernet `enN` interface with the
+selected address is supported; VPN/tunnel, bridge, unknown and unassigned routes
+fail the checkpoint. Reports record the selected address, interface and hardware
+port beside the TLS endpoint. The adapter binds only that private address and
+connects the remote worker outbound over the product
+TLS transport. SSH supplies deployment/process control and transfers enrollment
+details as private stdin setup data; it does not implement enrollment, readiness or
+revocation. Enrollment details are never returned in report observations or printed
+as replay arguments. The synthetic controller app client keeps its fresh approval
+key in memory; the worker never receives it.
+
+The adapter observes wrong-identity refusal before enrollment, incompatible-version
+refusal, matching pending identities on both Macs, app-authorized approval of a
+synthetic repo, live readiness including a real native sandbox probe, worker process
+restart with the same identity/grant, live revocation and refused restart. Agent
+starts remain zero. Actual host UUIDs, public controller/worker identities, grant ID,
+authorization results and observed process change are recorded without credentials.
+
+Expected product invariants are `two-mac-pairing`, `two-mac-worker-restart`,
+`two-mac-peer-refusal` and `two-mac-revocation`. Every observation must be present;
+missing access, sandbox failure or an unavailable process is unresolved. This
+checkpoint proves product pairing only, not remote Task execution or real GUI use.
+The app test supplies separate unattended GUI evidence.
+
+Acceptance cleans deployments on both Macs, even after failure. Cleanup recognizes
+only the exact lab-run marker, UID, execution home and deployed product entry path,
+or the existing ordinary fixture markers; it rechecks process identity before any
+signal. If interrupted, use the normal `--action cleanup --run-id <printed-id>`
+recovery with the same external config and scenario. Never delete an unmarked root,
+forward an SSH agent or copy a private key into a deployment/report.
+
+
+For the replacement-pairing repair, Validate runs the `pairing-replacement` shared
+scenario once. It selects the daemon pairing, native app pairing and lab adapter
+files (three files total), covering CLI Stop → Pair and app Quit → Pair with a
+still-valid saved grant, fresh approval on a second controller, ordinary restart,
+and supported-interface/refused-tunnel adapter boundaries. The physical
+`product-pairing` checkpoint still needs a fresh report from the committed
+candidate; adapter parser coverage does not substitute for either Mac.

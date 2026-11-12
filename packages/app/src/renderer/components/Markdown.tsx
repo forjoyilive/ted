@@ -46,7 +46,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
         aria-label="Copy code"
         title={copied ? 'Copied' : 'Copy code'}
         disabled={copying}
-        onClick={() => void copy()}
+        onClick={() => copy()}
       >
         {copied ? <span aria-hidden>✓</span> : <CopyIcon />}
       </Button>
@@ -75,7 +75,7 @@ const components: Components = {
           onClick={(event) => {
             event.preventDefault()
             setError(undefined)
-            void ted.openMarkdownLink(url).catch((failure: unknown) => {
+            return ted.openMarkdownLink(url).catch((failure: unknown) => {
               setError(readableError(failure))
             })
           }}

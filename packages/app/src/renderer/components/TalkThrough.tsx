@@ -1,6 +1,7 @@
 import type { Comment, RunSummary, Task } from '@ted/protocol'
 import { useState } from 'react'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import { RequestCard } from './RequestCard.tsx'
 import { RunChat } from './RunChat.tsx'
@@ -24,9 +25,9 @@ function TalkHeader({
   return (
     <header className={styles.header}>
       <div className={styles.crumbs}>
-        <button type="button" className={styles.back} onClick={onBack}>
+        <ActionButton type="button" className={styles.back} onClick={onBack}>
           ← Task Lead
-        </button>
+        </ActionButton>
         <span className={styles.task}>{`${task.displayId} · ${task.title}`}</span>
       </div>
       <div className={styles.titleRow}>
@@ -38,7 +39,7 @@ function TalkHeader({
           onClick={() => {
             setBusy(true)
             setError(undefined)
-            ted
+            return ted
               .doneTalking(request.id)
               .catch((failed: unknown) => setError(readableError(failed)))
               .finally(() => setBusy(false))

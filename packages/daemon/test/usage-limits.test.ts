@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type AgentHealth,
+  type ApiCostReport,
   type Banner,
   DaemonClient,
   defaultMachineSettings,
@@ -510,6 +511,24 @@ describe('Tokens, dollars, plan usage and retries', () => {
     }, 'dollars on the API-key Run')
     expect(keyedChat.run).toMatchObject({ credential: 'API key', tokens: 1500, cost: 0.42 })
     expect((await healthOf(client, 'claude'))?.state).toBe('ready')
+
+    expect((await client.ok<ApiCostReport>('GET', '/agents/api-cost')).agents).toEqual([])
+    for (const task of [sub, keyed]) await client.ok('POST', `/tasks/${task.id}/stop`)
+    const report = await waitUntil(async () => {
+      const cost = await client.ok<ApiCostReport>('GET', '/agents/api-cost')
+      return cost.agents[0]?.runs === 2 ? cost : undefined
+    }, 'both finished Runs counted at API prices, the subscription one too')
+    expect(report.days).toBe(30)
+    expect(report.countedFrom).toBeDefined()
+    expect(report.agents).toHaveLength(1)
+    expect(report.agents[0]).toMatchObject({
+      agent: 'claude',
+      runs: 2,
+      pricedRuns: 2,
+      input: 2000,
+      output: 1000,
+    })
+    expect(report.agents[0]?.cost).toBeCloseTo(0.84)
   })
 
   test('plan usage comes from the last Run’s rate limit events, and the same usage again sends no event', async () => {

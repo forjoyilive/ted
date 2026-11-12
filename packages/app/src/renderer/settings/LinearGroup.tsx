@@ -1,5 +1,6 @@
 import type { Factory, LinearStatus, MachineSettings } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { useFactories } from '../data.ts'
@@ -49,7 +50,7 @@ export function LinearGroup({
   function act(label: string, work: () => Promise<LinearStatus>, clearDraft = false) {
     setBusy(label)
     setProblem(undefined)
-    work()
+    return work()
       .then(
         (next) => {
           setStatus(next)
@@ -147,9 +148,9 @@ export function LinearGroup({
             {problem}
           </p>
         )}
-        <button type="button" className={styles.link} onClick={() => void ted.openLinearKeyPage()}>
+        <ActionButton type="button" className={styles.link} onClick={() => ted.openLinearKeyPage()}>
           Create a key ↗
-        </button>
+        </ActionButton>
       </div>
       {stored && (
         <SettingRow
@@ -159,7 +160,7 @@ export function LinearGroup({
           <Switch
             label="Sync status with Linear"
             checked={sync}
-            onChange={(on) => void ted.updateSettings({ linearSync: on })}
+            onChange={(on) => ted.updateSettings({ linearSync: on })}
           />
         </SettingRow>
       )}
@@ -196,14 +197,16 @@ function TeamsRow({
       .filter((t) => t !== '')
     if (list.join(', ') === saved) return
     setProblem(undefined)
-    ted
+    return ted
       .updateSettings({ linearSyncTeams: { ...teams, [factory.id]: list } })
       .catch((error: unknown) => setProblem(message(error)))
   }
 
   function allow(team: string) {
     setProblem(undefined)
-    ted.allowLinearTeam(factory.id, team).catch((error: unknown) => setProblem(message(error)))
+    return ted
+      .allowLinearTeam(factory.id, team)
+      .catch((error: unknown) => setProblem(message(error)))
   }
 
   return (
@@ -219,14 +222,14 @@ function TeamsRow({
             {notNow.map((team) => (
               <span key={team} className={styles.notNowTeam}>
                 {team}
-                <button
+                <ActionButton
                   type="button"
                   className={styles.link}
                   aria-label={`Allow ${team} for Automations in ${factory.name}`}
                   onClick={() => allow(team)}
                 >
                   Allow
-                </button>
+                </ActionButton>
               </span>
             ))}
           </span>

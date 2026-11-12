@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export type * from './api-cost.ts'
 export {
   type AppCapture,
   type AppLog,
@@ -40,6 +41,7 @@ export {
   signRequest,
 } from './app-auth.ts'
 export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
+export { type AsanaConfiguration, type AsanaStatus, parseAsanaConfiguration } from './asana.ts'
 export type {
   AnswerAutomationRequest,
   Automation,
@@ -71,6 +73,13 @@ export {
   parseEditAutomationRequest,
   parseSchedulePreviewRequest,
 } from './automation-parsers.ts'
+export {
+  type AutopilotChoice,
+  autopilotEnabled,
+  parseSetTaskAutopilotRequest,
+  type SetTaskAutopilotRequest,
+  type TaskAutopilot,
+} from './autopilot.ts'
 export {
   type Banner,
   type BannerAction,
@@ -238,6 +247,7 @@ export {
   type ReservationId,
   type TaskAssignment,
 } from './execution.ts'
+export * from './execution-pairing.ts'
 export {
   type ExportFormat,
   type ExportRun,
@@ -364,6 +374,8 @@ export {
   agentHealthStates,
   agentProblem,
   agentShortNames,
+  antigravityPlanNotice,
+  antigravityTermsUrl,
   type Billing,
   billingNames,
   billings,

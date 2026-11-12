@@ -8,19 +8,18 @@ import { Button } from './Button.tsx'
 export function useOutsideSandbox(
   task: Task,
   app: Pick<TaskApp, 'name' | 'confirmOutsideSandbox'>,
-): { confirm: (run: () => void) => void; dialog: ReactNode } {
-  const [pending, setPending] = useState<() => void>()
-  const confirm = (run: () => void) => {
+): { confirm: (run: () => unknown) => unknown; dialog: ReactNode } {
+  const [pending, setPending] = useState<() => unknown>()
+  const confirm = (run: () => unknown) => {
     if (app.confirmOutsideSandbox === true) setPending(() => run)
-    else run()
+    else return run()
   }
   const dialog = pending && (
     <OutsideSandboxDialog
       task={task}
       app={app.name}
       onRun={() => {
-        setPending(undefined)
-        pending()
+        return Promise.resolve(pending()).then(() => setPending(undefined))
       }}
       onCancel={() => setPending(undefined)}
     />
@@ -36,7 +35,7 @@ export function OutsideSandboxDialog({
 }: {
   task: Task
   app: string
-  onRun: () => void
+  onRun: () => unknown
   onCancel: () => void
 }) {
   const [always, setAlways] = useState(false)
@@ -44,21 +43,23 @@ export function OutsideSandboxDialog({
   const [error, setError] = useState<string>()
 
   async function run() {
-    if (!always) return onRun()
     setBusy(true)
     setError(undefined)
     try {
-      const { appsOutsideSandbox } = await ted.getSettings()
-      const list = appsOutsideSandbox[task.factoryId] ?? []
-      await ted.updateSettings({
-        appsOutsideSandbox: {
-          ...appsOutsideSandbox,
-          [task.factoryId]: [...new Set([...list, app])],
-        },
-      })
-      onRun()
+      if (always) {
+        const { appsOutsideSandbox } = await ted.getSettings()
+        const list = appsOutsideSandbox[task.factoryId] ?? []
+        await ted.updateSettings({
+          appsOutsideSandbox: {
+            ...appsOutsideSandbox,
+            [task.factoryId]: [...new Set([...list, app])],
+          },
+        })
+      }
+      await onRun()
     } catch (failure) {
       setError(readableError(failure))
+    } finally {
       setBusy(false)
     }
   }
@@ -90,7 +91,7 @@ export function OutsideSandboxDialog({
             <Button disabled={busy} onClick={onCancel}>
               Cancel
             </Button>
-            <Button variant="primary" disabled={busy} onClick={() => void run()}>
+            <Button variant="primary" disabled={busy} onClick={() => run()}>
               Run
             </Button>
           </div>

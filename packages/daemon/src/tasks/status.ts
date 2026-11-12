@@ -245,7 +245,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
 function stoppedActivity({ runs, why }: NonNullable<TaskFacts['stopped']>): string {
   if (why === 'repair-incorporation')
     return 'Repair incorporation needs attention. See the thread, then Resume.'
-  if (why === 'prepared') return 'Ready for Work · Resume or turn on Overnight mode.'
+  if (why === 'prepared') return 'Ready for Work · Resume or turn on Autopilot.'
   if (why === 'blockers-removed') return 'Its blockers are gone. Resume to carry on.'
   if (runs === 0) return 'Worktree and Apps kept.'
   return `Worktree and Apps kept. ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped.`

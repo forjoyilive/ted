@@ -257,7 +257,7 @@ test('preparation intent and ready holds survive reopening and are consumed on R
     preparation: 'ready',
     stopped: true,
     status: { kind: 'stopped', prepared: true },
-    activity: 'Ready for Work · Resume or turn on Overnight mode.',
+    activity: 'Ready for Work · Resume or turn on Autopilot.',
   })
   await store.close()
   store = await openStore({ directory: dir })

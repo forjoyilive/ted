@@ -304,7 +304,11 @@ test('an empty successful agent read ends the initial loading state', async () =
   const { AgentsPage } = await import('../src/renderer/settings/AgentsPage.tsx')
   const { defaultMachineSettings } = await import('@ted/protocol/settings')
   const pending = deferred<never[]>()
-  bridge({ agentHealth: () => pending.promise, library: () => ({ agents: [], version: 'v1' }) })
+  bridge({
+    agentHealth: () => pending.promise,
+    apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
+    library: () => ({ agents: [], version: 'v1' }),
+  })
   render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.getByRole('status', { name: 'Checking your agents…' })).toBeTruthy()
   await act(async () => pending.resolve([]))
@@ -583,4 +587,28 @@ test('a short linked request can reveal its interactive content without hiding t
   expect(screen.getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
     'https://example.com/guide',
   )
+})
+
+test('thread Unarchive retains pending feedback, rejects repeats and recovers after failure', async () => {
+  const completion = deferred<ReturnType<typeof task>>()
+  const unarchive = vi.fn(() => completion.promise)
+  bridge({
+    listComments: () => [],
+    listThreadEvents: () => [],
+    listCheckRuns: () => [],
+    listFailures: () => [],
+    taskDescriptions: () => [],
+    markCommentsRead: () => undefined,
+    unarchiveTask: unarchive,
+  })
+  render(history(task({ archived: { at: createdAt, ended: { kind: 'never-started' } } })))
+  const button = screen.getByRole('button', { name: 'Unarchive' })
+  await user().click(button)
+  expect(button.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(button)
+  expect(unarchive).toHaveBeenCalledOnce()
+  await act(async () => completion.reject(new Error('Couldn’t unarchive')))
+  expect(button.getAttribute('aria-busy')).toBeNull()
+  expect((button as HTMLButtonElement).disabled).toBe(false)
+  expect(screen.getByRole('alert').textContent).toBe('Couldn’t unarchive')
 })

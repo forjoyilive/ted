@@ -1,5 +1,7 @@
 import type { Task } from '@ted/protocol'
 import { useEffect, useId, useRef, useState } from 'react'
+import { usePendingAction } from '../pending-action.ts'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './BlockerPicker.module.css'
 import { Button } from './Button.tsx'
 import { CloseIcon, PlusIcon } from './icons.tsx'
@@ -18,9 +20,10 @@ export function BlockerPicker({
   searchRequest?: number
   tasks: readonly Task[]
   blockers: readonly Task[]
-  onAdd: (id: string) => void
+  onAdd: (id: string) => unknown
   onRemove: (id: string) => void
 }) {
+  const activity = usePendingAction()
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const searchField = useRef<HTMLInputElement>(null)
@@ -57,9 +60,13 @@ export function BlockerPicker({
     .slice(0, 8)
 
   function choose(task: Task) {
-    onAdd(task.id)
-    setQuery('')
-    setSearching(false)
+    const done = () => {
+      setQuery('')
+      setSearching(false)
+    }
+    const result = activity.run(() => onAdd(task.id))
+    if (result) return result.then(done)
+    done()
   }
 
   return (
@@ -68,14 +75,15 @@ export function BlockerPicker({
         <span key={task.id} className={styles.blocker}>
           <span className={styles.blockerId}>{task.displayId}</span>
           <span className={styles.blockerTitle}>{task.title}</span>
-          <button
+          <ActionButton
             type="button"
             className={styles.remove}
+            disabled={activity.pending}
             aria-label={`Remove ${task.displayId}`}
             onClick={() => onRemove(task.id)}
           >
             <CloseIcon size={11} />
-          </button>
+          </ActionButton>
         </span>
       ))}
       {searching ? (
@@ -110,7 +118,7 @@ export function BlockerPicker({
           >
             {matches.length === 0 && <p className={styles.noMatch}>No matching Tasks</p>}
             {matches.map((task) => (
-              <button
+              <ActionButton
                 key={task.id}
                 type="button"
                 role="option"
@@ -121,7 +129,7 @@ export function BlockerPicker({
               >
                 <span className={styles.blockerId}>{task.displayId}</span>
                 <span className={styles.blockerTitle}>{task.title}</span>
-              </button>
+              </ActionButton>
             ))}
           </div>
         </span>
