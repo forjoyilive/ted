@@ -689,8 +689,12 @@ export interface TedStore extends TaskHistory {
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
   requeueAfterBlockers(taskId: string): Task
+  taskStoppedByHuman(taskId: string): boolean
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
-  resumeTask(taskId: string, options: { waitForBlockers: boolean; overnight?: boolean }): Task
+  resumeTask(
+    taskId: string,
+    options: { waitForBlockers: boolean; overnight?: boolean; talkCommentId?: string },
+  ): Task
   leadNudged(taskId: string, runId: string): void
   appStarted(input: {
     taskId: string
@@ -778,7 +782,8 @@ export interface TedStore extends TaskHistory {
   commentsDelivered(ids: readonly string[], runId: string): void
   commentsRead(ids: readonly string[]): void
   holdAnswer(id: string): void
-  startRoundTalk(id: string, runId: string): Comment
+  requestRoundTalk(id: string): Comment
+  startRoundTalk(id: string, runId: string, text: string): Comment
   roundTalkDone(id: string): Comment
   heldAnswers(taskId: string): Comment[]
   answersDelivered(ids: readonly string[], runId: string): void
@@ -1987,6 +1992,7 @@ export async function openStore({
     answerSentRunId,
     answerSentAt,
     failedRunId,
+    talkRequested,
     talkRunId,
     talkStartedAt,
     talkDoneAt,
@@ -2008,6 +2014,7 @@ export async function openStore({
         ...(title !== null && { title }),
         ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
         ...(round !== null && { round: JSON.parse(round) as Round }),
+        ...(talkRequested && { talkRequested: true as const }),
         ...(talkRunId !== null &&
           talkStartedAt !== null && {
             talk: {
@@ -3430,7 +3437,12 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    taskStoppedByHuman(taskId) {
+      const row = requireTaskRow(taskId)
+      return row.stoppedAt !== null && (row.stoppedWhy === 'human' || row.stoppedWhy === null)
+    },
     stopTask(taskId, { runs, why }) {
+      const pendingTalks = store.query(queryDb(comments.where({ taskId, talkRequested: true })))
       const at = new Date().toISOString()
       commit(
         events.taskStopped({ taskId, runs, why, at }),
@@ -3438,20 +3450,23 @@ export async function openStore({
           ? [events.taskPreparationChanged({ taskId, state: null, at })]
           : []),
       )
+      for (const { id } of pendingTalks) emitComment(id)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
-    resumeTask(taskId, { waitForBlockers, overnight }) {
+    resumeTask(taskId, { waitForBlockers, overnight, talkCommentId }) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
       const at = new Date().toISOString()
       commit(
+        ...(talkCommentId ? [events.roundTalkRequested({ id: talkCommentId, at })] : []),
         (overnight ? events.taskResumedOvernight : events.taskResumed)({ taskId, rank, at }),
         ...(taskRow(taskId)?.preparation === 'ready'
           ? [events.taskPreparationChanged({ taskId, state: null, at })]
           : []),
         ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
       )
+      if (talkCommentId) emitComment(talkCommentId)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
@@ -4297,8 +4312,18 @@ export async function openStore({
       commit(events.commentsRead({ ids, at: new Date().toISOString() }))
       for (const id of ids) emitComment(id)
     },
-    startRoundTalk(id, runId) {
-      commit(events.roundTalkStarted({ id, runId, at: new Date().toISOString() }))
+    requestRoundTalk(id) {
+      commit(events.roundTalkRequested({ id, at: new Date().toISOString() }))
+      return emitComment(id)
+    },
+    startRoundTalk(id, runId, text) {
+      const at = new Date().toISOString()
+      const taskId = taskIdOfRun(runId) ?? null
+      commit(
+        events.roundTalkStarted({ id, runId, at }),
+        events.runMessageQueuedV2({ id: randomUUID(), runId, taskId, text, at, from: 'ted' }),
+      )
+      emit({ type: 'run-output', runId })
       return emitComment(id)
     },
     roundTalkDone(id) {

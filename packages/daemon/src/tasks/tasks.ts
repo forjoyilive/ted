@@ -75,6 +75,8 @@ import type {
   StartSubAgentRequest,
   SubAgent,
   SubAgentWait,
+  TalkThroughRequest,
+  TalkThroughResult,
   Task,
   TaskApp,
   TaskBrief,
@@ -482,7 +484,7 @@ export interface Tasks {
   coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
   coordinatorResume(ref: string, comment?: string): Promise<Task>
   isFailureDecision(commentId: string): boolean
-  talkThrough(commentId: string): Promise<Comment>
+  talkThrough(commentId: string, request: TalkThroughRequest): Promise<TalkThroughResult>
   doneTalking(commentId: string): Promise<Comment>
   closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
@@ -3688,6 +3690,7 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
+    pendingTalks(taskId)
     const waiting = waitingForRun(taskId)
     if (waiting.comments.length > 0 || waiting.answers.some((c) => c.answerDelivery))
       await sendComment(run.id)
@@ -4375,7 +4378,9 @@ export function createTasks(options: {
     const run = store.getRun(runId)
     if (!run) return 0
     const within = (at: string | undefined) => at !== undefined && at >= since && at <= until
-    const human = store.runMessages(runId).filter((m) => m.queued !== true && within(m.at))
+    const human = store
+      .runMessages(runId)
+      .filter((m) => m.from !== 'ted' && m.queued !== true && within(m.at))
     const agent = agents
       .get(run.agent)
       .chat(runs.output.entries(runId), run.cwd)
@@ -4383,16 +4388,57 @@ export function createTasks(options: {
     return human.length + agent.length
   }
 
-  async function talkThrough(commentId: string): Promise<Comment> {
-    const { task, round } = openTalkRound(commentId)
+  function bindRoundTalk(task: StoredTask, round: Comment): Comment {
     const run = talkLead(task)
-    if (round.talk?.runId === run.id) return round
-    const talking = store.startRoundTalk(round.id, run.id)
-    await deliver(
-      task,
+    if (round.talk?.runId === run.id && !round.talkRequested) return round
+    const talking = store.startRoundTalk(
+      round.id,
+      run.id,
       `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
     )
+    inBackground('deliver the talk request', () => options.steering.changed(run.id))
     return talking
+  }
+
+  function pendingTalks(taskId: string): void {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || task.stopped || stoppingByHand.has(task.id) || !liveLead(task))
+      return
+    for (const round of store.listComments(taskId)) {
+      if (round.kind === 'round' && !round.answer && round.talkRequested) bindRoundTalk(task, round)
+    }
+  }
+
+  async function talkThrough(
+    commentId: string,
+    request: TalkThroughRequest,
+  ): Promise<TalkThroughResult> {
+    const { task, round } = openTalkRound(commentId)
+    if (task.archived || task.stage === 'done' || task.stage === 'backlog') {
+      throw new RequestError(409, 'this Task is no longer available for a talk')
+    }
+    if (stoppingByHand.has(task.id))
+      throw new RequestError(409, 'the Task is still stopping; try again')
+    if (task.stopped && store.taskStoppedByHuman(task.id) && !request.confirmResume)
+      return { resumeRequired: true }
+    if (!task.stopped && liveLead(task)) return bindRoundTalk(task, round)
+    if (task.status?.kind === 'failed') {
+      throw new RequestError(409, 'retry the failed Task before talking it through')
+    }
+    if (
+      task.stopped ||
+      (canStartFresh(task) &&
+        !leadLifecycle.pendingRevive(task.id) &&
+        !leadLifecycle.recovering(task.leadRunId ?? ''))
+    ) {
+      store.resumeTask(task.id, {
+        waitForBlockers: unmergedBlockers(task.id).length > 0,
+        talkCommentId: round.id,
+      })
+    } else if (!round.talkRequested) store.requestRoundTalk(round.id)
+    await store.persisted()
+    void pump()
+    return store.getComment(round.id) ?? round
   }
 
   async function doneTalking(commentId: string): Promise<Comment> {
@@ -6526,6 +6572,9 @@ export function createTasks(options: {
   }
 
   leadLifecycle.recoverStartup()
+  for (const task of store.listTasks()) {
+    if (store.listComments(task.id).some((c) => c.talkRequested)) pendingTalks(task.id)
+  }
 
   const interruptedHandOffs = store
     .listCheckRuns()
@@ -7886,7 +7935,7 @@ export function createTasks(options: {
       return answeredItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))), now)
     },
 
-    talkThrough: (id) => talkThrough(id),
+    talkThrough: (id, request) => talkThrough(id, request),
     doneTalking: (id) => doneTalking(id),
     closeRound: (ref, caller, summary) => closeRound(ref, caller, summary),
 

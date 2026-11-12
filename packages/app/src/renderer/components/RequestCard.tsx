@@ -34,6 +34,8 @@ import { formatDate } from '../time.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
+import dialogStyles from './ArchiveDialogs.module.css'
+import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
@@ -407,6 +409,37 @@ export function RequestCard({
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onOpenPlan?: ((planId: string) => void) | undefined
 }) {
+  const [confirmTalk, setConfirmTalk] = useState(false)
+  const [openWhenReady, setOpenWhenReady] = useState(false)
+  const pendingTalkSeen = useRef(false)
+  const previousTalkRun = useRef<string>(undefined)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  useEffect(() => {
+    if (!openWhenReady) return
+    if (request.answer || task.archived) {
+      setOpenWhenReady(false)
+      return
+    }
+    if (request.talkRequested) {
+      pendingTalkSeen.current = true
+      return
+    }
+    if (
+      request.talk &&
+      request.talk.runId === task.leadRunId &&
+      task.status?.kind !== 'stopped' &&
+      request.talk.runId !== previousTalkRun.current
+    ) {
+      setOpenWhenReady(false)
+      onOpenRun?.(request.talk.runId)
+    } else if (pendingTalkSeen.current) setOpenWhenReady(false)
+  }, [openWhenReady, request, task, onOpenRun])
   const now = useNow()
   const repairFormId = useId()
   const [selection, setSelection] = useState<QuestionSelection>()
@@ -454,15 +487,20 @@ export function RequestCard({
     }
   }
 
-  async function talk() {
+  async function talk(confirmResume = false) {
     if (sendingRef.current) return
     sendingRef.current = true
     setSubmission(undefined)
     setSending(true)
     setError(undefined)
     try {
-      const talking = await ted.talkThrough(request.id)
-      if (talking.talk) onOpenRun?.(talking.talk.runId)
+      previousTalkRun.current = request.talk?.runId
+      pendingTalkSeen.current = false
+      const talking = await ted.talkThrough(request.id, { confirmResume })
+      if (!mounted.current) return
+      if ('resumeRequired' in talking) setConfirmTalk(true)
+      else if (talking.talkRequested) setOpenWhenReady(true)
+      else if (talking.talk && !talking.answer) onOpenRun?.(talking.talk.runId)
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -586,14 +624,49 @@ export function RequestCard({
       {request.kind === 'signoff' && request.stage === 'review' && !readOnly && (
         <PreviewRow task={task} onOpenApp={onOpenApp} />
       )}
+      {confirmTalk && (
+        <Dialog onClose={() => setConfirmTalk(false)}>
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogStyles.heading}>
+                Resume Task to talk?
+              </h2>
+              <p className={dialogStyles.body}>
+                You stopped this Task. Resume its Task Lead to talk through this round. Your answers
+                will stay as they are.
+              </p>
+              <div className={dialogStyles.buttons}>
+                <Button onClick={() => setConfirmTalk(false)}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setConfirmTalk(false)
+                    void talk(true)
+                  }}
+                >
+                  Resume and talk
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
+      {request.talkRequested && !request.answer && !readOnly && (
+        <p className={styles.summary} role="status">
+          Waiting for Task Lead…{' '}
+          {task.activity || 'Waiting for a free slot or for the agent to be available.'}
+        </p>
+      )}
       {request.round && (
         <RoundQuestions
           round={request.round}
+          draftKey={request.id}
+          waiting={request.talkRequested === true}
           readOnly={readOnly}
           sending={sending}
-          talking={request.talk !== undefined}
-          onSend={(answer) => send(answer)}
-          onTalk={onOpenRun && (() => talk())}
+          talking={request.talk !== undefined && request.talk.runId === task.leadRunId}
+          onSend={(answer) => void send(answer)}
+          onTalk={onOpenRun && (() => void talk())}
         />
       )}
       {request.proposal &&

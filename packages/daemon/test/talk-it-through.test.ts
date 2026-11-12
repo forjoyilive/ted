@@ -12,10 +12,12 @@ import {
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { openStore } from '../src/store/index.ts'
 import {
   api,
   assistantTexts,
   commitToOrigin,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -77,17 +79,24 @@ const summary = `Summary of Talk it through, Round 1:
 Still open: how long a device can stay offline.
 `
 
-async function start() {
-  await commitToOrigin(scratch, {
-    '.ted/workflow.yaml': 'version: 1\norder: [intake, clarify, work]\n',
-  })
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+function connection() {
+  if (!daemon) throw new Error('no daemon')
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T
   }
+  return { ...client, ok }
+}
+
+async function start() {
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': 'version: 1\norder: [intake, clarify, work]\n',
+  })
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const client = connection()
+  const { ok } = client
   await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   const file = async (name: string, content: string) => {
     const at = path.join(scratch, name)
@@ -304,7 +313,7 @@ describe('Talk it through', () => {
     expect(lateDone).toMatchObject({ status: 409 })
   })
 
-  test('a talk needs a live Task Lead and a round, and only the app starts or ends it', async () => {
+  test('a talk needs a round and app authority; a stopped Task needs confirmation before a fresh Lead starts', async () => {
     const client = await start()
     const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
       endTurn: true,
@@ -336,7 +345,120 @@ describe('Talk it through', () => {
 
     await client.ok('POST', `/tasks/${task.id}/stop`)
     const stopped = await client.call('POST', `/comments/${item.request.id}/talk`)
-    expect(stopped.status).toBe(409)
+    expect(stopped).toMatchObject({ status: 200, body: { resumeRequired: true } })
+    expect((await getTask(client, task.id)).status?.kind).toBe('stopped')
+    expect(
+      (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
+    ).toBeUndefined()
+    await client.ok('POST', `/comments/${item.request.id}/talk`, { confirmResume: true })
+    const talking = await waitUntil(async () => {
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      return round?.talk && round.talk.runId !== lead ? round : undefined
+    }, 'the confirmed talk to bind to a fresh Lead')
+    expect(talking.answer).toBeUndefined()
+    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    await waitUntil(
+      async () =>
+        (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+      'the new Lead to receive the talk request',
+    )
+  })
+
+  test('a Task stopped by TED starts directly for a talk without asking to resume', async () => {
+    let client = await start()
+    const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
+      endTurn: true,
+    })
+    const item = await openRound(client, 1)
+    const first = await leadId(client, task)
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    await daemon?.stop()
+    const store = await openStore({ directory: tedPaths(home).store })
+    try {
+      store.stopTask(task.id, { runs: store.getTask(task.id)?.runs.length ?? 0, why: 'prepared' })
+      await store.persisted()
+    } finally {
+      await store.close()
+    }
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    client = { ...client, ...connection() }
+    const requested = await client.ok<Comment>('POST', `/comments/${item.request.id}/talk`)
+    expect(requested).not.toHaveProperty('resumeRequired')
+    await waitUntil(async () => {
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      return round?.talk && round.talk.runId !== first ? round : undefined
+    }, 'the automatically started Lead to receive the talk')
+  })
+
+  test('a queued talk survives a restart, starts once, and is cancelled by stopping or answering the round', async () => {
+    let client = await start()
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
+      endTurn: true,
+    })
+    const item = await openRound(client, 1)
+    const first = await leadId(client, task)
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    const blocker = await startTask(
+      client,
+      { waitFor: path.join(scratch, 'never') },
+      { endTurn: true },
+    )
+    await waitUntil(
+      async () => (await getTask(client, blocker.id)).runs.some((r) => r.state === 'working'),
+      'the other Task to hold the slot',
+    )
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    const pending = await client.ok<Comment>('POST', `/comments/${item.request.id}/talk`)
+    expect(pending.talkRequested).toBe(true)
+    await client.ok('POST', `/comments/${item.request.id}/talk`)
+    expect((await getTask(client, task.id)).leadRunId).toBe(first)
+
+    await hostsStarted(home)
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    client = { ...client, ...connection() }
+    expect(
+      (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
+    ).toBe(true)
+    await client.ok('POST', `/tasks/${blocker.id}/stop`)
+    const talking = await waitUntil(async () => {
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      return round?.talk?.runId !== first && round?.talk ? round : undefined
+    }, 'the queued talk to bind after restart')
+    expect(talking.talkRequested).toBeUndefined()
+    expect(
+      (await getTask(client, task.id)).runs.filter((r) => r.state !== 'finished'),
+    ).toHaveLength(1)
+    await waitUntil(
+      async () =>
+        (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1'))
+          .length === 1,
+      'exactly one talk request',
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    await client.ok('POST', `/tasks/${blocker.id}/resume`, {})
+    await waitUntil(
+      async () => (await getTask(client, blocker.id)).runs.some((r) => r.state === 'working'),
+      'the slot to be occupied again',
+    )
+    await client.ok('POST', `/comments/${item.request.id}/talk`, { confirmResume: true })
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    expect(
+      (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
+    ).toBeUndefined()
+    await client.ok('POST', `/comments/${item.request.id}/talk`, { confirmResume: true })
+    await client.ok('POST', `/comments/${item.request.id}/answer`, {
+      action: 'answer-round',
+      answers: storageRound.questions.map((q) => ({ answer: q.recommended })),
+    })
+    const answered = (await comments(client, task)).find((c) => c.id === item.request.id)
+    expect(answered?.answer?.kind).toBe('answered')
+    expect(answered?.talkRequested).toBeUndefined()
+    expect(await client.call('POST', `/comments/${item.request.id}/talk`)).toMatchObject({
+      status: 409,
+    })
   })
 
   test('after the Task Lead is replaced, Done talking asks for a fresh talk and the new Run can’t close the old one', async () => {

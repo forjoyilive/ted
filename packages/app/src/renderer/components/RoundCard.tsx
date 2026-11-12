@@ -134,6 +134,8 @@ function Question({
 
 export function RoundQuestions({
   round,
+  draftKey,
+  waiting = false,
   readOnly,
   sending,
   talking,
@@ -141,15 +143,37 @@ export function RoundQuestions({
   onTalk,
 }: {
   round: Round
+  draftKey?: string
+  waiting?: boolean
   readOnly: boolean
   sending: boolean
   talking: boolean
   onSend: (answer: AnswerRequest) => void
   onTalk: (() => void) | undefined
 }) {
-  const [drafts, setDrafts] = useState(() => round.questions.map(initialDraft))
-  const update = (i: number, draft: Draft) =>
-    setDrafts((all) => all.map((d, at) => (at === i ? draft : d)))
+  const storageKey = draftKey ? `ted.round-draft.${draftKey}` : undefined
+  const [drafts, setDrafts] = useState<Draft[]>(() => {
+    try {
+      const saved = storageKey && sessionStorage.getItem(storageKey)
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved)
+        if (
+          Array.isArray(parsed) &&
+          parsed.length === round.questions.length &&
+          parsed.every((d) => typeof d?.answer === 'string' && typeof d?.note === 'string')
+        )
+          return parsed
+      }
+    } catch {}
+    return round.questions.map(initialDraft)
+  })
+  const update = (i: number, draft: Draft) => {
+    const next = drafts.map((d, at) => (at === i ? draft : d))
+    setDrafts(next)
+    try {
+      if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(next))
+    } catch {}
+  }
   const complete = drafts.every((d) => (d.other ? (d.custom ?? '') : d.answer).trim() !== '')
   return (
     <>
@@ -168,8 +192,8 @@ export function RoundQuestions({
       {!readOnly && (
         <div className={styles.buttons}>
           {onTalk && (
-            <Button className={styles.talk} disabled={sending} onClick={onTalk}>
-              {talking ? 'Open chat' : 'Talk it through'}
+            <Button className={styles.talk} disabled={sending || waiting} onClick={onTalk}>
+              {waiting ? 'Waiting for Task Lead…' : talking ? 'Open chat' : 'Talk it through'}
             </Button>
           )}
           <Button

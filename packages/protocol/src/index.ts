@@ -716,6 +716,8 @@ export {
   type StartTaskRequest,
   sizeChoices,
   type TalkedThrough,
+  type TalkThroughRequest,
+  type TalkThroughResult,
   type Task,
   type TaskArchive,
   type TaskBrief,
@@ -793,6 +795,7 @@ export {
   parseSetTaskReposRequest,
   parseSizeCheckInput,
   parseStartTaskRequest,
+  parseTalkThroughRequest,
   parseTaskLead,
   parseWriteBriefRequest,
 } from './task-parsers.ts'

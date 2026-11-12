@@ -445,6 +445,7 @@ export const comments = State.SQLite.table({
     answerSentRunId: State.SQLite.text({ nullable: true }),
     answerSentAt: State.SQLite.text({ nullable: true }),
     failedRunId: State.SQLite.text({ nullable: true }),
+    talkRequested: State.SQLite.boolean({ default: false }),
     talkRunId: State.SQLite.text({ nullable: true }),
     talkStartedAt: State.SQLite.text({ nullable: true }),
     talkDoneAt: State.SQLite.text({ nullable: true }),
@@ -1692,6 +1693,10 @@ export const events = {
   commentAnswered: Events.synced({
     name: 'v1.CommentAnswered',
     schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
+  }),
+  roundTalkRequested: Events.synced({
+    name: 'v1.RoundTalkRequested',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
   roundTalkStarted: Events.synced({
     name: 'v1.RoundTalkStarted',
@@ -3377,6 +3382,7 @@ const materializers = counted(
       'v1.TaskPreparationChanged': ({ taskId, state, at }) =>
         tasks.update({ preparation: state, changedAt: at }).where({ id: taskId }),
       'v1.TaskStopped': ({ taskId, runs, why, at }) => [
+        comments.update({ talkRequested: false }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
         tasks
           .update({
@@ -3511,14 +3517,17 @@ const materializers = counted(
       'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
         tasks.update({ priority, changedAt: at }).where({ id: taskId }),
       'v1.TaskArchived': ({ taskId, at }) => [
+        comments.update({ talkRequested: false }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v2.TaskArchived': ({ taskId, at }) => [
+        comments.update({ talkRequested: false }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v3.TaskArchived': ({ taskId, at }) => [
+        comments.update({ talkRequested: false }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
@@ -3636,9 +3645,13 @@ const materializers = counted(
       'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAcceptanceInvalidated': (row) =>
         failureCases.insert(row).onConflict('id', 'replace'),
-      'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
+      'v1.CommentAnswered': ({ id, answer }) =>
+        comments.update({ answer, talkRequested: false }).where({ id }),
+      'v1.RoundTalkRequested': ({ id }) => comments.update({ talkRequested: true }).where({ id }),
       'v1.RoundTalkStarted': ({ id, runId, at }) =>
-        comments.update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null }).where({ id }),
+        comments
+          .update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null, talkRequested: false })
+          .where({ id }),
       'v1.RoundTalkDone': ({ id, at }) => comments.update({ talkDoneAt: at }).where({ id }),
       'v1.PeerMessageSent': (row) => peerMessages.insert(row),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),

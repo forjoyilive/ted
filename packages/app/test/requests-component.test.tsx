@@ -262,6 +262,75 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   })
 })
 
+test('Talk it through confirms a stopped Task, preserves edits on cancel, and opens only when ready', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  const start = vi.fn((..._args: unknown[]) => ({ resumeRequired: true }))
+  api.handle('talkThrough', start)
+  const open = vi.fn()
+  const props = { request, task: task(), onOpenRun: open }
+  const view = render(<RequestCard {...props} />)
+  const u = user()
+  await u.click(screen.getByRole('radio', { name: 'Keep latest' }))
+  await u.type(screen.getByLabelText('Add to answer 1'), 'Keep this note.')
+  await u.click(screen.getByRole('button', { name: 'Talk it through' }))
+  expect(start).toHaveBeenLastCalledWith('c1', { confirmResume: false })
+  await screen.findByRole('dialog', { name: 'Resume Task to talk?' })
+  await u.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(start).toHaveBeenCalledTimes(1)
+  expect((screen.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Keep this note.',
+  )
+  await u.click(screen.getByRole('button', { name: 'Talk it through' }))
+  await screen.findByRole('dialog', { name: 'Resume Task to talk?' })
+  api.handle('talkThrough', (...args) => {
+    start(...args)
+    return { ...request, talkRequested: true }
+  })
+  await u.click(screen.getByRole('button', { name: 'Resume and talk' }))
+  expect(start).toHaveBeenLastCalledWith('c1', { confirmResume: true })
+  view.rerender(<RequestCard {...props} request={{ ...request, talkRequested: true }} />)
+  expect(screen.getByRole('status').textContent).toContain('Waiting for Task Lead…')
+  expect(
+    (screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement).disabled,
+  ).toBe(false)
+  expect(open).not.toHaveBeenCalled()
+  const ready = { ...request, talk: { runId: 'new-lead', startedAt: createdAt } }
+  view.rerender(<RequestCard {...props} request={ready} task={task({ leadRunId: 'new-lead' })} />)
+  await waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith('new-lead'))
+  view.unmount()
+  render(<RequestCard request={ready} task={task({ leadRunId: 'new-lead' })} onOpenRun={open} />)
+  expect(open).toHaveBeenCalledTimes(1)
+  expect((screen.getByRole('radio', { name: /Keep latest/ }) as HTMLInputElement).checked).toBe(
+    true,
+  )
+  expect((screen.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Keep this note.',
+  )
+  api.handle('talkThrough', () => ready)
+  await u.click(screen.getByRole('button', { name: 'Open chat' }))
+  expect(open).toHaveBeenCalledTimes(2)
+})
+
+test('a talk that becomes ready after leaving the round offers Open chat on the next visit', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  api.handle('talkThrough', () => ({ ...request, talkRequested: true }))
+  const open = vi.fn()
+  const view = render(<RequestCard request={request} task={task()} onOpenRun={open} />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  view.unmount()
+  render(
+    <RequestCard
+      request={{ ...request, talk: { runId: 'lead', startedAt: createdAt } }}
+      task={task({ leadRunId: 'lead' })}
+      onOpenRun={open}
+    />,
+  )
+  expect(screen.getByRole('button', { name: 'Open chat' })).toBeTruthy()
+  expect(open).not.toHaveBeenCalled()
+})
+
 test('grilling sign-off displays decisions, open questions and button guidance', async () => {
   requestApi()
   render(
