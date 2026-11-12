@@ -6186,7 +6186,12 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
     if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
-    if (merging.has(task.id) || task.pendingLeadMessages.length > 0) return
+    if (
+      merging.has(task.id) ||
+      task.pendingLeadMessages.length > 0 ||
+      queuedAnswers(task.id).length > 0
+    )
+      return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return

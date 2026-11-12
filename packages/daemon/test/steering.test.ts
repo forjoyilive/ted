@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -8,6 +8,7 @@ import {
   type Factory,
   type RunChat,
   type RunMessage,
+  type RunSlots,
   type Task,
   type ThreadEvent,
   tedPaths,
@@ -28,6 +29,7 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -47,9 +49,13 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startTed(online?: Parameters<typeof startDaemon>[0]['online']) {
+async function startTed(
+  online?: Parameters<typeof startDaemon>[0]['online'],
+  timing: { clock?: ManualClock; nudgeAfterMs?: number } = {},
+) {
   daemon = await startDaemon({
     home,
+    ...timing,
     ...(online && { online }),
     version: '9.9.9',
     claudeBin: stubClaudePath,
@@ -413,16 +419,18 @@ test('question replies wait for a safe boundary and survive a failed transport b
   const { runId, lead, saved, current, reply } = await questionDuringWork(client)
   expect(saved.answerDelivery).toEqual({ queuedAt: saved.answer?.at })
   const input = path.join(home, 'runs', runId, 'input.jsonl')
-  const original = await readFile(input).catch(() => undefined)
-  await rm(input, { force: true })
-  await mkdir(input)
+  await writeFile(input, '', { flag: 'a', mode: 0o600 })
+  const original = await readFile(input)
+  const mode = (await stat(input)).mode & 0o777
+  const revivedAt = (await client.getRun(runId)).run.revivedAt
+  await chmod(input, 0o400)
   try {
     const failure = await lead.call('POST', `/runs/${runId}/boundary`)
     expect(failure.status).toBe(500)
     expect((await current())?.answerDelivery?.sent).toBeUndefined()
+    expect(await readFile(input)).toEqual(original)
   } finally {
-    await rm(input, { recursive: true, force: true })
-    if (original) await writeFile(input, original)
+    await chmod(input, mode)
   }
   await writeFile(file('answer-boundary'), '')
   const receipt = await waitUntil(async () => (await current())?.answerDelivery?.sent, 'reply sent')
@@ -434,6 +442,14 @@ test('question replies wait for a safe boundary and survive a failed transport b
       : undefined
   }, 'the reply at the boundary')
   await writeFile(file('finish-answer'), '')
+  await waitForState(client, runId, 'idle')
+  const finished = await client.getRun(runId)
+  expect(finished.run.revivedAt).toBe(revivedAt)
+  expect(
+    assistantTexts(finished.conversation).filter(
+      (text) => text.includes('Read: The user replied') && text.includes(reply),
+    ),
+  ).toHaveLength(1)
 })
 
 test('an unsent question reply reaches a replacement Task Lead in its starting prompt', async () => {
@@ -483,38 +499,68 @@ test('a reply saved while its idle Task Lead is offline is sent when health reco
   expect(sent.runId).toBe(runId)
 })
 
-test('an idle question reply waits for a working slot and records sent only after admission', async () => {
-  const client = await startTed()
+test('an idle question reply stays queued past the nudge deadline until a working slot admits it', async () => {
+  const clock = new ManualClock()
+  const client = await startTed(undefined, { clock, nudgeAfterMs: 1000 })
   await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
   let blocker: Task | undefined
-  const { task, runId, saved, current } = await questionDuringWork(client, async (_task, runId) => {
-    await writeFile(file('answer-boundary'), '')
-    await writeFile(file('finish-answer'), '')
-    await waitForState(client, runId, 'idle')
-    blocker = await client.ok<Task>('POST', '/tasks', {
-      factory: 'NB',
-      start: true,
-      title: JSON.stringify({
-        steps: [{ say: 'slot occupied' }, { waitFor: file('keep-slot') }, { endTurn: true }],
-      }),
-    })
-    const blockerRun = await waitUntil(async () => {
-      const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === blocker?.id)
-      return task?.leadRunId
-    }, 'the blocking Task Lead')
-    await said(client, blockerRun, 'slot occupied')
-  })
+  let blockerRunId: string | undefined
+  const { task, runId, saved, current, reply } = await questionDuringWork(
+    client,
+    async (_task, runId) => {
+      await writeFile(file('answer-boundary'), '')
+      await writeFile(file('finish-answer'), '')
+      await waitForState(client, runId, 'idle')
+      blocker = await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        start: true,
+        title: JSON.stringify({
+          steps: [
+            { say: 'slot occupied' },
+            { waitFor: file('after-nudge-deadline') },
+            { tool: 'Bash' },
+            { say: 'still occupying the slot' },
+            { waitFor: file('keep-slot') },
+            { endTurn: true },
+          ],
+        }),
+      })
+      const blockerRun = await waitUntil(async () => {
+        const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === blocker?.id)
+        return task?.leadRunId
+      }, 'the blocking Task Lead')
+      blockerRunId = blockerRun
+      await said(client, blockerRun, 'slot occupied')
+    },
+  )
   expect(saved.answerDelivery?.sent).toBeUndefined()
   await waitUntil(async () => {
     const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
     return current?.status?.kind === 'queued' ? true : undefined
   }, 'the reply to wait for a slot')
   expect((await current())?.answerDelivery?.sent).toBeUndefined()
-  if (!blocker) throw new Error('the blocking Task was not created')
+  if (!blocker || !blockerRunId) throw new Error('the blocking Task was not created')
+  clock.advance(1001)
+  await writeFile(file('after-nudge-deadline'), '')
+  await said(client, blockerRunId, 'still occupying the slot')
+  expect((await client.getRun(runId)).run.state).toBe('idle')
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1, queued: 1 })
+  expect(
+    (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).filter((event) =>
+      event.text.startsWith('TED nudged the Task Lead'),
+    ),
+  ).toEqual([])
   await client.ok('POST', `/tasks/${blocker.id}/stop`)
   const sent = await waitUntil(
     async () => (await current())?.answerDelivery?.sent,
     'admitted reply',
   )
   expect(sent.runId).toBe(runId)
+  await waitForState(client, runId, 'idle')
+  expect(
+    assistantTexts((await client.getRun(runId)).conversation).filter(
+      (text) => text.includes('Read: The user replied') && text.includes(reply),
+    ),
+  ).toHaveLength(1)
 })
