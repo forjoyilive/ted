@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -60,6 +61,7 @@ import {
   viewFor,
   viewKey,
 } from '../list-view.ts'
+import { usePendingAction } from '../pending-action.ts'
 import { age, useNow } from '../requests.ts'
 import { startTask } from '../setup-notice.ts'
 import { activeSubAgentCount } from '../sub-agents.ts'
@@ -181,11 +183,11 @@ function Submenu({
 }) {
   return (
     <div className={styles.submenuAnchor}>
-      <button type="button" role="menuitem" aria-haspopup="menu" className={styles.menuItem}>
+      <ActionButton type="button" role="menuitem" aria-haspopup="menu" className={styles.menuItem}>
         <span className={styles.menuLabel}>{label}</span>
         {hint !== undefined && <span className={styles.menuHint}>{hint}</span>}
         <ChevronIcon open={false} className={styles.menuChevron} />
-      </button>
+      </ActionButton>
       <div className={styles.submenu} role="menu" aria-label={label}>
         {children}
       </div>
@@ -209,7 +211,7 @@ function CheckItem({
   onChange: () => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="menuitemcheckbox"
       aria-checked={checked}
@@ -223,7 +225,7 @@ function CheckItem({
       {icon}
       <span className={styles.menuLabel}>{label}</span>
       {count !== undefined && <span className={styles.menuCount}>{count}</span>}
-    </button>
+    </ActionButton>
   )
 }
 
@@ -237,7 +239,7 @@ function RadioItem({
   onChange: () => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="menuitemradio"
       aria-checked={checked}
@@ -246,7 +248,7 @@ function RadioItem({
     >
       <span className={styles.menuLabel}>{label}</span>
       {checked && <span className={styles.menuTick}>✓</span>}
-    </button>
+    </ActionButton>
   )
 }
 
@@ -348,7 +350,7 @@ export function FilterMenu({
           <div className={styles.menuHeading}>Archived</div>
           <fieldset className={styles.segments} aria-label="Archived">
             {archivedFilters.map((value: ArchivedFilter) => (
-              <button
+              <ActionButton
                 key={value}
                 type="button"
                 role="menuitemradio"
@@ -356,11 +358,11 @@ export function FilterMenu({
                 className={styles.segment}
                 onClick={() => {
                   const { archived: _, ...rest } = filters
-                  onChange(value === 'hidden' ? rest : { ...rest, archived: value })
+                  return onChange(value === 'hidden' ? rest : { ...rest, archived: value })
                 }}
               >
                 {value.charAt(0).toUpperCase() + value.slice(1)}
-              </button>
+              </ActionButton>
             ))}
           </fieldset>
         </>
@@ -516,7 +518,7 @@ export function TaskList({
 
   const change = (next: ListView) => {
     setDraft({ scope, view: next })
-    saveListView(settings, scope, next).catch(report)
+    return saveListView(settings, scope, next).catch(report)
   }
   const changeFilters = (filters: ListFilters) => change({ ...view, filters })
 
@@ -724,7 +726,7 @@ export function TaskList({
           if (select(task, event)) return
           setSelected([])
           setAnchor(task.id)
-          onOpen(task)
+          return onOpen(task)
         }}
         onKeyDown={(event) => onRowKeyDown(event, task)}
       >
@@ -799,8 +801,10 @@ export function TaskList({
     ),
   )
 
+  const bulkActivity = usePendingAction(`bulk-tasks:${scope}`)
+
   async function bulk(action: (task: Task) => Promise<unknown>, on: readonly Task[]) {
-    await Promise.all(on.map((task) => action(task).catch(report)))
+    return bulkActivity.run(() => Promise.all(on.map((task) => action(task).catch(report))))
   }
 
   async function prepareTasks() {
@@ -811,7 +815,6 @@ export function TaskList({
         await ted.updateSettings({ preparationNoticeSeen: true })
         setNoticeSeen(true)
       }
-      setPrepareNotice(false)
       const failures = await Promise.all(
         preparable.map(async (task) => {
           try {
@@ -824,6 +827,7 @@ export function TaskList({
       )
       const errors = failures.filter((error) => error !== undefined)
       if (errors.length > 0) setPrepareError(errors.join('\n'))
+      else setPrepareNotice(false)
     } catch (error) {
       setPrepareError(readableError(error))
     } finally {
@@ -855,7 +859,7 @@ export function TaskList({
           size="small"
           onClick={() => {
             setText('')
-            changeFilters({})
+            return changeFilters({})
           }}
         >
           Clear filters
@@ -950,14 +954,14 @@ export function TaskList({
         {chips.map((chip) => (
           <span key={chip.key} className={styles.chip}>
             {chip.label}
-            <button
+            <ActionButton
               type="button"
               className={styles.chipClear}
               aria-label={`Clear ${chip.label}`}
               onClick={() => changeFilters(chip.clear(view.filters))}
             >
               <CloseIcon size={10} />
-            </button>
+            </ActionButton>
           </span>
         ))}
         {queueMode && (
@@ -1044,7 +1048,7 @@ export function TaskList({
                             )
                           }}
                         />
-                        <button
+                        <ActionButton
                           type="button"
                           className={styles.groupHead}
                           aria-expanded={!closed}
@@ -1058,7 +1062,7 @@ export function TaskList({
                           <ChevronIcon open={!closed} />
                           <span className={styles.groupLabel}>{group.label}</span>
                           <span className={styles.groupCount}>{group.tasks.length}</span>
-                        </button>
+                        </ActionButton>
                       </th>
                     </tr>
                   )}
@@ -1071,107 +1075,122 @@ export function TaskList({
       )}
       {chosen.length > 0 && (
         <div className={styles.selectionBar} role="toolbar" aria-label="Selected Tasks">
-          <span className={styles.selectionCount}>{chosen.length} selected</span>
-          <Button
-            size="small"
-            disabled={startable.length === 0}
-            onClick={() => bulk((t) => ted.startTask(t.id), startable).catch(report)}
+          <fieldset
+            disabled={bulkActivity.pending || preparing}
+            className={styles.selectionControls}
           >
-            {startable.length === chosen.length || startable.length === 0
-              ? 'Start'
-              : `Start ${startable.length}`}
-          </Button>
-          <Button
-            size="small"
-            disabled={preparable.length === 0 || preparing}
-            title="Runs through Design, then waits before Work. Resume or Overnight mode lets it continue."
-            onClick={() => {
-              if (settings?.preparationNoticeSeen || noticeSeen) void prepareTasks()
-              else {
-                setNoticeSeen(true)
-                setPrepareNotice(true)
-                ted
-                  .updateSettings({ preparationNoticeSeen: true })
-                  .catch((error: unknown) => setPrepareError(readableError(error)))
-              }
-            }}
-          >
-            {preparable.length === chosen.length || preparable.length === 0
-              ? 'Prepare through Design'
-              : `Prepare through Design ${preparable.length}`}
-          </Button>
-          {resumable.length > 0 && (
+            <span className={styles.selectionCount}>{chosen.length} selected</span>
             <Button
               size="small"
-              onClick={() => bulk((task) => ted.resumeTask(task.id), resumable).catch(report)}
+              disabled={startable.length === 0}
+              onClick={() => bulk((t) => ted.startTask(t.id), startable).catch(report)}
             >
-              {resumable.length === chosen.length ? 'Resume' : `Resume ${resumable.length}`}
+              {startable.length === chosen.length || startable.length === 0
+                ? 'Start'
+                : `Start ${startable.length}`}
             </Button>
-          )}
-          <div className={styles.menuAnchor}>
             <Button
               size="small"
-              aria-haspopup="menu"
-              aria-expanded={priorityOpen}
-              onClick={() => setPriorityOpen((o) => !o)}
-            >
-              Priority
-            </Button>
-            {priorityOpen && (
-              <div className={`${styles.menu} ${styles.upward}`} role="menu" aria-label="Priority">
-                {priorities.map((priority) => (
-                  <button
-                    key={priority}
-                    type="button"
-                    role="menuitem"
-                    className={styles.menuItem}
-                    onClick={() => {
-                      setPriorityOpen(false)
-                      bulk((t) => ted.setPriority(t.id, priority), archivable).catch(report)
-                    }}
-                  >
-                    <PriorityIcon priority={priority} />
-                    <span className={styles.menuLabel}>
-                      {priority === 'none' ? 'No priority' : priorityLabels[priority]}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {confirmArchive && openPullRequests.length > 0 && (
-            <label className={styles.closePullRequests} title={openPullRequests.join(', ')}>
-              <input
-                type="checkbox"
-                checked={closePullRequests}
-                onChange={(event) => setClosePullRequests(event.target.checked)}
-              />
-              {`Close ${openPullRequests.length === 1 ? 'the pull request' : `${openPullRequests.length} pull requests`} on GitHub`}
-            </label>
-          )}
-          {confirmArchive ? (
-            <Button
-              size="small"
-              variant="primary"
+              disabled={preparable.length === 0 || preparing}
+              title="Runs through Design, then waits before Work. Resume or Overnight mode lets it continue."
               onClick={() => {
-                setConfirmArchive(false)
-                const close = closePullRequests && openPullRequests.length > 0
-                bulk((t) => ted.archiveTask(t.id, { closePullRequests: close }), archivable)
-                  .then(() => setSelected([]))
-                  .catch(report)
+                if (settings?.preparationNoticeSeen || noticeSeen) return prepareTasks()
+                else {
+                  setNoticeSeen(true)
+                  setPrepareNotice(true)
+                  return ted
+                    .updateSettings({ preparationNoticeSeen: true })
+                    .catch((error: unknown) => setPrepareError(readableError(error)))
+                }
               }}
             >
-              {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
+              {preparable.length === chosen.length || preparable.length === 0
+                ? 'Prepare through Design'
+                : `Prepare through Design ${preparable.length}`}
             </Button>
-          ) : (
-            <Button
-              size="small"
-              disabled={archivable.length === 0}
-              onClick={() => setConfirmArchive(true)}
-            >
-              Archive
-            </Button>
-          )}
+            {resumable.length > 0 && (
+              <Button
+                size="small"
+                onClick={() => bulk((task) => ted.resumeTask(task.id), resumable).catch(report)}
+              >
+                {resumable.length === chosen.length ? 'Resume' : `Resume ${resumable.length}`}
+              </Button>
+            )}
+            <div className={styles.menuAnchor}>
+              <Button
+                size="small"
+                aria-haspopup="menu"
+                aria-expanded={priorityOpen}
+                onClick={() => setPriorityOpen((o) => !o)}
+              >
+                Priority
+              </Button>
+              {priorityOpen && (
+                <div
+                  className={`${styles.menu} ${styles.upward}`}
+                  role="menu"
+                  aria-label="Priority"
+                >
+                  {priorities.map((priority) => (
+                    <ActionButton
+                      key={priority}
+                      type="button"
+                      role="menuitem"
+                      className={styles.menuItem}
+                      onClick={() => {
+                        return bulk((t) => ted.setPriority(t.id, priority), archivable)
+                          .then(() => setPriorityOpen(false))
+                          .catch(report)
+                      }}
+                    >
+                      <PriorityIcon priority={priority} />
+                      <span className={styles.menuLabel}>
+                        {priority === 'none' ? 'No priority' : priorityLabels[priority]}
+                      </span>
+                    </ActionButton>
+                  ))}
+                </div>
+              )}
+            </div>
+            {confirmArchive && openPullRequests.length > 0 && (
+              <label className={styles.closePullRequests} title={openPullRequests.join(', ')}>
+                <input
+                  type="checkbox"
+                  checked={closePullRequests}
+                  onChange={(event) => setClosePullRequests(event.target.checked)}
+                />
+                {`Close ${openPullRequests.length === 1 ? 'the pull request' : `${openPullRequests.length} pull requests`} on GitHub`}
+              </label>
+            )}
+            {confirmArchive ? (
+              <Button
+                size="small"
+                variant="primary"
+                onClick={() => {
+                  const close = closePullRequests && openPullRequests.length > 0
+                  return bulk(
+                    (t) => ted.archiveTask(t.id, { closePullRequests: close }),
+                    archivable,
+                  )
+                    .then(() => {
+                      setSelected([])
+                      setConfirmArchive(false)
+                    })
+                    .catch(report)
+                }}
+              >
+                {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                disabled={archivable.length === 0}
+                onClick={() => setConfirmArchive(true)}
+              >
+                Archive
+              </Button>
+            )}
+          </fieldset>
         </div>
       )}
       {prepareError && (
@@ -1180,7 +1199,7 @@ export function TaskList({
         </p>
       )}
       {prepareNotice && (
-        <Dialog onClose={() => setPrepareNotice(false)}>
+        <Dialog onClose={() => !preparing && setPrepareNotice(false)}>
           {(headingId) => (
             <>
               <h2 id={headingId} className={dialogStyles.heading}>
@@ -1201,11 +1220,13 @@ export function TaskList({
                 </p>
               )}
               <div className={dialogStyles.buttons}>
-                <Button onClick={() => setPrepareNotice(false)}>Cancel</Button>
+                <Button disabled={preparing} onClick={() => setPrepareNotice(false)}>
+                  Cancel
+                </Button>
                 <Button
                   variant="primary"
                   disabled={preparing || preparable.length === 0}
-                  onClick={() => void prepareTasks()}
+                  onClick={() => prepareTasks()}
                 >{`Prepare ${preparable.length} ${preparable.length === 1 ? 'Task' : 'Tasks'}`}</Button>
               </div>
             </>

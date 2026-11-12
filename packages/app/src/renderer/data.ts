@@ -47,6 +47,7 @@ import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
 import { type EventChange, eventValue, type ValueUpdate } from './event-value.ts'
 import { inboxChange } from './inbox-events.ts'
+import { useRefreshAction } from './refresh-action.ts'
 import { sharedValues } from './shared-value.ts'
 import { readableError, type TedEvent, ted } from './ted.ts'
 
@@ -160,7 +161,7 @@ export function useEventValue<T>(options: {
     return controller.current?.refresh(load) ?? Promise.resolve(undefined)
   }, [])
   const update = useCallback((change: ValueUpdate<T>) => controller.current?.update(change), [])
-  const retry = useCallback(() => void refresh(), [refresh])
+  const retry = useCallback(() => refresh(), [refresh])
   return {
     value: state.key === key ? state.value : options.initial,
     loaded: state.key === key && state.loaded,
@@ -193,7 +194,7 @@ function useShared<T>(
   )
   const snapshot = useSyncExternalStore(subscribe, () => shared.read<T>(key))
   useEffect(() => shared.renew(key, epoch), [key, epoch])
-  const retry = useCallback(() => void shared.refresh(key), [key])
+  const retry = useCallback(() => shared.refresh(key), [key])
   return { ...snapshot, retry }
 }
 
@@ -261,7 +262,7 @@ function useLiveList<T extends { id: string }>(
   const [items, setItems] = useState<T[]>([])
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string>()
-  const [attempt, setAttempt] = useState(0)
+  const { revision: attempt, refresh: retry, settled } = useRefreshAction()
   const { epoch } = useConnection()
 
   const loaded = useRef(load)
@@ -290,33 +291,36 @@ function useLiveList<T extends { id: string }>(
       fresh?.push(item)
       setItems((current) => mergeById(current, [item]).sort(order))
     })
-    void load().then(
-      (loaded) => {
-        if (!active) return
-        setItems(
-          mergeById(loaded, fresh ?? [])
-            .filter((item) => !dropped.has(item.id))
-            .sort(order),
-        )
-        setDone(true)
-        fresh = undefined
-      },
-      (failure: unknown) => {
-        if (active) setError(readableError(failure))
-      },
-    )
+    void load()
+      .then(
+        (loaded) => {
+          if (!active) return
+          setItems(
+            mergeById(loaded, fresh ?? [])
+              .filter((item) => !dropped.has(item.id))
+              .sort(order),
+          )
+          setDone(true)
+          fresh = undefined
+        },
+        (failure: unknown) => {
+          if (active) setError(readableError(failure))
+        },
+      )
+      .finally(() => settled(attempt))
     return () => {
+      settled(attempt)
       active = false
       unsubscribe()
     }
-  }, [load, pick, order, drop, epoch, attempt])
+  }, [load, pick, order, drop, epoch, attempt, settled])
 
   const current = loaded.current === load
   return {
     items: current ? items : [],
     loaded: current && done,
     error: current ? error : undefined,
-    retry: () => setAttempt((n) => n + 1),
+    retry,
   }
 }
 
@@ -570,7 +574,7 @@ function useReloadingState<T>(
   paced: (event: TedEvent) => boolean = () => false,
 ) {
   const [state, setState] = useState<{ key: string; value?: T; error?: string }>()
-  const [attempt, setAttempt] = useState(0)
+  const { revision: attempt, refresh: retry, settled } = useRefreshAction()
   const { epoch } = useConnection()
   const loadRef = useRef(load)
   const affectsRef = useRef(affects)
@@ -598,7 +602,7 @@ function useReloadingState<T>(
         return
       }
       running = true
-      loadRef
+      return loadRef
         .current()
         .then(
           (value) => {
@@ -630,18 +634,19 @@ function useReloadingState<T>(
       if (wait <= 0) now()
       else timer ??= setTimeout(now, wait)
     })
-    run()
+    void run()?.finally(() => settled(attempt))
     return () => {
+      settled(attempt)
       active = false
       clearTimeout(timer)
       unsubscribe()
     }
-  }, [key, epoch, attempt])
+  }, [key, epoch, attempt, settled])
 
   return {
     value: state?.key === key ? state.value : undefined,
     error: state?.key === key ? state.error : undefined,
-    retry: () => setAttempt((n) => n + 1),
+    retry,
   }
 }
 

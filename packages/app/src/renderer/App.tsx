@@ -653,7 +653,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       onDismiss={(banner) =>
         banner.problem === updateFailedProblem
           ? setUpdateFailureDismissed(true)
-          : void ted.dismissBanner(banner.id)
+          : ted.dismissBanner(banner.id)
       }
       menu={keepsStoppingMenu}
     />
@@ -1166,9 +1166,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             ...(settings?.overnightMode && { overnight: 'Overnight mode is on' }),
             ...(chip !== undefined && { update: chip }),
           }}
-          onUpdate={() =>
-            void ted.restartToUpdate().catch((error: unknown) => console.error(error))
-          }
+          onUpdate={() => ted.restartToUpdate().catch((error: unknown) => console.error(error))}
           onOpenFailed={() => {
             saveListView(
               settings,

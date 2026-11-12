@@ -168,7 +168,7 @@ export function FailureRepairForm({
             sending ||
             (kind === 'existing' ? !repair : !draftTitle.trim() || !draftDescription.trim())
           }
-          onClick={() => void approve()}
+          onClick={() => approve()}
         >
           {kind === 'existing'
             ? `Wait for ${repair?.displayId ?? 'repair'}`

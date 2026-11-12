@@ -1512,3 +1512,37 @@ test('design summaries and review points use Markdown without changing media con
   expect(screen.getByText('code').tagName).toBe('CODE')
   expect(screen.getByRole('region', { name: 'Worth your eye' })).toBeTruthy()
 })
+
+test('Accept this failure immediately shows activity, blocks conflicting answers and recovers on rejection', async () => {
+  const completion = deferred<never>()
+  const answer = vi.fn(() => completion.promise)
+  bridge({
+    simulators: () => ({ supported: false }),
+    answerRequest: answer,
+    listFailures: () => [],
+  })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'question',
+        author: { kind: 'ted' },
+        choices: ['Accept this failure', 'Retry'],
+      })}
+    />,
+  )
+  const button = screen.getByRole('button', { name: 'Accept this failure' })
+  await user().click(button)
+  expect(button.getAttribute('aria-busy')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Accept this failure' })).toBe(button)
+  expect(screen.getByRole('button', { name: 'Send' }).getAttribute('aria-busy')).toBeNull()
+  const retry = screen.getByRole('button', { name: 'Retry' }) as HTMLButtonElement
+  expect(retry.disabled).toBe(true)
+  fireEvent.click(button)
+  fireEvent.click(retry)
+  expect(answer).toHaveBeenCalledTimes(1)
+  await act(async () => completion.reject(new Error('Decision could not be saved')))
+  expect(screen.getByRole('alert').textContent).toBe('Decision could not be saved')
+  expect(button.getAttribute('aria-busy')).toBeNull()
+  expect(retry.disabled).toBe(false)
+})

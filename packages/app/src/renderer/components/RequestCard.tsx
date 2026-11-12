@@ -32,6 +32,7 @@ import {
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { stageName } from '../views/TaskViews.tsx'
+import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList } from './ChangesSection.tsx'
@@ -92,13 +93,13 @@ function MergeRows({ rows, taskId }: { rows: readonly MergeRow[]; taskId: string
             <div className={styles.mergeBody}>
               <div className={styles.mergeLine}>
                 <span className={styles.mergeRepo}>{row.name}</span>
-                <button
+                <ActionButton
                   type="button"
                   className={styles.mergeLink}
-                  onClick={() => void ted.openPullRequest(taskId, row.name)}
+                  onClick={() => ted.openPullRequest(taskId, row.name)}
                 >
                   {`PR #${row.number} · ${row.title}`}
-                </button>
+                </ActionButton>
               </div>
               <div className={styles.mergeDetail}>
                 {[
@@ -415,6 +416,8 @@ export function RequestCard({
   const [repairing, setRepairing] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const activeAnswer = useRef(false)
+  const [submission, setSubmission] = useState<AnswerRequest>()
   const [error, setError] = useState<string>()
   const shown =
     request.permission && request.body.trim() === ''
@@ -434,6 +437,9 @@ export function RequestCard({
   const rows = request.gate?.pullRequests
 
   async function send(answer: AnswerRequest) {
+    if (activeAnswer.current) return
+    activeAnswer.current = true
+    setSubmission(answer)
     setSending(true)
     setError(undefined)
     try {
@@ -445,11 +451,14 @@ export function RequestCard({
     } catch (failed) {
       setError(readableError(failed))
     } finally {
+      activeAnswer.current = false
       setSending(false)
     }
   }
 
   async function talk() {
+    if (activeAnswer.current) return
+    activeAnswer.current = true
     setSending(true)
     setError(undefined)
     try {
@@ -458,6 +467,7 @@ export function RequestCard({
     } catch (failed) {
       setError(readableError(failed))
     } finally {
+      activeAnswer.current = false
       setSending(false)
     }
   }
@@ -486,14 +496,14 @@ export function RequestCard({
       <div className={styles.headRow}>
         <CardHead request={request} task={task} now={now} />
         {changes && !rows && !readOnly && (
-          <button
+          <ActionButton
             type="button"
             className={styles.showRequest}
             aria-expanded={showingPrevious}
             onClick={() => setShowingPrevious(!showingPrevious)}
           >
             {`${showingPrevious ? 'Hide' : 'View'} previously approved ${request.stage === 'review' ? 'review' : 'sign-off'}`}
-          </button>
+          </ActionButton>
         )}
       </div>
       {showingPrevious && changes && !rows && (
@@ -563,8 +573,8 @@ export function RequestCard({
           readOnly={readOnly}
           sending={sending}
           talking={request.talk !== undefined}
-          onSend={(answer) => void send(answer)}
-          onTalk={onOpenRun && (() => void talk())}
+          onSend={(answer) => send(answer)}
+          onTalk={onOpenRun && (() => talk())}
         />
       )}
       {request.proposal &&
@@ -580,7 +590,7 @@ export function RequestCard({
             proposal={request.proposal}
             readOnly={readOnly}
             sending={sending}
-            onSend={(answer) => void send(answer)}
+            onSend={(answer) => send(answer)}
           />
         ))}
       {request.sizeCheck && (
@@ -621,7 +631,7 @@ export function RequestCard({
         request.choices.length > 0 && (
           <div className={styles.choices}>
             {request.choices.map((choice) => (
-              <button
+              <ActionButton
                 key={choice}
                 type="button"
                 className={
@@ -632,11 +642,11 @@ export function RequestCard({
                 onClick={() =>
                   choice === 'Wait for a repair Task'
                     ? setRepairing(true)
-                    : void send({ action: 'answer', choice, ...withText })
+                    : send({ action: 'answer', choice, ...withText })
                 }
               >
                 {choice}
-              </button>
+              </ActionButton>
             ))}
           </div>
         )}
@@ -669,13 +679,12 @@ export function RequestCard({
               onKeyDown={
                 request.permission || request.simulator
                   ? undefined
-                  : sendOnEnter(
-                      () =>
-                        void send(
-                          request.gate
-                            ? { action: 'request-changes', text }
-                            : { action: 'answer', text },
-                        ),
+                  : sendOnEnter(() =>
+                      send(
+                        request.gate
+                          ? { action: 'request-changes', text }
+                          : { action: 'answer', text },
+                      ),
                     )
               }
             />
@@ -687,13 +696,13 @@ export function RequestCard({
           )}
           <div className={styles.buttons}>
             {request.failed && onOpenRun && (
-              <button
+              <ActionButton
                 type="button"
                 className={styles.openRun}
                 onClick={() => onOpenRun(request.failed?.runId ?? '')}
               >
                 Open last Run
-              </button>
+              </ActionButton>
             )}
             {request.gate?.caption !== undefined &&
               (request.stage === 'clarify' ? (
@@ -703,17 +712,14 @@ export function RequestCard({
               ))}
             {request.simulator ? (
               <>
-                <Button
-                  disabled={sending}
-                  onClick={() => void send({ action: 'deny', ...withText })}
-                >
+                <Button disabled={sending} onClick={() => send({ action: 'deny', ...withText })}>
                   Deny
                 </Button>
                 <Button
                   variant="primary"
                   disabled={sending || chosen === undefined}
                   onClick={() =>
-                    void send({
+                    send({
                       action: 'approve',
                       ...(chosen !== undefined && { simulator: chosen }),
                       ...withText,
@@ -725,17 +731,14 @@ export function RequestCard({
               </>
             ) : request.permission ? (
               <>
-                <Button
-                  disabled={sending}
-                  onClick={() => void send({ action: 'deny', ...withText })}
-                >
+                <Button disabled={sending} onClick={() => send({ action: 'deny', ...withText })}>
                   Deny
                 </Button>
                 <Button
                   variant="primary"
                   arm="approve"
                   disabled={sending}
-                  onClick={() => void send({ action: 'approve', ...withText })}
+                  onClick={() => send({ action: 'approve', ...withText })}
                 >
                   Approve
                 </Button>
@@ -745,7 +748,7 @@ export function RequestCard({
                 <Button
                   data-request-changes
                   disabled={sending || !typed}
-                  onClick={() => void send({ action: 'request-changes', text })}
+                  onClick={() => send({ action: 'request-changes', text })}
                 >
                   Request changes
                 </Button>
@@ -753,7 +756,7 @@ export function RequestCard({
                   variant="primary"
                   arm="approve"
                   disabled={sending}
-                  onClick={() => void send({ action: 'approve', ...withText })}
+                  onClick={() => send({ action: 'approve', ...withText })}
                 >
                   {request.gate.approveLabel}
                 </Button>
@@ -768,7 +771,10 @@ export function RequestCard({
                 )}
                 <Button
                   disabled={sending || !typed}
-                  onClick={() => void send({ action: 'answer', text })}
+                  pending={
+                    sending && submission?.action === 'answer' && submission.choice === undefined
+                  }
+                  onClick={() => send({ action: 'answer', text })}
                 >
                   Send
                 </Button>
@@ -776,7 +782,7 @@ export function RequestCard({
                   variant="primary"
                   disabled={sending}
                   onClick={() =>
-                    void send({
+                    send({
                       action: 'answer',
                       choice: actionChoice,
                       ...(request.failed ? withText : {}),
@@ -790,7 +796,10 @@ export function RequestCard({
               <Button
                 variant="primary"
                 disabled={sending || !typed}
-                onClick={() => void send({ action: 'answer', text })}
+                pending={
+                  sending && submission?.action === 'answer' && submission.choice === undefined
+                }
+                onClick={() => send({ action: 'answer', text })}
               >
                 Send
               </Button>
@@ -976,22 +985,22 @@ export function AnsweredCard({
       <div className={styles.answeredHead}>
         <CardHead request={request} task={task} now={now} />
         {talked && onOpenRun ? (
-          <button
+          <ActionButton
             type="button"
             className={styles.showRequest}
             onClick={() => onOpenRun(talked.runId)}
           >
             Open chat
-          </button>
+          </ActionButton>
         ) : !permission ? (
-          <button
+          <ActionButton
             type="button"
             className={styles.showRequest}
             aria-expanded={showing}
             onClick={() => setShowing(!showing)}
           >
             {showing ? 'Hide request' : 'Show request'}
-          </button>
+          </ActionButton>
         ) : null}
       </div>
       {permission ? (

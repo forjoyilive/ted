@@ -8,7 +8,7 @@ import type {
 } from '@ted/protocol'
 import { minGhVersion } from '@ted/protocol/integrations'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
-import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
+import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
@@ -39,7 +39,7 @@ export function useIntegrations() {
   const checkAgain = useCallback(() => {
     setChecking(true)
     setProblem(undefined)
-    void refresh(ted.checkIntegrations).finally(() => setChecking(false))
+    return refresh(ted.checkIntegrations).finally(() => setChecking(false))
   }, [refresh])
 
   return { health, checking, problem, checkAgain }
@@ -61,7 +61,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
 
   const runFix = (key: string, fix: IntegrationFix, host?: string) => {
     setOpened(undefined)
-    ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
+    return ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
       (result) =>
         setOpened({
           key,
@@ -77,7 +77,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
   const note = (key: string) => (opened?.key === key ? opened.text : undefined)
   const checkButton = (
     <Button onClick={checkAgain} disabled={checking}>
-      {checking ? <Loading compact label="Checking…" /> : 'Check again'}
+      Check again
     </Button>
   )
 
@@ -180,9 +180,7 @@ function FixButtons({
 }) {
   return (
     <>
-      {'command' in fix && (
-        <Button onClick={() => void ted.copyText(fix.command)}>Copy command</Button>
-      )}
+      {'command' in fix && <Button onClick={() => ted.copyText(fix.command)}>Copy command</Button>}
       <Button onClick={() => onFix(kind)}>{fix.label}</Button>
     </>
   )
@@ -436,7 +434,7 @@ function GitRow({
         chip="No name or email"
         controls={
           <>
-            <Button onClick={() => void ted.copyText(commands.join('\n'))}>Copy commands</Button>
+            <Button onClick={() => ted.copyText(commands.join('\n'))}>Copy commands</Button>
             {checkButton}
           </>
         }

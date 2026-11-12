@@ -131,7 +131,7 @@ export function RemoveFactoryDialog({
           spellCheck={false}
           onChange={(event) => setTyped(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && ready) void remove()
+            if (event.key === 'Enter' && ready) remove()
           }}
         />
       </div>
@@ -144,7 +144,7 @@ export function RemoveFactoryDialog({
         <Button disabled={busy} onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="danger" disabled={!ready} onClick={() => void remove()}>
+        <Button variant="danger" disabled={!ready} onClick={() => remove()}>
           {busy ? 'Removing…' : 'Remove Factory'}
         </Button>
       </div>

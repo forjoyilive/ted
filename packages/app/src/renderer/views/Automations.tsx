@@ -27,6 +27,7 @@ import {
   templateScheduleText,
   trigger,
 } from '../automations.ts'
+import { ActionButton } from '../components/ActionButton.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -60,12 +61,12 @@ import { stageName } from './TaskViews.tsx'
 import views from './views.module.css'
 
 function act(request: () => Promise<unknown>, onError: (message: string) => void) {
-  request().catch((failure: unknown) => onError(readableError(failure)))
+  return request().catch((failure: unknown) => onError(readableError(failure)))
 }
 
 function Toggle({ automation, onError }: { automation: Automation; onError: (e: string) => void }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="switch"
       aria-checked={automation.on}
@@ -73,11 +74,11 @@ function Toggle({ automation, onError }: { automation: Automation; onError: (e: 
       className={styles.switch}
       onClick={(event) => {
         event.stopPropagation()
-        act(() => ted.setAutomationOn(automation.id, !automation.on), onError)
+        return act(() => ted.setAutomationOn(automation.id, !automation.on), onError)
       }}
     >
       <span className={styles.knob} />
-    </button>
+    </ActionButton>
   )
 }
 
@@ -92,16 +93,16 @@ function TaskLinks({
     <>
       {tasks.map((task, index) => (
         <span key={task.displayId}>
-          <button
+          <ActionButton
             type="button"
             className={styles.taskLink}
             onClick={(event) => {
               event.stopPropagation()
-              onOpenTask(task.displayId)
+              return onOpenTask(task.displayId)
             }}
           >
             {task.displayId}
-          </button>
+          </ActionButton>
           {index < tasks.length - 1 && ', '}
         </span>
       ))}
@@ -234,16 +235,16 @@ export function AutomationsPage({
                       <Toggle automation={automation} onError={setError} />
                     </td>
                     <td>
-                      <button
+                      <ActionButton
                         type="button"
                         className={styles.name}
                         onClick={(event) => {
                           event.stopPropagation()
-                          onOpen(automation)
+                          return onOpen(automation)
                         }}
                       >
                         {automation.name}
-                      </button>
+                      </ActionButton>
                       <span className={styles.sub}>{scheduleDescription(automation)}</span>
                     </td>
                     <td className={styles.muted}>{nextFiring(automation, now)}</td>
@@ -269,7 +270,7 @@ export function AutomationsPage({
                               onClick={(event) => {
                                 event.stopPropagation()
                                 const runId = automation.last?.id ?? ''
-                                act(() => ted.retryAutomationRun(runId), setError)
+                                return act(() => ted.retryAutomationRun(runId), setError)
                               }}
                             >
                               Retry
@@ -427,7 +428,7 @@ function DeleteAutomationDialog({
               disabled={busy}
               onClick={() => {
                 setBusy(true)
-                ted.deleteAutomation(automation.id).then(onDeleted, (e: unknown) => {
+                return ted.deleteAutomation(automation.id).then(onDeleted, (e: unknown) => {
                   setError(readableError(e))
                   setBusy(false)
                 })
@@ -499,9 +500,9 @@ export function AutomationView({
     return (
       <section className={views.pane} aria-label="Automation">
         <header className={styles.viewHeader}>
-          <button type="button" className={styles.backLink} onClick={onBack}>
+          <ActionButton type="button" className={styles.backLink} onClick={onBack}>
             ← Automations
-          </button>
+          </ActionButton>
           <h1 className={styles.title}>Automation</h1>
         </header>
         <div className={views.body}>
@@ -516,9 +517,9 @@ export function AutomationView({
   if (detail === null) {
     return (
       <section className={views.pane} aria-label="Automation">
-        <button type="button" className={views.back} onClick={onBack}>
+        <ActionButton type="button" className={views.back} onClick={onBack}>
           ← Automations
-        </button>
+        </ActionButton>
         <p className={views.empty}>This Automation was deleted.</p>
       </section>
     )
@@ -543,9 +544,9 @@ export function AutomationView({
     <>
       <section className={views.pane} aria-label="Automation">
         <header className={styles.viewHeader}>
-          <button type="button" className={styles.backLink} onClick={onBack}>
+          <ActionButton type="button" className={styles.backLink} onClick={onBack}>
             ← Automations
-          </button>
+          </ActionButton>
           <div className={styles.titleRow} {...contextMenu((at) => menu.open(at, automation))}>
             <Toggle automation={automation} onError={setError} />
             <h1 className={styles.title} data-off={!automation.on}>
@@ -568,7 +569,7 @@ export function AutomationView({
               aria-haspopup="menu"
               onClick={(event) => {
                 event.stopPropagation()
-                menu.open(buttonPosition(event.currentTarget), automation)
+                return menu.open(buttonPosition(event.currentTarget), automation)
               }}
             >
               ⋯
@@ -611,16 +612,16 @@ export function AutomationView({
                     >
                       <td>
                         {runId !== undefined ? (
-                          <button
+                          <ActionButton
                             type="button"
                             className={styles.name}
                             onClick={(event) => {
                               event.stopPropagation()
-                              onOpenRun(runId)
+                              return onOpenRun(runId)
                             }}
                           >
                             {firingDate(run.startedAt ?? run.at)}
-                          </button>
+                          </ActionButton>
                         ) : (
                           firingDate(run.startedAt ?? run.at)
                         )}
@@ -646,7 +647,7 @@ export function AutomationView({
                               className={styles.retry}
                               onClick={(event) => {
                                 event.stopPropagation()
-                                act(() => ted.retryAutomationRun(run.id), setError)
+                                return act(() => ted.retryAutomationRun(run.id), setError)
                               }}
                             >
                               Retry
@@ -696,13 +697,13 @@ export function AutomationView({
           <pre className={styles.prompt} data-open={promptOpen}>
             {automation.prompt}
           </pre>
-          <button
+          <ActionButton
             type="button"
             className={styles.taskLink}
             onClick={() => setPromptOpen((o) => !o)}
           >
             {promptOpen ? 'Hide prompt' : 'Show prompt'}
-          </button>
+          </ActionButton>
         </Details>
         <Details title="Totals">
           <p className={styles.detailText}>{totals}</p>
@@ -756,7 +757,7 @@ export function QuestionCard({
   const answer = (input: { choice?: string; text?: string }) => {
     setBusy(true)
     setError(undefined)
-    ted.answerAutomationRequest(request.id, input).then(
+    return ted.answerAutomationRequest(request.id, input).then(
       () => {
         setBusy(false)
         setText('')
@@ -783,7 +784,7 @@ export function QuestionCard({
       </p>
       <p className={styles.questionBody}>{request.body}</p>
       {request.choices?.map((choice) => (
-        <button
+        <ActionButton
           key={choice}
           type="button"
           className={styles.choice}
@@ -791,7 +792,7 @@ export function QuestionCard({
           onClick={() => answer({ choice })}
         >
           {choice}
-        </button>
+        </ActionButton>
       ))}
       <textarea
         className={styles.answer}
@@ -898,9 +899,9 @@ export function AutomationRunView({
   if (detail === null) {
     return (
       <section className={views.pane} aria-label="Automation Run">
-        <button type="button" className={views.back} onClick={onBack}>
+        <ActionButton type="button" className={views.back} onClick={onBack}>
           ← Automations
-        </button>
+        </ActionButton>
         <p className={views.empty}>This Automation was deleted.</p>
       </section>
     )
@@ -909,9 +910,9 @@ export function AutomationRunView({
     return (
       <section className={views.pane} aria-label="Automation Run">
         <header className={styles.viewHeader}>
-          <button type="button" className={styles.backLink} onClick={onBack}>
+          <ActionButton type="button" className={styles.backLink} onClick={onBack}>
             ← Automations
-          </button>
+          </ActionButton>
           <h1 className={styles.title}>Automation Run</h1>
         </header>
         <div className={views.empty}>
@@ -934,9 +935,9 @@ export function AutomationRunView({
     <>
       <section className={views.pane} aria-label="Automation Run">
         <header className={styles.viewHeader}>
-          <button type="button" className={styles.backLink} onClick={onBack}>
+          <ActionButton type="button" className={styles.backLink} onClick={onBack}>
             ← {automation.name}
-          </button>
+          </ActionButton>
           <div className={styles.titleRow}>
             <h1 className={styles.title}>
               {automation.name} · Run of {clockOf(startedAt)}
@@ -975,13 +976,13 @@ export function AutomationRunView({
               return (
                 <div key={link.id} className={styles.createdTask}>
                   <p className={styles.detailText}>
-                    <button
+                    <ActionButton
                       type="button"
                       className={styles.taskLink}
                       onClick={() => onOpenTask(link.displayId)}
                     >
                       {link.displayId}
-                    </button>{' '}
+                    </ActionButton>{' '}
                     {task?.title ?? link.title}
                   </p>
                   <p className={styles.detailNote}>
@@ -1003,9 +1004,9 @@ export function AutomationRunView({
         </Details>
         <Details title="Automation">
           <p className={styles.detailText}>
-            <button type="button" className={styles.taskLink} onClick={onOpenAutomation}>
+            <ActionButton type="button" className={styles.taskLink} onClick={onOpenAutomation}>
               {automation.name}
-            </button>
+            </ActionButton>
           </p>
           <p className={styles.detailNote}>{scheduleDescription(automation)}</p>
         </Details>

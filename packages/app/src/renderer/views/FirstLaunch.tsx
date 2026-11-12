@@ -443,7 +443,7 @@ function GitRow({
             command={command}
             onCopy={() => {
               actions.copy(command)
-              actions.watch()
+              return actions.watch()
             }}
           />
         ))}
@@ -474,7 +474,7 @@ export function FirstLaunch({
   useEffect(() => {
     const checkAll = () => {
       void ted.checkAgentHealth().catch(() => undefined)
-      void ted.checkIntegrations().catch(() => undefined)
+      return ted.checkIntegrations().catch(() => undefined)
     }
     window.addEventListener('focus', checkAll)
     if (watchingSince === undefined) return () => window.removeEventListener('focus', checkAll)
@@ -490,7 +490,7 @@ export function FirstLaunch({
 
   const watch = () => setWatchingSince(Date.now())
   const rowActions: RowActions = {
-    copy: (text) => void ted.copyText(text).catch(() => undefined),
+    copy: (text) => ted.copyText(text),
     watch,
   }
   const setFor = (key: string, note?: string, error?: string) => {
@@ -521,7 +521,7 @@ export function FirstLaunch({
 
   function runFix(key: string, fix: IntegrationFix, host?: string) {
     setFor(key)
-    ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
+    return ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
       (result) => {
         setFor(
           key,
@@ -576,8 +576,8 @@ export function FirstLaunch({
                 health={health}
                 note={good ? undefined : notes[agent]}
                 error={errors[agent]}
-                onFix={() => void fixAgent(agent)}
-                onBilling={(billing) => health && void chooseBilling(health, billing)}
+                onFix={() => fixAgent(agent)}
+                onBilling={(billing) => health && chooseBilling(health, billing)}
                 actions={rowActions}
               />
             )
@@ -615,10 +615,10 @@ export function FirstLaunch({
             </p>
           )}
           <span className={styles.spacer} />
-          <Button onClick={() => void finish(false)} disabled={saving}>
+          <Button onClick={() => finish(false)} disabled={saving}>
             Skip for now
           </Button>
-          <Button variant="primary" onClick={() => void finish(true)} disabled={!ready || saving}>
+          <Button variant="primary" onClick={() => finish(true)} disabled={!ready || saving}>
             Continue
           </Button>
         </div>

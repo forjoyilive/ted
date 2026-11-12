@@ -18,7 +18,7 @@ const components: Components = {
           onClick={(event) => {
             event.preventDefault()
             setError(undefined)
-            void ted.openMarkdownLink(url).catch((failure: unknown) => {
+            return ted.openMarkdownLink(url).catch((failure: unknown) => {
               setError(readableError(failure))
             })
           }}

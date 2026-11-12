@@ -1,8 +1,9 @@
-import { type ButtonHTMLAttributes, type ReactNode, useContext, useRef } from 'react'
+import { type ReactNode, useContext, useRef } from 'react'
 import { type ArmAction, ArmedContext } from '../armed.ts'
+import { ActionButton, type ActionButtonProps } from './ActionButton.tsx'
 import styles from './Button.module.css'
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends ActionButtonProps {
   variant?: 'primary' | 'secondary' | 'quiet' | 'danger'
   size?: 'regular' | 'small'
   shortcut?: string
@@ -23,8 +24,8 @@ export function Button({
   const armed = useContext(ArmedContext)
   const isArmed = armed !== undefined && armed === ref.current
   return (
-    <button
-      ref={ref}
+    <ActionButton
+      buttonRef={ref}
       type="button"
       className={[styles.button, styles[variant], styles[size], isArmed && styles.armed, className]
         .filter(Boolean)
@@ -40,6 +41,6 @@ export function Button({
         </kbd>
       )}
       {isArmed && <span className={styles.confirm}>↵ to confirm</span>}
-    </button>
+    </ActionButton>
   )
 }

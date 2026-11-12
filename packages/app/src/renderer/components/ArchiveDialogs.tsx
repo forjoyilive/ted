@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTaskRuns, useTasks } from '../data.ts'
 import { stageName } from '../list-view.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './ArchiveDialogs.module.css'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
@@ -191,7 +192,7 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
           )}
           <div className={styles.buttons}>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => void archive()}>
+            <Button variant="primary" disabled={busy} onClick={() => archive()}>
               Archive
             </Button>
           </div>
@@ -268,12 +269,12 @@ export function DeleteDialog({
           )}
           <div className={styles.buttons}>
             {!task.archived && (
-              <button type="button" className={styles.instead} onClick={onArchiveInstead}>
+              <ActionButton type="button" className={styles.instead} onClick={onArchiveInstead}>
                 Archive instead
-              </button>
+              </ActionButton>
             )}
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+            <Button variant="danger" disabled={busy} onClick={() => remove()}>
               {busy ? 'Deleting…' : `Delete ${task.displayId}`}
             </Button>
           </div>
@@ -327,7 +328,7 @@ export function FollowUpDialog({
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
               event.preventDefault()
-              void followUp()
+              return followUp()
             }}
           />
           {error !== undefined && (
@@ -337,7 +338,7 @@ export function FollowUpDialog({
           )}
           <div className={styles.buttons}>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => void followUp()}>
+            <Button variant="primary" disabled={busy} onClick={() => followUp()}>
               Follow up
             </Button>
           </div>
@@ -388,7 +389,7 @@ export function ArchiveDoneDialog({
           )}
           <div className={styles.buttons}>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => void archive()}>
+            <Button variant="primary" disabled={busy} onClick={() => archive()}>
               {`Archive ${count}`}
             </Button>
           </div>

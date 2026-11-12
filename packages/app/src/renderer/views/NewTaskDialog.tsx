@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
@@ -472,7 +473,7 @@ function NewTaskForm({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        void close()
+        return close()
       }}
       onKeyDown={onKeyDown}
       onPointerDown={(event) => {
@@ -499,7 +500,7 @@ function NewTaskForm({
           disabled={factories.length === 0 || !ready || busy || uploading > 0}
           onChange={(event) => {
             const next = event.target.value
-            void close(() => onFactory(next))
+            return close(() => onFactory(next))
           }}
         >
           {factories.length === 0 && <option value="">No Factories yet</option>}
@@ -509,14 +510,14 @@ function NewTaskForm({
             </option>
           ))}
         </Select>
-        <button
+        <ActionButton
           type="button"
           className={styles.close}
           aria-label="Close"
-          onClick={() => void close()}
+          onClick={() => close()}
         >
           <CloseIcon />
-        </button>
+        </ActionButton>
       </header>
 
       <fieldset disabled={!ready || !defaultsReady || busy} className={styles.fields}>
@@ -561,26 +562,27 @@ function NewTaskForm({
             <span key={`${a.hash}:${a.name}`} className={styles.chip}>
               {a.name}
               <span className={styles.chipMeta}>{formatSize(a.size)}</span>
-              <button
+              <ActionButton
                 type="button"
                 className={styles.chipRemove}
                 aria-label={`Remove ${a.name}`}
                 onClick={() => setAttachments((current) => current.filter((c) => c !== a))}
               >
                 <CloseIcon size={11} />
-              </button>
+              </ActionButton>
             </span>
           ))}
           {(uploading > 0 || heldFiles.length > 0) && (
             <span className={styles.chipMeta}>Attaching…</span>
           )}
-          <button
+          <ActionButton
             type="button"
             className={styles.attach}
+            pending={uploading > 0}
             onClick={() => fileInput.current?.click()}
           >
             Drop files here, or click to attach
-          </button>
+          </ActionButton>
           <input
             ref={fileInput}
             type="file"
@@ -588,7 +590,7 @@ function NewTaskForm({
             hidden
             aria-label="Attach files"
             onChange={(event) => {
-              void attach([...(event.target.files ?? [])])
+              attach([...(event.target.files ?? [])])
               event.target.value = ''
             }}
           />
@@ -620,7 +622,7 @@ function NewTaskForm({
         </div>
 
         <section className={styles.more}>
-          <button
+          <ActionButton
             type="button"
             className={styles.moreToggle}
             aria-expanded={moreOpen}
@@ -629,7 +631,7 @@ function NewTaskForm({
             <ChevronIcon open={moreOpen} className={styles.moreChevron} />
             <span className={styles.moreLabel}>More</span>
             {!moreOpen && <span className={styles.moreSummary}>{summary}</span>}
-          </button>
+          </ActionButton>
           {moreOpen && (
             <div className={styles.moreBody}>
               <div className={styles.field}>
@@ -688,18 +690,18 @@ function NewTaskForm({
           <p className={styles.setupNotice} role="note">
             <span>{setupNoticeText(setup)}</span>
             {onOpenTask && setup.kind === 'open' && (
-              <button
+              <ActionButton
                 type="button"
                 className={styles.setupLink}
                 onClick={() => {
-                  void close(() => {
+                  return close(() => {
                     onClose()
                     onOpenTask(setup.task)
                   })
                 }}
               >
                 Open setup Task
-              </button>
+              </ActionButton>
             )}
           </p>
         )}
@@ -726,7 +728,7 @@ function NewTaskForm({
             </span>
           </div>
           <span className={styles.spacer} />
-          <Button disabled={!canCreate} onClick={() => void create(true)}>
+          <Button disabled={!canCreate} onClick={() => create(true)}>
             Create more
           </Button>
           <Button
@@ -734,7 +736,7 @@ function NewTaskForm({
             shortcut="⌘↵"
             aria-keyshortcuts="Meta+Enter"
             disabled={!canCreate}
-            onClick={() => void create(false)}
+            onClick={() => create(false)}
           >
             Create
           </Button>
@@ -791,14 +793,14 @@ function SourceCard({
                   come with the Task.
                 </Help>
                 {linearDescription !== undefined && (
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.keyLink}
                     aria-expanded={showing}
                     onClick={() => setShowing((open) => !open)}
                   >
                     {showing ? 'Hide Linear’s description' : 'Show Linear’s description'}
-                  </button>
+                  </ActionButton>
                 )}
               </>
             ) : (
@@ -806,14 +808,14 @@ function SourceCard({
             )}
           </span>
         </span>
-        <button
+        <ActionButton
           type="button"
           className={styles.chipRemove}
           aria-label="Remove source"
           onClick={onRemove}
         >
           <CloseIcon size={11} />
-        </button>
+        </ActionButton>
       </fieldset>
       {linearFiles.length > 0 && (
         <section className={styles.sourceFiles} aria-label="Files from Linear">
@@ -894,20 +896,20 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
               event.preventDefault()
-              void save()
+              save()
             }
           }}
         />
-        <Button size="small" disabled={key.trim() === '' || saving} onClick={() => void save()}>
+        <Button size="small" disabled={key.trim() === '' || saving} onClick={() => save()}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
-        <button
+        <ActionButton
           type="button"
           className={styles.keyLink}
-          onClick={() => void ted.openLinearKeyPage()}
+          onClick={() => ted.openLinearKeyPage()}
         >
           Create a key ↗
-        </button>
+        </ActionButton>
       </div>
       {problem !== undefined && (
         <p className={styles.sourceProblem} role="status">

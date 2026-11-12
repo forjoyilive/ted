@@ -8,7 +8,9 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { usePendingAction } from '../pending-action.ts'
 import { readableError } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './ContextMenu.module.css'
 
 export interface MenuPosition {
@@ -65,12 +67,14 @@ export function ContextMenu({
   children,
   onClose,
   submenu = false,
+  pending = false,
 }: {
   at: MenuPosition
   label: string
   children: ReactNode
   onClose: () => void
   submenu?: boolean
+  pending?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
@@ -167,7 +171,9 @@ export function ContextMenu({
       }}
     >
       <div className={styles.heading}>{label}</div>
-      {children}
+      <fieldset disabled={pending} className={styles.controls}>
+        {children}
+      </fieldset>
     </div>,
     document.body,
   )
@@ -201,7 +207,7 @@ export function MenuSubmenu({
   }
   return (
     <>
-      <button
+      <ActionButton
         ref={trigger}
         type="button"
         role="menuitem"
@@ -221,7 +227,7 @@ export function MenuSubmenu({
       >
         {label}
         <span className={styles.hint}>{hint} ›</span>
-      </button>
+      </ActionButton>
       {at && (
         <ContextMenu at={at} label={label} submenu onClose={() => setAt(undefined)}>
           {children}
@@ -242,26 +248,29 @@ export interface MenuAction {
 export function MenuItems({
   items,
   choose,
+  pendingLabel,
 }: {
+  pendingLabel?: string | undefined
   items: MenuAction[]
-  choose: (item: MenuAction) => void
+  choose: (item: MenuAction) => unknown
 }) {
   return items.map((item) =>
     item.items ? (
       <MenuSubmenu key={item.label} label={item.label}>
-        <MenuItems items={item.items} choose={choose} />
+        <MenuItems items={item.items} choose={choose} pendingLabel={pendingLabel} />
       </MenuSubmenu>
     ) : (
-      <button
+      <ActionButton
         key={item.label}
         type="button"
         role="menuitem"
-        disabled={item.disabled}
+        disabled={item.disabled || (pendingLabel !== undefined && pendingLabel !== item.label)}
+        pending={pendingLabel === item.label}
         className={`${styles.item} ${item.danger ? styles.danger : ''}`}
         onClick={() => choose(item)}
       >
         {item.label}
-      </button>
+      </ActionButton>
     ),
   )
 }
@@ -269,6 +278,8 @@ export function MenuItems({
 export function useActionMenu(scope?: string) {
   const [menu, setMenu] = useState<{ at: MenuPosition; label: string; items: MenuAction[] }>()
   const [error, setError] = useState<string>()
+  const activity = usePendingAction(scope === undefined ? undefined : `menu:${scope}`)
+  const [chosen, setChosen] = useState<string>()
   useEffect(() => {
     void scope
     setMenu(undefined)
@@ -284,14 +295,21 @@ export function useActionMenu(scope?: string) {
     menu: (
       <>
         {menu && (
-          <ContextMenu at={menu.at} label={menu.label} onClose={close}>
+          <ContextMenu at={menu.at} label={menu.label} onClose={close} pending={activity.pending}>
             <MenuItems
               items={menu.items}
+              pendingLabel={activity.pending ? chosen : undefined}
               choose={(item) => {
+                setError(undefined)
+                if (!activity.pending) setChosen(item.label)
+                const result = activity.run(() => item.action?.())
+                if (result) {
+                  return result.then(
+                    () => close(),
+                    (failure: unknown) => setError(readableError(failure)),
+                  )
+                }
                 close()
-                Promise.resolve()
-                  .then(() => item.action?.())
-                  .catch((failure: unknown) => setError(readableError(failure)))
               }}
             />
           </ContextMenu>
@@ -299,9 +317,9 @@ export function useActionMenu(scope?: string) {
         {error && (
           <p role="alert" className={styles.error}>
             {error}
-            <button type="button" onClick={() => setError(undefined)}>
+            <ActionButton type="button" onClick={() => setError(undefined)}>
               Dismiss
-            </button>
+            </ActionButton>
           </p>
         )}
       </>

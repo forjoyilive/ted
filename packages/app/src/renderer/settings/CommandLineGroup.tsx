@@ -44,7 +44,7 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
   const install = () => {
     setBusy(true)
     setProblem(undefined)
-    ted
+    return ted
       .installCommandLine()
       .then(setStatus, (error: unknown) => setProblem(errorText(error)))
       .finally(() => setBusy(false))
@@ -79,7 +79,7 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
             </>
           }
         >
-          <Button onClick={() => void ted.copyText(addToPath)}>Copy</Button>
+          <Button onClick={() => ted.copyText(addToPath)}>Copy</Button>
         </SettingRow>
       )}
     </SettingsGroup>
@@ -96,7 +96,7 @@ function UpdateRow() {
   const check = () => {
     setChecking(true)
     setProblem(undefined)
-    ted
+    return ted
       .checkForUpdates()
       .catch((error: unknown) => setProblem(errorText(error)))
       .finally(() => setChecking(false))
@@ -118,7 +118,7 @@ function UpdateRow() {
           primary
           disabled={busy}
           onClick={() =>
-            void ted.restartToUpdate().catch((error: unknown) => setProblem(errorText(error)))
+            ted.restartToUpdate().catch((error: unknown) => setProblem(errorText(error)))
           }
         >
           Restart to update
@@ -136,7 +136,7 @@ export function AboutGroup() {
   const view = () => {
     setProblem(undefined)
     setLoading(true)
-    ted
+    return ted
       .thirdPartyLicenses()
       .then(setLicenses, (error: unknown) => setProblem(errorText(error)))
       .finally(() => setLoading(false))
