@@ -136,7 +136,11 @@ test('Inbox answers close before its list refresh without recaps and remain in A
     return reply.promise
   })
   await user().click(
-    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Yes' }),
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('radio', { name: 'Yes' }),
+  )
+  expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
+  await user().click(
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
   )
   expect(
     within(screen.getByRole('region', { name: 'Permission' })).getByText('Second request'),
@@ -500,9 +504,12 @@ test('a delayed earlier response keeps the Inbox empty without an answer recap',
   const refresh = deferred<never[]>()
   a.handle('listInbox', () => refresh.promise)
   await user().click(
-    within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+    within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
       name: 'Yes',
     }),
+  )
+  await user().click(
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
   )
   const card = await screen.findByRole('region', { name: 'Permission' })
   await user().click(within(card).getByRole('button', { name: /^Approve/ }))
@@ -582,8 +589,13 @@ test.each(['response-first', 'event-first'] as const)(
     const refresh = deferred<never[]>()
     a.handle('listInbox', () => refresh.promise)
     await user().click(
-      within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+      within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
         name: 'Yes',
+      }),
+    )
+    await user().click(
+      within(screen.getByRole('region', { name: 'Question' })).getByRole('button', {
+        name: 'Send',
       }),
     )
     const answered: Comment = {

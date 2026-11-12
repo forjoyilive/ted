@@ -185,7 +185,9 @@ describe('Failed', () => {
     await window.getByRole('tab', { name: 'Task Lead' }).click()
 
     await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
-    await card.getByRole('button', { name: 'Retry' }).click()
+    await card.getByRole('radio', { name: 'Retry', exact: true }).check()
+    expect((await client.listTasks())[0]?.status?.kind).toBe('failed')
+    await card.getByRole('button', { name: 'Send', exact: true }).click()
 
     await thread.getByText('You retried the Task').waitFor()
     const comments = await client.listComments('NB-1')
