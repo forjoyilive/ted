@@ -32,6 +32,53 @@ export const ctx = {
   cleanup: async () => {},
 }
 
+export interface MergeCleanupEvent {
+  step: string
+  state: 'start' | 'end' | 'failed'
+  elapsedMs: number
+}
+
+export async function cleanupMergeHarness(
+  report: (event: MergeCleanupEvent) => void = (event) =>
+    console.error('[merge-cleanup]', JSON.stringify(event)),
+): Promise<void> {
+  if (!ctx.home) return
+  let active: { step: string; since: number } | undefined
+  const finish = (state: 'end' | 'failed') => {
+    if (active)
+      report({
+        step: active.step,
+        state,
+        elapsedMs: Math.round(performance.now() - active.since),
+      })
+    active = undefined
+  }
+  const begin = (step: string) => {
+    finish('end')
+    active = { step, since: performance.now() }
+    report({ step, state: 'start', elapsedMs: 0 })
+  }
+  try {
+    begin('daemon')
+    await ctx.daemon?.stop((step) => begin(`daemon.${step}`))
+    ctx.daemon = undefined
+    begin('run-hosts')
+    await killRunHosts(ctx.home)
+    delete process.env.TED_STUB_GH
+    delete process.env.TED_STUB_GH_LOG
+    begin('home')
+    await ctx.cleanup()
+    begin('scratch')
+    await rm(ctx.scratch, { recursive: true, force: true })
+    finish('end')
+    ctx.home = ''
+    ctx.scratch = ''
+  } catch (error) {
+    finish('failed')
+    throw error
+  }
+}
+
 export function useMergeHarness(): void {
   beforeEach(async () => {
     const temp = await makeTempHome()
@@ -46,14 +93,10 @@ export function useMergeHarness(): void {
     process.env.TED_STUB_GH_LOG = ctx.ghLog
   })
 
-  afterEach(async () => {
-    await ctx.daemon?.stop()
-    ctx.daemon = undefined
-    await killRunHosts(ctx.home)
-    delete process.env.TED_STUB_GH
-    delete process.env.TED_STUB_GH_LOG
-    await ctx.cleanup()
-    await rm(ctx.scratch, { recursive: true, force: true })
+  afterEach(async (context) => {
+    await cleanupMergeHarness((event) =>
+      console.error('[merge-cleanup]', JSON.stringify({ test: context.task.name, ...event })),
+    )
   })
 }
 

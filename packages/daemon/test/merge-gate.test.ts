@@ -16,12 +16,14 @@ import { loadRunTokens } from '../src/run-token.ts'
 import { api, tokenFor, waitUntil } from './helpers.ts'
 import {
   approve,
+  cleanupMergeHarness,
   type Client,
   commitStep,
   ctx,
   getTask,
   ghCalls,
   lines,
+  type MergeCleanupEvent,
   merges,
   readGh,
   run,
@@ -33,6 +35,7 @@ import {
 } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
 import { ManualClock } from './support/manual-clock.ts'
+import { findMarked } from './support/processes.ts'
 
 useMergeHarness()
 
@@ -57,6 +60,90 @@ const mergeSignoff = (client: Client, task: Task) =>
     },
     'the Merge sign-off',
   )
+
+test('cleanup identifies delayed merge work and folder removal without deleting live work', async () => {
+  const reached = (signal: Promise<void>, what: string) => {
+    let ready = false
+    return eventWait(
+      (changed) => {
+        void signal.then(() => {
+          ready = true
+          changed()
+        })
+        return () => {}
+      },
+      () => ready,
+      what,
+    )
+  }
+  const merging = Promise.withResolvers<void>()
+  const releaseMerge = Promise.withResolvers<void>()
+  const closingServices = Promise.withResolvers<void>()
+  const removingHome = Promise.withResolvers<void>()
+  const releaseHome = Promise.withResolvers<void>()
+  const client = await start({
+    daemon: {
+      beforeMerge: async () => {
+        merging.resolve()
+        await releaseMerge.promise
+      },
+    },
+  })
+  const { signoff } = await toSignoff(client)
+  const home = ctx.home
+  const scratch = ctx.scratch
+  const removeHome = ctx.cleanup
+  ctx.cleanup = async () => {
+    removingHome.resolve()
+    await releaseHome.promise
+    await removeHome()
+  }
+  const progress: MergeCleanupEvent[] = []
+  let cleanup: Promise<void> | undefined
+  try {
+    await approve(client, signoff)
+    await reached(merging.promise, 'the delayed merge')
+    cleanup = cleanupMergeHarness((event) => {
+      progress.push(event)
+      if (event.step === 'daemon.services' && event.state === 'start') closingServices.resolve()
+    })
+    await reached(closingServices.promise, 'daemon service cleanup')
+    expect((await stat(home)).isDirectory()).toBe(true)
+    expect((await stat(scratch)).isDirectory()).toBe(true)
+    expect(progress.at(-1)).toMatchObject({ step: 'daemon.services', state: 'start' })
+    expect(progress.some((event) => event.step === 'run-hosts')).toBe(false)
+
+    releaseMerge.resolve()
+    await reached(removingHome.promise, 'home cleanup after the merge settles')
+    expect(progress.at(-1)).toMatchObject({ step: 'home', state: 'start' })
+    expect(progress).toContainEqual(expect.objectContaining({ step: 'daemon.store', state: 'end' }))
+    expect(progress).toContainEqual(expect.objectContaining({ step: 'run-hosts', state: 'end' }))
+    expect((await stat(home)).isDirectory()).toBe(true)
+    expect((await stat(scratch)).isDirectory()).toBe(true)
+    releaseHome.resolve()
+    await cleanup
+
+    expect(progress.filter((event) => event.state === 'start').map((event) => event.step)).toEqual([
+      'daemon',
+      'daemon.connections',
+      'daemon.opening',
+      'daemon.services',
+      'daemon.store',
+      'run-hosts',
+      'home',
+      'scratch',
+    ])
+    expect(progress.filter((event) => event.state === 'end')).toHaveLength(8)
+    expect(progress.every((event) => event.elapsedMs >= 0)).toBe(true)
+    await expect(stat(home)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect((await findMarked('TED_HOME', home)).map((process) => process.pid)).toEqual([])
+  } finally {
+    releaseMerge.resolve()
+    releaseHome.resolve()
+    await cleanup
+  }
+})
 
 describe('Merge sign-off', () => {
   test('TED posts the Merge sign-off only once CI passes, it still waits for the human when overnight mode turns on, and Merge merges at once', async () => {
