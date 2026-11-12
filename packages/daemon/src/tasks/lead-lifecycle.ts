@@ -170,19 +170,19 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     })
   }
 
-  function acknowledgeLeadMessages(run: Run): void {
-    if (run.taskId === undefined) return
-    const task = store.getTask(run.taskId)
-    if (task?.leadRunId !== run.id || task.pendingLeadMessages.length === 0) return
+  function acknowledgeLeadMessages(run: Run, known?: StoredTask): boolean {
+    if (run.taskId === undefined) return false
+    const task = known?.id === run.taskId ? known : store.getTask(run.taskId)
+    if (task?.leadRunId !== run.id || task.pendingLeadMessages.length === 0) return false
     store.deliveredLeadMessages(run.taskId, runs.acceptedInputs(run.id))
+    return true
   }
 
   async function applyLead(taskId: string): Promise<void> {
     if (applying.has(taskId)) return
     const previous = store.getTask(taskId)
     const run = previous && liveLead(previous)
-    if (run) acknowledgeLeadMessages(run)
-    const task = store.getTask(taskId)
+    const task = run && acknowledgeLeadMessages(run, previous) ? store.getTask(taskId) : previous
     const lead = task && effectiveLead(task)
     if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
     if (agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)) return

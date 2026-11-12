@@ -245,13 +245,24 @@ test('size, backlog and lifecycle limits prevent unbounded or obsolete coordinat
   )
 })
 
-test('production snapshots read the Task list once, and details do not rebuild it', async () => {
-  for (let i = 0; i < 30; i++) await store.createTask({ title: `Extra peer ${i}` })
+test('snapshots build only this Factory’s Tasks, and details build one peer', async () => {
+  const factory = store.createFactory({
+    key: 'OTHER',
+    name: 'Other',
+    repos: [],
+    defaultBranch: 'main',
+    showTutorial: false,
+  })
+  for (let i = 0; i < 12; i++) {
+    await store.createTask({ factoryId: factory.id, title: `Other Factory ${i}` })
+  }
   const reads = vi.spyOn(store, 'listTasks')
-  peers.list(caller)
-  expect(reads).toHaveBeenCalledTimes(1)
-  reads.mockClear()
+  let builds = store.taskBuilds()
+  expect(peers.list(caller).tasks.map((t) => t.id)).toEqual([recipient])
+  expect(store.taskBuilds() - builds).toBe(2)
+  builds = store.taskBuilds()
   peers.show(caller, recipient)
+  expect(store.taskBuilds() - builds).toBe(2)
   expect(reads).not.toHaveBeenCalled()
 })
 
@@ -265,7 +276,7 @@ test('watch ignores raw output and other Factories, and coalesces relevant updat
   })
   const other = await store.createTask({ factoryId: factory.id, title: 'Unrelated peer' })
   const cursor = peers.list(caller).cursor
-  const reads = vi.spyOn(store, 'listTasks')
+  const reads = vi.spyOn(store, 'tasksIn')
   const controller = new AbortController()
   const pending = peers.watch(caller, cursor, 1, controller.signal)
   try {

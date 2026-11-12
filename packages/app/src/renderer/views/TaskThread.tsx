@@ -56,6 +56,7 @@ import { Markdown } from '../components/Markdown.tsx'
 import { PeerMessage } from '../components/PeerMessage.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
+import { RequestDock } from '../components/RequestDock.tsx'
 import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
@@ -633,9 +634,15 @@ export function TaskThread({
     setConversationReveal({ runId, target: { id: `conversation:${runId}` } })
     onOpenRun(runId)
   }
+  const [answering, setAnswering] = useState<string>()
+  const [commenting, setCommenting] = useState<string>()
   useEffect(() => {
     setFilter(undefined)
     setReveal(revealRequest ?? (answeredId === undefined ? undefined : { id: answeredId }))
+    if (revealRequest) {
+      setAnswering(revealRequest.id)
+      setCommenting(undefined)
+    }
   }, [revealRequest, answeredId])
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
@@ -673,6 +680,8 @@ export function TaskThread({
     setConversationReveal(undefined)
     setFilter(undefined)
     setReveal({ id })
+    setAnswering(id)
+    setCommenting(undefined)
     inbox?.select(id)
   }
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
@@ -757,6 +766,7 @@ export function TaskThread({
           onOpenFile={onOpenFile}
           onAllChanges={onAllChanges}
           request={comment}
+          answerBelow
           onOpenTask={onOpenTask}
           task={task}
           onOpenRun={onOpenRun}
@@ -1005,13 +1015,26 @@ export function TaskThread({
                     drafts={(lines?.current ?? []).filter(isDraft)}
                     onOpen={(c) => lines?.onOpen(c)}
                   />
-                  <CommentBox
+                  <RequestDock
                     key={task.id}
                     task={task}
-                    run={chat?.run}
-                    hasLineComments={(lines?.current ?? []).some(isDraft)}
-                    onFollowedUp={onFollowedUp}
-                  />
+                    open={open}
+                    current={answering}
+                    commenting={commenting}
+                    onCurrent={setAnswering}
+                    onCommenting={setCommenting}
+                    onJump={jumpToRequest}
+                    onOpenRun={onOpenRun}
+                    onOpenPlan={onOpenPlan}
+                  >
+                    <CommentBox
+                      key={task.id}
+                      task={task}
+                      run={chat?.run}
+                      hasLineComments={(lines?.current ?? []).some(isDraft)}
+                      onFollowedUp={onFollowedUp}
+                    />
+                  </RequestDock>
                 </div>
               )}
             />
