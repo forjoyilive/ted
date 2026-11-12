@@ -20,6 +20,19 @@
   overflow-x: auto;
 }
 
+.scrollTable {
+  overflow-x: auto;
+}
+
+.scrollTable .checkRow {
+  min-width: 720px;
+}
+
+.scrollTable .checkRowRepo,
+.scrollTable .agentRow {
+  min-width: 820px;
+}
+
 .workflowRow {
   min-width: 860px;
   grid-template-columns: 92px 36px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);

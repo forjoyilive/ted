@@ -676,13 +676,13 @@ function ChecksSectionView({
   }
 
   return (
-    <section className={base.section} aria-labelledby="checks">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="checks">
       <SectionHeading
         id="checks"
         title="Checks"
         help="Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
       />
-      <div className={styles.table}>
+      <div className={`${styles.table} ${styles.scrollTable}`}>
         <div className={`${multiRepo ? styles.checkRowRepo : styles.checkRow} ${styles.headRow}`}>
           <span>Name</span>
           <span>Command</span>
@@ -877,13 +877,13 @@ function AgentsSectionView({
   const set = (role: AgentRole, choice: AgentChoiceInput | null) =>
     onDraft((d) => ({ ...d, agents: { ...d.agents, [role]: choice } }))
   return (
-    <section className={base.section} aria-labelledby="agents">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="agents">
       <SectionHeading
         id="agents"
         title="Agents"
         help="Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
       />
-      <div className={styles.table}>
+      <div className={`${styles.table} ${styles.scrollTable}`}>
         {view.agents.map((row) => (
           <AgentRow
             key={row.role}
@@ -1052,7 +1052,7 @@ function PermissionsSectionView({
   }
   return (
     <>
-      <section className={base.section} aria-labelledby="permissions">
+      <section className={`${base.section} ${base.compactSection}`} aria-labelledby="permissions">
         <SectionHeading
           id="permissions"
           title="Permission mode"
@@ -1154,7 +1154,10 @@ function PermissionsSectionView({
           </dialog>
         )}
       </section>
-      <section className={base.section} aria-labelledby={`${id}-limits`}>
+      <section
+        className={`${base.section} ${base.compactSection}`}
+        aria-labelledby={`${id}-limits`}
+      >
         <SectionHeading
           id={`${id}-limits`}
           title="Working Run limit"
@@ -1197,7 +1200,7 @@ function NotesSectionView({
 }) {
   const [preview, setPreview] = useState(false)
   return (
-    <section className={base.section} aria-labelledby="notes">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="notes">
       <SectionHeading
         id="notes"
         title="Factory notes"
