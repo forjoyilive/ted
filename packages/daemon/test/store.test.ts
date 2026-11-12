@@ -198,6 +198,11 @@ describe('TedStore', () => {
     try {
       expect(second.runReadOffset('run-1')).toBe(60)
       expect(second.lastOutputAt('run-1')).toBe('2026-01-02T03:04:06.000Z')
+      second.holdRunOutput('run-1', { from: 40, toOffset: 90 })
+      expect(second.runReadOffset('run-1')).toBe(60)
+      second.holdRunOutput('run-1', { from: 60, toOffset: 90 })
+      expect(second.runReadOffset('run-1')).toBe(90)
+      expect(second.savedReadOffset('run-1')).toBe(60)
     } finally {
       await second.close()
     }

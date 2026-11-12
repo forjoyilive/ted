@@ -842,7 +842,11 @@ export interface TedStore extends TaskHistory {
   onSubAgents(runId: string): boolean
   reconcileRunState(runId: string): void
   recordRunOutput(runId: string, output: RunOutput): boolean
-  holdRunOutput(runId: string, read: { toOffset: number; lastOutputAt?: string }): void
+  holdRunOutput(
+    runId: string,
+    read: { from: number; toOffset: number; lastOutputAt?: string },
+  ): void
+  savedReadOffset(id: string): number
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
@@ -4531,10 +4535,11 @@ export async function openStore({
       }
       return true
     },
-    holdRunOutput(runId, read) {
-      const row = runRow(runId)
-      if (row && read.toOffset > row.readOffset) heldOutput.set(runId, read)
+    holdRunOutput(runId, { from, toOffset, lastOutputAt }) {
+      if (runRow(runId)?.readOffset !== from || toOffset <= from) return
+      heldOutput.set(runId, { toOffset, ...(lastOutputAt !== undefined && { lastOutputAt }) })
     },
+    savedReadOffset: (id) => runRow(id)?.readOffset ?? 0,
     setRunPermissions(runId, permissions) {
       const row = runRow(runId)
       if (!row || row.permissions === permissions) return

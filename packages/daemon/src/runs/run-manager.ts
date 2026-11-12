@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
+  constants,
   fstatSync,
   fsyncSync,
   ftruncateSync,
@@ -10,6 +11,7 @@ import {
   readFileSync,
   readSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
   writeSync,
@@ -360,28 +362,42 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   function heldRead(
     files: ReturnType<typeof runFiles>,
-  ): { toOffset: number; lastOutputAt?: string } | undefined {
+  ): { from: number; toOffset: number; lastOutputAt?: string } | undefined {
+    let fd: number | undefined
     try {
-      const read = JSON.parse(readFileSync(files.readTo, 'utf8')) as {
-        toOffset?: unknown
-        lastOutputAt?: unknown
-      }
-      const { toOffset, lastOutputAt } = read
-      if (!Number.isSafeInteger(toOffset) || typeof toOffset !== 'number' || toOffset < 0)
-        return undefined
+      fd = openSync(files.readTo, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+      const { size } = fstatSync(fd)
+      if (!fstatSync(fd).isFile() || size > 1024) return undefined
+      const bytes = Buffer.alloc(size)
+      readSync(fd, bytes, 0, size, 0)
+      const { from, toOffset, lastOutputAt } = JSON.parse(bytes.toString('utf8')) as Record<
+        string,
+        unknown
+      >
+      const offset = (value: unknown): value is number =>
+        typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+      if (!offset(from) || !offset(toOffset)) return undefined
       if (toOffset > statSync(files.log).size) return undefined
-      return { toOffset, ...(typeof lastOutputAt === 'string' && { lastOutputAt }) }
+      return { from, toOffset, ...(typeof lastOutputAt === 'string' && { lastOutputAt }) }
     } catch {
       return undefined
+    } finally {
+      if (fd !== undefined) closeSync(fd)
     }
   }
 
   function holdRead(runId: string, toOffset: number): void {
     const { readTo } = runFiles(path.join(runsDir, runId))
-    const lastOutputAt = store.lastOutputAt(runId)
+    const held = {
+      from: store.savedReadOffset(runId),
+      toOffset,
+      lastOutputAt: store.lastOutputAt(runId),
+    }
+    const temporary = `${readTo}.tmp`
     try {
-      writeFileSync(`${readTo}.tmp`, JSON.stringify({ toOffset, lastOutputAt }), { mode: 0o600 })
-      renameSync(`${readTo}.tmp`, readTo)
+      rmSync(temporary, { force: true })
+      writeFileSync(temporary, JSON.stringify(held), { mode: 0o600, flag: 'wx' })
+      renameSync(temporary, readTo)
     } catch (error) {
       console.error(`could not save the read offset of Run ${runId}:`, error)
     }
