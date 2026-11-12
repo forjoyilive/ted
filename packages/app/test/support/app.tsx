@@ -34,6 +34,7 @@ export function appState() {
     automationRequests: () => [],
     listAutomations: () => [],
     agentHealth: () => [],
+    apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     checkAgentHealth: () => [],
     taskDraft: () => ({ draft: null }),
     saveTaskDraft: (_factory, draft) => ({ draft }),

@@ -157,3 +157,8 @@ export function planChip(
     top.resetsAt !== undefined ? ` · resets ${resetTime(top.resetsAt, now, preferences)}` : ''
   return `${agentShortNames[health.agent]} ${Math.round(top.percent)}%${resets}`
 }
+
+export const antigravityTermsUrl = 'https://antigravity.google/terms'
+
+export const antigravityPlanNotice =
+  'Google’s terms say that using Antigravity through other software, such as TED, on a Google plan can get your account suspended. In Settings → Agents, choose to use your plan anyway or switch Antigravity to an API key.'

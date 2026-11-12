@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export type * from './api-cost.ts'
 export {
   type AppCapture,
   type AppLog,
@@ -364,6 +365,8 @@ export {
   agentHealthStates,
   agentProblem,
   agentShortNames,
+  antigravityPlanNotice,
+  antigravityTermsUrl,
   type Billing,
   billingNames,
   billings,

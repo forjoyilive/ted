@@ -84,7 +84,8 @@ test('Full brief opens its five sections in the middle pane and returns to Threa
     text: '## Goal\n\nStop the TypeError.\n\n## Decisions so far\n\n- Guard in SearchPanel.\n\n## Current state\n\nDone.\n\n## Open questions\n\nNone.\n\n## Next step\n\nYour sign-off.',
   }))
   await openTask(a)
-  await user().click(await screen.findByRole('button', { name: 'Full brief' }))
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
   const full = screen.getByRole('region', { name: 'Full brief' })
   expect(
     within(full)
@@ -136,7 +137,11 @@ test('Inbox answers close before its list refresh without recaps and remain in A
     return reply.promise
   })
   await user().click(
-    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Yes' }),
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('radio', { name: 'Yes' }),
+  )
+  expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
+  await user().click(
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
   )
   expect(
     within(screen.getByRole('region', { name: 'Permission' })).getByText('Second request'),
@@ -500,9 +505,12 @@ test('a delayed earlier response keeps the Inbox empty without an answer recap',
   const refresh = deferred<never[]>()
   a.handle('listInbox', () => refresh.promise)
   await user().click(
-    within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+    within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
       name: 'Yes',
     }),
+  )
+  await user().click(
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
   )
   const card = await screen.findByRole('region', { name: 'Permission' })
   await user().click(within(card).getByRole('button', { name: /^Approve/ }))
@@ -582,8 +590,13 @@ test.each(['response-first', 'event-first'] as const)(
     const refresh = deferred<never[]>()
     a.handle('listInbox', () => refresh.promise)
     await user().click(
-      within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+      within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
         name: 'Yes',
+      }),
+    )
+    await user().click(
+      within(screen.getByRole('region', { name: 'Question' })).getByRole('button', {
+        name: 'Send',
       }),
     )
     const answered: Comment = {
@@ -683,7 +696,8 @@ test('Inbox reveals its request after delayed history and after other panes cove
   expect(document.activeElement?.contains(card)).toBe(true)
   const answer = within(card).getByRole('textbox', { name: 'Your answer' })
   await user().type(answer, 'Keep this draft')
-  await user().click(await screen.findByRole('button', { name: 'Full brief' }))
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
   await screen.findByRole('region', { name: 'Full brief' })
   await user().click(within(inbox).getByText(request.body))
   expect(screen.queryByRole('region', { name: 'Full brief' })).toBeNull()

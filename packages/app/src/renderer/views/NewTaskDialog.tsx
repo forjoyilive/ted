@@ -149,6 +149,7 @@ function NewTaskForm({
   const [uploading, setUploading] = useState(0)
   const uploads = useRef(new Set<Promise<void>>())
   const [busy, setBusy] = useState(false)
+  const [creatingMore, setCreatingMore] = useState(false)
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
   const lookups = useRef(0)
@@ -358,6 +359,7 @@ function NewTaskForm({
   async function create(more: boolean) {
     if (!canCreate || submitting.current) return
     submitting.current = true
+    setCreatingMore(more)
     lookups.current++
     let created = false
     setBusy(true)
@@ -728,7 +730,7 @@ function NewTaskForm({
             </span>
           </div>
           <span className={styles.spacer} />
-          <Button disabled={!canCreate} onClick={() => create(true)}>
+          <Button disabled={!canCreate} pending={busy && creatingMore} onClick={() => create(true)}>
             Create more
           </Button>
           <Button
@@ -736,6 +738,7 @@ function NewTaskForm({
             shortcut="⌘↵"
             aria-keyshortcuts="Meta+Enter"
             disabled={!canCreate}
+            pending={busy && !creatingMore}
             onClick={() => create(false)}
           >
             Create

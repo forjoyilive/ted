@@ -94,17 +94,44 @@ interface Price {
   output: number
 }
 
+// USD per million tokens at the standard tier, for requests of up to 272K input tokens, from
+// developers.openai.com/api/docs/pricing on 2026-11-11. A model with no cached-input price is
+// charged its input price. gpt-5.6-sol’s price is promotional until 2026-11-30.
 const prices: { prefix: string; price: Price }[] = [
+  { prefix: 'gpt-6-astra', price: { input: 10, cachedInput: 1, output: 50 } },
+  { prefix: 'gpt-6.1-sol', price: { input: 2, cachedInput: 0.1, output: 10 } },
+  { prefix: 'gpt-6.1-terra', price: { input: 1, cachedInput: 0.05, output: 5 } },
+  { prefix: 'gpt-6-luna', price: { input: 0.1, cachedInput: 0.01, output: 0.5 } },
+  { prefix: 'gpt-6-sol', price: { input: 2, cachedInput: 0.2, output: 10 } },
+  { prefix: 'gpt-5.6-sol', price: { input: 4, cachedInput: 0.4, output: 20 } },
+  { prefix: 'gpt-5.6-terra', price: { input: 2, cachedInput: 0.2, output: 12 } },
+  { prefix: 'gpt-5.6-luna', price: { input: 0.2, cachedInput: 0.02, output: 1.2 } },
+  { prefix: 'gpt-5.5-pro', price: { input: 30, cachedInput: 30, output: 180 } },
+  { prefix: 'gpt-5.5', price: { input: 5, cachedInput: 0.5, output: 30 } },
+  { prefix: 'gpt-5.4-pro', price: { input: 30, cachedInput: 30, output: 180 } },
+  { prefix: 'gpt-5.4-mini', price: { input: 0.75, cachedInput: 0.075, output: 4.5 } },
+  { prefix: 'gpt-5.4-nano', price: { input: 0.2, cachedInput: 0.02, output: 1.25 } },
+  { prefix: 'gpt-5.4', price: { input: 2.5, cachedInput: 0.25, output: 15 } },
+  { prefix: 'gpt-5.3-codex', price: { input: 1.75, cachedInput: 0.175, output: 14 } },
+  { prefix: 'gpt-5.2-pro', price: { input: 21, cachedInput: 21, output: 168 } },
+  { prefix: 'gpt-5.2', price: { input: 1.75, cachedInput: 0.175, output: 14 } },
+  { prefix: 'gpt-5.1', price: { input: 1.25, cachedInput: 0.125, output: 10 } },
+  { prefix: 'gpt-5-pro', price: { input: 15, cachedInput: 15, output: 120 } },
   { prefix: 'gpt-5-mini', price: { input: 0.25, cachedInput: 0.025, output: 2 } },
   { prefix: 'gpt-5-nano', price: { input: 0.05, cachedInput: 0.005, output: 0.4 } },
+  { prefix: 'gpt-5', price: { input: 1.25, cachedInput: 0.125, output: 10 } },
   { prefix: 'codex-mini', price: { input: 1.5, cachedInput: 0.375, output: 6 } },
   { prefix: 'o4-mini', price: { input: 1.1, cachedInput: 0.275, output: 4.4 } },
 ]
 
-const defaultPrice: Price = { input: 1.25, cachedInput: 0.125, output: 10 }
+const defaultPrice: Price = { input: 2, cachedInput: 0.1, output: 10 }
 
+// The longest matching prefix wins, so gpt-5-mini is not priced as gpt-5.
 function priceOf(model: string | undefined): Price {
-  return prices.find((p) => model?.startsWith(p.prefix))?.price ?? defaultPrice
+  const found = prices
+    .filter((p) => model?.startsWith(p.prefix))
+    .sort((a, b) => b.prefix.length - a.prefix.length)[0]
+  return found?.price ?? defaultPrice
 }
 
 function usageLimitIn(error: unknown): UsageSignal | undefined {

@@ -9,7 +9,7 @@ import type {
   ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
 import {
@@ -49,6 +49,7 @@ import { Help } from './Help.tsx'
 import { Markdown } from './Markdown.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
+import { QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
 import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
@@ -413,10 +414,12 @@ export function RequestCard({
   onOpenPlan?: ((planId: string) => void) | undefined
 }) {
   const now = useNow()
-  const [repairing, setRepairing] = useState(false)
+  const repairFormId = useId()
+  const [selection, setSelection] = useState<QuestionSelection>()
+  const [otherText, setOtherText] = useState('')
+  const sendingRef = useRef(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
-  const activeAnswer = useRef(false)
   const [submission, setSubmission] = useState<AnswerRequest>()
   const [error, setError] = useState<string>()
   const shown =
@@ -437,28 +440,30 @@ export function RequestCard({
   const rows = request.gate?.pullRequests
 
   async function send(answer: AnswerRequest) {
-    if (activeAnswer.current) return
-    activeAnswer.current = true
+    if (sendingRef.current || readOnly) return
+    sendingRef.current = true
     setSubmission(answer)
     setSending(true)
     setError(undefined)
     try {
       const answered = await ted.answerRequest(request.id, answer)
       setText('')
+      setOtherText('')
       if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
         onOpenPlan?.(answered.answer.planId)
       }
     } catch (failed) {
       setError(readableError(failed))
     } finally {
-      activeAnswer.current = false
+      sendingRef.current = false
       setSending(false)
     }
   }
 
   async function talk() {
-    if (activeAnswer.current) return
-    activeAnswer.current = true
+    if (sendingRef.current) return
+    sendingRef.current = true
+    setSubmission(undefined)
     setSending(true)
     setError(undefined)
     try {
@@ -467,7 +472,7 @@ export function RequestCard({
     } catch (failed) {
       setError(readableError(failed))
     } finally {
-      activeAnswer.current = false
+      sendingRef.current = false
       setSending(false)
     }
   }
@@ -479,9 +484,29 @@ export function RequestCard({
     request.choices.includes(failureChoices['no-longer-applicable'])
       ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
       : []
-  const needsReason = (choice: string) => !readOnly && !typed && reasonChoices.includes(choice)
-  const actionChoice =
-    request.author.kind === 'ted' && request.choices?.length === 1 ? request.choices[0] : undefined
+  const questionChoices = request.kind === 'question' && (request.choices?.length ?? 0) > 0
+  const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
+  const other = selection && 'other' in selection
+  const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
+  const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
+  const answerText = questionChoices && other ? otherText : text
+  const ready = questionChoices
+    ? !repairing &&
+      (selectedChoice !== undefined ? !needsReason || typed : other && otherText.trim() !== '')
+    : typed
+
+  function sendAnswer() {
+    if (!ready || sending || readOnly) return
+    return send(
+      request.gate
+        ? { action: 'request-changes', text }
+        : {
+            action: 'answer',
+            ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
+            ...(answerText.trim() !== '' && { text: answerText }),
+          },
+    )
+  }
 
   return (
     <section
@@ -617,77 +642,73 @@ export function RequestCard({
           onChoose={setPicked}
         />
       )}
-      {repairing && !readOnly && (
-        <FailureRepairForm
-          task={task}
-          request={request}
-          reason={text}
-          onCancel={() => setRepairing(false)}
+      {questionChoices && (
+        <QuestionChoices
+          choices={request.choices ?? []}
+          selection={selection}
+          onSelect={setSelection}
+          allowOther={!request.linearTeam}
+          disabled={sending || readOnly}
         />
       )}
-      {!repairing &&
-        actionChoice === undefined &&
-        request.choices &&
-        request.choices.length > 0 && (
-          <div className={styles.choices}>
-            {request.choices.map((choice) => (
-              <ActionButton
-                key={choice}
-                type="button"
-                className={
-                  needsReason(choice) ? `${styles.choice} ${styles.needsReason}` : styles.choice
-                }
-                disabled={sending || readOnly || needsReason(choice)}
-                {...(needsReason(choice) && { title: 'Write your reason below first' })}
-                onClick={() =>
-                  choice === 'Wait for a repair Task'
-                    ? setRepairing(true)
-                    : send({ action: 'answer', choice, ...withText })
-                }
-              >
-                {choice}
-              </ActionButton>
-            ))}
-          </div>
-        )}
-      {!repairing && !readOnly && !request.round && !request.proposal && (
+      {!readOnly && !request.round && !request.proposal && (
         <>
           {!request.linearTeam && (
             <textarea
               className={styles.box}
               data-answer-box
+              form={repairing ? repairFormId : undefined}
               aria-label="Your answer"
               placeholder={
                 request.simulator
                   ? 'Comment…'
-                  : reasonChoices.length > 0
-                    ? 'Your reason. Fixed and No longer applicable need one…'
+                  : needsReason
+                    ? 'Your reason…'
                     : request.permission
                       ? 'Comment, or say why you’re denying…'
                       : request.design
                         ? 'Comment, or say what to change…'
-                        : request.failed
-                          ? 'Or tell the Task Lead what to change, then Retry…'
-                          : actionChoice !== undefined
-                            ? 'Comment, or tell the Task Lead what to do next…'
-                            : request.kind === 'question' && request.choices
-                              ? 'Or write your own answer…'
-                              : 'Comment to the Task Lead…'
+                        : questionChoices
+                          ? other
+                            ? 'Your answer…'
+                            : 'Add to this answer…'
+                          : 'Comment to the Task Lead…'
               }
-              value={text}
-              onChange={(event) => setText(event.target.value)}
+              value={answerText}
+              disabled={sending}
+              onChange={(event) =>
+                questionChoices && other
+                  ? setOtherText(event.target.value)
+                  : setText(event.target.value)
+              }
               onKeyDown={
                 request.permission || request.simulator
                   ? undefined
-                  : sendOnEnter(() =>
-                      send(
-                        request.gate
-                          ? { action: 'request-changes', text }
-                          : { action: 'answer', text },
-                      ),
-                    )
+                  : (event) =>
+                      repairing
+                        ? sendOnEnter(
+                            () => event.currentTarget.form?.requestSubmit(),
+                            () => !sending,
+                          )(event)
+                        : sendOnEnter(sendAnswer, () => !!ready && !sending)(event)
               }
             />
+          )}
+          {needsReason && (
+            <p className={styles.caption}>Write a reason before sending this decision.</p>
+          )}
+          {questionChoices && request.choices?.includes('Wait for a repair Task') && (
+            <div hidden={!repairing}>
+              <FailureRepairForm
+                id={repairFormId}
+                active={repairing}
+                task={task}
+                request={request}
+                reason={text}
+                onCancel={() => setSelection(undefined)}
+                onSendingChange={setSending}
+              />
+            </div>
           )}
           {error !== undefined && (
             <p className={styles.error} role="alert">
@@ -737,6 +758,7 @@ export function RequestCard({
                 <Button
                   variant="primary"
                   arm="approve"
+                  pending={sending && submission?.action === 'approve'}
                   disabled={sending}
                   onClick={() => send({ action: 'approve', ...withText })}
                 >
@@ -747,6 +769,7 @@ export function RequestCard({
               <>
                 <Button
                   data-request-changes
+                  pending={sending && submission?.action === 'request-changes'}
                   disabled={sending || !typed}
                   onClick={() => send({ action: 'request-changes', text })}
                 >
@@ -755,55 +778,31 @@ export function RequestCard({
                 <Button
                   variant="primary"
                   arm="approve"
+                  pending={sending && submission?.action === 'approve'}
                   disabled={sending}
                   onClick={() => send({ action: 'approve', ...withText })}
                 >
                   {request.gate.approveLabel}
                 </Button>
               </>
-            ) : actionChoice !== undefined ? (
+            ) : !repairing ? (
               <>
                 {request.failed && (
                   <Help>
-                    Send keeps your Comment for the next Run. Retry sends it and starts a fresh Task
-                    Lead Run from the brief.
+                    Choose Retry to start a fresh Task Lead Run from the brief, or Other answer to
+                    leave a Comment for the next Run. Send confirms your choice.
                   </Help>
                 )}
                 <Button
-                  disabled={sending || !typed}
-                  pending={
-                    sending && submission?.action === 'answer' && submission.choice === undefined
-                  }
-                  onClick={() => send({ action: 'answer', text })}
+                  variant="primary"
+                  disabled={sending || !ready}
+                  pending={sending && submission?.action === 'answer'}
+                  onClick={sendAnswer}
                 >
                   Send
                 </Button>
-                <Button
-                  variant="primary"
-                  disabled={sending}
-                  onClick={() =>
-                    send({
-                      action: 'answer',
-                      choice: actionChoice,
-                      ...(request.failed ? withText : {}),
-                    })
-                  }
-                >
-                  {actionChoice}
-                </Button>
               </>
-            ) : (
-              <Button
-                variant="primary"
-                disabled={sending || !typed}
-                pending={
-                  sending && submission?.action === 'answer' && submission.choice === undefined
-                }
-                onClick={() => send({ action: 'answer', text })}
-              >
-                Send
-              </Button>
-            )}
+            ) : null}
           </div>
         </>
       )}

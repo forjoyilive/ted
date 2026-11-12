@@ -81,6 +81,9 @@ export function ContextMenu({
   close.current = onClose
   const restore = useRef(true)
   useLayoutEffect(() => {
+    if (pending) ref.current?.focus()
+  }, [pending])
+  useLayoutEffect(() => {
     const menu = ref.current
     if (!menu) return
     restore.current = true
@@ -91,7 +94,7 @@ export function ContextMenu({
         : at.x
     menu.style.left = `${Math.max(8, Math.min(left, window.innerWidth - box.width - 8))}px`
     menu.style.top = `${Math.max(8, Math.min(at.y, window.innerHeight - box.height - 8))}px`
-    enabled(menu)[0]?.focus()
+    ;(enabled(menu)[0] ?? menu).focus()
     return () => {
       if (restore.current && at.trigger.isConnected && menu.contains(document.activeElement))
         at.trigger.focus()
@@ -127,6 +130,7 @@ export function ContextMenu({
     <div
       ref={ref}
       role="menu"
+      tabIndex={-1}
       aria-label={label}
       data-context-popup
       className={styles.menu}
@@ -279,10 +283,16 @@ export function MenuItems({
 }
 
 export function useActionMenu(scope?: string) {
-  const [menu, setMenu] = useState<{ at: MenuPosition; label: string; items: MenuAction[] }>()
+  const [menu, setMenu] = useState<{
+    at: MenuPosition
+    label: string
+    items: MenuAction[]
+    operationKey?: string | undefined
+  }>()
   const [error, setError] = useState<string>()
-  const activity = usePendingAction(scope === undefined ? undefined : `menu:${scope}`)
-  const [chosen, setChosen] = useState<string>()
+  const activity = usePendingAction(
+    menu?.operationKey ?? (scope === undefined ? undefined : `menu:${scope}`),
+  )
   useEffect(() => {
     void scope
     setMenu(undefined)
@@ -290,9 +300,9 @@ export function useActionMenu(scope?: string) {
   const close = () => setMenu(undefined)
   return {
     isOpen: menu !== undefined,
-    open: (at: MenuPosition, label: string, items: MenuAction[]) => {
+    open: (at: MenuPosition, label: string, items: MenuAction[], operationKey?: string) => {
       setError(undefined)
-      setMenu({ at, label, items })
+      setMenu({ at, label, items, operationKey })
     },
     close,
     menu: (
@@ -301,15 +311,23 @@ export function useActionMenu(scope?: string) {
           <ContextMenu at={menu.at} label={menu.label} onClose={close} pending={activity.pending}>
             <MenuItems
               items={menu.items}
-              pendingLabel={activity.pending ? chosen : undefined}
+              pendingLabel={activity.pending ? activity.label : undefined}
               choose={(item) => {
                 setError(undefined)
-                if (!activity.pending) setChosen(item.label)
-                const result = activity.run(() => item.action?.())
+                const result = activity.run(() => item.action?.(), item.label)
                 if (result) {
                   return result.then(
-                    () => close(),
-                    (failure: unknown) => setError(readableError(failure)),
+                    () =>
+                      setMenu((current) =>
+                        (
+                          menu.operationKey !== undefined
+                            ? current?.operationKey === menu.operationKey
+                            : current?.label === menu.label
+                        )
+                          ? undefined
+                          : current,
+                      ),
+                    (failure: unknown) => setError(`${menu.label}: ${readableError(failure)}`),
                   )
                 }
                 close()

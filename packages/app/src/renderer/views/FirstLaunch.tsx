@@ -132,7 +132,7 @@ function CommandLine({
   children,
 }: {
   command: string
-  onCopy: () => void
+  onCopy: () => unknown
   children?: ReactNode
 }) {
   return (
@@ -147,7 +147,7 @@ function CommandLine({
 }
 
 interface RowActions {
-  copy: (text: string) => void
+  copy: (text: string) => Promise<void>
   watch: () => void
 }
 
@@ -441,10 +441,7 @@ function GitRow({
           <CommandLine
             key={command}
             command={command}
-            onCopy={() => {
-              actions.copy(command)
-              return actions.watch()
-            }}
+            onCopy={() => actions.copy(command).then(() => actions.watch())}
           />
         ))}
       />

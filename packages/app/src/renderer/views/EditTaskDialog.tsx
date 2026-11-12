@@ -19,6 +19,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
   const [title, setTitle] = useState(task.title)
   const [description, setDescription] = useState(task.description)
   const [busy, setBusy] = useState(false)
+  const saving = useRef(false)
   const [error, setError] = useState<string>()
 
   useEffect(() => {
@@ -32,7 +33,8 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
   const canSave = !busy && title.trim() !== '' && changed
 
   async function save() {
-    if (!canSave) return
+    if (!canSave || saving.current) return
+    saving.current = true
     setBusy(true)
     setError(undefined)
     try {
@@ -44,6 +46,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
     } catch (failure) {
       setError(readableError(failure))
     } finally {
+      saving.current = false
       setBusy(false)
     }
   }
@@ -113,6 +116,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
           shortcut="⌘↵"
           aria-keyshortcuts="Meta+Enter"
           disabled={!canSave}
+          pending={busy}
           onClick={() => save()}
         >
           Save

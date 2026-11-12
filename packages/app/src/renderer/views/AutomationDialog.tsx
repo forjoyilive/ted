@@ -105,6 +105,8 @@ export function AutomationDialog({
   const [on, setOn] = useState(editing?.on ?? true)
   const [preview, setPreview] = useState<SchedulePreview>()
   const [busy, setBusy] = useState(false)
+  const [savingAndRunning, setSavingAndRunning] = useState(false)
+  const saving = useRef(false)
   const [draftBusy, setDraftBusy] = useState(false)
   const [error, setError] = useState<string>()
   const applied = useRef<TemplateChoice | undefined>(undefined)
@@ -190,7 +192,9 @@ export function AutomationDialog({
     !draftBusy
 
   async function save(runNow: boolean) {
-    if (!canSave || typeof schedule === 'string' || !chosenFactory) return
+    if (!canSave || typeof schedule === 'string' || !chosenFactory || saving.current) return
+    saving.current = true
+    setSavingAndRunning(runNow)
     setBusy(true)
     setError(undefined)
     const fields = {
@@ -225,6 +229,8 @@ export function AutomationDialog({
     } catch (failure) {
       setError(readableError(failure))
       setBusy(false)
+    } finally {
+      saving.current = false
     }
   }
 
@@ -486,7 +492,7 @@ export function AutomationDialog({
         <Button disabled={busy} onClick={onClose}>
           Cancel
         </Button>
-        <Button disabled={!canSave} onClick={() => save(true)}>
+        <Button disabled={!canSave} pending={busy && savingAndRunning} onClick={() => save(true)}>
           Save and run now
         </Button>
         <Button
@@ -494,6 +500,7 @@ export function AutomationDialog({
           shortcut="⌘↵"
           aria-keyshortcuts="Meta+Enter"
           disabled={!canSave}
+          pending={busy && !savingAndRunning}
           onClick={() => save(false)}
         >
           Save

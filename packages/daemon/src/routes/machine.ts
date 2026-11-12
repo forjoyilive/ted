@@ -296,6 +296,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   linearSync: onOff('linearSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
+  antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
   maxChecksAtOnce(value) {
     const { min, max } = checkLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {

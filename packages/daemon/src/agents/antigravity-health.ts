@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import type { Billing } from '@ted/protocol'
+import { antigravityPlanNotice, type Billing } from '@ted/protocol'
 import { runCli } from '../health/cli.ts'
 import type { AuthCheck } from './agent.ts'
 
@@ -10,6 +10,7 @@ export async function antigravityHealth(options: {
   env: NodeJS.ProcessEnv
   cwd: string
   billing: Billing
+  planAccepted: boolean
 }): Promise<AuthCheck> {
   const help = await runCli(options.binary, ['acp', '--help'], options)
   if (help.code !== 0)
@@ -40,6 +41,7 @@ export async function antigravityHealth(options: {
           },
         }
   }
+  if (!options.planAccepted) return { signedIn: false, problem: { reason: antigravityPlanNotice } }
   // ACP has no silent auth-status request; session/new creates a saved conversation.
   // CLI 1.5.6 keeps only the selected method in this marker, never a credential.
   const home = options.env.HOME || options.env.USERPROFILE || homedir()

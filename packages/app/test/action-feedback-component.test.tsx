@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import type { AutomationDetail, FactorySettingsView } from '@ted/protocol'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useState } from 'react'
+import type { Automation, AutomationDetail, FactorySettingsView } from '@ted/protocol'
+import { defaultMachineSettings } from '@ted/protocol/settings'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useId, useState } from 'react'
 import { expect, test, vi } from 'vitest'
 import { ActionButton } from '../src/renderer/components/ActionButton.tsx'
+import { DeleteDialog } from '../src/renderer/components/ArchiveDialogs.tsx'
 import { Button } from '../src/renderer/components/Button.tsx'
 import { buttonPosition, useActionMenu } from '../src/renderer/components/ContextMenu.tsx'
 import { Markdown } from '../src/renderer/components/Markdown.tsx'
@@ -13,8 +15,10 @@ import { settingsDraft } from '../src/renderer/factory-settings.ts'
 import { useTaskFiles } from '../src/renderer/files.ts'
 import { usePendingAction } from '../src/renderer/pending-action.ts'
 import { Button as SettingsButton, Stepper } from '../src/renderer/settings/controls.tsx'
-import { AutomationView } from '../src/renderer/views/Automations.tsx'
+import { AutomationsPage, AutomationView } from '../src/renderer/views/Automations.tsx'
+import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { ChecksSection } from '../src/renderer/views/FactorySettingsSections.tsx'
+import { FirstLaunch } from '../src/renderer/views/FirstLaunch.tsx'
 import { bridge, deferred, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
@@ -99,7 +103,8 @@ test('synchronous actions keep their normal content without activity', () => {
 })
 
 function ActionMenu({ run }: { run: () => unknown }) {
-  const menu = useActionMenu('activity-test')
+  const id = useId()
+  const menu = useActionMenu(`activity-test:${id}`)
   return (
     <>
       <Button
@@ -300,7 +305,13 @@ test('Automation Run now shows pending and prevents duplicate firings before its
   expect(button.getAttribute('aria-busy')).toBe('true')
   fireEvent.click(button)
   expect(run).toHaveBeenCalledOnce()
-  expect((screen.getByRole('button', { name: 'Edit' }) as HTMLButtonElement).disabled).toBe(false)
+  expect((screen.getByRole('button', { name: 'Edit' }) as HTMLButtonElement).disabled).toBe(true)
+  await user().click(screen.getByRole('button', { name: 'Automation actions' }))
+  const menuRun = screen.getByRole('menuitem', { name: 'Run now' })
+  expect(menuRun.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(menuRun)
+  expect(run).toHaveBeenCalledOnce()
+  await user().keyboard('{Escape}')
   await act(async () => completion.resolve({}))
   await waitFor(() => expect(button.getAttribute('aria-busy')).toBeNull())
 })
@@ -394,4 +405,122 @@ test('automatic Factory retry survives the merge with effect-driven action compl
   } finally {
     vi.useRealTimers()
   }
+})
+
+test('keyboard Task edits show the same pending state, reject repeats and recover', async () => {
+  const completion = deferred<void>()
+  const edit = vi.fn(() => completion.promise)
+  bridge({ editTask: edit })
+  render(<EditTaskDialog task={task()} onClose={vi.fn()} />)
+  const description = screen.getByRole('textbox', { name: 'Description' })
+  fireEvent.change(description, { target: { value: 'Revised description' } })
+  fireEvent.keyDown(description, { key: 'Enter', metaKey: true })
+  const save = screen.getByRole('button', { name: /Save/ })
+  expect(save.getAttribute('aria-busy')).toBe('true')
+  fireEvent.keyDown(description, { key: 'Enter', metaKey: true })
+  fireEvent.click(save)
+  expect(edit).toHaveBeenCalledOnce()
+  await act(async () => completion.reject(new Error('Couldn’t save edit')))
+  expect(save.getAttribute('aria-busy')).toBeNull()
+  expect(screen.getByRole('alert').textContent).toBe('Couldn’t save edit')
+})
+
+test('deletion pauses Archive instead and dismissal until an error restores the choices', async () => {
+  const completion = deferred<void>()
+  const remove = vi.fn(() => completion.promise)
+  const close = vi.fn()
+  const archive = vi.fn()
+  bridge({ listTasks: () => [], listTaskRuns: () => [], deleteTask: remove })
+  render(<DeleteDialog task={task()} onClose={close} onArchiveInstead={archive} />)
+  const button = screen.getByRole('button', { name: 'Delete NB-1' })
+  await user().click(button)
+  expect(button.getAttribute('aria-busy')).toBe('true')
+  const instead = screen.getByRole('button', { name: 'Archive instead' })
+  expect((instead as HTMLButtonElement).disabled).toBe(true)
+  fireEvent.click(instead)
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }))
+  expect(archive).not.toHaveBeenCalled()
+  expect(close).not.toHaveBeenCalled()
+  fireEvent.click(button)
+  expect(remove).toHaveBeenCalledOnce()
+  await act(async () => completion.reject(new Error('Couldn’t delete')))
+  expect((instead as HTMLButtonElement).disabled).toBe(false)
+  expect(screen.getByRole('alert').textContent).toBe('Couldn’t delete')
+})
+
+test('first-launch Git identity copy waits for the clipboard and exposes errors for retry', async () => {
+  const completion = deferred<void>()
+  const copy = vi.fn().mockReturnValueOnce(completion.promise).mockResolvedValue(undefined)
+  bridge({
+    agentHealth: () => [],
+    getIntegrations: () => ({
+      github: { cli: { state: 'ready' }, hosts: [] },
+      git: { state: 'no-identity', copy: ['git config --global user.name Example'] },
+      checkedAt: '2026-11-11T12:00:00Z',
+    }),
+    copyText: copy,
+  })
+  render(<FirstLaunch settings={defaultMachineSettings} onFinish={vi.fn()} />)
+  const git = within(await screen.findByRole('group', { name: 'Git' }))
+  const button = await git.findByRole('button', { name: 'Copy' })
+  await user().click(button)
+  expect(button.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(button)
+  expect(copy).toHaveBeenCalledOnce()
+  await act(async () => completion.reject(new Error('Clipboard unavailable')))
+  expect(button.getAttribute('aria-busy')).toBeNull()
+  expect(git.getByRole('alert').textContent).toBe('Clipboard unavailable')
+  await user().click(button)
+  expect(copy).toHaveBeenCalledTimes(2)
+})
+
+test('pending Automation menus follow their resource and completion does not close another menu', async () => {
+  const first = deferred<void>()
+  const second = deferred<void>()
+  const automations: Automation[] = ['A', 'B'].map((id) => ({
+    id: `independent-${id}`,
+    factoryId: 'f1',
+    factoryKey: 'NB',
+    name: `Automation ${id}`,
+    prompt: 'Triage requests.',
+    schedule: { kind: 'weekly', days: ['mon'], at: '09:00' },
+    timeZone: 'UTC',
+    scheduleText: 'Every Monday',
+    agent: 'claude',
+    on: false,
+    createdAt: '2026-11-11T12:00:00Z',
+    nextFirings: [],
+    failuresInARow: 0,
+    totals: { runs: 0, tasksCreated: 0 },
+  }))
+  const run = vi.fn((id) => (id === 'independent-A' ? first.promise : second.promise))
+  bridge({ listAutomations: () => automations, automationTemplates: () => [], runAutomation: run })
+  render(
+    <AutomationsPage
+      factory={factory()}
+      banners={null}
+      onOpen={vi.fn()}
+      onNew={vi.fn()}
+      onEdit={vi.fn()}
+      onOpenTask={vi.fn()}
+    />,
+  )
+  const a = await screen.findByRole('button', { name: 'Automation A' })
+  const b = screen.getByRole('button', { name: 'Automation B' })
+  fireEvent.contextMenu(a)
+  await user().click(screen.getByRole('menuitem', { name: 'Run now' }))
+  await user().keyboard('{Escape}')
+  fireEvent.contextMenu(b)
+  const runB = screen.getByRole('menuitem', { name: 'Run now' })
+  expect(runB.getAttribute('aria-busy')).toBeNull()
+  expect(runB.matches(':disabled')).toBe(false)
+  await user().click(runB)
+  expect(run).toHaveBeenNthCalledWith(1, 'independent-A')
+  expect(run).toHaveBeenNthCalledWith(2, 'independent-B')
+  await act(async () => first.resolve())
+  expect(screen.getByRole('menu', { name: 'Automation B' })).toBeTruthy()
+  expect(runB.getAttribute('aria-busy')).toBe('true')
+  await act(async () => second.resolve())
+  expect(screen.queryByRole('menu')).toBeNull()
 })

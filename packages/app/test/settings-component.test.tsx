@@ -249,7 +249,7 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
     expect(screen.getByText(reading)).toBeTruthy()
   expect(
     within(screen.getByRole('region', { name: 'Diagnostics' })).getByRole('cell', {
-      name: 'run-1234',
+      name: 'run-12',
     }),
   ).toBeTruthy()
   await user().selectOptions(screen.getByRole('combobox', { name: 'Log' }), 'run-123456')
@@ -271,7 +271,9 @@ test('Record a CPU profile asks for one profile at a time and shows where it was
   render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
   expect(api.request).toHaveBeenCalledWith('recordProfile', 30)
-  expect(screen.getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+  const recording = screen.getByRole('button', { name: 'Record 30 seconds' })
+  expect(recording.hasAttribute('disabled')).toBe(true)
+  expect(recording.getAttribute('aria-busy')).toBe('true')
   await act(async () =>
     result.resolve({ file: '~/.ted/logs/profiles/daemon-1.cpuprofile', seconds: 30, bytes: 10 }),
   )

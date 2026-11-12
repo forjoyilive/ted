@@ -144,6 +144,7 @@ export function TaskActionsMenu({
   contextOnly = false,
   onMenuClose,
   onPickBlocker,
+  onOpenBrief,
 }: {
   task: Task
   contextAt?: MenuPosition | undefined
@@ -151,6 +152,7 @@ export function TaskActionsMenu({
   onMenuClose?: () => void
   onPickBlocker?: (task: Task) => void
   onFollowedUp?: (followUp: Task) => void
+  onOpenBrief?: (() => void) | undefined
 }) {
   const [position, setPosition] = useState<MenuPosition>()
   const open = position !== undefined
@@ -299,6 +301,19 @@ export function TaskActionsMenu({
             >
               Copy Task ID
             </ActionButton>
+            {onOpenBrief && (
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => {
+                  close()
+                  onOpenBrief()
+                }}
+              >
+                Full brief
+              </ActionButton>
+            )}
             {deleteItem}
           </ContextMenu>
         )}
@@ -473,6 +488,19 @@ export function TaskActionsMenu({
             >
               <span className={styles.label}>Blocked by…</span>
               <span className={styles.hint}>{keysFor('blocked-by').join(' or ')}</span>
+            </ActionButton>
+          )}
+          {onOpenBrief && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => {
+                close()
+                onOpenBrief()
+              }}
+            >
+              Full brief
             </ActionButton>
           )}
           <ActionButton
