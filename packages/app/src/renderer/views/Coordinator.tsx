@@ -1,5 +1,6 @@
 import type { Coordinator, Factory, TaskLead } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -100,7 +101,7 @@ export function CoordinatorView({
               chat && <span className={styles.meta}>{runMeta(chat.run)}</span>
             )}
             {status === 'failed' && (
-              <Button size="small" disabled={busy} onClick={() => void retry()}>
+              <Button size="small" disabled={busy} onClick={() => retry()}>
                 Retry
               </Button>
             )}
@@ -152,13 +153,13 @@ export function CoordinatorView({
                 node: (
                   <p className={styles.event}>
                     <span className={styles.dot} aria-hidden />
-                    <button
+                    <ActionButton
                       type="button"
                       className={styles.eventText}
                       onClick={() => onOpenTask(receipt.taskId)}
                     >
                       {receipt.text}
-                    </button>
+                    </ActionButton>
                     <time className={styles.eventTime}>{clockTime(receipt.at)}</time>
                   </p>
                 ),
@@ -195,7 +196,7 @@ export function CoordinatorView({
                 <Button disabled={busy} onClick={() => setResetting(false)}>
                   Cancel
                 </Button>
-                <Button variant="primary" disabled={busy} onClick={() => void reset()}>
+                <Button variant="primary" disabled={busy} onClick={() => reset()}>
                   Delete and start new
                 </Button>
               </div>
@@ -208,7 +209,7 @@ export function CoordinatorView({
           <h2>Tasks in this conversation</h2>
           {coordinator?.tasks.length ? (
             coordinator.tasks.map((task) => (
-              <button
+              <ActionButton
                 key={task.id}
                 type="button"
                 data-nav-item
@@ -219,7 +220,7 @@ export function CoordinatorView({
                   {task.displayId} · {task.status ? statusLabel(task.status) : task.stage}
                 </span>
                 <span>{task.title}</span>
-              </button>
+              </ActionButton>
             ))
           ) : (
             <p className={styles.muted}>Tasks appear here as you discuss them.</p>

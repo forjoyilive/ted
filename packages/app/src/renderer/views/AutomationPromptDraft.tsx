@@ -1,6 +1,8 @@
 import type { AutomationPromptDraft as PromptDraft, TaskLead } from '@ted/protocol'
 import { useEffect, useId, useRef, useState } from 'react'
+import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
 import { Button } from '../components/Button.tsx'
+import { ChatBody } from '../components/RunChat.tsx'
 import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './AutomationDialog.module.css'
@@ -153,6 +155,7 @@ export function AutomationPromptDraft({
       </div>
       {open && (
         <section className={styles.draftBox} aria-label="Draft with AI">
+          {lead && <AntigravityChatWarning agent={lead.agent} />}
           <label className={styles.label} htmlFor={`${id}-request`}>
             What should this Automation do?
           </label>
@@ -172,7 +175,7 @@ export function AutomationPromptDraft({
             <Button
               size="small"
               disabled={busy || !request.trim() || !factory}
-              onClick={() => void generate()}
+              onClick={() => generate()}
             >
               {job?.state === 'failed' || error
                 ? 'Try again'
@@ -181,7 +184,7 @@ export function AutomationPromptDraft({
                   : 'Generate draft'}
             </Button>
             {busy && (
-              <Button size="small" onClick={() => void cancel()}>
+              <Button size="small" onClick={() => cancel()}>
                 Cancel drafting
               </Button>
             )}
@@ -193,6 +196,13 @@ export function AutomationPromptDraft({
             <p className={styles.error} role="alert">
               {error || job?.error} Your Prompt is unchanged.
             </p>
+          )}
+          {job?.chat && (
+            <ChatBody
+              chat={job.chat}
+              onStopTask={undefined}
+              options={{ inspect: true, bar: false }}
+            />
           )}
           {job?.state === 'ready' && (
             <div className={styles.draftResult}>

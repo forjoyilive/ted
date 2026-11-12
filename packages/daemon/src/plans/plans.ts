@@ -20,6 +20,7 @@ import type {
   StartPlanRequest,
 } from '@ted/protocol'
 import { planRequestLabel, planTitle } from '@ted/protocol'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
@@ -211,7 +212,11 @@ export function createPlans(options: PlansOptions): Plans {
       ),
     runnable(id) {
       const plan = saved.get(id)
-      return plan !== undefined && store.agentPauses()[plan.agent] === undefined
+      return (
+        plan !== undefined &&
+        !agentStartHold(store, plan.agent, plan.id) &&
+        store.agentPauses()[plan.agent] === undefined
+      )
     },
     begin(id) {
       if (starting.has(id)) return
@@ -347,18 +352,20 @@ export function createPlans(options: PlansOptions): Plans {
       return
     }
     if (plan.state !== 'queued') return
+    let prepared: StoredPlan['checkout'] = []
     try {
       const entries = await entriesOf(factory)
       const checkout = await checkOut(plan, factory, entries)
+      prepared = checkout
       if (saved.get(id)?.state !== 'queued') {
         await discard(checkout, folderOf(id))
         return
       }
-      saved.began(id, checkout)
       const single = entries.length === 1 ? checkout[0]?.worktree : undefined
       await runs.start({
         id,
         agent: plan.agent,
+        onStarting: () => saved.began(id, checkout),
         prompt: `${plannerInstructions({
           factory,
           entries,
@@ -378,6 +385,10 @@ export function createPlans(options: PlansOptions): Plans {
         cleanUp(id)
       }
     } catch (error) {
+      if (error instanceof AgentDisabledError) {
+        await discard(prepared, folderOf(id))
+        return
+      }
       const current = saved.get(id)
       if (current?.state === 'queued') saved.began(id, [])
       if (!store.getRun(id)) fail(id, `Couldn’t start: ${messageOf(error)}`)
@@ -486,7 +497,8 @@ export function createPlans(options: PlansOptions): Plans {
     const latest = requests.findLast((r) => r.kind === 'proposal')
     const waitingOn = requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
     const paused =
-      status === 'paused' ? (store.agentPauses()[plan.agent] ?? 'usage limit') : undefined
+      agentStartHold(store, plan.agent, plan.id) ??
+      (status === 'paused' ? (store.agentPauses()[plan.agent] ?? 'usage limit') : undefined)
     return {
       id: plan.id,
       factoryId: plan.factoryId,
@@ -550,10 +562,15 @@ export function createPlans(options: PlansOptions): Plans {
   ): Promise<Pick<StoredPlan, 'agent' | 'model' | 'effort'>> {
     const settings = (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))
       ?.workflow.settings
-    const planner = resolveAgentChoices(settings, {
-      claude: options.agents.installed('claude'),
-      codex: options.agents.installed('codex'),
-    }).planner
+    const planner = resolveAgentChoices(
+      settings,
+      {
+        claude: options.agents.installed('claude'),
+        antigravity: options.agents.installed('antigravity'),
+        codex: options.agents.installed('codex'),
+      },
+      store.settings().enabledAgents,
+    ).planner
     const agent = input.agent ?? planner.agent
     const same = agent === planner.agent
     const model = input.model ?? (same ? planner.model : undefined)

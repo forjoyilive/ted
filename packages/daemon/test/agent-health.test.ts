@@ -1,7 +1,16 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type AgentHealth, type Banner, type Factory, type Task, tedPaths } from '@ted/protocol'
+import { fileURLToPath } from 'node:url'
+import {
+  type AgentHealth,
+  antigravityPlanNotice,
+  type Banner,
+  type Factory,
+  type RunChat,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -40,14 +49,17 @@ afterEach(async () => {
 
 const setStub = (
   agent: 'claude' | 'codex',
-  state: { version?: string; signedIn?: boolean; authMethod?: string },
+  state: { version?: string; signedIn?: boolean; authMethod?: string; apiKeySource?: string },
 ) => writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
-async function start(options: { codex?: boolean } = {}) {
+async function start(options: { codex?: boolean; antigravity?: boolean } = {}) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    antigravityBin: options.antigravity
+      ? fileURLToPath(new URL('./fixtures/stub-antigravity.ts', import.meta.url))
+      : path.join(scratch, 'no-agy-here'),
     codexBin: options.codex ? stubCodexPath : path.join(scratch, 'no-codex-here'),
     fixPollMs: 100,
     checkAgentsOnStart: true,
@@ -288,4 +300,148 @@ describe('Agent health', () => {
     expect(res.status).toBe(409)
     expect(opened).toEqual([])
   })
+})
+
+test('Antigravity ACP failures offer repair guidance instead of sign-in and recover after repair', async () => {
+  const state = path.join(home, 'stub-antigravity-health.json')
+  await writeFile(state, JSON.stringify({ help: 'Unrelated CLI help' }))
+  const client = await start({ antigravity: true })
+  const unsupported = await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.state === 'unavailable' ? health : undefined
+  }, 'ACP capability failure')
+  expect(unsupported.reason).toContain('does not advertise ACP support')
+  expect(unsupported.fix).toEqual({ label: 'Update', command: 'agy update' })
+  expect((await agentBanner(client, 'antigravity'))?.text).toContain('ACP support')
+  await writeFile(state, JSON.stringify({ code: 1 }))
+  const failed = (await client.ok<AgentHealth[]>('POST', '/agents/health/check')).find(
+    (h) => h.agent === 'antigravity',
+  )
+  expect(failed).toMatchObject({
+    state: 'unavailable',
+    reason: expect.stringContaining('ACP check failed'),
+  })
+  expect(failed?.fix).toBeUndefined()
+  expect((await agentBanner(client, 'antigravity'))?.action).toMatchObject({
+    opens: { kind: 'settings', section: 'agents' },
+  })
+  await writeFile(state, '{}')
+  const repaired = (await client.ok<AgentHealth[]>('POST', '/agents/health/check')).find(
+    (h) => h.agent === 'antigravity',
+  )
+  expect(repaired).toMatchObject({ state: 'unavailable', reason: antigravityPlanNotice })
+  expect(repaired?.fix).toBeUndefined()
+  expect((await agentBanner(client, 'antigravity'))?.action).toMatchObject({
+    opens: { kind: 'settings', section: 'agents' },
+  })
+  await client.ok('PATCH', '/settings', { antigravityPlanAccepted: true })
+  const accepted = await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.state === 'unavailable' ? undefined : health
+  }, 'Antigravity to be checked again once the Google plan is accepted')
+  expect(accepted.state).toBe('signed-out')
+  await client.ok('PATCH', '/settings', {
+    antigravityPlanAccepted: false,
+    billing: { claude: 'subscription', codex: 'subscription', antigravity: 'api-key' },
+  })
+  await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.reason?.includes('GEMINI_API_KEY') ? health : undefined
+  }, 'API-key billing to need a key, not the plan notice')
+})
+
+test('off agents skip routine checks and setup banners until re-enabled', async () => {
+  await setStub('claude', { signedIn: false })
+  const client = await start()
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'signed-out',
+    'signed-out health',
+  )
+  expect(await agentBanner(client, 'claude')).toBeDefined()
+  await client.ok('POST', '/agents/availability', { agent: 'claude', enabled: false })
+  expect(await agentBanner(client, 'claude')).toBeUndefined()
+  await setStub('claude', { signedIn: true })
+  await client.ok('POST', '/agents/health/check')
+  expect((await healthOf(client, 'claude'))?.state).toBe('signed-out')
+  expect(await agentBanner(client, 'claude')).toBeUndefined()
+  await client.ok('POST', '/agents/availability', { agent: 'claude', enabled: true })
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'ready',
+    'fresh check after enabling',
+  )
+})
+
+test('Runs kept going still receive runtime authentication safeguards while the agent is off', async () => {
+  const client = await start()
+  const release = path.join(scratch, 'report-auth-error')
+  const run = await client.ok<{ id: string }>('POST', '/dev/runs', {
+    agent: 'claude',
+    cwd: scratch,
+    prompt: steps({ waitFor: release }, { authError: true }),
+  })
+  await client.ok('POST', '/agents/availability', {
+    agent: 'claude',
+    enabled: false,
+    existing: 'keep',
+    confirmedRunIds: [run.id],
+  })
+  await setStub('claude', { signedIn: false })
+  await writeFile(release, '')
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'signed-out',
+    'retained Run authentication failure',
+  )
+  expect(await agentBanner(client, 'claude')).toBeDefined()
+  expect(
+    (await client.ok<{ enabledAgents: string[] }>('GET', '/settings')).enabledAgents,
+  ).not.toContain('claude')
+  await setStub('claude', { signedIn: true })
+  await client.ok('POST', '/agents/health/check')
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'ready',
+    'retained Run authentication recovery',
+  )
+})
+
+test('a retained off-kind Run clears a runtime credential warning and continues with the same ID', async () => {
+  const client = await start()
+  const run = await client.ok<{ id: string }>('POST', '/dev/runs', {
+    agent: 'claude',
+    cwd: scratch,
+    prompt: steps({ endTurn: true }),
+  })
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.state === 'idle',
+    'idle retained Run',
+  )
+  await client.ok('POST', '/agents/availability', {
+    agent: 'claude',
+    enabled: false,
+    existing: 'keep',
+    confirmedRunIds: [run.id],
+  })
+  await setStub('claude', { apiKeySource: 'ANTHROPIC_API_KEY' })
+  await client.ok('POST', `/runs/${run.id}/messages`, {
+    text: steps({ waitFor: path.join(scratch, 'credential-turn') }),
+  })
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'wrong-credential',
+    'runtime credential warning',
+  )
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.state === 'idle',
+    'credential interruption to settle',
+  )
+  await setStub('claude', { apiKeySource: 'none', signedIn: true })
+  const checked = await client.ok<AgentHealth[]>('POST', '/agents/health/check')
+  expect(checked.find((health) => health.agent === 'claude')?.state).toBe('ready')
+  await waitUntil(async () => {
+    const current = await client.getRun(run.id)
+    return current.conversation.some((entry) => entry.line.includes('Carry on where you left off.'))
+  }, 'same-ID credential recovery')
+  expect((await client.ok<RunChat>('GET', `/runs/${run.id}/chat`)).run.paused).toBeUndefined()
+  expect((await client.getRun(run.id)).run.state).not.toBe('finished')
+  expect(
+    (await client.ok<{ enabledAgents: string[] }>('GET', '/settings')).enabledAgents,
+  ).not.toContain('claude')
 })

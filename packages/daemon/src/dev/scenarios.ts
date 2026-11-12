@@ -1,12 +1,14 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { DaemonClient, Run, Task } from '@ted/protocol'
+import type { CheckRun, DaemonClient, Run, Task } from '@ted/protocol'
 import { waitForLock } from '../lock.ts'
 import { until } from './demo.ts'
 import { commitDemoTask, demoGit } from './fixtures.ts'
 
 const script = (...steps: unknown[]) => JSON.stringify({ steps })
 const idle = { endTurn: true }
+// One advance fetches and test-merges every repo of the Task; it took 13.9 s beside other test runs.
+const advanceWaitMs = 60_000
 const round = {
   title: 'Choose the first release',
   questions: [
@@ -23,6 +25,14 @@ const proposal = {
     { title: 'Share a read-only link', scope: 'Publish one note with an expiring URL.' },
     { title: 'Manage shared links', scope: 'List and revoke published links.', blockedBy: [1] },
   ],
+}
+
+export function demoCheckProblem(runs: readonly CheckRun[]): string | undefined {
+  const run = runs.find((r) => r.outcome === 'failed' || r.outcome === 'interrupted')
+  if (!run) return undefined
+  return run.outcome === 'interrupted'
+    ? `Demo Check run ${run.id} was interrupted: TED could not run it, so the Task has no Check coverage. The daemon log says why.`
+    : `Demo Check failed: ${JSON.stringify(run)}`
 }
 
 interface DemoState {
@@ -158,6 +168,10 @@ async function populateScenarios(
     })
     if (factory === garden.key && name !== 'partlyMerged')
       await client.setTaskRepos(task.id, { set: ['demo/garden'] })
+    if (name === 'grilling') {
+      const { revision } = await client.taskGates(task.id)
+      await client.setTaskGates(task.id, { overrides: { clarify: true }, revision })
+    }
     console.log(`Demo: ${name} (${task.displayId}) · ${Date.now() - began} ms`)
     ids[name] = task.displayId
     if (start) {
@@ -256,23 +270,27 @@ async function populateScenarios(
     await client.sendRunMessage(run, script(...list, ...(wait ? [{ say: marker }, idle] : [])))
     let checkedRevision = -1
     if (wait)
-      return until(async () => {
-        if (observed.run(run)?.state !== 'idle') return false
-        const revision = observed.revision(run)
-        if (revision === checkedRevision) return false
-        checkedRevision = revision
-        const current = await client.getRun(run)
-        const done =
-          current.run.state === 'idle' &&
-          current.conversation.some((entry) => {
-            const line = JSON.parse(entry.line)
-            return (
-              line.type === 'assistant' &&
-              line.message?.content?.some((part: { text?: string }) => part.text === marker)
-            )
-          })
-        return done ? current : false
-      }, `script on ${task.displayId}`)
+      return until(
+        async () => {
+          if (observed.run(run)?.state !== 'idle') return false
+          const revision = observed.revision(run)
+          if (revision === checkedRevision) return false
+          checkedRevision = revision
+          const current = await client.getRun(run)
+          const done =
+            current.run.state === 'idle' &&
+            current.conversation.some((entry) => {
+              const line = JSON.parse(entry.line)
+              return (
+                line.type === 'assistant' &&
+                line.message?.content?.some((part: { text?: string }) => part.text === marker)
+              )
+            })
+          return done ? current : false
+        },
+        `script on ${task.displayId}`,
+        advanceWaitMs,
+      )
   }
   async function command(task: Task, ...args: string[]) {
     const prefix: unknown[] = []
@@ -318,6 +336,8 @@ async function populateScenarios(
         throw new Error(
           `Demo Check failed: ${JSON.stringify(await client.getCheckRun(failed.id))}; ${JSON.stringify(await client.checkOutput(failed.id, 0))}`,
         )
+      const problem = demoCheckProblem(checks)
+      if (problem) throw new Error(problem)
       if (current.stage === target) {
         console.log(`Demo: ${task.displayId} reached ${target} · ${Date.now() - began} ms`)
         return
@@ -341,14 +361,24 @@ async function populateScenarios(
             await commitDemoTask(home, current)
             const count = target === 'validate' ? 1 : target === 'review' ? 2 : 3
             const brief = await readFile(path.join(home, 'inputs', 'brief.md'), 'utf8')
-            await checkedSteps(
-              task,
-              Array.from({ length: count }, () => [
-                { demoRequest: { brief } },
-                { demoRequest: { outcome: { outcome: 'advance' } } },
-              ]).flat(),
-              `advance ${task.displayId} toward ${target}`,
-            )
+            for (let n = 0; n < count; n++) {
+              const { stage } = await observed.task(task.id)
+              await checkedSteps(
+                task,
+                [{ demoRequest: { brief } }, { demoRequest: { outcome: { outcome: 'advance' } } }],
+                `advance ${task.displayId} toward ${target}`,
+              )
+              if (stage === 'work')
+                await until(
+                  async () => {
+                    const problem = demoCheckProblem(await client.listCheckRuns(task.id))
+                    if (problem) throw new Error(problem)
+                    return (await observed.task(task.id)).stage !== 'work'
+                  },
+                  `${task.displayId} to leave Work`,
+                  advanceWaitMs,
+                )
+            }
             await until(
               async () =>
                 (await observed.task(task.id)).repos.every((r) => r.pullRequest !== undefined),
@@ -522,7 +552,7 @@ async function populateScenarios(
     await demoGit(home, journalRepo, 'add', '.ted/workflow.yaml')
     await demoGit(home, journalRepo, 'commit', '-m', 'Demonstrate an invalid Workflow')
     await demoGit(home, journalRepo, 'push', path.join(home, 'origins', 'journal.git'), 'HEAD:main')
-    await client.factorySettings(journal.id)
+    await client.factorySettings(journal.id, { refresh: 'first' })
   }
   async function configurePrs(task: Task, change: (index: number) => Record<string, unknown>) {
     const current = await observed.task(task.id)

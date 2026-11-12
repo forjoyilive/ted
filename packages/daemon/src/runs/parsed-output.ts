@@ -1,4 +1,4 @@
-import type { Billing, ConversationEntry, Run } from '@ted/protocol'
+import type { Billing, ConversationEntry, Run, TokenUse } from '@ted/protocol'
 import type { AgentChat } from '../agents/agent.ts'
 import type { Agent, Agents } from '../agents/index.ts'
 import type { OutputFold, RunOutputReader } from './run-output.ts'
@@ -6,6 +6,7 @@ import type { OutputFold, RunOutputReader } from './run-output.ts'
 export interface ParsedOutput extends OutputFold {
   chat: AgentChat
   tokens(): number | undefined
+  tokenUse(): TokenUse
   credential(): Billing | undefined
   cost(model: string | undefined): number | undefined
 }
@@ -13,23 +14,25 @@ export interface ParsedOutput extends OutputFold {
 function parse(agent: Agent, cwd: string): ParsedOutput {
   const chat = agent.chatFrom(cwd)
   const costLines: string[] = []
-  let added = 0
-  let latestTotal: number | undefined
+  let added: TokenUse = { input: 0, output: 0 }
+  let latestTotal: TokenUse | undefined
   let credential: Billing | undefined
   return {
     chat,
     add(entry: ConversationEntry) {
       chat.add(entry)
       const count = agent.tokensFrom(entry.line)
-      if (count?.total) latestTotal = count.input + count.output
-      else if (count) added += count.input + count.output
+      if (count?.total) latestTotal = { input: count.input, output: count.output }
+      else if (count)
+        added = { input: added.input + count.input, output: added.output + count.output }
       credential ??= agent.credentialFrom(entry.line)?.billing
       if (agent.costLine(entry.line)) costLines.push(entry.line)
     },
     tokens() {
-      const tokens = latestTotal ?? added
-      return tokens > 0 ? tokens : undefined
+      const { input, output } = latestTotal ?? added
+      return input + output > 0 ? input + output : undefined
     },
+    tokenUse: () => ({ ...(latestTotal ?? added) }),
     credential: () => credential,
     cost: (model) => agent.costOf(costLines, model),
   }

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   access,
   mkdir,
@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
+import { observe } from '../packages/daemon/test/support/execution-observations.ts'
 import { publishReport } from '../packages/daemon/test/support/execution-report.ts'
 import { parseConfig, plainPath, quote, readConfig, sshArgs } from './execution-lab/config.ts'
 import {
@@ -26,6 +27,7 @@ import {
   serviceEnvironment,
   waitForProcessExit,
 } from './execution-lab/host.ts'
+import { productPairing, supportedLanRoute } from './execution-lab/product-pairing.ts'
 import {
   bootstrap,
   callHost,
@@ -77,6 +79,73 @@ async function scratch() {
 }
 
 describe('lab configuration and SSH control', () => {
+  it('requires the OS route to use the recorded local Wi-Fi or Ethernet interface', async () => {
+    const address = '192.168.88.20'
+    const interfaces = {
+      en0: [
+        {
+          address,
+          internal: false,
+          family: 'IPv4' as const,
+          netmask: '255.255.255.0',
+          mac: '00:11:22:33:44:55',
+          cidr: `${address}/24`,
+        },
+      ],
+    }
+    const hardware = 'Hardware Port: Wi-Fi\nDevice: en0\nEthernet Address: 00:11:22:33:44:55\n'
+    expect(supportedLanRoute(address, ' interface: en0\n', hardware, interfaces)).toEqual({
+      address,
+      interface: 'en0',
+      hardwarePort: 'Wi-Fi',
+    })
+    expect(
+      supportedLanRoute(
+        address,
+        ' interface: en0\n',
+        hardware.replace('Wi-Fi', 'USB Ethernet'),
+        interfaces,
+      ).hardwarePort,
+    ).toBe('USB Ethernet')
+    for (const route of [' interface: utun4\n', ' interface: bridge0\n', ' interface: en1\n', ''])
+      expect(() => supportedLanRoute(address, route, hardware, interfaces)).toThrow(
+        'verified local',
+      )
+    expect(() =>
+      supportedLanRoute(
+        address,
+        ' interface: en0\n',
+        'Hardware Port: VPN\nDevice: en0\n',
+        interfaces,
+      ),
+    ).toThrow('verified local')
+    expect(() =>
+      supportedLanRoute('192.168.88.21', ' interface: en0\n', hardware, interfaces),
+    ).toThrow('verified local')
+    await observe('pairing-lab-interface', {
+      wifiAndEthernet: 'supported with matching assigned address',
+      tunnelBridgeMissingAndUnassigned: 'refused before product transport',
+    })
+  })
+
+  it('product pairing cleans its real controller fixture without replacing the original failure', async () => {
+    const run = path.join(await scratch(), randomUUID())
+    await mkdir(run)
+    await expect(
+      productPairing({
+        run,
+        remoteAddress: '127.0.0.1',
+        worker: async () => {
+          throw new Error('must not contact a worker before route validation')
+        },
+      }),
+    ).rejects.toThrow('Real two-Mac pairing requires a non-loopback local address')
+    await expect(access(path.join(run, 'ted-execution-pairing'))).rejects.toThrow()
+    await observe('pairing-lab-cleanup', {
+      originalFailure: 'non-loopback route required',
+      controllerFixture: 'removed through owned fixture cleanup',
+    })
+  }, 60_000)
   it('can recover both hosts when report allocation or publication is unavailable', async () => {
     for (const phase of ['allocation', 'publication']) {
       const directory = await scratch()
@@ -309,7 +378,7 @@ describe('lab configuration and SSH control', () => {
         configFile: file,
         root: checkout,
         action: 'dry-run',
-        scenarios: ['lab-access'],
+        scenarios: ['product-pairing'],
       },
       async () => {
         throw new Error('host contact')
@@ -561,6 +630,29 @@ describe('candidate content and standalone overrides', () => {
     expect(markedListing(listing, 501, `${run}x`, home)).toBe(false)
     expect(markedListing(listing, 501, run, `${home}-sibling`)).toBe(false)
     expect(markedListing(`${listing}-sibling`, 501, run, home)).toBe(false)
+    const root = path.dirname(home)
+    const worker = `501 Tue Nov 11 10:00:00 2026 node ${root}/source/packages/daemon/src/execution/main.ts TED_LAB_RUN=${run} TED_EXECUTION_HOME=${root}/execution-worker`
+    expect(markedListing(worker, 501, run, home)).toBe(true)
+    expect(markedListing(worker.replace('main.ts ', 'main.ts.bak '), 501, run, home)).toBe(false)
+    expect(
+      markedListing(
+        worker.replace('/execution-worker', '/execution-worker-sibling'),
+        501,
+        run,
+        home,
+      ),
+    ).toBe(false)
+    expect(markedListing(worker, 502, run, home)).toBe(false)
+    const controller = `501 Tue Nov 11 10:00:00 2026 node ${root}/source/packages/daemon/test/fixtures/execution-machine.ts TED_LAB_RUN=${run} TED_HOME=${root}/ted-execution-pairing/home`
+    expect(markedListing(controller, 501, run, home)).toBe(true)
+    expect(
+      markedListing(
+        controller.replace('/ted-execution-pairing/home', '/ted-execution-pairing/home-sibling'),
+        501,
+        run,
+        home,
+      ),
+    ).toBe(false)
   })
   it('rejects traversal, personal environment, credentials and special content paths', () => {
     for (const name of [

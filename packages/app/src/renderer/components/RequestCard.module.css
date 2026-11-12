@@ -37,6 +37,12 @@
   background: var(--surface-inset);
 }
 
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .section {
   display: flex;
   flex-direction: column;
@@ -67,79 +73,10 @@
 
 
 
-.choices {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.choice {
-  padding: 7px 12px;
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-control);
-  background: var(--surface-card);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-14);
-  text-align: left;
-}
-
-.failureForm {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-default);
-}
-
-.formHead {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.formLabel {
+.boxLabel {
   color: var(--text-primary);
   font-size: var(--text-14);
   font-weight: var(--weight-semibold);
-}
-
-.formHint {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-12-5);
-}
-
-.messageRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.messageRow .caption {
-  flex: none;
-}
-
-.messageLink {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent-link);
-  font: inherit;
-  font-size: var(--text-13);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-
-.messageLink:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.messageLink:focus-visible,
-.history > summary:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 
 .failedWhat {
@@ -158,6 +95,11 @@
   cursor: pointer;
 }
 
+.history > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .history[open] > summary {
   margin-bottom: 6px;
 }
@@ -171,12 +113,6 @@
   font-size: var(--text-12);
 }
 
-.choice:hover:not(:disabled) {
-  border-color: var(--accent-default);
-  background: var(--accent-subtle);
-}
-
-.choice:focus-visible,
 .box:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
@@ -339,12 +275,6 @@
 }
 
 
-.openQuestions {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-13-5);
-}
-
 .failedCard {
   border-color: var(--status-failed-fg);
 }
@@ -496,4 +426,20 @@
 
 .removed {
   color: var(--diff-removed-count);
+}
+
+.replyProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-caption);
+  font-size: var(--text-13);
+}
+
+.replyActivity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }

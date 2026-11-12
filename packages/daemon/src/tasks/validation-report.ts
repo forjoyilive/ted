@@ -1,10 +1,11 @@
 import type { CheckResult, FailureCase, ValidationProgress } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { describeResult } from './checks.ts'
 
-export function failureCaseReference(value: FailureCase): string {
+export function failureCaseReference(value: FailureCase, full = false): string {
   const decision = value.resolutions.at(-1)
-  return `Failure ${value.id}${decision?.resolution === 'fix' ? ` · Fix request ${decision.requestId}` : ''}`
+  return `Failure ${full ? value.id : shortReference(value.id)}${decision?.resolution === 'fix' ? ` · Fix request ${decision.requestId}` : ''}`
 }
 
 export function failureCaseFindings(value: FailureCase): string {
@@ -39,14 +40,14 @@ export function validationReport(
       const execution = validationExecution(progress, position)
       const failure = failures.find(
         (f) =>
-          f.source.kind === 'factory-check' &&
+          (f.source.kind === 'factory-check' || f.source.kind === 'post-rebase-check') &&
           f.source.checkRunId === execution?.runId &&
           f.source.position === position - execution.start &&
           f.resolutions.at(-1)?.resolution === 'accepted' &&
           !f.verifications?.length &&
           !f.invalidations.some((i) => i.requestId === f.resolutions.at(-1)?.requestId),
       )
-      return `${describeResult(check)}${failure ? ` · failed, accepted by you (failure ${failure.id})` : ''}`
+      return `${describeResult(check)}${failure ? ` · failed, accepted by you (failure ${shortReference(failure.id)})` : ''}`
     })
     .join('\n')
 }

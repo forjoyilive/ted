@@ -1,9 +1,18 @@
-import { execFile } from 'node:child_process'
+import { type ChildProcess, execFile } from 'node:child_process'
+import { once } from 'node:events'
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Factory, Run, RunSlots, Task, ThreadEvent } from '@ted/protocol'
+import {
+  type Comment,
+  type Factory,
+  type Run,
+  type RunSlots,
+  readDaemonInfo,
+  type Task,
+  type ThreadEvent,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -13,7 +22,9 @@ import {
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
+  spawnDaemonProcess,
   stubClaudePath,
+  testAppToken,
   waitUntil,
 } from './helpers.ts'
 
@@ -25,6 +36,7 @@ let scratch: string
 let origin: string
 let localFolder: string
 let daemon: RunningDaemon | undefined
+let child: ChildProcess | undefined
 
 beforeEach(async () => {
   ;({ home, cleanup } = await makeTempHome())
@@ -37,6 +49,11 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
+  if (child && child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGKILL')
+    await once(child, 'exit')
+  }
+  child = undefined
   await killRunHosts(home, { waitForStart: true })
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
@@ -284,23 +301,30 @@ describe('worktree setup outcomes', () => {
   })
 
   test('archiving during setup stops setup, starts no Task Lead and removes the worktree', async () => {
-    await workflow(`      setup: "while true; do sleep 0.05; done"\n`)
+    const setupStarted = path.join(worktreeOf(), 'stub-setup-started')
+    await workflow(`      setup: "touch stub-setup-started; while true; do sleep 0.05; done"\n`)
     const client = await startWithStub()
     await addFactory(client)
     const task = await createTask(client, steps({ endTurn: true }))
     await client.ok<Task>('POST', `/tasks/${task.id}/start`)
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.repos[0]?.setup?.state === 'running',
-      'setup to start',
-    )
+    await waitUntil(() => exists(setupStarted), 'the setup command to start')
 
     await client.ok<Task>('POST', `/tasks/${task.id}/archive`)
 
-    const archived = await waitUntil(async () => {
+    await waitUntil(async () => {
       const current = await getTask(client, task.id)
       return current?.repos[0]?.removed ? current : undefined
     }, 'the worktree to be removed')
-    expect(archived.leadRunId).toBeUndefined()
+    await waitUntil(
+      async () => (await client.ok<RunSlots>('GET', '/slots')).working === 0,
+      'the setup command to stop and release its slot',
+    )
+    const archived = await getTask(client, task.id)
+    expect(archived).toMatchObject({
+      archived: { ended: { kind: 'stopped', stage: 'intake' } },
+      repos: [{ removed: { at: expect.any(String) } }],
+    })
+    expect(archived?.leadRunId).toBeUndefined()
     expect(await exists(worktreeOf())).toBe(false)
     expect((await client.ok<{ working: number }>('GET', '/slots')).working).toBe(0)
   })
@@ -388,6 +412,97 @@ describe('worktree safety', () => {
     expect(failed.status).toBe(409)
     expect(started.branch).toBe('ted/nb-1-fix-login')
     expect(await readFile(path.join(worktreeOf(), '.env'), 'utf8')).toBe('A=1\n')
+  })
+})
+
+describe('leftover worktrees', () => {
+  const clone = () => path.join(home, 'repos', 'acme', 'widgets')
+  const hook = () => path.join(clone(), '.git', 'hooks', 'post-checkout')
+  const branches = async () =>
+    (await execFileAsync('git', ['branch', '--format=%(refname:short)'], { cwd: clone() })).stdout
+      .split('\n')
+      .filter((name) => name.startsWith('ted/'))
+  const notes = async (client: Client, task: Task) =>
+    (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`))
+      .filter((c) => c.author.kind === 'ted' && c.kind === 'note')
+      .map((c) => c.body)
+  const leftover = (id: string, branch: string) =>
+    execFileAsync(
+      'git',
+      ['worktree', 'add', '--no-track', '-b', branch, worktreeOf(id), 'origin/main'],
+      { cwd: clone() },
+    )
+  const failOnCheckout = async (script: string) => {
+    await mkdir(path.dirname(hook()), { recursive: true })
+    await writeFile(hook(), `#!/bin/sh\n${script}\n`)
+    await chmod(hook(), 0o755)
+  }
+
+  test('a start that fails after git made the worktree removes it and its branch and says why in the thread; a clean leftover is removed on the next start, and one with work stays and stops the start', async () => {
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, 'Fix login')
+    await waitUntil(() => exists(clone()), 'the clone')
+
+    await failOnCheckout('exit 1')
+    const failed = await client.call('POST', `/tasks/${task.id}/start`)
+    expect(failed.status).toBe(409)
+    expect(await exists(worktreeOf())).toBe(false)
+    expect(await branches()).toEqual([])
+    expect((await getTask(client, task.id))?.stage).toBe('backlog')
+    expect((await notes(client, task)).at(-1)).toContain(
+      'Couldn’t start: couldn’t make NB-1’s widgets worktree',
+    )
+
+    await rm(hook())
+    await leftover('NB-1', 'ted/nb-1-fix-login')
+    const started = await client.ok<Task>('POST', `/tasks/${task.id}/start`)
+    expect(started.branch).toBe('ted/nb-1-fix-login')
+    expect((await notes(client, task)).at(-1)).toContain(
+      'TED removed it and its branch ted/nb-1-fix-login and started again',
+    )
+
+    const other = await createTask(client, 'Other')
+    await leftover('NB-2', 'ted/nb-2-other')
+    await writeFile(path.join(worktreeOf('NB-2'), 'mine.txt'), 'mine\n')
+    const before = await branches()
+    for (const _ of [1, 2]) {
+      const stopped = await client.call('POST', `/tasks/${other.id}/start`)
+      expect(stopped.status).toBe(409)
+      expect(JSON.stringify(stopped.body)).toContain('with 1 uncommitted file')
+    }
+    expect(await readFile(path.join(worktreeOf('NB-2'), 'mine.txt'), 'utf8')).toBe('mine\n')
+    expect(await branches()).toEqual(before)
+    expect((await getTask(client, other.id))?.stage).toBe('backlog')
+    expect(
+      (await notes(client, other)).filter((body) => body.includes('with 1 uncommitted file')),
+    ).toHaveLength(1)
+  })
+
+  test('a daemon killed between making the worktree and recording the start leaves a worktree the next start removes', async () => {
+    child = spawnDaemonProcess([], {
+      ...process.env,
+      TED_HOME: home,
+      TED_CLAUDE_BIN: stubClaudePath,
+    })
+    const info = await waitUntil(() => readDaemonInfo(home), 'daemon.json')
+    const first = api(info.port, { appKey: testAppToken })
+    await first.call('POST', '/dev/factories', { repo: origin, key: 'NB', localFolder })
+    const task = (await first.call('POST', '/tasks', { title: 'Fix login', factory: 'NB' }))
+      .body as Task
+    await waitUntil(() => exists(clone()), 'the clone')
+    await failOnCheckout(`kill -9 ${info.pid}`)
+    await first.call('POST', `/tasks/${task.id}/start`).catch(() => undefined)
+    if (child.exitCode === null && child.signalCode === null) await once(child, 'exit')
+    await rm(hook())
+    await waitUntil(() => exists(path.join(worktreeOf(), 'README.md')), 'the leftover worktree')
+    await rm(path.join(home, 'daemon.json'), { force: true })
+
+    const client = await startWithStub()
+    await client.call('POST', `/tasks/${task.id}/start`)
+    await leadRun(client, task)
+    expect((await getTask(client, task.id))?.branch).toBe('ted/nb-1-fix-login')
+    expect((await notes(client, task)).join('\n')).toContain('TED found a widgets worktree left')
   })
 })
 

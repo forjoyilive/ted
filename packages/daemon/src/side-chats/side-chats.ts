@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { RunChat, SideChat } from '@ted/protocol'
+import { chatToolPolicy } from '@ted/protocol/run'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -40,7 +42,8 @@ export function createSideChats(options: {
   let closed = false
   let release: (() => void) | undefined
   const pending = (c: StoredSideChat) => store.runMessages(c.id).find((m) => m.id === c.messageId)
-  const paused = (c: StoredSideChat) => store.agentPauses()[c.lead.agent]
+  const paused = (c: StoredSideChat) =>
+    agentStartHold(store, c.lead.agent, c.id) ?? store.agentPauses()[c.lead.agent]
   const changed = () => {
     const busy =
       saved.list().some((c) => c.state === 'queued' || c.state === 'working') ||
@@ -158,7 +161,11 @@ export function createSideChats(options: {
     c = reconcile(c)
     const entries = runs.output.entries(id).filter((e) => e.offset >= c.outputAfter)
     const agent = agents.get(run.agent)
-    if (agent.chat(entries, run.cwd).some((e) => e.kind === 'tool') || run.state === 'waiting') {
+    if (
+      (chatToolPolicy(run.agent) === 'none' &&
+        agent.chat(entries, run.cwd).some((e) => e.kind === 'tool')) ||
+      run.state === 'waiting'
+    ) {
       fail(c, 'The side chat attempted to use a tool. Its reply was stopped.')
       return
     }
@@ -248,13 +255,22 @@ export function createSideChats(options: {
         })),
     runnable: (id) => {
       const c = saved.get(id)
-      return !closed && !!c && !paused(c) && !!store.getTask(c.taskId)
+      return (
+        !closed &&
+        !!c &&
+        !agentStartHold(store, c.lead.agent, c.id) &&
+        !paused(c) &&
+        !!store.getTask(c.taskId)
+      )
     },
     begin(id) {
       const c = saved.get(id)
       if (!c || starts.has(c.id)) return
       const work = launch(id)
-        .catch((error) => fail(c, String(error)))
+        .catch((error) => {
+          if (error instanceof AgentDisabledError) save({ ...requireChat(id), state: 'queued' })
+          else fail(c, String(error))
+        })
         .finally(() => {
           starts.delete(c.id)
           if (!closed) {

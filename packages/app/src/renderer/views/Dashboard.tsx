@@ -521,6 +521,10 @@ export function Dashboard({
 }) {
   const resource = useFactoryDashboard(factoryId, state.range)
   const data = resource.value
+  const panel = state.panel ?? 'overview'
+  const panels = ['overview', 'flow', 'stages'] as const
+  const choosePanel = (panel: NonNullable<DashboardViewState['panel']>) =>
+    onChange({ range: state.range, panel })
   const select = (sample: DashboardSelection) => onChange({ ...state, sample })
   return (
     <section className={`${views.pane} ${styles.dashboard}`} aria-label="Factory Dashboard">
@@ -532,7 +536,8 @@ export function Dashboard({
           value={state.range}
           onChange={(event) => {
             const range = event.target.value
-            if (range === '7d' || range === '30d' || range === 'all') onChange({ range })
+            if (range === '7d' || range === '30d' || range === 'all')
+              onChange({ range, ...(state.panel && { panel: state.panel }) })
           }}
         >
           <option value="30d">Last 30 days</option>
@@ -542,7 +547,41 @@ export function Dashboard({
       </header>
       {banners}
       <div className={styles.body}>
-        <p className={styles.intro}>Task completions and completion time</p>
+        <div className={styles.dashboardTabs} role="tablist" aria-label="Dashboard panels">
+          {panels.map((name, index) => (
+            <button
+              key={name}
+              id={`dashboard-${name}`}
+              type="button"
+              role="tab"
+              aria-selected={panel === name}
+              aria-controls={`dashboard-panel-${name}`}
+              tabIndex={panel === name ? 0 : -1}
+              onClick={() => choosePanel(name)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                event.preventDefault()
+                const next =
+                  event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                      ? panels.length - 1
+                      : (index + (event.key === 'ArrowRight' ? 1 : panels.length - 1)) %
+                        panels.length
+                const target = panels[next]
+                if (target) {
+                  choosePanel(target)
+                  document.getElementById(`dashboard-${target}`)?.focus()
+                }
+              }}
+            >
+              {name === 'overview' ? 'Overview' : name === 'flow' ? 'Flow' : 'Stages'}
+            </button>
+          ))}
+        </div>
+        {panel === 'overview' && (
+          <p className={styles.intro}>Task completions and completion time</p>
+        )}
         {resource.error && (
           <>
             <LoadingError error={resource.error} retry={resource.retry} />
@@ -553,63 +592,78 @@ export function Dashboard({
         )}
         {!data && !resource.error && <Skeleton label="Loading Dashboard…" shape="settings" />}
         {data && (
-          <>
-            <p className={styles.caption}>
-              {data.current.from
-                ? `${timestamp(data.current.from)} – ${timestamp(data.current.to)} (end excluded)`
-                : 'No retained completion timestamps'}
-              <br />
-              {data.previous && (
-                <>
-                  Compared with {timestamp(data.previous.from ?? data.previous.to)} –{' '}
-                  {timestamp(data.previous.to)} (end excluded)
+          <section
+            role="tabpanel"
+            id={`dashboard-panel-${panel}`}
+            aria-labelledby={`dashboard-${panel}`}
+          >
+            {panel === 'overview' ? (
+              <>
+                <p className={styles.caption}>
+                  {data.current.from
+                    ? `${timestamp(data.current.from)} – ${timestamp(data.current.to)} (end excluded)`
+                    : 'No retained completion timestamps'}
                   <br />
-                </>
-              )}
-              As of {timestamp(data.asOf)}
-            </p>
-            {data.unavailableIds.length > 0 && (
-              <p className={styles.notice}>
-                Completion history is unavailable for {data.unavailableIds.length} Done Tasks with
-                no recorded Done timestamp. Their completion period cannot be determined.{' '}
-                <button
-                  type="button"
-                  className={styles.link}
-                  onClick={() => select({ metric: 'unavailable', period: 'current' })}
-                >
-                  View Tasks
-                </button>
-              </p>
-            )}
-            <div className={styles.grid}>
-              {metrics.map((metric) => (
-                <MetricPanel key={metric} data={data} metric={metric} select={select} />
-              ))}
-            </div>
-            <p className={styles.definition}>
-              Each retained Task counts once at its latest recorded Done entry, including archived
-              Done Tasks. Factory setup is excluded.
-              <br />
-              Durations include waits, stops and rework. Created → Done also includes Backlog.
-              Elapsed time is not agent effort. Different completed Tasks form each period’s sample.
-            </p>
-            {state.sample && (
-              <Sample
-                data={data}
-                selection={state.sample}
-                onClose={() => onChange({ range: state.range })}
+                  {data.previous && (
+                    <>
+                      Compared with {timestamp(data.previous.from ?? data.previous.to)} –{' '}
+                      {timestamp(data.previous.to)} (end excluded)
+                      <br />
+                    </>
+                  )}
+                  As of {timestamp(data.asOf)}
+                </p>
+                {data.unavailableIds.length > 0 && (
+                  <p className={styles.notice}>
+                    Completion history is unavailable for {data.unavailableIds.length} Done Tasks
+                    with no recorded Done timestamp. Their completion period cannot be determined.{' '}
+                    <button
+                      type="button"
+                      className={styles.link}
+                      onClick={() => select({ metric: 'unavailable', period: 'current' })}
+                    >
+                      View Tasks
+                    </button>
+                  </p>
+                )}
+                <div className={styles.grid}>
+                  {metrics.map((metric) => (
+                    <MetricPanel key={metric} data={data} metric={metric} select={select} />
+                  ))}
+                </div>
+                <p className={styles.definition}>
+                  Each retained Task counts once at its latest recorded Done entry, including
+                  archived Done Tasks. Factory setup is excluded.
+                  <br />
+                  Durations include waits, stops and rework. Created → Done also includes Backlog.
+                  Elapsed time is not agent effort. Different completed Tasks form each period’s
+                  sample.
+                </p>
+                {state.sample && (
+                  <Sample
+                    data={data}
+                    selection={state.sample}
+                    onClose={() =>
+                      onChange({ range: state.range, ...(state.panel && { panel: state.panel }) })
+                    }
+                    onOpenTask={onOpenTask}
+                  />
+                )}
+              </>
+            ) : (
+              <Flow
+                panel={panel}
+                data={data.flow}
+                asOf={data.asOf}
+                selection={state.flowSample}
+                select={(flowSample) => onChange({ range: state.range, panel, flowSample })}
+                onClose={() =>
+                  onChange({ range: state.range, ...(state.panel && { panel: state.panel }) })
+                }
                 onOpenTask={onOpenTask}
               />
             )}
-            <Flow
-              data={data.flow}
-              asOf={data.asOf}
-              selection={state.flowSample}
-              select={(flowSample) => onChange({ range: state.range, flowSample })}
-              onClose={() => onChange({ range: state.range })}
-              onOpenTask={onOpenTask}
-            />
-          </>
+          </section>
         )}
       </div>
     </section>

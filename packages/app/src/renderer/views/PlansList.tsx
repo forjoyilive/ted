@@ -1,10 +1,12 @@
 import type { Factory, Plan } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ChevronIcon } from '../components/icons.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { usePlans, useRunChat } from '../data.ts'
+import { usePendingAction } from '../pending-action.ts'
 import {
   chatActivity,
   planDetailLine,
@@ -104,7 +106,7 @@ function Group({
   return (
     <section className={styles.group} aria-label={`${label} planning chats`}>
       {onToggle ? (
-        <button
+        <ActionButton
           type="button"
           className={styles.groupHeading}
           aria-expanded={expanded}
@@ -112,7 +114,7 @@ function Group({
         >
           <ChevronIcon open={expanded} className={styles.chevron} />
           {heading}
-        </button>
+        </ActionButton>
       ) : (
         <h2 className={styles.groupHeading}>{heading}</h2>
       )}
@@ -179,21 +181,21 @@ function PlanRow({ plan, actions }: { plan: Plan; actions: RowActions }) {
         ) {
           return
         }
-        actions.onOpenPlan(plan.id)
+        return actions.onOpenPlan(plan.id)
       }}
     >
       <td className={styles.titleColumn}>
         {renaming ? (
           <RenameField plan={plan} onDone={() => setRenaming(false)} />
         ) : (
-          <button
+          <ActionButton
             type="button"
             data-nav-item
             className={styles.title}
             onClick={() => actions.onOpenPlan(plan.id)}
           >
             {plan.title}
-          </button>
+          </ActionButton>
         )}
         {plan.fromTask && (
           <span className={styles.from}>
@@ -201,13 +203,13 @@ function PlanRow({ plan, actions }: { plan: Plan; actions: RowActions }) {
             {plan.fromTask.gone === 'deleted' ? (
               plan.fromTask.displayId
             ) : (
-              <button
+              <ActionButton
                 type="button"
                 className={styles.link}
                 onClick={() => plan.fromTask && actions.onOpenTask(plan.fromTask.id)}
               >
                 {plan.fromTask.displayId}
-              </button>
+              </ActionButton>
             )}
           </span>
         )}
@@ -222,7 +224,7 @@ function PlanRow({ plan, actions }: { plan: Plan; actions: RowActions }) {
             <WorkingLine runId={plan.runId} />
           )}
           {plan.status === 'failed' && (
-            <Button size="small" disabled={retrying} onClick={() => void retry()}>
+            <Button size="small" disabled={retrying} onClick={() => retry()}>
               Retry
             </Button>
           )}
@@ -273,10 +275,10 @@ function RenameField({ plan, onDone }: { plan: Plan; onDone: () => void }) {
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') void save()
+          if (event.key === 'Enter') save()
           if (event.key === 'Escape') onDone()
         }}
-        onBlur={() => void save()}
+        onBlur={() => save()}
       />
       {error !== undefined && (
         <span className={styles.error} role="alert">
@@ -315,25 +317,29 @@ function RowMenu({
     return () => window.removeEventListener('mousedown', close)
   }, [open])
 
-  const run = (action: () => Promise<unknown>) => {
-    setOpen(false)
-    setConfirming(false)
-    action().catch((failed: unknown) => onError(readableError(failed)))
-  }
+  const activity = usePendingAction()
+  const run = (action: () => Promise<unknown>) =>
+    activity.run(action)?.then(
+      () => {
+        setOpen(false)
+        setConfirming(false)
+      },
+      (failed: unknown) => onError(readableError(failed)),
+    )
   const item = (label: string, onClick: () => void, danger = false) => (
-    <button
+    <ActionButton
       type="button"
       role="menuitem"
       className={`${styles.menuItem} ${danger ? styles.danger : ''}`}
       onClick={onClick}
     >
       {label}
-    </button>
+    </ActionButton>
   )
 
   return (
     <span className={styles.more} ref={box}>
-      <button
+      <ActionButton
         type="button"
         className={styles.moreButton}
         aria-label={`Actions for ${plan.title}`}
@@ -345,7 +351,7 @@ function RowMenu({
         }}
       >
         ⋯
-      </button>
+      </ActionButton>
       {open && !confirming && (
         <div className={styles.menu} role="menu">
           {item('Rename', () => {

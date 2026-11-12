@@ -10,7 +10,6 @@ import {
   openAllTasks,
   setUpAppTests,
   taskRow,
-  ted,
 } from './app-harness.ts'
 
 setUpAppTests()
@@ -18,8 +17,19 @@ setUpAppTests()
 test('chat images close on surrounding space and backdrop clicks, keeping image clicks and keyboard dismissal', async () => {
   const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
   await addFactory(origin, 'NB')
-  await ted('task', 'create', '--factory', 'NB', 'View attachments')
   const client = await daemonClient()
+  const wide = await client.uploadAttachment(
+    { name: 'wide.svg', mediaType: 'image/svg+xml' },
+    Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="120"><rect width="100%" height="100%" fill="steelblue"/></svg>',
+    ),
+  )
+  await client.createTask({
+    factory: 'NB',
+    title: 'View attachments',
+    attachments: [wide],
+    start: false,
+  })
   const shapes = [
     { name: 'portrait.svg', width: 400, height: 1200 },
     { name: 'landscape.svg', width: 1200, height: 400 },
@@ -41,6 +51,22 @@ test('chat images close on surrounding space and backdrop clicks, keeping image 
   await openAllTasks(page)
   await taskRow(page, 'NB-1').click()
   const thread = page.getByRole('region', { name: 'Task thread' })
+  const thumbnail = page
+    .getByRole('region', { name: 'Original request' })
+    .getByRole('button', { name: 'View wide.svg', exact: true })
+  await thumbnail.click()
+  const described = page.getByRole('dialog', { name: 'wide.svg', exact: true })
+  const large = described.getByRole('img', { name: 'wide.svg' })
+  await expect
+    .poll(async () => {
+      const panel = await described.boundingBox()
+      const shown = await large.boundingBox()
+      return panel && shown ? shown.width / panel.width : 0
+    })
+    .toBeGreaterThan(0.9)
+  expect((await thumbnail.locator('img').boundingBox())?.width).toBeLessThanOrEqual(302)
+  await described.press('Escape')
+  await described.waitFor({ state: 'detached' })
   for (const shape of shapes) {
     const opener = thread.getByRole('button', { name: `View ${shape.name}`, exact: true })
     const viewer = page.getByRole('dialog', { name: shape.name, exact: true })

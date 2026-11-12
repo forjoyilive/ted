@@ -99,7 +99,10 @@ test('empty, API-key and offline states are explicit; settings navigation uses t
   await act(async () =>
     a.emit({
       type: 'settings-changed',
-      settings: { ...a.state.settings, billing: { claude: 'api-key', codex: 'subscription' } },
+      settings: {
+        ...a.state.settings,
+        billing: { ...a.state.settings.billing, claude: 'api-key', codex: 'subscription' },
+      },
     }),
   )
   expect(

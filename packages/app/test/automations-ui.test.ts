@@ -11,6 +11,7 @@ import {
   removeHome,
   stopDaemonIn,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
@@ -46,6 +47,8 @@ const env = () => ({
   TED_HOME: home,
   TED_IDLE_EXIT_MS: '30000',
   TED_CLAUDE_BIN: stubClaudePath,
+  TED_CODEX_BIN: stubCodexPath,
+  TED_ANTIGRAVITY_BIN: path.join(home, 'no-antigravity-here'),
   TED_HIDDEN_WINDOW: '1',
 })
 
@@ -388,7 +391,9 @@ describe('Automations in the app', () => {
     await details.getByRole('button', { name: 'NB-1' }).waitFor()
 
     const card = runView.getByRole('region', { name: 'Question from this Run' })
-    await card.getByRole('button', { name: 'Skip it' }).click()
+    await card.getByRole('radio', { name: 'Skip it' }).check()
+    expect(await card.isVisible()).toBe(true)
+    await card.getByRole('button', { name: 'Send' }).click()
     await card.waitFor({ state: 'detached' })
     await inbox.getByRole('button', { name: /Is it real\?/ }).waitFor({ state: 'detached' })
     await runView.waitFor({ state: 'detached' })
@@ -406,7 +411,7 @@ describe('Automations in the app', () => {
     await row.getByRole('button', { name: 'NB-1' }).waitFor()
 
     await view.getByRole('button', { name: 'Automation actions' }).click()
-    await view.getByRole('menuitem', { name: /Delete/ }).click()
+    await window.getByRole('menuitem', { name: /Delete/ }).click()
     const confirm = window.getByRole('dialog', { name: 'Delete “Sentry crash intake”?' })
     await confirm.getByText('Tasks it created stay.', { exact: false }).waitFor()
     await confirm.getByRole('button', { name: 'Delete' }).click()
@@ -465,7 +470,7 @@ describe('Automations in the app', () => {
     expect(await rows.nth(0).getByRole('button', { name: 'Retry' }).count()).toBe(1)
 
     await view.getByRole('button', { name: 'Automation actions' }).click()
-    await view.getByRole('menuitem', { name: /Duplicate/ }).click()
+    await window.getByRole('menuitem', { name: /Duplicate/ }).click()
     await view.getByRole('heading', { name: 'Daily triage copy' }).waitFor()
     const copy = (await ted.listAutomations()).find(
       (a: Automation) => a.name === 'Daily triage copy',

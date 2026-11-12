@@ -1,5 +1,6 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AsanaStatus,
   Attachment,
   AutomationDetail,
   ExportFormat,
@@ -13,6 +14,16 @@ import type { LoginItemState } from './login-item.ts'
 import type { UpdateStatus } from './updates.ts'
 
 export interface CustomRequests {
+  importAsanaConfiguration: (inFile?: boolean) => Promise<AsanaStatus>
+  authorizeAsana: () => Promise<AsanaStatus>
+  openAsanaSetup: () => Promise<void>
+  openWorker: () => Promise<void>
+  workerStatus: () => Promise<import('@ted/protocol').WorkerStatus>
+  workerPair: (
+    input: import('@ted/protocol').WorkerPairRequest,
+  ) => Promise<import('@ted/protocol').WorkerStatus>
+  workerStart: () => Promise<import('@ted/protocol').WorkerStatus>
+  workerStop: () => Promise<import('@ted/protocol').WorkerStatus>
   showAttachmentInFolder: (attachment: Pick<Attachment, 'hash' | 'name'>) => Promise<void>
   getAutomation: (id: string) => Promise<AutomationDetail | null>
   exportFactory: (factoryId: string, format: ExportFormat) => Promise<SaveExportResult>
@@ -28,7 +39,9 @@ export interface CustomRequests {
     bounds: { x: number; y: number; width: number; height: number },
   ) => Promise<void>
   hideBrowser: (temporary?: boolean) => Promise<void>
-  browserState: (taskId: string) => Promise<{ url: string; text: string } | undefined>
+  browserState: (
+    taskId: string,
+  ) => Promise<{ url: string; text: string; opening?: true } | undefined>
   externalBrowser: (taskId: string) => Promise<void>
   openAppPreview: (taskId: string, repo: string, name: string) => Promise<void>
   openHostedPreview: (taskId: string, repo: string) => Promise<void>

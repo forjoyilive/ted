@@ -108,7 +108,7 @@ test('only the app can write, and invalid or unavailable Stages are refused', as
   ).toBe(409)
 })
 
-test('grilling and archived Tasks cannot have their Gates overridden', async () => {
+test('Grilling respects editable sign-off overrides; archived Tasks remain locked', async () => {
   const { client, task, route, get } = await start()
   await client.call('PUT', `/tasks/${task.id}/clarify-depth`, { depth: 'few' })
   const optional = await get()
@@ -118,19 +118,28 @@ test('grilling and archived Tasks cannot have their Gates overridden', async () 
   ).toBe(200)
   const grilling = await get()
   expect(grilling.rows.find((r) => r.stage === 'clarify')).toMatchObject({
-    effective: true,
+    effective: false,
     override: false,
-    required: true,
-    locked: 'Required at grilling depth',
+    required: false,
   })
+  expect(grilling.rows.find((r) => r.stage === 'clarify')?.locked).toBeUndefined()
   expect(
-    (
-      await client.call('PUT', route, {
-        overrides: {},
-        revision: grilling.revision,
-      })
-    ).status,
-  ).toBe(409)
+    (await client.call('PUT', route, { overrides: { clarify: true }, revision: grilling.revision }))
+      .status,
+  ).toBe(200)
+  const on = await get()
+  expect(on.rows.find((r) => r.stage === 'clarify')).toMatchObject({
+    effective: true,
+    override: true,
+    required: false,
+  })
+  expect((await client.call('PUT', route, { overrides: {}, revision: on.revision })).status).toBe(
+    200,
+  )
+  expect((await get()).rows.find((r) => r.stage === 'clarify')).toMatchObject({
+    effective: false,
+    required: false,
+  })
   expect((await client.call('POST', `/tasks/${task.id}/archive`)).status).toBe(200)
   const archived = await get()
   expect(archived.rows.every((r) => r.locked === 'This Task has finished')).toBe(true)

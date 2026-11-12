@@ -10,6 +10,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
@@ -46,11 +47,12 @@ interface ValidationOptions {
   setChecking(id: string, on: boolean): void
   isChecking(id: string): boolean
   deliver(task: StoredTask, message: string): Promise<unknown>
+  notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
   apps(task: StoredTask): Promise<string | undefined>
   fix(task: StoredTask, value: FailureCase): Promise<void>
-  checkFix(resolution: WorkflowResolution): void
-  holding(task: Task, work: () => Promise<void>): Promise<void>
+  checkFix(resolution: WorkflowResolution, task: StoredTask): void
+  holding<T>(task: Task, work: () => Promise<T>): Promise<T>
   background(what: string, work: () => Promise<void>): void
 }
 
@@ -61,8 +63,15 @@ export interface HandOffChecks {
 
 export function createValidation(options: ValidationOptions) {
   const { store, failures, find, reportingEnv } = options
-  const visitStart = (task: Task) =>
-    store.listStageEntries(task.id).findLast((e) => e.stage === 'validate')?.at ?? ''
+  const visitStart = (task: Task) => {
+    const entries = store.listStageEntries(task.id)
+    const merge = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    return (
+      (task.stage === 'merge' ? store.latestRebase(task.id, merge) : undefined) ??
+      entries.findLast((e) => e.stage === 'validate')?.at ??
+      ''
+    )
+  }
   const coverageOf = (context: Pick<FailureContext, 'repos' | 'checks'>) =>
     JSON.stringify({
       repos: context.repos.map(({ repo, head, tree }) => ({ repo, head, tree })),
@@ -73,6 +82,15 @@ export function createValidation(options: ValidationOptions) {
       .context(task)
       .then(coverageOf)
       .catch(() => undefined)
+  const codeOf = (covered: string) => JSON.stringify(JSON.parse(covered).repos)
+  const merged = (task: Task) => {
+    const opened = task.repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    return (
+      task.stage === 'merge' &&
+      opened.length > 0 &&
+      opened.every((r) => r.pullRequest?.state === 'merged')
+    )
+  }
 
   async function failureEvidence(task: Task, run: CheckRun, position: number) {
     const evidence = generatedFailureText(
@@ -83,7 +101,7 @@ export function createValidation(options: ValidationOptions) {
   }
 
   function sourceCheck(value: FailureCase) {
-    return value.source.kind === 'factory-check'
+    return value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
       ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
           value.originalCheck)
       : value.originalCheck
@@ -93,15 +111,26 @@ export function createValidation(options: ValidationOptions) {
     for (const prior of store.failures.list(task.id)) {
       const original = sourceCheck(prior)
       if (
-        !prior.validation ||
+        (!prior.validation &&
+          !(
+            prior.source.kind === 'post-rebase-check' &&
+            prior.resolutions.at(-1)?.resolution === 'repair'
+          )) ||
         prior.verifications?.length ||
-        prior.source.kind !== 'factory-check' ||
+        (prior.source.kind !== 'factory-check' && prior.source.kind !== 'post-rebase-check') ||
         prior.source.checkRunId === run.id ||
         !original ||
         run.startedAt < prior.createdAt
       )
         continue
       const decision = prior.resolutions.at(-1)
+      if (
+        decision?.resolution === 'repair' &&
+        !prior.repairProgress?.some(
+          (p) => p.requestId === decision.requestId && run.startedAt >= p.at,
+        )
+      )
+        continue
       if (
         decision?.resolution === 'accepted' &&
         !prior.invalidations.some((i) => i.requestId === decision.requestId)
@@ -120,6 +149,13 @@ export function createValidation(options: ValidationOptions) {
     }
   }
 
+  function mergeChecksStarted(task: Task): boolean {
+    const since = store.listStageEntries(task.id).findLast((e) => e.stage === 'merge')?.at ?? ''
+    return store
+      .listCheckRuns(task.id)
+      .some((run) => run.trigger === 'merge' && run.stage === 'merge' && run.startedAt >= since)
+  }
+
   async function beginChecks(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -128,17 +164,27 @@ export function createValidation(options: ValidationOptions) {
   ): Promise<{ checkRun: CheckRun; done: Promise<CheckRunnerResult> } | undefined> {
     const hold = store.newWorkHold()
     if (hold) throw new RequestError(409, hold)
+    const requested = trigger === 'agent'
+    const mergeVisit =
+      store.listStageEntries(task.id).findLast((e) => e.stage === 'merge')?.at ?? ''
+    const merging =
+      task.stage === 'merge' &&
+      (trigger === 'merge' ||
+        store.latestRebase(task.id, mergeVisit) !== undefined ||
+        mergeChecksStarted(task))
+    if (merging) trigger = 'merge'
     const validating = task.stage === 'validate' && trigger !== 'merge'
+    const diagnosing = validating || merging
     const existing = store.failures.progress(task.id)
     const order = resolution.workflow.order
     const tracking =
-      validating ||
+      diagnosing ||
       (visitStart(task) !== '' &&
         only === undefined &&
         order.indexOf(task.stage as AgentStageId) > order.indexOf('validate'))
-    let plan = await options.plan(task, resolution, only)
+    let plan = await options.plan(task, resolution, merging ? undefined : only)
     if (plan.length === 0) {
-      if (tracking)
+      if (tracking) {
         store.failures.saveProgress({
           taskId: task.id,
           visit: visitStart(task),
@@ -147,6 +193,8 @@ export function createValidation(options: ValidationOptions) {
           next: 0,
           pending: false,
         })
+        await store.persisted()
+      }
       return undefined
     }
     let progress = tracking ? existing : undefined
@@ -154,12 +202,34 @@ export function createValidation(options: ValidationOptions) {
     let contextId: string | undefined
     if (tracking) {
       const local = await coverage(task)
-      const context = validating ? await failures.snapshot(task).catch(() => undefined) : undefined
+      const context = diagnosing ? await failures.snapshot(task).catch(() => undefined) : undefined
       if (context) contextId = store.failures.capture(context).id
       if (context) await failures.obligations(task, context)
       const prior = progress?.contextId ? store.failures.context(progress.contextId) : undefined
+      const incorporation = store.failures
+        .list(task.id)
+        .flatMap((value) => {
+          const decision = value.resolutions.at(-1)
+          return decision?.resolution === 'repair' && !value.verifications?.length
+            ? (value.repairProgress ?? []).filter((p) => p.requestId === decision.requestId)
+            : []
+        })
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .at(-1)
+      const repairNeedsExecution =
+        incorporation !== undefined &&
+        !progress?.executions.some((execution) => {
+          const run = store.getCheckRun(execution.runId)
+          return (
+            execution.start === 0 &&
+            run?.stage === task.stage &&
+            run.trigger === trigger &&
+            run.startedAt >= incorporation.at
+          )
+        })
       if (
         !progress ||
+        repairNeedsExecution ||
         progress.visit !== visitStart(task) ||
         !local ||
         (progress.coverage ?? (prior && coverageOf(prior))) !== local ||
@@ -177,7 +247,7 @@ export function createValidation(options: ValidationOptions) {
           pending: true,
         }
       }
-      if ((!validating || trigger === 'agent') && progress.next >= plan.length) {
+      if ((!diagnosing || requested) && progress.next >= plan.length) {
         const next = only === undefined ? 0 : plan.findIndex((p) => p.check.name === only)
         if (next < 0) throw new RequestError(404, 'no matching Check')
         progress = {
@@ -187,7 +257,7 @@ export function createValidation(options: ValidationOptions) {
           pending: true,
         }
       }
-      if (!validating) progress = { ...progress, next: 0, pending: true }
+      if (!diagnosing) progress = { ...progress, next: 0, pending: true }
       start = progress.next
       if (only !== undefined && progress.checks[start]?.name !== only)
         throw new RequestError(
@@ -281,12 +351,12 @@ export function createValidation(options: ValidationOptions) {
           const executed = store.getCheckRun(checkRun.id) ?? checkRun
           verifyPassed(find(task.id), executed)
           let failureId: string | undefined
-          if (validating && result.failed) {
+          if (diagnosing && result.failed) {
             const stored = store.getCheckRun(checkRun.id) ?? checkRun
             const evidence = await failureEvidence(task, stored, result.failed.position)
             const value = await failures.recordCheck(find(task.id), task.leadRunId ?? 'ted', {
               source: {
-                kind: 'factory-check',
+                kind: trigger === 'merge' ? 'post-rebase-check' : 'factory-check',
                 checkRunId: checkRun.id,
                 position: result.failed.position,
               },
@@ -299,13 +369,19 @@ export function createValidation(options: ValidationOptions) {
                 previous.id === failureId ||
                 !previous.validation ||
                 previous.verifications?.length ||
-                previous.source.kind !== 'factory-check' ||
+                (previous.source.kind !== 'factory-check' &&
+                  previous.source.kind !== 'post-rebase-check') ||
                 sourceCheck(previous)?.name !== sourceCheck(value)?.name ||
                 sourceCheck(previous)?.repo !== sourceCheck(value)?.repo ||
                 sourceCheck(previous)?.command !== sourceCheck(value)?.command
               )
                 continue
               const decision = previous.resolutions.at(-1)
+              if (
+                decision?.resolution === 'repair' &&
+                !previous.repairProgress?.some((p) => p.requestId === decision.requestId)
+              )
+                continue
               if (
                 decision?.resolution === 'accepted' &&
                 !previous.invalidations.some((i) => i.requestId === decision.requestId)
@@ -314,7 +390,7 @@ export function createValidation(options: ValidationOptions) {
               failures.verifyResult(
                 task,
                 previous.id,
-                `A new execution failed; failure ${failureId} now holds this verification.`,
+                `A new execution failed; failure ${shortReference(failureId)} now holds this verification.`,
                 checkRun.id,
                 failureId,
               )
@@ -373,6 +449,14 @@ export function createValidation(options: ValidationOptions) {
       await validateChecks(taskId)
       return
     }
+    if (await resumeFailedCheck(task)) await validateChecks(taskId)
+  }
+
+  async function resumeFailedCheck(task: StoredTask): Promise<boolean> {
+    const taskId = task.id
+    const progress = store.failures.progress(taskId)
+    if (!progress) return true
+    const kind = task.stage === 'merge' ? 'post-rebase-check' : 'factory-check'
     const execution = progress.executions.at(-1)
     const run = execution && store.getCheckRun(execution.runId)
     const position =
@@ -382,14 +466,14 @@ export function createValidation(options: ValidationOptions) {
         .list(taskId)
         .find(
           (f) =>
-            f.source.kind === 'factory-check' &&
+            f.source.kind === kind &&
             f.source.checkRunId === run.id &&
             f.source.position === position,
         )
       const value =
         existing ??
         (await failures.recordCheck(task, task.leadRunId ?? 'ted', {
-          source: { kind: 'factory-check', checkRunId: run.id, position },
+          source: { kind, checkRunId: run.id, position },
           evidence: await failureEvidence(task, run, position),
           ...(execution.contextId && { contextId: execution.contextId }),
         }))
@@ -412,6 +496,15 @@ export function createValidation(options: ValidationOptions) {
           pending: true,
         })
       } else {
+        if (
+          task.stage === 'merge' &&
+          progress.failureId === value.id &&
+          !progress.pending &&
+          progress.next === execution.start + position
+        ) {
+          await options.notify(task)
+          return false
+        }
         store.failures.saveProgress({
           ...progress,
           failureId: value.id,
@@ -420,14 +513,16 @@ export function createValidation(options: ValidationOptions) {
         })
         options.setChecking(taskId, false)
         await store.persisted()
-        await options.deliver(
-          task,
-          `Validate failure ${value.id} still needs diagnosis or a human decision. Original evidence:\n\n${value.evidence}`,
-        )
-        return
+        if (task.stage === 'validate')
+          await options.deliver(
+            task,
+            `Validate failure ${shortReference(value.id)} still needs diagnosis or a human decision. Original evidence:\n\n${value.evidence}`,
+          )
+        if (task.stage === 'merge') await options.notify(task)
+        return false
       }
     }
-    await validateChecks(taskId)
+    return true
   }
 
   async function adoptHandOff(
@@ -521,10 +616,101 @@ export function createValidation(options: ValidationOptions) {
       const failureId = store.failures.progress(taskId)?.failureId
       await options.deliver(
         current,
-        `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ?? '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
       )
     } finally {
       options.setChecking(taskId, false)
+    }
+  }
+
+  async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
+    const task = find(taskId)
+    const since = store.listStageEntries(taskId).findLast((e) => e.stage === 'merge')?.at ?? ''
+    if (
+      store.latestRebase(taskId, since) === undefined &&
+      !pendingRepair(task) &&
+      !mergeChecksStarted(task)
+    )
+      return true
+    if (options.isChecking(taskId) || task.stopped || task.archived || task.waitsForBlockers)
+      return false
+    let reserved = false
+    let started: Awaited<ReturnType<typeof beginChecks>>
+    let fix: FailureCase | undefined
+    try {
+      const ready = await options.holding(task, async () => {
+        if (options.isChecking(taskId)) return false
+        const obligations = await failures.obligations(task)
+        const covered = await currentCoverage(task, true)
+        const progress = store.failures.progress(taskId)
+        for (const execution of progress?.executions ?? []) {
+          const run = store.getCheckRun(execution.runId)
+          if (run) verifyPassed(task, run)
+        }
+        if (
+          covered &&
+          obligations.satisfied &&
+          progress?.checks.every((check, position) => {
+            if (check.state === 'passed' || check.state === 'skipped') return true
+            if (check.state !== 'failed' && check.state !== 'timed-out') return false
+            const execution = validationExecution(progress, position)
+            return store.failures
+              .list(taskId)
+              .some(
+                (value) =>
+                  value.source.kind === 'post-rebase-check' &&
+                  value.source.checkRunId === execution?.runId &&
+                  value.source.position === position - execution.start &&
+                  obligations.cases.some(
+                    (entry) =>
+                      entry.id === value.id &&
+                      entry.disposition === 'accepted' &&
+                      entry.context === 'current',
+                  ),
+              )
+          })
+        )
+          return true
+        const failure =
+          validationFixes(task)[0] ??
+          (progress?.failureId ? store.failures.get(progress.failureId) : undefined)
+        const assessment = failure?.assessments.at(-1)
+        if (
+          failure &&
+          !failure.verifications?.length &&
+          (failure.resolutions.at(-1)?.resolution === 'fix' ||
+            (assessment?.assessment === 'regression' &&
+              assessment.evidenceCount === failure.additions.length))
+        ) {
+          fix = failure
+          return false
+        }
+        if (covered && !obligations.satisfied && !pendingRepair(find(taskId))) return false
+        if (!pendingRepair(find(taskId)) && !(await resumeFailedCheck(find(taskId)))) return false
+        options.setChecking(taskId, true)
+        reserved = true
+        started = await beginChecks(find(taskId), resolution, 'merge')
+        return false
+      })
+      if (fix) {
+        await options.fix(find(taskId), fix)
+        return false
+      }
+      if (ready) return true
+      if (!reserved) return false
+      if (started) {
+        const result = await started.done
+        if (result.outcome !== 'passed') {
+          await options.notify(find(taskId))
+          return false
+        }
+      }
+      return (
+        (await currentCoverage(find(taskId))) &&
+        (await failures.obligations(find(taskId))).satisfied
+      )
+    } finally {
+      if (reserved) options.setChecking(taskId, false)
     }
   }
 
@@ -535,17 +721,19 @@ export function createValidation(options: ValidationOptions) {
     sendDrafts = true,
   ) {
     const value = failures.get(task, id)
+    id = value.id
     if (!value.validation) {
       if (input.resolution === 'retry' || input.resolution === 'fix')
         throw new RequestError(400, 'this failure does not support Validate actions')
       return failures.resolve(task, id, input, sendDrafts)
     }
-    if (task.stage !== 'validate')
-      throw new RequestError(409, 'this Validate decision is no longer current')
+    const merging = task.stage === 'merge' && value.source.kind === 'post-rebase-check'
+    if (task.stage !== 'validate' && !merging)
+      throw new RequestError(409, 'this Check decision is no longer current')
     if (input.resolution === 'fixed' || input.resolution === 'no-longer-applicable')
       throw new RequestError(
         409,
-        'use Retry, Fix in this Task or Accept this failure for a Validate case',
+        'use Retry, Fix in this Task or Accept this failure for a Check diagnosis',
       )
     if (options.isChecking(task.id))
       throw new RequestError(
@@ -557,18 +745,18 @@ export function createValidation(options: ValidationOptions) {
     try {
       failures.pendingDecision(task, id, input.requestId)
       const resolution = await options.workflow(find(task.id))
-      if (input.resolution === 'fix') options.checkFix(resolution)
+      if (input.resolution === 'fix') options.checkFix(resolution, task)
       if (
-        value.source.kind === 'factory-check' &&
+        (value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check') &&
         input.resolution === 'retry' &&
         store.failures.progress(task.id)?.failureId !== id
       )
         throw new RequestError(409, 'this failure is not the outstanding Check')
       const result = await failures.resolve(task, id, input, sendDrafts)
-      if (input.resolution === 'fix') {
+      if (input.resolution === 'fix' && !merging) {
         await options.fix(find(task.id), result)
       } else if (
-        value.source.kind === 'factory-check' &&
+        (value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check') &&
         (input.resolution === 'retry' || input.resolution === 'accepted') &&
         store.failures.progress(task.id)?.failureId === id
       ) {
@@ -581,8 +769,10 @@ export function createValidation(options: ValidationOptions) {
           pending: true,
         })
         await store.persisted()
-        continuing = true
-        options.background(`continue ${task.displayId}’s Checks`, () => validateChecks(task.id))
+        if (!merging) {
+          continuing = true
+          options.background(`continue ${task.displayId}’s Checks`, () => validateChecks(task.id))
+        }
       }
       return result
     } finally {
@@ -590,11 +780,30 @@ export function createValidation(options: ValidationOptions) {
     }
   }
 
-  async function currentCoverage(task: StoredTask): Promise<boolean> {
+  async function currentCoverage(task: StoredTask, refreshPending = false): Promise<boolean> {
     const progress = store.failures.progress(task.id)
     if (task.stage === 'done') return true
     if (!progress) return task.stage !== 'validate' && visitStart(task) === ''
-    if (progress.pending || progress.next < progress.checks.length) return false
+    if (
+      (progress.pending || progress.next < progress.checks.length) &&
+      (!refreshPending || options.isChecking(task.id))
+    )
+      return false
+    const previous = progress.contextId ? store.failures.context(progress.contextId) : undefined
+    const tested = progress.coverage ?? (previous && coverageOf(previous))
+    // The Check plan is read from the default branch, which holds this Task’s own changes
+    // once its pull requests have merged, so only the code is compared from then on.
+    if (merged(task)) {
+      if (
+        progress.visit !== visitStart(task) ||
+        progress.pending ||
+        progress.next < progress.checks.length
+      )
+        return false
+      if (progress.checks.every((c) => c.state === 'skipped')) return true
+      const local = await coverage(task)
+      return local !== undefined && tested !== undefined && codeOf(local) === codeOf(tested)
+    }
     const resolution = await options.workflow(task)
     const plan = await options.plan(task, resolution)
     const samePlan =
@@ -605,9 +814,8 @@ export function createValidation(options: ValidationOptions) {
       progress.checks.every((c) => c.state === 'skipped') &&
       plan.every((p) => p.check.state === 'skipped')
     const local = samePlan && !skipped ? await coverage(task) : undefined
-    const previous = progress.contextId ? store.failures.context(progress.contextId) : undefined
-    const tested = progress.coverage ?? (previous && coverageOf(previous))
-    if (samePlan && (skipped || (local && tested === local))) return true
+    if (samePlan && (skipped || (local && tested === local)))
+      return !progress.pending && progress.next >= progress.checks.length
     store.failures.saveProgress({
       taskId: task.id,
       visit: visitStart(task),
@@ -621,25 +829,45 @@ export function createValidation(options: ValidationOptions) {
   }
 
   async function verifyRepair(task: StoredTask, value: FailureCase, evidence: string) {
-    if (value.source.kind !== 'factory-check')
-      throw new RequestError(409, 'only a Factory Check repair can use current Check coverage')
+    if (value.source.kind !== 'factory-check' && value.source.kind !== 'post-rebase-check')
+      throw new RequestError(409, 'only a Check repair can use current Check coverage')
     const source = store.getCheckRun(value.source.checkRunId)
     const obligations = await failures.obligations(task)
     const current = await currentCoverage(task)
     const progress = store.failures.progress(task.id)
     const original = sourceCheck(value)
+    const decision = value.resolutions.at(-1)
+    const incorporation =
+      decision?.resolution === 'repair'
+        ? value.repairProgress?.findLast((p) => p.requestId === decision.requestId)
+        : undefined
+    const freshRepair =
+      incorporation &&
+      progress &&
+      (progress.checks.length === 0 ||
+        progress.executions.some((execution) => {
+          const run = store.getCheckRun(execution.runId)
+          return (
+            execution.start === 0 &&
+            run?.finishedAt !== undefined &&
+            run.stage === task.stage &&
+            run.trigger === task.stage &&
+            run.startedAt >= incorporation.at
+          )
+        }))
     if (
       !current ||
       !progress ||
       progress.pending ||
       !source ||
-      source.startedAt >= progress.visit ||
-      !store
-        .listStageEntries(task.id)
-        .some(
-          (entry) =>
-            entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
-        ) ||
+      (!freshRepair &&
+        (source.startedAt >= progress.visit ||
+          !store
+            .listStageEntries(task.id)
+            .some(
+              (entry) =>
+                entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
+            ))) ||
       !original ||
       progress.checks.some((c, position) => {
         if (c.state === 'passed' || c.state === 'skipped') return false
@@ -649,7 +877,8 @@ export function createValidation(options: ValidationOptions) {
           .list(task.id)
           .some(
             (failure) =>
-              failure.source.kind === 'factory-check' &&
+              (failure.source.kind === 'factory-check' ||
+                failure.source.kind === 'post-rebase-check') &&
               failure.source.checkRunId === execution?.runId &&
               failure.source.position === position - execution.start &&
               obligations.cases.some(
@@ -670,7 +899,7 @@ export function createValidation(options: ValidationOptions) {
     )
       throw new RequestError(
         409,
-        'complete current Checks in a fresh Validate visit and explain why the old Check is now skipped, removed or replaced',
+        'complete current Checks after repair incorporation or in a fresh Validate visit, and explain why the old Check is now skipped, removed or replaced',
       )
     return failures.verifyResult(
       task,
@@ -687,10 +916,35 @@ export function createValidation(options: ValidationOptions) {
       )
   }
 
+  function pendingRepair(task: Task): boolean {
+    return store.failures.list(task.id).some((value) => {
+      const decision = value.resolutions.at(-1)
+      if (decision?.resolution !== 'repair' || value.verifications?.length) return false
+      const incorporation = value.repairProgress?.findLast(
+        (p) => p.requestId === decision.requestId,
+      )
+      return (
+        incorporation !== undefined &&
+        !store
+          .listCheckRuns()
+          .some(
+            (run) =>
+              run.taskId === task.id &&
+              run.stage === task.stage &&
+              run.trigger === task.stage &&
+              run.startedAt >= incorporation.at &&
+              run.finishedAt !== undefined &&
+              run.outcome !== 'interrupted',
+          )
+      )
+    })
+  }
+
   function recover() {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
-      const restart = checkRun.trigger === 'validate' && task?.stage === 'validate'
+      const restart =
+        checkRun.trigger === 'validate' && task?.stage === 'validate' && !pendingRepair(task)
       if (restart) options.setChecking(task.id, true)
       store.checkSlotBoundary(checkRun.id, 'recovered', new Date().toISOString())
       store.finishChecks(checkRun.id, 'interrupted')
@@ -709,7 +963,17 @@ export function createValidation(options: ValidationOptions) {
         decision?.resolution === 'fix'
       if (
         task.stage === 'validate' &&
+        !pendingRepair(task) &&
         !task.archived &&
+        !store.failures.list(task.id).some((f) => {
+          const decision = f.resolutions.at(-1)
+          return (
+            decision?.resolution === 'repair' &&
+            !f.verifications?.length &&
+            !f.repairProgress?.some((p) => p.requestId === decision.requestId)
+          )
+        }) &&
+        !find(task.id).waitsForBlockers &&
         !find(task.id).stopped &&
         (!progress ||
           progress.visit !== visitStart(task) ||
@@ -727,6 +991,8 @@ export function createValidation(options: ValidationOptions) {
   }
 
   return {
+    pendingRepair,
+    merge: mergeChecks,
     begin: beginChecks,
     coverage,
     enter: validateChecks,

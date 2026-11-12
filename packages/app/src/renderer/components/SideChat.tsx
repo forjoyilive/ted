@@ -3,9 +3,13 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useEventValue, useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
+import { AntigravityChatWarning } from './AntigravityChatWarning.tsx'
 import { Button } from './Button.tsx'
 import { type ChatOptions, ChatSection } from './RunChat.tsx'
 import styles from './SideChat.module.css'
+
+const outputEveryMs = 1_000
+const slotsEveryMs = 500
 
 type Props = {
   runId: string | undefined
@@ -40,14 +44,16 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
     key: runId ?? '',
     enabled: eligible,
     load: () => (runId === undefined ? Promise.resolve(null) : ted.getSideChat(runId)),
-    event: (event) =>
-      (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
-      (event.type === 'run-output' && event.runId === sideId.current) ||
-      (event.type === 'run-updated' && event.run.id === sideId.current) ||
-      event.type === 'agent-health-changed' ||
-      event.type === 'slots-changed'
+    event: (event) => {
+      if (event.type === 'run-output' && event.runId === sideId.current)
+        return event.lines ? outputEveryMs : 'reload'
+      if (event.type === 'slots-changed') return slotsEveryMs
+      return (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
+        (event.type === 'run-updated' && event.run.id === sideId.current) ||
+        event.type === 'agent-health-changed'
         ? 'reload'
-        : undefined,
+        : undefined
+    },
     error: (failed) => setError(readableError(failed)),
   })
   sideId.current = side?.id
@@ -70,7 +76,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const show = () => {
     setOpen(true)
     setWhich('side')
-    void act((source) => ted.openSideChat(source)).catch(() => undefined)
+    return act((source) => ted.openSideChat(source)).catch(() => undefined)
   }
   const working = side?.state === 'working' || side?.state === 'queued'
   return (
@@ -139,6 +145,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                 ×
               </Button>
             </header>
+            {side?.chat && <AntigravityChatWarning agent={side.chat.run.agent} />}
             {side && (
               <div className={styles.notice}>
                 <div>Conversation snapshot · {clockTime(side.snapshotAt)}</div>
@@ -170,7 +177,10 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                     : busy
                       ? 'Sending…'
                       : 'This side chat’s output is no longer kept.',
-                  help: 'Answers only from the starting Conversation snapshot. It can’t inspect files or change the Task.',
+                  help:
+                    side.chat.run.agent === 'antigravity'
+                      ? 'Uses the starting Conversation snapshot. Antigravity can use built-in tools; see the help beside the tool warning.'
+                      : 'Answers only from the starting Conversation snapshot. It can’t inspect files or change the Task.',
                   live: side.available && !working && !busy,
                   working: false,
                   interrupt: false,
@@ -188,7 +198,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.stopSideChat(source)).catch(() => undefined)
+                          return act((source) => ted.stopSideChat(source)).catch(() => undefined)
                         }}
                       >
                         Stop reply
@@ -200,7 +210,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.retrySideChat(source)).catch(() => undefined)
+                          return act((source) => ted.retrySideChat(source)).catch(() => undefined)
                         }}
                       >
                         Retry

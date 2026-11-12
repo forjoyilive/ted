@@ -19,6 +19,7 @@ import {
   scheduleOf,
   templateScheduleText,
 } from '../automations.ts'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
@@ -104,6 +105,8 @@ export function AutomationDialog({
   const [on, setOn] = useState(editing?.on ?? true)
   const [preview, setPreview] = useState<SchedulePreview>()
   const [busy, setBusy] = useState(false)
+  const [savingAndRunning, setSavingAndRunning] = useState(false)
+  const saving = useRef(false)
   const [draftBusy, setDraftBusy] = useState(false)
   const [error, setError] = useState<string>()
   const applied = useRef<TemplateChoice | undefined>(undefined)
@@ -189,7 +192,9 @@ export function AutomationDialog({
     !draftBusy
 
   async function save(runNow: boolean) {
-    if (!canSave || typeof schedule === 'string' || !chosenFactory) return
+    if (!canSave || typeof schedule === 'string' || !chosenFactory || saving.current) return
+    saving.current = true
+    setSavingAndRunning(runNow)
     setBusy(true)
     setError(undefined)
     const fields = {
@@ -224,6 +229,8 @@ export function AutomationDialog({
     } catch (failure) {
       setError(readableError(failure))
       setBusy(false)
+    } finally {
+      saving.current = false
     }
   }
 
@@ -245,7 +252,7 @@ export function AutomationDialog({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        onClose()
+        if (!busy) onClose()
       }}
       onKeyDown={onKeyDown}
     >
@@ -268,9 +275,15 @@ export function AutomationDialog({
           </Select>
         )}
         <span className={styles.spacer} />
-        <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
+        <ActionButton
+          type="button"
+          className={styles.close}
+          aria-label="Close"
+          disabled={busy}
+          onClick={onClose}
+        >
           <CloseIcon />
-        </button>
+        </ActionButton>
       </header>
 
       <div className={styles.body}>
@@ -391,7 +404,7 @@ export function AutomationDialog({
               weekdays.map((day) => {
                 const chosen = draft.days.includes(day)
                 return (
-                  <button
+                  <ActionButton
                     key={day}
                     type="button"
                     className={styles.day}
@@ -406,7 +419,7 @@ export function AutomationDialog({
                     }
                   >
                     {dayLetters[day]}
-                  </button>
+                  </ActionButton>
                 )
               })}
             {(draft.kind === 'daily' || draft.kind === 'weekdays' || draft.kind === 'weekly') && (
@@ -476,8 +489,10 @@ export function AutomationDialog({
           </p>
         )}
         <span className={styles.spacer} />
-        <Button onClick={onClose}>Cancel</Button>
-        <Button disabled={!canSave} onClick={() => void save(true)}>
+        <Button disabled={busy} onClick={onClose}>
+          Cancel
+        </Button>
+        <Button disabled={!canSave} pending={busy && savingAndRunning} onClick={() => save(true)}>
           Save and run now
         </Button>
         <Button
@@ -485,7 +500,8 @@ export function AutomationDialog({
           shortcut="⌘↵"
           aria-keyshortcuts="Meta+Enter"
           disabled={!canSave}
-          onClick={() => void save(false)}
+          pending={busy && !savingAndRunning}
+          onClick={() => save(false)}
         >
           Save
         </Button>

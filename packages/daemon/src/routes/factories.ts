@@ -72,7 +72,7 @@ export const factoryRoutes: Route[] = [
         throw new HttpError(404, 'Factory not found')
       let scope = body.scope
       if (scope !== null) {
-        const choices = await linear.intakeChoices()
+        const choices = await linear.intakeChoices({ fresh: true })
         const targetId = scope.id
         const target = (scope.kind === 'team' ? choices.teams : choices.projects).find(
           (target) => target.id === targetId,
@@ -170,11 +170,16 @@ export const factoryRoutes: Route[] = [
   }),
   {
     method: 'GET',
-    path: /^\/factories\/([^/]+)\/settings$/,
-    handle: async ({ params: [id = ''] }, { factorySettings }) => [
-      200,
-      await factorySettings.view(id),
-    ],
+    path: /^\/factories\/([^/]+)\/settings(?:\?refresh=(?:first|never))?$/,
+    async handle({ params: [id = ''], req }, { factorySettings }) {
+      const url = req.url ?? ''
+      const refresh = url.endsWith('?refresh=first')
+        ? 'first'
+        : url.endsWith('?refresh=never')
+          ? 'never'
+          : 'background'
+      return [200, await factorySettings.view(id, { refresh })]
+    },
   },
   jsonRoute(parseFactorySettingsChanges, {
     method: 'POST',

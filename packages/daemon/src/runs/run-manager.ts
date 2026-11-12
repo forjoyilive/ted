@@ -29,7 +29,9 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { chatToolPolicy } from '@ted/protocol/run'
+import { AgentDisabledError } from '../agent-eligibility.ts'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -101,6 +103,7 @@ export interface RunObserver {
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   agent: AgentKind
+  onStarting?: () => void
   prompt: string
   cwd: string
   taskId?: string
@@ -122,6 +125,7 @@ export interface ReviveRunInput {
 
 export interface RunManager {
   output: RunOutputReader
+  serializeStarts<T>(work: () => T | Promise<T>): Promise<T>
   start(input: StartRunInput): Promise<Run>
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
@@ -186,6 +190,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   const billingOf = (kind: AgentKind) => store.settings().billing[kind]
+  // Every launch of an agent passes here, so nothing starts Antigravity on a Google plan
+  // before the human has accepted Google’s terms notice, whatever agent health last said.
+  const launchBilling = (kind: AgentKind) => {
+    const settings = store.settings()
+    if (
+      kind === 'antigravity' &&
+      settings.billing.antigravity === 'subscription' &&
+      !settings.antigravityPlanAccepted
+    )
+      throw new RequestError(409, antigravityPlanNotice)
+    return billingOf(kind)
+  }
 
   const environment = (): NodeJS.ProcessEnv => {
     const base = filterTedEnv(options.env?.() ?? process.env)
@@ -611,9 +627,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(run.effort !== undefined && { effort: run.effort }),
       permissions,
       ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
-        tools: 'none' as const,
+        tools: chatToolPolicy(run.agent),
       }),
-      billing: billingOf(run.agent),
+      billing: launchBilling(run.agent),
     })
     const inputFrom = await stat(files.input).then(
       (info) => info.size,
@@ -702,7 +718,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const sideId = path.basename(runDir)
     if (store.sideChats.forRun(sideId)) await sideFolder(home, sideId)
     for (const [name, content] of Object.entries(launch.files)) {
-      await writeFile(path.join(runDir, name), content, { mode: 0o600 })
+      const file = path.join(runDir, name)
+      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 })
+      await writeFile(file, content, { mode: 0o600 })
     }
     const launchFile: LaunchFile = {
       launchId: randomUUID(),
@@ -710,7 +728,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       authority: launchAuthority(store),
       command: launch.command,
       args: launch.args,
-      cwd,
+      cwd: launch.cwd ?? cwd,
       input: launch.input,
       ...(launch.driver !== undefined && { driver: launch.driver }),
       ...(inputFrom !== undefined && { inputFrom }),
@@ -800,10 +818,19 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
+  let starts: Promise<unknown> = Promise.resolve()
+  function serializeStarts<T>(work: () => T | Promise<T>): Promise<T> {
+    const next = starts.then(work)
+    starts = next.catch(() => undefined)
+    return next
+  }
+
   const manager: RunManager = {
+    serializeStarts,
     output,
     async start({
       agent: kind,
+      onStarting,
       prompt,
       cwd,
       taskId,
@@ -817,63 +844,72 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       permissions = 'auto',
       messageIds,
     }) {
-      refuseWhileShuttingDown()
-      const agent = agents.get(kind)
-      const release = await acquireRunPermissions(store, { taskId })
-      let handedOff = false
-      try {
-        const runDir = path.join(runsDir, id)
-        await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
-        permissions = runPermissions(store, { taskId })
-        const launch = agent.launch({
-          prompt,
-          runDir,
-          env: runEnv(id, env),
-          ...(resume !== undefined && { resume }),
-          ...(model !== undefined && { model }),
-          ...(effort !== undefined && { effort }),
-          permissions,
-          ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
-            tools: 'none' as const,
-          }),
-          billing: billingOf(kind),
-        })
-        await writeLaunch(
-          runDir,
-          cwd,
-          launch,
-          permissions,
-          undefined,
-          messageIds && { ids: messageIds, text: prompt },
-        )
-        await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
-
+      return serializeStarts(async () => {
         refuseWhileShuttingDown()
-        const run = store.startRun({
-          id,
-          agent: agent.kind,
-          ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
-          prompt,
-          cwd,
-          ...(taskId !== undefined && { taskId }),
-          ...(model !== undefined && { model }),
-          ...(effort !== undefined && { effort }),
-          ...(parentRunId !== undefined && { parentRunId }),
-          ...(name !== undefined && { name }),
-          permissions,
-        })
-        const host = spawnHost(runDir, launch.env)
-        follow(id)
-        handedOff = true
-        void waitForStart(id, 0, () => {
-          killSpawnedHostGroup(host)
-        })
-          .catch((error: unknown) => console.error('The Run host did not start:', error))
-          .finally(release)
-        return run
-      } finally {
-        if (!handedOff) release()
-      }
+        if (!store.settings().enabledAgents.includes(kind)) throw new AgentDisabledError(kind)
+        if (taskId && store.getTask(taskId)?.stopped)
+          throw new Error('The Task was stopped before this Run could start')
+        const agent = agents.get(kind)
+        const release = await acquireRunPermissions(store, { taskId })
+        let handedOff = false
+        try {
+          const runDir = path.join(runsDir, id)
+          await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
+          permissions = runPermissions(store, { taskId })
+          const launch = agent.launch({
+            prompt,
+            runDir,
+            env: runEnv(id, env),
+            ...(resume !== undefined && { resume }),
+            ...(model !== undefined && { model }),
+            ...(effort !== undefined && { effort }),
+            permissions,
+            ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
+              tools: chatToolPolicy(kind),
+            }),
+            billing: launchBilling(kind),
+          })
+          await writeLaunch(
+            runDir,
+            cwd,
+            launch,
+            permissions,
+            undefined,
+            messageIds && { ids: messageIds, text: prompt },
+          )
+          await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
+
+          refuseWhileShuttingDown()
+          if (taskId && store.getTask(taskId)?.stopped)
+            throw new Error('The Task was stopped before this Run could start')
+          // Record the owner only after admission, so a refused start stays queued.
+          onStarting?.()
+          const run = store.startRun({
+            id,
+            agent: agent.kind,
+            ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
+            prompt,
+            cwd: launch.cwd ?? cwd,
+            ...(taskId !== undefined && { taskId }),
+            ...(model !== undefined && { model }),
+            ...(effort !== undefined && { effort }),
+            ...(parentRunId !== undefined && { parentRunId }),
+            ...(name !== undefined && { name }),
+            permissions,
+          })
+          const host = spawnHost(runDir, launch.env)
+          follow(id)
+          handedOff = true
+          void waitForStart(id, 0, () => {
+            killSpawnedHostGroup(host)
+          })
+            .catch((error: unknown) => console.error('The Run host did not start:', error))
+            .finally(release)
+          return run
+        } finally {
+          if (!handedOff) release()
+        }
+      })
     },
     async revive(runId, { prompt, env = {}, messageIds, flags }) {
       refuseWhileShuttingDown()
@@ -904,9 +940,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...(choice.effort !== undefined && { effort: choice.effort }),
           permissions,
           ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
-            tools: 'none' as const,
+            tools: chatToolPolicy(run.agent),
           }),
-          billing: billingOf(run.agent),
+          billing: launchBilling(run.agent),
         })
         const inputFrom = await stat(files.input).then(
           (info) => info.size,
@@ -982,9 +1018,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...(flags.effort !== undefined && { effort: flags.effort }),
             permissions,
             ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
-              tools: 'none' as const,
+              tools: chatToolPolicy(run.agent),
             }),
-            billing: billingOf(run.agent),
+            billing: launchBilling(run.agent),
           })
           await writeLaunch(runDir, run.cwd, launch, permissions)
           signal.throwIfAborted()

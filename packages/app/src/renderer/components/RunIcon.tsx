@@ -15,9 +15,16 @@ const stateLabels: Record<RunIconState, string> = {
 export const agentNames: Record<AgentKind | 'codex', string> = {
   claude: 'Claude Code',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 }
 
 export function AgentMark({ agent, size }: { agent: AgentKind | 'codex'; size: number }) {
+  if (agent === 'antigravity')
+    return (
+      <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden>
+        <path d="M8 1 15 15h-3L8 6l-4 9H1Z" fill="currentColor" />
+      </svg>
+    )
   return agent === 'codex' ? <CodexMark size={size} /> : <ClaudeCodeMark size={size} />
 }
 

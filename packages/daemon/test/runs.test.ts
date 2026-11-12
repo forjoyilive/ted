@@ -401,3 +401,42 @@ describe('Runs across daemon restarts', () => {
     unrelated.kill('SIGKILL')
   })
 })
+
+test('the host passes the Task workspace to new and resumed Antigravity sessions', async () => {
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    antigravityBin: fileURLToPath(new URL('./fixtures/stub-antigravity.ts', import.meta.url)),
+  })
+  const client = api(daemon.port, { appKey: daemon.appToken })
+  await expect(client.startRun([], cwd, 'antigravity')).rejects.toThrow('Google’s terms')
+  expect((await client.call('PATCH', '/settings', { antigravityPlanAccepted: true })).status).toBe(
+    200,
+  )
+  const run = await client.startRun([], cwd, 'antigravity')
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.state === 'idle' || undefined,
+    'Antigravity to finish its turn',
+  )
+  const recorded = () =>
+    readFile(path.join(cwd, 'stub-antigravity-workspaces.jsonl'), 'utf8').then((text) =>
+      text
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line)),
+    )
+  expect(await recorded()).toEqual([
+    expect.objectContaining({ method: 'session/new', params: expect.objectContaining({ cwd }) }),
+  ])
+  expect(cwd).not.toBe(path.join(home, 'runs', run.id))
+  const restarted = await client.call('POST', `/runs/${run.id}/restart`)
+  expect(restarted.status).toBe(200)
+  await waitUntil(async () => (await recorded()).length === 2 || undefined, 'Antigravity to resume')
+  expect(await recorded()).toEqual([
+    expect.objectContaining({ method: 'session/new', params: expect.objectContaining({ cwd }) }),
+    expect.objectContaining({
+      method: 'session/resume',
+      params: expect.objectContaining({ cwd, sessionId: 'stub-session' }),
+    }),
+  ])
+})

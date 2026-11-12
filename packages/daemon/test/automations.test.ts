@@ -421,6 +421,23 @@ describe('Automations', () => {
       'the Run’s result',
     ).toEqual(['NB-1', 'NB-2'])
     expect(createdIds(row?.created), 'the Run’s created Tasks').toEqual(['NB-1', 'NB-2'])
+    const links = ['NB-1', 'NB-2'].flatMap((displayId) => {
+      const task = tasks.find((t) => t.displayId === displayId)
+      return task
+        ? [
+            {
+              id: task.id,
+              displayId,
+              title: task.title,
+              stage: task.stage,
+              source: task.source?.url,
+            },
+          ]
+        : []
+    })
+    expect(row?.created, 'each created Task’s link').toEqual(links)
+    expect(row?.result, 'the Run’s result').toEqual({ kind: 'created', tasks: links })
+    expect(row?.runId, 'the Run’s ID is its firing’s').toBe(row?.id)
     const results = await commandResults(client, row?.runId ?? '')
     expect(results.map((r) => r.code)).toEqual([0, 1, 0, 1, 0, 1])
     expect(results[0], 'the first create').toMatchObject({
@@ -459,6 +476,22 @@ describe('Automations', () => {
     expect(repeated.run.prompt, 'the next Run’s prompt').toContain(
       `- NB-2 · Concentrate queue ownership · open, in Backlog · source ${other}`,
     )
+    const shown = await detail(client, automation.id)
+    expect(shown.history, 'the history, newest first').toEqual([next, row])
+    expect(shown.automation).toMatchObject({
+      factoryKey: 'NB',
+      last: next,
+      failuresInARow: 0,
+      totals: { runs: 2, tasksCreated: 2 },
+    })
+    expect(shown.automation.now).toBeUndefined()
+    const listed = await client.ok<Automation[]>('GET', '/automations?factory=NB')
+    expect(
+      listed.find((a) => a.id === automation.id),
+      'the list’s row',
+    ).toEqual(shown.automation)
+    const everywhere = await client.ok<Automation[]>('GET', '/automations')
+    expect(everywhere.map((a) => a.id)).toEqual(listed.map((a) => a.id))
   })
 
   test('an edit sending null for model or effort clears it back to the default', async () => {

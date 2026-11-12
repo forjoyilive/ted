@@ -11,6 +11,7 @@ import {
   agentStageIds,
   type CheckView,
   type ClarifyDepth,
+  type DaemonEvent,
   type DiffLine,
   type Effort,
   type FactorySettingsChanges,
@@ -71,17 +72,21 @@ import {
   isRepo,
   repoSettingsFrom,
 } from './workflow/edit.ts'
-import { readGitLayer, stageFileHash } from './workflow/layers.ts'
+import { stageFileHash } from './workflow/layers.ts'
 import { resolveWorkflow } from './workflow/resolve.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface FactorySettings {
-  view(factoryId: string): Promise<FactorySettingsView>
+  view(
+    factoryId: string,
+    options?: { refresh?: 'background' | 'first' | 'never' },
+  ): Promise<FactorySettingsView>
   preview(factoryId: string, changes: FactorySettingsChanges): Promise<SettingsPreview>
   save(factoryId: string, request: SaveSettingsRequest): Promise<SaveSettingsResult>
   merge(factoryId: string, request: MergeSettingsRequest): Promise<SaveSettingsResult>
   forget(factoryId: string): void
   mergeInherited(factoryId: string, stage: AgentStageId): Promise<Task>
+  close(): Promise<void>
 }
 
 export interface FactorySettingsOptions {
@@ -94,6 +99,7 @@ export interface FactorySettingsOptions {
   checkTries: Pick<CheckTries, 'list'>
   installed: (agent: AgentKind) => boolean
   createTask: (input: CreateTaskInput) => Promise<Task>
+  emit?: (event: DaemonEvent) => void
   mergeTries?: number
   mergeWaitMs?: number
 }
@@ -109,6 +115,7 @@ interface Base {
   problems: WorkflowProblem[]
   repos: RepoSettingsInput[]
   inherited: CheckedLayer[]
+  own: CheckedLayer
 }
 
 const knownFile = (file: string) =>
@@ -117,6 +124,7 @@ const knownFile = (file: string) =>
   agentStageIds.some((id) => file === `stages/${id}.md`)
 
 export const settingsTitle = 'Update TED settings'
+const closeWaitMs = 2000
 
 export function createFactorySettings(options: FactorySettingsOptions): FactorySettings {
   const { store, gh, workflows, reposDir } = options
@@ -140,17 +148,55 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     return factory
   }
 
-  async function load(factory: StoredFactory, fetch: boolean): Promise<Base> {
-    const clone = clonePath(reposDir, factory)
-    if (fetch) {
-      await workflows.resolve(factory, { fetch: true }).catch((error: unknown) => {
-        console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
-      })
+  const checkedFiles = new WeakMap<LayerFiles, Map<string, CheckedLayer>>()
+  const refreshing = new Map<string, Promise<void>>()
+
+  function check(files: LayerFiles, primaryRepo?: string): CheckedLayer {
+    let known = checkedFiles.get(files)
+    if (!known) {
+      known = new Map()
+      checkedFiles.set(files, known)
     }
-    const commit = await git.revParse(clone, `origin/${factory.defaultBranch}`)
-    const layer = await readGitLayer(clone, commit)
-    const current = layer?.files ?? {}
-    const checked = checkLayer({ kind: 'factory', files: current, primaryRepo: factory.repo })
+    const key = primaryRepo === undefined ? '' : `\0${primaryRepo}`
+    let layer = known.get(key)
+    if (!layer) {
+      layer = checkLayer({
+        kind: 'factory',
+        files,
+        ...(primaryRepo !== undefined && { primaryRepo }),
+      })
+      known.set(key, layer)
+    }
+    return layer
+  }
+
+  function refreshLater(factory: StoredFactory, seen: string): void {
+    if (refreshing.has(factory.id)) return
+    const done = workflows
+      .refresh(factory, seen)
+      .then(
+        (moved) => {
+          if (moved && store.getFactory(factory.id)) {
+            options.emit?.({ type: 'factory-settings-changed', factoryId: factory.id })
+          }
+        },
+        (error: unknown) => {
+          console.error(
+            `couldn’t fetch ${factory.repo}; showing the last fetched .ted/:`,
+            redactSecrets(error instanceof Error ? error.message : String(error)),
+          )
+        },
+      )
+      .finally(() => refreshing.delete(factory.id))
+    refreshing.set(factory.id, done)
+  }
+
+  async function load(
+    factory: StoredFactory,
+    from: { fetch: boolean; resolve: boolean },
+  ): Promise<Base> {
+    const { commit, files: current, inherited } = await workflows.source(factory, from)
+    const checked = check(current, factory.repo)
     let files: LayerFiles
     let source: SettingsSource
     if (checked.valid) {
@@ -161,7 +207,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       files = last?.files ?? {}
       source = typeof files['workflow.yaml'] === 'string' ? 'last-valid' : 'none'
     }
-    const shown = checkLayer({ kind: 'factory', files, primaryRepo: factory.repo })
+    const shown = check(files, factory.repo)
     const workflowText = files['workflow.yaml']
     const text = typeof workflowText === 'string' ? workflowText : undefined
     const settings = text === undefined ? undefined : shown.settings
@@ -179,7 +225,8 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       settings,
       problems: checked.problems,
       repos: repoSettingsFrom(settings, factory.repos),
-      inherited: await workflows.inherited(),
+      inherited,
+      own: check(files),
     }
   }
 
@@ -287,9 +334,11 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     factory: StoredFactory,
     changes: FactorySettingsChanges,
   ): WorkflowProblem[] {
+    let tasks: Task[] | undefined
     return base.repos.flatMap((repo) => {
       if (changes.repos.some((r) => r.was === repo.was)) return []
-      const open = openTasksUsing(store, factory, repo.repo)
+      tasks ??= store.listTasks()
+      const open = openTasksUsing(store, factory, repo.repo, tasks)
       if (open.length === 0) return []
       return [
         {
@@ -311,7 +360,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
   }
 
   function stageRows(base: Base): StageRowView[] {
-    const own = checkLayer({ kind: 'factory', files: base.files })
+    const { own } = base
     const inherited = resolveWorkflow(base.inherited)
     const full = resolveWorkflow([...base.inherited, own])
     const drifts = findDrift(base.inherited, own)
@@ -363,10 +412,15 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
   function agentRows(base: Base): AgentRowView[] {
     const inherited = resolveWorkflow(base.inherited).settings
     const library = base.inherited.find((l) => l.kind === 'library')?.settings
-    const resolved = resolveAgentChoices(inherited, {
-      claude: options.installed('claude'),
-      codex: options.installed('codex'),
-    })
+    const resolved = resolveAgentChoices(
+      inherited,
+      {
+        claude: options.installed('claude'),
+        antigravity: options.installed('antigravity'),
+        codex: options.installed('codex'),
+      },
+      options.store.settings().enabledAgents,
+    )
     return agentRoles.map((role) => {
       const own = base.settings?.[role]
       const shown = { ...inherited[role], agent: inherited[role]?.agent ?? resolved[role].agent }
@@ -509,9 +563,10 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
   }
 
   return {
-    async view(factoryId) {
+    async view(factoryId, { refresh = 'background' } = {}) {
       const factory = find(factoryId)
-      const base = await load(factory, true)
+      const base = await load(factory, { fetch: refresh === 'first', resolve: true })
+      if (refresh === 'background') refreshLater(factory, base.commit)
       const repos: RepoSettingsView[] = await Promise.all(
         base.repos.map(async (repo, i) => {
           const folder = await localFolder(repo)
@@ -561,7 +616,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
 
     async preview(factoryId, changes) {
       const factory = find(factoryId)
-      const base = await load(factory, false)
+      const base = await load(factory, { fetch: false, resolve: false })
       const { problems, files } = edited(base, factory, changes)
       return {
         files: fileChanges(base, files),
@@ -581,7 +636,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       }
       saving.add(factory.id)
       try {
-        const base = await load(factory, true)
+        const base = await load(factory, { fetch: true, resolve: true })
         if (base.version !== version) {
           throw new RequestError(
             409,
@@ -709,9 +764,8 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
 
     async mergeInherited(factoryId, stage) {
       const factory = find(factoryId)
-      const base = await load(factory, true)
-      const own = checkLayer({ kind: 'factory', files: base.files })
-      const drift = findDrift(base.inherited, own).find((d) => d.stage === stage)
+      const base = await load(factory, { fetch: true, resolve: true })
+      const drift = findDrift(base.inherited, base.own).find((d) => d.stage === stage)
       if (!drift) {
         throw new RequestError(409, `${stage}.md has no inherited changes to merge`)
       }
@@ -726,6 +780,13 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         changesSettings: true,
         start: true,
       })
+    },
+
+    async close() {
+      await Promise.race([
+        Promise.all(refreshing.values()),
+        sleep(closeWaitMs, undefined, { ref: false }),
+      ])
     },
   }
 }

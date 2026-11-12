@@ -478,22 +478,6 @@
   white-space: pre-wrap;
 }
 
-.choice {
-  padding: 8px 12px;
-  border: 1px solid var(--border-control);
-  border-radius: 6px;
-  background: var(--surface-card);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-14);
-  text-align: left;
-  cursor: pointer;
-}
-
-.choice:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
 .answer {
   box-sizing: border-box;
   min-height: 56px;
@@ -510,4 +494,16 @@
 .questionButtons {
   display: flex;
   justify-content: flex-end;
+}
+
+.loadingName {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.loadingLine {
+  display: flex;
+  align-items: center;
+  min-height: 1lh;
 }

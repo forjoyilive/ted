@@ -1,6 +1,7 @@
 import {
   agentKinds,
   parseAllowLinearTeamRequest,
+  parseAsanaConfiguration,
   parseLinearLookupRequest,
   parseRunFixRequest,
   parseSaveLinearKeyRequest,
@@ -11,8 +12,48 @@ import { jsonRoute, type Route } from './route.ts'
 export const integrationRoutes: Route[] = [
   {
     method: 'GET',
+    path: /^\/integrations\/asana$/,
+    handle: async (_, { asana }) => [200, await asana.status()],
+  },
+  jsonRoute(parseAsanaConfiguration, {
+    method: 'PUT',
+    path: /^\/integrations\/asana\/configuration$/,
+    handle: async ({ body }, { asana }) => [200, await asana.configure(body)],
+  }),
+  {
+    method: 'POST',
+    path: /^\/integrations\/asana\/connect$/,
+    handle: async (_, { asana }) => [200, await asana.connect()],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/asana\/cancel$/,
+    handle: async (_, { asana }) => [200, await asana.cancel()],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/asana\/test$/,
+    handle: async (_, { asana }) => [200, await asana.test()],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/asana\/disconnect$/,
+    handle: async (_, { asana }) => [200, await asana.disconnect()],
+  },
+  {
+    method: 'DELETE',
+    path: /^\/integrations\/asana\/configuration$/,
+    handle: async (_, { asana }) => [200, await asana.remove()],
+  },
+  {
+    method: 'GET',
     path: /^\/agents\/health$/,
     handle: async (_, { health }) => [200, health.list()],
+  },
+  {
+    method: 'GET',
+    path: /^\/agents\/api-cost$/,
+    handle: async (_, { store }) => [200, store.apiCost(30)],
   },
   {
     method: 'POST',

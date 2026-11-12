@@ -1,7 +1,8 @@
 import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol/failures'
+import { shortReference } from '@ted/protocol/reference'
 import { useState } from 'react'
-import { useCheckRuns, useFailures, useValidationObligations } from '../data.ts'
+import { useCheckRuns, useFailures, useTasks, useValidationObligations } from '../data.ts'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import styles from './RequestCard.module.css'
@@ -34,11 +35,13 @@ const assessmentWords = {
 export function FailureDetails({
   failure,
   requestId,
+  onOpenTask,
   noAccept = false,
 }: {
   failure: FailureCase
   requestId?: string
   noAccept?: boolean
+  onOpenTask?: ((id: string) => void) | undefined
 }) {
   const [open, setOpen] = useState(false)
   const request = requestId ? failure.decisions.find((d) => d.commentId === requestId) : undefined
@@ -68,6 +71,7 @@ export function FailureDetails({
               ? 'verified by a later execution'
               : 'verified with recorded evidence'
             : (decision?.resolution ?? 'unresolved')
+  const contextId = requestId ? request?.contextId : failure.contextId
   const what =
     failure.source.kind === 'finding'
       ? failure.source.finding
@@ -76,7 +80,6 @@ export function FailureDetails({
         : `The ${failure.originalCheck?.name ?? 'Factory'} Check`
   const additions = failure.additions.slice(0, requestId ? assessment?.evidenceCount : undefined)
   const entries = 1 + additions.length
-  const context = (requestId ? request?.contextId : failure.contextId) ?? 'unknown'
   return (
     <section className={styles.content} aria-label="Failure assessment and decision">
       <h3 className={styles.sectionHeading}>What failed</h3>
@@ -91,6 +94,9 @@ export function FailureDetails({
           <p className={styles.sectionBody}>{assessment.recommendation}</p>
         </>
       )}
+      {decision?.repairTask && (
+        <RepairDetails failure={failure} decision={decision} onOpenTask={onOpenTask} />
+      )}
       {decision && (
         <p className={styles.sectionBody}>
           Human decision: {decision.resolution} · {decision.reason}
@@ -103,7 +109,7 @@ export function FailureDetails({
         <p className={styles.sectionBody}>
           Failure{' '}
           <span className={styles.historyId} title={failure.id}>
-            {failure.id.slice(0, 6)}
+            {shortReference(failure.id)}
           </span>{' '}
           · {disposition}
         </p>
@@ -124,8 +130,8 @@ export function FailureDetails({
           ))}
         <p className={styles.sectionBody}>
           Tested context:{' '}
-          <span className={styles.historyId} title={context}>
-            {context === 'unknown' ? context : context.slice(0, 6)}
+          <span className={styles.historyId} title={contextId}>
+            {contextId ? shortReference(contextId) : 'unknown'}
           </span>
         </p>
       </details>
@@ -140,21 +146,80 @@ export function FailureDetails({
   )
 }
 
+function RepairDetails({
+  failure,
+  decision,
+  onOpenTask,
+}: {
+  failure: FailureCase
+  decision: FailureCase['resolutions'][number]
+  onOpenTask?: ((id: string) => void) | undefined
+}) {
+  const tasks = useTasks()
+  const repair = decision.repairTask
+  if (!repair) return null
+  const current = tasks.find((t) => t.id === repair.id)
+  const affected = tasks.find((t) => t.id === failure.taskId)
+  const incorporated = failure.repairProgress?.some((p) => p.requestId === decision.requestId)
+  const message = !affected
+    ? 'Loading repair status…'
+    : incorporated
+      ? failure.verifications?.length
+        ? 'Merged repair incorporated. Later verification is recorded; the original execution remains failed.'
+        : 'Merged repair incorporated. Fresh validation is required; the original execution remains failed.'
+      : current?.stage === 'done'
+        ? 'Repair merged. Continuation waits for a working-Run slot and repair incorporation before fresh validation.'
+        : !current
+          ? 'Repair deleted. The failure remains unresolved unless fresh verification resolves it.'
+          : current.archived
+            ? 'Repair archived without merging. Check the blocker in Task details; this does not pass validation.'
+            : affected.blockedBy.includes(repair.id)
+              ? 'Waiting for the repair to merge. This Task keeps its Stage and worktree without a working-Run slot.'
+              : 'Repair blocker removed without merging. Use Resume in Task details to reassess the unresolved failure.'
+
+  return (
+    <>
+      <h3 className={styles.sectionHeading}>Repair Task</h3>
+      <p className={styles.sectionBody}>
+        {current && onOpenTask ? (
+          <button
+            type="button"
+            className={styles.showRequest}
+            onClick={() => onOpenTask(repair.id)}
+          >
+            {repair.displayId} · {repair.title}
+          </button>
+        ) : (
+          `${repair.displayId} · ${repair.title}`
+        )}
+      </p>
+      <p className={styles.sectionBody}>{message}</p>
+    </>
+  )
+}
+
 export function FailureRequestDetails({
   taskId,
   requestId,
   fallback,
+  onOpenTask,
   noAccept,
 }: {
   taskId: string
   requestId: string
   fallback: string
+  onOpenTask?: ((id: string) => void) | undefined
   noAccept?: boolean
 }) {
   const failures = useFailures(taskId)
   const failure = failures.find((f) => f.decisions.some((d) => d.commentId === requestId))
   return failure ? (
-    <FailureDetails failure={failure} requestId={requestId} {...(noAccept && { noAccept })} />
+    <FailureDetails
+      failure={failure}
+      requestId={requestId}
+      onOpenTask={onOpenTask}
+      {...(noAccept && { noAccept })}
+    />
   ) : (
     <p className={styles.summary}>{fallback}</p>
   )

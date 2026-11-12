@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { SendBackCause } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { p1Meaning, p1OnlyLeadRule, p1OnlyReviewerRule } from './validate-settings.ts'
 
 const findingsCap = 8_000
@@ -362,7 +363,7 @@ export function reviewMovedRefusal(input: {
           : `- ${name}: the reviewer read ${reviewed}, and HEAD is now ${now}.`,
   )
   return [
-    `${displayId}’s code changed after this Validate visit’s reviewer (Run ${runId}) was given it, so TED kept it in Validate.`,
+    `${displayId}’s code changed after this Validate visit’s reviewer (Run ${shortReference(runId)}) was given it, so TED kept it in Validate.`,
     lines.join('\n'),
     'Each Validate visit gets one review, so TED can’t have the change reviewed in this visit. Send the Task back to Work with `ted outcome back --to work --findings <file>` and say in the Findings what changed after the review; the next Validate round reviews everything since the commit the reviewer read. If the later commits aren’t meant to be part of the Task, put the branch back at that commit and report the outcome again.',
   ].join('\n\n')

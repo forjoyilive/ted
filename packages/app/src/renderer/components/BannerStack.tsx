@@ -1,6 +1,7 @@
 import type { Banner } from '@ted/protocol'
 import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { foldBanners } from '../banners.ts'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './BannerStack.module.css'
 import { DotIcon } from './icons.tsx'
 
@@ -34,7 +35,7 @@ export function BannerStack({ label, banners, onAction, onDismiss, menu }: Banne
         />
       ))}
       {fold && (
-        <button
+        <ActionButton
           type="button"
           className={styles.fold}
           aria-expanded={expanded}
@@ -43,7 +44,7 @@ export function BannerStack({ label, banners, onAction, onDismiss, menu }: Banne
           <span className={styles.foldLabel}>{fold.label}</span>
           {fold.detail !== undefined && <span className={styles.foldDetail}>· {fold.detail}</span>}
           <span className={styles.foldToggle}>{expanded ? 'Show fewer ▴' : 'Show all ▾'}</span>
-        </button>
+        </ActionButton>
       )}
     </section>
   )
@@ -79,12 +80,12 @@ function BannerRow({
       <span className={styles.text}>{banner.text}</span>
       {banner.action && items && <MenuButton label={banner.action.label} items={items} />}
       {banner.action && !items && (
-        <button type="button" className={styles.action} disabled={busy} onClick={act}>
+        <ActionButton type="button" className={styles.action} disabled={busy} onClick={act}>
           {banner.action.label}
-        </button>
+        </ActionButton>
       )}
       {!stopsWork && (
-        <button
+        <ActionButton
           type="button"
           className={styles.dismiss}
           aria-label="Dismiss for 24 hours"
@@ -92,7 +93,7 @@ function BannerRow({
           onClick={() => onDismiss(banner)}
         >
           ×
-        </button>
+        </ActionButton>
       )}
     </div>
   )
@@ -132,10 +133,11 @@ function MenuButton({ label, items }: { label: string; items: BannerMenuItem[] }
   }
 
   async function select(item: BannerMenuItem) {
-    setPosition(undefined)
+    if (busy) return
     setBusy(true)
     try {
       await item.onSelect()
+      setPosition(undefined)
     } finally {
       setBusy(false)
     }
@@ -143,7 +145,7 @@ function MenuButton({ label, items }: { label: string; items: BannerMenuItem[] }
 
   return (
     <>
-      <button
+      <ActionButton
         ref={button}
         type="button"
         className={styles.action}
@@ -156,19 +158,20 @@ function MenuButton({ label, items }: { label: string; items: BannerMenuItem[] }
         <span className={styles.caret} aria-hidden="true">
           ▾
         </span>
-      </button>
+      </ActionButton>
       {position && (
         <div ref={menu} role="menu" className={styles.menu} style={position}>
           {items.map((item) => (
-            <button
+            <ActionButton
               key={item.label}
               type="button"
               role="menuitem"
               className={styles.menuItem}
-              onClick={() => void select(item)}
+              disabled={busy}
+              onClick={() => select(item)}
             >
               {item.label}
-            </button>
+            </ActionButton>
           ))}
         </div>
       )}

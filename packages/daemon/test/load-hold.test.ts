@@ -176,7 +176,7 @@ test('a waiting Task Lead’s first sub-agent still starts while this computer i
     prompt,
     `${JSON.stringify({ steps: [{ waitFor: release }, { say: 'Reviewed' }, { endTurn: true }] })}\n`,
   )
-  const runId = 'grep -o "[0-9a-f-]\\{36\\}" | head -1'
+  const runId = 'grep -o "[0-9a-f]\\{6\\}" | head -1'
   const start = (name: string) =>
     `$(ted run start --name ${name} --prompt-file ${prompt} | ${runId})`
   const task = await startTask(

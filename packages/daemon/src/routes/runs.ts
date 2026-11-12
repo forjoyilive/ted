@@ -5,14 +5,21 @@ import {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from '@ted/protocol'
-import { collectDiagnostics, readDaemonLog, readRunOutput, report } from '../diagnostics.ts'
+import {
+  collectDiagnostics,
+  processUsage,
+  readDaemonLog,
+  readRunOutput,
+  report,
+} from '../diagnostics.ts'
 import { RequestError as HttpError } from '../errors.ts'
-import { jsonRoute, type Route } from './route.ts'
+import { resolveReference } from '../references.ts'
+import { jsonRoute, type Route, routePattern } from './route.ts'
 
 const maxWaitMs = 60_000
 const defaultWaitMs = 25_000
 
-export const runRoutes: Route[] = [
+const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/runs\/([^/]+)\/side-chat$/,
@@ -83,6 +90,11 @@ export const runRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/diagnostics\/usage$/,
+    handle: async (_, options) => [200, await processUsage(options)],
+  },
+  {
+    method: 'GET',
     path: /^\/diagnostics\/report$/,
     handle: async (_, options) => [200, { text: await report(options) }],
   },
@@ -102,9 +114,19 @@ export const runRoutes: Route[] = [
   jsonRoute(parseStartDevRunRequest, {
     method: 'POST',
     path: /^\/dev\/runs$/,
-    async handle({ body }, { runs, agents, disk }) {
+    async handle({ body }, { runs, agents, disk, store }) {
       if (disk.held()) throw new HttpError(507, 'The disk is full, so TED isn’t starting new Runs')
-      return [201, await runs.start({ ...body, agent: body.agent ?? agents.defaultLead() })]
+      return [
+        201,
+        await runs.start({
+          ...body,
+          agent:
+            body.agent ??
+            store.settings().enabledAgents.find((kind) => agents.installed(kind)) ??
+            store.settings().enabledAgents[0] ??
+            agents.defaultLead(),
+        }),
+      ]
     },
   }),
   {
@@ -173,17 +195,31 @@ export const runRoutes: Route[] = [
   {
     method: 'PUT',
     path: /^\/tasks\/([^/]+)\/tabs\/([^/]+)$/,
-    handle: async ({ params: [ref = '', runId = ''] }, { conversations }) => [
+    handle: async ({ params: [ref = '', runId = ''] }, { conversations, store }) => [
       200,
-      conversations.openTab(ref, runId),
+      conversations.openTab(
+        ref,
+        resolveReference(
+          runId,
+          store.taskRunList(store.getTask(ref)?.id ?? ref).map((run) => run.id),
+          'Run on this Task',
+        ),
+      ),
     ],
   },
   {
     method: 'DELETE',
     path: /^\/tasks\/([^/]+)\/tabs\/([^/]+)$/,
-    handle: async ({ params: [ref = '', runId = ''] }, { conversations }) => [
+    handle: async ({ params: [ref = '', runId = ''] }, { conversations, store }) => [
       200,
-      conversations.closeTab(ref, runId),
+      conversations.closeTab(
+        ref,
+        resolveReference(
+          runId,
+          store.taskRunList(store.getTask(ref)?.id ?? ref).map((run) => run.id),
+          'Run on this Task',
+        ),
+      ),
     ],
   },
   {
@@ -196,3 +232,21 @@ export const runRoutes: Route[] = [
     },
   },
 ]
+
+export const runRoutes: Route[] = routes.map((route) => {
+  if (!routePattern(route.path).startsWith('/runs/:id')) return route
+  return {
+    ...route,
+    async handle(context, options) {
+      const reference = context.params[0] ?? ''
+      const ids =
+        context.caller.kind === 'run'
+          ? [context.caller.runId]
+          : options.store.getRun(reference)
+            ? [reference]
+            : options.store.listRuns().map((run) => run.id)
+      const id = resolveReference(context.params[0] ?? '', ids, 'Run')
+      return route.handle({ ...context, params: [id, ...context.params.slice(1)] }, options)
+    },
+  }
+})

@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { AutomationPromptDraft, DraftAutomationPromptRequest, SlotHolder } from '@ted/protocol'
+import { chatToolPolicy } from '@ted/protocol/run'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
+import { chatItems } from '../runs/conversations.ts'
 import type { StoredAutomationDraft } from '../store/automation-drafts.ts'
 import type { QueueSource } from '../tasks/queue.ts'
 import { removeInside } from '../tasks/remove-files.ts'
@@ -35,15 +38,40 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     return draft
   }
   const paused = (draft: StoredAutomationDraft) =>
-    draft.input.agent && store.agentPauses()[draft.input.agent]
+    draft.input.agent &&
+    (agentStartHold(store, draft.input.agent, draft.id) ?? store.agentPauses()[draft.input.agent])
   const view = (draft: StoredAutomationDraft): AutomationPromptDraft => ({
     id: draft.id,
     factoryId: draft.factoryId,
     state: draft.state,
     ...(draft.prompt !== undefined && { prompt: draft.prompt }),
     ...(draft.error !== undefined && { error: draft.error }),
+    ...toolActivity(draft.id),
     ...(active(draft) && paused(draft) && { paused: paused(draft) }),
   })
+  function toolActivity(id: string): Pick<AutomationPromptDraft, 'chat'> {
+    const run = store.getRun(id)
+    if (!run || chatToolPolicy(run.agent) !== 'isolated') return {}
+    const entries = agents.get(run.agent).chat(runs.output.entries(id), run.cwd)
+    const items = chatItems({ run, entries, messages: [], preamble: '' }).filter(
+      (item) => item.kind === 'tool',
+    )
+    if (items.length === 0) return {}
+    return {
+      chat: {
+        run: {
+          id: run.id,
+          name: 'Draft Automation Prompt',
+          role: 'run',
+          agent: run.agent,
+          state: run.state,
+          current: false,
+          startedAt: run.startedAt,
+        },
+        items,
+      },
+    }
+  }
   function changed() {
     const pending = saved.list().some(active) || starting.size > 0 || stopping.size > 0
     if (pending && !releaseIdle) releaseIdle = options.idle?.hold()
@@ -182,6 +210,10 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       })
       if (saved.get(id)?.state === 'working') settle(id)
     } catch (error) {
+      if (error instanceof AgentDisabledError) {
+        saved.change(id, 'queued')
+        return
+      }
       end(id, 'failed', {
         error: redactSecrets(`Couldn’t draft the Prompt: ${String(error)}`).slice(0, 500),
       })
@@ -201,7 +233,13 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         })),
     runnable: (id) => {
       const draft = saved.get(id)
-      return !closed && !!draft && !paused(draft)
+      return (
+        !closed &&
+        !!draft &&
+        !!draft.input.agent &&
+        !agentStartHold(store, draft.input.agent, draft.id) &&
+        !paused(draft)
+      )
     },
     begin(id) {
       if (closed || starting.has(id)) return
@@ -346,10 +384,15 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         throw new RequestError(413, 'The drafting request is too long')
       const settings = (await options.workflows.resolve(factory, { fetch: false })).workflow
         .settings
-      const defaults = resolveAgentChoices(settings, {
-        claude: agents.installed('claude'),
-        codex: agents.installed('codex'),
-      }).lead
+      const defaults = resolveAgentChoices(
+        settings,
+        {
+          claude: agents.installed('claude'),
+          antigravity: agents.installed('antigravity'),
+          codex: agents.installed('codex'),
+        },
+        store.settings().enabledAgents,
+      ).lead
       const lead =
         input.agent === undefined
           ? {

@@ -1,10 +1,12 @@
 import type { ConversationTab, RunSummary, Task } from '@ted/protocol'
 import { useCallback, useRef, useState } from 'react'
 import type { useTaskRunsState } from '../data.ts'
+import { isPromise, usePendingAction } from '../pending-action.ts'
 import { clockTime } from '../requests.ts'
 import { taskConversationTabs } from '../task-conversations.ts'
 import { formatDate } from '../time.ts'
 import { usePopover } from '../views/TaskList.tsx'
+import { ActionButton } from './ActionButton.tsx'
 import { LoadingError } from './Loading.tsx'
 import styles from './TaskConversationTabs.module.css'
 
@@ -22,9 +24,10 @@ export function TaskConversationTabs({
   resource: ReturnType<typeof useTaskRunsState>
   shown: string | undefined
   onShow: (runId: string | undefined) => void
-  onOpen: (runId: string) => void
+  onOpen: (runId: string) => unknown
   onClose: (runId: string) => void
 }) {
+  const activity = usePendingAction(`run-tabs:${task.id}`)
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const close = useCallback(() => {
@@ -42,13 +45,13 @@ export function TaskConversationTabs({
   const tabs = taskConversationTabs(task, shown).filter((tab) => !leadIds.has(tab.runId))
   const isLead = shown === undefined || shown === task.leadRunId || leadIds.has(shown)
   const openHistory = (runId: string) => {
-    setOpen(false)
-    trigger.current?.focus()
-    onOpen(runId)
+    const result = activity.run(() => onOpen(runId))
+    if (isPromise(result)) return Promise.resolve(result).then(close)
+    close()
   }
   const historyRows = (list: readonly RunSummary[]) =>
     list.map((run) => (
-      <button
+      <ActionButton
         key={run.id}
         type="button"
         className={styles.historyRow}
@@ -60,12 +63,12 @@ export function TaskConversationTabs({
           {formatDate(run.startedAt, { day: 'numeric', month: 'short', year: 'numeric' })} ·{' '}
           {clockTime(run.startedAt)} · {run.agent === 'claude' ? 'Claude' : 'Codex'}
         </small>
-      </button>
+      </ActionButton>
     ))
   return (
     <div className={styles.bar}>
       <div className={styles.tabs} role="tablist" aria-label="Task Lead and sub-agents">
-        <button
+        <ActionButton
           type="button"
           role="tab"
           aria-selected={isLead}
@@ -73,10 +76,10 @@ export function TaskConversationTabs({
           onClick={() => onShow(undefined)}
         >
           Task Lead
-        </button>
+        </ActionButton>
         {tabs.map((tab: ConversationTab) => (
           <span key={tab.runId} className={styles.tabWrap}>
-            <button
+            <ActionButton
               type="button"
               role="tab"
               aria-selected={shown === tab.runId}
@@ -90,22 +93,22 @@ export function TaskConversationTabs({
                 aria-label={tab.state}
               />
               {tab.name}
-            </button>
+            </ActionButton>
             {tab.state === 'finished' && (
-              <button
+              <ActionButton
                 type="button"
                 className={styles.close}
                 aria-label={`Close ${tab.name}`}
                 onClick={() => onClose(tab.runId)}
               >
                 ×
-              </button>
+              </ActionButton>
             )}
           </span>
         ))}
       </div>
       <div ref={ref} className={styles.history}>
-        <button
+        <ActionButton
           ref={trigger}
           type="button"
           className={styles.historyButton}
@@ -113,7 +116,7 @@ export function TaskConversationTabs({
           onClick={() => setOpen(!open)}
         >
           History{earlier.length + finished.length > 0 && ` · ${earlier.length + finished.length}`}
-        </button>
+        </ActionButton>
         {open && (
           <section className={styles.menu} aria-label="Conversation history">
             <h2>History</h2>

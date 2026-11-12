@@ -17,6 +17,7 @@ import {
   listSorts,
   type MachineSettings,
   parseBannerActionInput,
+  parseChangeAgentAvailabilityRequest,
   priorities,
   quitChoices,
   runOutputDayLimits,
@@ -34,6 +35,20 @@ import { readProfile } from '../profile.ts'
 import { jsonRoute, type Route, readJson } from './route.ts'
 
 export const machineRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/agents\/availability$/,
+    handle: async ({ caller }, { agentAvailability }) => {
+      if (caller.kind !== 'app')
+        throw new HttpError(403, 'Only the app can inspect agent availability')
+      return [200, agentAvailability.list()]
+    },
+  },
+  jsonRoute(parseChangeAgentAvailabilityRequest, {
+    method: 'POST',
+    path: /^\/agents\/availability$/,
+    handle: async ({ body }, { agentAvailability }) => [200, await agentAvailability.change(body)],
+  }),
   {
     method: 'GET',
     path: /^\/settings$/,
@@ -184,6 +199,12 @@ function listView(value: unknown): ListView {
 }
 
 const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+  enabledAgents() {
+    throw new HttpError(
+      400,
+      'Change agents through Settings → Agents so existing Runs are accounted for.',
+    )
+  },
   timeFormat(value) {
     const format = timeFormats.find((format) => format === value)
     if (!format) throw new HttpError(400, `timeFormat must be ${timeFormats.join(', ')}`)
@@ -296,6 +317,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   linearSync: onOff('linearSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
+  antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
   maxChecksAtOnce(value) {
     const { min, max } = checkLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
@@ -338,7 +360,11 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       if (!billing) throw new HttpError(400, `billing.${agent} must be ${billings.join(', ')}`)
       return billing
     }
-    return { claude: choose('claude'), codex: choose('codex') }
+    return {
+      claude: choose('claude'),
+      codex: choose('codex'),
+      antigravity: given.antigravity === undefined ? 'subscription' : choose('antigravity'),
+    }
   },
   editor(value) {
     if (value === null || value === 'custom') return value
