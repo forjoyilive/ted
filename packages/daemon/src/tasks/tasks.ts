@@ -7079,7 +7079,15 @@ export function createTasks(options: {
     },
 
     async reportOutcome(ref, caller, outcome) {
+      const asked = taskLead(ref, caller, 'reports outcomes').task
+      await untilFree(asked.id)
       const { task, runId } = taskLead(ref, caller, 'reports outcomes')
+      if (task.stage !== asked.stage) {
+        throw new RequestError(
+          409,
+          `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
+        )
+      }
       if (task.stage === 'backlog' || task.stage === 'done') {
         throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
       }

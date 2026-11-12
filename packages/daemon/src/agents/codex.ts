@@ -30,6 +30,7 @@ const sandbox: Record<PermissionMode, string[]> = {
   auto: [
     'sandbox_mode="workspace-write"',
     'approval_policy="on-request"',
+    'approvals_reviewer="auto_review"',
     'sandbox_workspace_write.network_access=true',
   ],
   bypass: ['sandbox_mode="danger-full-access"', 'approval_policy="never"'],
@@ -250,6 +251,7 @@ const commandFields = new Set([
   'commandActions',
   'proposedExecpolicyAmendment',
   'proposedNetworkPolicyAmendments',
+  'availableDecisions',
 ])
 
 const legacyCommandFields = new Set([
@@ -309,10 +311,14 @@ function promptFrom(message: CodexLine, earlier: EarlierLine): PermissionPrompt 
         (key) => !commandFields.has(key) && !isEmpty(params[key]),
       )
       const host = network ? text(network.host) : undefined
+      const decisions = params.availableDecisions
+      const cantAccept =
+        !isEmpty(decisions) && !(Array.isArray(decisions) && decisions.includes('accept'))
       if (
         params.kind === 'writeStdin' ||
         command === undefined ||
         unknown ||
+        cantAccept ||
         (network && host === undefined)
       ) {
         return { ...ask(title, command ?? 'a command TED can’t show'), refuse: true }
