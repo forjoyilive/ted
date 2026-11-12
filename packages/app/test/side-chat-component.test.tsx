@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { RunChat, SideChat } from '@ted/protocol'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RunWithSideChat } from '../src/renderer/components/SideChat.tsx'
 import { AutomationPromptDraft } from '../src/renderer/views/AutomationPromptDraft.tsx'
@@ -71,9 +71,12 @@ test('opens and reopens a separate exchange and sends only to side-chat controls
   expect(within(panel).getByText('Snapshot answer.')).toBeTruthy()
   expect(within(panel).getByText(/Earlier context omitted/)).toBeTruthy()
   expect(within(panel).queryByRole('button', { name: /Interrupt and send/ })).toBeNull()
-  fireEvent.change(within(panel).getByRole('textbox', { name: 'Question for this side chat' }), {
-    target: { value: 'Why this approach?' },
-  })
+  const question = within(panel).getByRole('textbox', { name: 'Question for this side chat' })
+  await vi.waitFor(() =>
+    expect(api.request.mock.calls.filter(([name]) => name === 'messageDraft')).toHaveLength(2),
+  )
+  await act(async () => {})
+  fireEvent.change(question, { target: { value: 'Why this approach?' } })
   await user().click(within(panel).getByRole('button', { name: 'Send' }))
   expect(await within(panel).findByText(/Waiting for a working slot/)).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('sendSideChat', 'source', 'Why this approach?')
