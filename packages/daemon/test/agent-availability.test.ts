@@ -363,7 +363,11 @@ test('an answered idle Task waits for an off replacement agent instead of stoppi
   await client.answerRequest(question.id, { action: 'answer', choice: 'Go', text: 'Go' })
   await waitUntil(async () => {
     const current = await taskOf(client, task.id)
-    return current.status?.kind === 'queued' && current.status.hold?.includes('off')
+    return (
+      current.status?.kind === 'queued' &&
+      'hold' in current.status &&
+      current.status.hold.includes('off')
+    )
   }, 'disabled replacement waiting')
   expect((await client.getRun(leadId)).run.state).not.toBe('finished')
   await client.changeAgentAvailability({ agent: 'codex', enabled: true })
