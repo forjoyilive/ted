@@ -8,12 +8,16 @@ export function QuestionChoices({
   selection,
   onSelect,
   allowOther = true,
+  legend = 'Your answer',
+  otherLabel = 'Other answer',
   disabled,
 }: {
   choices: readonly string[]
   selection: QuestionSelection | undefined
   onSelect(selection: QuestionSelection): void
   allowOther?: boolean
+  legend?: string
+  otherLabel?: string
   disabled: boolean
 }) {
   const group = useId()
@@ -21,7 +25,7 @@ export function QuestionChoices({
   const other = selection && 'other' in selection
   return (
     <fieldset className={styles.choices} disabled={disabled}>
-      <legend className={styles.choiceLegend}>Your answer</legend>
+      <legend className={styles.choiceLegend}>{legend}</legend>
       {choices.map((choice) => (
         <label
           key={choice}
@@ -48,7 +52,7 @@ export function QuestionChoices({
             checked={other ?? false}
             onChange={() => onSelect({ other: true })}
           />
-          <span>Other answer</span>
+          <span>{otherLabel}</span>
         </label>
       )}
     </fieldset>

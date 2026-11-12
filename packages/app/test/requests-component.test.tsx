@@ -677,19 +677,41 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
   )
   const u = user()
   const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
+  expect(screen.getByRole('group', { name: 'Your decision' })).toBeTruthy()
+  await u.type(screen.getByLabelText('Your answer'), 'fixed{Enter}')
+  expect(answer).not.toHaveBeenCalled()
+  await u.clear(screen.getByLabelText('Your answer'))
   await u.click(screen.getByRole('radio', { name: 'Fixed' }))
   expect(send.disabled).toBe(true)
-  fireEvent.keyDown(screen.getByLabelText('Your answer'), { key: 'Enter' })
+  expect(send.textContent).toBe('Confirm Fixed')
+  fireEvent.keyDown(screen.getByLabelText('Why is this failure fixed?'), { key: 'Enter' })
   expect(answer).not.toHaveBeenCalled()
-  expect(screen.getByText('Write a reason before sending this decision.')).toBeTruthy()
+  expect(screen.getByText('A reason is required. Confirming closes this failure.')).toBeTruthy()
   await u.click(screen.getByRole('radio', { name: 'No longer applicable' }))
   expect(send.disabled).toBe(true)
+  expect(send.textContent).toBe('Confirm No longer applicable')
+  expect(screen.getByLabelText('Why does this failure no longer apply?')).toBeTruthy()
   await u.click(screen.getByRole('radio', { name: 'Accept this failure' }))
   expect(answer).not.toHaveBeenCalled()
+  expect(screen.queryByText('A reason is required. Confirming closes this failure.')).toBeNull()
   await u.click(send)
   expect((await screen.findByRole('alert')).textContent).toBe(refusal)
+  await u.click(screen.getByRole('radio', { name: 'Send a message to the Task Lead' }))
+  expect(screen.queryByRole('radio', { name: 'Other answer' })).toBeNull()
+  expect(
+    screen.getByText(
+      'Sending a message leaves this failure open. Choose a decision to resolve it.',
+    ),
+  ).toBeTruthy()
+  expect(send.textContent).toBe('Send message')
+  await u.type(screen.getByLabelText('Message to the Task Lead'), 'Is this the TED-128 timeout?')
+  await u.keyboard('{Enter}')
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    text: 'Is this the TED-128 timeout?',
+  })
   await u.click(screen.getByRole('radio', { name: 'Fixed' }))
-  await u.type(screen.getByLabelText('Your answer'), 'A rerun passed.')
+  await u.type(screen.getByLabelText('Why is this failure fixed?'), 'A rerun passed.')
   expect(send.disabled).toBe(false)
   await u.keyboard('{Enter}')
   expect(answer).toHaveBeenLastCalledWith('c1', {
@@ -971,9 +993,11 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.getByText('The cause isn’t known')).toBeTruthy()
   expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
   expect(screen.getByText(/Accepting covers only this failure/)).toBeTruthy()
+  expect(screen.getByText('What failed')).toBeTruthy()
+  expect(screen.getByText('Show history · 1 evidence entry')).toBeTruthy()
   await user().click(screen.getByRole('radio', { name: 'Accept this failure' }))
   expect(answer).not.toHaveBeenCalled()
-  await user().click(screen.getByRole('button', { name: 'Send' }))
+  await user().click(screen.getByRole('button', { name: 'Confirm Accept this failure' }))
   expect(answer).toHaveBeenCalledWith(
     expect.anything(),
     expect.objectContaining({ action: 'answer', choice: 'Accept this failure' }),
@@ -1828,6 +1852,7 @@ test('Inbox right-click opens the clicked request and copies its full message wi
   fireEvent.contextMenu(screen.getByText('Automation question'))
   expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual([
     'Open request',
+    'Snooze…',
     'Copy message text',
   ])
   await u.click(screen.getByRole('menuitem', { name: 'Open request' }))

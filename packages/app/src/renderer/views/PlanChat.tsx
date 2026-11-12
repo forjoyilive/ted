@@ -8,10 +8,10 @@ import type {
   PlanRequest,
   TaskLead,
 } from '@ted/protocol'
-import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
@@ -27,6 +27,7 @@ import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import {
   planEnded,
   planStartedLine,
@@ -134,11 +135,7 @@ export function LeadSelects({
         value={lead.agent}
         onChange={(event) => set(event.target.value as AgentKind, '', lead.effort ?? '')}
       >
-        {agentKinds.map((agent) => (
-          <option key={agent} value={agent}>
-            {agentLabels[agent]}
-          </option>
-        ))}
+        <AgentOptions current={lead.agent} />
       </Select>
       <Select
         aria-label="Model"
@@ -192,7 +189,8 @@ function NewPlanChat({
 }) {
   const earlier = usePlan(from)?.plan
   const [lead, setLead] = useState<TaskLead>()
-  const [text, setText] = useState('')
+  const draft = useMessageDraft({ kind: 'new-plan', id: factory.id })
+  const { text, setText } = draft
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const cloning = !factory.cloned
@@ -230,6 +228,7 @@ function NewPlanChat({
         ...(lead?.model !== undefined && { model: lead.model }),
         ...(lead?.effort !== undefined && { effort: lead.effort }),
       })
+      draft.clear()
       onStarted(plan.id)
     } catch (failed) {
       setError(readableError(failed))
@@ -284,7 +283,6 @@ function NewPlanChat({
           <div className={styles.composerButtons}>
             <Button
               variant="primary"
-              size="small"
               shortcut="↵"
               disabled={sending || cloning || text.trim() === ''}
               pending={sending}
@@ -424,7 +422,7 @@ function MoreMenu({
 
   return (
     <span className={styles.more}>
-      <Button size="small" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <Button aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>
         ⋯
       </Button>
       {open && !confirming && (
@@ -464,7 +462,6 @@ function MoreMenu({
           )}
           <div className={styles.confirmButtons}>
             <Button
-              size="small"
               onClick={() => {
                 setConfirming(false)
                 setOpen(false)
@@ -472,7 +469,7 @@ function MoreMenu({
             >
               Cancel
             </Button>
-            <Button size="small" variant="danger" onClick={() => remove()}>
+            <Button variant="danger" onClick={() => remove()}>
               Delete
             </Button>
           </div>
@@ -554,7 +551,7 @@ function PlanHeader({
           {[agentLabels[plan.agent], plan.model, plan.effort].filter(Boolean).join(' · ')}
         </span>
         {!ended && (
-          <Button size="small" disabled={stopping} onClick={() => stop()}>
+          <Button disabled={stopping} onClick={() => stop()}>
             Stop
           </Button>
         )}
@@ -689,6 +686,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
             sending={sending}
             talking={false}
             onTalk={undefined}
+            box={{ kind: 'plan-request', id: request.id }}
             onSend={(answer) => send(answer)}
           />
           <p className={styles.talkHint}>Typing below talks it through with the planner.</p>
@@ -699,6 +697,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
           proposal={request.proposal}
           readOnly={false}
           sending={sending}
+          box={{ kind: 'plan-request', id: request.id }}
           onSend={(answer) => send(answer)}
         />
       )}
@@ -785,11 +784,11 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
         </span>
       )}
       {failed ? (
-        <Button size="small" variant="primary" disabled={retrying} onClick={() => retry()}>
+        <Button variant="primary" disabled={retrying} onClick={() => retry()}>
           Retry
         </Button>
       ) : (
-        <Button size="small" variant="primary" onClick={() => onPlanMore(plan.id)}>
+        <Button variant="primary" onClick={() => onPlanMore(plan.id)}>
           Plan more from here
         </Button>
       )}
@@ -884,7 +883,8 @@ function QueuedChat({ plan }: { plan: Plan }) {
         </div>
         <p className={styles.waitNote}>
           {plan.status === 'queued'
-            ? 'Your message is kept. The planner starts when a working slot frees up.'
+            ? (plan.paused ??
+              'Your message is kept. The planner starts when a working slot frees up.')
             : plan.status === 'paused'
               ? `The planner is paused: ${plan.paused ?? 'usage limit'}.`
               : 'The planner didn’t start.'}

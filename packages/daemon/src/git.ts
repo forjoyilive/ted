@@ -255,9 +255,10 @@ export async function commitsAhead(worktree: string, base: string): Promise<numb
 export async function pushBranch(
   worktree: string,
   branch: string,
-  options: { url: string; expected?: string; timeoutMs?: number },
+  options: { url: string; expected?: string; commit?: string; timeoutMs?: number },
 ): Promise<string> {
-  const commit = await git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+  const commit =
+    options.commit ?? (await git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}'))
   const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
   const objects = path.join(path.resolve(worktree, common), 'objects')
   const ref = `refs/heads/${branch}`

@@ -62,6 +62,13 @@ export function moveFocus(scope: ParentNode, direction: Direction): boolean {
   return at !== undefined
 }
 
+export function snoozeTarget(scope: ParentNode): HTMLElement | undefined {
+  const rows = all(scope, '[data-snooze-request]')
+  const active = document.activeElement?.closest<HTMLElement>('[data-snooze-request]')
+  if (active && rows.includes(active)) return active
+  return rows.find((row) => row.getAttribute('aria-current') === 'true')
+}
+
 export function focusedTaskRef(): string | undefined {
   const item = document.activeElement?.closest<HTMLElement>('[data-nav-item][data-task]')
   return item?.dataset.task
@@ -90,6 +97,11 @@ function requestScope(scope: ParentNode): ParentNode | undefined {
     active?.closest('[data-request]') ??
     active?.closest('[data-chat-item]')?.querySelector('[data-request]')
   if (request instanceof HTMLElement && requests.includes(request)) return request
+  const docked = active?.closest('[data-chat-item]')?.querySelector<HTMLElement>('[data-docked]')
+    ?.dataset.docked
+  const dock = docked === undefined ? undefined : requests.find((r) => r.dataset.request === docked)
+  if (dock) return dock
+  if (all(scope, '[data-others]').length > 0) return undefined
   return requests.length === 0 ? scope : requests.length === 1 ? requests[0] : undefined
 }
 

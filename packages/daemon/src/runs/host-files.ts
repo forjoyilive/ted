@@ -40,7 +40,14 @@ export type HostRecord =
     }
   | { t: 'out'; line: string; at?: string }
   | { t: 'err'; line: string }
-  | { t: 'exit'; code: number | null; signal: string | null; error?: string; stopped?: boolean }
+  | {
+      t: 'exit'
+      code: number | null
+      signal: string | null
+      error?: string
+      stopped?: boolean
+      at?: string
+    }
 
 export interface GenerationLine {
   forGeneration: number

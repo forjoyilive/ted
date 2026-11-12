@@ -24,7 +24,11 @@ const sections: readonly SheetSection[] = [
       { id: 'open-factory', label: 'Open Factory 1 to 9', keys: ['⌘1–⌘9'] },
       { id: 'back', label: 'Back', keys: ['⌘['] },
       { id: 'forward', label: 'Forward', keys: ['⌘]'] },
-      { id: 'close', label: 'Close the open Task, or leave Settings', keys: ['Esc'] },
+      {
+        id: 'close',
+        label: 'Close the open Task, leave Settings, or clear the selection',
+        keys: ['Esc'],
+      },
       { id: 'settings', label: 'Settings', keys: ['⌘,'] },
       { id: 'shortcuts', label: 'Keyboard shortcuts', keys: ['?', '⌘/'] },
       { id: 'quit', label: 'Quit TED', keys: ['⌘Q'] },
@@ -39,6 +43,11 @@ const sections: readonly SheetSection[] = [
       { id: 'column-right', label: 'Column to the right (Board)', keys: ['L', '→'] },
       { id: 'open', label: 'Open', keys: ['↵'] },
       { id: 'context-menu', label: 'Open actions menu', keys: ['⇧F10', 'ContextMenu'] },
+      {
+        id: 'select',
+        label: 'Select or deselect the Task under the pointer, or the focused one (List and Board)',
+        keys: ['X'],
+      },
     ],
   },
   {
@@ -47,6 +56,7 @@ const sections: readonly SheetSection[] = [
       { id: 'reply', label: 'Reply', keys: ['R'] },
       { id: 'approve', label: 'Approve, then ↵ to confirm', keys: ['A'] },
       { id: 'request-changes', label: 'Request changes', keys: ['⇧R'] },
+      { id: 'snooze-request', label: 'Snooze the selected request (Inbox)', keys: ['H'] },
       {
         id: 'send-message',
         label: 'Send from a comment box or chat; ⇧↵ adds a new line',
@@ -104,10 +114,16 @@ export function imageNavigationKey(event: {
   return undefined
 }
 
+// H is bound twice. The first match wins, so the Inbox's binding goes first;
+// its command falls back to the Board's column move.
+const first = new Set(['snooze-request'])
+
 export const keyBindings: readonly { id: string; shortcuts: readonly string[] }[] = [
-  ...sections.flatMap((s) =>
-    s.rows.filter((r) => !displayOnly.has(r.id)).map((r) => ({ id: r.id, shortcuts: r.keys })),
-  ),
+  ...sections
+    .flatMap((s) =>
+      s.rows.filter((r) => !displayOnly.has(r.id)).map((r) => ({ id: r.id, shortcuts: r.keys })),
+    )
+    .sort((a, b) => Number(first.has(b.id)) - Number(first.has(a.id))),
   ...Array.from({ length: 9 }, (_, i) => ({ id: `factory:${i + 1}`, shortcuts: [`⌘${i + 1}`] })),
 ]
 

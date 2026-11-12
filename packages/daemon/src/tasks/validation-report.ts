@@ -40,7 +40,7 @@ export function validationReport(
       const execution = validationExecution(progress, position)
       const failure = failures.find(
         (f) =>
-          f.source.kind === 'factory-check' &&
+          (f.source.kind === 'factory-check' || f.source.kind === 'post-rebase-check') &&
           f.source.checkRunId === execution?.runId &&
           f.source.position === position - execution.start &&
           f.resolutions.at(-1)?.resolution === 'accepted' &&

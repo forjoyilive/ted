@@ -39,12 +39,15 @@ import {
   taskCommands,
 } from './commands.ts'
 import { BannerStack } from './components/BannerStack.tsx'
+import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
+import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
@@ -69,6 +72,7 @@ import {
   useSettingsState,
   useSimulators,
   useSlots,
+  useSnoozedRequests,
   useTasks,
   useUpdateStatus,
   useWaitingCount,
@@ -84,6 +88,7 @@ import {
   rankNeighbours,
   replyBox,
   requestChangesBox,
+  snoozeTarget,
 } from './key-targets.ts'
 import { contextMenuKey, imageNavigationKey, keyBindings } from './keymap.ts'
 import { doneView, failedView, queueView, rankMove } from './list-view.ts'
@@ -100,6 +105,8 @@ import {
 import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
+import { openSnoozeMenu, SnoozedContext } from './request-snooze.ts'
+import { clearSelection, toggleTargetSelection } from './selection.ts'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import {
@@ -181,6 +188,7 @@ function factoryBadges(
 function isTyping(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
+    !target.hasAttribute('data-selection-box') &&
     (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
   )
 }
@@ -306,8 +314,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const answered = useAnswered(inboxScreen?.answered === true)
   const allPlans = useAllPlans()
   const coordinatorStatuses = useCoordinatorStatuses()
+  const snoozedRequests = useSnoozedRequests()
+  const snoozed = useMemo(
+    () => new Map(snoozedRequests.map((request) => [request.id, request.snoozedUntil])),
+    [snoozedRequests],
+  )
   const waiting: Record<string, FactoryBadges> = {}
-  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, questions, planInbox))) {
+  for (const [factoryId, count] of Object.entries(
+    waitingByFactory(
+      inbox.filter((item) => !snoozed.has(item.request.id)),
+      questions.filter((question) => !snoozed.has(question.id)),
+      planInbox.filter((item) => !snoozed.has(item.request.id)),
+    ),
+  )) {
     waiting[factoryId] = { waiting: count }
   }
   for (const automation of allAutomations ?? []) {
@@ -412,10 +431,18 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       }
       if (settingsOpen) dispatch({ type: 'close-settings' })
       else if (navigation.taskId !== undefined) dispatch({ type: 'close-task' })
-      else return false
+      else return clearSelection()
       return true
     },
+    select: toggleTargetSelection,
     move: (direction) => panes.current !== null && moveFocus(panes.current, direction),
+    snoozeRequest: () => {
+      const row = panes.current ? snoozeTarget(panes.current) : undefined
+      const requestId = row?.dataset.snoozeRequest
+      if (!row || requestId === undefined) return false
+      openSnoozeMenu({ requestId, at: buttonPosition(row), snoozedUntil: snoozed.get(requestId) })
+      return true
+    },
     arm: (action: ArmAction) => {
       const button = panes.current ? armable(panes.current, action) : undefined
       setArmed(button)
@@ -809,6 +836,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             tasks={tasks}
             factories={factories}
             settings={settings}
+            slots={slots}
             onOpen={openTask}
             onOpenTask={openTaskByRef}
             onNewTask={() => openNewTask()}
@@ -848,6 +876,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               factoryId={screen.factoryId}
               factory={factory}
               queue={slots?.queue ?? []}
+              slots={slots}
+              settings={settings}
               filters={boardFilters[screen.factoryId] ?? {}}
               onFilters={(filters) =>
                 setBoardFilters((all) => ({ ...all, [screen.factoryId]: filters }))
@@ -875,6 +905,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               scope={screen.factoryId}
               breadcrumb="List"
               settings={settings}
+              slots={slots}
               onOpenTask={openTaskByRef}
               onPlan={openPlans}
             />
@@ -1059,6 +1090,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onOpenTask={openTask}
         />
       )}
+      <RestartStoppedDialog />
       {asking && (
         <SetupNoticeDialog
           task={asking.request.task}
@@ -1110,7 +1142,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       <ProfileProvider settings={settings}>
         <OvernightContext value={overnight}>
           <ArmedContext value={armed}>
-            <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+            <SnoozedContext value={snoozed}>
+              <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+              <RequestSnoozeHost />
+            </SnoozedContext>
           </ArmedContext>
         </OvernightContext>
       </ProfileProvider>
@@ -1166,7 +1201,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             ...(settings?.overnightMode && { overnight: 'Autopilot is on' }),
             ...(chip !== undefined && { update: chip }),
           }}
-          onUpdate={() => ted.restartToUpdate().catch((error: unknown) => console.error(error))}
+          onUpdate={() => {
+            void ted.restartToUpdate().catch((error: unknown) => console.error(error))
+          }}
           onOpenFailed={() => {
             saveListView(
               settings,

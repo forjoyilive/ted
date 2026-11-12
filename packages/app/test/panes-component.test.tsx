@@ -137,11 +137,11 @@ test('Inbox answers close before its list refresh without recaps and remain in A
     return reply.promise
   })
   await user().click(
-    within(screen.getByRole('region', { name: 'Question' })).getByRole('radio', { name: 'Yes' }),
+    within(screen.getByRole('region', { name: 'Answer' })).getByRole('radio', { name: 'Yes' }),
   )
   expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
   await user().click(
-    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
+    within(screen.getByRole('region', { name: 'Answer' })).getByRole('button', { name: 'Send' }),
   )
   expect(
     within(screen.getByRole('region', { name: 'Permission' })).getByText('Second request'),
@@ -165,9 +165,7 @@ test('Inbox answers close before its list refresh without recaps and remain in A
     throw new Error('Answer could not be saved')
   })
   await user().click(
-    within(screen.getByRole('region', { name: 'Permission' })).getByRole('button', {
-      name: 'Deny',
-    }),
+    within(screen.getByRole('region', { name: 'Answer' })).getByRole('button', { name: 'Deny' }),
   )
   await screen.findByText('Answer could not be saved')
   expect(
@@ -177,9 +175,7 @@ test('Inbox answers close before its list refresh without recaps and remain in A
   const answered = { ...second, answer: { kind: 'denied' as const, at: createdAt } }
   a.handle('answerRequest', () => answered)
   await user().click(
-    within(screen.getByRole('region', { name: 'Permission' })).getByRole('button', {
-      name: 'Deny',
-    }),
+    within(screen.getByRole('region', { name: 'Answer' })).getByRole('button', { name: 'Deny' }),
   )
   await screen.findByText('Nothing waiting on you')
   expect(within(inbox).queryByRole('status')).toBeNull()
@@ -256,21 +252,27 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   expect(within(firstCard).getByText(first.body)).toBeTruthy()
   expect(within(secondCard).getByText(second.body)).toBeTruthy()
   expect(document.activeElement?.contains(secondCard)).toBe(true)
-  await user().type(
-    within(secondCard).getByRole('textbox', { name: 'Your answer' }),
-    'Keep retrying',
-  )
+  expect(within(secondCard).getByText('Answer at the bottom of the Task ↓')).toBeTruthy()
+  expect(within(secondCard).queryByRole('textbox', { name: 'Your answer' })).toBeNull()
+  const dock = within(thread).getByRole('region', { name: 'Answer' })
+  expect(within(dock).getByText(second.body)).toBeTruthy()
+  expect(within(dock).getByText('2 of 2')).toBeTruthy()
+  await user().type(within(dock).getByRole('textbox', { name: 'Your answer' }), 'Keep retrying')
   const jumps = within(thread).getByRole('navigation', { name: 'Requests waiting for you' })
   const firstJump = within(jumps).getByRole('button', { name: /Where should sync status show/ })
   const secondJump = within(jumps).getByRole('button', { name: /Can the queue retry offline/ })
   await user().click(firstJump)
   expect(document.activeElement?.contains(firstCard)).toBe(true)
+  expect(within(dock).getByText(first.body)).toBeTruthy()
+  expect(
+    (within(dock).getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value,
+  ).toBe('')
   await user().click(within(inbox).getByText(second.body))
   expect(document.activeElement?.contains(secondCard)).toBe(true)
   await user().click(secondJump)
   expect(document.activeElement?.contains(secondCard)).toBe(true)
   expect(
-    (within(secondCard).getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value,
+    (within(dock).getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value,
   ).toBe('Keep retrying')
   const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
   scrollIntoView.mockClear()
@@ -278,17 +280,36 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   const target = required(secondCard.closest('[data-chat-item]'))
   expect(document.activeElement).toBe(target)
   expect(scrollIntoView.mock.contexts).toContain(target)
-  expect(within(secondCard).getByDisplayValue('Keep retrying')).toBeTruthy()
+  expect(within(dock).getByDisplayValue('Keep retrying')).toBeTruthy()
+  await user().click(within(dock).getByRole('button', { name: 'Previous request' }))
+  expect(within(dock).getByText('1 of 2')).toBeTruthy()
   await user().type(
-    within(firstCard).getByRole('textbox', { name: 'Your answer' }),
+    within(dock).getByRole('textbox', { name: 'Your answer' }),
     'Keep the header draft',
   )
+  await user().click(within(dock).getByRole('button', { name: 'Comment without answering' }))
+  expect(within(thread).queryByRole('region', { name: 'Answer' })).toBeNull()
+  expect(within(thread).getByRole('note', { name: 'Open request' }).textContent).toContain(
+    `Not answering Question: ${first.body}`,
+  )
+  expect(within(thread).getByRole('textbox', { name: 'Comment' })).toBeTruthy()
+  await user().click(firstJump)
+  expect(within(thread).queryByRole('note', { name: 'Open request' })).toBeNull()
+  expect(within(dock).getByDisplayValue('Keep the header draft')).toBeTruthy()
+  await user().click(within(dock).getByRole('button', { name: 'Comment without answering' }))
+  await user().click(within(inbox).getByText(second.body))
+  await user().click(within(inbox).getByText(first.body))
+  expect(within(thread).queryByRole('note', { name: 'Open request' })).toBeNull()
+  expect(within(thread).getByRole('region', { name: 'Answer' })).toBe(dock)
+  expect(within(dock).getByText('1 of 2')).toBeTruthy()
+  await user().click(within(dock).getByRole('button', { name: 'Comment without answering' }))
+  await user().click(within(thread).getByRole('button', { name: 'Back to the answer' }))
   await user().click(within(thread).getByRole('button', { name: 'Work, now' }))
   expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
   await user().click(firstJump)
   expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(2)
   expect(within(thread).queryByText('Showing Work only ·')).toBeNull()
-  expect(within(firstCard).getByDisplayValue('Keep the header draft')).toBeTruthy()
+  expect(within(dock).getByDisplayValue('Keep the header draft')).toBeTruthy()
   expect(firstCard.isConnected).toBe(true)
 })
 
@@ -438,9 +459,7 @@ test.each(['response-first', 'event-first'] as const)(
       ),
     ).toBe('true')
     await user().click(
-      within(screen.getByRole('region', { name: 'Permission' })).getByRole('button', {
-        name: 'Deny',
-      }),
+      within(screen.getByRole('region', { name: 'Answer' })).getByRole('button', { name: 'Deny' }),
     )
     const refresh = deferred<InboxItem[]>()
     a.handle('listInbox', () => refresh.promise)
@@ -452,22 +471,23 @@ test.each(['response-first', 'event-first'] as const)(
     expect(within(remaining).getByText('Keep the settings?')).toBeTruthy()
     expect(within(thread).queryByRole('region', { name: 'Permission' })).toBeNull()
     expect(within(thread).queryByText('You denied')).toBeNull()
-    const draft = within(remaining).getByRole('textbox', { name: 'Your answer' })
+    const dock = screen.getByRole('region', { name: 'Answer' })
+    const draft = within(dock).getByRole('textbox', { name: 'Your answer' })
     await user().type(draft, 'Keep this unfinished answer')
     if (order === 'response-first')
       await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
     else await act(async () => reply.resolve(answered))
     expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
     expect(draft).toBe(
-      within(screen.getByRole('region', { name: 'Question' })).getByRole('textbox', {
+      within(screen.getByRole('region', { name: 'Answer' })).getByRole('textbox', {
         name: 'Your answer',
       }),
     )
-    expect(within(remaining).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
+    expect(within(dock).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
     expect(within(inbox).queryByRole('status')).toBeNull()
     await act(async () => refresh.resolve([{ task: task(), request: first }]))
     expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
-    expect(within(remaining).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
+    expect(within(dock).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
   },
 )
 
@@ -505,15 +525,19 @@ test('a delayed earlier response keeps the Inbox empty without an answer recap',
   const refresh = deferred<never[]>()
   a.handle('listInbox', () => refresh.promise)
   await user().click(
-    within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
+    within(await screen.findByRole('region', { name: 'Answer' })).getByRole('radio', {
       name: 'Yes',
     }),
   )
   await user().click(
-    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
+    within(screen.getByRole('region', { name: 'Answer' })).getByRole('button', { name: 'Send' }),
   )
-  const card = await screen.findByRole('region', { name: 'Permission' })
-  await user().click(within(card).getByRole('button', { name: /^Approve/ }))
+  await screen.findByRole('region', { name: 'Permission' })
+  await user().click(
+    within(screen.getByRole('region', { name: 'Answer' })).getByRole('button', {
+      name: /^Approve/,
+    }),
+  )
   await screen.findByText('Nothing waiting on you')
   expect(within(inbox).queryByRole('status')).toBeNull()
   await act(async () => reply.resolve(answered))
@@ -590,14 +614,12 @@ test.each(['response-first', 'event-first'] as const)(
     const refresh = deferred<never[]>()
     a.handle('listInbox', () => refresh.promise)
     await user().click(
-      within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
+      within(await screen.findByRole('region', { name: 'Answer' })).getByRole('radio', {
         name: 'Yes',
       }),
     )
     await user().click(
-      within(screen.getByRole('region', { name: 'Question' })).getByRole('button', {
-        name: 'Send',
-      }),
+      within(screen.getByRole('region', { name: 'Answer' })).getByRole('button', { name: 'Send' }),
     )
     const answered: Comment = {
       ...first,
@@ -694,7 +716,9 @@ test('Inbox reveals its request after delayed history and after other panes cove
   const card = await screen.findByRole('region', { name: 'Question' })
   expect(card).toBe(loadingCard)
   expect(document.activeElement?.contains(card)).toBe(true)
-  const answer = within(card).getByRole('textbox', { name: 'Your answer' })
+  const answer = within(screen.getByRole('region', { name: 'Answer' })).getByRole('textbox', {
+    name: 'Your answer',
+  })
   await user().type(answer, 'Keep this draft')
   await user().click(screen.getByRole('button', { name: 'Task actions' }))
   await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
@@ -702,7 +726,7 @@ test('Inbox reveals its request after delayed history and after other panes cove
   await user().click(within(inbox).getByText(request.body))
   expect(screen.queryByRole('region', { name: 'Full brief' })).toBeNull()
   expect(document.activeElement?.contains(card)).toBe(true)
-  expect(within(card).getByDisplayValue('Keep this draft')).toBe(answer)
+  expect(screen.getByDisplayValue('Keep this draft')).toBe(answer)
   await user().click(screen.getByRole('tab', { name: /Task Lead/ }))
   await screen.findByText('Working on it.')
   await user().click(within(inbox).getByText(request.body))
@@ -712,7 +736,7 @@ test('Inbox reveals its request after delayed history and after other panes cove
     within(screen.getByRole('region', { name: 'Run chat' })).getByText('Working on it.'),
   ).toBeTruthy()
   expect(revealed).toBe(card)
-  expect(within(revealed).getByDisplayValue('Keep this draft')).toBe(answer)
+  expect(screen.getByDisplayValue('Keep this draft')).toBe(answer)
 })
 
 test('request shortcuts target the focused request and do not guess between open requests', async () => {
@@ -748,11 +772,11 @@ test('request shortcuts target the focused request and do not guess between open
   await u.click(within(thread).getByRole('heading', { name: 'Sync notes' }))
   await u.keyboard('a{Enter}')
   expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
-  const secondCard = required(within(thread).getAllByRole('region', { name: 'Permission' })[1])
+  const dock = within(thread).getByRole('region', { name: 'Answer' })
   const jump = within(thread).getByRole('button', { name: 'Jump to Permission: Second command' })
   await u.click(jump)
   await u.keyboard('r')
-  const answer = within(secondCard).getByRole('textbox', { name: 'Your answer' })
+  const answer = within(dock).getByRole('textbox', { name: 'Your answer' })
   expect(document.activeElement).toBe(answer)
   await u.type(answer, 'Allow this one')
   await u.click(jump)
@@ -766,9 +790,9 @@ test('request shortcuts target the focused request and do not guess between open
     within(thread).getByRole('button', { name: 'Jump to Design review: Review the draft' }),
   )
   await u.keyboard('{Shift>}r{/Shift}')
-  expect(document.activeElement).toBe(
-    within(screen.getByRole('region', { name: 'Design review' })).getByRole('textbox', {
-      name: 'Your answer',
-    }),
-  )
+  expect(document.activeElement).toBe(within(dock).getByRole('textbox', { name: 'Your answer' }))
+  await u.click(within(dock).getByRole('button', { name: 'Comment without answering' }))
+  await u.click(within(thread).getByRole('heading', { name: 'Sync notes' }))
+  await u.keyboard('r')
+  expect(document.activeElement).not.toBe(thread.querySelector('textarea[data-comment-box]'))
 })

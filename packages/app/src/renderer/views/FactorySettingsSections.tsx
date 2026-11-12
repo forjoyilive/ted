@@ -17,6 +17,7 @@ import type {
 } from '@ted/protocol'
 import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
@@ -210,9 +211,7 @@ export function InvalidNotice({
         <span className={styles.invalidTitle}>{invalid.file} has an error</span>
         <span className={base.spacer} />
         {invalid.url !== undefined && (
-          <Button size="small" onClick={() => ted.openOnGitHub(invalid.url ?? '')}>
-            Open on GitHub
-          </Button>
+          <Button onClick={() => ted.openOnGitHub(invalid.url ?? '')}>Open on GitHub</Button>
         )}
       </div>
       <p className={styles.invalidLine}>
@@ -594,15 +593,11 @@ export function DriftNotice({
         <DiffLines lines={drift.diff} />
       </div>
       <div className={styles.driftActions}>
-        <Button size="small" onClick={onKeep}>
-          Keep mine
-        </Button>
-        <Button size="small" onClick={onUse}>
-          {useLabel}
-        </Button>
+        <Button onClick={onKeep}>Keep mine</Button>
+        <Button onClick={onUse}>{useLabel}</Button>
         {factoryId !== undefined && (
           <>
-            <Button size="small" disabled={busy || created !== undefined} onClick={() => merge()}>
+            <Button disabled={busy || created !== undefined} onClick={() => merge()}>
               Merge with an agent
             </Button>
             <Help>
@@ -918,19 +913,6 @@ function AgentRow({
   const shown = own ?? row.inherited
   const locked = own === null
   const name = roleNames[row.role]
-  const agents =
-    row.role === 'reviewer'
-      ? [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-          ['same', 'Same as Task Lead'],
-        ]
-      : [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-        ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...(own ?? {}), ...fields }
     for (const key of ['model', 'effort'] as const) if (!next[key]) delete next[key]
@@ -952,11 +934,7 @@ function AgentRow({
         value={shown.agent ?? 'claude'}
         onChange={(event) => update({ agent: event.target.value })}
       >
-        {agents.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
+        <AgentOptions current={shown.agent} same={row.role === 'reviewer'} />
       </Select>
       <input
         aria-label={`${name} model`}

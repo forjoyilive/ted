@@ -24,6 +24,7 @@ import type {
 import {
   type AgentStageId,
   type AnswerRequest,
+  type AnswerTedStopsRequest,
   agentStageIds,
   type BlockedChoice,
   type BlockTaskRequest,
@@ -34,6 +35,7 @@ import {
   clarifyDepths,
   type EditTaskRequest,
   type FollowUpRequest,
+  maxTedStopAnswers,
   type NewTaskDraft,
   type PostCommentRequest,
   type ProposalChoice,
@@ -970,6 +972,29 @@ export function parseResumeTaskRequest(value: unknown): ResumeTaskRequest {
     ...(comment !== undefined && { comment }),
     ...(files.length > 0 && { attachments: files }),
   }
+}
+
+export function parseAnswerTedStopsRequest(value: unknown): AnswerTedStopsRequest {
+  const body = value as Partial<AnswerTedStopsRequest> | null
+  const ids = (name: 'restart' | 'leave'): string[] => {
+    const list = body?.[name] ?? []
+    if (!Array.isArray(list) || list.some((id) => typeof id !== 'string' || id === '')) {
+      throw new HttpError(400, `${name} must be a list of Task IDs`)
+    }
+    return [...new Set(list as string[])]
+  }
+  const restart = ids('restart')
+  const leave = ids('leave')
+  if (restart.length + leave.length === 0) {
+    throw new HttpError(400, 'name at least one Task to restart or leave stopped')
+  }
+  if (restart.length + leave.length > maxTedStopAnswers) {
+    throw new HttpError(400, `name at most ${maxTedStopAnswers} Tasks`)
+  }
+  if (leave.some((id) => restart.includes(id))) {
+    throw new HttpError(400, 'a Task can’t be both restarted and left stopped')
+  }
+  return { restart, leave }
 }
 
 export function parseFollowUpRequest(value: unknown): FollowUpRequest {

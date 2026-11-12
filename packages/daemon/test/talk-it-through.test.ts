@@ -578,10 +578,24 @@ describe('Talk it through', () => {
     }, 'the talk to bind while the Lead is working')
     expect(pending.talk?.runId).toBe(lead)
     expect(pending.talkRequested).toBe(true)
+    const draftPath = `/message-drafts/request/${item.request.id}`
+    const draft = { text: 'Keep these answers.', attachments: [] }
+    await client.ok('PUT', draftPath, draft)
+    await client.ok('PUT', `/requests/${item.request.id}/snooze`, {
+      until: new Date(Date.now() + 60_000).toISOString(),
+    })
+    expect(await client.ok('GET', draftPath)).toEqual({ draft })
+    expect(await client.ok('GET', '/inbox/snoozed')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: item.request.id })]),
+    )
     await client.ok('POST', `/comments/${item.request.id}/answer`, {
       action: 'answer-round',
       answers: storageRound.questions.map((q) => ({ answer: q.recommended })),
     })
+    expect(await client.ok('GET', draftPath)).toEqual({ draft: null })
+    expect(await client.ok('GET', '/inbox/snoozed')).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: item.request.id })]),
+    )
     await writeFile(gate, '')
     await waitUntil(
       async () => (await client.getRun(lead)).run.state !== 'working',

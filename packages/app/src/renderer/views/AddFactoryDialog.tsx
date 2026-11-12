@@ -441,9 +441,7 @@ export function RepoRowView({
 
       {!filled && (
         <div className={styles.source}>
-          <Button size="small" onClick={onChooseFolder}>
-            Choose folder…
-          </Button>
+          <Button onClick={onChooseFolder}>Choose folder…</Button>
           <span className={styles.or}>or</span>
           <input
             className={styles.input}
@@ -496,7 +494,7 @@ export function RepoRowView({
           {problem.fixes.length > 0 && (
             <div className={styles.fixes}>
               {problem.fixes.map((f) => (
-                <Button key={f.kind} size="small" onClick={() => onFix(f)}>
+                <Button key={f.kind} onClick={() => onFix(f)}>
                   {fixLabel(f)}
                 </Button>
               ))}

@@ -199,10 +199,10 @@ export function GeneralPage({ settings }: SettingsPageProps) {
       <SettingsGroup label="Autopilot">
         <SettingRow
           title="Autopilot across all Factories"
-          help="Start eligible Backlog Tasks and carry work through Merge without routine questions or sign-offs. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed Checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you."
+          help="Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; each Factory’s Start Backlog Tasks automatically setting does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed Checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you."
           detail={
             overnight.problem ??
-            'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.'
+            'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.'
           }
         >
           <Switch

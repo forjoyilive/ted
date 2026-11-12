@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export * from './agent-availability.ts'
 export type * from './api-cost.ts'
 export {
   type AppCapture,
@@ -366,7 +367,12 @@ export {
   parseVerifyFailureRequest,
 } from './failure-parsers.ts'
 export type * from './failures.ts'
-export { failureChoices, validateFailureChoices, validationExecution } from './failures.ts'
+export {
+  ciFailureLabel,
+  failureChoices,
+  validateFailureChoices,
+  validationExecution,
+} from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
@@ -452,6 +458,19 @@ export {
   listSorts,
   type StatusFilter,
 } from './list-view.ts'
+export {
+  emptyMessageDraft,
+  type MessageBox,
+  type MessageBoxKind,
+  type MessageDraft,
+  type MessageDraftState,
+  maxMessageDraftFields,
+  maxMessageDraftText,
+  messageBoxKinds,
+  parseMessageBox,
+  parseSaveMessageDraftRequest,
+  type SaveMessageDraftRequest,
+} from './message-draft.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
@@ -623,6 +642,7 @@ export type { DesignFileSpec, LocalDesignReviewInput, SaveTaskDraftRequest } fro
 export {
   type AgentStageId,
   type AnswerRequest,
+  type AnswerTedStopsRequest,
   type ArchiveDoneResult,
   type ArchiveTaskRequest,
   type Attachment,
@@ -671,6 +691,7 @@ export {
   type MergeMethod,
   type MergeRow,
   type MoveTaskRequest,
+  maxTedStopAnswers,
   mergeMethods,
   type NewTaskDraft,
   type Outcome,
@@ -686,6 +707,7 @@ export {
   type ProposalRowInput,
   type PullRequestPreview,
   parseSetTaskSnoozeRequest,
+  parseSnoozeRequestRequest,
   priorities,
   type ReportOutcomeRequest,
   type RepoSetupReport,
@@ -712,6 +734,7 @@ export {
   type SignOffChanges,
   type SizeCheck,
   type SizeCheckInput,
+  type SnoozeRequestRequest,
   type StageId,
   type StartTaskRequest,
   sizeChoices,
@@ -736,6 +759,7 @@ export {
   type TaskSource,
   type TaskStatus,
   type TaskStatusKind,
+  type TedStoppedTask,
   type ThreadEvent,
   type ThreadEventTone,
   type TrackStage,
@@ -768,6 +792,7 @@ export type {
 } from './task-intervals.ts'
 export {
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAttachmentRefs,
   parseBlockTaskRequest,
@@ -811,7 +836,7 @@ export {
 export type { UpdateWork } from './update.ts'
 export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
-export type { WaitingRequest } from './waiting.ts'
+export type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,

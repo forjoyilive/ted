@@ -5,7 +5,7 @@ import type {
   FlowSendBack,
   ValidationSnapshot,
 } from '@ted/protocol'
-import { type DashboardTaskFacts, factoryDashboard } from '../dashboard.ts'
+import { type DashboardTaskFacts, factoryDashboard, rangeWindows } from '../dashboard.ts'
 import type { FlowCheck, FlowJudgment } from '../dashboard-flow.ts'
 import { readDashboardTiming } from './dashboard-timing.ts'
 import { intervalBoundaries } from './interval-schema.ts'
@@ -199,7 +199,7 @@ export function readFactoryDashboard(
       }
     }
   }
-  const lower = range === 'all' ? -Infinity : asOf - 2 * (range === '7d' ? 7 : 30) * 86_400_000
+  const lower = range === 'all' ? -Infinity : rangeWindows(range, asOf).previous.from
   const selected = rows.filter((row) => {
     const task = facts.get(row.id)
     if (!task) return false

@@ -68,7 +68,7 @@ export interface TaskDefaults {
   clarifyDepth: ClarifyDepth
 }
 
-export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in'
+export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in' | 'rerun' | 'required-check'
 
 export const taskStatusKinds = [
   'failed',
@@ -109,7 +109,7 @@ export interface TaskArchive {
 export type TaskStatus =
   | { kind: 'failed' }
   | { kind: 'partly-merged' }
-  | { kind: 'waiting-on-you' }
+  | { kind: 'waiting-on-you'; snoozedUntil?: string }
   | { kind: 'paused'; reason: string }
   | { kind: 'working' }
   | { kind: 'stopped'; at?: string; prepared?: true }
@@ -190,6 +190,27 @@ export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest 
     throw new RequestValidationError(400, 'snoozedUntil must be an ISO instant or null')
   }
   return { snoozedUntil: until }
+}
+
+export interface SnoozeRequestRequest {
+  until: string | null
+}
+
+export function parseSnoozeRequestRequest(value: unknown): SnoozeRequestRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new RequestValidationError(400, 'body must be a JSON object')
+  }
+  const until = (value as Record<string, unknown>).until
+  if (until === null) return { until: null }
+  if (
+    typeof until !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(until) ||
+    !Number.isFinite(Date.parse(until)) ||
+    new Date(until).toISOString() !== until
+  ) {
+    throw new RequestValidationError(400, 'until must be an ISO instant or null')
+  }
+  return { until }
 }
 
 export interface Task {
@@ -425,6 +446,22 @@ export interface CreateTaskRequest {
 export interface ResumeTaskRequest {
   comment?: string
   attachments?: AttachmentRef[]
+}
+
+export interface TedStoppedTask {
+  id: string
+  displayId: string
+  title: string
+  stage: StageId
+  factoryId: string
+  stoppedAt: string
+}
+
+export const maxTedStopAnswers = 1000
+
+export interface AnswerTedStopsRequest {
+  restart: string[]
+  leave: string[]
 }
 
 export interface BlockTaskRequest {

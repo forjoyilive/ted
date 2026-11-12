@@ -76,6 +76,16 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ runs: ['waiting', 'working'] }))).toEqual({ kind: 'waiting-on-you' })
   })
 
+  test('when every open request is snoozed, Waiting on you carries the first return time', () => {
+    const until = '2099-11-11T09:00:00.000Z'
+    expect(
+      taskStatus(at({ openRequests: 2, runs: ['waiting'], requestsSnoozedUntil: until })),
+    ).toEqual({ kind: 'waiting-on-you', snoozedUntil: until })
+    expect(taskStatus(at({ failed: true, openRequests: 1, requestsSnoozedUntil: until }))).toEqual({
+      kind: 'failed',
+    })
+  })
+
   test('each status wins over every status below it', () => {
     const ladder: [Partial<TaskFacts>, string][] = [
       [{ failed: true }, 'failed'],
