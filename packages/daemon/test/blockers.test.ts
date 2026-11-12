@@ -9,6 +9,7 @@ import {
   type Coordinator,
   type CoordinatorTask,
   DaemonClient,
+  DaemonRequestError,
   type Factory,
   readDaemonInfo,
   type Task,
@@ -641,8 +642,30 @@ async function hierarchyApp() {
   return new DaemonClient(info, info.token, { appKey: daemon.appToken })
 }
 async function parentOf(app: DaemonClient, child: Task, parent: Task | null) {
-  const { revision } = await app.taskHierarchy(child.id)
-  return app.setTaskParent(child.id, { parentId: parent?.id ?? null, revision })
+  return withHierarchyRevision(app, child, (revision) =>
+    app.setTaskParent(child.id, { parentId: parent?.id ?? null, revision }),
+  )
+}
+async function withHierarchyRevision<T>(
+  app: DaemonClient,
+  task: Task,
+  operation: (revision: string) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const { revision } = await app.taskHierarchy(task.id)
+    try {
+      return await operation(revision)
+    } catch (error) {
+      if (
+        attempt >= 9 ||
+        !(error instanceof DaemonRequestError) ||
+        error.status !== 409 ||
+        error.message !==
+          'Hierarchy changed or was not confirmed; read the hierarchy preview and confirm again'
+      )
+        throw error
+    }
+  }
 }
 
 test('parent events survive replay and keep hierarchy dependency effects separate from manual blockers', async () => {
@@ -928,10 +951,9 @@ test('nested parents wait for children to merge while independent Tasks run, and
   expect((await getTask(client, parent.id)).leadRunId).toBe(workingParent.leadRunId)
   await expect(app.unarchiveTask(waived.id)).rejects.toThrow('Stop the parent')
   await expect(
-    app.unarchiveTask(waived.id, {
-      unlinkParent: true,
-      hierarchyRevision: (await app.taskHierarchy(waived.id)).revision,
-    }),
+    withHierarchyRevision(app, waived, (hierarchyRevision) =>
+      app.unarchiveTask(waived.id, { unlinkParent: true, hierarchyRevision }),
+    ),
   ).rejects.toThrow('Stop the parent')
   await writeFile(parentGate, 'go')
   await waitFor(client, parent, (task) => task.stage === 'done', 'to finish its own Workflow')
@@ -940,10 +962,9 @@ test('nested parents wait for children to merge while independent Tasks run, and
   await app.unarchiveTask(leaf.id)
   expect((await getTask(client, leaf.id)).parentId).toBe(child.id)
   await expect(app.unarchiveTask(waived.id)).rejects.toThrow('Done parents')
-  await app.unarchiveTask(waived.id, {
-    unlinkParent: true,
-    hierarchyRevision: (await app.taskHierarchy(waived.id)).revision,
-  })
+  await withHierarchyRevision(app, waived, (hierarchyRevision) =>
+    app.unarchiveTask(waived.id, { unlinkParent: true, hierarchyRevision }),
+  )
   expect((await getTask(client, waived.id)).parentId).toBeUndefined()
   expect((await getTask(client, waived.id)).archived).toBeUndefined()
   expect((await getTask(client, parent.id)).stage).toBe('done')
