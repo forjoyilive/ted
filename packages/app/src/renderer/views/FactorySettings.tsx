@@ -138,7 +138,11 @@ export function FactorySettings({
     },
     [factory.id],
   )
-  const { value: view, refresh } = useEventValue<FactorySettingsView | undefined>({
+  const {
+    value: view,
+    refresh,
+    update,
+  } = useEventValue<FactorySettingsView | undefined>({
     initial: undefined,
     key: factory.id,
     load: read('background'),
@@ -198,6 +202,11 @@ export function FactorySettings({
     if (mergeBusy.current) return
     setDraft((current) => (current ? change(current) : current))
   }, [])
+  const onMode = useCallback(
+    (permissions: FactorySettingsView['permissions']) =>
+      update((current) => current && { ...current, permissions }),
+    [update],
+  )
   const setRepos = useCallback(
     (change: (repos: RepoSettingsInput[]) => RepoSettingsInput[]) =>
       onDraft((current) => ({ ...current, repos: change(current.repos) })),
@@ -405,6 +414,7 @@ export function FactorySettings({
                     draft={draft}
                     loaded={base.draft}
                     onDraft={onDraft}
+                    onMode={onMode}
                   />
                   <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
                 </>

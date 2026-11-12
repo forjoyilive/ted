@@ -1006,11 +1006,13 @@ function PermissionsSectionView({
   draft,
   loaded,
   onDraft,
+  onMode,
 }: {
   view: FactorySettingsView
   draft: SettingsDraft
   loaded: SettingsDraft
   onDraft: Update
+  onMode?: (mode: FactorySettingsView['permissions']) => void
 }) {
   const id = useId()
   const { value: mode, update } = useEventValue({
@@ -1029,8 +1031,7 @@ function PermissionsSectionView({
   const [error, setError] = useState<string>()
   const dialog = useRef<HTMLDialogElement>(null)
   const bypass = mode === 'bypass'
-  const { permissions } = view
-  useEffect(() => update(() => permissions), [permissions, update])
+  useEffect(() => update(() => view.permissions), [view, update])
   useEffect(() => {
     if (confirming) dialog.current?.showModal()
   }, [confirming])
@@ -1041,6 +1042,7 @@ function PermissionsSectionView({
     try {
       const saved = await ted.setFactoryPermissions(view.factoryId, next, confirmed)
       setMode(saved.mode)
+      onMode?.(saved.mode)
       setConfirming(false)
     } catch (failure) {
       setError(readableError(failure))
