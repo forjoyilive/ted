@@ -761,8 +761,10 @@ test.each(['global', 'Task'] as const)(
     expect(round.status).toBe(201)
     const question = await token.call('POST', `/tasks/${task.id}/comments`, {
       body: 'Which repository?',
+      choices: ['The primary repo', 'Another repo'],
     })
     expect(question.status).toBe(201)
+    expect(question.body).toMatchObject({ kind: 'question', purpose: { kind: 'question' } })
     const activate = async () => {
       if (source === 'global') await overnight(client, true)
       await client.ok('PUT', `/tasks/${task.id}/autopilot`, {
@@ -798,7 +800,7 @@ test.each(['global', 'Task'] as const)(
     await client.ok(
       'POST',
       `/comments/${(question.body as import('@ted/protocol').Comment).id}/answer`,
-      { action: 'answer', text: 'The primary repo' },
+      { action: 'answer', choice: 'The primary repo', text: 'Use the Factory’s primary repo.' },
     )
     await advanceTo(client, task, 'design')
     const designLead = await lead(client, task)
