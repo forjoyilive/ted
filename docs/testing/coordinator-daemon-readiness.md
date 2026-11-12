@@ -201,3 +201,51 @@ On this 12-CPU machine it adds six busy workers. This is a new observation on
 the checked branch, not a reproduction on the frozen historical commit. Any
 Coordinator failure or retry remains evidence of a defect, not a passing repair.
 Agents must not launch this command. No full Check has been run for this route.
+
+
+## User-run mixed-suite observation and supported cleanup repair
+
+The user ran `scripts/measure-check.ts loaded ted207-cleanup-mixed-1` at clean
+`a0985dedba88ac5b7ab9413a070ab05fa30d1d1a`, UTC 2026-11-12 16:36:25–17:14:35.
+The six-worker workload remained alive. The full Check failed (Electron 8 failed,
+125 passed, 4 skipped; node 23 failed, 3467 passed, 2 skipped). This is a new
+observation; unrelated failures are outside this Task.
+
+Both Coordinator cases failed their initial 10,000ms cleanup hook. The retained
+records now identify the boundary:
+
+| Case | closeApp running warning | closeApp completed | All cleanup completed |
+| --- | ---: | ---: | ---: |
+| Receipts and history | 8002ms | 10004ms | 10517ms |
+| Not sent | 8001ms | 10007ms | 10542ms |
+
+The shared `closeApp` helper waits up to 10,000ms before force-killing the app,
+which exhausts the entire hook deadline before daemon/Run/home cleanup. The
+Coordinator teardown now passes its existing timeout argument as 1000ms, leaving
+room for those remaining operations. Shared helper defaults, the hook deadline,
+behavior assertions and worker caps stay unchanged. This repairs the observed
+cleanup budget collision; it does not identify why graceful app close stalled
+or prove the unavailable historical failure had the same cause.
+
+The failed hooks continued into subsequent attempts. Those retries failed
+readiness with SIGKILL before daemon.json. The old cleanup read the shared home
+between awaits, so a delayed cleanup could reach a replacement attempt. The
+records lack home/PID identity to attribute these SIGKILLs conclusively. The new
+Coordinator cleanup helper captures app/home when called, and the hook clears
+its outer app reference before awaiting it.
+
+`coordinator-cleanup.test.ts` holds the real `closeApp` call unresolved and checks
+its force-kill and remaining cleanup path under a 5000ms test guard; the old
+10,000ms argument cannot finish that regression in time. It also checks that an
+already exited app is not killed and a daemon cleanup error remains an error
+without deleting its home. No tests ran in Work. Validate must run it together
+with `cleanup-evidence.test.ts` and `coordinator-ui.test.ts`, with retries disabled.
+
+Evidence is in `.suite-measurements/ted207-cleanup-mixed-1/`: console, JSON test
+reports, retries, run metadata, timing and collector assessment. All six artifact
+hashes in check-measurement.json were independently checked and matched. The
+attached `ted-207-mixed-suite-evidence.md` retains the exact Coordinator records
+and hashes, including the console and run metadata. Original captures, all
+previous passing and failed results, and the inconclusive base comparison remain
+part of the evidence. No full-suite reliability or historical causal repair is
+claimed; post-repair native validation is still required.

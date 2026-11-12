@@ -6,19 +6,10 @@ import { type Coordinator, type CoordinatorTask, tedPaths } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron } from 'playwright'
 import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { loadRunTokens } from '../../daemon/src/run-token.ts'
-import {
-  api,
-  daemonAsApp,
-  killRunHosts,
-  makeOriginRepo,
-  removeHome,
-  stopDaemonIn,
-  waitUntil,
-} from '../../daemon/test/helpers.ts'
+import { api, daemonAsApp, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
-import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
-import { cleanupWithEvidence } from './support/cleanup-evidence.ts'
+import { cleanupCoordinator } from './support/coordinator-cleanup.ts'
 import { resolveElectron } from './support/electron-installation.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -31,15 +22,10 @@ beforeAll(async () => {
 })
 afterEach(async ({ task }) => {
   const test = task.name
-  await cleanupWithEvidence(
-    [
-      { name: 'closeApp', run: () => closeApp(app) },
-      { name: 'stopDaemonIn', run: () => stopDaemonIn(home) },
-      { name: 'killRunHosts', run: () => killRunHosts(home) },
-      { name: 'removeHome', run: () => removeHome(home) },
-    ],
-    (evidence) =>
-      process.stderr.write(`Coordinator cleanup: ${JSON.stringify({ test, ...evidence })}\n`),
+  const closing = app
+  app = undefined
+  await cleanupCoordinator(home, closing, (evidence) =>
+    process.stderr.write(`Coordinator cleanup: ${JSON.stringify({ test, ...evidence })}\n`),
   )
 })
 
