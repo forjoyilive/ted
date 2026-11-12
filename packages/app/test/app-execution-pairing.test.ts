@@ -190,16 +190,32 @@ test('worker Pair after app Quit replaces a still-valid saved controller without
         input: { wait: true },
       },
     })
-    await window.getByText('Connected. 1 operation running.').waitFor({ timeout: 30_000 })
-    await second.rpc({ action: 'stop-operation', id: 'op-window' })
-    await expect
-      .poll(
-        async () =>
-          (await second.rpc<{ state: string } | null>({ action: 'operation', id: 'op-window' }))
-            ?.state,
-        { timeout: 30_000 },
-      )
-      .toBe('stopped')
+    try {
+      await window.getByText('Connected. 1 operation running.').waitFor({ timeout: 30_000 })
+      await second.rpc({ action: 'stop-operation', id: 'op-window' })
+      await expect
+        .poll(
+          async () =>
+            (await second.rpc<{ state: string } | null>({ action: 'operation', id: 'op-window' }))
+              ?.state,
+          { timeout: 30_000 },
+        )
+        .toBe('stopped')
+    } catch (error) {
+      await observe('command-worker-window-failure', {
+        error: error instanceof Error ? error.message.slice(0, 500) : 'unknown',
+        worker: await workerRequest(home, 'status').catch(() => 'unreachable'),
+        controller: await second
+          .rpc({ action: 'operation', id: 'op-window' })
+          .catch(() => 'unreachable'),
+        shown: await window
+          .locator('main')
+          .textContent()
+          .then((text) => (text ?? '').slice(0, 1500))
+          .catch(() => 'unreadable'),
+      })
+      throw error
+    }
     await observe('command-worker-window', {
       whileRunning: 'Connected. 1 operation running.',
       afterStop: 'stopped on the controller',

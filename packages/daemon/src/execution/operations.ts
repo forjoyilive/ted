@@ -119,7 +119,7 @@ export async function createExecutionOperations(options: {
     command: { operationId: ExecutionCommand['operationId']; ref: ExecutionRef },
     refusal: ExecutionRefusal,
   ): void {
-    refusals = refusals.filter((r) => r.operationId !== command.operationId)
+    refusals = refusals.filter((r) => r.operationId !== command.operationId).slice(-15)
     refusals.push({
       operationId: command.operationId,
       ref: command.ref,
@@ -241,13 +241,14 @@ export async function createExecutionOperations(options: {
       const reports: ExecutionReport[] = []
       let bytes = 0
       for (const o of [...all.filter(settled), ...all.filter((o) => !settled(o))]) {
+        if (reports.length >= executionLimits.unconfirmed - refusals.length) break
         const next = report(o)
         const size = Buffer.byteLength(JSON.stringify(next))
         if (bytes + size > limits.syncRequestBytes / 2) continue
         bytes += size
         reports.push(next)
       }
-      for (const refusal of refusals) if (reports.length < limits.unconfirmed) reports.push(refusal)
+      reports.push(...refusals)
       return {
         ...(inventory && {
           inventory: all.map(

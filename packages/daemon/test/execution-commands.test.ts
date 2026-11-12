@@ -423,6 +423,43 @@ test('the controller reconciles before it sends, applies a result once and holds
     expect(orphan.stops.map((s) => s.operationId)).toEqual(['op-3'])
     await observe('command-deleted-task', { acknowledged: true, recordedOnTask: false })
 
+    const closed = new AbortController()
+    closed.abort()
+    const token = `github_pat_${'A1b2C3d4E5'.repeat(3)}`
+    const leaked = {
+      operationId: executionIds.operation(token),
+      ref: { ...gone.ref, taskId: 'no-such-task' },
+      state: 'stopped' as const,
+    }
+    await expect(
+      commands.sync(
+        grant,
+        {
+          ...executionHello(),
+          grantId: grant.id,
+          session: 's3',
+          reports: [leaked],
+          accepting: true,
+        },
+        closed.signal,
+      ),
+    ).rejects.toThrow(/closed/)
+    expect(lines.join('\n')).not.toContain(token)
+    expect((await sync('s3', { reports: [leaked] })).confirmed).toEqual([token])
+    expect(lines.filter((l) => l.includes('deleted Task'))).toHaveLength(2)
+    expect(lines.join('\n')).not.toContain(token)
+
+    const halted = await assigned()
+    const stopping = await commands.issue({ ...input, operationId: 'op-5', taskId: halted.id })
+    await sync('s3', { reports: [report(stopping, 'running')] })
+    await commands.stop('op-5')
+    expect((await sync('s3')).stops.map((s) => s.operationId)).toEqual(['op-5'])
+    expect((await sync('s3')).stops).toEqual([])
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    expect((await sync('s3')).stops.map((s) => s.operationId)).toEqual(['op-5'])
+    await sync('s3', { reports: [report(stopping, 'stopped')] })
+    expect((await sync('s3')).stops).toEqual([])
+
     const missing = await assigned()
     const lostOnWorker = await commands.issue({ ...input, operationId: 'op-4', taskId: missing.id })
     await sync('s3', { reports: [report(lostOnWorker, 'running')] })

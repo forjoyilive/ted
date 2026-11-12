@@ -97,6 +97,7 @@ export function createExecutionController(options: {
   const sessions = new Map<string, Set<ServerResponse>>()
   const sockets = new Set<TLSSocket>()
   const disabled = new Set<string>()
+  const syncs = new Map<string, number>()
   const unavailableFactories = new Set<string>()
   const serial = <T>(work: () => Promise<T>): Promise<T> => {
     const next = mutation.then(work)
@@ -204,6 +205,18 @@ export function createExecutionController(options: {
     const presented = store.pairing.grants().find((g) => g.certificateId === presentedId)
     if (!presented) throw new RequestError(403, 'Execution certificate has no approved grant')
     current(presented.id)
+    const abort = new AbortController()
+    if (syncing) {
+      const open = syncs.get(presented.id) ?? 0
+      if (open >= 3) throw new RequestError(429, 'Too many execution connections')
+      syncs.set(presented.id, open + 1)
+      res.once('close', () => {
+        abort.abort()
+        const left = (syncs.get(presented.id) ?? 1) - 1
+        if (left > 0) syncs.set(presented.id, left)
+        else syncs.delete(presented.id)
+      })
+    }
     const input = syncing
       ? parseExecutionSyncRequest(await body(req, executionLimits.syncRequestBytes))
       : parseExecutionHeartbeat(await body(req))
@@ -217,8 +230,6 @@ export function createExecutionController(options: {
     if (closed) throw new RequestError(503, 'Execution listener is closing')
     if ('session' in input) {
       if (!commands) throw new RequestError(404, 'No such execution operation')
-      const abort = new AbortController()
-      res.once('close', () => abort.abort())
       const reply = await commands.sync(grant, input, abort.signal)
       current(grant.id)
       answer(res, 200, reply)

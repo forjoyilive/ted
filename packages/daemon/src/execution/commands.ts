@@ -42,6 +42,7 @@ const rank: Record<StoredOperationState, number> = {
   stopped: 4,
   refused: 4,
 }
+const resendStopMs = 1000
 const terminal = (state: StoredOperationState) =>
   (terminalExecutionStates as readonly string[]).includes(state)
 const held = (state: StoredOperationState) => state === 'uncertain' || state === 'unknown'
@@ -52,10 +53,11 @@ export function createExecutionCommands(options: {
   log?: (line: string) => void
 }) {
   const { store } = options
-  const log = options.log ?? ((line: string) => console.warn(line))
+  const write = options.log ?? ((line: string) => console.warn(line))
+  const log = (line: string) => write(redactSecrets(line))
   const sessions = new Map<
     string,
-    { id: string; reconciled: boolean; stopsSent: Set<string>; orphans: ExecutionStop[] }
+    { id: string; reconciled: boolean; stopsSent: Map<string, number>; orphans: ExecutionStop[] }
   >()
   const accepting = new Map<string, true | ExecutionRefusal>()
   const unsaved = new Set<string>()
@@ -180,7 +182,7 @@ export function createExecutionCommands(options: {
 
   function outgoing(
     machineId: string,
-    session: { stopsSent: Set<string>; orphans: ExecutionStop[] },
+    session: { stopsSent: Map<string, number>; orphans: ExecutionStop[] },
     canAccept: boolean,
   ): Pick<ExecutionSyncResponse, 'commands' | 'stops'> {
     const commands: ExecutionCommand[] = []
@@ -193,9 +195,9 @@ export function createExecutionCommands(options: {
         row.command &&
         !terminal(row.state) &&
         !held(row.state) &&
-        !session.stopsSent.has(row.id)
+        Date.now() - (session.stopsSent.get(row.id) ?? 0) >= resendStopMs
       ) {
-        session.stopsSent.add(row.id)
+        session.stopsSent.set(row.id, Date.now())
         stops.push({
           operationId: row.command.operationId,
           ref: row.command.ref,
@@ -224,7 +226,7 @@ export function createExecutionCommands(options: {
     const machineId = grant.id
     let session = sessions.get(machineId)
     if (!session || session.id !== request.session) {
-      session = { id: request.session, reconciled: false, stopsSent: new Set(), orphans: [] }
+      session = { id: request.session, reconciled: false, stopsSent: new Map(), orphans: [] }
       sessions.set(machineId, session)
     }
     accepting.set(machineId, request.accepting)
@@ -308,10 +310,11 @@ export function createExecutionCommands(options: {
     },
     sync(grant: ExecutionGrant, request: ExecutionSyncRequest, signal?: AbortSignal) {
       const previous = chains.get(grant.id) ?? Promise.resolve()
-      const next = previous.then(
-        () => sync(grant, request, signal),
-        () => sync(grant, request, signal),
-      )
+      const turn = () => {
+        if (signal?.aborted) throw new RequestError(408, 'Execution connection closed')
+        return sync(grant, request, signal)
+      }
+      const next = previous.then(turn, turn)
       chains.set(
         grant.id,
         next.catch(() => undefined),
