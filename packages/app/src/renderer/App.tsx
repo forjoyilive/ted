@@ -39,11 +39,13 @@ import {
   taskCommands,
 } from './commands.ts'
 import { BannerStack } from './components/BannerStack.tsx'
+import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
 import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
@@ -70,6 +72,7 @@ import {
   useSettingsState,
   useSimulators,
   useSlots,
+  useSnoozedRequests,
   useTasks,
   useUpdateStatus,
   useWaitingCount,
@@ -85,6 +88,7 @@ import {
   rankNeighbours,
   replyBox,
   requestChangesBox,
+  snoozeTarget,
 } from './key-targets.ts'
 import { contextMenuKey, imageNavigationKey, keyBindings } from './keymap.ts'
 import { doneView, failedView, queueView, rankMove } from './list-view.ts'
@@ -101,6 +105,7 @@ import {
 import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
+import { openSnoozeMenu, SnoozedContext } from './request-snooze.ts'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import {
@@ -307,8 +312,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const answered = useAnswered(inboxScreen?.answered === true)
   const allPlans = useAllPlans()
   const coordinatorStatuses = useCoordinatorStatuses()
+  const snoozedRequests = useSnoozedRequests()
+  const snoozed = useMemo(
+    () => new Map(snoozedRequests.map((request) => [request.id, request.snoozedUntil])),
+    [snoozedRequests],
+  )
   const waiting: Record<string, FactoryBadges> = {}
-  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, questions, planInbox))) {
+  for (const [factoryId, count] of Object.entries(
+    waitingByFactory(
+      inbox.filter((item) => !snoozed.has(item.request.id)),
+      questions.filter((question) => !snoozed.has(question.id)),
+      planInbox.filter((item) => !snoozed.has(item.request.id)),
+    ),
+  )) {
     waiting[factoryId] = { waiting: count }
   }
   for (const automation of allAutomations ?? []) {
@@ -417,6 +433,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return true
     },
     move: (direction) => panes.current !== null && moveFocus(panes.current, direction),
+    snoozeRequest: () => {
+      const row = panes.current ? snoozeTarget(panes.current) : undefined
+      const requestId = row?.dataset.snoozeRequest
+      if (!row || requestId === undefined) return false
+      openSnoozeMenu({ requestId, at: buttonPosition(row), snoozedUntil: snoozed.get(requestId) })
+      return true
+    },
     arm: (action: ArmAction) => {
       const button = panes.current ? armable(panes.current, action) : undefined
       setArmed(button)
@@ -1112,7 +1135,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       <ProfileProvider settings={settings}>
         <OvernightContext value={overnight}>
           <ArmedContext value={armed}>
-            <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+            <SnoozedContext value={snoozed}>
+              <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+              <RequestSnoozeHost />
+            </SnoozedContext>
           </ArmedContext>
         </OvernightContext>
       </ProfileProvider>

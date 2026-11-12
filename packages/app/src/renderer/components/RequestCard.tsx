@@ -53,6 +53,7 @@ import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import { QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
 import styles from './RequestCard.module.css'
+import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
@@ -818,6 +819,7 @@ export function RequestCard({
       {showingPrevious && changes && !rows && (
         <PreviouslyApprovedSignOff id={changes.since} task={task} />
       )}
+      {!readOnly && request.answer === undefined && <RequestSnoozeLine requestId={request.id} />}
       <h2 className={styles.title}>{headline(request)}</h2>
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}

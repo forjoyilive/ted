@@ -11,7 +11,7 @@ import type { Run } from './run.ts'
 import type { MachineSettings } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type { Comment, Task } from './task.ts'
-import type { WaitingRequest } from './waiting.ts'
+import type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 
 export type DaemonEvent =
   | { type: 'side-chat-changed'; sourceRunId: string }
@@ -40,7 +40,7 @@ export type DaemonEvent =
   | { type: 'simulators-changed'; simulators: SimulatorSlots }
   | { type: 'integrations-checked'; health: IntegrationsHealth }
   | { type: 'activity-changed'; activity: Activity }
-  | { type: 'inbox-changed'; waiting: WaitingRequest[] }
+  | { type: 'inbox-changed'; waiting: WaitingRequest[]; snoozed: SnoozedRequest[] }
   | { type: 'open-requested' }
   | { type: 'check-try-updated'; checkTry: CheckTry }
   | { type: 'automation-updated'; automationId: string }
