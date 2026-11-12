@@ -5,6 +5,8 @@ const agent = `---
 name: ${name}
 description: Answer using only the supplied conversation context.
 tools: []
+excludeDefaultComponents: true
+inheritCustomizations: false
 mcpServers: []
 skills: []
 plugins: []

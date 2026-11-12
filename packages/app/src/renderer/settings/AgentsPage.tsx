@@ -25,6 +25,7 @@ export const fixCheckEveryMs = 5_000
 const stateLabels: Record<AgentHealth['state'], string> = {
   ready: 'Ready',
   'not-installed': 'Not installed',
+  unavailable: 'Can’t run',
   'signed-out': 'Signed out',
   'too-old': 'Too old',
   'wrong-credential': 'Using an API key',
@@ -228,7 +229,7 @@ function AgentCard({
     `minimum ${health.minimumVersion}`,
     ...(health.path !== undefined ? [health.path] : []),
   ].join(' · ')
-  const signedIn = !['not-installed', 'signed-out', 'too-old'].includes(health.state)
+  const signedIn = !['not-installed', 'signed-out', 'too-old', 'unavailable'].includes(health.state)
 
   return (
     <section
@@ -261,6 +262,7 @@ function AgentCard({
           {signedIn && health.account !== undefined && (
             <p className={styles.line}>{health.account}</p>
           )}
+          {health.state === 'unavailable' && <p className={styles.line}>{health.reason}</p>}
           {health.state === 'signed-out' && <p className={styles.line}>Not signed in.</p>}
           {health.state === 'too-old' && (
             <p className={styles.line}>

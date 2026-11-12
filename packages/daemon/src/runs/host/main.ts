@@ -85,6 +85,7 @@ async function startAgent(): Promise<Started> {
   }
   const driver = drive?.({
     input: launch.input,
+    cwd: launch.cwd,
     send,
     emit: (line) => write({ t: 'out', line, at: new Date().toISOString() }),
     stop: () => agent.kill('SIGTERM'),

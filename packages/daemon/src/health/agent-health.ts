@@ -125,6 +125,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const auth = spec.inspect
       ? await spec.inspect({ binary, env, cwd: home, billing: billing(kind) })
       : spec.auth(await cli(spec.authArgs))
+    if (auth.problem) return done('unavailable', { ...found, ...auth.problem })
     if (!auth.signedIn) return done('signed-out', found)
     const account = { ...found, ...(auth.account !== undefined && { account: auth.account }) }
     if (auth.billing === 'api-key' && billing(kind) === 'subscription') {
@@ -148,8 +149,11 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
             : limit
               ? 'usage-limit'
               : 'ready'
-    const reason = pausedReason(kind, state, limit?.resetsAt, store.settings())
-    const fix = fixFor(kind, state)
+    const reason =
+      state === 'unavailable'
+        ? found.reason
+        : pausedReason(kind, state, limit?.resetsAt, store.settings())
+    const fix = state === 'unavailable' ? found.fix : fixFor(kind, state)
     const keySource = wrongKeys.get(kind)
     const plan = usage.get(kind)
     const { reason: _, fix: __, limitResetsAt: ___, keySource: ____, ...rest } = found
@@ -197,7 +201,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       severity: 'stops-work',
       text: `${health.reason}${count}`,
       action:
-        health.state === 'wrong-credential'
+        health.state === 'wrong-credential' || !health.fix
           ? { label: 'Fix', opens: { kind: 'settings', section: 'agents' } }
           : { label: 'Fix', section: 'agents' },
     })

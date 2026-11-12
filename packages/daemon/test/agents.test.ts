@@ -488,11 +488,11 @@ function antigravityHarness(
     },
   ]
   const driver = drive({
+    cwd: '/task-worktree',
     input: JSON.stringify({
       prompt: 'Start',
       billing: 'subscription',
       clientVersion: 'test',
-      cwd: '/repo',
       ...fields,
     }),
     stop,
@@ -544,6 +544,17 @@ function antigravityHarness(
   }
   return { driver, sent, events, stop, update, complete }
 }
+
+test.each([undefined, 'session'])(
+  'Antigravity uses the launched workspace for ACP: %s',
+  async (resume) => {
+    const h = antigravityHarness({ prompt: '', ...(resume && { resume }) })
+    const method = resume ? 'session/resume' : 'session/new'
+    await vi.waitFor(() => expect(h.sent.some((message) => message.method === method)).toBe(true))
+    expect(h.sent.find((message) => message.method === method)?.params?.cwd).toBe('/task-worktree')
+    expect(process.cwd()).not.toBe('/task-worktree')
+  },
+)
 
 describe('Antigravity', () => {
   const agent = antigravityAgent('/nowhere/agy')
@@ -622,7 +633,7 @@ describe('Antigravity', () => {
     })
     expect(h.sent.find((m) => m.method === 'session/resume')?.params).toMatchObject({
       sessionId: 'session',
-      cwd: '/repo',
+      cwd: '/task-worktree',
       mcpServers: [],
     })
     expect(
@@ -782,7 +793,7 @@ test('Antigravity health checks capability and the non-secret sign-in marker wit
   const home = await mkdtemp(path.join(tmpdir(), 'ted-agy-health-'))
   try {
     const base = { binary: agent.binary, env: { ...process.env, HOME: home }, cwd: home }
-    await expect(inspect({ ...base, billing: 'subscription' })).resolves.toMatchObject({
+    await expect(inspect({ ...base, billing: 'subscription' })).resolves.toEqual({
       signedIn: false,
     })
     const cache = path.join(home, '.gemini', 'antigravity-cli', 'cache')
@@ -797,7 +808,10 @@ test('Antigravity health checks capability and the non-secret sign-in marker wit
     })
     await expect(
       inspect({ ...base, env: { ...base.env, GEMINI_API_KEY: '' }, billing: 'api-key' }),
-    ).resolves.toMatchObject({ signedIn: false })
+    ).resolves.toMatchObject({
+      signedIn: false,
+      problem: { reason: expect.stringContaining('GEMINI_API_KEY') },
+    })
     await expect(
       inspect({ ...base, env: { ...base.env, GEMINI_API_KEY: 'stub-key' }, billing: 'api-key' }),
     ).resolves.toMatchObject({ signedIn: true, billing: 'api-key' })
@@ -805,7 +819,7 @@ test('Antigravity health checks capability and the non-secret sign-in marker wit
       path.join(cache, 'acp-auth-state.json'),
       JSON.stringify({ methodId: 'gemini-api-key' }),
     )
-    await expect(inspect({ ...base, billing: 'subscription' })).resolves.toMatchObject({
+    await expect(inspect({ ...base, billing: 'subscription' })).resolves.toEqual({
       signedIn: false,
     })
   } finally {
@@ -843,7 +857,7 @@ test.each([undefined, 'session'])(
       ]),
     )
     expect(launch.cwd).toBe('/tmp/run/antigravity-text-only')
-    expect(JSON.parse(launch.input)).toMatchObject({ textOnly: true, cwd: launch.cwd })
+    expect(JSON.parse(launch.input)).toMatchObject({ textOnly: true })
     const settings = JSON.parse(
       launch.files['antigravity-isolated/antigravity-cli/settings.json'] ?? '{}',
     )
@@ -868,6 +882,13 @@ test.each([undefined, 'session'])(
     expect(launch.files['antigravity-text-only/.agents/agents/ted-text-only.md']).toContain(
       'tools: []',
     )
+    for (const profile of [
+      'antigravity-text-only/.agents/agents/ted-text-only.md',
+      'antigravity-isolated/config/agents/ted-text-only.md',
+    ]) {
+      expect(launch.files[profile]).toContain('excludeDefaultComponents: true')
+      expect(launch.files[profile]).toContain('inheritCustomizations: false')
+    }
     expect(launch.files['antigravity-text-only/.git/HEAD']).toBeTruthy()
   },
 )
@@ -955,7 +976,7 @@ test.skipIf(!realAntigravity)(
       }
       // The native CLI talks only to this fixture; no Google key or model endpoint is used.
       child = spawn(launch.command, launch.args, {
-        cwd: launch.cwd,
+        cwd: launch.cwd ?? runDir,
         env: { ...launch.env, GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${address.port}` },
         stdio: ['pipe', 'pipe', 'pipe'],
       })
@@ -965,6 +986,7 @@ test.skipIf(!realAntigravity)(
       child.stderr?.resume()
       const running = child
       const driver = drive({
+        cwd: launch.cwd ?? runDir,
         input: launch.input,
         send: (line) => running.stdin?.write(`${line}\n`),
         emit: (line) => events.push(line),

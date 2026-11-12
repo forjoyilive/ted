@@ -12,11 +12,33 @@ export async function antigravityHealth(options: {
   billing: Billing
 }): Promise<AuthCheck> {
   const help = await runCli(options.binary, ['acp', '--help'], options)
-  if (help.code !== 0 || !/Agent Client Protocol/.test(help.stdout)) return { signedIn: false }
+  if (help.code !== 0)
+    return {
+      signedIn: false,
+      problem: {
+        reason:
+          'Antigravity’s ACP check failed. Run agy acp --help in a terminal, repair the CLI, then choose Check again.',
+      },
+    }
+  if (!/Agent Client Protocol/.test(help.stdout))
+    return {
+      signedIn: false,
+      problem: {
+        reason:
+          'This Antigravity CLI does not advertise ACP support. Update it, then choose Check again.',
+        fix: { label: 'Update', command: 'agy update' },
+      },
+    }
   if (options.billing === 'api-key') {
     return options.env.GEMINI_API_KEY
       ? { signedIn: true, billing: 'api-key', account: 'Gemini API key configured' }
-      : { signedIn: false }
+      : {
+          signedIn: false,
+          problem: {
+            reason:
+              'Set GEMINI_API_KEY in your login-shell environment for Antigravity API-key billing, then choose Check again.',
+          },
+        }
   }
   // ACP has no silent auth-status request; session/new creates a saved conversation.
   // CLI 1.5.6 keeps only the selected method in this marker, never a credential.

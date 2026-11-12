@@ -84,7 +84,7 @@ export function antigravityAgent(binary: string): Agent {
         prompt,
         billing,
         clientVersion: tedVersion,
-        ...(restricted && { textOnly: true, cwd: restricted.cwd }),
+        ...(restricted && { textOnly: true }),
         ...(resume !== undefined && { resume }),
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),

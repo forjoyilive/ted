@@ -5,6 +5,7 @@ import type {
   ChatToolStatus,
   ConversationEntry,
   Effort,
+  FixCommand,
   PermissionMode,
   PlanWindow,
   RunProblem,
@@ -70,6 +71,7 @@ export interface TokenCount {
 }
 
 export interface AuthCheck {
+  problem?: { reason: string; fix?: FixCommand }
   signedIn: boolean
   account?: string
   billing?: Billing

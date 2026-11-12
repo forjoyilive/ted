@@ -6,7 +6,6 @@ import { list, parseObject, record, str } from './chat-entries.ts'
 export interface AntigravityPlan {
   prompt: string
   textOnly?: boolean
-  cwd?: string
   resume?: string
   billing: Billing
   model?: string
@@ -14,7 +13,7 @@ export interface AntigravityPlan {
   clientVersion: string
 }
 
-export const drive: DriveAgent = ({ input, send, stop, emit }) => {
+export const drive: DriveAgent = ({ input, cwd, send, stop, emit }) => {
   const plan = JSON.parse(input) as AntigravityPlan
   const output = (event: string, data: Record<string, unknown> = {}) =>
     emit?.(JSON.stringify({ ted_antigravity: event, ...data }))
@@ -141,7 +140,7 @@ export const drive: DriveAgent = ({ input, send, stop, emit }) => {
   }
 
   void (async () => {
-    if (!emit) throw new Error('This Run host must be updated for Antigravity')
+    if (!emit || !cwd) throw new Error('This Run host must be updated for Antigravity')
     const init = await rpc.request('initialize', {
       protocolVersion: 1,
       clientCapabilities: {},
@@ -156,7 +155,7 @@ export const drive: DriveAgent = ({ input, send, stop, emit }) => {
     output('credential', { billing: plan.billing })
     const caps = record(init.agentCapabilities)
     const params = {
-      cwd: plan.cwd ?? process.cwd(),
+      cwd,
       mcpServers: [],
       ...(plan.resume !== undefined && { sessionId: plan.resume }),
     }

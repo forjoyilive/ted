@@ -11,6 +11,7 @@ export const offlineProblem = 'offline'
 export const agentHealthStates = [
   'ready',
   'not-installed',
+  'unavailable',
   'signed-out',
   'too-old',
   'wrong-credential',
@@ -121,6 +122,8 @@ export function pausedReason(
   switch (state) {
     case 'ready':
       return undefined
+    case 'unavailable':
+      return `${name} can’t run`
     case 'not-installed':
       return `${name} isn’t installed`
     case 'signed-out':
