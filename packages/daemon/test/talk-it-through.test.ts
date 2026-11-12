@@ -21,6 +21,7 @@ import {
   api,
   assistantTexts,
   commitToOrigin,
+  hostRecords,
   hostsStarted,
   killRunHosts,
   makeOriginRepo,
@@ -750,10 +751,16 @@ describe('Talk it through', () => {
       path.join(home, 'stub-claude.json'),
       JSON.stringify({ resumeInputWaitsFor: gate, resumeSteps: [{ endTurn: true }] }),
     )
+    const starts = (await hostRecords(home, lead)).filter((record) => record.t === 'start').length
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', model: 'synthetic-fast' })
     await waitUntil(
       async () => (await client.getRun(lead)).run.model === 'synthetic-fast',
       'agent restart before acknowledgement',
+    )
+    await waitUntil(
+      async () =>
+        (await hostRecords(home, lead)).filter((record) => record.t === 'start').length > starts,
+      'the replacement agent generation to start before opening its input gate',
     )
     await checkHeld()
     await writeFile(gate, '')
