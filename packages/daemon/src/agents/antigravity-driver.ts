@@ -157,6 +157,7 @@ export const drive: DriveAgent = ({ input, cwd, send, stop, emit }) => {
     const params = {
       cwd,
       mcpServers: [],
+      ...(plan.textOnly && { _meta: { disableBuiltInTools: true } }),
       ...(plan.resume !== undefined && { sessionId: plan.resume }),
     }
     if (plan.resume !== undefined && record(caps.sessionCapabilities).resume === undefined)

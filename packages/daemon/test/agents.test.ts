@@ -556,6 +556,20 @@ test.each([undefined, 'session'])(
   },
 )
 
+test.each([undefined, 'session'])(
+  'Antigravity disables built-in tools before creating or recovering a tool-free session: %s',
+  async (resume) => {
+    const method = resume ? 'session/resume' : 'session/new'
+    for (const textOnly of [true, false]) {
+      const h = antigravityHarness({ prompt: '', textOnly, ...(resume && { resume }) })
+      await vi.waitFor(() => expect(h.sent.some((message) => message.method === method)).toBe(true))
+      expect(h.sent.find((message) => message.method === method)?.params?._meta).toEqual(
+        textOnly ? { disableBuiltInTools: true } : undefined,
+      )
+    }
+  },
+)
+
 describe('Antigravity', () => {
   const agent = antigravityAgent('/nowhere/agy')
 
@@ -926,6 +940,8 @@ test.skipIf(!realAntigravity)(
     const root = await mkdtemp(path.join(tmpdir(), 'ted-agy-text-only-'))
     const marker = path.join(root, 'hook-ran')
     const requests: Record<string, unknown>[] = []
+    let injectTool = false
+    let injected = false
     const server = createServer(async (request, response) => {
       let body = ''
       for await (const chunk of request) body += chunk
@@ -933,12 +949,19 @@ test.skipIf(!realAntigravity)(
       const result = {
         candidates: [
           {
-            content: { role: 'model', parts: [{ text: 'Supplied context only.' }] },
+            content: {
+              role: 'model',
+              parts:
+                injectTool && !injected
+                  ? [{ functionCall: { name: 'manage_task', args: { Action: 'list' } } }]
+                  : [{ text: 'Supplied context only.' }],
+            },
             finishReason: 'STOP',
           },
         ],
         usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
       }
+      if (injectTool) injected = true
       const streaming = request.url?.includes('streamGenerateContent')
       response.writeHead(200, {
         'content-type': streaming ? 'text/event-stream' : 'application/json',
@@ -996,7 +1019,8 @@ test.skipIf(!realAntigravity)(
       })
       if (!child.stdout) throw new Error('Missing native CLI output')
       const lines = createInterface({ input: child.stdout })
-      lines.on('line', (line) => driver.onLine(line))
+      const onLine = (line: string) => driver.onLine(line)
+      lines.on('line', onLine)
       await vi.waitFor(
         () => {
           const failure = events.find((line) => JSON.parse(line).ted_antigravity === 'error')
@@ -1024,6 +1048,49 @@ test.skipIf(!realAntigravity)(
           }),
         ]),
       )
+      // Bypass TED’s stop-on-tool guard so only native dispatch can reject the forged call.
+      lines.off('line', onLine)
+      const nativeMessages: Record<string, unknown>[] = []
+      lines.on('line', (line) => {
+        const message = JSON.parse(line)
+        nativeMessages.push(message)
+        if (message.method === 'session/request_permission')
+          running.stdin?.write(
+            `${JSON.stringify({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: { outcome: { outcome: 'cancelled' } },
+            })}\n`,
+          )
+      })
+      const session = events.map((line) => JSON.parse(line)).find((e) => e.sessionId)
+      expect(session?.sessionId).toBeTruthy()
+      injectTool = true
+      const beforeInjection = requests.length
+      running.stdin?.write(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'tool-isolation-probe',
+          method: 'session/prompt',
+          params: {
+            sessionId: session.sessionId,
+            prompt: [{ type: 'text', text: 'Reply using supplied context only.' }],
+          },
+        })}\n`,
+      )
+      await vi.waitFor(
+        () => {
+          expect(nativeMessages.some((message) => message.id === 'tool-isolation-probe')).toBe(true)
+        },
+        { timeout: 30_000, interval: 50 },
+      )
+      expect(injected).toBe(true)
+      expect(
+        JSON.stringify({ requests: requests.slice(beforeInjection), messages: nativeMessages }),
+      ).toMatch(/unknown tool[^]*manage_task/i)
+      expect(nativeMessages.some((m) => m.method === 'session/request_permission')).toBe(false)
+      for (const request of requests) expect(request.tools ?? []).toEqual([])
+      await expect(access(marker)).rejects.toThrow()
       lines.close()
     } finally {
       child?.kill('SIGTERM')
@@ -1043,5 +1110,5 @@ test.skipIf(!realAntigravity)(
       await rm(root, { recursive: true, force: true })
     }
   },
-  45_000,
+  75_000,
 )
