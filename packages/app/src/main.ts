@@ -721,7 +721,7 @@ async function startUpdates(supervised: DaemonSupervisor): Promise<void> {
     ...(failed !== undefined && { failed }),
     onStatus: showUpdate,
     handOver: async (onWork) => {
-      await workerWindow.close()
+      await workerWindow.prepareUpdate()
       await supervised.handOver({ onWork })
     },
     markPending: (version) => writeFile(pendingUpdateFile(), version),
@@ -729,6 +729,7 @@ async function startUpdates(supervised: DaemonSupervisor): Promise<void> {
       quitting = false
       await rm(pendingUpdateFile(), { force: true })
       await supervised.resume()
+      workerWindow.resume()
     },
   })
   showUpdate(updates.status)

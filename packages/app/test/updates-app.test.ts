@@ -6,16 +6,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startExecutionService, stopExecutionService, workerRequest } from '@ted/daemon/execution'
-import { readDaemonInfo } from '@ted/protocol'
+import { type Factory, readDaemonInfo, type Task } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   api,
   assistantTexts,
+  commitToOrigin,
   fixtureEnvironment,
   hostRecords,
   isAlive,
   killRunHosts,
+  makeOriginRepo,
   removeHome,
   stopDaemonIn,
   waitUntil,
@@ -172,6 +174,43 @@ describe('in-app updates', () => {
       'some output',
     )
 
+    const checkRelease = path.join(cwd, 'release-check')
+    const origin = await makeOriginRepo(cwd)
+    const checkCommand = `while [ ! -f '${checkRelease.replaceAll("'", "'\\''")}' ]; do sleep 0.05; done`
+    await commitToOrigin(cwd, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, merge]',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - name: Held Check',
+        `        run: ${JSON.stringify(checkCommand)}`,
+        '',
+      ].join('\n'),
+    })
+    const factoryResult = await client.call('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    expect(factoryResult.status).toBe(201)
+    const factory = factoryResult.body as Factory
+    const taskResult = await client.call('POST', '/tasks', {
+      factory: factory.key,
+      title: JSON.stringify({
+        steps: [
+          { run: ['sh', '-c', 'echo changed > changed.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ],
+      }),
+    })
+    expect(taskResult.status).toBe(201)
+    const task = taskResult.body as Task
+    expect((await client.call('POST', `/tasks/${task.id}/start`)).status).toBe(200)
+    await expect
+      .poll(() => client.call('GET', '/update/work'))
+      .toMatchObject({
+        body: { checks: 1, merges: 0 },
+      })
+
     await stopExecutionService(await executionHome())
     await gate.hold()
     const starting = worker
@@ -188,11 +227,20 @@ describe('in-app updates', () => {
       await installing.click()
       await window.getByRole('button', { name: 'Restarting…', exact: true }).waitFor()
       await gate.release()
+      await window.getByRole('button', { name: 'Finishing 1 Check…', exact: true }).waitFor()
+      await waitUntil(() => !isAlive(startingPid), 'the worker to stop before handover waits')
+      await expect(workerRequest(await executionHome(), 'status')).rejects.toThrow()
+      await expect(
+        window.evaluate(() => globalThis.window.ted.request('openWorker')),
+      ).rejects.toThrow('Worker is stopping')
+      expect(isAlive(info.pid)).toBe(true)
+      await writeFile(checkRelease, '')
       await exited
       await starting
       await waitUntil(() => !isAlive(startingPid), 'the delayed worker to exit during update')
     } finally {
       await gate.release()
+      await writeFile(checkRelease, '')
     }
 
     app = undefined
@@ -205,6 +253,11 @@ describe('in-app updates', () => {
     await observe('worker-startup-update', {
       startup: 'held before control publication',
       update: 'waited for startup and confirmed owned worker exit',
+    })
+    await observe('worker-update-start-refused', {
+      handover: 'held by a real Check after initial worker shutdown',
+      reopen: 'refused while Check remained running',
+      localControl: 'unavailable before installation',
     })
 
     expect(await readFile(updateLog(), 'utf8')).toBe('install 99.0.0\n')
@@ -266,5 +319,12 @@ describe('in-app updates', () => {
         ),
       )
       .toEqual({ state: 'connected' })
+    const opened = app?.waitForEvent('window')
+    await window.evaluate(() => globalThis.window.ted.request('openWorker'))
+    const worker = await opened
+    if (!worker) throw new Error('Worker window did not reopen after update failure')
+    await worker.evaluate(() => globalThis.window.ted.request('workerStart'))
+    expect(isAlive(workerControl.pid)).toBe(true)
+    expect((await workerRequest(await executionHome(), 'status')).state).toBe('unpaired')
   })
 })

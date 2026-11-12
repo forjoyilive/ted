@@ -16,17 +16,18 @@ export function createWorkerWindow(hidden = false) {
   const owner = () => createHash('sha256').update(app.getPath('userData')).digest('hex')
   let starting: ReturnType<typeof startExecutionService> | undefined
   let closing: Promise<void> | undefined
+  let updating = false
   async function ensure() {
-    if (closing) throw new Error('Worker is stopping')
+    if (closing || updating) throw new Error('Worker is stopping')
     starting ??= startExecutionService(home, process.env, owner()).finally(() => {
       starting = undefined
     })
     await starting
-    if (closing) throw new Error('Worker is stopping')
+    if (closing || updating) throw new Error('Worker is stopping')
   }
   return {
     async open() {
-      if (closing) throw new Error('Worker is stopping')
+      if (closing || updating) throw new Error('Worker is stopping')
       if (window && !window.isDestroyed()) {
         if (!hidden) {
           window.show()
@@ -93,6 +94,13 @@ export function createWorkerWindow(hidden = false) {
     },
     async stop() {
       return workerRequest(home, 'stop')
+    },
+    async prepareUpdate() {
+      updating = true
+      await this.close()
+    },
+    resume() {
+      updating = false
     },
     close() {
       closing ??= (async () => {

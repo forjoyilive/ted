@@ -146,6 +146,7 @@ export const executionManifest: { version: 1; scenarios: ExecutionScenario[] } =
         'worker-update-handover',
         'worker-update-cli-owned',
         'worker-startup-update',
+        'worker-update-start-refused',
       ],
       timeoutMs: 360_000,
       prerequisites: [
