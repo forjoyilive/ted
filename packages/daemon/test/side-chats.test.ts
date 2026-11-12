@@ -280,11 +280,11 @@ test('Antigravity Side chats and Automation drafts complete with visible isolate
   const ready = await waitUntil(async () => {
     const value = await client.ok<SideChat>('GET', route)
     if (value.state === 'failed') throw new Error(JSON.stringify(value))
-    return value.state === 'ready' && value.chat.items.some((item) => item.kind === 'tool')
+    return value.state === 'ready' && value.chat?.items.some((item) => item.kind === 'tool')
       ? value
       : undefined
   }, 'isolated Side chat tool reply')
-  expect(ready.chat.items).toEqual(
+  expect(ready.chat?.items).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ kind: 'tool', status: 'done' }),
       expect.objectContaining({ kind: 'agent', text: 'Supplied context reply.' }),
@@ -295,7 +295,7 @@ test('Antigravity Side chats and Automation drafts complete with visible isolate
   expect(launch.args).not.toContain('--dangerously-skip-permissions')
   await daemon?.stop()
   client = await start(true)
-  expect((await client.ok<SideChat>('GET', route)).chat.items).toEqual(ready.chat.items)
+  expect((await client.ok<SideChat>('GET', route)).chat?.items).toEqual(ready.chat?.items)
   await client.ok('POST', `${route}/messages`, { text: 'Continue.' })
   await waitUntil(async () => {
     const value = await client.ok<SideChat>('GET', route)

@@ -1000,6 +1000,7 @@ test.skipIf(!realAntigravity).each([false, true])(
     await once(server, 'listening')
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('Missing model endpoint')
+    const port = address.port
     const runDir = path.join(root, 'runs', 'chat')
     let child: ReturnType<typeof spawn> | undefined
     let closed: Promise<unknown> | undefined
@@ -1029,7 +1030,7 @@ test.skipIf(!realAntigravity).each([false, true])(
         // The native CLI talks only to this fixture; no Google key or model endpoint is used.
         const running = spawn(launch.command, launch.args, {
           cwd: launch.cwd ?? runDir,
-          env: { ...launch.env, GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${address.port}` },
+          env: { ...launch.env, GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${port}` },
           stdio: ['pipe', 'pipe', 'pipe'],
         })
         child = running
