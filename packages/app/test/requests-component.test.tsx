@@ -1430,11 +1430,12 @@ test('previous Review retains its recorded Check plan and acceptance after later
   expect(api.request).toHaveBeenCalledWith('checkOutput', 'old-tail', 0)
 })
 
-test('repair creation stays a draft until approval and queues by default', async () => {
+test('repair drafts survive switching and keyboard submission uses the valid repair action', async () => {
   const { handle, answer } = requestApi()
-  const resolve = vi.fn(() => ({}))
+  const pending = deferred<object>()
+  const resolve = vi.fn(() => pending.promise)
   handle('resolveFailure', resolve)
-  handle('listTasks', () => [task()])
+  handle('listTasks', () => [task(), task({ id: 'NB-2', displayId: 'NB-2', number: 2 })])
   handle('listFailures', () => [
     {
       id: 'repair-failure',
@@ -1474,18 +1475,36 @@ test('repair creation stays a draft until approval and queues by default', async
     'Keep the filter change focused.',
   )
   await u.click(screen.getByRole('radio', { name: 'Wait for a repair Task' }))
-  await u.click(await screen.findByRole('radio', { name: 'Create a repair Task' }))
+  const answerBox = screen.getByRole('textbox', { name: 'Your answer' })
+  const send = () => screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
+  expect(send().disabled).toBe(true)
+  await u.click(answerBox)
+  await u.keyboard('{Enter}')
   expect(resolve).not.toHaveBeenCalled()
   expect(answer).not.toHaveBeenCalled()
+  await u.click(await screen.findByRole('button', { name: 'Choose repair' }))
+  await u.click(screen.getByRole('option', { name: /NB-2/ }))
+  await u.click(screen.getByRole('radio', { name: 'Retry' }))
+  expect(screen.queryByRole('region', { name: 'Wait for a repair Task' })).toBeNull()
+  await u.click(screen.getByRole('radio', { name: 'Wait for a repair Task' }))
+  expect(screen.getByRole('button', { name: 'Remove NB-2' })).toBeTruthy()
   expect(
-    (
-      screen.getByRole('checkbox', {
-        name: 'Queue the repair to start after approval',
-      }) as HTMLInputElement
-    ).checked,
+    (screen.getByRole('radio', { name: 'Use an existing Task' }) as HTMLInputElement).checked,
   ).toBe(true)
+  await u.click(screen.getByRole('radio', { name: 'Create a repair Task' }))
+  const queue = () =>
+    screen.getByRole('checkbox', {
+      name: 'Queue the repair to start after approval',
+    }) as HTMLInputElement
+  expect(queue().checked).toBe(true)
   await u.clear(screen.getByRole('textbox', { name: 'Repair title' }))
   await u.type(screen.getByRole('textbox', { name: 'Repair title' }), 'Fix export labels')
+  await u.clear(screen.getByRole('textbox', { name: 'Repair description' }))
+  await u.type(
+    screen.getByRole('textbox', { name: 'Repair description' }),
+    'Restore export labels.',
+  )
+  await u.click(queue())
   await u.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(resolve).not.toHaveBeenCalled()
   await u.click(screen.getByRole('radio', { name: 'Wait for a repair Task' }))
@@ -1494,8 +1513,31 @@ test('repair creation stays a draft until approval and queues by default', async
   expect(resolve).not.toHaveBeenCalled()
   expect(answer).not.toHaveBeenCalled()
   await u.click(screen.getByRole('radio', { name: 'Wait for a repair Task' }))
-  await u.click(await screen.findByRole('radio', { name: 'Create a repair Task' }))
-  await u.click(screen.getByRole('button', { name: 'Send' }))
+  expect(
+    (screen.getByRole('radio', { name: 'Create a repair Task' }) as HTMLInputElement).checked,
+  ).toBe(true)
+  expect((screen.getByRole('textbox', { name: 'Repair title' }) as HTMLInputElement).value).toBe(
+    'Fix export labels',
+  )
+  expect(
+    (screen.getByRole('textbox', { name: 'Repair description' }) as HTMLTextAreaElement).value,
+  ).toBe('Restore export labels.')
+  expect(queue().checked).toBe(false)
+  await u.click(screen.getByRole('radio', { name: 'Use an existing Task' }))
+  expect(screen.getByRole('button', { name: 'Remove NB-2' })).toBeTruthy()
+  await u.click(screen.getByRole('radio', { name: 'Create a repair Task' }))
+  await u.clear(screen.getByRole('textbox', { name: 'Repair title' }))
+  expect(send().disabled).toBe(true)
+  await u.click(answerBox)
+  await u.keyboard('{Enter}')
+  expect(resolve).not.toHaveBeenCalled()
+  await u.type(screen.getByRole('textbox', { name: 'Repair title' }), 'Fix export labels')
+  expect(send().disabled).toBe(false)
+  await u.click(answerBox)
+  await u.keyboard('{Enter}')
+  fireEvent.keyDown(answerBox, { key: 'Enter' })
+  expect(resolve).toHaveBeenCalledOnce()
+  expect(screen.getByRole('radio', { name: 'Retry' }).matches(':disabled')).toBe(true)
   await waitFor(() =>
     expect(resolve).toHaveBeenCalledWith('NB-1', 'repair-failure', {
       requestId: 'c1',
@@ -1503,12 +1545,14 @@ test('repair creation stays a draft until approval and queues by default', async
       reason: 'Keep the filter change focused.',
       repair: expect.objectContaining({
         kind: 'new',
-        start: true,
-        description: expect.stringContaining('Reproduced on main'),
+        title: 'Fix export labels',
+        start: false,
+        description: 'Restore export labels.',
       }),
     }),
   )
   expect(answer).not.toHaveBeenCalled()
+  await act(async () => pending.resolve({}))
 })
 
 test('Inbox right-click opens the clicked request and copies its full message without answering', async () => {

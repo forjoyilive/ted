@@ -9,7 +9,7 @@ import type {
   ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
 import {
@@ -413,6 +413,7 @@ export function RequestCard({
   onOpenPlan?: ((planId: string) => void) | undefined
 }) {
   const now = useNow()
+  const repairFormId = useId()
   const [selection, setSelection] = useState<QuestionSelection>()
   const [otherText, setOtherText] = useState('')
   const sendingRef = useRef(false)
@@ -648,6 +649,7 @@ export function RequestCard({
             <textarea
               className={styles.box}
               data-answer-box
+              form={repairing ? repairFormId : undefined}
               aria-label="Your answer"
               placeholder={
                 request.simulator
@@ -674,21 +676,31 @@ export function RequestCard({
               onKeyDown={
                 request.permission || request.simulator
                   ? undefined
-                  : sendOnEnter(sendAnswer, () => !!ready && !sending)
+                  : (event) =>
+                      repairing
+                        ? sendOnEnter(
+                            () => event.currentTarget.form?.requestSubmit(),
+                            () => !sending,
+                          )(event)
+                        : sendOnEnter(sendAnswer, () => !!ready && !sending)(event)
               }
             />
           )}
           {needsReason && (
             <p className={styles.caption}>Write a reason before sending this decision.</p>
           )}
-          {repairing && (
-            <FailureRepairForm
-              task={task}
-              request={request}
-              reason={text}
-              onCancel={() => setSelection(undefined)}
-              onSendingChange={setSending}
-            />
+          {questionChoices && request.choices?.includes('Wait for a repair Task') && (
+            <div hidden={!repairing}>
+              <FailureRepairForm
+                id={repairFormId}
+                active={repairing}
+                task={task}
+                request={request}
+                reason={text}
+                onCancel={() => setSelection(undefined)}
+                onSendingChange={setSending}
+              />
+            </div>
           )}
           {error !== undefined && (
             <p className={styles.error} role="alert">
