@@ -781,3 +781,54 @@ function required<T>(value: T | undefined | null): T {
   if (value === undefined || value === null) throw new Error('Required fixture evidence is missing')
   return value
 }
+
+test('Today runs from local midnight by the hour and compares with yesterday up to the same time', () => {
+  const at = (day: number, hours: number, minutes = 0) =>
+    new Date(2026, 10, day, hours, minutes).getTime()
+  const asOf = at(12, 14, 40)
+  const done = (id: string, time: number): DashboardTaskFacts => ({
+    ...completed(id, 0, 1, null),
+    createdAt: iso(time - hour),
+    entries: [{ stage: 'done', at: iso(time) }],
+  })
+  const result = factoryDashboard(
+    [
+      done('midnight', at(12, 0)),
+      done('morning', at(12, 9, 30)),
+      done('latest', at(12, 14, 10)),
+      done('yesterday', at(11, 9)),
+      done('same-time', at(11, 14, 40)),
+      done('evening', at(11, 23, 59)),
+      done('older', at(10, 23, 59)),
+    ],
+    'today',
+    asOf,
+  )
+  expect(result.current).toMatchObject({
+    from: iso(at(12, 0)),
+    to: iso(asOf),
+    taskIds: ['midnight', 'morning', 'latest'],
+  })
+  expect(result.current.buckets).toHaveLength(15)
+  expect(result.current.buckets[9]?.taskIds).toEqual(['morning'])
+  expect(result.current.buckets[14]).toMatchObject({ to: iso(asOf), taskIds: ['latest'] })
+  expect(result.previous).toMatchObject({
+    from: iso(at(11, 0)),
+    to: iso(at(11, 14, 40)),
+    taskIds: ['yesterday'],
+  })
+  expect(result.previous?.buckets).toHaveLength(24)
+  expect(result.previous?.buckets[14]?.taskIds).toEqual(['same-time'])
+  expect(result.previous?.buckets[23]).toMatchObject({
+    to: iso(at(12, 0)),
+    taskIds: ['evening'],
+  })
+  expect(result.comparison?.completed).toEqual({ absolute: 2, percent: 200 })
+  const ids = result.tasks.map((t) => t.id)
+  expect(ids).toEqual(expect.arrayContaining(['same-time', 'evening']))
+  expect(ids).not.toContain('older')
+  expect(result.flow.previous).toMatchObject({
+    from: iso(at(11, 0)),
+    to: iso(at(11, 14, 40)),
+  })
+})

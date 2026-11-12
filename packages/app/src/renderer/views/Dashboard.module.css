@@ -167,6 +167,11 @@
   stroke-width: 1px;
 }
 
+.nowLine {
+  stroke: var(--text-muted);
+  stroke-width: 1px;
+  stroke-dasharray: 2 3;
+}
 .currentLine,
 .previousLine {
   fill: none;

@@ -21,6 +21,7 @@ export interface DashboardTaskFacts extends FlowFacts {
 }
 
 const dayMs = 86_400_000
+const hourMs = 3_600_000
 const iso = (time: number) => new Date(time).toISOString()
 
 function elapsed(start: number, end: number): number | null {
@@ -60,26 +61,52 @@ function bucket(tasks: readonly DashboardTask[], from: number, to: number): Dash
   }
 }
 
+type Edges = readonly (readonly [number, number])[]
+
+function split(from: number, to: number, bins: number): Edges {
+  return Array.from({ length: bins }, (_, index) => [
+    Math.floor(from + ((to - from) * index) / bins),
+    Math.floor(from + ((to - from) * (index + 1)) / bins),
+  ])
+}
+
+function hours(from: number, to: number): Edges {
+  const edges: [number, number][] = []
+  for (let at = from; at < to; at += hourMs) edges.push([at, Math.min(at + hourMs, to)])
+  return edges
+}
+
+function startOfDay(time: number): number {
+  const date = new Date(time)
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number) {
+  if (range === 'today') {
+    const from = startOfDay(asOf)
+    const yesterday = startOfDay(from - 1)
+    return {
+      from,
+      previous: { from: yesterday, to: Math.min(from, yesterday + (asOf - from)) },
+      previousDay: yesterday,
+    }
+  }
+  const from = asOf - (range === '7d' ? 7 : 30) * dayMs
+  return { from, previous: { from: from - (asOf - from), to: from }, previousDay: null }
+}
+
 function period(
   tasks: readonly DashboardTask[],
   from: number | null,
   to: number,
-  bins: number,
+  edges: Edges,
 ): DashboardPeriod {
   const whole =
     from === null
       ? { taskIds: [], created: sample([], 'createdMs'), intake: sample([], 'intakeMs') }
       : bucket(tasks, from, to)
-  const buckets =
-    from === null
-      ? []
-      : Array.from({ length: bins }, (_, index) =>
-          bucket(
-            tasks,
-            Math.floor(from + ((to - from) * index) / bins),
-            Math.floor(from + ((to - from) * (index + 1)) / bins),
-          ),
-        )
+  const buckets = edges.map(([start, end]) => bucket(tasks, start, end))
   return { ...whole, from: from === null ? null : iso(from), to: iso(to), buckets }
 }
 
@@ -137,12 +164,8 @@ export function factoryDashboard(
     })
   }
   const times = tasks.flatMap((task) => (task.doneAt === null ? [] : [Date.parse(task.doneAt)]))
-  const from =
-    range === 'all'
-      ? times.length
-        ? Math.min(...times)
-        : null
-      : asOf - (range === '7d' ? 7 : 30) * dayMs
+  const windows = range === 'all' ? null : rangeWindows(range, asOf)
+  const from = windows ? windows.from : times.length ? Math.min(...times) : null
   const bins =
     range === 'all'
       ? from === null
@@ -151,10 +174,28 @@ export function factoryDashboard(
       : range === '7d'
         ? 7
         : 30
-  const current = period(tasks, from, asOf, bins)
-  const previous =
-    range === 'all' || from === null ? null : period(tasks, from - (asOf - from), from, bins)
-  const selected = new Set([...current.taskIds, ...(previous?.taskIds ?? []), ...unavailableIds])
+  const current = period(
+    tasks,
+    from,
+    asOf,
+    from === null ? [] : range === 'today' ? hours(from, asOf) : split(from, asOf, bins),
+  )
+  const previous = windows
+    ? period(
+        tasks,
+        windows.previous.from,
+        windows.previous.to,
+        windows.previousDay === null
+          ? split(windows.previous.from, windows.previous.to, bins)
+          : hours(windows.previousDay, windows.from),
+      )
+    : null
+  const selected = new Set([
+    ...current.taskIds,
+    ...(previous?.taskIds ?? []),
+    ...(previous?.buckets.flatMap((b) => b.taskIds) ?? []),
+    ...unavailableIds,
+  ])
   return {
     asOf: iso(asOf),
     range,
@@ -170,6 +211,13 @@ export function factoryDashboard(
             created: change(current.created.value, previous.created.value),
             intake: change(current.intake.value, previous.intake.value),
           },
-    flow: dashboardFlow(facts, range, asOf, current.taskIds, previous?.taskIds ?? []),
+    flow: dashboardFlow(
+      facts,
+      windows ? windows.from : null,
+      windows ? windows.previous : null,
+      asOf,
+      current.taskIds,
+      previous?.taskIds ?? [],
+    ),
   }
 }
