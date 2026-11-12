@@ -184,7 +184,10 @@ describe('TED app', () => {
       console.log('Empty-app quit:', JSON.stringify({ home: ctx.home, ...observation }))
       try {
         await mkdir(path.dirname(file), { recursive: true })
-        await writeFile(file, JSON.stringify({ electronPid, daemonPid: pid, observations }, null, 2))
+        await writeFile(
+          file,
+          JSON.stringify({ electronPid, daemonPid: pid, observations }, null, 2),
+        )
       } catch {
         console.warn('Empty-app quit: could not save diagnostics')
       }
