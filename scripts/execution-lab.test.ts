@@ -27,7 +27,7 @@ import {
   serviceEnvironment,
   waitForProcessExit,
 } from './execution-lab/host.ts'
-import { productPairing } from './execution-lab/product-pairing.ts'
+import { productPairing, supportedLanRoute } from './execution-lab/product-pairing.ts'
 import {
   bootstrap,
   callHost,
@@ -79,6 +79,55 @@ async function scratch() {
 }
 
 describe('lab configuration and SSH control', () => {
+  it('requires the OS route to use the recorded local Wi-Fi or Ethernet interface', async () => {
+    const address = '192.168.88.20'
+    const interfaces = {
+      en0: [
+        {
+          address,
+          internal: false,
+          family: 'IPv4' as const,
+          netmask: '255.255.255.0',
+          mac: '00:11:22:33:44:55',
+          cidr: `${address}/24`,
+        },
+      ],
+    }
+    const hardware = 'Hardware Port: Wi-Fi\nDevice: en0\nEthernet Address: 00:11:22:33:44:55\n'
+    expect(supportedLanRoute(address, ' interface: en0\n', hardware, interfaces)).toEqual({
+      address,
+      interface: 'en0',
+      hardwarePort: 'Wi-Fi',
+    })
+    expect(
+      supportedLanRoute(
+        address,
+        ' interface: en0\n',
+        hardware.replace('Wi-Fi', 'USB Ethernet'),
+        interfaces,
+      ).hardwarePort,
+    ).toBe('USB Ethernet')
+    for (const route of [' interface: utun4\n', ' interface: bridge0\n', ' interface: en1\n', ''])
+      expect(() => supportedLanRoute(address, route, hardware, interfaces)).toThrow(
+        'verified local',
+      )
+    expect(() =>
+      supportedLanRoute(
+        address,
+        ' interface: en0\n',
+        'Hardware Port: VPN\nDevice: en0\n',
+        interfaces,
+      ),
+    ).toThrow('verified local')
+    expect(() =>
+      supportedLanRoute('192.168.88.21', ' interface: en0\n', hardware, interfaces),
+    ).toThrow('verified local')
+    await observe('pairing-lab-interface', {
+      wifiAndEthernet: 'supported with matching assigned address',
+      tunnelBridgeMissingAndUnassigned: 'refused before product transport',
+    })
+  })
+
   it('product pairing cleans its real controller fixture without replacing the original failure', async () => {
     const run = path.join(await scratch(), randomUUID())
     await mkdir(run)

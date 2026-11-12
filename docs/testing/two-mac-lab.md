@@ -224,8 +224,13 @@ TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/validate-execution-lab
 
 This selects a dedicated product adapter after the existing pinned-host preflight,
 committed content verification, deployment and build on both Macs. It chooses the
-controller’s explicitly assigned local route to the approved execution Mac, binds
-only that private address, and connects the remote worker outbound over the product
+controller’s explicitly assigned local route to the approved execution Mac. Before
+pairing, it checks the OS route against the local interface/address inventory and
+macOS hardware-port inventory. Only a Wi-Fi or Ethernet `enN` interface with the
+selected address is supported; VPN/tunnel, bridge, unknown and unassigned routes
+fail the checkpoint. Reports record the selected address, interface and hardware
+port beside the TLS endpoint. The adapter binds only that private address and
+connects the remote worker outbound over the product
 TLS transport. SSH supplies deployment/process control and transfers enrollment
 details as private stdin setup data; it does not implement enrollment, readiness or
 revocation. Enrollment details are never returned in report observations or printed
@@ -251,3 +256,12 @@ or the existing ordinary fixture markers; it rechecks process identity before an
 signal. If interrupted, use the normal `--action cleanup --run-id <printed-id>`
 recovery with the same external config and scenario. Never delete an unmarked root,
 forward an SSH agent or copy a private key into a deployment/report.
+
+
+For the replacement-pairing repair, Validate runs the `pairing-replacement` shared
+scenario once. It selects the daemon pairing, native app pairing and lab adapter
+files (three files total), covering CLI Stop → Pair and app Quit → Pair with a
+still-valid saved grant, fresh approval on a second controller, ordinary restart,
+and supported-interface/refused-tunnel adapter boundaries. The physical
+`product-pairing` checkpoint still needs a fresh report from the committed
+candidate; adapter parser coverage does not substitute for either Mac.

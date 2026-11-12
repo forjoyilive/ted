@@ -6,7 +6,12 @@ import { readDaemonInfo } from '@ted/protocol'
 import { _electron as electron } from 'playwright'
 import { expect, test } from 'vitest'
 import { isAlive, waitUntil } from '../../daemon/test/helpers.ts'
+import { createExecutionFixture } from '../../daemon/test/support/execution-fixture.ts'
 import { observe } from '../../daemon/test/support/execution-observations.ts'
+import {
+  pendingPairing,
+  preparePairingController,
+} from '../../daemon/test/support/execution-pairing.ts'
 import {
   appDir,
   ctx,
@@ -105,3 +110,68 @@ test('worker-only mode starts no Factory daemon, survives window closure and sto
     quit: 'waited for startup and confirmed owned worker exit',
   })
 })
+
+test('worker Pair after app Quit replaces a still-valid saved controller without resuming it', async () => {
+  const fixture = await createExecutionFixture()
+  const home = path.join(await realpath(ctx.home), 'replacement-worker')
+  ctx.extraEnv.TED_EXECUTION_HOME = home
+  async function openWorker() {
+    ctx.app = await electron.launch({
+      executablePath: electronPath,
+      args: [appDir, '--worker'],
+      env: env(),
+    })
+    return loadedWindow(ctx.app)
+  }
+  try {
+    const first = await fixture.machine('controller')
+    const second = await fixture.machine('controller')
+    const original = await preparePairingController(first)
+    const replacement = await preparePairingController(second)
+    let window = await openWorker()
+    await window.getByLabel('Pairing details', { exact: true }).fill(JSON.stringify(original.offer))
+    await window.getByRole('button', { name: 'Connect to controller', exact: true }).click()
+    const review = await pendingPairing(first)
+    const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [] })
+    await expect.poll(async () => (await workerRequest(home, 'status')).state).toBe('connected')
+    const app = ctx.app
+    if (!app) throw new Error('No app')
+    const exited = once(app.process(), 'exit')
+    await app.evaluate(({ app }) => app.quit()).catch(() => undefined)
+    await exited
+    ctx.app = undefined
+    await expect(workerRequest(home, 'status')).rejects.toThrow()
+    window = await openWorker()
+    await window
+      .getByLabel('Pairing details', { exact: true })
+      .fill(JSON.stringify(replacement.offer))
+    await window.getByRole('button', { name: 'Connect to controller', exact: true }).click()
+    const pending = await pendingPairing(second)
+    expect(await workerRequest(home, 'status')).toMatchObject({
+      state: 'pending',
+      controllerPin: replacement.offer.controllerPin,
+      publicKey: review.publicKey,
+      scopes: [],
+    })
+    expect((await workerRequest(home, 'status')).grantId).toBeUndefined()
+    expect(
+      (await first.client.executionMachines()).machines.find((m) => m.id === oldGrant.id)
+        ?.revokedAt,
+    ).toBeUndefined()
+    const grant = await second.client.approveExecution({ id: pending.id, scopes: [] })
+    expect(grant.id).not.toBe(oldGrant.id)
+    await expect.poll(async () => (await workerRequest(home, 'status')).grantId).toBe(grant.id)
+    await expect.poll(async () => (await workerRequest(home, 'status')).state).toBe('connected')
+    await observe('pairing-app-replacement', {
+      oldController: original.offer.controllerPin,
+      newController: replacement.offer.controllerPin,
+      oldGrant: oldGrant.id,
+      newGrant: grant.id,
+      appQuit: 'owned process exited; Pair after reopening required fresh approval',
+    })
+  } finally {
+    if (ctx.app) await ctx.app.close()
+    ctx.app = undefined
+    await fixture.close()
+  }
+}, 120_000)

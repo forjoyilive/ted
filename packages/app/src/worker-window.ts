@@ -17,9 +17,9 @@ export function createWorkerWindow(hidden = false) {
   let starting: ReturnType<typeof startExecutionService> | undefined
   let closing: Promise<void> | undefined
   let updating = false
-  async function ensure() {
+  async function ensure(resume = true) {
     if (closing || updating) throw new Error('Worker is stopping')
-    starting ??= startExecutionService(home, process.env, owner()).finally(() => {
+    starting ??= startExecutionService(home, process.env, owner(), { resume }).finally(() => {
       starting = undefined
     })
     await starting
@@ -85,7 +85,7 @@ export function createWorkerWindow(hidden = false) {
     },
     async pair(value: unknown) {
       const input = parseWorkerPairRequest(value)
-      await ensure()
+      await ensure(false)
       return workerRequest(home, 'pair', input)
     },
     async start() {

@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
@@ -270,6 +271,76 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     await fixture.close()
   }
 }, 180_000)
+
+test('CLI Pair replaces a still-valid saved controller after process Stop and requires fresh approval', async () => {
+  const fixture = await createExecutionFixture()
+  const home = path.join(fixture.root, 'replacement-worker')
+  const env = { ...fixtureEnvironment(home), TED_EXECUTION_HOME: home }
+  async function cli(operation: string, input = '') {
+    const child = spawn(
+      process.execPath,
+      [path.resolve('packages/cli/src/main.ts'), 'execution', operation],
+      {
+        env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    )
+    let output = ''
+    child.stdout.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
+    const exited = new Promise<void>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', (code) =>
+        code === 0 ? resolve() : reject(new Error(`CLI ${operation} failed: ${output}`)),
+      )
+    })
+    child.stdin.end(input)
+    await exited
+  }
+  const worker = executionWorkerFixture(home)
+  try {
+    const first = await fixture.machine('controller')
+    const second = await fixture.machine('controller')
+    const original = await preparePairingController(first)
+    const replacement = await preparePairingController(second)
+    await worker.start()
+    await worker.request('pair', { details: JSON.stringify(original.offer), capacity: 2 })
+    const review = await pendingPairing(first)
+    const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [] })
+    await worker.state('connected')
+    await cli('stop')
+    await cli('pair', JSON.stringify(replacement.offer))
+    const pending = await pendingPairing(second)
+    expect(await worker.state('pending')).toMatchObject({
+      publicKey: review.publicKey,
+      controllerPin: replacement.offer.controllerPin,
+      scopes: [],
+    })
+    expect((await worker.request('status')).grantId).toBeUndefined()
+    expect(
+      (await first.client.executionMachines()).machines.find((m) => m.id === oldGrant.id)
+        ?.revokedAt,
+    ).toBeUndefined()
+    const newGrant = await second.client.approveExecution({ id: pending.id, scopes: [] })
+    expect(newGrant.id).not.toBe(oldGrant.id)
+    expect(await worker.state('connected')).toMatchObject({ grantId: newGrant.id })
+    await observe('pairing-cli-replacement', {
+      oldController: original.offer.controllerPin,
+      newController: replacement.offer.controllerPin,
+      oldGrant: oldGrant.id,
+      newGrant: newGrant.id,
+      processStop: 'CLI Stop followed directly by Pair',
+      approval: 'fresh app approval required',
+    })
+  } finally {
+    await worker.close()
+    await fixture.close()
+  }
+}, 120_000)
 
 test('execution storage refuses linked homes and child environment excludes broad credentials', async () => {
   const fixture = await createExecutionFixture()

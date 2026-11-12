@@ -1,7 +1,10 @@
+import { execFile } from 'node:child_process'
 import dgram from 'node:dgram'
 import { mkdir } from 'node:fs/promises'
+import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+import { promisify } from 'node:util'
 import { FixtureMachine } from '../../packages/daemon/test/support/execution-fixture.ts'
 import {
   freeExecutionPort,
@@ -10,14 +13,47 @@ import {
 import type { WorkerStatus } from '../../packages/protocol/src/execution-pairing.ts'
 import type { ProductWorkerAction } from './product-worker.ts'
 
-async function localRoute(remote: string): Promise<string> {
+export function supportedLanRoute(
+  address: string,
+  route: string,
+  hardware: string,
+  interfaces = networkInterfaces(),
+): { address: string; interface: string; hardwarePort: string } {
+  if (address.startsWith('127.'))
+    throw new Error('Real two-Mac pairing requires a non-loopback local address')
+  const device = /^\s*interface:\s*(\S+)\s*$/m.exec(route)?.[1]
+  const ports = hardware.split(/\r?\n\s*\r?\n/)
+  const port = ports.find((block) =>
+    block.split(/\r?\n/).some((line) => line.trim() === `Device: ${device}`),
+  )
+  const hardwarePort = port && /^Hardware Port: (.+)$/m.exec(port)?.[1]
+  if (
+    !device ||
+    !/^en\d+$/.test(device) ||
+    !hardwarePort ||
+    !/Wi-Fi|Ethernet/.test(hardwarePort) ||
+    !interfaces[device]?.some((entry) => entry.address === address && !entry.internal)
+  )
+    throw new Error('Real two-Mac pairing requires a verified local Wi-Fi or Ethernet route')
+  return { address, interface: device, hardwarePort }
+}
+
+async function localRoute(remote: string) {
   const socket = dgram.createSocket('udp4')
   try {
     await new Promise<void>((resolve, reject) => {
       socket.once('error', reject)
       socket.connect(22, remote, resolve)
     })
-    return socket.address().address
+    const address = socket.address().address
+    if (address.startsWith('127.'))
+      throw new Error('Real two-Mac pairing requires a non-loopback local address')
+    const exec = promisify(execFile)
+    const [route, hardware] = await Promise.all([
+      exec('/sbin/route', ['-n', 'get', remote]),
+      exec('/usr/sbin/networksetup', ['-listallhardwareports']),
+    ])
+    return supportedLanRoute(address, route.stdout, hardware.stdout)
   } finally {
     socket.close()
   }
@@ -53,9 +89,8 @@ export async function productPairing(options: {
     await controller.prepare()
     await controller.start(60_000)
     const factory = await controller.client.addFactory({ repo: controller.origin, key: 'LAB' })
-    const address = await localRoute(options.remoteAddress)
-    if (address === '127.0.0.1')
-      throw new Error('Real two-Mac pairing requires a non-loopback local address')
+    const local = await localRoute(options.remoteAddress)
+    const { address } = local
     await controller.client.configureExecution({ address, port: await freeExecutionPort(address) })
     const offer = await controller.client.createExecutionEnrollment()
     await options.worker({ operation: 'start' })
@@ -121,7 +156,7 @@ export async function productPairing(options: {
         'two-mac-peer-refusal',
         'two-mac-revocation',
       ],
-      endpoint: { address, port: offer.port },
+      endpoint: { ...local, port: offer.port },
       controllerIdentity: offer.controllerPin,
       workerIdentity: pending.publicKey,
       grantId: grant.id,

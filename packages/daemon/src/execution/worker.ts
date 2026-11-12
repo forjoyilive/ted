@@ -146,7 +146,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
         })
     },
     async pair(input: WorkerPairRequest) {
-      if (stopped || working) throw new Error('Stop the worker before pairing again')
+      if (stopped) throw new Error('Execution service is stopping')
       const offer = parseExecutionOffer(JSON.parse(input.details))
       requireExecutionCompatibility(offer)
       if (Date.parse(offer.expiresAt) <= Date.now())
@@ -155,6 +155,8 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
       const observed = await readiness(capacity)
       if (observed.freeBytes < 1024 ** 3)
         throw new Error('Worker needs at least 1 GB free before starting a new connection')
+      await halt()
+      if (stopped) throw new Error('Execution service is stopping')
       abort = new AbortController()
       const signal = abort.signal
       status = {

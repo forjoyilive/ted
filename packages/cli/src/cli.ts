@@ -823,7 +823,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         details,
         capacity: executionCapacity(Number(options.capacity ?? 2)),
       })
-      await startExecutionService(root, env)
+      await startExecutionService(root, env, undefined, { resume: false })
       status = await workerRequest(root, 'pair', input)
     } else if (operation === 'stop') {
       await stopExecutionService(root)

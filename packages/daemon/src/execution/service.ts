@@ -91,6 +91,7 @@ export async function startExecutionService(
   home: string,
   env: NodeJS.ProcessEnv = process.env,
   owner?: string,
+  options: { resume?: boolean } = {},
 ): Promise<{ started: boolean; status: WorkerStatus; owner: string | undefined }> {
   try {
     const status = await workerRequest(home, 'status')
@@ -122,7 +123,7 @@ export async function startExecutionService(
   }
   const entry = nodeEntry(
     path.join(import.meta.dirname, './main.ts'),
-    owner ? ['--owner', owner] : [],
+    [...(owner ? ['--owner', owner] : []), ...(options.resume === false ? ['--no-resume'] : [])],
     childEnv,
   )
   const child = spawn(entry.command, entry.args, {
