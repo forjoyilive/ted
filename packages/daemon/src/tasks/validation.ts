@@ -928,10 +928,9 @@ export function createValidation(options: ValidationOptions) {
       return (
         incorporation !== undefined &&
         !store
-          .listCheckRuns()
+          .listCheckRuns(task.id)
           .some(
             (run) =>
-              run.taskId === task.id &&
               run.stage === task.stage &&
               run.trigger === task.stage &&
               run.startedAt >= incorporation.at &&

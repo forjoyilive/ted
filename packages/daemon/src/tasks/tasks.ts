@@ -229,7 +229,12 @@ import {
   unseen,
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
-import { answered as answeredItems, answeredSince, waiting as waitingItems } from './inbox.ts'
+import {
+  answered as answeredItems,
+  answeredSince,
+  byHuman,
+  waiting as waitingItems,
+} from './inbox.ts'
 import {
   atIdlePoint,
   continueMessage,
@@ -1208,8 +1213,32 @@ export function createTasks(options: {
     return remember(factoryId, resolution).workflow.settings.max_working_runs
   }
 
+  // The pump reads the same Tasks several times per pass. A built Task is reused only
+  // while store.taskVersion() is unchanged, so it is never older than the store.
+  let builtAt = -1
+  const built = new Map<string, StoredTask | undefined>()
+  let builtList: { key: string; tasks: Task[] } | undefined
+  function builtNow(): void {
+    const version = store.taskVersion()
+    if (version === builtAt) return
+    built.clear()
+    builtList = undefined
+    builtAt = version
+  }
+  function taskNow(id: string): StoredTask | undefined {
+    builtNow()
+    if (!built.has(id)) built.set(id, store.getTask(id))
+    return built.get(id)
+  }
+  function tasksNow(ids: ReadonlySet<string>): Task[] {
+    builtNow()
+    const key = [...ids].sort().join(' ')
+    if (builtList?.key !== key) builtList = { key, tasks: store.tasksIn(ids) }
+    return builtList.tasks
+  }
+
   async function slotUse(factoryIds: readonly string[]) {
-    const candidates = store.tasksIn(
+    const candidates = tasksNow(
       new Set([...store.busyTaskIds(), ...holds.keys(), ...subAgents.startingTasks()]),
     )
     const holders = candidates.flatMap((task) => {
@@ -1290,7 +1319,7 @@ export function createTasks(options: {
   function continuationsReady(includeFailures = false): QueueEntry[] {
     return queueOrder<QueueEntry>(
       store.tasksWithQueuedContinuations().flatMap((id) => {
-        const task = store.getTask(id)
+        const task = taskNow(id)
         if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
         if (holds.has(id) || advancing.has(id) || leadLifecycle.applying(id)) return []
         if (!includeFailures && continuationFailures.has(id)) return []
@@ -1391,7 +1420,7 @@ export function createTasks(options: {
   function heldReady(): QueueEntry[] {
     const paused = store.agentPauses()
     return store.heldRuns().flatMap((held) => {
-      const task = store.getTask(held.taskId)
+      const task = taskNow(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
       if (
         !task ||
@@ -1410,7 +1439,7 @@ export function createTasks(options: {
     return leadLifecycle
       .reviveCandidates()
       .flatMap(({ taskId, factoryId, agent }) =>
-        agentStartHold(store, agent, store.getTask(taskId)?.leadRunId) ||
+        agentStartHold(store, agent, taskNow(taskId)?.leadRunId) ||
         paused[agent] !== undefined ||
         holds.has(taskId)
           ? []
@@ -1478,7 +1507,7 @@ export function createTasks(options: {
   async function fill(): Promise<void> {
     if (closed || store.newWorkHold() !== undefined) return
     for (const id of store.preparedTasks()) {
-      const task = store.getTask(id)
+      const task = taskNow(id)
       if (!task || task.archived || task.preparation !== 'ready') continue
       if (task.runs.length > 0) {
         stopPreparedLead(task)
@@ -1488,7 +1517,7 @@ export function createTasks(options: {
     const automatic = queueOrder<QueueEntry>(
       [...store.backlogTasks(), ...store.preparedTasks().map((id) => ({ id }))]
         .flatMap(({ id }) => {
-          const stored = store.getTask(id)
+          const stored = taskNow(id)
           return stored && (backlogEligible(stored) || preparedEligible(stored)) ? [stored] : []
         })
         .map((task) => ({
@@ -1525,7 +1554,7 @@ export function createTasks(options: {
     }
     for (const entry of automatic) {
       if (closed || store.newWorkHold() !== undefined) return
-      const task = store.getTask(entry.id)
+      const task = taskNow(entry.id)
       if (!task || !(backlogEligible(task) || preparedEligible(task))) continue
       try {
         const { use } = await slotUse([task.factoryId])
@@ -1559,7 +1588,7 @@ export function createTasks(options: {
   function runnable<T extends { id: string }>(entries: readonly T[]): T[] {
     const paused = store.agentPauses()
     return entries.filter((entry) => {
-      const agent = store.getTask(entry.id)?.lead?.agent
+      const agent = taskNow(entry.id)?.lead?.agent
       return agent === undefined || (!agentStartHold(store, agent) && paused[agent] === undefined)
     })
   }
@@ -1584,7 +1613,7 @@ export function createTasks(options: {
     ])
     for (const entry of ordered) {
       if (entry.kind !== 'continuation') continue
-      const runId = store.getTask(entry.id)?.leadRunId
+      const runId = taskNow(entry.id)?.leadRunId
       if (runId) queuedRuns.add(runId)
     }
     store.setQueueActivity({
@@ -2380,7 +2409,7 @@ export function createTasks(options: {
     // already noted, or its tested context counts as superseded.
     for (const { id, stage } of [...unarchived, ...left]) {
       if (stage === 'done') continue
-      const task = store.getTask(id)
+      const task = taskNow(id)
       if (!task) continue
       let ci: string | null | undefined
       let ciFailures: string[] | undefined
@@ -2399,7 +2428,7 @@ export function createTasks(options: {
       if (stage === 'done' && !repos.some((repo) => read.pulls.has(`${id}:${repo.name}`))) continue
       await breathe()
       if (closed) return
-      const task = store.getTask(id)
+      const task = taskNow(id)
       if (!task || task.archived) continue
       try {
         recordPullRequests(task, read)
@@ -2738,7 +2767,7 @@ export function createTasks(options: {
     merging.add(taskId)
     const name = find(taskId).displayId
     const canAct = () => {
-      const current = store.getTask(taskId)
+      const current = taskNow(taskId)
       return !current?.stopped && !checking.has(taskId) && !holdsMerge(taskId)
     }
     inBackground(`merge ${name}’s pull requests`, async () => {
@@ -2746,15 +2775,15 @@ export function createTasks(options: {
         let urgent = true
         let busy = 0
         while (!closed) {
-          if (!watched(store.getTask(taskId))) return
+          if (!watched(taskNow(taskId))) return
           await pullRequestQueue.get(taskId)
           let next: MergeCycle = 'wait'
           let read: PullRequestRead | undefined
           if (canAct() && watch) {
             read = await watch.next({ now: urgent })
-            if (closed || !watched(store.getTask(taskId))) return
+            if (closed || !watched(taskNow(taskId))) return
           }
-          const current = store.getTask(taskId)
+          const current = taskNow(taskId)
           const repair =
             current &&
             !current.stopped &&
@@ -5751,9 +5780,10 @@ export function createTasks(options: {
   const creatingSetup = new Set<string>()
 
   function openSetupTask(factoryId: string): Task | undefined {
-    return store
-      .listTasks()
+    const open = store
+      .taskOutlines()
       .find((t) => t.factoryId === factoryId && t.setup && !t.archived && t.stage !== 'done')
+    return open && store.tasksIn(new Set([open.id])).at(0)
   }
 
   async function makeSetupTask(factory: StoredFactory, byHand: boolean): Promise<Task> {
@@ -5803,8 +5833,7 @@ export function createTasks(options: {
     const factory = store.getFactory(factoryId)
     if (!factory) return
     const ref = { problem: setupProblem, factoryId }
-    const setupTasks = store.listTasks().filter((t) => t.factoryId === factoryId && t.setup)
-    const open = openSetupTask(factoryId)
+    const setupTasks = store.taskOutlines().filter((t) => t.factoryId === factoryId && t.setup)
     const done =
       factoryHasSettings(factoryId) ||
       setupTasks.length === 0 ||
@@ -5813,6 +5842,7 @@ export function createTasks(options: {
       if (store.getBanner(bannerId(ref))) banners.clear(ref)
       return
     }
+    const open = openSetupTask(factoryId)
     banners.raise({
       ...ref,
       severity: 'warning',
@@ -8102,7 +8132,7 @@ export function createTasks(options: {
 
     answered() {
       const now = new Date()
-      const requests = store.listAnsweredRequests(answeredSince(now))
+      const requests = store.listAnsweredRequests(answeredSince(now), byHuman)
       return answeredItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))), now)
     },
 
@@ -8681,10 +8711,14 @@ export function createTasks(options: {
       continuationFailures.clear()
       if (factoryId !== undefined) caps.delete(factoryId)
       void pump()
-      for (const task of store.listTasks()) {
-        if (task.runs.length > 0) {
-          applyLead(task.id).catch((error: unknown) =>
-            console.error(`couldn’t apply ${task.displayId}’s Task Lead:`, error),
+      const live = new Set(store.liveRuns().flatMap((run) => run.taskId ?? []))
+      for (const { id } of store.taskOutlines()) {
+        if (live.has(id)) {
+          applyLead(id).catch((error: unknown) =>
+            console.error(
+              `couldn’t apply ${store.getTask(id)?.displayId ?? id}’s Task Lead:`,
+              error,
+            ),
           )
         }
       }
