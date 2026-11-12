@@ -675,6 +675,7 @@ export interface TedStore extends TaskHistory {
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
   blockedBy(blockerId: string): string[]
+  openBlockedTasks(): string[]
   queue(): QueuedTask[]
   dequeue(taskId: string): Task
   blockers(taskId: string): BlockerLink[]
@@ -3342,6 +3343,15 @@ export async function openStore({
     },
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),
+    openBlockedTasks: () =>
+      [
+        ...new Set(
+          store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId),
+        ),
+      ].filter((id) => {
+        const row = taskRow(id)
+        return row !== undefined && row.stage !== 'done' && row.archivedAt === null
+      }),
     queue,
     dequeue(taskId) {
       commit(events.taskDequeued({ taskId, at: new Date().toISOString() }))
