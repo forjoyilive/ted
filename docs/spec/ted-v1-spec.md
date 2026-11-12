@@ -1157,6 +1157,7 @@ Figma: KRI-62 Board and List.
 - **Drag rules:** vertical reordering changes rank; dropping among Tasks of another Priority changes Priority. The only moves between columns are Backlog → Intake (Start) and Queued → Backlog (un-start). While dragging, the picked-up card leaves a dashed placeholder, the valid column is outlined blue with a drop slot (“Drop to Start · Joins the queue as Queued · 4th”), and other columns dim to 35% with “Can’t drop here”. (KRI-15, KRI-62)
 - **Header:** Factory name and View, **Filter**, **Plan**, **New Task**, and “4 of 4 working” when the Factory’s cap is full. Order down the middle pane: app-wide banners, page header, Factory banners. (KRI-56, KRI-62)
 - **Filter:** the List’s filters except Stage and Archived. No grouping. (KRI-56)
+- **Multi-select:** ⌘-click a card, or press `X` while pointing at it, to select or deselect it; ⇧-click selects the range from the last selected card in the same column, and toggles the one card when that card is in another column. Selected cards get an accent border, a tint and a tick; cards have no checkbox. The List’s selection bar and right-click menu apply. A plain click still opens the Task and clears the selection, dragging moves only the dragged card, and Esc clears the selection. (KRI-347)
 
 ### 10.9 List
 
@@ -1167,7 +1168,7 @@ Figma: KRI-62 Board and List.
 - **Sort:** Manual (Priority, then rank: the queue order; default), Priority, Updated, Created, Stage, Title. **Group:** Stage (default for one Factory; the Done group starts collapsed), Factory (default for All Tasks), Status, Priority, None. (KRI-56, KRI-62)
 - **Filters:** Factory (All Tasks only), Stage, Status (each status plus “No status”), Priority, Needs planning, Created by (you, an Automation, a planning chat, a split, a Follow-up), and **Archived**: Hidden (default), Included, Only. The Status filter matches every status a Task has right now, not only the one it shows; its **Blocked** option matches both the marker and the status. A text box (`/`) matches ID and title. Active filters show as chips. (KRI-56, KRI-62, KRI-8 coordinator decision 15)
 - **Reordering** with sort Manual: drag rows with the Board’s rules, including Start and un-start between Backlog and Queued groups. With Status = Queued, Sort = Manual and Group = None, a **Queue** column (1st, 2nd …) and drag grips appear. This is how Queued Tasks of different Factories are ordered against each other. (KRI-56, KRI-62)
-- **Multi-select** (⇧-click, ⌘-click, ⇧↓): Start, set Priority, Archive. (KRI-56)
+- **Multi-select** (the row’s checkbox, ⇧-click, ⌘-click, ⇧↓, or `X` on the row under the pointer): a bar at the bottom of the pane shows “N selected” with Start, Prepare through Design, Resume, Priority, Snooze, Archive and a ••• menu holding Delete, which asks first. An action applies to the selected Tasks it fits and shows their number when that is only some of them (“Start 3”). When Start would queue more Tasks than there are free Run slots, the bar adds a line such as “2 start now, 3 wait for a Run slot”, worked out from the slot figures the app has at that moment. Right-clicking a selection opens the same actions and more. Esc clears the selection. (KRI-56, KRI-284, KRI-347)
 - The List remembers filters, grouping, sort and columns per scope on this machine. Saved views are later (KRI-68). (KRI-56)
 - **Archived rows** have a grey title, an “Archived” chip, and how the Task ended in Status (“Never started”, “Pull request closed on GitHub”, “Merged 2 Oct”). (KRI-62)
 
@@ -1184,8 +1185,8 @@ Figma: KRI-62 Board and List.
 
 Fixed; rebinding is later (KRI-35). KRI-56’s map wins over shortcuts the prototypes invented. (KRI-56, KRI-8 coordinator decision 25)
 
-- **Global:** ⌘K search and commands; ⌘N or `C` New Task; `G` `I` Inbox, `G` `A` All Tasks, `G` `B` Board, `G` `L` List, `G` `P` Plans; ⌘1–⌘9 Factory 1–9; ⌘[ / ⌘] back and forward; Esc closes an open Task back to where it came from, and leaves Settings; ⌘, Settings; `?` or ⌘/ shortcut sheet; ⌘Q quit.
-- **Moving:** `J`/`K` or ↓/↑ next and previous; on the Board `H`/`L` or ←/→ change column; Enter opens.
+- **Global:** ⌘K search and commands; ⌘N or `C` New Task; `G` `I` Inbox, `G` `A` All Tasks, `G` `B` Board, `G` `L` List, `G` `P` Plans; ⌘1–⌘9 Factory 1–9; ⌘[ / ⌘] back and forward; Esc closes an open Task back to where it came from, leaves Settings, and otherwise clears a List or Board selection; ⌘, Settings; `?` or ⌘/ shortcut sheet; ⌘Q quit.
+- **Moving:** `J`/`K` or ↓/↑ next and previous; on the Board `H`/`L` or ←/→ change column; Enter opens; `X` selects or deselects the Task under the pointer in a List or Board, or the focused one after moving with the keys, until the pointer moves again.
 - **Answering:** `R` reply; `A` Approve; ⇧`R` Request changes; in the Inbox `H` snoozes the selected request; ↵ sends from a comment box or chat and ⇧↵ adds a new line; ⌘↵ also sends, interrupts and sends in a working Run’s chat, and presses the primary button of any dialog. `A` takes two keystrokes: the key highlights the button with “↵ to confirm”, Enter sends, Esc cancels.
 - **Task actions:** `S` Start, Resume or Retry; `P` Priority menu; `B` Blocked by; `E` Edit title and description; ⌥↑/⌥↓ move in rank (Manual only); ⌘⌫ Archive; ⌃` open the Task’s shell. Stop and Delete have no shortcut.
 - **Filter:** `/` focuses the Board or List filter box.

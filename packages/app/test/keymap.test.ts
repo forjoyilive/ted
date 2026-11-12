@@ -29,6 +29,7 @@ const specShortcuts = [
   '←',
   '→',
   '↵',
+  'X',
   'R',
   'A',
   '⇧R',
