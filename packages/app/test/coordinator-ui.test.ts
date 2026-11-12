@@ -38,7 +38,8 @@ afterEach(async ({ task }) => {
       { name: 'killRunHosts', run: () => killRunHosts(home) },
       { name: 'removeHome', run: () => removeHome(home) },
     ],
-    (evidence) => console.warn('Coordinator cleanup:', JSON.stringify({ test, ...evidence })),
+    (evidence) =>
+      process.stderr.write(`Coordinator cleanup: ${JSON.stringify({ test, ...evidence })}\n`),
   )
 })
 

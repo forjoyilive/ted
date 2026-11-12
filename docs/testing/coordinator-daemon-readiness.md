@@ -132,3 +132,31 @@ build timeout, without extending any guard. Record the preflight and workload
 conditions, retain the worker caps, detect unexpected workload exit, and stop
 only the experiment’s own workers in finally. This remains a focused loaded
 diagnosis, not a replay or reliability certificate for the mixed full suite.
+
+## Loaded diagnostic result and retained output repair
+
+At `ad3850b9`, both native cases and all three diagnostic cases passed under six
+ready CPU workers, with `--retry=0`, in 25.93 seconds. Renderer preparation
+completed under the shared lock before that workload began. The workload stopped
+normally after the test command completed. This was a focused experiment and did
+not reproduce the mixed full suite or the original cleanup stall.
+
+The captured console had no cleanup records even though the completion callback
+was unconditional. Installed Vitest selected its minimal reporter in the agent
+environment; that reporter suppresses successful test console records by default.
+The first attempt to retain successful timings was therefore ineffective in
+this invocation. Round-3 evidence, output and installed source pointers are
+attached to the Task. The user chose Try again after TED’s loop check, resetting
+the send-back count without accepting the native failure or declaring a repair.
+
+The output repair writes the same fixed test identity, operation names, states
+and timings directly to stderr instead of through `console.warn`. This keeps the
+records outside the reporter’s console filtering. It changes no cleanup call,
+order, error handling, assertion or deadline. Validate must confirm that the
+actual native records appear in its retained log; a callback-spy assertion alone
+cannot establish that. The native file changed and should run again; unchanged
+ownership and diagnostic-helper cases retain their earlier passing results.
+
+The remaining intermittent cleanup timeout is still unresolved. Retained phase
+measurements must guide any further repair. Neither the output fix nor a clean
+loaded invocation supplies a cause for the original failure.
