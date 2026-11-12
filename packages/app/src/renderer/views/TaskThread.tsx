@@ -54,6 +54,7 @@ import {
 } from '../components/LineComments.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
+import { PeerMessage } from '../components/PeerMessage.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
 import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
@@ -153,6 +154,13 @@ function NoteRow({
         ? 'TED'
         : 'Task Lead'
   const state = delivery(task, comment)
+  if (comment.peer) {
+    return (
+      <li className={styles.peerComment}>
+        <PeerMessage peer={comment.peer} at={comment.createdAt} now={now} />
+      </li>
+    )
+  }
   return (
     <li className={styles.comment}>
       {agent !== undefined ? (
