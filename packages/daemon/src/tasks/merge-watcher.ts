@@ -204,13 +204,14 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (!method || autoMergeTried.has(key)) return
     try {
       await holding(find(task.id), async () => {
-        await requireObligations(find(task.id))
+        await obligations(task.id)
         autoMergeTried.add(key)
         await mergePullRequest(gh, target, method, { auto: true })
         store.autoMergeEnabled(task.id, target.name, { method, requested: target.method })
         await store.persisted()
       })
     } catch (error) {
+      if (error instanceof RequestError && error.status === 409) return
       console.error(
         `couldn’t turn on auto-merge for ${target.repo}#${target.number}:`,
         redactSecrets(textOf(error)),
