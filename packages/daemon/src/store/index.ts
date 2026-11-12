@@ -5,6 +5,8 @@ import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
 import type {
+  AgentApiCost,
+  ApiCostReport,
   DashboardRange,
   FactoryDashboard,
   NewTaskDraft,
@@ -154,6 +156,7 @@ import {
   runInterrupts,
   runMessages,
   runs,
+  runUsage,
   schema,
   sendBackAsks,
   sendBackResets,
@@ -885,6 +888,15 @@ export interface TedStore extends TaskHistory {
   backlogTasks(): { id: string; snoozed: boolean }[]
   unarchivedTaskRepos(): { id: string; stage: StageId; repos: TaskRepo[] }[]
   runReadOffset(id: string): number
+  recordRunUsage(usage: {
+    runId: string
+    agent: AgentKind
+    model?: string
+    input: number
+    output: number
+    cost?: number
+  }): void
+  apiCost(days: number, now?: Date): ApiCostReport
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
   queueRunMessage(input: { runId: string; text: string; from?: 'ted' }): RunMessage
@@ -4986,6 +4998,53 @@ export async function openStore({
         .filter((row) => row.archivedAt === null)
         .map((row) => ({ id: row.id, stage: row.stage as StageId, repos: reposOf(row.id) })),
     runReadOffset: (id) => Math.max(runRow(id)?.readOffset ?? 0, heldOutput.get(id)?.toOffset ?? 0),
+    recordRunUsage({ runId, agent, model, input, output, cost }) {
+      commit(
+        events.runUsageRecorded({
+          runId,
+          agent,
+          model: model ?? null,
+          input,
+          output,
+          cost: cost ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      const row = runRow(runId)
+      if (row) emit({ type: 'run-updated', run: toRun(row) })
+    },
+    apiCost(days, now = new Date()) {
+      const since = new Date(now.getTime() - days * 86_400_000).toISOString()
+      const rows = store.query(queryDb(runUsage.orderBy('at', 'asc')))
+      const agents = new Map<AgentKind, AgentApiCost>()
+      for (const row of rows) {
+        if (row.at < since) continue
+        const agent = row.agent as AgentKind
+        const sum = agents.get(agent) ?? {
+          agent,
+          runs: 0,
+          pricedRuns: 0,
+          cost: 0,
+          input: 0,
+          output: 0,
+        }
+        sum.runs += 1
+        sum.input += row.input
+        sum.output += row.output
+        if (row.cost !== null) {
+          sum.pricedRuns += 1
+          sum.cost += row.cost
+        }
+        agents.set(agent, sum)
+      }
+      const first = rows[0]?.at
+      return {
+        days,
+        since,
+        ...(first !== undefined && { countedFrom: first }),
+        agents: [...agents.values()],
+      }
+    },
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {
       const taskId = taskIdOfRun(runId) ?? null

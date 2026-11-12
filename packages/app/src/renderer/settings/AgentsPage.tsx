@@ -1,4 +1,12 @@
-import type { AgentHealth, AgentKind, Billing, PlanUsage, PlanWindow } from '@ted/protocol'
+import type {
+  AgentApiCost,
+  AgentHealth,
+  AgentKind,
+  ApiCostReport,
+  Billing,
+  PlanUsage,
+  PlanWindow,
+} from '@ted/protocol'
 import {
   agentDisplayNames,
   antigravityTermsUrl,
@@ -13,7 +21,7 @@ import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx
 import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
-import { useAgentHealthState } from '../data.ts'
+import { useAgentHealthState, useApiCost } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { timePreferences } from '../time.ts'
@@ -219,6 +227,76 @@ function PlanUsageSection({ health }: { health: AgentHealth }) {
   )
 }
 
+const dollars = (value: number) =>
+  value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+const millions = (tokens: number) =>
+  tokens >= 1_000_000
+    ? `${(tokens / 1_000_000).toFixed(1)}M`
+    : tokens >= 1_000
+      ? `${Math.round(tokens / 1_000)}K`
+      : String(tokens)
+
+export function apiCostLines(
+  agent: AgentKind,
+  report: ApiCostReport | undefined,
+): { figure: string; notes: string[] } | undefined {
+  if (!report) return undefined
+  if (agent === 'antigravity') {
+    return { figure: 'Not available', notes: ['Antigravity doesn’t report the tokens it uses.'] }
+  }
+  const since =
+    report.countedFrom !== undefined && report.countedFrom > report.since
+      ? [
+          `Counted since ${new Date(report.countedFrom).toLocaleDateString()}, when TED began saving this.`,
+        ]
+      : []
+  const used: AgentApiCost | undefined = report.agents.find((a) => a.agent === agent)
+  if (!used || used.runs === 0) return { figure: 'No finished Runs yet', notes: since }
+  const runs = `${used.runs} ${used.runs === 1 ? 'Run' : 'Runs'}`
+  return {
+    figure: `${dollars(used.cost)} for ${runs}`,
+    notes: [
+      `${millions(used.input)} input and ${millions(used.output)} output tokens.`,
+      agent === 'claude'
+        ? 'The cost Claude Code reported for each Run.'
+        : 'An estimate from OpenAI’s list prices.',
+      ...(used.pricedRuns < used.runs
+        ? [`${used.runs - used.pricedRuns} of them reported no cost and are left out.`]
+        : []),
+      ...since,
+    ],
+  }
+}
+
+function ApiCostSection({
+  agent,
+  report,
+}: {
+  agent: AgentKind
+  report: ApiCostReport | undefined
+}) {
+  const lines = apiCostLines(agent, report)
+  if (!lines) return null
+  return (
+    <div className={styles.section}>
+      <div className={styles.sectionHead}>
+        <h3 className={styles.sectionTitle}>On an API key, last {report?.days ?? 30} days</h3>
+        <Help>
+          What this agent’s finished Runs would have cost at API prices, whichever way you pay for
+          them.
+        </Help>
+      </div>
+      <p className={styles.line}>{lines.figure}</p>
+      {lines.notes.map((note) => (
+        <p key={note} className={styles.line}>
+          {note}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 function AgentCard({
   health,
   billing,
@@ -228,9 +306,11 @@ function AgentCard({
   onBilling,
   planAccepted,
   onAcceptPlan,
+  apiCost,
   checking,
   error,
 }: {
+  apiCost: ApiCostReport | undefined
   health: AgentHealth
   billing: Billing
   opened: boolean
@@ -326,6 +406,7 @@ function AgentCard({
           {error !== undefined && <p className={`${styles.line} ${styles.error}`}>{error}</p>}
         </div>
       </div>
+      <ApiCostSection agent={health.agent} report={apiCost} />
       <BillingChoice
         agent={health.agent}
         billing={billing}
@@ -340,6 +421,7 @@ function AgentCard({
 
 export function AgentsPage({ settings }: SettingsPageProps) {
   const resource = useAgentHealthState()
+  const apiCost = useApiCost()
   const health = resource.health
   const [opened, setOpened] = useState<Partial<Record<AgentKind, boolean>>>({})
   const [checking, setChecking] = useState(false)
@@ -410,6 +492,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
             onCheck={() => void check()}
             onBilling={(billing) => chooseBilling(h.agent, billing)}
             planAccepted={settings.antigravityPlanAccepted}
+            apiCost={apiCost}
             onAcceptPlan={() =>
               void ted
                 .updateSettings({ antigravityPlanAccepted: true })
