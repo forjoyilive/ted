@@ -245,7 +245,9 @@ describe('Agent health', () => {
       return b?.text.endsWith('1 Run paused') ? b : undefined
     }, 'the banner to count the held Run')
     expect(banner.text).toBe('Claude Code is signed out · 1 Run paused')
-    expect((await client.ok<{ runs: { active: number } }>('GET', '/activity')).runs.active).toBe(1)
+    await expect
+      .poll(() => client.ok<{ runs: { active: number; queued: number } }>('GET', '/activity'))
+      .toMatchObject({ runs: { active: 0, queued: 1 } })
 
     await setStub('claude', { signedIn: true })
     const checked = await client.ok<AgentHealth[]>('POST', '/agents/health/check')

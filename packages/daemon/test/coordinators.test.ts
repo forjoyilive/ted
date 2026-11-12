@@ -261,6 +261,9 @@ test('idle follow-up turns wait for a slot, including generic chat message paths
     text: JSON.stringify({ steps: [{ say: 'Second response' }, { endTurn: true }] }),
   })
   await waitUntil(async () => (await s.chat()).status === 'queued', 'follow-up to queue')
+  await expect
+    .poll(() => s.ok<import('@ted/protocol').Activity>('GET', '/activity'))
+    .toMatchObject({ runs: { active: 2, queued: 1 } })
   const before = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
   expect(before.items.some((i) => i.kind === 'agent' && i.text === 'Second response')).toBe(false)
   await writeFile(path.join(scratch, 'task-finish'), '')
@@ -282,6 +285,9 @@ test('Stop cancels an unstarted conversation turn; later messages do not execute
     text: JSON.stringify({ steps: [{ say: 'Cancelled response' }, { endTurn: true }] }),
   })
   expect(c.status).toBe('queued')
+  await expect
+    .poll(() => s.ok<import('@ted/protocol').Activity>('GET', '/activity'))
+    .toMatchObject({ runs: { active: 1, queued: 1 } })
   await s.ok('POST', `${s.base}/stop`)
   await s.ok('POST', `${s.base}/messages`, {
     text: JSON.stringify({ steps: [{ say: 'Replacement response' }, { endTurn: true }] }),

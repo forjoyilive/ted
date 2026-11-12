@@ -199,6 +199,7 @@ export function createPlans(options: PlansOptions): Plans {
     )
 
   const source: QueueSource = {
+    starting: () => [...starting],
     queued: () =>
       queuedPlans().map(
         (p): QueueEntry => ({

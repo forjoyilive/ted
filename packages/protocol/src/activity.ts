@@ -6,6 +6,7 @@ export interface RunCounts {
 
 export interface Activity {
   runs: RunCounts
+  startingWork?: number
   scheduledTasks?: number
   automationsOn: number
   factoriesSettingUp: number
@@ -26,6 +27,7 @@ export const noActivity: Activity = {
 
 export function workRunning({
   runs,
+  startingWork = 0,
   scheduledTasks = 0,
   automationsOn,
   factoriesSettingUp,
@@ -34,6 +36,7 @@ export function workRunning({
   shellsRunning,
 }: Activity): boolean {
   return (
+    startingWork > 0 ||
     scheduledTasks > 0 ||
     runs.active > 0 ||
     runs.queued > 0 ||
