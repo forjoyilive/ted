@@ -259,7 +259,7 @@ test('actions reject stale state and cross-Factory neighbours; moves retry recei
         agent: 'claude',
       })
     ).status,
-  ).toBe(200)
+  ).toBe(201)
   const resumed = await waitUntil(async () => {
     const current = (await client.call('GET', s.base)).body as Coordinator
     return current.started && current.status === 'working' ? current : undefined
