@@ -72,6 +72,26 @@ describe('CI detection at push', () => {
     expect(await detect(silentGh(), sha)).toEqual({ ci: true, ciSignals: ['workflow-files'] })
   })
 
+  test('a workflow that runs only by hand, on a schedule or on a release doesn’t count', async () => {
+    const manual = await commit({
+      '.github/workflows/release.yml': 'on:\n  workflow_dispatch:\n',
+      '.github/workflows/nightly.yml': 'on: [schedule, release]\n',
+      '.github/workflows/call.yaml': 'on: workflow_call\n',
+    })
+    expect((await detect(silentGh(), manual)).ci).toBe(false)
+    const withPullRequest = await commit({
+      '.github/workflows/ci.yml': 'on:\n  workflow_dispatch:\n  pull_request:\n',
+    })
+    expect((await detect(silentGh(), withPullRequest)).ciSignals).toEqual(['workflow-files'])
+  })
+
+  test('a workflow TED can’t read the triggers of counts', async () => {
+    const broken = await commit({ '.github/workflows/ci.yml': 'on: [push\n' })
+    expect((await detect(silentGh(), broken)).ci).toBe(true)
+    const none = await commit({ '.github/workflows/ci.yml': 'jobs: {}\n' })
+    expect((await detect(silentGh(), none)).ci).toBe(true)
+  })
+
   test('a non-YAML file in .github/workflows doesn’t count', async () => {
     const sha = await commit({ '.github/workflows/README.md': 'notes' })
     expect((await detect(silentGh(), sha)).ci).toBe(false)

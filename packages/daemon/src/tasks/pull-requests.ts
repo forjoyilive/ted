@@ -1,4 +1,5 @@
 import type { CiSignal, TaskRepo } from '@ted/protocol'
+import { parse } from 'yaml'
 import * as git from '../git.ts'
 import type { Gh } from '../github/gh.ts'
 import { redactSecrets } from '../redact.ts'
@@ -274,10 +275,17 @@ export async function detectCi(input: {
   const checks: [CiSignal, () => Promise<boolean>][] = [
     [
       'workflow-files',
-      async () =>
-        (await git.listFiles(input.worktree, input.commit, '.github/workflows')).some((file) =>
-          /\.ya?ml$/.test(file),
-        ),
+      async () => {
+        const files = (
+          await git.listFiles(input.worktree, input.commit, '.github/workflows')
+        ).filter((file) => /\.ya?ml$/.test(file))
+        const runs = await Promise.all(
+          files.map(async (file) =>
+            runsOnChanges(await git.showFile(input.worktree, input.commit, file)),
+          ),
+        )
+        return runs.includes(true)
+      },
     ],
     [
       'required-checks',
@@ -313,6 +321,27 @@ export async function detectCi(input: {
   )
   const ciSignals = found.flat()
   return { ci: ciSignals.length > 0, ciSignals }
+}
+
+const changeTriggers = ['pull_request', 'pull_request_target', 'push', 'merge_group']
+
+export function runsOnChanges(workflow: string): boolean {
+  let on: unknown
+  try {
+    on = (parse(workflow) as { on?: unknown } | null)?.on
+  } catch {
+    return true
+  }
+  const triggers =
+    typeof on === 'string'
+      ? [on]
+      : Array.isArray(on)
+        ? on
+        : on !== null && typeof on === 'object'
+          ? Object.keys(on)
+          : undefined
+  if (triggers === undefined) return true
+  return triggers.some((trigger) => changeTriggers.includes(String(trigger)))
 }
 
 interface BranchBody {
