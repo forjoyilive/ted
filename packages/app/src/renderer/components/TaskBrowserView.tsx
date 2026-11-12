@@ -169,9 +169,7 @@ export function TaskBrowserView({
   return (
     <section className={styles.pane} aria-label="Task browser">
       <div className={styles.toolbar}>
-        <Button size="small" onClick={onBack}>
-          ← Task Lead
-        </Button>
+        <Button onClick={onBack}>← Task Lead</Button>
         <Select
           aria-label="Web App"
           value={`${shown.repo}/${shown.name}`}
@@ -190,28 +188,20 @@ export function TaskBrowserView({
             </option>
           ))}
         </Select>
-        <Button
-          size="small"
-          disabled={busy || !ready}
-          aria-label="Back"
-          onClick={() => act({ action: 'back' })}
-        >
+        <Button disabled={busy || !ready} aria-label="Back" onClick={() => act({ action: 'back' })}>
           ←
         </Button>
         <Button
-          size="small"
           disabled={busy || !ready}
           aria-label="Forward"
           onClick={() => act({ action: 'forward' })}
         >
           →
         </Button>
-        <Button size="small" disabled={busy || !ready} onClick={() => act({ action: 'reload' })}>
+        <Button disabled={busy || !ready} onClick={() => act({ action: 'reload' })}>
           Reload
         </Button>
-        <Button size="small" onClick={onLog}>
-          App log
-        </Button>
+        <Button onClick={onLog}>App log</Button>
       </div>
       <form
         className={styles.toolbar}
@@ -231,23 +221,13 @@ export function TaskBrowserView({
           value={address}
           onChange={(event) => setAddress(event.target.value)}
         />
-        <Button
-          size="small"
-          type="submit"
-          pending={busy && command === 'navigate'}
-          disabled={busy || !ready}
-        >
+        <Button type="submit" pending={busy && command === 'navigate'} disabled={busy || !ready}>
           Go
         </Button>
-        <Button
-          size="small"
-          disabled={busy || !ready}
-          onClick={() => act({ action: 'screenshot' })}
-        >
+        <Button disabled={busy || !ready} onClick={() => act({ action: 'screenshot' })}>
           Screenshot
         </Button>
         <Button
-          size="small"
           disabled={!ready}
           onClick={() =>
             ted.externalBrowser(task.id).catch((error: unknown) => setStatus(readableError(error)))
@@ -267,7 +247,6 @@ export function TaskBrowserView({
         <div className={styles.capture}>
           <CommentFiles files={[capture]} />
           <Button
-            size="small"
             onClick={() => {
               return ted
                 .postComment(task.id, { body: 'Browser screenshot', attachments: [capture] })
@@ -280,9 +259,7 @@ export function TaskBrowserView({
           >
             Post screenshot to Task
           </Button>
-          <Button size="small" onClick={() => setCapture(undefined)}>
-            Dismiss
-          </Button>
+          <Button onClick={() => setCapture(undefined)}>Dismiss</Button>
         </div>
       )}
     </section>

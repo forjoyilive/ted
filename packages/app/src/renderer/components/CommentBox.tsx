@@ -230,7 +230,6 @@ export function CommentBox({
         />
         {direct && run && (
           <Button
-            size="small"
             aria-label="Stop the turn"
             disabled={stopping || !working}
             onClick={async () => {
@@ -251,7 +250,6 @@ export function CommentBox({
         <span className={styles.spacer} />
         {direct && (
           <Button
-            size="small"
             shortcut="⌘↵"
             disabled={sending || !ready || !working}
             pending={sending && submission === 'interrupt'}

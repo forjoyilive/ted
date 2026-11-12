@@ -211,9 +211,7 @@ export function InvalidNotice({
         <span className={styles.invalidTitle}>{invalid.file} has an error</span>
         <span className={base.spacer} />
         {invalid.url !== undefined && (
-          <Button size="small" onClick={() => ted.openOnGitHub(invalid.url ?? '')}>
-            Open on GitHub
-          </Button>
+          <Button onClick={() => ted.openOnGitHub(invalid.url ?? '')}>Open on GitHub</Button>
         )}
       </div>
       <p className={styles.invalidLine}>
@@ -595,15 +593,11 @@ export function DriftNotice({
         <DiffLines lines={drift.diff} />
       </div>
       <div className={styles.driftActions}>
-        <Button size="small" onClick={onKeep}>
-          Keep mine
-        </Button>
-        <Button size="small" onClick={onUse}>
-          {useLabel}
-        </Button>
+        <Button onClick={onKeep}>Keep mine</Button>
+        <Button onClick={onUse}>{useLabel}</Button>
         {factoryId !== undefined && (
           <>
-            <Button size="small" disabled={busy || created !== undefined} onClick={() => merge()}>
+            <Button disabled={busy || created !== undefined} onClick={() => merge()}>
               Merge with an agent
             </Button>
             <Help>

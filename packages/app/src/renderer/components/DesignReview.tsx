@@ -170,7 +170,6 @@ function FigmaRow({
         )}
       </span>
       <Button
-        size="small"
         onClick={() =>
           ted.openFigmaLink(taskId, commentId).then(
             () => setError(undefined),

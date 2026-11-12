@@ -174,7 +174,6 @@ export function TaskShell({
         )}
         <span className={styles.spacer} />
         <Button
-          size="small"
           onClick={() => {
             return openInEditor({ taskId, repo }).catch((error: unknown) =>
               setProblem(readableError(error)),

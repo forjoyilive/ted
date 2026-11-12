@@ -43,7 +43,7 @@ export function PlansList({
   const [pastOpen, setPastOpen] = useState(false)
   const title = `${factory.name} · Plans`
   const plan = (
-    <Button variant="primary" size="small" disabled={!factory.cloned} onClick={onPlan}>
+    <Button variant="primary" disabled={!factory.cloned} onClick={onPlan}>
       Plan
     </Button>
   )
@@ -377,7 +377,6 @@ function RowMenu({
           </p>
           <div className={styles.confirmButtons}>
             <Button
-              size="small"
               onClick={() => {
                 setConfirming(false)
                 setOpen(false)
@@ -385,11 +384,7 @@ function RowMenu({
             >
               Cancel
             </Button>
-            <Button
-              size="small"
-              variant="danger"
-              onClick={() => run(() => ted.deletePlan(plan.id))}
-            >
+            <Button variant="danger" onClick={() => run(() => ted.deletePlan(plan.id))}>
               Delete
             </Button>
           </div>

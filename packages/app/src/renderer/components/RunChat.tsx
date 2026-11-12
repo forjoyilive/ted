@@ -99,7 +99,6 @@ function RunBar({
       {live && (
         <>
           <Button
-            size="small"
             disabled={busy || run.state === 'working'}
             title={run.state === 'working' ? 'Restart works when the Run is idle' : undefined}
             onClick={() => act(() => ted.restartRun(run.id))}
@@ -108,7 +107,6 @@ function RunBar({
           </Button>
           {run.role === 'lead' && run.current ? (
             <Button
-              size="small"
               disabled={onStopTask === undefined}
               title={onStopTask === undefined ? 'Stopping a Task isn’t available yet' : undefined}
               onClick={onStopTask}
@@ -116,7 +114,7 @@ function RunBar({
               Stop Task
             </Button>
           ) : (
-            <Button size="small" disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
+            <Button disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
               Stop Run
             </Button>
           )}
@@ -668,7 +666,6 @@ export function Composer({
       <div className={styles.buttons}>
         {live && (
           <Button
-            size="small"
             className={styles.stopTurn}
             aria-label="Stop the turn"
             title="Stop the turn without sending"
@@ -680,7 +677,6 @@ export function Composer({
         )}
         {live && interrupt && (
           <Button
-            size="small"
             shortcut="⌘↵"
             disabled={sending || !typed || !working}
             pending={sending && interrupting}
@@ -691,7 +687,6 @@ export function Composer({
         )}
         <Button
           variant="primary"
-          size="small"
           shortcut="↵"
           title={working ? 'Queues the message for the agent’s next step' : undefined}
           disabled={sending || !typed || !live}

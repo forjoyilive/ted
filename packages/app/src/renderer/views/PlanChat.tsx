@@ -280,7 +280,6 @@ function NewPlanChat({
           <div className={styles.composerButtons}>
             <Button
               variant="primary"
-              size="small"
               shortcut="↵"
               disabled={sending || cloning || text.trim() === ''}
               pending={sending}
@@ -420,7 +419,7 @@ function MoreMenu({
 
   return (
     <span className={styles.more}>
-      <Button size="small" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <Button aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>
         ⋯
       </Button>
       {open && !confirming && (
@@ -460,7 +459,6 @@ function MoreMenu({
           )}
           <div className={styles.confirmButtons}>
             <Button
-              size="small"
               onClick={() => {
                 setConfirming(false)
                 setOpen(false)
@@ -468,7 +466,7 @@ function MoreMenu({
             >
               Cancel
             </Button>
-            <Button size="small" variant="danger" onClick={() => remove()}>
+            <Button variant="danger" onClick={() => remove()}>
               Delete
             </Button>
           </div>
@@ -550,7 +548,7 @@ function PlanHeader({
           {[agentLabels[plan.agent], plan.model, plan.effort].filter(Boolean).join(' · ')}
         </span>
         {!ended && (
-          <Button size="small" disabled={stopping} onClick={() => stop()}>
+          <Button disabled={stopping} onClick={() => stop()}>
             Stop
           </Button>
         )}
@@ -781,11 +779,11 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
         </span>
       )}
       {failed ? (
-        <Button size="small" variant="primary" disabled={retrying} onClick={() => retry()}>
+        <Button variant="primary" disabled={retrying} onClick={() => retry()}>
           Retry
         </Button>
       ) : (
-        <Button size="small" variant="primary" onClick={() => onPlanMore(plan.id)}>
+        <Button variant="primary" onClick={() => onPlanMore(plan.id)}>
           Plan more from here
         </Button>
       )}

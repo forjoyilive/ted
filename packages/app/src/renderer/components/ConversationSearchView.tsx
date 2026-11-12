@@ -28,9 +28,7 @@ export function ConversationSearchView({
   return (
     <>
       <div className={styles.viewerHeader}>
-        <Button size="small" onClick={onBack}>
-          ← Results
-        </Button>
+        <Button onClick={onBack}>← Results</Button>
         <span className={styles.main}>
           <strong className={styles.title}>
             {hit.ref} · {hit.title}

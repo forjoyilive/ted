@@ -847,7 +847,6 @@ export function TaskThread({
             <TaskStatusChips task={task} onOpenTask={onOpenTask} detailed />
             {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
               <Button
-                size="small"
                 variant="primary"
                 onClick={() =>
                   runStatusAction(headerAction.kind, task).catch((error: unknown) =>
