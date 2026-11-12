@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Worker } from 'node:worker_threads'
@@ -75,10 +75,13 @@ let tick = Date.now()
 let paused = false
 let session
 let busy = false
+let owesAck = false
 parentPort.on('message', (message) => {
   if (message === 'beat') beat = Date.now()
-  else if (message === 'pause') paused = true
-  else if (message === 'resume') paused = false
+  else if (message === 'pause') {
+    paused = true
+    owesAck = true
+  } else if (message === 'resume') paused = false
 })
 async function start() {
   const next = new Session()
@@ -119,9 +122,19 @@ setInterval(() => {
   } else if (session && (quiet < startAfterMs || paused)) {
     busy = true
     stop(slept || paused ? 0 : beat - since).catch(report).finally(() => { busy = false })
+  } else if (paused && owesAck) {
+    owesAck = false
+    parentPort.postMessage({ paused: true })
   }
 }, tickMs)
 `
+
+interface Watched {
+  ms?: number
+  profile?: string
+  error?: string
+  paused?: boolean
+}
 
 // ADR 0124: when the daemon’s thread stops answering, a worker thread profiles it until it
 // answers again, and a stall of `stallMs` or more is saved. Nothing runs while the daemon
@@ -140,9 +153,13 @@ function watchStalls(home: string, options: StallProfiles) {
       samplingMicros: stallSamplingMicros,
     },
   })
-  worker.unref()
+  let onPaused: (() => void) | undefined
   worker.on('error', (error) => log(`the stall watch stopped: ${error.message}`))
-  worker.on('message', (message: { ms?: number; profile?: string; error?: string }) => {
+  worker.on('message', (message: Watched) => {
+    if (message.paused) {
+      onPaused?.()
+      return
+    }
     if (closed) return
     if (message.error !== undefined) {
       log(`couldn’t profile a stall: ${message.error}`)
@@ -152,9 +169,14 @@ function watchStalls(home: string, options: StallProfiles) {
     if (profile === undefined || ms < stallMs) return
     saving = saving
       .then(async () => {
+        if (closed) return
         const dir = await profilesDir(home)
         const name = `stall-${stamp(new Date())}.cpuprofile`
-        await save(path.join(dir, name), profile)
+        // Written under another name first: the daemon may exit in the middle of the write.
+        const partial = path.join(dir, 'stall.partial')
+        await unlink(partial).catch(() => undefined)
+        await save(partial, profile)
+        await rename(partial, path.join(dir, name))
         await prune(dir, stallName)
         log(
           `event loop blocked for ${ms} ms; a CPU profile of it is in ${displayPath(path.join(home, 'logs', 'profiles', name))}`,
@@ -164,12 +186,18 @@ function watchStalls(home: string, options: StallProfiles) {
         log(`couldn’t save a stall’s profile: ${error instanceof Error ? error.message : error}`),
       )
   })
+  // After the listeners: adding one makes the worker keep the process alive again.
+  worker.unref()
   const timer = setInterval(() => worker.postMessage('beat'), tickMs)
   timer.unref()
   return {
     async pause() {
+      const stopped = new Promise<void>((resolve) => {
+        onPaused = resolve
+      })
       worker.postMessage('pause')
-      await sleep(tickMs * 2, undefined, { ref: false })
+      await Promise.race([stopped, sleep(5_000, undefined, { ref: false })])
+      onPaused = undefined
     },
     resume() {
       worker.postMessage('resume')
