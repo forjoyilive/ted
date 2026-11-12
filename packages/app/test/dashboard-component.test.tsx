@@ -575,3 +575,47 @@ test('percentage changes preserve sign/color and zero/missing baselines without 
   view.rerender(<TimingChange current={1} previous={null} />)
   expect(screen.getByText('Unavailable')).toBeTruthy()
 })
+
+test('Today draws hours against all of yesterday and compares with yesterday to this time', async () => {
+  const data = dashboardFixture()
+  const at = (day: number, hours: number, minutes = 0) =>
+    new Date(2026, 10, day, hours, minutes).toISOString()
+  const hours = (day: number, count: number, end: string) =>
+    Array.from({ length: count }, (_, index) => ({
+      from: at(day, index),
+      to: index === count - 1 ? end : at(day, index + 1),
+      taskIds: index === 1 ? ['t1'] : [],
+      created: { value: null, taskIds: [], missingIds: [] },
+      intake: { value: null, taskIds: [], missingIds: [] },
+    }))
+  data.range = 'today'
+  data.asOf = at(12, 2, 30)
+  data.current = { ...data.current, from: at(12, 0), to: data.asOf }
+  data.current.buckets = hours(12, 3, data.asOf)
+  if (!data.previous || !data.comparison) throw new Error('The fixture has no previous period')
+  data.previous = { ...data.previous, from: at(11, 0), to: at(11, 2, 30), taskIds: ['t1'] }
+  data.previous.buckets = hours(11, 24, at(12, 0))
+  data.comparison.completed = { absolute: 1, percent: 100 }
+  const api = bridge({ factoryDashboard: () => data })
+  const change = vi.fn()
+  render(
+    <Dashboard
+      factoryId="f1"
+      title="Widgets"
+      state={{ range: 'today' }}
+      onChange={change}
+      onOpenTask={vi.fn()}
+    />,
+  )
+  const completed = await screen.findByRole('region', { name: 'Tasks completed' })
+  expect(api.request).toHaveBeenCalledWith('factoryDashboard', 'f1', 'today')
+  expect(completed.textContent).toContain('vs yesterday to this time')
+  expect(completed.textContent).toContain('Yesterday · aligned by hour')
+  expect(completed.textContent).toContain('Now')
+  expect(completed.querySelectorAll('tbody tr')).toHaveLength(24)
+  expect(within(completed).getAllByText('Not reached yet today')).toHaveLength(21)
+  const select = screen.getByRole('combobox', { name: 'Historical period' })
+  expect(within(select).getByRole('option', { name: 'Today' })).toBeTruthy()
+  await user().selectOptions(select, '7d')
+  expect(change).toHaveBeenCalledWith({ range: '7d' })
+})

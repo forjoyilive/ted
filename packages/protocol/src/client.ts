@@ -95,6 +95,7 @@ import type {
   ReorderFactoriesRequest,
   RepoCheck,
   RepoRemoval,
+  SetFactoryNotificationsRequest,
 } from './factory.ts'
 import type {
   CheckTry,
@@ -213,7 +214,7 @@ import type {
   TestInvocationUpdate,
 } from './test-invocations.ts'
 import type { UpdateWork } from './update.ts'
-import type { WaitingRequest } from './waiting.ts'
+import type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -798,6 +799,14 @@ export class DaemonClient {
     return this.#request('GET', '/inbox/waiting')
   }
 
+  listSnoozed(): Promise<SnoozedRequest[]> {
+    return this.#request('GET', '/inbox/snoozed')
+  }
+
+  snoozeRequest(requestId: string, until: string | null): Promise<WaitingRequest | SnoozedRequest> {
+    return this.#request('PUT', `/requests/${encodeURIComponent(requestId)}/snooze`, { until })
+  }
+
   answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {
     return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
   }
@@ -1278,6 +1287,13 @@ export class DaemonClient {
 
   createFactory(input: CreateFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/factories', input)
+  }
+
+  setFactoryNotifications(
+    factoryId: string,
+    change: SetFactoryNotificationsRequest,
+  ): Promise<MachineSettings> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/notifications`, change)
   }
 
   setFactoryPermissions(

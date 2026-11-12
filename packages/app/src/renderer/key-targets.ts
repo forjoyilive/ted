@@ -62,6 +62,13 @@ export function moveFocus(scope: ParentNode, direction: Direction): boolean {
   return at !== undefined
 }
 
+export function snoozeTarget(scope: ParentNode): HTMLElement | undefined {
+  const rows = all(scope, '[data-snooze-request]')
+  const active = document.activeElement?.closest<HTMLElement>('[data-snooze-request]')
+  if (active && rows.includes(active)) return active
+  return rows.find((row) => row.getAttribute('aria-current') === 'true')
+}
+
 export function focusedTaskRef(): string | undefined {
   const item = document.activeElement?.closest<HTMLElement>('[data-nav-item][data-task]')
   return item?.dataset.task

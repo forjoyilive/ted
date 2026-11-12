@@ -23,18 +23,8 @@ const events: {
   },
 ]
 
-function change(
-  settings: MachineSettings,
-  factoryId: string,
-  key: keyof FactoryNotifications,
-  on: boolean,
-): void {
-  void ted.updateSettings({
-    factoryNotifications: {
-      ...settings.factoryNotifications,
-      [factoryId]: { ...factoryNotifications(settings, factoryId), [key]: on },
-    },
-  })
+function change(factoryId: string, key: keyof FactoryNotifications, on: boolean): void {
+  void ted.setFactoryNotifications(factoryId, { [key]: on })
 }
 
 export function FactoryNotificationChoices({
@@ -52,7 +42,7 @@ export function FactoryNotificationChoices({
           <input
             type="checkbox"
             checked={choices[key]}
-            onChange={(event) => change(settings, factoryId, key, event.target.checked)}
+            onChange={(event) => change(factoryId, key, event.target.checked)}
           />
           <span className={styles.text}>
             <span className={styles.title}>{title}</span>
@@ -100,7 +90,7 @@ export function FactoryNotificationsTable({
                     type="checkbox"
                     aria-label={`${title} for ${factory.name}`}
                     checked={choices[key]}
-                    onChange={(event) => change(settings, factory.id, key, event.target.checked)}
+                    onChange={(event) => change(factory.id, key, event.target.checked)}
                   />
                 </td>
               ))}

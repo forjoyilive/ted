@@ -43,6 +43,17 @@ export function factoryNotifications(
   return { ...defaultFactoryNotifications, ...settings.factoryNotifications[factoryId] }
 }
 
+export function firstFactoryNotifications(
+  factoryIds: readonly string[],
+  notifyTaskMerged: boolean,
+): Record<string, FactoryNotifications> {
+  return notifyTaskMerged
+    ? Object.fromEntries(
+        factoryIds.map((id) => [id, { ...defaultFactoryNotifications, taskMerged: true }]),
+      )
+    : {}
+}
+
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string

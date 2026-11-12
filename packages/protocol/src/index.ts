@@ -284,6 +284,7 @@ export {
   type RepoSetup,
   type RepoSource,
   repoNamePattern,
+  type SetFactoryNotificationsRequest,
   type SetFactoryPermissionsRequest,
   type SetLocalFolderRequest,
   suggestFactoryName,
@@ -305,6 +306,7 @@ export {
   parseReorderFactoriesRequest,
   parseSaveLibraryRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
@@ -571,6 +573,7 @@ export {
   defaultMachineSettings,
   type FactoryNotifications,
   factoryNotifications,
+  firstFactoryNotifications,
   type MachineSettings,
   type Profile,
   type QuitChoice,
@@ -710,6 +713,7 @@ export {
   type ProposalRowInput,
   type PullRequestPreview,
   parseSetTaskSnoozeRequest,
+  parseSnoozeRequestRequest,
   priorities,
   type ReportOutcomeRequest,
   type RepoSetupReport,
@@ -736,6 +740,7 @@ export {
   type SignOffChanges,
   type SizeCheck,
   type SizeCheckInput,
+  type SnoozeRequestRequest,
   type StageId,
   type StartTaskRequest,
   sizeChoices,
@@ -834,7 +839,7 @@ export {
 export type { UpdateWork } from './update.ts'
 export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
-export { countWaiting, type WaitingRequest } from './waiting.ts'
+export { countWaiting, type SnoozedRequest, type WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,
