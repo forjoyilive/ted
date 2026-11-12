@@ -1187,8 +1187,13 @@ export class DaemonClient {
     })
   }
 
-  factorySettings(factoryId: string): Promise<FactorySettingsView> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
+  factorySettings(
+    factoryId: string,
+    options: { refresh?: 'background' | 'first' | 'never' } = {},
+  ): Promise<FactorySettingsView> {
+    const { refresh = 'background' } = options
+    const query = refresh === 'background' ? '' : `?refresh=${refresh}`
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings${query}`)
   }
 
   previewFactorySettings(

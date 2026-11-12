@@ -7,7 +7,15 @@ import { factoryPermissions, reportRepoPermissions } from '../permissions.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles, type WorkflowSettings } from './check.ts'
 import { findDrift, rememberLayer } from './drift.ts'
-import { contentVersion, readDefaultLayer, readGitLayer, readLayerDirectory } from './layers.ts'
+import { createFetches } from './fetches.ts'
+import {
+  contentVersion,
+  copyLayer,
+  readGitLayerAt,
+  readLayerDirectory,
+  sameFiles,
+  sharedDefaultLayer,
+} from './layers.ts'
 import { type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
 
 export interface WorkflowResolution {
@@ -15,8 +23,19 @@ export interface WorkflowResolution {
   layers: LayerUse[]
 }
 
+export interface FactorySource {
+  commit: string
+  files: LayerFiles
+  inherited: CheckedLayer[]
+}
+
 export interface Workflows {
   resolve(factory: StoredFactory, options?: { fetch?: boolean }): Promise<WorkflowResolution>
+  source(
+    factory: StoredFactory,
+    options?: { fetch?: boolean; resolve?: boolean },
+  ): Promise<FactorySource>
+  refresh(factory: StoredFactory, seen: string): Promise<boolean>
   inherited(): Promise<CheckedLayer[]>
   drift(): DriftCounts
   forget(factoryId: string): void
@@ -35,18 +54,57 @@ export function createWorkflows(options: {
     factory: StoredFactory,
     settings: WorkflowSettings | undefined,
   ) => Promise<void>
+  fetch?: (clone: string) => Promise<void>
+  now?: () => number
 }): Workflows {
   const { store, banners, libraryDir, reposDir } = options
+  const fetches = createFetches({
+    fetch: options.fetch ?? git.fetch,
+    ...(options.now && { now: options.now }),
+  })
   const factoryLayers = new Map<string, CheckedLayer | undefined>()
-  const factoryFiles = new Map<string, { commit: string; read: ReturnType<typeof readGitLayer> }>()
+  const factoryFiles = new Map<
+    string,
+    { commit: string; read: ReturnType<typeof readGitLayerAt> }
+  >()
   const factoryRefs = new Map<string, { key: string; read: Promise<string | undefined> }>()
   const counts = new Map<string, number>()
+  const checkedLayers = new Map<
+    string,
+    { files: LayerFiles; primaryRepo: string | undefined; layer: CheckedLayer }
+  >()
+  const accepted = new Map<string, string>()
+  const remembered = new WeakSet<CheckedLayer>()
+  let libraryRead: { files: LayerFiles; version: string } | undefined
+  let counted: { defaults: CheckedLayer; library: CheckedLayer | undefined } | undefined
+  let layersChanged = true
   let libraryCount = 0
 
   function remember(layers: readonly CheckedLayer[]): void {
     for (const layer of layers) {
+      if (remembered.has(layer)) continue
       rememberLayer(layer, options.tedVersion ?? '', (seen) => store.rememberStageFileText(seen))
+      remembered.add(layer)
     }
+  }
+
+  function checked(
+    slot: string,
+    kind: LayerKind,
+    files: LayerFiles,
+    primaryRepo: string | undefined,
+  ): CheckedLayer {
+    const hit = checkedLayers.get(slot)
+    if (hit && hit.primaryRepo === primaryRepo && sameFiles(hit.files, files)) return hit.layer
+    const layer = checkLayer({ kind, files, ...(primaryRepo !== undefined && { primaryRepo }) })
+    checkedLayers.set(slot, { files, primaryRepo, layer })
+    return layer
+  }
+
+  function setFactoryLayer(id: string, layer: CheckedLayer | undefined): void {
+    if (factoryLayers.has(id) && factoryLayers.get(id) === layer) return
+    factoryLayers.set(id, layer)
+    layersChanged = true
   }
 
   function drift(): DriftCounts {
@@ -58,6 +116,9 @@ export function createWorkflows(options: {
   }
 
   function countDrift(defaults: CheckedLayer, library: CheckedLayer | undefined): void {
+    if (!layersChanged && counted?.defaults === defaults && counted.library === library) return
+    counted = { defaults, library }
+    layersChanged = false
     const before = JSON.stringify(drift())
     const inherited = [defaults, ...(library ? [library] : [])]
     libraryCount = library ? findDrift([defaults], library).length : 0
@@ -93,12 +154,13 @@ export function createWorkflows(options: {
     primaryRepo?: string,
   ): { layer?: CheckedLayer; use: LayerUse } {
     if (!found) return { use: { layer: kind, status: 'absent', problems: [] } }
-    const check = (files: LayerFiles) =>
-      checkLayer({ kind, files, ...(primaryRepo !== undefined && { primaryRepo }) })
-    const current = check(found.files)
+    const current = checked(key, kind, found.files, primaryRepo)
     if (current.valid) {
-      if (store.lastValidWorkflowLayer(key)?.version !== found.version) {
-        store.acceptWorkflowLayer(key, found)
+      if (accepted.get(key) !== found.version) {
+        if (store.lastValidWorkflowLayer(key)?.version !== found.version) {
+          store.acceptWorkflowLayer(key, found)
+        }
+        accepted.set(key, found.version)
       }
       return {
         layer: current,
@@ -108,7 +170,7 @@ export function createWorkflows(options: {
     const last = store.lastValidWorkflowLayer(key)
     if (!last) return { use: { layer: kind, status: 'skipped', problems: current.problems } }
     return {
-      layer: check(last.files),
+      layer: checked(`${key}\0last`, kind, last.files, primaryRepo),
       use: { layer: kind, status: 'last-valid', version: last.version, problems: current.problems },
     }
   }
@@ -136,12 +198,12 @@ export function createWorkflows(options: {
   }
 
   async function libraryLayer() {
-    const libraryFiles = await readLayerDirectory(libraryDir)
-    return choose(
-      'library',
-      'library',
-      libraryFiles && { files: libraryFiles, version: contentVersion(libraryFiles) },
-    )
+    const files = await readLayerDirectory(libraryDir)
+    if (!files) return choose('library', 'library', undefined)
+    if (!libraryRead || !sameFiles(libraryRead.files, files)) {
+      libraryRead = { files, version: contentVersion(files) }
+    }
+    return choose('library', 'library', libraryRead)
   }
 
   async function factoryFilesAt(factory: StoredFactory, clone: string) {
@@ -164,7 +226,7 @@ export function createWorkflows(options: {
     if (!commit) return undefined
     let cached = factoryFiles.get(factory.id)
     if (!cached || cached.commit !== commit) {
-      const read = readGitLayer(clone, commit)
+      const read = readGitLayerAt(clone, commit)
       cached = { commit, read }
       if (store.getFactory(factory.id)) factoryFiles.set(factory.id, cached)
       const forget = () => {
@@ -174,17 +236,69 @@ export function createWorkflows(options: {
         if (layer && Object.values(layer.files).some((text) => text === null)) forget()
       }, forget)
     }
-    return cached.read
+    return { commit, layer: await cached.read }
+  }
+
+  type Read = Awaited<ReturnType<typeof read>>
+
+  async function read(factory: StoredFactory, fetch: boolean) {
+    const clone = clonePath(reposDir, factory)
+    if (fetch) {
+      await fetches.fresh(clone).catch((error: unknown) => {
+        console.error(`couldn’t fetch ${factory.repo}; using the last fetched .ted/:`, error)
+      })
+    }
+    const defaults = await sharedDefaultLayer()
+    const library = await libraryLayer()
+    const at = (await exists(clone)) ? await factoryFilesAt(factory, clone) : undefined
+    return { clone, defaults, library, at }
+  }
+
+  function inheritedOf({ defaults, library }: Pick<Read, 'defaults' | 'library'>): CheckedLayer[] {
+    const layers = [defaults, ...(library.layer ? [library.layer] : [])]
+    remember(layers)
+    countDrift(defaults, library.layer)
+    return layers.map(copyLayer)
+  }
+
+  async function apply(factory: StoredFactory, found: Read): Promise<WorkflowResolution> {
+    const { defaults, library } = found
+    const factoryLayer = choose('factory', `factory:${factory.id}`, found.at?.layer, factory.repo)
+    remember([defaults, ...(library.layer ? [library.layer] : [])])
+    setFactoryLayer(factory.id, factoryLayer.layer)
+    countDrift(defaults, library.layer)
+    await options.onFactorySettings?.(
+      factory,
+      factoryLayer.layer && structuredClone(factoryLayer.layer.settings),
+    )
+    const chosen = [library, factoryLayer]
+    const workflow = resolveWorkflow([
+      copyLayer(defaults),
+      ...chosen.flatMap(({ layer }) => (layer ? [copyLayer(layer)] : [])),
+    ])
+    reportRepoPermissions(store, banners, factory.id, workflow.settings.permissions)
+    workflow.settings.permissions = factoryPermissions(store, factory.id)
+    reportChecks(factory, workflow)
+    reportInvalid(factory, factoryLayer.use)
+    return {
+      workflow,
+      layers: [
+        { layer: 'ted', status: 'valid', problems: [] },
+        ...chosen.map(({ use }) => ({ ...use, problems: use.problems.map((p) => ({ ...p })) })),
+      ],
+    }
+  }
+
+  async function resolve(
+    factory: StoredFactory,
+    { fetch = true }: { fetch?: boolean } = {},
+  ): Promise<WorkflowResolution> {
+    return apply(factory, await read(factory, fetch))
   }
 
   return {
     async inherited() {
-      const library = await libraryLayer()
-      const defaults = await readDefaultLayer()
-      const layers = [defaults, ...(library.layer ? [library.layer] : [])]
-      remember(layers)
-      countDrift(defaults, library.layer)
-      return layers
+      return inheritedOf({ defaults: await sharedDefaultLayer(), library: await libraryLayer() })
     },
     drift,
     forget(factoryId) {
@@ -192,39 +306,32 @@ export function createWorkflows(options: {
       factoryFiles.delete(factoryId)
       factoryLayers.delete(factoryId)
       counts.delete(factoryId)
+      accepted.delete(`factory:${factoryId}`)
+      checkedLayers.delete(`factory:${factoryId}`)
+      checkedLayers.delete(`factory:${factoryId}\0last`)
     },
-    async resolve(factory, { fetch = true } = {}) {
-      const clone = clonePath(reposDir, factory)
-      if (fetch) {
-        await git.fetch(clone).catch((error: unknown) => {
-          console.error(`couldn’t fetch ${factory.repo}; using the last fetched .ted/:`, error)
+    resolve,
+    async source(factory, { fetch = false, resolve: full = true } = {}) {
+      const found = await read(factory, fetch)
+      if (full) {
+        await apply(factory, found).catch((error: unknown) => {
+          console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
         })
       }
-      const defaults = await readDefaultLayer()
-      const library = await libraryLayer()
-      const factoryLayer = choose(
-        'factory',
-        `factory:${factory.id}`,
-        (await exists(clone)) ? await factoryFilesAt(factory, clone) : undefined,
-        factory.repo,
-      )
-      remember([defaults, ...(library.layer ? [library.layer] : [])])
-      factoryLayers.set(factory.id, factoryLayer.layer)
-      countDrift(defaults, library.layer)
-      await options.onFactorySettings?.(factory, factoryLayer.layer?.settings)
-      const chosen = [library, factoryLayer]
-      const workflow = resolveWorkflow([
-        defaults,
-        ...chosen.flatMap(({ layer }) => (layer ? [layer] : [])),
-      ])
-      reportRepoPermissions(store, banners, factory.id, workflow.settings.permissions)
-      workflow.settings.permissions = factoryPermissions(store, factory.id)
-      reportChecks(factory, workflow)
-      reportInvalid(factory, factoryLayer.use)
-      return {
-        workflow,
-        layers: [{ layer: 'ted', status: 'valid', problems: [] }, ...chosen.map(({ use }) => use)],
+      const inherited = inheritedOf(found)
+      if (found.at) {
+        return { commit: found.at.commit, files: found.at.layer?.files ?? {}, inherited }
       }
+      const commit = await git.revParse(found.clone, `origin/${factory.defaultBranch}`)
+      return { commit, files: (await readGitLayerAt(found.clone, commit))?.files ?? {}, inherited }
+    },
+    async refresh(factory, seen) {
+      const clone = clonePath(reposDir, factory)
+      await fetches.soon(clone)
+      const at = (await exists(clone)) ? await factoryFilesAt(factory, clone) : undefined
+      if (!at || at.commit === seen) return false
+      await resolve(factory, { fetch: false })
+      return true
     },
   }
 }

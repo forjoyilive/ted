@@ -144,9 +144,13 @@ export function createFactoryRemovals(options: {
   }
 }
 
-export function openTasksUsing(store: TedStore, factory: StoredFactory, repo: string): TaskRef[] {
-  return store
-    .listTasks()
+export function openTasksUsing(
+  store: TedStore,
+  factory: StoredFactory,
+  repo: string,
+  tasks: readonly Task[] = store.listTasks(),
+): TaskRef[] {
+  return tasks
     .filter((t) => t.factoryId === factory.id && isOpen(t) && uses(t, repo))
     .map((t) => ({ id: t.id, displayId: t.displayId, title: t.title }))
 }
