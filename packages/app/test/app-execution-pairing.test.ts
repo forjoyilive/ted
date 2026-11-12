@@ -128,11 +128,18 @@ test('worker Pair after app Quit replaces a still-valid saved controller without
     const second = await fixture.machine('controller')
     const original = await preparePairingController(first)
     const replacement = await preparePairingController(second)
+    const originalScope = (await first.client.executionMachines()).repos.find(
+      (repo) => repo.factoryId === original.factoryId,
+    )
+    const replacementScope = (await second.client.executionMachines()).repos.find(
+      (repo) => repo.factoryId === replacement.factoryId,
+    )
+    if (!originalScope || !replacementScope) throw new Error('Missing synthetic repo scope')
     let window = await openWorker()
     await window.getByLabel('Pairing details', { exact: true }).fill(JSON.stringify(original.offer))
     await window.getByRole('button', { name: 'Connect to controller', exact: true }).click()
     const review = await pendingPairing(first)
-    const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [] })
+    const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [originalScope] })
     await expect.poll(async () => (await workerRequest(home, 'status')).state).toBe('connected')
     const app = ctx.app
     if (!app) throw new Error('No app')
@@ -158,7 +165,10 @@ test('worker Pair after app Quit replaces a still-valid saved controller without
       (await first.client.executionMachines()).machines.find((m) => m.id === oldGrant.id)
         ?.revokedAt,
     ).toBeUndefined()
-    const grant = await second.client.approveExecution({ id: pending.id, scopes: [] })
+    const grant = await second.client.approveExecution({
+      id: pending.id,
+      scopes: [replacementScope],
+    })
     expect(grant.id).not.toBe(oldGrant.id)
     await expect.poll(async () => (await workerRequest(home, 'status')).grantId).toBe(grant.id)
     await expect.poll(async () => (await workerRequest(home, 'status')).state).toBe('connected')

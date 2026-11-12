@@ -307,10 +307,17 @@ test('CLI Pair replaces a still-valid saved controller after process Stop and re
     const second = await fixture.machine('controller')
     const original = await preparePairingController(first)
     const replacement = await preparePairingController(second)
+    const originalScope = (await first.client.executionMachines()).repos.find(
+      (repo) => repo.factoryId === original.factoryId,
+    )
+    const replacementScope = (await second.client.executionMachines()).repos.find(
+      (repo) => repo.factoryId === replacement.factoryId,
+    )
+    if (!originalScope || !replacementScope) throw new Error('Missing synthetic repo scope')
     await worker.start()
     await worker.request('pair', { details: JSON.stringify(original.offer), capacity: 2 })
     const review = await pendingPairing(first)
-    const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [] })
+    const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [originalScope] })
     await worker.state('connected')
     await cli('stop')
     await cli('pair', JSON.stringify(replacement.offer))
@@ -325,7 +332,10 @@ test('CLI Pair replaces a still-valid saved controller after process Stop and re
       (await first.client.executionMachines()).machines.find((m) => m.id === oldGrant.id)
         ?.revokedAt,
     ).toBeUndefined()
-    const newGrant = await second.client.approveExecution({ id: pending.id, scopes: [] })
+    const newGrant = await second.client.approveExecution({
+      id: pending.id,
+      scopes: [replacementScope],
+    })
     expect(newGrant.id).not.toBe(oldGrant.id)
     expect(await worker.state('connected')).toMatchObject({ grantId: newGrant.id })
     await observe('pairing-cli-replacement', {
