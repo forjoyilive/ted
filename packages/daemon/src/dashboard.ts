@@ -86,9 +86,11 @@ export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number
   if (range === 'today') {
     const from = startOfDay(asOf)
     const yesterday = startOfDay(from - 1)
+    const sameTime = new Date(asOf)
+    sameTime.setDate(sameTime.getDate() - 1)
     return {
       from,
-      previous: { from: yesterday, to: Math.min(from, yesterday + (asOf - from)) },
+      previous: { from: yesterday, to: Math.min(from, sameTime.getTime()) },
       previousDay: yesterday,
     }
   }

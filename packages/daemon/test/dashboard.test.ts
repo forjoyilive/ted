@@ -832,3 +832,35 @@ test('Today runs from local midnight by the hour and compares with yesterday up 
     to: iso(at(11, 14, 40)),
   })
 })
+
+test('Today compares with the same clock time yesterday on a day the clocks change', () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  try {
+    const at = (month: number, day: number, hours: number, minutes = 0) =>
+      new Date(2026, month, day, hours, minutes).getTime()
+    const asOf = at(10, 1, 12)
+    const done = (id: string, time: number): DashboardTaskFacts => ({
+      ...completed(id, 0, 1, null),
+      createdAt: iso(time - hour),
+      entries: [{ stage: 'done', at: iso(time) }],
+    })
+    const result = factoryDashboard(
+      [done('before', at(9, 31, 11, 30)), done('after', at(9, 31, 12, 30))],
+      'today',
+      asOf,
+    )
+    expect(asOf - at(10, 1, 0)).toBe(13 * hour)
+    expect(result.current.buckets).toHaveLength(13)
+    expect(result.previous).toMatchObject({
+      from: iso(at(9, 31, 0)),
+      to: iso(at(9, 31, 12)),
+      taskIds: ['before'],
+    })
+    expect(result.previous?.buckets).toHaveLength(24)
+    expect(result.flow.previous?.to).toBe(iso(at(9, 31, 12)))
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
+})
