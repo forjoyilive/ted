@@ -12,7 +12,9 @@ A `v1`, `v2` or `v3.RunOutputRead` event only sets `runs.readOffset` and, when i
 
 ## When it runs
 
-Only in `data.ts`, with the store closed, when the state database is about to be rebuilt from the event log, and only after a pre-update backup taken in this same open: the one the rebuild took, or one the pass takes itself once it knows there is something to drop. An earlier backup doesn’t count, because the log may have grown since. That is the only time the event count costs anything, and the rebuild then builds the state from the new log, so no state database ever holds numbers from the old one. It does nothing when fewer than 1,000 events would go, or when the log isn’t one client’s unbroken chain.
+Only in `data.ts`, with the store closed, when the state database is about to be rebuilt from the event log, and only after a pre-update backup taken in this same open: the one the rebuild took, or one the pass takes itself once it knows there is something to drop. An earlier backup doesn’t count, because the log may have grown since. The rebuild then builds the state from the new log, so no state database ever holds numbers from the old one. It does nothing when fewer than 1,000 events would go, or when the log isn’t one client’s unbroken chain.
+
+A store that needs no rebuild gets the pass once: at an open where `outputDrop` in `store/ted-store.json` isn’t `done`, `data.ts` counts the events that would go and, at 1,000 or more, runs the pass, which removes the state files and so makes that open rebuild. The marker is then `done` with the number dropped, or `failed` with the reason, and a failed pass is tried again only by a different version, like ADR 0099’s. A new home starts with the marker `done`. The pass before a due rebuild runs whatever the marker says.
 
 ## Why it is safe
 
@@ -24,7 +26,7 @@ Only in `data.ts`, with the store closed, when the state database is about to be
 ## Considered Options
 
 - **Leave gaps in the numbering.** LiveStore’s rebuild reads events in order and doesn’t follow the parent numbers, but other code paths look a parent up, so the chain is kept whole.
-- **Run it once, behind a marker, like ADR 0099.** It would force a rebuild only to save a later one time. Running it before a rebuild that is happening anyway costs about two seconds on the log above.
+- **Run it only before a rebuild that is due anyway.** That was the first version. A home whose next releases don’t change the state schema would keep the events for a long time, so the pass also runs once on its own.
 - **Verify by rebuilding the state from both logs and comparing.** It doubles the rebuild. The event walk and the per-Run comparison check the same thing from the events.
 
 ## Consequences
