@@ -11,7 +11,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { billingNames } from '@ted/protocol/health'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import {
   agentModel,
   clockOf,
@@ -538,6 +538,7 @@ export function AutomationView({
     .filter(Boolean)
     .join(' · ')
   const billing = settings?.billing[automation.agent]
+  const [totals, totalsNote] = totalsLine(detail).split('\n')
   return (
     <>
       <section className={views.pane} aria-label="Automation">
@@ -704,10 +705,8 @@ export function AutomationView({
           </button>
         </Details>
         <Details title="Totals">
-          <p className={styles.detailText}>{totalsLine(detail).split('\n')[0]}</p>
-          {totalsLine(detail).split('\n')[1] !== undefined && (
-            <p className={styles.detailNote}>{totalsLine(detail).split('\n')[1]}</p>
-          )}
+          <p className={styles.detailText}>{totals}</p>
+          {totalsNote !== undefined && <p className={styles.detailNote}>{totalsNote}</p>}
         </Details>
         <Details title="Created">
           <p className={styles.detailNote}>
@@ -824,7 +823,7 @@ export function QuestionCard({
   )
 }
 
-function questionLine(request: AutomationRequest, run: RunSummary): ChatExtra {
+function questionLine(request: AutomationRequest, finished: boolean): ChatExtra {
   const open = request.answer === undefined
   return {
     id: request.id,
@@ -838,7 +837,7 @@ function questionLine(request: AutomationRequest, run: RunSummary): ChatExtra {
           {request.body.split('\n')[0]}
           {request.kind === 'question' &&
             (open
-              ? run.state === 'finished'
+              ? finished
                 ? ' · not answered'
                 : ' · answer below'
               : ` · answered: ${request.answer?.text.split('\n')[0] ?? ''}`)}
@@ -874,6 +873,28 @@ export function AutomationRunView({
     chatResource.retry()
   }
   const [error, setError] = useState<string>()
+  const requests = detail?.requests.filter((r) => r.runId === runId) ?? []
+  const open = requests.filter((r) => r.kind === 'question' && r.answer === undefined)
+  const requestsShown = JSON.stringify(requests)
+  const finished = chat?.run.state === 'finished'
+  // biome-ignore lint/correctness/useExhaustiveDependencies: requests are compared by content, so a reload with the same ones keeps the chat rows
+  const options = useMemo(
+    () => ({
+      bar: false,
+      extra: requests.map((r) => questionLine(r, finished)),
+      pinned:
+        open.length > 0 && !finished ? (
+          <div className={views.pinned}>
+            {open.map((request) => (
+              <QuestionCard key={request.id} request={request} />
+            ))}
+          </div>
+        ) : undefined,
+      placeholder: 'Message this Run…',
+      help: 'Goes only to this Run, as the human’s message.',
+    }),
+    [requestsShown, finished],
+  )
   if (detail === null) {
     return (
       <section className={views.pane} aria-label="Automation Run">
@@ -905,8 +926,6 @@ export function AutomationRunView({
   }
   const { automation, history } = detail
   const row = history.find((r) => r.id === runId)
-  const requests = detail.requests.filter((r) => r.runId === runId)
-  const open = requests.filter((r) => r.kind === 'question' && r.answer === undefined)
   const run = chat.run
   const startedAt = row?.startedAt ?? run.startedAt
   const why = row ? trigger(row, history) : undefined
@@ -943,24 +962,7 @@ export function AutomationRunView({
           </p>
         )}
         <div className={styles.chat}>
-          <ChatBody
-            chat={chat}
-            onStopTask={undefined}
-            options={{
-              bar: false,
-              extra: requests.map((r) => questionLine(r, run)),
-              pinned:
-                open.length > 0 && run.state !== 'finished' ? (
-                  <div className={views.pinned}>
-                    {open.map((request) => (
-                      <QuestionCard key={request.id} request={request} />
-                    ))}
-                  </div>
-                ) : undefined,
-              placeholder: 'Message this Run…',
-              help: 'Goes only to this Run, as the human’s message.',
-            }}
-          />
+          <ChatBody chat={chat} onStopTask={undefined} options={options} />
         </div>
       </section>
       <DetailsPane className={views.detailsPane} aria-label="Run details">
