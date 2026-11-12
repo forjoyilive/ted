@@ -7,7 +7,7 @@ import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
-import { task } from './support/fixtures.ts'
+import { createdAt, task } from './support/fixtures.ts'
 
 const blocked = task({
   id: 'NB-2',
@@ -275,6 +275,28 @@ test('Task menu keyboard navigation reaches choices, dismisses and restores focu
   expect(screen.queryByRole('menu', { name: /Task actions/ })).toBeNull()
   expect(document.activeElement).toBe(trigger)
 })
+
+test.each([false, true])(
+  'a context-only Task menu reports a rejected copy (archived: %s)',
+  async (archived) => {
+    bridge({})
+    const u = user()
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Copy refused'))
+    const trigger = document.createElement('button')
+    render(
+      <TaskActionsMenu
+        task={task(
+          archived ? { archived: { at: createdAt, ended: { kind: 'never-started' } } } : {},
+        )}
+        contextOnly
+        contextAt={{ x: 20, y: 20, trigger }}
+      />,
+    )
+    await u.click(await screen.findByRole('menuitem', { name: 'Copy Task ID' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Copy refused')
+    expect(screen.queryByRole('menu')).toBeNull()
+  },
+)
 
 test('Ready for Work keeps Resume and offers a manual Stop to exclude Overnight pickup', async () => {
   const ready = task({

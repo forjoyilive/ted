@@ -27,6 +27,38 @@ describe('List and All Tasks', () => {
       .locator('tbody tr[data-task]')
       .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-task')))
 
+  test('a failed single-Task context action keeps its error inside the viewport', async () => {
+    await twoFactories()
+    await ted('task', 'create', '--factory', 'NB', 'Notebook covers')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'All Tasks', exact: true }).click()
+    await window.evaluate(() => {
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        configurable: true,
+        value: async () => {
+          throw new Error('Copy refused')
+        },
+      })
+    })
+    await window.locator('tr[data-task="NB-1"]').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Copy Task ID', exact: true }).click()
+    const alert = window.getByRole('alert').filter({ hasText: 'Copy refused' })
+    await alert.waitFor()
+    expect(
+      await alert.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return (
+          box.width > 0 &&
+          box.height > 0 &&
+          box.top >= 0 &&
+          box.bottom <= innerHeight &&
+          box.left >= 0 &&
+          box.right <= innerWidth
+        )
+      }),
+    ).toBe(true)
+  })
+
   test('Open in List shows the machine-wide queue, and dragging there reorders it', async () => {
     await twoFactories()
     await ted('task', 'create', '--factory', 'NB', forever())

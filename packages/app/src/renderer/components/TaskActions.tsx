@@ -15,6 +15,7 @@ import {
   FollowUpDialog,
   followUpTaskEvent,
 } from './ArchiveDialogs.tsx'
+import menuStyles from './ContextMenu.module.css'
 import { buttonPosition, ContextMenu, type MenuPosition, MenuSubmenu } from './ContextMenu.tsx'
 import { Tooltip } from './Help.tsx'
 import { SnoozeTaskDialog, snoozeTaskEvent } from './SnoozeTaskDialog.tsx'
@@ -160,6 +161,7 @@ export function TaskActionsMenu({
   }, [contextAt])
   const [dialog, setDialog] = useState<TaskDialogKind>()
   const [error, setError] = useState<string>()
+  const errorClass = contextOnly ? menuStyles.error : styles.error
   useEffect(() => {
     if (contextOnly) return
     const close = () => setPosition(undefined)
@@ -286,7 +288,7 @@ export function TaskActionsMenu({
           </ContextMenu>
         )}
         {error !== undefined && !open && (
-          <p className={styles.error} role="alert">
+          <p className={errorClass} role="alert">
             {error}
           </p>
         )}
@@ -509,7 +511,7 @@ export function TaskActionsMenu({
         </ContextMenu>
       )}
       {error !== undefined && !open && (
-        <p className={styles.error} role="alert">
+        <p className={errorClass} role="alert">
           {error}
         </p>
       )}
