@@ -10,7 +10,12 @@ import {
   freeExecutionPort,
   pendingPairing,
 } from '../../packages/daemon/test/support/execution-pairing.ts'
+import {
+  createExecutionRelay,
+  type ExecutionRelay,
+} from '../../packages/daemon/test/support/execution-relay.ts'
 import type { WorkerStatus } from '../../packages/protocol/src/execution-pairing.ts'
+import { productCommands } from './product-commands.ts'
 import type { ProductWorkerAction } from './product-worker.ts'
 
 export function supportedLanRoute(
@@ -61,12 +66,14 @@ async function localRoute(remote: string) {
 export async function productPairing(options: {
   run: string
   remoteAddress: string
+  commands?: boolean
   worker(action: ProductWorkerAction): Promise<Record<string, unknown>>
 }) {
   const root = path.join(options.run, 'ted-execution-pairing')
   await mkdir(root, { mode: 0o700 })
   const controller = new FixtureMachine(root, 'controller', 'daemon', path.basename(options.run))
   let workerStarted = false
+  let relay: ExecutionRelay | undefined
   async function state(wanted: WorkerStatus['state']) {
     const until = Date.now() + 45_000
     while (Date.now() < until) {
@@ -81,6 +88,7 @@ export async function productPairing(options: {
     const results = await Promise.allSettled([
       workerStarted ? options.worker({ operation: 'stop' }) : Promise.resolve(),
       controller.close(),
+      relay?.close(),
     ])
     const failure = results.find((r) => r.status === 'rejected')
     if (failure?.status === 'rejected') throw failure.reason
@@ -92,7 +100,9 @@ export async function productPairing(options: {
     const local = await localRoute(options.remoteAddress)
     const { address } = local
     await controller.client.configureExecution({ address, port: await freeExecutionPort(address) })
-    const offer = await controller.client.createExecutionEnrollment()
+    const listening = await controller.client.createExecutionEnrollment()
+    if (options.commands) relay = await createExecutionRelay({ address, port: listening.port })
+    const offer = { ...listening, port: relay?.port ?? listening.port }
     await options.worker({ operation: 'start' })
     workerStarted = true
     await options.worker({
@@ -139,6 +149,16 @@ export async function productPairing(options: {
       restarted.status.grantId !== grant.id
     )
       throw new Error('Restart did not preserve identity/grant in a new process')
+    const commands = relay
+      ? await productCommands({
+          controller,
+          relay,
+          grantId: grant.id,
+          scope,
+          factoryKey: factory.key,
+          worker: options.worker,
+        })
+      : undefined
     await controller.client.revokeExecution({ id: grant.id })
     await state('refused')
     if (
@@ -155,7 +175,9 @@ export async function productPairing(options: {
         'two-mac-worker-restart',
         'two-mac-peer-refusal',
         'two-mac-revocation',
+        ...(commands?.invariants ?? []),
       ],
+      ...(commands && { commands: commands.commands }),
       endpoint: { ...local, port: offer.port },
       controllerIdentity: offer.controllerPin,
       workerIdentity: pending.publicKey,
@@ -170,6 +192,7 @@ export async function productPairing(options: {
       workerPids: { before: connected.pid, after: restarted.pid },
       readiness: connected.status.readiness,
       taskExecution: false,
+      relay: relay ? 'owned relay on the controller’s local address' : 'none',
     }
   } finally {
     await cleanup()

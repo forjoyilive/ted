@@ -105,6 +105,7 @@ export class FixtureMachine {
   >()
 
   readonly labRunId: string | undefined
+  extraEnv: Record<string, string> = {}
   constructor(root: string, name: string, mode: 'daemon' | 'store', labRunId?: string) {
     this.root = root
     this.labRunId = labRunId
@@ -135,7 +136,7 @@ export class FixtureMachine {
     if (this.#closed) throw new Error('machine closed')
     if (this.child) throw new Error('machine already started')
     this.ready = undefined
-    const env = fixtureEnvironment(this.home)
+    const env = { ...fixtureEnvironment(this.home), ...this.extraEnv }
     if (this.labRunId) {
       if (!/^[a-f0-9-]{36}$/.test(this.labRunId)) throw new Error('Invalid lab run marker')
       env.TED_LAB_RUN = this.labRunId

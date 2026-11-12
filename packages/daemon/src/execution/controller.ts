@@ -15,9 +15,11 @@ import {
   type ExecutionReadiness,
   enrollmentLifetimeMs,
   executionHello,
+  executionLimits,
   parseExecutionEndpoint,
   parseExecutionEnrollment,
   parseExecutionHeartbeat,
+  parseExecutionSyncRequest,
   requireExecutionCompatibility,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -29,6 +31,7 @@ import {
   type ExecutionIdentity,
   issueCertificate,
 } from './certificates.ts'
+import type { ExecutionCommands } from './commands.ts'
 
 export function localExecutionAddresses(): { name: string; address: string }[] {
   return Object.entries(networkInterfaces()).flatMap(([name, entries]) =>
@@ -57,12 +60,12 @@ function answer(res: ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
   res.end(JSON.stringify(body))
 }
-async function body(req: IncomingMessage): Promise<unknown> {
+async function body(req: IncomingMessage, limit = 16 * 1024): Promise<unknown> {
   const chunks: Buffer[] = []
   let bytes = 0
   for await (const chunk of req) {
     bytes += (chunk as Buffer).length
-    if (bytes > 16 * 1024) throw new RequestError(413, 'Execution message too large')
+    if (bytes > limit) throw new RequestError(413, 'Execution message too large')
     chunks.push(chunk as Buffer)
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
@@ -71,6 +74,7 @@ export function createExecutionController(options: {
   home: string
   store: Pick<TedStore, 'pairing' | 'persisted' | 'newWorkHold'>
   repos(): Promise<ExecutionMachines['repos']>
+  commands?: Pick<ExecutionCommands, 'sync' | 'summary'>
   now?: () => number
   onProblem?: (text: string | undefined) => void
 }) {
@@ -187,7 +191,9 @@ export function createExecutionController(options: {
       }
       return
     }
-    if (req.method !== 'POST' || req.url !== '/heartbeat')
+    const commands = options.commands
+    const syncing = req.url === '/sync' && commands !== undefined
+    if (req.method !== 'POST' || (req.url !== '/heartbeat' && !syncing))
       throw new RequestError(404, 'No such execution operation')
     const socket = req.socket as TLSSocket
     if (!socket.authorized)
@@ -198,7 +204,9 @@ export function createExecutionController(options: {
     const presented = store.pairing.grants().find((g) => g.certificateId === presentedId)
     if (!presented) throw new RequestError(403, 'Execution certificate has no approved grant')
     current(presented.id)
-    const input = parseExecutionHeartbeat(await body(req))
+    const input = syncing
+      ? parseExecutionSyncRequest(await body(req, executionLimits.syncRequestBytes))
+      : parseExecutionHeartbeat(await body(req))
     requireExecutionCompatibility(input)
     let grant = current(input.grantId)
     if (grant.certificateId !== presentedId || grant.publicKey !== certificatePin(cert))
@@ -207,6 +215,15 @@ export function createExecutionController(options: {
       throw new RequestError(403, 'Approved Factory or repo is no longer available; pair again')
     grant = current(input.grantId)
     if (closed) throw new RequestError(503, 'Execution listener is closing')
+    if ('session' in input) {
+      if (!commands) throw new RequestError(404, 'No such execution operation')
+      const abort = new AbortController()
+      res.once('close', () => abort.abort())
+      const reply = await commands.sync(grant, input, abort.signal)
+      current(grant.id)
+      answer(res, 200, reply)
+      return
+    }
     const active = sessions.get(grant.id) ?? new Set<ServerResponse>()
     if (active.size >= 2) throw new RequestError(429, 'Too many execution connections')
     active.add(res)
@@ -355,14 +372,24 @@ export function createExecutionController(options: {
             expiresAt,
             readiness,
           })),
-        machines: store.pairing.grants().map((g) => ({
-          ...g,
-          connected:
-            !g.revokedAt &&
-            !disabled.has(g.id) &&
-            (sessions.has(g.id) || now() - (lastSeen.get(g.id) ?? 0) < 10_000),
-          ...(snapshots.get(g.id) ? { readiness: snapshots.get(g.id) as ExecutionReadiness } : {}),
-        })),
+        machines: store.pairing
+          .grants()
+          .map((g) => ({
+            ...g,
+            connected:
+              !g.revokedAt &&
+              !disabled.has(g.id) &&
+              (sessions.has(g.id) || now() - (lastSeen.get(g.id) ?? 0) < 10_000),
+            ...(snapshots.get(g.id)
+              ? { readiness: snapshots.get(g.id) as ExecutionReadiness }
+              : {}),
+          }))
+          .map((m) => {
+            const operations = m.revokedAt
+              ? undefined
+              : options.commands?.summary(m.id, m.connected)
+            return operations ? { ...m, operations } : m
+          }),
         repos: await options.repos(),
       }
     },

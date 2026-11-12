@@ -135,6 +135,21 @@ export const executionAssignments = State.SQLite.table({
   },
 })
 
+export const executionOperations = State.SQLite.table({
+  name: 'executionOperations',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    machineId: State.SQLite.text(),
+    position: State.SQLite.integer(),
+    state: State.SQLite.text(),
+    stopRequestedAt: State.SQLite.text({ nullable: true }),
+    command: State.SQLite.text(),
+    report: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 export const taskQueue = State.SQLite.table({
   name: 'taskQueue',
   columns: {
@@ -1016,6 +1031,44 @@ export const events = {
   }),
   taskExecutionForgotten: Events.synced({
     name: 'v1.TaskExecutionForgotten',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  executionOperationIssued: Events.synced({
+    name: 'v1.ExecutionOperationIssued',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      machineId: Schema.String,
+      position: Schema.Number,
+      command: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  executionOperationReported: Events.synced({
+    name: 'v1.ExecutionOperationReported',
+    schema: Schema.Struct({
+      id: Schema.String,
+      state: Schema.String,
+      report: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  executionStopRequested: Events.synced({
+    name: 'v1.ExecutionStopRequested',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  executionOperationUnknown: Events.synced({
+    name: 'v1.ExecutionOperationUnknown',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      machineId: Schema.String,
+      report: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  executionOperationsForgotten: Events.synced({
+    name: 'v1.ExecutionOperationsForgotten',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
   sideChatChanged: Events.synced({
@@ -3311,6 +3364,40 @@ const materializers = counted(
       'v1.TaskExecutionAssigned': (assignment) =>
         executionAssignments.insert(assignment).onConflict('taskId', 'ignore'),
       'v1.TaskExecutionForgotten': ({ taskId }) => executionAssignments.delete().where({ taskId }),
+      'v1.ExecutionOperationIssued': ({ id, taskId, machineId, position, command, at }) =>
+        executionOperations
+          .insert({
+            id,
+            taskId,
+            machineId,
+            position,
+            state: 'issued',
+            stopRequestedAt: null,
+            command,
+            report: null,
+            at,
+          })
+          .onConflict('id', 'ignore'),
+      'v1.ExecutionOperationReported': ({ id, state, report }) =>
+        executionOperations.update({ state, report }).where({ id }),
+      'v1.ExecutionStopRequested': ({ id, at }) =>
+        executionOperations.update({ stopRequestedAt: at }).where({ id }),
+      'v1.ExecutionOperationUnknown': ({ id, taskId, machineId, report, at }) =>
+        executionOperations
+          .insert({
+            id,
+            taskId,
+            machineId,
+            position: 0,
+            state: 'unknown',
+            stopRequestedAt: null,
+            command: '',
+            report,
+            at,
+          })
+          .onConflict('id', 'ignore'),
+      'v1.ExecutionOperationsForgotten': ({ taskId }) =>
+        executionOperations.delete().where({ taskId }),
       'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
@@ -4233,6 +4320,7 @@ const state = State.SQLite.makeState({
     executionPairing,
     executionMachine,
     executionAssignments,
+    executionOperations,
     taskBlockers,
     deletedTasks,
     taskAttachments,

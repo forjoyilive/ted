@@ -179,9 +179,34 @@ test('worker Pair after app Quit replaces a still-valid saved controller without
       newGrant: grant.id,
       appQuit: 'owned process exited; Pair after reopening required fresh approval',
     })
+    const task = await second.client.createTask({ factory: 'PAIR', title: 'Synthetic' })
+    await second.rpc({ action: 'assign-remote', taskId: task.id, machineId: grant.id })
+    await second.rpc({
+      action: 'issue',
+      input: {
+        operationId: 'op-window',
+        taskId: task.id,
+        scope: replacementScope,
+        input: { wait: true },
+      },
+    })
+    await window.getByText('Connected. 1 operation running.').waitFor({ timeout: 30_000 })
+    await second.rpc({ action: 'stop-operation', id: 'op-window' })
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc<{ state: string } | null>({ action: 'operation', id: 'op-window' }))
+            ?.state,
+        { timeout: 30_000 },
+      )
+      .toBe('stopped')
+    await observe('command-worker-window', {
+      whileRunning: 'Connected. 1 operation running.',
+      afterStop: 'stopped on the controller',
+    })
   } finally {
     if (ctx.app) await ctx.app.close()
     ctx.app = undefined
     await fixture.close()
   }
-}, 120_000)
+}, 180_000)

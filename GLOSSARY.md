@@ -12,6 +12,10 @@ _Avoid_: Primary server, master
 The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
 _Avoid_: Worker node, remote host
 
+**Execution operation**:
+One piece of work the controller asks an execution machine to do for a Task, identified by an operation ID and journaled on both machines so it runs once.
+_Avoid_: Job, remote command
+
 **Task assignment**:
 The durable ownership of a Task’s execution by one machine; losing contact does not move that ownership elsewhere.
 _Avoid_: Lease, placement hint
