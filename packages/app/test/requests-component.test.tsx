@@ -770,7 +770,8 @@ test('a Review confirmation shows completed Checks once when progress is availab
 
 test('an obsolete Check repair does not claim a later execution', () => {
   const value: FailureCase = {
-    id: 'obsolete',
+    id: 'abcdef01-0000-4000-8000-000000000000',
+    contextId: '12345601-0000-4000-8000-000000000000',
     taskId: 'fixture',
     source: { kind: 'factory-check', checkRunId: 'failed-run', position: 0 },
     recordedBy: 'lead',
@@ -792,6 +793,8 @@ test('an obsolete Check repair does not claim a later execution', () => {
     ],
   }
   render(<FailureDetails failure={value} />)
+  expect(screen.getByText('abcdef').getAttribute('title')).toBe(value.id)
+  expect(screen.getByText('123456').getAttribute('title')).toBe(value.contextId)
   expect(screen.queryByText(/verified by a later execution/)).toBeNull()
   expect(screen.getByText(/verified with recorded evidence/)).toBeTruthy()
 })

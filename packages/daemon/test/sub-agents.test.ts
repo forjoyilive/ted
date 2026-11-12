@@ -99,7 +99,7 @@ const waitForResults = (client: Client, task: Task, count: number) =>
     return results.length >= count ? results : undefined
   }, `the Task Lead to finish ${count} commands`)
 
-const runIdOf = 'grep -o "[0-9a-f-]\\{36\\}" | head -1'
+const runIdOf = 'grep -o "[0-9a-f]\\{6\\}" | head -1'
 
 const startAndWait = (args: string) =>
   `out=$(ted run start ${args}) || exit $?; echo "$out" | head -1; ted run wait "$(echo "$out" | ${runIdOf})"`
@@ -118,19 +118,26 @@ describe('sub-agents', () => {
       client,
       steps(
         { run: ['sh', '-c', startAndWait(`--agent claude --prompt-file ${prompt}`)] },
+        { run: ['sh', '-c', 'ted run wait "$(printf %.6s "$TED_RUN")"'] },
         { endTurn: true },
       ),
     )
-    const [result] = await waitForResults(client, task, 1)
+    const [result, forbidden] = await waitForResults(client, task, 2)
+    expect(forbidden?.code).toBe(1)
+    expect(forbidden?.stderr).toContain('no such sub-agent started by this Run')
     expect(result?.code).toBe(0)
     const [startLine, ...rest] = result?.stdout.split('\n') ?? []
-    expect(startLine).toMatch(/^Started sub-agent “Explore the parser” \(Run [0-9a-f-]{36}\)/)
+    expect(startLine).toMatch(/^Started sub-agent “Explore the parser” \(Run [0-9a-f]{6}\)/)
     expect(rest.join('\n')).toBe('The parser lives in src/parse.ts\n')
 
     const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
     const sub = runs.find((r) => r.role === 'sub-agent')
     expect(sub).toMatchObject({ name: 'Explore the parser', agent: 'claude', state: 'idle' })
     expect(sub?.parentRunId).toBe((await getTask(client, task.id)).leadRunId)
+    const full = await client.ok<{ run: { id: string } }>('GET', `/runs/${sub?.id}`)
+    const short = await client.ok<{ run: { id: string } }>('GET', `/runs/${sub?.id.slice(0, 6)}`)
+    expect(short.run.id).toBe(full.run.id)
+
     const events = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
     expect(events.map((e) => e.text)).toContain('Sub-agent “Explore the parser” started · Claude')
   })
@@ -475,7 +482,7 @@ describe('sub-agents', () => {
       const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
       return runs.find((r) => r.role === 'sub-agent' && r.state === 'working')
     }, 'the sub-agent to work')
-    const stopped = await client.ok<RunSummary>('POST', `/runs/${sub.id}/stop`)
+    const stopped = await client.ok<RunSummary>('POST', `/runs/${sub.id.slice(0, 6)}/stop`)
     expect(stopped.state).toBe('finished')
     const [result] = await waitForResults(client, task, 1)
     expect(result?.code).toBe(1)

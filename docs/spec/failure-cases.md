@@ -4,6 +4,12 @@ A Failure case records one failure independently of factual Check runs and origi
 
 Validate now creates cases for failed Factory Checks and provides explicit operations for reviewer, visual and extra-test Findings. Post-rebase Checks and GitHub CI retain their existing producer behavior. A Task with no cases takes its existing advancement and merge paths without additional context capture or GitHub work.
 
+## Short references
+
+TED displays the first six characters of Failure case, Run and tested-context IDs in new generated text and UI labels. Existing text stays as written. Structured CLI results and daemon responses retain full IDs; failure CLI results also include `reference`, `runReference`, `recordedByReference` and `contextReference` alongside the corresponding canonical fields where present.
+
+Failure commands, Run commands and failure request-file `source.runId` and `contextId` fields accept an exact full ID or a unique prefix of at least six characters. An ambiguous prefix returns an error asking for more characters or the full ID. Lookup uses the existing authorized scope: Failure cases and contexts belong to the selected Task, and a Task Lead can steer only its own sub-agents. Resolution happens before existing validation and persistence; events and associations always retain full IDs. Check run IDs and other identifier types are unchanged.
+
 ## Operations and authorization
 
 All paths start with `/tasks/:id`. DaemonClient exports matching typed operations.

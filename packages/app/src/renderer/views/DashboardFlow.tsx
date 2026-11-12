@@ -1,4 +1,5 @@
 import type { DashboardFlow, FlowPeriod, FlowValidateOutcome } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { useEffect, useId, useRef } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import type { FlowSelection } from '../dashboard.ts'
@@ -267,7 +268,7 @@ function FlowSample({
           ),
           ...s.invocations.map(
             (i) =>
-              `Invocation ${i.id}: ${i.coverage} · registered ${at(i.registeredAt)}${i.runId ? ` · direct Run ${i.runId}` : ''}${i.checkRunId ? ` · Check ${i.checkRunId}, position ${i.position}` : ''}${i.openWaitStartedAt ? ` · open wait from ${at(i.openWaitStartedAt)}; final duration unavailable` : ''}${i.outcome ? ` · reporting ${i.outcome}; not a test result` : ''}${i.checkCommand ? ` · Check command ${at(i.checkCommand.from)} – ${at(i.checkCommand.to)}; ${hours(i.checkCommand.overlapMs)} of confirmed wait overlaps the command and also appears in Running Checks` : ''}`,
+              `Invocation ${i.id}: ${i.coverage} · registered ${at(i.registeredAt)}${i.runId ? ` · direct Run ${shortReference(i.runId)}` : ''}${i.checkRunId ? ` · Check ${i.checkRunId}, position ${i.position}` : ''}${i.openWaitStartedAt ? ` · open wait from ${at(i.openWaitStartedAt)}; final duration unavailable` : ''}${i.outcome ? ` · reporting ${i.outcome}; not a test result` : ''}${i.checkCommand ? ` · Check command ${at(i.checkCommand.from)} – ${at(i.checkCommand.to)}; ${hours(i.checkCommand.overlapMs)} of confirmed wait overlaps the command and also appears in Running Checks` : ''}`,
           ),
           ...s.notices,
         ],

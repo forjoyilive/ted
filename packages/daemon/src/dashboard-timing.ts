@@ -10,6 +10,7 @@ import type {
   TaskIntervalHistory,
   TestInvocation,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 
 export interface FlowTimingFacts {
   history: TaskIntervalHistory
@@ -289,7 +290,7 @@ function testSample(
                   id: invocation.id,
                   detail: invocation.checkRunId
                     ? `Associated Check ${invocation.checkRunId}, position ${invocation.position}; overlapping command time is also counted in Running Checks`
-                    : `Direct Run ${invocation.runId}`,
+                    : `Direct Run ${invocation.runId ? shortReference(invocation.runId) : 'unknown'}`,
                   start: iso(start),
                   end: iso(report.at),
                   startSource: 'reported wait-start',

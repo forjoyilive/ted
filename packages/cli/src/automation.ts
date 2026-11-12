@@ -16,6 +16,7 @@ import {
   efforts,
   scheduleFromExpression,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 
 export class AutomationUsageError extends Error {}
 
@@ -258,7 +259,7 @@ function triggerText(run: AutomationRun): string {
 function historyLine(run: AutomationRun): string {
   const retried = run.retriedAt === undefined ? '' : ` · Retried at ${when(run.retriedAt)}`
   const message = run.message === undefined ? '' : `\n    ${printable(run.message)}`
-  return `${when(run.startedAt ?? run.at)}  ${triggerText(run)}  ${resultText(run)}${retried}  (Run ${run.id})${message}`
+  return `${when(run.startedAt ?? run.at)}  ${triggerText(run)}  ${resultText(run)}${retried}  (Run ${shortReference(run.id)})${message}`
 }
 
 function showText(automation: Automation, history: AutomationRun[]): string {

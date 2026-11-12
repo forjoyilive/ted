@@ -1,4 +1,5 @@
 import type { Comment, RepairSelection, Task } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { useId, useState } from 'react'
 import { useFailures, useTasks } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
@@ -46,7 +47,7 @@ export function FailureRepairForm({
     description ??
     [
       `Repair the separate problem found while validating ${task.displayId}: ${task.title}.`,
-      `Failure ${failure.id}\nOriginal tested context: ${failure.contextId ?? 'unknown'}\n\n${failure.evidence}`,
+      `Failure ${shortReference(failure.id)}\nOriginal tested context: ${failure.contextId ? shortReference(failure.contextId) : 'unknown'}\n\n${failure.evidence}`,
       ...failure.additions.map((a) => a.evidence),
       `Assessment: ${assessment?.assessment ?? 'uncertain'}\nRecommendation: ${assessment?.recommendation ?? ''}`,
       'Success: repair the reported problem and pass the relevant verification. The affected Task must incorporate the merged repair and run fresh validation.',
