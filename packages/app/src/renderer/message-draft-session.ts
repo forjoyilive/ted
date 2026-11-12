@@ -175,7 +175,7 @@ export function messageDraftSession(
     load,
     async settled() {
       await load()
-      await flush()
+      while (saving) await saving
     },
     async retry() {
       retrying += 1
@@ -260,7 +260,9 @@ export function messageDraftSessions(options: {
       return () => {
         joined.listeners.delete(listener)
         joined.users -= 1
-        if (joined.users === 0) void release(box, joined)
+        if (joined.users > 0) return
+        void joined.session.flush()
+        void release(box, joined)
       }
     },
     async recover(): Promise<void> {
