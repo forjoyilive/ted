@@ -9,20 +9,15 @@ const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
 
 test('Developer mode shows live process totals in the sidebar and stops collecting when off', async () => {
   const app = appState()
-  let cpuPercent = 12.5
-  const diagnostics = vi.fn(() => ({
-    memory: { totalBytes: 1024 ** 3, availableBytes: 512 * 1024 ** 2 },
-    runs: [{ cpuPercent: 99, memoryBytes: 999 * 1024 ** 2 }],
-    processes: [
-      { pid: 1, owner: 'daemon', cpuPercent, memoryBytes: 64 * 1024 ** 2 },
-      { pid: 2, owner: { runId: 'run' }, cpuPercent: 2.5, memoryBytes: 128 * 1024 ** 2 },
-    ],
-  }))
+  let cpuPercent = 15
+  const usage = vi.fn(() => ({ cpuPercent, memoryBytes: 192 * 1024 ** 2 }))
+  const diagnostics = vi.fn()
+  app.handle('getProcessUsage', usage)
   app.handle('getDiagnostics', diagnostics)
   const view = app.mount()
   await screen.findByRole('navigation', { name: 'Sidebar' })
   expect(screen.queryByLabelText('Developer resource usage')).toBeNull()
-  expect(diagnostics).not.toHaveBeenCalled()
+  expect(usage).not.toHaveBeenCalled()
   vi.useFakeTimers()
   try {
     app.state.settings.developerMode = true
@@ -32,8 +27,10 @@ test('Developer mode shows live process totals in the sidebar and stops collecti
     expect(within(nav()).getByLabelText('Developer resource usage').textContent).toBe(
       'CPU 15% · Memory 192 MB',
     )
-    cpuPercent = 30
-    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    cpuPercent = 32.54
+    await act(async () => vi.advanceTimersByTimeAsync(4_000))
+    expect(usage).toHaveBeenCalledOnce()
+    await act(async () => vi.advanceTimersByTimeAsync(1_000))
     expect(screen.getByLabelText('Developer resource usage').textContent).toBe(
       'CPU 32.5% · Memory 192 MB',
     )
@@ -42,41 +39,74 @@ test('Developer mode shows live process totals in the sidebar and stops collecti
       app.emit({ type: 'settings-changed', settings: { ...app.state.settings } }),
     )
     expect(screen.queryByLabelText('Developer resource usage')).toBeNull()
-    const calls = diagnostics.mock.calls.length
-    await act(async () => vi.advanceTimersByTimeAsync(4_000))
-    expect(diagnostics).toHaveBeenCalledTimes(calls)
+    const calls = usage.mock.calls.length
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(usage).toHaveBeenCalledTimes(calls)
     app.state.settings.developerMode = true
     await act(async () =>
       app.emit({ type: 'settings-changed', settings: { ...app.state.settings } }),
     )
     view.unmount()
-    const beforeUnmount = diagnostics.mock.calls.length
-    await act(async () => vi.advanceTimersByTimeAsync(4_000))
-    expect(diagnostics).toHaveBeenCalledTimes(beforeUnmount)
+    const beforeUnmount = usage.mock.calls.length
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(usage).toHaveBeenCalledTimes(beforeUnmount)
+    expect(diagnostics).not.toHaveBeenCalled()
   } finally {
     vi.useRealTimers()
   }
 })
 
-test('sidebar resource readings recover after a diagnostics failure without showing stale totals', async () => {
+test('sidebar resource readings stop while the window is hidden and resume when it shows', async () => {
   const app = appState()
   app.state.settings.developerMode = true
-  const diagnostics = vi
+  const usage = vi.fn(() => ({ cpuPercent: 1, memoryBytes: 1024 ** 2 }))
+  app.handle('getProcessUsage', usage)
+  let hidden = false
+  const show = (visible: boolean) => {
+    hidden = !visible
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+  vi.useFakeTimers()
+  const view = app.mount()
+  try {
+    await act(async () => {})
+    expect(usage).toHaveBeenCalledOnce()
+    show(false)
+    await act(async () => vi.advanceTimersByTimeAsync(20_000))
+    expect(usage).toHaveBeenCalledOnce()
+    await act(async () => show(true))
+    expect(usage).toHaveBeenCalledTimes(2)
+    await act(async () => show(true))
+    expect(usage).toHaveBeenCalledTimes(2)
+    await act(async () => vi.advanceTimersByTimeAsync(5_000))
+    expect(usage).toHaveBeenCalledTimes(3)
+  } finally {
+    view.unmount()
+    Reflect.deleteProperty(document, 'hidden')
+    vi.useRealTimers()
+  }
+})
+
+test('sidebar resource readings recover after a failure without showing stale totals', async () => {
+  const app = appState()
+  app.state.settings.developerMode = true
+  const usage = vi
     .fn()
-    .mockResolvedValueOnce({ processes: [{ cpuPercent: 1, memoryBytes: 1024 ** 2 }] })
+    .mockResolvedValueOnce({ cpuPercent: 1, memoryBytes: 1024 ** 2 })
     .mockRejectedValueOnce(new Error('Offline'))
-    .mockResolvedValue({ processes: [] })
-  app.handle('getDiagnostics', diagnostics)
+    .mockResolvedValue({ cpuPercent: 0, memoryBytes: 0 })
+  app.handle('getProcessUsage', usage)
   vi.useFakeTimers()
   const view = app.mount()
   try {
     await act(async () => {})
     expect(screen.getByText('CPU 1% · Memory 1 MB')).toBeTruthy()
-    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    await act(async () => vi.advanceTimersByTimeAsync(5_000))
     expect(screen.getByLabelText('Developer resource usage').textContent).toBe(
       'CPU / Memory unavailable',
     )
-    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    await act(async () => vi.advanceTimersByTimeAsync(5_000))
     expect(screen.getByText('CPU 0% · Memory 0 MB')).toBeTruthy()
   } finally {
     view.unmount()
@@ -84,24 +114,24 @@ test('sidebar resource readings recover after a diagnostics failure without show
   }
 })
 
-test('slow diagnostics do not overlap or restart polling after leaving the main screen', async () => {
+test('a slow resource reading does not overlap or restart polling after leaving the main screen', async () => {
   const app = appState()
-  const pending = deferred<{ processes: [] }>()
-  const diagnostics = vi.fn(() => pending.promise)
-  app.handle('getDiagnostics', diagnostics)
+  const pending = deferred<{ cpuPercent: number; memoryBytes: number }>()
+  const usage = vi.fn(() => pending.promise)
+  app.handle('getProcessUsage', usage)
   app.state.settings.developerMode = true
   app.mount()
   await screen.findByText('CPU / Memory reading…')
   vi.useFakeTimers()
   try {
-    await act(async () => vi.advanceTimersByTimeAsync(6_000))
-    expect(diagnostics).toHaveBeenCalledOnce()
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+    expect(usage).toHaveBeenCalledOnce()
     fireEvent.click(within(nav()).getByRole('button', { name: /^Settings/ }))
     await act(async () => {})
     expect(screen.queryByLabelText('Developer resource usage')).toBeNull()
-    await act(async () => pending.resolve({ processes: [] }))
-    await act(async () => vi.advanceTimersByTimeAsync(4_000))
-    expect(diagnostics).toHaveBeenCalledOnce()
+    await act(async () => pending.resolve({ cpuPercent: 0, memoryBytes: 0 }))
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(usage).toHaveBeenCalledOnce()
   } finally {
     vi.useRealTimers()
   }

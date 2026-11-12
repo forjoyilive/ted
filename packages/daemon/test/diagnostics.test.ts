@@ -1,11 +1,21 @@
-import { appendFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type Diagnostics, type LogText, tedPaths } from '@ted/protocol'
+import {
+  type Diagnostics,
+  type LogText,
+  type ProcessUsage,
+  type Run,
+  type TokenUse,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { runFiles } from '../src/runs/host-files.ts'
+import { parsedOutput } from '../src/runs/parsed-output.ts'
+import { createRunOutput } from '../src/runs/run-output.ts'
 import {
   api,
   killRunHosts,
@@ -73,6 +83,28 @@ describe('Diagnostics', () => {
     expect(diagnostics.memory.totalBytes).toBeGreaterThan(0)
     expect(diagnostics.memory.availableBytes).toBeGreaterThan(0)
     expect(diagnostics.memory.availableBytes).toBeLessThanOrEqual(diagnostics.memory.totalBytes)
+
+    const usage = (await client.call('GET', '/diagnostics/usage')).body as ProcessUsage
+    expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'memoryBytes'])
+    expect(usage.cpuPercent).toBeGreaterThanOrEqual(0)
+    expect(usage.memoryBytes).toBeGreaterThan(owned.reduce((sum, p) => sum + p.memoryBytes, 0) / 2)
+
+    const ended = await client.startRun(
+      [{ endTurn: true, usage: { input_tokens: 7, output_tokens: 3 } }, { exit: 0 }],
+      cwd,
+    )
+    const tokensOf = async (runId: string) => {
+      const { body } = await client.call('GET', '/diagnostics')
+      return (body as Diagnostics).runs.find((r) => r.runId === runId)
+    }
+    await waitUntil(
+      async () => (await tokensOf(ended.id))?.state === 'finished',
+      'the second Run to finish',
+    )
+    for (let read = 0; read < 2; read++) {
+      expect((await tokensOf(ended.id))?.tokens).toEqual({ input: 7, output: 3 })
+      expect((await tokensOf(run.id))?.tokens).toEqual({ input: 2000, output: 350 })
+    }
   })
 
   test('shows a Run’s raw output and the end of the daemon’s log', async () => {
@@ -150,6 +182,7 @@ describe('Diagnostics', () => {
 
     for (const route of [
       '/diagnostics',
+      '/diagnostics/usage',
       '/diagnostics/report',
       '/logs/daemon',
       '/runs/run-1/raw',
@@ -183,5 +216,87 @@ describe('token use from agent output', () => {
 
     expect(codex.tokensFrom(line)).toEqual({ input: 900, output: 120, total: true })
     expect(codex.tokensFrom(JSON.stringify({ method: 'turn/started' }))).toBeUndefined()
+  })
+
+  test.each([
+    {
+      agent: 'claude' as const,
+      lines: [
+        JSON.stringify({ type: 'result', usage: { input_tokens: 10, output_tokens: 4 } }),
+        JSON.stringify({ type: 'assistant' }),
+        'not json',
+        JSON.stringify({ type: 'result', usage: { input_tokens: 5, output_tokens: 1 } }),
+      ],
+      totals: [
+        { input: 10, output: 4 },
+        { input: 15, output: 5 },
+      ],
+    },
+    {
+      agent: 'codex' as const,
+      lines: [
+        JSON.stringify({
+          method: 'thread/tokenUsage/updated',
+          params: { tokenUsage: { total: { inputTokens: 900, outputTokens: 120 } } },
+        }),
+        JSON.stringify({ method: 'turn/started' }),
+        JSON.stringify({
+          method: 'thread/tokenUsage/updated',
+          params: { tokenUsage: { total: { inputTokens: 1500, outputTokens: 200 } } },
+        }),
+      ],
+      totals: [
+        { input: 900, output: 120 },
+        { input: 1500, output: 200 },
+      ],
+    },
+  ])('the output fold keeps $agent input and output tokens as lines arrive', async (given) => {
+    const home = await mkdtemp(path.join(tmpdir(), 'ted-diag-fold-'))
+    try {
+      const run = { id: 'run-1', agent: given.agent, cwd: home } as Run
+      const log = runFiles(path.join(tedPaths(home).runs, run.id)).log
+      await mkdir(path.dirname(log), { recursive: true })
+      let offset = 0
+      const output = createRunOutput({
+        home,
+        store: { getRun: () => run, runReadOffset: () => offset },
+      })
+      const write = async (lines: string[]) => {
+        await appendFile(
+          log,
+          lines.map((line) => `${JSON.stringify({ t: 'out', line })}\n`).join(''),
+        )
+        offset = (await stat(log)).size
+      }
+      const reread = (): TokenUse => {
+        const agent = agents.get(run.agent)
+        let added: TokenUse = { input: 0, output: 0 }
+        let latestTotal: TokenUse | undefined
+        for (const { line } of output.entries(run.id)) {
+          const count = agent.tokensFrom(line)
+          if (!count) continue
+          if (count.total) latestTotal = { input: count.input, output: count.output }
+          else added = { input: added.input + count.input, output: added.output + count.output }
+        }
+        return latestTotal ?? added
+      }
+      const fold = () => parsedOutput(output, agents, run)
+
+      expect(fold().tokenUse()).toEqual({ input: 0, output: 0 })
+      expect(fold().tokens()).toBeUndefined()
+      const half = Math.ceil(given.lines.length / 2)
+      for (const [index, lines] of [
+        given.lines.slice(0, half),
+        given.lines.slice(half),
+      ].entries()) {
+        await write(lines)
+        const total = given.totals[index] as TokenUse
+        expect(fold().tokenUse()).toEqual(total)
+        expect(fold().tokenUse()).toEqual(reread())
+        expect(fold().tokens()).toBe(total.input + total.output)
+      }
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
   })
 })
