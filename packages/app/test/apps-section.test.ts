@@ -112,7 +112,7 @@ test('the Apps section runs a Web App, shows its log in the middle pane, and sto
   await log.getByText(`Running · localhost:${port}`).waitFor()
   await log.getByRole('button', { name: 'Stop' }).click()
   await log.getByRole('button', { name: 'Run' }).waitFor()
-  await log.getByRole('button', { name: '← Thread' }).click()
+  await log.getByRole('button', { name: '← Task Lead' }).click()
   const thread = window.getByRole('region', { name: 'Task thread' })
   await thread.getByText(`You started Web · localhost:${port}`).waitFor()
   await thread.getByText('You stopped Web').waitFor()

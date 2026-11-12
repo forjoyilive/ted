@@ -7,8 +7,9 @@ import type {
   DashboardTask,
   FactoryDashboard,
 } from '@ted/protocol'
+import { dashboardFlow, type FlowFacts } from './dashboard-flow.ts'
 
-export interface DashboardTaskFacts {
+export interface DashboardTaskFacts extends FlowFacts {
   id: string
   displayId: string
   title: string
@@ -16,7 +17,7 @@ export interface DashboardTaskFacts {
   archived: boolean
   setup: boolean
   stage: string
-  entries: readonly { stage: string; at: string }[]
+  entries: readonly { stage: string; at: string; sequence?: number }[]
 }
 
 const dayMs = 86_400_000
@@ -169,5 +170,6 @@ export function factoryDashboard(
             created: change(current.created.value, previous.created.value),
             intake: change(current.intake.value, previous.intake.value),
           },
+    flow: dashboardFlow(facts, range, asOf, current.taskIds, previous?.taskIds ?? []),
   }
 }

@@ -176,6 +176,8 @@ describe('Codex Runs', () => {
         '-c',
         'approval_policy="on-request"',
         '-c',
+        'approvals_reviewer="auto_review"',
+        '-c',
         'sandbox_workspace_write.network_access=true',
         '-c',
         'shell_environment_policy.inherit="all"',

@@ -259,6 +259,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   const source: QueueSource = {
+    starting: () => [...starting],
     queued() {
       return queuedFirings().flatMap((f): QueueEntry[] => {
         const automation = saved.get(f.automationId)

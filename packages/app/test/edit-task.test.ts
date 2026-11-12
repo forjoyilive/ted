@@ -100,7 +100,7 @@ describe('Editing a Task', () => {
     const brief = details.getByRole('region', { name: 'Task brief' })
     await brief.getByRole('button', { name: 'Original request' }).click()
     await brief.getByText(/Only in titles\./).waitFor()
-    await brief.getByRole('button', { name: 'History · 1 edit' }).click()
+    await brief.getByRole('button', { name: 'Description history · 1 edit' }).click()
     const history = window.getByRole('dialog', { name: 'NB-1 description history' })
     await history.getByText(/^Version 2 · edited by you .* · current$/).waitFor()
     await history.getByText(/^Original request · /).waitFor()

@@ -148,7 +148,7 @@ describe('Line comments', () => {
     await diff.getByRole('button', { name: 'Cancel' }).click()
     await diff.getByRole('textbox', { name: 'Line comment' }).waitFor({ state: 'detached' })
 
-    await diff.getByRole('button', { name: '← Thread' }).click()
+    await diff.getByRole('button', { name: '← Task Lead' }).click()
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByRole('button', { name: '1 unsent line comment' }).click()
     await thread.getByRole('button', { name: 'src/search/SearchPanel.tsx · line 3' }).click()
@@ -157,7 +157,7 @@ describe('Line comments', () => {
     await bar.getByRole('button', { name: 'Send to Task Lead' }).click()
     await bar.waitFor({ state: 'detached' })
     await card.getByText('· sent · line 3').waitFor()
-    await diff.getByRole('button', { name: '← Thread' }).click()
+    await diff.getByRole('button', { name: '← Task Lead' }).click()
     await thread
       .getByRole('button', { name: '1 unsent line comment' })
       .waitFor({ state: 'detached' })

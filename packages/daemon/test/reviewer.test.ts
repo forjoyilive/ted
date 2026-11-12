@@ -12,6 +12,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
+  all,
   api,
   assistantTexts,
   commitToOrigin,
@@ -400,22 +401,24 @@ describe('the Validate loop check', () => {
     slow,
   )
 
-  test.each(['looping', 'unknown'])(
-    'a %s limit assessment asks with a recommendation or explicit uncertainty',
-    async (verdict) => {
+  test(
+    'a looping and an unknown limit assessment each ask, with a recommendation or explicit uncertainty',
+    async () => {
       const client = await start(
         'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 1, loop_check: 3 }\n',
       )
-      const task = await loopTask(client, verdict, 4)
-      const ask = await waitForAsk(client, task)
-      expect(ask.body).toContain(
-        verdict === 'looping' ? 'Recommended: Back to Design' : 'couldn’t assess progress',
-      )
-      expect(ask.body).not.toContain('The export button does nothing.')
-      expect(ask.body).not.toContain('Round 1:')
-      expect((await getTask(client, task.id)).stage).toBe('validate')
-      const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
-      expect(runs.filter((r) => r.name === 'Loop check · Validate')).toHaveLength(1)
+      await all(['looping', 'unknown'], async (verdict) => {
+        const task = await loopTask(client, verdict, 4)
+        const ask = await waitForAsk(client, task)
+        expect(ask.body).toContain(
+          verdict === 'looping' ? 'Recommended: Back to Design' : 'couldn’t assess progress',
+        )
+        expect(ask.body).not.toContain('The export button does nothing.')
+        expect(ask.body).not.toContain('Round 1:')
+        expect((await getTask(client, task.id)).stage).toBe('validate')
+        const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
+        expect(runs.filter((r) => r.name === 'Loop check · Validate')).toHaveLength(1)
+      })
     },
     slow,
   )

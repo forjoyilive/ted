@@ -666,6 +666,8 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     acknowledgeLeadMessages,
     interruptedSetups,
     pendingRevive: (taskId: string) => pendingRevive(taskId) !== undefined,
+    pendingRecoveryTaskIds: (): readonly string[] =>
+      [...awaitingRevive].filter((taskId) => pendingRevive(taskId) !== undefined),
     applying: (taskId: string) => applying.has(taskId),
     failed: leadFailed,
     recovering: (runId: string) => recovering.has(runId),

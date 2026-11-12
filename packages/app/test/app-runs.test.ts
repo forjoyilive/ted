@@ -178,7 +178,7 @@ describe('Failed', () => {
 
     await card.getByRole('button', { name: 'Open last Run' }).click()
     await window.getByRole('region', { name: 'Run chat' }).getByText('Starting.').first().waitFor()
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
 
     await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
     await card.getByRole('button', { name: 'Retry' }).click()
