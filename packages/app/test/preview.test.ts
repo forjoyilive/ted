@@ -2,7 +2,7 @@ import type { RunSlots, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
 import { simulatorsLine } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
-import { nowLine } from '../src/renderer/slots.ts'
+import { nowLine, runsLine } from '../src/renderer/slots.ts'
 
 const task = (preview?: { url: string; label: string }) =>
   ({
@@ -145,10 +145,19 @@ describe('iOS simulator Apps', () => {
     expect(simulatorsLine({ ...booted(1), supported: false })).toBeUndefined()
     const slots = { working: 4, limit: 6, queued: 2, factories: [] } as unknown as RunSlots
     expect(nowLine(slots, booted(1))).toBe(
-      'Now: 4 of 6 Runs working · 2 queued · 1 of 3 simulators booted',
+      'Now: 4 slots in use · limit 6 · 2 queued · 1 of 3 simulators booted',
     )
     expect(nowLine(slots, { ...booted(1), supported: false })).toBe(
-      'Now: 4 of 6 Runs working · 2 queued',
+      'Now: 4 slots in use · limit 6 · 2 queued',
     )
   })
+})
+
+test('the sidebar names slot usage and its limit, including above-limit and queued-only work', () => {
+  const slots: RunSlots = { working: 7, limit: 6, queued: 1, holders: [], queue: [], factories: [] }
+  expect(runsLine(slots)).toBe('7 slots in use · limit 6 · 1 queued')
+  expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 slot in use · limit 6')
+  expect(runsLine({ ...slots, working: 0 })).toBe('0 slots in use · limit 6 · 1 queued')
+  expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 slots in use · limit 6')
+  expect(runsLine({ ...slots, heldForLoad: true })).toContain('this computer is busy')
 })

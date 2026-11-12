@@ -208,6 +208,9 @@ test('queues every side turn, releases its slot on stop, retries and refuses too
     text: JSON.stringify({ steps: [{ say: 'Second reply' }, { endTurn: true }] }),
   })
   expect((await client.ok<SideChat>('GET', second)).state).toBe('queued')
+  await expect
+    .poll(() => client.ok<import('@ted/protocol').Activity>('GET', '/activity'))
+    .toMatchObject({ runs: { queued: 1 } })
   expect((await client.call('POST', `${second}/messages`, { text: 'extra' })).status).toBe(409)
   const slots = await client.ok<import('@ted/protocol').RunSlots>('GET', '/slots')
   expect(slots.holders.some((h) => h.kind === 'side-chat' && h.runId === one.id)).toBe(true)

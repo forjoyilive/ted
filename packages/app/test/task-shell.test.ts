@@ -130,7 +130,7 @@ describe('Task shell', () => {
     await again.getByRole('button', { name: 'Shell' }).click()
     await shell.getByText('task=NB-1 sum=42').waitFor()
 
-    await shell.getByRole('button', { name: '← Thread' }).click()
+    await shell.getByRole('button', { name: '← Task Lead' }).click()
     await shell.waitFor({ state: 'detached' })
     await window.getByRole('region', { name: 'Task thread' }).click({ position: { x: 5, y: 5 } })
     await window.keyboard.press('Control+Backquote')
@@ -210,7 +210,7 @@ describe('Task shell', () => {
       )
       await window.screenshot({ path: `${process.env.TED_SHELL_SCREENSHOT}-narrow.png` })
     }
-    await shell.getByRole('button', { name: '← Thread' }).click()
+    await shell.getByRole('button', { name: '← Task Lead' }).click()
     const again = window
       .getByRole('complementary', { name: 'Task details' })
       .getByRole('region', { name: 'Code' })
@@ -332,7 +332,7 @@ describe('Task shell', () => {
       .getByRole('button', { name: 'Close shell', exact: true })
       .click()
     await shell.getByRole('button', { name: 'Open Shell', exact: true }).waitFor()
-    await shell.getByRole('button', { name: '← Thread' }).click()
+    await shell.getByRole('button', { name: '← Task Lead' }).click()
     await window
       .getByRole('complementary', { name: 'Task details' })
       .getByRole('region', { name: 'Code' })

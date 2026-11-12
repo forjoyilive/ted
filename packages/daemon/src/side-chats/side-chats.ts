@@ -235,6 +235,7 @@ export function createSideChats(options: {
     }
   }
   const source: QueueSource = {
+    starting: () => [...starts.keys()],
     queued: () =>
       saved
         .list()

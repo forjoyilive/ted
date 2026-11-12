@@ -1,5 +1,5 @@
 import type { SideChat as Chat } from '@ted/protocol'
-import { useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useEventValue, useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -7,17 +7,17 @@ import { Button } from './Button.tsx'
 import { type ChatOptions, ChatSection } from './RunChat.tsx'
 import styles from './SideChat.module.css'
 
-type Props = { runId: string; onStopTask?: (() => void) | undefined } & ChatOptions
+type Props = {
+  runId: string | undefined
+  onStopTask?: (() => void) | undefined
+  renderSource?: (resource: ReturnType<typeof useRunChatState>) => ReactNode
+} & ChatOptions
 
 export function RunWithSideChat(props: Props) {
-  return <RunSideChat key={props.runId} {...props} />
+  return <RunSideChat key={props.renderSource ? undefined : props.runId} {...props} />
 }
 
-function RunSideChat({
-  runId,
-  onStopTask,
-  ...options
-}: { runId: string; onStopTask?: (() => void) | undefined } & ChatOptions) {
+function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const resource = useRunChatState(runId)
   const chat = resource.value
   const [open, setOpen] = useState(false)
@@ -25,12 +25,21 @@ function RunSideChat({
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const sideId = useRef<string | undefined>(undefined)
+  const sourceId = useRef(runId)
+  sourceId.current = runId
+  useEffect(() => {
+    void runId
+    setOpen(false)
+    setWhich('source')
+    setError(undefined)
+    setBusy(false)
+  }, [runId])
   const eligible = chat?.run.role === 'lead'
   const { value: side, update } = useEventValue<Chat | null | undefined>({
     initial: undefined,
-    key: runId,
+    key: runId ?? '',
     enabled: eligible,
-    load: () => ted.getSideChat(runId),
+    load: () => (runId === undefined ? Promise.resolve(null) : ted.getSideChat(runId)),
     event: (event) =>
       (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
       (event.type === 'run-output' && event.runId === sideId.current) ||
@@ -43,23 +52,25 @@ function RunSideChat({
   })
   sideId.current = side?.id
 
-  const act = async (request: () => Promise<Chat>) => {
+  const act = async (request: (source: string) => Promise<Chat>) => {
+    if (runId === undefined) return
+    const source = runId
     setBusy(true)
     setError(undefined)
     try {
-      const next = await request()
-      update(() => next)
+      const next = await request(runId)
+      if (sourceId.current === source) update(() => next)
     } catch (failed) {
-      setError(readableError(failed))
+      if (sourceId.current === source) setError(readableError(failed))
       throw failed
     } finally {
-      setBusy(false)
+      if (sourceId.current === source) setBusy(false)
     }
   }
   const show = () => {
     setOpen(true)
     setWhich('side')
-    void act(() => ted.openSideChat(runId)).catch(() => undefined)
+    void act((source) => ted.openSideChat(source)).catch(() => undefined)
   }
   const working = side?.state === 'working' || side?.state === 'queued'
   return (
@@ -83,20 +94,24 @@ function RunSideChat({
               </Button>
             </div>
           )}
-          <ChatSection
-            chat={chat}
-            error={resource.error}
-            retry={resource.retry}
-            onStopTask={onStopTask}
-            options={{
-              ...options,
-              headerAction: eligible && (
-                <Button size="small" disabled={busy} onClick={show}>
-                  {side ? 'Open side chat' : 'Side chat'}
-                </Button>
-              ),
-            }}
-          />
+          {renderSource ? (
+            renderSource(resource)
+          ) : (
+            <ChatSection
+              chat={chat}
+              error={resource.error}
+              retry={resource.retry}
+              onStopTask={onStopTask}
+              options={{
+                ...options,
+                headerAction: eligible && (
+                  <Button size="small" disabled={busy} onClick={show}>
+                    {side ? 'Open side chat' : 'Side chat'}
+                  </Button>
+                ),
+              }}
+            />
+          )}
         </div>
         {eligible && open && (
           <section className={styles.side} data-hidden={which !== 'side'} aria-label="Side chat">
@@ -160,7 +175,7 @@ function RunSideChat({
                   working: false,
                   interrupt: false,
                   send: async (text) => {
-                    await act(() => ted.sendSideChat(runId, text))
+                    await act((source) => ted.sendSideChat(source, text))
                   },
                   readOnly: side.available ? undefined : (
                     <p className={styles.notice}>
@@ -173,7 +188,7 @@ function RunSideChat({
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act(() => ted.stopSideChat(runId)).catch(() => undefined)
+                          void act((source) => ted.stopSideChat(source)).catch(() => undefined)
                         }}
                       >
                         Stop reply
@@ -185,7 +200,7 @@ function RunSideChat({
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act(() => ted.retrySideChat(runId)).catch(() => undefined)
+                          void act((source) => ted.retrySideChat(source)).catch(() => undefined)
                         }}
                       >
                         Retry

@@ -98,7 +98,7 @@ describe('running in the background', () => {
       .toEqual(
         expect.arrayContaining([
           '1 waiting on you',
-          '0 of 1 Run working',
+          '0 working · 1 unfinished Run',
           'Open TED',
           'New Task…',
           'Settings…',

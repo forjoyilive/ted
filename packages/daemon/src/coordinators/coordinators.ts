@@ -235,6 +235,7 @@ export function createCoordinators(options: {
     return messages.length
   }
   const source: QueueSource = {
+    starting: () => [...launching].flatMap((id) => saved.get(id)?.runId ?? []),
     queued: () =>
       saved
         .list()

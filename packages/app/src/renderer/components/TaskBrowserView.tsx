@@ -160,7 +160,7 @@ export function TaskBrowserView({
     <section className={styles.pane} aria-label="Task browser">
       <div className={styles.toolbar}>
         <Button size="small" onClick={onBack}>
-          ← Thread
+          ← Task Lead
         </Button>
         <Select
           aria-label="Web App"

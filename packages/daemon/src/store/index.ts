@@ -93,7 +93,6 @@ import {
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { Effect } from 'effect'
-import { factoryDashboard as aggregateDashboard } from '../dashboard.ts'
 import { isDiskFullError } from '../disk.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
@@ -112,6 +111,7 @@ import { type AutomationDraftStore, createAutomationDraftStore } from './automat
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
@@ -132,7 +132,6 @@ import {
   commentAttachments,
   comments,
   conversationTabs,
-  coordinators,
   deletedTasks,
   events,
   factories,
@@ -160,7 +159,6 @@ import {
   sendBackResets,
   sendBacks,
   severityDeclarations,
-  sideChats,
   stageEntries,
   stageFileTexts,
   subAgentRequests,
@@ -231,6 +229,13 @@ export interface LeadFailure {
   recovery: 'resume' | 'fresh' | 'failed'
   resumeFailed: boolean
   ask?: { title: string; body: string }
+}
+
+export interface QueueActivity {
+  queuedTasks: readonly string[]
+  queuedRuns: readonly string[]
+  startingRuns: readonly string[]
+  startingTasks: readonly string[]
 }
 
 export interface NewPermissionPrompt {
@@ -878,6 +883,7 @@ export interface TedStore extends TaskHistory {
   settings(): MachineSettings
   activity(): Activity
   waiting(): WaitingRequest[]
+  setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
@@ -1008,15 +1014,6 @@ export async function openStore({
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
-  const dashboardTasks = (factoryId: string) =>
-    queryDb(tasks.where({ factoryId, setup: false }).orderBy('number', 'asc'))
-  const dashboardEntries = (ids: string[]) =>
-    queryDb(
-      stageEntries.where({
-        taskId: { op: 'IN', value: ids },
-        stage: { op: 'IN', value: ['done', 'intake'] },
-      }),
-    )
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
   const liveRuns = queryDb(
     runs.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
@@ -2235,6 +2232,7 @@ export async function openStore({
 
   const updatedQueue = (except?: string) => {
     for (const { id } of queue()) if (id !== except) updatedTask(id)
+    noteActivity()
   }
 
   const updatedDependents = (blockerId: string) => {
@@ -2299,26 +2297,46 @@ export async function openStore({
     }
   }
 
+  let queueActivity: QueueActivity = {
+    queuedTasks: [],
+    queuedRuns: [],
+    startingRuns: [],
+    startingTasks: [],
+  }
   let shellsRunning = 0
   const activity = (): Activity => {
     const active = store.query(liveRuns)
-    const held = store.query(queryDb(heldRuns)).length
+    const runIds = new Set(active.map((run) => run.id))
+    const taskIds = new Set(
+      active.filter((run) => run.parentRunId === null).flatMap((run) => run.taskId ?? []),
+    )
+    const startingTasks = new Set(queueActivity.startingTasks.filter((id) => !taskIds.has(id)))
+    const startingRuns = new Set(queueActivity.startingRuns.filter((id) => !runIds.has(id)))
+    const queuedTasks = new Set(
+      [
+        ...queueActivity.queuedTasks,
+        ...queue().map((entry) => entry.id),
+        ...store.query(queryDb(heldRuns)).map((held) => held.taskId),
+      ].filter((id) => !taskIds.has(id) && !startingTasks.has(id)),
+    )
+    const queuedRuns = new Set(queueActivity.queuedRuns.filter((id) => !startingRuns.has(id)))
+    const startingWork = startingTasks.size + startingRuns.size
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveAutomations = store
       .query(queryDb(automations.select()))
       .filter((a) => factoryIds.has(a.factoryId))
     return {
       runs: {
-        working: active.filter((run) => run.state === 'working').length,
-        active: active.length + held,
-        queued:
-          store.query(queryDb(sideChats)).filter((row) => JSON.parse(row.data).state === 'queued')
-            .length +
-          store.query(queryDb(coordinators)).filter((row) => {
-            const value = JSON.parse(row.data) as { phase: string }
-            return value.phase === 'queued'
-          }).length,
+        working: active.filter(
+          (run) =>
+            run.state === 'working' &&
+            pauses()[run.agent as AgentKind] === undefined &&
+            !waitingOnSubAgents.has(run.id),
+        ).length,
+        active: active.length,
+        queued: queuedTasks.size + queuedRuns.size,
       },
+      ...(startingWork > 0 && { startingWork }),
       scheduledTasks: store
         .query(allTasks)
         .filter(
@@ -3632,30 +3650,7 @@ export async function openStore({
       return task
     },
     factoryDashboard(factoryId, range, asOf = Date.now()) {
-      const rows = store.query(dashboardTasks(factoryId))
-      const entries = rows.length ? store.query(dashboardEntries(rows.map((row) => row.id))) : []
-      const byTask = new Map<string, { stage: string; at: string }[]>()
-      for (const entry of entries) {
-        const found = byTask.get(entry.taskId) ?? []
-        found.push({ stage: entry.stage, at: entry.at })
-        byTask.set(entry.taskId, found)
-      }
-      const factory =
-        listFactories().find((factory) => factory.id === factoryId) ?? placeholderFactory
-      return aggregateDashboard(
-        rows.map((row) => ({
-          id: row.id,
-          displayId: `${factory.key}-${row.number}`,
-          title: row.title,
-          createdAt: row.createdAt,
-          archived: row.archivedAt !== null,
-          setup: row.setup,
-          stage: row.stage,
-          entries: byTask.get(row.id) ?? [],
-        })),
-        range,
-        asOf,
-      )
+      return readFactoryDashboard(store, factoryId, range, asOf)
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
@@ -4755,6 +4750,10 @@ export async function openStore({
     settings,
     activity,
     waiting,
+    setQueueActivity(value) {
+      queueActivity = value
+      noteActivity()
+    },
     setShellsRunning(count) {
       shellsRunning = count
       noteActivity()
@@ -4838,6 +4837,7 @@ export async function openStore({
           .map((q) => q.id),
       ])
       for (const taskId of affected) updatedTask(taskId)
+      noteActivity()
     },
     agentPauses: pauses,
     holdTaskRun({ taskId, agent, sessionId }) {

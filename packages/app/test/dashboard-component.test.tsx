@@ -73,6 +73,23 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
   expect(within(sample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
   fireEvent(sample, new Event('cancel', { bubbles: true, cancelable: true }))
   expect(screen.queryByRole('dialog')).toBeNull()
+
+  const stageTime = screen.getByRole('region', { name: 'Elapsed time by Stage' })
+  await u.click(within(stageTime).getByRole('button', { name: '2 Tasks' }))
+  sample = screen.getByRole('dialog')
+  first = within(sample).getByRole('button', { name: /NB-1.*Fix login/ })
+  const openFlowTask = within(sample).getByRole('button', { name: /NB-3.*Open Task/ })
+  first.focus()
+  await u.keyboard('j')
+  expect(document.activeElement).toBe(openFlowTask)
+  await u.keyboard('k')
+  expect(document.activeElement).toBe(first)
+  await u.keyboard('{Enter}')
+  await u.click(await screen.findByRole('button', { name: '← Dashboard' }))
+  sample = await screen.findByRole('dialog')
+  expect(within(sample).getByRole('heading', { name: 'Work · Per-Task elapsed time' })).toBeTruthy()
+  expect(within(sample).getByRole('button', { name: /NB-3.*Open Task/ })).toBeTruthy()
+  await u.click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
 })
 
 test.each([
@@ -106,7 +123,7 @@ test.each([
   }
 })
 
-test('Dashboard shows completion metrics only and opens contributing and missing-start Tasks', async () => {
+test('Dashboard preserves completion metrics and opens contributing and missing-start Tasks', async () => {
   bridge({ factoryDashboard: () => dashboardFixture() })
   const open = vi.fn()
   render(<DashboardView open={open} />)
@@ -224,4 +241,108 @@ test('unavailable completion history never assigns an unrecorded completion to t
   ).toBeTruthy()
   expect(within(dialog).getByText(/Done timestamp unavailable/)).toBeTruthy()
   expect(within(dialog).queryByText(/end excluded/)).toBeNull()
+})
+
+test('Flow keeps its open-Task sample separate, shows distributions and opens exact clipped intervals', async () => {
+  bridge({ factoryDashboard: () => dashboardFixture() })
+  const open = vi.fn()
+  render(<DashboardView open={open} />)
+  const region = await screen.findByRole('region', { name: 'Elapsed time by Stage' })
+  expect(within(region).getByText('14 h')).toBeTruthy()
+  expect(within(region).getByText('7 h')).toBeTruthy()
+  expect(within(region).getByText('6 h – 8 h')).toBeTruthy()
+  const opener = within(region).getByRole('button', { name: '2 Tasks' })
+  await user().click(opener)
+  let sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('9 h · 1 measured visit')
+  expect(sample.textContent).toContain('Open at the as-of instant')
+  const openTask = within(sample).getByRole('button', { name: /NB-3.*Open Task/ })
+  expect(within(sample).queryByRole('button', { name: /Improve search/ })).toBeNull()
+  await user().click(openTask)
+  expect(open).toHaveBeenCalledWith('t3')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  expect(document.activeElement).toBe(opener)
+  await user().click(within(region).getByRole('button', { name: /1 Tasks have incomplete/ }))
+  sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('First Intake timestamp is missing.')
+})
+
+test('Flow distinguishes counted transitions and unknown verification from completed first-pass results', async () => {
+  bridge({ factoryDashboard: () => dashboardFixture() })
+  render(<DashboardView open={vi.fn()} />)
+  const sendBack = await screen.findByRole('region', { name: 'Actual send-backs' })
+  expect(within(sendBack).getByText('1 count toward limits · 1 do not')).toBeTruthy()
+  await user().click(within(sendBack).getByRole('button', { name: 'Validate → Work' }))
+  let sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Does not count toward limit · Cause: base-conflict')
+  expect(within(sample).getAllByRole('button', { name: /NB-3.*Open Task/ })).toHaveLength(2)
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  const validate = screen.getByRole('region', { name: 'First-pass Validate' })
+  expect(validate.textContent).toContain('1 of 1 recorded first visits passed')
+  expect(validate.textContent).toContain('Accepted failures remain failures')
+  const unknown = within(validate).getByRole('row', { name: 'Unknown verification 1 Tasks' })
+  await user().click(within(unknown).getByRole('button', { name: '1 Tasks' }))
+  sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Visual verification or its applicability was not recorded.')
+  expect(within(sample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
+})
+
+test('Flow shares the range selector, suppresses all-history comparisons and shows empty denominators as unavailable', async () => {
+  const data = dashboardFixture(true)
+  data.flow.previous = null
+  const api = bridge({ factoryDashboard: () => data })
+  const change = vi.fn()
+  render(
+    <Dashboard
+      factoryId="f1"
+      title="Widgets"
+      state={{ range: 'all' }}
+      onChange={change}
+      onOpenTask={vi.fn()}
+    />,
+  )
+  const validate = await screen.findByRole('region', { name: 'First-pass Validate' })
+  expect(validate.textContent).toContain('Unavailable')
+  expect(validate.textContent).toContain('0 of 0 recorded first visits passed')
+  expect(screen.queryByText('Previous period · all Stage measures')).toBeNull()
+  expect(screen.getByText(/No measurable Stage intervals/)).toBeTruthy()
+  expect(api.request).toHaveBeenCalledWith('factoryDashboard', 'f1', 'all')
+  const select = screen.getByRole('combobox', { name: 'Historical period' })
+  await user().selectOptions(select, '30d')
+  expect(change).toHaveBeenCalledWith({ range: '30d' })
+})
+
+test('previous-period Flow samples retain their own period and restore focus after closing', async () => {
+  const data = dashboardFixture()
+  if (!data.flow.previous) throw new Error('Missing previous fixture period')
+  data.flow.previous.stages = [
+    {
+      stage: 'work',
+      totalMs: 3_600_000,
+      medianMs: 3_600_000,
+      p25Ms: 3_600_000,
+      p75Ms: 3_600_000,
+      samples: [
+        {
+          taskId: 't1',
+          elapsedMs: 3_600_000,
+          intervals: [{ from: '2026-10-26T00:00:00.000Z', to: '2026-10-26T01:00:00.000Z' }],
+        },
+      ],
+    },
+  ]
+  bridge({ factoryDashboard: () => data })
+  render(<DashboardView open={vi.fn()} />)
+  const region = await screen.findByRole('region', { name: 'Elapsed time by Stage' })
+  const summary = within(region).getByText('Previous period · all Stage measures')
+  await user().click(summary)
+  const details = summary.closest('details')
+  if (!details) throw new Error('Missing comparison disclosure')
+  const opener = within(details).getByRole('button', { name: '1 Tasks' })
+  await user().click(opener)
+  const sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Previous period')
+  expect(sample.textContent).toContain('1 h · 1 measured visit')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  expect(document.activeElement).toBe(opener)
 })

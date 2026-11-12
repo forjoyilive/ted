@@ -64,7 +64,7 @@ describe('menu-bar menu', () => {
 
     expect(labels(entries)).toEqual([
       '3 waiting on you',
-      '5 of 6 Runs working · 2 queued',
+      '5 working · 6 unfinished Runs · 2 queued',
       '—',
       'Claude Code is signed out',
       'Disk almost full · 8.2 GB free',
@@ -99,7 +99,7 @@ describe('menu-bar menu', () => {
       command: { kind: 'open-inbox' },
       enabled: true,
     })
-    expect(item('No Runs working')).toMatchObject({ enabled: false })
+    expect(item('No unfinished Runs')).toMatchObject({ enabled: false })
     expect(item('Claude Code is signed out')).toMatchObject({
       command: { kind: 'banner', bannerId: 'claude' },
       dot: 'stops-work',
@@ -122,7 +122,7 @@ describe('menu-bar menu', () => {
   test('leaves out problems and updates when there are none, and says when nothing waits', () => {
     expect(labels(statusMenu({ activity: noActivity, waiting: 0, banners: [] }, now))).toEqual([
       'Nothing waiting on you',
-      'No Runs working',
+      'No unfinished Runs',
       '—',
       'Open TED',
       'New Task…',
@@ -145,10 +145,10 @@ describe('menu-bar menu', () => {
     const labelFor = (a: Activity) =>
       labels(statusMenu({ activity: a, waiting: 0, banners: [] }, now))[1]
 
-    expect(labelFor(activity({ working: 1, active: 1 }))).toBe('1 of 1 Run working')
-    expect(labelFor(activity({ working: 0, active: 2 }))).toBe('0 of 2 Runs working')
+    expect(labelFor(activity({ working: 1, active: 1 }))).toBe('1 working · 1 unfinished Run')
+    expect(labelFor(activity({ working: 0, active: 2 }))).toBe('0 working · 2 unfinished Runs')
     expect(labelFor({ ...noActivity, runs: { working: 0, active: 0, queued: 3 } })).toBe(
-      'No Runs working · 3 queued',
+      'No unfinished Runs · 3 queued',
     )
   })
 })
@@ -229,7 +229,8 @@ describe('quitting', () => {
   test('the dialog defaults to keeping work running and offers Don’t ask again', () => {
     expect(quitDialog(working)).toEqual({
       title: 'Quit TED?',
-      message: '2 Runs are still going. Keep TED running in the background so they finish?',
+      message:
+        '2 unfinished Runs, including Runs that are idle, waiting or paused. Keep TED running in the background?',
       buttons: ['Keep running in the background', 'Stop them and quit', 'Cancel'],
       defaultId: 0,
       cancelId: 2,
@@ -265,7 +266,27 @@ describe('quitting', () => {
 
   test('the dialog names both when Runs and Automations are going', () => {
     expect(quitDialog(activity({ active: 1, automationsOn: 2 })).message).toBe(
-      '1 Run is still going and 2 Automations are on. Keep TED running in the background?',
+      '1 unfinished Run, including Runs that are idle, waiting or paused. 2 Automations are on. Keep TED running in the background?',
+    )
+  })
+
+  test('unfinished Runs and queued work are separate totals, even without working Runs', () => {
+    const pending = { ...noActivity, runs: { working: 0, active: 7, queued: 3 } }
+    expect(quitDialog(pending).message).toBe(
+      '7 unfinished Runs, including Runs that are idle, waiting or paused. 3 queued items waiting to start. Keep TED running in the background?',
+    )
+    const queued = { ...noActivity, runs: { working: 0, active: 0, queued: 1 } }
+    expect(quitPlan(queued, 'ask')).toBe('ask')
+    expect(quitDialog(queued).message).toBe(
+      '1 queued item waiting to start. Keep TED running in the background?',
+    )
+  })
+
+  test('starting work asks before a Run exists, without inventing unfinished Runs', () => {
+    const starting = { ...noActivity, startingWork: 1 }
+    expect(quitPlan(starting, 'ask')).toBe('ask')
+    expect(quitDialog(starting).message).toBe(
+      '1 work item starting or setting up. Keep TED running in the background?',
     )
   })
 

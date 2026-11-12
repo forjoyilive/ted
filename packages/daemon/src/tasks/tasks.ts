@@ -894,6 +894,7 @@ export function createTasks(options: {
 
   function hold(taskId: string): () => void {
     holds.set(taskId, (holds.get(taskId) ?? 0) + 1)
+    publishQueueActivity()
     let released = false
     return () => {
       if (released) return
@@ -1432,9 +1433,30 @@ export function createTasks(options: {
     })
   }
 
+  function publishQueueActivity(): void {
+    const queuedRuns = new Set(subAgents.queued().map((entry) => entry.id))
+    for (const source of sources) {
+      for (const entry of source.queued()) {
+        const described = source.describe(entry.id, 0)
+        if (described && 'runId' in described) queuedRuns.add(described.runId)
+      }
+    }
+    const startingRuns = new Set(sources.flatMap((source) => source.starting?.() ?? []))
+    for (const request of store.subAgentRequests()) {
+      if (!queuedRuns.has(request.id)) startingRuns.add(request.id)
+    }
+    store.setQueueActivity({
+      queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
+      queuedRuns: [...queuedRuns],
+      startingRuns: [...startingRuns],
+      startingTasks: [...holds.keys()],
+    })
+  }
+
   function pump(): Promise<void> {
     again = true
     if (closed) return Promise.resolve()
+    publishQueueActivity()
     pumping ??= (async () => {
       while (again) {
         again = false
@@ -1534,6 +1556,7 @@ export function createTasks(options: {
 
   async function publishSlots(): Promise<void> {
     if (closed) return
+    publishQueueActivity()
     const current = await slots().catch(() => undefined)
     const shown = JSON.stringify(current)
     if (!current || closed || shown === shownSlots) return

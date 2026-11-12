@@ -79,8 +79,8 @@ function waitingLabel(count: number): string {
 function runsLabel({ working, active, queued }: RunCounts): string {
   const runs =
     active === 0
-      ? 'No Runs working'
-      : `${working} of ${active} ${plural(active, 'Run', 'Runs')} working`
+      ? 'No unfinished Runs'
+      : `${working} working · ${active} unfinished ${plural(active, 'Run', 'Runs')}`
   return queued === 0 ? runs : `${runs} · ${queued} queued`
 }
 
@@ -199,29 +199,52 @@ export interface QuitDialog {
 }
 
 function quitQuestion({
+  startingWork = 0,
   scheduledTasks = 0,
   runs,
   automationsOn,
   factoriesSettingUp,
   shellsRunning,
 }: Activity): string {
-  const count = runs.active + runs.queued
-  if (scheduledTasks > 0) {
-    return `${scheduledTasks} ${plural(scheduledTasks, 'Task is', 'Tasks are')} scheduled to start${count > 0 || automationsOn > 0 || factoriesSettingUp > 0 || shellsRunning > 0 ? ', with other work still going' : ''}. Keep TED running in the background so scheduled Tasks can start?`
+  if (runs.active > 0 || runs.queued > 0 || startingWork > 0) {
+    const parts: string[] = []
+    if (runs.active > 0)
+      parts.push(
+        `${runs.active} unfinished ${plural(runs.active, 'Run', 'Runs')}, including Runs that are idle, waiting or paused.`,
+      )
+    if (runs.queued > 0)
+      parts.push(`${runs.queued} queued ${plural(runs.queued, 'item', 'items')} waiting to start.`)
+    if (startingWork > 0)
+      parts.push(
+        `${startingWork} work ${plural(startingWork, 'item', 'items')} starting or setting up.`,
+      )
+    if (scheduledTasks > 0)
+      parts.push(
+        `${scheduledTasks} ${plural(scheduledTasks, 'Task is', 'Tasks are')} scheduled to start.`,
+      )
+    if (automationsOn > 0)
+      parts.push(
+        `${automationsOn} ${plural(automationsOn, 'Automation is', 'Automations are')} on.`,
+      )
+    if (factoriesSettingUp > 0)
+      parts.push(
+        `${factoriesSettingUp} ${plural(factoriesSettingUp, 'Factory is', 'Factories are')} still cloning.`,
+      )
+    if (shellsRunning > 0)
+      parts.push(
+        `${shellsRunning} ${plural(shellsRunning, 'Task shell is', 'Task shells are')} open.`,
+      )
+    return `${parts.join(' ')} Keep TED running in the background?`
   }
-  const runPart = `${count} ${plural(count, 'Run is', 'Runs are')} still going`
+  if (scheduledTasks > 0) {
+    return `${scheduledTasks} ${plural(scheduledTasks, 'Task is', 'Tasks are')} scheduled to start${automationsOn > 0 || factoriesSettingUp > 0 || shellsRunning > 0 ? ', with other work still going' : ''}. Keep TED running in the background so scheduled Tasks can start?`
+  }
   const automationPart = `${automationsOn} ${plural(automationsOn, 'Automation is', 'Automations are')} on`
-  if (count === 0 && automationsOn === 0 && factoriesSettingUp === 0 && shellsRunning > 0) {
+  if (automationsOn === 0 && factoriesSettingUp === 0 && shellsRunning > 0) {
     return `${shellsRunning} ${plural(shellsRunning, 'Task shell is', 'Task shells are')} open. Keep TED running in the background so ${plural(shellsRunning, 'it keeps', 'they keep')} going?`
   }
-  if (count === 0 && automationsOn === 0) {
+  if (automationsOn === 0) {
     return `${factoriesSettingUp} ${plural(factoriesSettingUp, 'Factory is', 'Factories are')} still cloning. Keep TED running in the background so ${plural(factoriesSettingUp, 'it finishes', 'they finish')}?`
-  }
-  if (count > 0 && automationsOn > 0) {
-    return `${runPart} and ${automationPart}. Keep TED running in the background?`
-  }
-  if (count > 0) {
-    return `${runPart}. Keep TED running in the background so ${plural(count, 'it finishes', 'they finish')}?`
   }
   return `${automationPart}. Keep TED running in the background so ${plural(automationsOn, 'it fires', 'they fire')}?`
 }

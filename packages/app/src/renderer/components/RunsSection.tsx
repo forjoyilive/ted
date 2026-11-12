@@ -143,7 +143,9 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
         <RunIcon agent={run.agent} state={runIconState(run)} />
         <span className={styles.text}>
           <span className={styles.top}>
-            <span className={styles.name}>{run.name}</span>
+            <span className={styles.name}>
+              {run.role === 'lead' && !run.current ? 'Earlier conversation' : run.name}
+            </span>
             {live ? (
               <span className={styles.state} data-state={runIconState(run)}>
                 {runStateWord(run)}
