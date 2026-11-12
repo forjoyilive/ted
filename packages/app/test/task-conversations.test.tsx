@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ChatItem, RunChat, RunSummary } from '@ted/protocol'
+import type { ChatItem, LineComment, RunChat, RunSummary } from '@ted/protocol'
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 import {
@@ -37,10 +37,12 @@ const old: RunSummary = {
   startedAt: '2026-11-08T12:00:00.000Z',
 }
 
-function discussion() {
+function discussion(started = true) {
   const a = appState()
-  let current = task({ stage: 'work', commentBox: 'live', leadRunId: lead.id, runs: [lead, sub] })
-  let runs: RunSummary[] = [lead, sub, old]
+  let current = started
+    ? task({ stage: 'work', commentBox: 'live', leadRunId: lead.id, runs: [lead, sub] })
+    : task({ stage: 'intake', status: { kind: 'queued', place: 1 }, commentBox: 'no-run' })
+  let runs: RunSummary[] = started ? [lead, sub, old] : []
   const chats = new Map<string, RunChat>([
     [
       lead.id,
@@ -64,6 +66,7 @@ function discussion() {
   a.state.tasks = [current]
   a.handle('listTaskRuns', () => runs)
   a.handle('getRunChat', (id) => required(chats.get(String(id))))
+  a.handle('getRun', (id) => ({ run: required(chats.get(String(id))).run, conversation: [] }))
   a.handle('openRunTab', (_id, id) => {
     const run = required(runs.find((run) => run.id === id))
     current = {
@@ -83,8 +86,21 @@ function discussion() {
       a.mount()
       await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
       await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
-      await screen.findByText('Current exchange.')
+      if (started) await screen.findAllByText('Current exchange.')
+      else await screen.findByRole('textbox', { name: 'Comment' })
       return screen.getByRole('region', { name: 'Task thread' })
+    },
+    async startLead() {
+      runs = [lead, sub, old]
+      current = {
+        ...current,
+        stage: 'work',
+        status: { kind: 'working' },
+        commentBox: 'live',
+        leadRunId: lead.id,
+        runs: [lead, sub],
+      }
+      await a.emitTask(current)
     },
     async replaceLead() {
       const replacement: RunSummary & { role: 'lead' } = {
@@ -330,7 +346,7 @@ test('tools are collapsed and expand through the shared chat renderer', async ()
   })
   const view = within(await a.open())
   expect(view.queryByText('Source content.')).toBeNull()
-  await user().click(view.getByRole('button', { name: /Read source.ts/ }))
+  await user().click(view.getByRole('button', { name: /Read.*source\.ts/ }))
   expect(view.getByText('Source content.')).toBeTruthy()
 })
 
@@ -380,6 +396,74 @@ test('the Task Lead composer keeps attachments on the Task Comment path', async 
   )
 })
 
+test('starting the first Task Lead preserves message, attachment and request drafts', async () => {
+  const a = discussion(false)
+  a.handle('listComments', () => [
+    comment({ body: 'Keep this choice?', choices: ['Yes'], readAt: createdAt }),
+  ])
+  a.handle('uploadAttachment', () => ({
+    hash: 'file-hash',
+    name: 'note.txt',
+    mediaType: 'text/plain',
+    size: 5,
+  }))
+  const view = within(await a.open())
+  const answer = view.getByRole('textbox', { name: 'Your answer' })
+  fireEvent.change(answer, { target: { value: 'Keep the existing choice.' } })
+  const message = view.getByRole('textbox', { name: 'Comment' })
+  fireEvent.change(message, { target: { value: 'Keep this draft too.' } })
+  await user().upload(
+    view.getByLabelText('Choose files to attach'),
+    new File(['hello'], 'note.txt', { type: 'text/plain' }),
+  )
+  const attachment = await view.findByRole('button', { name: 'Remove note.txt' })
+  await a.startLead()
+  await view.findByText('Current exchange.')
+  expect(view.getByRole('textbox', { name: 'Message the Task Lead' })).toBe(message)
+  expect(message).toHaveProperty('value', 'Keep this draft too.')
+  expect(view.getByRole('button', { name: 'Remove note.txt' })).toBe(attachment)
+  expect(view.getByRole('textbox', { name: 'Your answer' })).toBe(answer)
+  expect(answer).toHaveProperty('value', 'Keep the existing choice.')
+  expect(a.request).not.toHaveBeenCalledWith('getRunChat', undefined)
+})
+
+test('text with line comments uses the Task Comment path and preserves drafts on failure', async () => {
+  const a = discussion()
+  const draft: LineComment = {
+    id: 'line-draft',
+    taskId: 'NB-1',
+    repo: 'acme/widgets',
+    path: 'source.ts',
+    side: 'new',
+    start: 1,
+    end: 1,
+    commit: 'a'.repeat(40),
+    quoted: [{ kind: 'added', new: 1, text: 'const count = 1' }],
+    body: 'Please fix this line.',
+    createdAt,
+  }
+  a.handle('lineComments', () => [draft])
+  a.handle('postComment', () => Promise.reject(new Error('Comment unavailable')))
+  a.handle('interruptRun', () => undefined)
+  const view = within(await a.open())
+  await view.findByText('1 unsent line comment')
+  const box = view.getByRole('textbox', { name: 'Message the Task Lead' })
+  fireEvent.change(box, { target: { value: 'Please fix this.' } })
+  await user().click(view.getByRole('button', { name: 'Send' }))
+  await view.findByText('Comment unavailable')
+  expect(box).toHaveProperty('value', 'Please fix this.')
+  expect(view.getByText('1 unsent line comment')).toBeTruthy()
+  a.handle('postComment', () => comment({ kind: 'note', body: 'Please fix this.' }))
+  await user().click(view.getByRole('button', { name: 'Interrupt and send' }))
+  expect(a.request).toHaveBeenCalledWith('postComment', 'NB-1', {
+    body: 'Please fix this.',
+    attachments: [],
+  })
+  expect(a.request).toHaveBeenCalledWith('interruptRun', lead.id)
+  expect(box).toHaveProperty('value', '')
+  expect(a.request.mock.calls.some(([name]) => name === 'sendRunMessage')).toBe(false)
+})
+
 test('the combined Task Lead view preserves side-chat routing', async () => {
   const a = discussion()
   const side = {
@@ -424,6 +508,21 @@ test('the combined Task Lead view preserves side-chat routing', async () => {
 
 test('earlier conversations can be reopened repeatedly from History', async () => {
   const a = discussion()
+  const side = {
+    id: 'earlier-side',
+    sourceRunId: old.id,
+    snapshotAt: old.startedAt,
+    truncated: false,
+    state: 'ready',
+    available: true,
+    chat: {
+      run: { ...old, id: 'earlier-side', name: 'Side chat', role: 'side-chat', state: 'idle' },
+      items: [{ kind: 'agent', id: 'snapshot', text: 'An earlier side-chat answer.' }],
+    },
+  }
+  a.handle('getSideChat', (id) => (id === old.id ? side : null))
+  a.handle('openSideChat', () => side)
+  a.handle('sendSideChat', () => side)
   const view = within(await a.open())
   const openEarlier = async () => {
     await user().click(view.getByRole('button', { name: /^History/ }))
@@ -441,6 +540,18 @@ test('earlier conversations can be reopened repeatedly from History', async () =
     'open',
     true,
   )
+  const earlier = within(required(view.getByText(/^Earlier conversation ·/).closest('details')))
+  await user().click(await earlier.findByRole('button', { name: 'Open side chat' }))
+  const panel = within(await earlier.findByRole('region', { name: 'Side chat' }))
+  await panel.findByText('An earlier side-chat answer.')
+  fireEvent.change(panel.getByRole('textbox', { name: 'Question for this side chat' }), {
+    target: { value: 'Explain the earlier decision.' },
+  })
+  await user().click(panel.getByRole('button', { name: 'Send' }))
+  expect(a.request).toHaveBeenCalledWith('openSideChat', old.id)
+  expect(a.request).toHaveBeenCalledWith('sendSideChat', old.id, 'Explain the earlier decision.')
+  expect(earlier.queryByRole('textbox', { name: 'Message to this Run' })).toBeNull()
+  expect(a.request.mock.calls.some(([name]) => name === 'sendRunMessage')).toBe(false)
 })
 
 test('replacing the Task Lead keeps the Task message and request drafts mounted', async () => {

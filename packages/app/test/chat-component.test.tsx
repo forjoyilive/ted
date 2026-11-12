@@ -219,6 +219,7 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   ]
   a.handle('listTaskRuns', () => [current, previous])
   a.handle('getRun', () => ({ run: current, conversation: [] }))
+  a.handle('openRunTab', () => undefined)
   a.handle('getRunChat', (id) => ({
     run: id === 'r1' ? current : previous,
     items: [{ kind: 'agent', id: 'a1', text: id === 'r1' ? 'Current work.' : 'Earlier work.' }],

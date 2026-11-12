@@ -26,9 +26,11 @@ export function CommentBox({
   task,
   onFollowedUp,
   run,
+  hasLineComments = false,
 }: {
   task: Task
   run?: RunSummary | undefined
+  hasLineComments?: boolean
   onFollowedUp?: (followUp: Task) => void
 }) {
   const [text, setText] = useState('')
@@ -113,14 +115,14 @@ export function CommentBox({
         const created = await ted.followUpTask(task.id, text, refs)
         onFollowedUp?.(created)
       } else if (cancels) await ted.cancelMerge(task.id, text, refs)
-      else if (direct && run && refs.length === 0) {
+      else if (direct && run && refs.length === 0 && !hasLineComments) {
         await ted.sendRunMessage(run.id, text, { interrupt: interrupting && working })
       } else {
         await ted.postComment(task.id, { body: text, attachments: refs })
       }
       setText('')
       setFiles([])
-      if (direct && run && refs.length > 0 && interrupting && working) {
+      if (direct && run && (refs.length > 0 || hasLineComments) && interrupting && working) {
         try {
           await ted.interruptRun(run.id)
         } catch (failed) {

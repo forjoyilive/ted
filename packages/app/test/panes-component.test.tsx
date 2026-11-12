@@ -241,7 +241,7 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   expect(cards).toHaveLength(2)
   const firstCard = required(cards[0])
   const secondCard = required(cards[1])
-  const conversation = required(firstCard.closest('ol'))
+  const conversation = required(firstCard.closest('[data-scroller]'))
   expect(conversation.contains(secondCard)).toBe(true)
   expect(within(firstCard).getByText(first.body)).toBeTruthy()
   expect(within(secondCard).getByText(second.body)).toBeTruthy()
@@ -646,9 +646,7 @@ test('Inbox reveals its request after delayed history and after other panes cove
     startedAt: createdAt,
     current: true,
   }
-  const current = task({
-    tabs: [{ runId: run.id, name: run.name, agent: run.agent, state: run.state }],
-  })
+  const current = task({ leadRunId: run.id, runs: [run] })
   a.state.tasks = [current]
   const request = comment({ body: 'Keep the retry?', choices: ['Yes'] })
   a.state.inbox = [{ task: current, request }]
@@ -670,6 +668,8 @@ test('Inbox reveals its request after delayed history and after other panes cove
     run,
     items: [{ kind: 'agent', id: 'message', text: 'Working on it.' }],
   }))
+  a.handle('getRun', () => ({ run, conversation: [] }))
+  a.handle('listTaskRuns', () => [run])
   a.mount()
   const inbox = await screen.findByRole('region', { name: 'Inbox' })
   await user().click(await within(inbox).findByText(request.body))
@@ -691,7 +691,9 @@ test('Inbox reveals its request after delayed history and after other panes cove
   await user().click(within(inbox).getByText(request.body))
   const revealed = await screen.findByRole('region', { name: 'Question' })
   expect(document.activeElement?.contains(revealed)).toBe(true)
-  expect(screen.queryByRole('region', { name: 'Run chat' })).toBeNull()
+  expect(
+    within(screen.getByRole('region', { name: 'Run chat' })).getByText('Working on it.'),
+  ).toBeTruthy()
   expect(revealed).toBe(card)
   expect(within(revealed).getByDisplayValue('Keep this draft')).toBe(answer)
 })

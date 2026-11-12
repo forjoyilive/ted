@@ -986,7 +986,13 @@ export function TaskThread({
                   drafts={(lines?.current ?? []).filter(isDraft)}
                   onOpen={(c) => lines?.onOpen(c)}
                 />
-                <CommentBox key={task.id} task={task} run={chat?.run} onFollowedUp={onFollowedUp} />
+                <CommentBox
+                  key={task.id}
+                  task={task}
+                  run={chat?.run}
+                  hasLineComments={(lines?.current ?? []).some(isDraft)}
+                  onFollowedUp={onFollowedUp}
+                />
               </div>
             )}
           />

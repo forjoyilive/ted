@@ -8,7 +8,7 @@ import { type ChatOptions, ChatSection } from './RunChat.tsx'
 import styles from './SideChat.module.css'
 
 type Props = {
-  runId: string
+  runId: string | undefined
   onStopTask?: (() => void) | undefined
   renderSource?: (resource: ReturnType<typeof useRunChatState>) => ReactNode
 } & ChatOptions
@@ -37,9 +37,9 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const eligible = chat?.run.role === 'lead'
   const { value: side, update } = useEventValue<Chat | null | undefined>({
     initial: undefined,
-    key: runId,
+    key: runId ?? '',
     enabled: eligible,
-    load: () => ted.getSideChat(runId),
+    load: () => (runId === undefined ? Promise.resolve(null) : ted.getSideChat(runId)),
     event: (event) =>
       (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
       (event.type === 'run-output' && event.runId === sideId.current) ||
@@ -52,12 +52,13 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   })
   sideId.current = side?.id
 
-  const act = async (request: () => Promise<Chat>) => {
+  const act = async (request: (source: string) => Promise<Chat>) => {
+    if (runId === undefined) return
     const source = runId
     setBusy(true)
     setError(undefined)
     try {
-      const next = await request()
+      const next = await request(runId)
       if (sourceId.current === source) update(() => next)
     } catch (failed) {
       if (sourceId.current === source) setError(readableError(failed))
@@ -69,7 +70,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const show = () => {
     setOpen(true)
     setWhich('side')
-    void act(() => ted.openSideChat(runId)).catch(() => undefined)
+    void act((source) => ted.openSideChat(source)).catch(() => undefined)
   }
   const working = side?.state === 'working' || side?.state === 'queued'
   return (
@@ -174,7 +175,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                   working: false,
                   interrupt: false,
                   send: async (text) => {
-                    await act(() => ted.sendSideChat(runId, text))
+                    await act((source) => ted.sendSideChat(source, text))
                   },
                   readOnly: side.available ? undefined : (
                     <p className={styles.notice}>
@@ -187,7 +188,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act(() => ted.stopSideChat(runId)).catch(() => undefined)
+                          void act((source) => ted.stopSideChat(source)).catch(() => undefined)
                         }}
                       >
                         Stop reply
@@ -199,7 +200,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                         size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act(() => ted.retrySideChat(runId)).catch(() => undefined)
+                          void act((source) => ted.retrySideChat(source)).catch(() => undefined)
                         }}
                       >
                         Retry

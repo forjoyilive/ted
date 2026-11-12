@@ -1,6 +1,5 @@
 import type { AgentStageId, Comment, RunChat, RunSummary, StageEntry } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { conversationInStage } from '../task-conversations.ts'
 import { formatDate } from '../time.ts'
@@ -99,14 +98,12 @@ export function TaskDiscussion({
       </section>
     )
   }
-  return leadRunId ? (
+  return (
     <RunWithSideChat
       runId={leadRunId}
       bar={false}
       renderSource={(resource) => body(resource.value, resource.error, resource.retry)}
     />
-  ) : (
-    body(undefined)
   )
 }
 
@@ -163,15 +160,22 @@ function EarlierMessages({
   entries: readonly StageEntry[]
   stage: AgentStageId | undefined
 }) {
-  const resource = useRunChatState(runId)
-  const chat = visibleChat(resource.value, comments, entries, stage)
   return (
-    <div className={styles.olderItems}>
-      {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
-      {!chat && !resource.error && (
-        <Skeleton shape="history" label="Loading earlier conversation…" />
+    <RunWithSideChat
+      runId={runId}
+      bar={false}
+      renderSource={(resource) => (
+        <div className={styles.olderItems}>
+          {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
+          {!resource.value && !resource.error && (
+            <Skeleton shape="history" label="Loading earlier conversation…" />
+          )}
+          <ChatTimeline
+            chat={visibleChat(resource.value, comments, entries, stage)}
+            options={{ inspect: true }}
+          />
+        </div>
       )}
-      <ChatTimeline chat={chat} options={{ inspect: true }} />
-    </div>
+    />
   )
 }
