@@ -578,6 +578,11 @@ export interface TedStore extends TaskHistory {
     push: { commit: string; ci: boolean; ciSignals: CiSignal[] },
   ): void
   branchPushFailed(taskId: string, name: string, message: string): void
+  pushRecordReconciled(
+    taskId: string,
+    name: string,
+    found: { recorded: string; remote: string },
+  ): void
   pullRequestOpened(
     taskId: string,
     name: string,
@@ -3681,6 +3686,18 @@ export async function openStore({
     },
     branchPushFailed(taskId, name, message) {
       commit(events.taskBranchPushFailed({ taskId, name, message, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    pushRecordReconciled(taskId, name, { recorded, remote }) {
+      commit(
+        events.taskPushRecordReconciled({
+          taskId,
+          name,
+          recorded,
+          remote,
+          at: new Date().toISOString(),
+        }),
+      )
       updatedTask(taskId)
     },
     pullRequestOpened(taskId, name, { number, url, base }) {

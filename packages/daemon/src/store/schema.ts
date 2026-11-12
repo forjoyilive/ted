@@ -1760,6 +1760,16 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskPushRecordReconciled: Events.synced({
+    name: 'v1.TaskPushRecordReconciled',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      recorded: Schema.String,
+      remote: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   pullRequestOpened: Events.synced({
     name: 'v1.PullRequestOpened',
     schema: Schema.Struct({
@@ -3163,6 +3173,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { name: args.name, method: args.method, requested: args.requested }),
   'v1.PullRequestAutoMergeDisabled': (args) => task(args, { name: args.name }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
+  'v1.TaskPushRecordReconciled': (args) =>
+    task(args, { name: args.name, recorded: args.recorded, remote: args.remote }),
   'v1.MergeStoppedPartway': (args) => task(args, { merged: args.merged, open: args.open }),
   'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
   'v1.PullRequestClosedOnGitHub': (args) => task(args, { name: args.name }),
@@ -3966,6 +3978,8 @@ const materializers = counted(
           .update({ pushError: message, pushErrorAt: at, signedOffCommit: null })
           .where({ id: `${taskId}:${name}` }),
       ],
+      'v1.TaskPushRecordReconciled': ({ taskId, name, remote }) =>
+        pullRequests.update({ pushedCommit: remote }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestOpened': ({ taskId, name, number, url, base }) => [
         pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
         pullRequests

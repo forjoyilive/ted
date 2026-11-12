@@ -785,6 +785,13 @@ export function threadEvents(
           `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running Checks again`,
         )
         break
+      case 'v1.TaskPushRecordReconciled':
+        add(
+          entry,
+          'quiet',
+          `The ${text(data.name)} branch on GitHub was at ${text(data.remote).slice(0, 8)}, ahead of TED’s recorded push ${text(data.recorded).slice(0, 8)} · the commit being pushed includes it, so TED updated its record`,
+        )
+        break
       case 'v1.TaskRunReleased':
         if (held) add(entry, 'quiet', 'Continued')
         held = false
