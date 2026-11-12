@@ -36,6 +36,13 @@ function useCommits(taskId: string): (id: string) => TaskCommit | undefined {
   if (asked.current.scope !== scope) {
     asked.current = { scope, ids: new Set(), waiting: new Set() }
   }
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   return (id) => {
     const found = commits?.get(id)
     if (found !== undefined) return found ?? undefined
@@ -46,6 +53,10 @@ function useCommits(taskId: string): (id: string) => TaskCommit | undefined {
       window.setTimeout(() => {
         const ids = [...batch.waiting]
         batch.waiting.clear()
+        if (!mounted.current || asked.current !== batch) {
+          for (const one of ids) batch.ids.delete(one)
+          return
+        }
         for (let at = 0; at < ids.length; at += lookupBatch) {
           const part = ids.slice(at, at + lookupBatch)
           void ted.taskCommits(taskId, part).then(
