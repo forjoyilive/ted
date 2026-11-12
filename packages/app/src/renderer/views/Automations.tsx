@@ -582,42 +582,59 @@ export function AutomationView({
   const [promptOpen, setPromptOpen] = useState(false)
   if (detail === undefined)
     return (
-      <section className={views.pane} aria-label="Automation">
-        <header className={styles.viewHeader}>
-          <button type="button" className={styles.backLink} onClick={onBack}>
-            ← Automations
-          </button>
-          {resource.error ? (
-            <h1 className={styles.title}>Automation</h1>
-          ) : (
-            <>
-              <div className={styles.titleRow}>
-                <SkeletonBar width={28} height={16} />
-                <h1 className={styles.title} aria-label="Automation">
-                  <SkeletonBar width="min(220px, 25vw)" height={20} />
-                </h1>
-                <span className={views.headerSpacer} />
-                <SkeletonBar width={76} height={28} />
-                <SkeletonBar width={44} height={28} />
-                <SkeletonBar width={32} height={28} />
-              </div>
-              <p className={`${styles.line} ${styles.loadingLine}`}>
-                <SkeletonBar width="min(420px, 70%)" />
-              </p>
-            </>
-          )}
-        </header>
-        <div className={views.body}>
-          {resource.error ? (
-            <LoadingError error={resource.error} retry={resource.retry} />
-          ) : (
-            <>
-              <h2 className={styles.sectionTitle}>History</h2>
-              <HistorySkeleton />
-            </>
-          )}
-        </div>
-      </section>
+      <>
+        <section className={views.pane} aria-label="Automation">
+          <header className={styles.viewHeader}>
+            <button type="button" className={styles.backLink} onClick={onBack}>
+              ← Automations
+            </button>
+            {resource.error ? (
+              <h1 className={styles.title}>Automation</h1>
+            ) : (
+              <>
+                <div className={styles.titleRow}>
+                  <SkeletonBar width={28} height={16} />
+                  <h1 className={styles.title} aria-label="Automation">
+                    <SkeletonBar width="min(220px, 25vw)" height={20} />
+                  </h1>
+                  <span className={views.headerSpacer} />
+                  <SkeletonBar width={76} height={28} />
+                  <SkeletonBar width={44} height={28} />
+                  <SkeletonBar width={32} height={28} />
+                </div>
+                <p className={`${styles.line} ${styles.loadingLine}`}>
+                  <SkeletonBar width="min(420px, 70%)" />
+                </p>
+              </>
+            )}
+          </header>
+          <div className={views.body}>
+            {resource.error ? (
+              <LoadingError error={resource.error} retry={resource.retry} />
+            ) : (
+              <>
+                <h2 className={styles.sectionTitle}>History</h2>
+                <HistorySkeleton />
+              </>
+            )}
+          </div>
+        </section>
+        {!resource.error && (
+          <DetailsPane className={views.detailsPane} aria-label="Automation details">
+            <div aria-hidden>
+              {['first', 'second', 'third', 'fourth', 'fifth', 'sixth'].map((row) => (
+                <div className={styles.detail} key={row}>
+                  <div className={styles.loadingName}>
+                    <SkeletonBar width="40%" />
+                    <SkeletonBar width="80%" />
+                    <SkeletonBar width="60%" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DetailsPane>
+        )}
+      </>
     )
   if (detail === null) {
     return (

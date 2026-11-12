@@ -3,6 +3,8 @@ import type { AttachmentBytes, Automation, AutomationDetail, RunChat } from '@te
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { DesignReviewContent } from '../src/renderer/components/DesignReview.tsx'
+import { SidebarLayout } from '../src/renderer/components/ResizableSidebar.tsx'
+import { saveSidebarWidths } from '../src/renderer/sidebar-widths.ts'
 import {
   AutomationRunView,
   AutomationsPage,
@@ -107,9 +109,16 @@ for (const kind of ['details', 'run'] as const) {
   test(`${kind}: initial Automation failure offers retry and recovers without claiming deletion`, async () => {
     const pending = deferred<AutomationDetail>()
     const api = bridge({ getAutomation: () => pending.promise, getRunChat: chat })
-    render(view(kind))
+    if (kind === 'details') saveSidebarWidths({ navigation: 210, details: 416 })
+    render(kind === 'details' ? <SidebarLayout>{view(kind)}</SidebarLayout> : view(kind))
     expect(screen.getByRole('status')).toBeTruthy()
     if (kind === 'details') {
+      expect(screen.getByRole('complementary', { name: 'Automation details' })).toBeTruthy()
+      expect(
+        screen
+          .getByRole('separator', { name: 'Details sidebar width' })
+          .getAttribute('aria-valuenow'),
+      ).toBe('416')
       expect(screen.getByRole('heading', { name: 'History' })).toBeTruthy()
       const loading = screen.getByRole('status', { name: 'Loading Automation…' })
       const table = within(loading).getByRole('table', { hidden: true })
@@ -125,13 +134,31 @@ for (const kind of ['details', 'run'] as const) {
     expect(screen.getByRole('alert').textContent).toContain('Temporary Automation failure')
     expect(screen.queryByText('This Automation was deleted.')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
+    if (kind === 'details')
+      expect(screen.queryByRole('complementary', { name: 'Automation details' })).toBeNull()
     const retry = deferred<AutomationDetail>()
     api.handle('getAutomation', () => retry.promise)
     await user().click(screen.getByRole('button', { name: 'Try again' }))
     expect(screen.getByRole('status')).toBeTruthy()
     expect(screen.getByRole('button', { name: '← Automations' })).toBeTruthy()
+    if (kind === 'details') {
+      expect(screen.getByRole('complementary', { name: 'Automation details' })).toBeTruthy()
+      expect(
+        screen
+          .getByRole('separator', { name: 'Details sidebar width' })
+          .getAttribute('aria-valuenow'),
+      ).toBe('416')
+    }
     await act(async () => retry.resolve(detail()))
     expect(screen.getByRole('heading', { name: /Weekly triage/ })).toBeTruthy()
+    if (kind === 'details') {
+      expect(screen.getByRole('complementary', { name: 'Automation details' })).toBeTruthy()
+      expect(
+        screen
+          .getByRole('separator', { name: 'Details sidebar width' })
+          .getAttribute('aria-valuenow'),
+      ).toBe('416')
+    }
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
