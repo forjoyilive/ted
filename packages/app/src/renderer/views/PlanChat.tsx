@@ -28,6 +28,7 @@ import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
 import {
+  dotted,
   planEnded,
   planStartedLine,
   planStatusChip,
@@ -590,7 +591,7 @@ function OneLiner({
       <div className={`${styles.card} ${styles.approved}`}>
         <div className={styles.cardHead}>
           <span className={styles.approvedKind}>{kind}</span>
-          <span>{`${detail} · ${state}`}</span>
+          <span>{dotted(detail, state)}</span>
         </div>
         {request.title !== undefined && <p className={styles.cardTitle}>{request.title}</p>}
         <ProposalRows
@@ -612,7 +613,7 @@ function OneLiner({
     <div className={pending ? `${styles.line} ${styles.pending}` : styles.line}>
       <div className={styles.lineHead}>
         <span className={styles.lineKind}>{kind}</span>
-        <span className={styles.lineText}>{` · ${detail} · ${state}`}</span>
+        <span className={styles.lineText}>{` · ${dotted(detail, state)}`}</span>
         <span className={styles.spacer} />
         {canShow && (
           <ActionButton type="button" className={styles.link} onClick={() => setOpen(!open)}>
@@ -669,7 +670,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
     >
       <div className={styles.cardHead}>
         <span className={styles.pendingKind}>{kind}</span>
-        <span>{`· ${detail} · from the planner · ${ago(request.createdAt, now)}`}</span>
+        <span>{`· ${dotted(detail, 'from the planner', ago(request.createdAt, now))}`}</span>
       </div>
       {request.title !== undefined && request.title !== '' && (
         <p className={styles.cardTitle}>{request.title}</p>
