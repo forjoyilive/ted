@@ -135,7 +135,7 @@ describe('in-app updates', () => {
   })
 
   test('Restart to update keeps a working Run going into the next launch with no lost output', async () => {
-    const gate = await executionStartupGate(home)
+    const gate = await executionStartupGate(cwd)
     const window = await launchApp(gate.env)
     await sidebar(window)
       .getByRole('button', { name: /^Settings/ })
