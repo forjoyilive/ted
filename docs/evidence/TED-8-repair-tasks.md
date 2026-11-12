@@ -34,6 +34,16 @@ Regression additions cover completed and partial matching coverage, a replaced M
 
 The old cleanup timeout now has a passing Validate execution at 620c7a18 after main’s parent-PID fix. Its failed executions and invalidated acceptances remain history; the passing result is not borrowed as execution on a later revision. Its outside-Validate failure case still needs the permitted closure decision; prefer Fixed to repeated acceptance of a no-longer-reproducing timeout.
 
+## Validate round 2 and fixture repairs
+
+Round 2 at ab3099c0 passed 71 of 79 tests in its one permitted batch. The unchanged-head fresh-plan regressions and scratch-index dirty guard passed; their original failure history remains. Six no-Check repair scenarios timed out before selection. The replaced Merge Check fixture failed while rewriting immutable original evidence. The unchanged acceptance test also timed out; its cause remains uncertain and is outside this repair. Full findings and logs are retained under node_modules/.cache/ted-8/validate-round-2-* and attached to the Task.
+
+This Work visit changes only the two unfinished fixtures. The failure-repairs stub now ends subsequent message turns explicitly. Without everyMessage steps, a Validate message which does not contain its own steps emits init but no end_turn, leaving the Run working. The setup still requires Validate, the current Lead idle, a published revision and the expected failure. A timeout now prints each condition and the last Task/Run/repo state; no predicate or production context check was removed. This source trace explains a possible failed idle predicate; the old log did not capture the last state, so the next execution must confirm the diagnosis.
+
+The replaced Merge Check recovery scene now seeds a separate failed Merge execution and its own append-only Failure case, assessment and decision through TedStore before simulating repair incorporation. It keeps the earlier Validate case. It never relabels the earlier case or removes its context. A file gate outside the worktree pauses the new Check without changing the revision; the daemon API must refuse verification while it is unfinished. Releasing the gate permits the complete renamed Check plan, after which API verification must succeed exactly once while preserving original source/evidence/failed execution. Resume steps explicitly end the restored stub’s turns. The scene still asserts one fresh execution after recovery.
+
+These are pending verification, not passing results. No tests or Checks ran in this Work visit; only the two edited TypeScript files were formatted. The next Validate batch should run failure-repairs.test.ts, validate-diagnosis.test.ts and lead-lifecycle.test.ts once, within the three-file limit. All earlier acceptance/reviewer evidence remains historical. The user closed cleanup case 7c23aa45 as Fixed on main; that closure is not a current test pass and needs no new decision.
+
 ## Historical verification before round 1
 
 The following results predate the current Work repair and must not be treated as a pass on it.

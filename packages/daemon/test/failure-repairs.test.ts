@@ -49,6 +49,7 @@ async function setup(check = false, command = 'test -f timezone.txt') {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
       steps: [
+        { everyMessage: [{ endTurn: true }] },
         {
           run: [
             'sh',
@@ -63,6 +64,7 @@ async function setup(check = false, command = 'test -f timezone.txt') {
     factory: 'NB',
     start: true,
   })
+  let last: unknown
   const current = await waitUntil(async () => {
     const value = await getTask(client, task.id)
     const recorded =
@@ -70,13 +72,18 @@ async function setup(check = false, command = 'test -f timezone.txt') {
       (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).some(
         (f) => f.source.kind === 'factory-check',
       )
-    return value.stage === 'validate' &&
-      value.runs[0]?.state === 'idle' &&
-      value.repos.every((repo) => repo.pullRequest && repo.pushed) &&
-      recorded
-      ? value
-      : undefined
-  }, 'Validate lead')
+    const ready = {
+      validate: value.stage === 'validate',
+      idle: value.runs.find((run) => run.id === value.leadRunId)?.state === 'idle',
+      published:
+        value.repos.length > 0 && value.repos.every((repo) => repo.pullRequest && repo.pushed),
+      recorded,
+    }
+    last = { ...ready, stage: value.stage, runs: value.runs, repos: value.repos }
+    return Object.values(ready).every(Boolean) ? value : undefined
+  }, 'idle Validate Lead, published revision and failure evidence').catch((error: unknown) => {
+    throw new Error(`${String(error)}; last setup state: ${JSON.stringify(last)}`)
+  })
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
   const lead = api(required(ctx.daemon).port, tokens.issue(required(current.leadRunId)))
   const root = `/tasks/${task.id}`
