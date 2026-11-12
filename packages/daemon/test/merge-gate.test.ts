@@ -16,8 +16,8 @@ import { loadRunTokens } from '../src/run-token.ts'
 import { api, tokenFor, waitUntil } from './helpers.ts'
 import {
   approve,
-  cleanupMergeHarness,
   type Client,
+  cleanupMergeHarness,
   commitStep,
   ctx,
   getTask,
