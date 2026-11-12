@@ -1,10 +1,12 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
+  type Banner,
   type Comment,
   type Factory,
   type InboxItem,
+  type RunSlots,
   type Task,
   type ThreadEvent,
   tedPaths,
@@ -114,11 +116,11 @@ function connection() {
   return { ...client, ok }
 }
 
-async function start() {
+async function start(options: Pick<Parameters<typeof startDaemon>[0], 'disk'> = {}) {
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, clarify, work]\n',
   })
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath, ...options })
   const client = connection()
   const { ok } = client
   await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
@@ -577,6 +579,112 @@ describe('Talk it through', () => {
     expect(
       (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
     ).toBeUndefined()
+  })
+
+  test('answering revokes talk input already written before the host consumes it', async () => {
+    const client = await start()
+    const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
+      endTurn: true,
+    })
+    const item = await openRound(client, 1)
+    const lead = await leadId(client, task)
+    await waitUntil(async () => {
+      const { state } = (await client.getRun(lead)).run
+      return state === 'idle' || state === 'waiting'
+    }, 'the Lead to wait')
+    const runDir = path.join(home, 'runs', lead)
+    const host = Number(await readFile(path.join(runDir, 'host.pid'), 'utf8'))
+    process.kill(host, 'SIGSTOP')
+    try {
+      await client.ok('POST', `/comments/${item.request.id}/talk`)
+      await waitUntil(
+        async () =>
+          (await readFile(path.join(runDir, 'input.jsonl'), 'utf8').catch(() => '')).includes(
+            'wants to talk Round 1',
+          ),
+        'talk input written before host consumption',
+      )
+      await client.ok('POST', `/comments/${item.request.id}/answer`, {
+        action: 'answer-round',
+        answers: storageRound.questions.map((q) => ({ answer: q.recommended })),
+      })
+    } finally {
+      process.kill(host, 'SIGCONT')
+    }
+    await client.ok('POST', `/runs/${lead}/messages`, {
+      text: steps({ say: 'After canceled talk' }, { endTurn: true }),
+    })
+    await waitForReply(client, task, 'After canceled talk')
+    expect(
+      (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+    ).toBe(false)
+    const closed = (await comments(client, task)).find((c) => c.id === item.request.id)
+    expect(closed?.answer?.kind).toBe('answered')
+    expect(closed?.talk?.notifiedAt).toBeUndefined()
+  })
+
+  test('an existing waiting Lead’s talk waits for slot admission and disk recovery', async () => {
+    let free = 500e9
+    const client = await start({ disk: { freeBytes: async () => free, checkEveryMs: 20 } })
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
+      endTurn: true,
+    })
+    const item = await openRound(client, 1)
+    const lead = await leadId(client, task)
+    await waitUntil(async () => {
+      const { state } = (await client.getRun(lead)).run
+      return state === 'idle' || state === 'waiting'
+    }, 'the Lead to wait')
+    const blocker = await startTask(
+      client,
+      { waitFor: path.join(scratch, 'hold-slot') },
+      { endTurn: true },
+    )
+    await waitUntil(
+      async () => (await getTask(client, blocker.id)).runs.some((r) => r.state === 'working'),
+      'the occupied slot',
+    )
+    await client.ok('POST', `/comments/${item.request.id}/talk`)
+    await waitUntil(
+      async () =>
+        (await client.ok<RunSlots>('GET', '/slots')).queue.some(
+          (q) => q.kind === 'task' && q.taskId === task.id,
+        ),
+      'the talk to queue behind the working Task',
+    )
+    expect(
+      (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+    ).toBe(false)
+    free = 100e6
+    await waitUntil(
+      async () =>
+        (await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'disk-full'),
+      'the disk hold',
+    )
+    await client.ok('POST', `/tasks/${blocker.id}/stop`)
+    await waitUntil(
+      async () => (await client.ok<RunSlots>('GET', '/slots')).working === 0,
+      'the slot to be free while the disk holds work',
+    )
+    const held = (await comments(client, task)).find((c) => c.id === item.request.id)
+    expect(held?.talkRequested).toBe(true)
+    expect(held?.talk?.notifiedAt).toBeUndefined()
+    expect(
+      (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+    ).toBe(false)
+    free = 500e9
+    await waitUntil(async () => {
+      const ready = (await comments(client, task)).find((c) => c.id === item.request.id)
+      return ready?.talk?.notifiedAt && !ready.talkRequested
+    }, 'the admitted talk after disk recovery')
+    await waitUntil(
+      async () =>
+        (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1'))
+          .length === 1,
+      'one admitted notification',
+    )
+    expect((await getTask(client, task.id)).leadRunId).toBe(lead)
   })
 
   test('a restart after host acknowledgement replays the checkpoint without delivering the talk twice', async () => {

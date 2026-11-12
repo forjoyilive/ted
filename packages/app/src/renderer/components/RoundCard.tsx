@@ -1,5 +1,5 @@
 import type { AnswerRequest, Comment, Round, RoundAnswer, RoundQuestion } from '@ted/protocol'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Button } from './Button.tsx'
 import styles from './RoundCard.module.css'
 
@@ -14,6 +14,22 @@ const initialDraft = (question: RoundQuestion): Draft => ({
   answer: question.choices ? '' : question.recommended,
   note: '',
 })
+
+function savedDrafts(key: string | undefined, count: number): Draft[] | undefined {
+  try {
+    const saved = key && sessionStorage.getItem(key)
+    if (saved) {
+      const parsed: unknown = JSON.parse(saved)
+      if (
+        Array.isArray(parsed) &&
+        parsed.length === count &&
+        parsed.every((d) => typeof d?.answer === 'string' && typeof d?.note === 'string')
+      )
+        return parsed
+    }
+  } catch {}
+  return undefined
+}
 
 function Tag({ changed, onReset }: { changed: boolean; onReset: () => void }) {
   if (!changed) return <span className={styles.tag}>Recommended</span>
@@ -152,27 +168,32 @@ export function RoundQuestions({
   onTalk: (() => void) | undefined
 }) {
   const storageKey = draftKey ? `ted.round-draft.${draftKey}` : undefined
-  const [drafts, setDrafts] = useState<Draft[]>(() => {
-    try {
-      const saved = storageKey && sessionStorage.getItem(storageKey)
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved)
-        if (
-          Array.isArray(parsed) &&
-          parsed.length === round.questions.length &&
-          parsed.every((d) => typeof d?.answer === 'string' && typeof d?.note === 'string')
-        )
-          return parsed
-      }
-    } catch {}
-    return round.questions.map(initialDraft)
-  })
+  const [drafts, setDrafts] = useState<Draft[]>(
+    () => savedDrafts(storageKey, round.questions.length) ?? round.questions.map(initialDraft),
+  )
+  useEffect(() => {
+    if (!storageKey) return
+    const changed = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail?.key === storageKey)
+        setDrafts(event.detail.drafts)
+    }
+    const saved = savedDrafts(storageKey, round.questions.length)
+    if (saved) setDrafts(saved)
+    window.addEventListener('ted-round-drafts-changed', changed)
+    return () => window.removeEventListener('ted-round-drafts-changed', changed)
+  }, [storageKey, round.questions.length])
   const update = (i: number, draft: Draft) => {
     const next = drafts.map((d, at) => (at === i ? draft : d))
     setDrafts(next)
     try {
-      if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(next))
+      if (storageKey) {
+        sessionStorage.setItem(storageKey, JSON.stringify(next))
+      }
     } catch {}
+    if (storageKey)
+      window.dispatchEvent(
+        new CustomEvent('ted-round-drafts-changed', { detail: { key: storageKey, drafts: next } }),
+      )
   }
   const complete = drafts.every((d) => (d.other ? (d.custom ?? '') : d.answer).trim() !== '')
   return (

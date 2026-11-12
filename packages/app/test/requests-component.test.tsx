@@ -224,6 +224,41 @@ test('Submit answers preserves changed choices, written answers and added notes'
   })
 })
 
+test('chat edits synchronize with the still-mounted thread before submission', async () => {
+  const { answer } = requestApi()
+  const request = comment({ kind: 'round', round })
+  const props = { request, task: task() }
+  const cards = (talking: boolean) => (
+    <div>
+      <div data-testid="thread" hidden={talking}>
+        <RequestCard {...props} active={!talking} />
+      </div>
+      <div data-testid="chat">{talking && <RequestCard {...props} />}</div>
+    </div>
+  )
+  const view = render(cards(false))
+  const u = user()
+  await u.click(screen.getByRole('radio', { name: 'Keep latest' }))
+  await u.type(screen.getByLabelText('Add to answer 1'), 'Thread note.')
+  view.rerender(cards(true))
+  const chat = within(screen.getByTestId('chat'))
+  await u.click(chat.getByRole('radio', { name: 'Keep both' }))
+  await u.clear(chat.getByLabelText('Add to answer 1'))
+  await u.type(chat.getByLabelText('Add to answer 1'), 'Agreed in chat.')
+  await u.clear(chat.getByLabelText('Answer 2'))
+  await u.type(chat.getByLabelText('Answer 2'), 'Keep every edit.')
+  view.rerender(cards(false))
+  expect((screen.getByRole('radio', { name: 'Keep both' }) as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Agreed in chat.',
+  )
+  await u.click(screen.getByRole('button', { name: 'Submit answers' }))
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [{ answer: 'Keep both', note: 'Agreed in chat.' }, { answer: 'Keep every edit.' }],
+  })
+})
+
 test('round recommendations, reset, Other validation and notes are sent as answers', async () => {
   const { answer } = requestApi()
   render(

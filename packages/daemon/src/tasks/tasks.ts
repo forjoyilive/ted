@@ -1286,7 +1286,8 @@ export function createTasks(options: {
         if (!includeFailures && continuationFailures.has(id)) return []
         if (
           !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
-          !queuedAnswers(id).length
+          !queuedAnswers(id).length &&
+          !store.listComments(id).some((comment) => comment.talkRequested && !comment.answer)
         )
           return []
         const run = liveLeadOf(store, task)
@@ -1347,6 +1348,38 @@ export function createTasks(options: {
               run.id,
             )
             await store.persisted()
+          }
+        }
+        const talking = availableTalkLead(find(taskId), true)
+        if (talking && atIdlePoint(talking)) {
+          pendingTalks(taskId, true)
+          const pending = store.pendingRoundTalks(talking.id)
+          if (pending.length > 0) {
+            await store.persisted()
+            const accepted = await runs.dispatch(
+              talking.id,
+              pending.map(({ messageId, round }) => ({ id: messageId, text: talkLine(round) })),
+              false,
+              (id) => {
+                const current = find(taskId)
+                return (
+                  store.newWorkHold() === undefined &&
+                  !current.waitsForBlockers &&
+                  availableTalkLead(current, true)?.id === talking.id &&
+                  store
+                    .pendingRoundTalks(talking.id)
+                    .some(({ messageId }) => id === undefined || id === messageId)
+                )
+              },
+              { revocable: true },
+            )
+            if (accepted) {
+              for (const { messageId, round } of store.pendingRoundTalks(talking.id)) {
+                if (pending.some((message) => message.messageId === messageId))
+                  store.roundTalkNotified(round.id, talking.id, messageId)
+              }
+              await store.persisted()
+            }
           }
         }
       } catch (error) {
@@ -4398,7 +4431,7 @@ export function createTasks(options: {
     return human.length + agent.length
   }
 
-  function availableTalkLead(task: StoredTask): Run | undefined {
+  function availableTalkLead(task: StoredTask, admitted = false): Run | undefined {
     const run = liveLead(task)
     if (
       !run ||
@@ -4408,7 +4441,7 @@ export function createTasks(options: {
       task.stage === 'backlog' ||
       run.problem ||
       store.agentPauses()[run.agent] ||
-      holds.has(task.id) ||
+      (holds.has(task.id) && !admitted) ||
       leadLifecycle.applying(task.id) ||
       leadLifecycle.recovering(run.id) ||
       task.leadRestartPending
@@ -4429,12 +4462,13 @@ export function createTasks(options: {
         store.pendingRoundTalks(run.id).some((pending) => pending.round.id === round.id))
     const talking = bound ? round : store.startRoundTalk(round.id, run.id, talkLine(round))
     inBackground('deliver the talk request', () => options.steering.changed(run.id))
+    void pump()
     return talking
   }
 
-  function pendingTalks(taskId: string): void {
+  function pendingTalks(taskId: string, admitted = false): void {
     const task = store.getTask(taskId)
-    if (!task || stoppingByHand.has(task.id) || !availableTalkLead(task)) return
+    if (!task || stoppingByHand.has(task.id) || !availableTalkLead(task, admitted)) return
     for (const round of store.listComments(taskId)) {
       if (round.kind === 'round' && !round.answer && round.talkRequested) bindRoundTalk(task, round)
     }
@@ -6346,7 +6380,9 @@ export function createTasks(options: {
 
   options.steering.addSource({
     acknowledged: true,
+    revocable: true,
     pending(run) {
+      if (run.state !== 'working' || continuing.has(run.taskId ?? '')) return []
       const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!task || stoppingByHand.has(task.id) || availableTalkLead(task)?.id !== run.id) return []
       return store.pendingRoundTalks(run.id).map(({ messageId, round }) => ({
@@ -6676,6 +6712,27 @@ export function createTasks(options: {
   }
   refreshSnoozes()
   const stopPumping = store.subscribe((event) => {
+    if (
+      event.type === 'comment-updated' ||
+      event.type === 'task-updated' ||
+      event.type === 'task-deleted'
+    ) {
+      const taskId =
+        event.type === 'comment-updated'
+          ? event.comment.taskId
+          : event.type === 'task-updated'
+            ? event.task.id
+            : event.taskId
+      const task = store.getTask(taskId)
+      for (const run of store.listRuns().filter((run) => run.taskId === taskId)) {
+        const ids =
+          task && !task.stopped && !task.archived && task.leadRunId === run.id
+            ? store.pendingRoundTalks(run.id).map(({ messageId }) => messageId)
+            : []
+        runs.retainRevocableInputs(run.id, ids)
+      }
+    }
+
     if (
       event.type === 'settings-changed' ||
       event.type === 'task-updated' ||

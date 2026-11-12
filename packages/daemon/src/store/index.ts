@@ -4100,6 +4100,9 @@ export async function openStore({
           .query(queryDb(comments.where({ answerHeld: true })))
           .filter((comment) => comment.answerQueuedAt !== null)
           .map((comment) => comment.taskId),
+        ...store
+          .query(queryDb(comments.where({ talkRequested: true, answer: null })))
+          .map((comment) => comment.taskId),
       ]),
     ],
     holdLeadMessage(taskId, text, waitForSlot = false) {
