@@ -348,6 +348,12 @@ describe('Full Inbox', () => {
     expect(await weight('Low question?')).toBe('600')
 
     const chip = (name: string) => inbox.getByRole('button', { name, exact: true })
+    const openFilter = async () => {
+      if ((await inbox.getByRole('menu', { name: 'Filter' }).count()) === 0) {
+        await inbox.getByRole('button', { name: /^Filter/ }).click()
+      }
+    }
+    await openFilter()
     await chip('All 3').waitFor()
     await chip('notebook 2').waitFor()
     await chip('site 1').click()
@@ -359,6 +365,7 @@ describe('Full Inbox', () => {
     await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
     await window.getByRole('heading', { name: /notebook.*Dashboard/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
+    await openFilter()
     expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
@@ -386,6 +393,7 @@ describe('Full Inbox', () => {
     await expect.poll(() => row('Low question?').getAttribute('aria-current')).toBe('true')
     await card.getByText('Low question?').waitFor()
 
+    await openFilter()
     await inbox.getByRole('switch', { name: 'Answered' }).click()
     await expect.poll(headlines).toEqual(['Urgent question?'])
     expect(await weight('Urgent question?')).toBe('400')
@@ -393,6 +401,21 @@ describe('Full Inbox', () => {
     const answered = thread.getByRole('region', { name: 'Question, answered' })
     await answered.getByRole('region', { name: 'Question, read-only' }).waitFor()
     expect(await answered.getByRole('button', { name: 'Hide request' }).count()).toBe(1)
+
+    await openFilter()
+    await inbox.getByRole('menuitemradio', { name: /^Kind/ }).click()
+    const heading = inbox.locator('li > button[aria-expanded]')
+    await heading.waitFor()
+    expect(await heading.textContent()).toBe('Questions1')
+    await inbox.getByText('Grouped by Kind · notebook · Answered').waitFor()
+    await heading.click()
+    expect(await heading.getAttribute('aria-expanded')).toBe('false')
+    await expect.poll(() => inbox.locator('[data-headline]').count()).toBe(0)
+    await inbox.getByRole('button', { name: 'Clear', exact: true }).click()
+    await expect
+      .poll(() => inbox.locator('[data-headline]').allTextContents())
+      .toEqual(['Site question?', 'Low question?'])
+    expect(await inbox.getByRole('button', { name: 'Clear', exact: true }).count()).toBe(0)
   })
 })
 

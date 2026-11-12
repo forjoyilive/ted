@@ -789,6 +789,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           }
           onFilter={(factoryId) => openInbox({ factoryId })}
           onShowAnswered={(show) => openInbox({ answered: show })}
+          onClearFilters={() => openInbox({ factoryId: undefined, answered: false })}
           onNewTask={() => openNewTask()}
         >
           {opened ??

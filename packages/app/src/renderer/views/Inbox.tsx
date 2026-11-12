@@ -1,17 +1,29 @@
 import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { contextMenu, useActionMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
+import { ChevronIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
-import { inboxChips, inFactory, nextSelection } from '../inbox.ts'
+import {
+  type Grouped,
+  groupInbox,
+  inboxChips,
+  inboxGroupingLabels,
+  inboxGroupings,
+  inFactory,
+  nextSelection,
+  requestKind,
+} from '../inbox.ts'
+import { useInboxGrouping } from '../inbox-grouping.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
 import { inboxLabel } from '../plans.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
 import { onRequestAnswered, ted } from '../ted.ts'
 import styles from './Inbox.module.css'
+import { FilterIcon, MenuButton } from './TaskList.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import views from './views.module.css'
 
@@ -31,6 +43,7 @@ export function Inbox({
   onOpenPlan,
   onFilter,
   onShowAnswered,
+  onClearFilters,
   onNewTask,
   children,
 }: {
@@ -49,9 +62,11 @@ export function Inbox({
   onOpenPlan?: (item: PlanInboxItem) => void
   onFilter: (factoryId: string | undefined) => void
   onShowAnswered: (show: boolean) => void
+  onClearFilters?: () => void
   onNewTask: () => void
   children?: ReactNode
 }) {
+  const view = useInboxGrouping(showAnswered ? 'answered' : 'waiting')
   const requestMenu = (label: string, body: string, open: (() => void) | undefined) =>
     contextMenu((at) =>
       actions.open(at, label, [
@@ -117,6 +132,11 @@ export function Inbox({
     kind: 'task' as const,
     item,
     request: item.request,
+    grouped: {
+      kind: requestKind(item.request),
+      at: (showAnswered ? item.request.answer?.at : undefined) ?? item.request.createdAt,
+      stage: item.request.stage ?? item.task.stage,
+    } satisfies Grouped,
     open: () => onOpen(item),
   }))
   const rows = showAnswered
@@ -126,6 +146,7 @@ export function Inbox({
           kind: 'plan' as const,
           item,
           request: item.request,
+          grouped: { kind: 'question', at: item.request.createdAt } satisfies Grouped,
           open: () => onOpenPlan?.(item),
         })),
         ...taskRows,
@@ -133,6 +154,7 @@ export function Inbox({
           kind: 'automation' as const,
           item,
           request: item,
+          grouped: { kind: 'question', at: item.createdAt } satisfies Grouped,
           open: () => onOpenQuestion?.(item),
         })),
       ].sort(
@@ -140,14 +162,32 @@ export function Inbox({
           b.request.createdAt.localeCompare(a.request.createdAt) ||
           a.request.id.localeCompare(b.request.id),
       )
-  const before = useRef(rows)
-  const next = showAnswered ? undefined : nextSelection(before.current, rows, selected)
+  const groups = groupInbox(rows, view.grouping, now)
+  const ordered = groups.flatMap((group) => group.rows)
+  const visible = groups.flatMap((group) => (view.collapsed(group.key) ? [] : group.rows))
+  const before = useRef(ordered)
+  const next =
+    showAnswered || ordered.some((row) => row.request.id === selected)
+      ? undefined
+      : nextSelection(before.current, visible, selected)
   useLayoutEffect(() => {
     if (showAnswered) return
-    before.current = rows
+    before.current = ordered
     if (next === null) onClear()
     else next?.open()
   })
+
+  const active = [
+    ...(view.grouping === 'none' ? [] : [`Grouped by ${inboxGroupingLabels[view.grouping]}`]),
+    ...(factoryId === undefined ? [] : [factoryName(factories, factoryId)]),
+    ...(showAnswered ? ['Answered'] : []),
+  ]
+  const clear = () => {
+    view.setGrouping('none')
+    if (onClearFilters) return onClearFilters()
+    if (factoryId !== undefined) onFilter(undefined)
+    if (showAnswered) onShowAnswered(false)
+  }
 
   return (
     <>
@@ -159,32 +199,68 @@ export function Inbox({
             <Help>
               Questions and sign-offs from agents that need your answer, from every Factory.
             </Help>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showAnswered}
-              className={styles.answeredSwitch}
-              onClick={() => onShowAnswered(!showAnswered)}
-            >
-              <span className={styles.track} aria-hidden>
-                <span className={styles.knob} />
-              </span>
-              Answered
-            </button>
+            <div className={styles.filter}>
+              <MenuButton label="Filter" icon={<FilterIcon />} badge={active.length}>
+                {() => (
+                  <>
+                    <div className={styles.panelHeading}>Group by</div>
+                    {inboxGroupings.map((grouping) => (
+                      <button
+                        key={grouping}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={view.grouping === grouping}
+                        className={styles.choice}
+                        onClick={() => view.setGrouping(grouping)}
+                      >
+                        <span className={styles.choiceLabel}>{inboxGroupingLabels[grouping]}</span>
+                        {view.grouping === grouping && <span className={styles.tick}>✓</span>}
+                      </button>
+                    ))}
+                    {manyFactories && (
+                      <>
+                        <div className={styles.panelHeading}>Factory</div>
+                        <div className={styles.chips}>
+                          {inboxChips(pending, factories, pendingQuestions, pendingPlans).map(
+                            (chip) => (
+                              <button
+                                key={chip.factoryId ?? 'all'}
+                                type="button"
+                                className={styles.chip}
+                                aria-pressed={chip.factoryId === factoryId}
+                                onClick={() => onFilter(chip.factoryId)}
+                              >
+                                {chip.label} <span className={styles.chipCount}>{chip.count}</span>
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </>
+                    )}
+                    <div className={styles.panelHeading}>Show</div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={showAnswered}
+                      className={styles.answeredSwitch}
+                      onClick={() => onShowAnswered(!showAnswered)}
+                    >
+                      <span className={styles.track} aria-hidden>
+                        <span className={styles.knob} />
+                      </span>
+                      Answered
+                    </button>
+                  </>
+                )}
+              </MenuButton>
+            </div>
           </div>
-          {manyFactories && (
-            <div className={styles.chips}>
-              {inboxChips(pending, factories, pendingQuestions, pendingPlans).map((chip) => (
-                <button
-                  key={chip.factoryId ?? 'all'}
-                  type="button"
-                  className={styles.chip}
-                  aria-pressed={chip.factoryId === factoryId}
-                  onClick={() => onFilter(chip.factoryId)}
-                >
-                  {chip.label} <span className={styles.chipCount}>{chip.count}</span>
-                </button>
-              ))}
+          {active.length > 0 && (
+            <div className={styles.summary}>
+              <span className={styles.summaryText}>{active.join(' · ')}</span>
+              <button type="button" className={styles.clear} onClick={clear}>
+                Clear
+              </button>
             </div>
           )}
         </header>
@@ -201,119 +277,147 @@ export function Inbox({
           />
         ) : (
           <ul className={styles.rows}>
-            {rows.map((row) => {
-              if (row.kind === 'plan') {
-                const item = row.item
-                const { request, plan } = item
-                const where = [
-                  plan.title,
-                  ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
-                ].join(' · ')
-                return (
-                  <li key={request.id}>
-                    <button
-                      type="button"
-                      className={styles.row}
-                      data-nav-item
-                      data-plan-request={request.id}
-                      aria-current={request.id === selected ? 'true' : undefined}
-                      {...requestMenu(
-                        request.title ?? 'Planning request',
-                        request.body || request.title || '',
-                        onOpenPlan ? () => onOpenPlan(item) : undefined,
-                      )}
-                      onClick={() => onOpenPlan?.(item)}
-                    >
-                      <span className={styles.top}>
-                        <span className={styles.kind}>{inboxLabel(request)}</span>
-                        <span className={styles.age}>{age(request.createdAt, now)}</span>
-                      </span>
-                      <span data-headline className={`${styles.headline} ${styles.unread}`}>
-                        {request.title ?? ''}
-                      </span>
-                      <span className={styles.where}>{where}</span>
-                    </button>
-                  </li>
-                )
-              }
-              if (row.kind === 'task') {
-                const item = row.item
-                const { request, task } = item
-                const where = [
-                  task.displayId,
-                  task.title,
-                  stageName(request.stage ?? task.stage),
-                  ...(manyFactories ? [factoryName(factories, task.factoryId)] : []),
-                ].join(' · ')
-                const unread = !showAnswered && request.readAt === undefined
-                return (
-                  <li key={request.id}>
-                    <button
-                      type="button"
-                      className={styles.row}
-                      data-nav-item
-                      aria-current={request.id === selected ? 'true' : undefined}
-                      {...requestMenu(
-                        `${task.displayId} · ${headline(request)}`,
-                        request.body || request.title || '',
-                        () => onOpen(item),
-                      )}
-                      onClick={() => onOpen(item)}
-                    >
-                      <span className={styles.top}>
-                        <PriorityIcon priority={task.priority} />
-                        <span
-                          className={
-                            request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind
-                          }
-                        >
-                          {requestLabel(request)}
-                        </span>
-                        <span className={styles.age}>
-                          {age(request.answer?.at ?? request.createdAt, now)}
-                        </span>
-                      </span>
-                      <span
-                        data-headline
-                        className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
-                      >
-                        {headline(request)}
-                      </span>
-                      <span className={styles.where}>{where}</span>
-                    </button>
-                  </li>
-                )
-              }
-              const question = row.item
-              const where = [
-                question.automationName,
-                'Automation',
-                ...(manyFactories ? [factoryName(factories, question.factoryId)] : []),
-              ].join(' · ')
+            {groups.map((group) => {
+              const closed = view.collapsed(group.key)
+              const ageClass =
+                group.old && !showAnswered ? `${styles.age} ${styles.old}` : styles.age
               return (
-                <li key={question.id}>
-                  <button
-                    type="button"
-                    className={styles.row}
-                    aria-current={question.id === selected ? 'true' : undefined}
-                    data-nav-item
-                    {...requestMenu(
-                      question.automationName,
-                      question.body,
-                      onOpenQuestion ? () => onOpenQuestion(question) : undefined,
-                    )}
-                    onClick={() => onOpenQuestion?.(question)}
-                  >
-                    <span className={styles.top}>
-                      <span className={styles.kind}>Question</span>
-                      <span className={styles.age}>{age(question.createdAt, now)}</span>
-                    </span>
-                    <span data-headline className={`${styles.headline} ${styles.unread}`}>
-                      {question.body.split('\n')[0]}
-                    </span>
-                    <span className={styles.where}>{where}</span>
-                  </button>
-                </li>
+                <Fragment key={group.key}>
+                  {view.grouping !== 'none' && (
+                    <li className={styles.groupItem}>
+                      <button
+                        type="button"
+                        className={styles.groupHead}
+                        aria-expanded={!closed}
+                        onClick={() => view.setCollapsed(group.key, !closed)}
+                      >
+                        <ChevronIcon open={!closed} />
+                        <span className={styles.groupLabel}>{group.label}</span>
+                        <span className={styles.groupCount}>{group.rows.length}</span>
+                      </button>
+                    </li>
+                  )}
+                  {!closed &&
+                    group.rows.map((row) => {
+                      if (row.kind === 'plan') {
+                        const item = row.item
+                        const { request, plan } = item
+                        const where = [
+                          plan.title,
+                          ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
+                        ].join(' · ')
+                        return (
+                          <li key={request.id}>
+                            <button
+                              type="button"
+                              className={styles.row}
+                              data-nav-item
+                              data-plan-request={request.id}
+                              aria-current={request.id === selected ? 'true' : undefined}
+                              {...requestMenu(
+                                request.title ?? 'Planning request',
+                                request.body || request.title || '',
+                                onOpenPlan ? () => onOpenPlan(item) : undefined,
+                              )}
+                              onClick={() => onOpenPlan?.(item)}
+                            >
+                              <span className={styles.top}>
+                                <span className={styles.kind}>{inboxLabel(request)}</span>
+                                <span className={ageClass}>{age(request.createdAt, now)}</span>
+                              </span>
+                              <span data-headline className={`${styles.headline} ${styles.unread}`}>
+                                {request.title ?? ''}
+                              </span>
+                              <span className={styles.where}>{where}</span>
+                            </button>
+                          </li>
+                        )
+                      }
+                      if (row.kind === 'task') {
+                        const item = row.item
+                        const { request, task } = item
+                        const where = [
+                          task.displayId,
+                          task.title,
+                          stageName(request.stage ?? task.stage),
+                          ...(manyFactories ? [factoryName(factories, task.factoryId)] : []),
+                        ].join(' · ')
+                        const unread = !showAnswered && request.readAt === undefined
+                        return (
+                          <li key={request.id}>
+                            <button
+                              type="button"
+                              className={styles.row}
+                              data-nav-item
+                              aria-current={request.id === selected ? 'true' : undefined}
+                              {...requestMenu(
+                                `${task.displayId} · ${headline(request)}`,
+                                request.body || request.title || '',
+                                () => onOpen(item),
+                              )}
+                              onClick={() => onOpen(item)}
+                            >
+                              <span className={styles.top}>
+                                <PriorityIcon priority={task.priority} />
+                                <span
+                                  className={
+                                    request.failed
+                                      ? `${styles.kind} ${styles.failedKind}`
+                                      : styles.kind
+                                  }
+                                >
+                                  {requestLabel(request)}
+                                </span>
+                                <span className={ageClass}>
+                                  {age(request.answer?.at ?? request.createdAt, now)}
+                                </span>
+                              </span>
+                              <span
+                                data-headline
+                                className={
+                                  unread ? `${styles.headline} ${styles.unread}` : styles.headline
+                                }
+                              >
+                                {headline(request)}
+                              </span>
+                              <span className={styles.where}>{where}</span>
+                            </button>
+                          </li>
+                        )
+                      }
+                      const question = row.item
+                      const where = [
+                        question.automationName,
+                        'Automation',
+                        ...(manyFactories ? [factoryName(factories, question.factoryId)] : []),
+                      ].join(' · ')
+                      return (
+                        <li key={question.id}>
+                          <button
+                            type="button"
+                            className={styles.row}
+                            aria-current={question.id === selected ? 'true' : undefined}
+                            data-nav-item
+                            {...requestMenu(
+                              question.automationName,
+                              question.body,
+                              onOpenQuestion ? () => onOpenQuestion(question) : undefined,
+                            )}
+                            onClick={() => onOpenQuestion?.(question)}
+                          >
+                            <span className={styles.top}>
+                              <span className={styles.kind}>Question</span>
+                              <span className={ageClass}>{age(question.createdAt, now)}</span>
+                            </span>
+                            <span data-headline className={`${styles.headline} ${styles.unread}`}>
+                              {question.body.split('\n')[0]}
+                            </span>
+                            <span className={styles.where}>{where}</span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                </Fragment>
               )
             })}
           </ul>
