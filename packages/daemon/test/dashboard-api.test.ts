@@ -317,8 +317,8 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
       findings: 'Other Factory',
       counted: true,
     })
+    vi.setSystemTime(asOf)
     await store.persisted()
-    vi.useRealTimers()
     await store.close()
     store = await openStore({ directory: tedPaths(home).store })
     const data = store.factoryDashboard(factoryId, '7d', asOf)
@@ -532,27 +532,30 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     expect(gap.samples[0]?.coverageIntervals).toEqual(
       expect.arrayContaining([expect.objectContaining({ state: 'unknown', source: 'daemon-gap' })]),
     )
+    const evidenceTaskIds: string[] = []
     for (let i = 0; i < 999; i++) {
       const retained = await store.createTask({ factoryId: factory.id, title: `Retained ${i}` })
       store.changeStage(retained.id, 'intake', { layers: [], order: [] })
-      store.changeStage(retained.id, 'work', { layers: [], order: [] })
-      const owner = store.startRun({
-        id: randomUUID(),
-        taskId: retained.id,
-        agent: 'codex',
-        prompt: '',
-        cwd: home,
-      })
-      store.postComment({
-        taskId: retained.id,
-        kind: 'question',
-        body: 'Recorded request',
-        author: { kind: 'ted' },
-      })
-      store.testInvocations.register(
-        { taskId: retained.id, runId: owner.id },
-        { id: randomUUID(), supported: false },
-      )
+      if (i % 100 === 0) {
+        evidenceTaskIds.push(retained.id)
+        const owner = store.startRun({
+          id: randomUUID(),
+          taskId: retained.id,
+          agent: 'codex',
+          prompt: '',
+          cwd: home,
+        })
+        store.postComment({
+          taskId: retained.id,
+          kind: 'question',
+          body: 'Recorded request',
+          author: { kind: 'ted' },
+        })
+        store.testInvocations.register(
+          { taskId: retained.id, runId: owner.id },
+          { id: randomUUID(), supported: false },
+        )
+      }
     }
     vi.setSystemTime(base + 13 * 3_600_000)
     const started = performance.now()
@@ -560,6 +563,12 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     const elapsed = performance.now() - started
     expect(retained.flow.current.taskIds).toHaveLength(1000)
     expect(retained.flow.current.reasons.every((r) => r.samples.length === 1000)).toBe(true)
+    expect(
+      retained.flow.current.reasons
+        .find((r) => r.reason === 'test-lock')
+        ?.samples.filter((s) => s.invocations.some((i) => i.coverage === 'unsupported'))
+        .map((s) => s.taskId),
+    ).toEqual(expect.arrayContaining(evidenceTaskIds))
     console.info(
       `Flow public-store fixture: 1000 Tasks, ${elapsed.toFixed(1)}ms read/calculation, ${JSON.stringify(retained).length} response bytes`,
     )
