@@ -140,6 +140,10 @@ export function TaskBrowserView({
         .browserState(task.id)
         .then((state) => {
           if (!stopped && state) {
+            if (state.opening) {
+              setStatus(state.text)
+              return
+            }
             if (!state.url) {
               setRetryOpen((attempt) => attempt + 1)
               return
