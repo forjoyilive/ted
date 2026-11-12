@@ -384,3 +384,193 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     await cleanup()
   }
 })
+
+test('batched Factory timing reconciles public interval/Check/report evidence and preserves it after reopening', async () => {
+  const { randomUUID } = await import('node:crypto')
+  const { home, cleanup } = await makeTempHome()
+  const base = Date.now() - 10 * 3_600_000
+  const at = (h: number) => new Date(base + h * 3_600_000).toISOString()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(base)
+  let store = await openStore({ directory: tedPaths(home).store })
+  try {
+    const factory = store.createFactory({
+      key: 'TM',
+      name: 'Timing',
+      repos: [],
+      defaultBranch: 'main',
+      showTutorial: false,
+    })
+    const task = await store.createTask({ factoryId: factory.id, title: 'Timing evidence' })
+    store.changeStage(task.id, 'intake', { layers: [], order: [] })
+    store.changeStage(task.id, 'work', { layers: [], order: [] })
+    vi.setSystemTime(base + 3_600_000)
+    const run = store.startRun({
+      id: randomUUID(),
+      taskId: task.id,
+      agent: 'codex',
+      prompt: '',
+      cwd: home,
+    })
+    vi.setSystemTime(base + 2 * 3_600_000)
+    const one = store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      body: 'One?',
+      author: { kind: 'ted' },
+    })
+    const check = store.startChecks({
+      taskId: task.id,
+      stage: 'work',
+      trigger: 'agent',
+      checks: [
+        {
+          name: 'Tests',
+          command: 'pnpm vitest run selected.test.ts',
+          timeout: '10m',
+          state: 'waiting',
+        },
+      ],
+    })
+    store.checkSlotBoundary(check.id, 'entered', at(2))
+    vi.setSystemTime(base + 3 * 3_600_000)
+    const two = store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      body: 'Two?',
+      author: { kind: 'ted' },
+    })
+    store.checkSlotBoundary(check.id, 'acquired', at(3))
+    store.checkStarted(check.id, 0)
+    const checked = store.testInvocations.register(
+      { taskId: task.id },
+      { id: randomUUID(), supported: true, checkRunId: check.id, position: 0 },
+    )
+    const direct = store.testInvocations.register(
+      { taskId: task.id, runId: run.id },
+      { id: randomUUID(), supported: true },
+    )
+    vi.setSystemTime(base + 4 * 3_600_000)
+    store.answerComment(one.id, { kind: 'answered', text: 'Yes', at: at(4) })
+    store.testInvocations.report(checked.id, { sequence: 0, kind: 'wait-start', at: Date.now() })
+    vi.setSystemTime(base + 5 * 3_600_000)
+    store.answerComment(two.id, { kind: 'answered', text: 'Yes', at: at(5) })
+    store.testInvocations.report(direct.id, { sequence: 0, kind: 'wait-start', at: Date.now() })
+    vi.setSystemTime(base + 6 * 3_600_000)
+    for (const invocation of [checked, direct]) {
+      store.testInvocations.report(invocation.id, { sequence: 1, kind: 'wait-end', at: Date.now() })
+      store.testInvocations.report(invocation.id, { sequence: 2, kind: 'finished', at: Date.now() })
+    }
+    const unfinished = store.testInvocations.register(
+      { taskId: task.id, runId: run.id },
+      { id: randomUUID(), supported: true },
+    )
+    store.testInvocations.report(unfinished.id, { sequence: 0, kind: 'wait-start', at: Date.now() })
+    vi.setSystemTime(base + 7 * 3_600_000)
+    store.checkFinished(check.id, 0, { state: 'passed', durationMs: 4 * 3_600_000, exitCode: 0 })
+    store.finishChecks(check.id, 'passed')
+    store.recordRunOutput(run.id, { toOffset: 1, state: 'finished' })
+    vi.setSystemTime(base + 8 * 3_600_000)
+    store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      body: 'Still open?',
+      author: { kind: 'ted' },
+    })
+    vi.setSystemTime(base + 10 * 3_600_000)
+    const data = store.factoryDashboard(factory.id, '7d', Date.now())
+    const get = (reason: string) =>
+      required(data.flow.current.reasons.find((r) => r.reason === reason))
+    expect(get('run-working').totalMs).toBe(6 * 3_600_000)
+    expect(get('user-request').totalMs).toBe(5 * 3_600_000)
+    expect(get('check-slot').totalMs).toBe(3_600_000)
+    expect(get('running-check').totalMs).toBe(4 * 3_600_000)
+    expect(get('test-lock').totalMs).toBe(2 * 3_600_000)
+    expect(get('test-lock').samples[0]?.invocations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: checked.id, checkRunId: check.id, position: 0 }),
+        expect.objectContaining({ id: direct.id, runId: run.id }),
+        expect.objectContaining({
+          id: unfinished.id,
+          coverage: 'incomplete',
+          openWaitStartedAt: at(6),
+        }),
+      ]),
+    )
+    const publicIntervals = store.taskIntervalHistory(task.id, at(10))
+    for (const reason of [
+      'run-working',
+      'user-request',
+      'run-slot',
+      'github',
+      'agent-paused',
+      'blocker',
+      'stopped',
+    ]) {
+      const total = publicIntervals.intervals
+        .filter((i) => i.reason === reason)
+        .reduce((n, i) => n + Date.parse(i.end) - Date.parse(i.start), 0)
+      expect(get(reason).totalMs).toBe(total)
+    }
+    await store.persisted()
+    await store.close()
+    vi.setSystemTime(base + 12 * 3_600_000)
+    store = await openStore({ directory: tedPaths(home).store })
+    const reopened = store.factoryDashboard(factory.id, '7d', base + 10 * 3_600_000)
+    expect(reopened.flow.current.reasons.map((r) => [r.reason, r.totalMs])).toEqual(
+      data.flow.current.reasons.map((r) => [r.reason, r.totalMs]),
+    )
+    expect(
+      reopened.flow.current.reasons.find((r) => r.reason === 'test-lock')?.samples[0]?.invocations,
+    ).toEqual(get('test-lock').samples[0]?.invocations)
+    const gap = required(
+      store
+        .factoryDashboard(factory.id, '7d', Date.now())
+        .flow.current.reasons.find((r) => r.reason === 'run-working'),
+    )
+    expect(gap.samples[0]?.coverage).toBe('partial')
+    expect(gap.samples[0]?.coverageIntervals).toEqual(
+      expect.arrayContaining([expect.objectContaining({ state: 'unknown', source: 'daemon-gap' })]),
+    )
+    for (let i = 0; i < 999; i++) {
+      const retained = await store.createTask({ factoryId: factory.id, title: `Retained ${i}` })
+      store.changeStage(retained.id, 'intake', { layers: [], order: [] })
+      store.changeStage(retained.id, 'work', { layers: [], order: [] })
+      const owner = store.startRun({
+        id: randomUUID(),
+        taskId: retained.id,
+        agent: 'codex',
+        prompt: '',
+        cwd: home,
+      })
+      store.postComment({
+        taskId: retained.id,
+        kind: 'question',
+        body: 'Recorded request',
+        author: { kind: 'ted' },
+      })
+      store.testInvocations.register(
+        { taskId: retained.id, runId: owner.id },
+        { id: randomUUID(), supported: false },
+      )
+    }
+    vi.setSystemTime(base + 13 * 3_600_000)
+    const started = performance.now()
+    const retained = store.factoryDashboard(factory.id, '7d', Date.now())
+    const elapsed = performance.now() - started
+    expect(retained.flow.current.taskIds).toHaveLength(1000)
+    expect(retained.flow.current.reasons.every((r) => r.samples.length === 1000)).toBe(true)
+    console.info(
+      `Flow public-store fixture: 1000 Tasks, ${elapsed.toFixed(1)}ms read/calculation, ${JSON.stringify(retained).length} response bytes`,
+    )
+  } finally {
+    await store.close()
+    vi.useRealTimers()
+    await cleanup()
+  }
+})
+
+function required<T>(value: T | undefined | null): T {
+  if (value === undefined || value === null) throw new Error('Required fixture evidence is missing')
+  return value
+}

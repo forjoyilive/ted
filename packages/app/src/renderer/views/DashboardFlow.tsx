@@ -5,13 +5,9 @@ import type { FlowSelection } from '../dashboard.ts'
 import { stageName as label } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
+import { hours, StatisticsHelp, TimingChange } from './DashboardMeasures.tsx'
+import { coverageLabel, reasonNames, reasonValue, TimingOverview } from './DashboardTiming.tsx'
 
-const hours = (ms: number | null) =>
-  ms === null
-    ? 'Unavailable'
-    : ms > 0 && ms < 36_000
-      ? '<0.01 h'
-      : `${Number((ms / 3_600_000).toFixed(2))} h`
 const at = (date: string) =>
   formatDate(date, {
     year: 'numeric',
@@ -35,58 +31,61 @@ const outcomes: Record<FlowValidateOutcome, string> = {
 
 function StageTable({
   period,
+  previous,
   select,
 }: {
   period: FlowPeriod
+  previous: FlowPeriod | null
   select: (s: FlowSelection) => void
 }) {
-  const max = Math.max(1, ...period.stages.map((s) => s.totalMs))
   return (
-    <div className={styles.flowTable}>
-      <table>
-        <caption className={styles.caption}>{bounds(period)}</caption>
-        <thead>
-          <tr>
-            <th>Stage</th>
-            <th>Total Task-hours</th>
-            <th>Median per Task</th>
-            <th>25th–75th percentile</th>
-            <th>Sample</th>
-          </tr>
-        </thead>
-        <tbody>
-          {period.stages.map((s) => (
-            <tr key={s.stage}>
-              <th scope="row">{label(s.stage)}</th>
-              <td>
-                <span className={styles.flowBar} aria-hidden="true">
-                  <i style={{ width: `${(s.totalMs / max) * 100}%` }} />
-                </span>
-                {hours(s.totalMs)}
-              </td>
-              <td>{hours(s.medianMs)}</td>
-              <td>{s.p25Ms === null ? 'Unavailable' : `${hours(s.p25Ms)} – ${hours(s.p75Ms)}`}</td>
-              <td>
+    <>
+      <p className={styles.caption}>{bounds(period)}</p>
+      <ul className={styles.timingRows}>
+        {period.stages.map((s) => {
+          const prior = previous?.stages.find((p) => p.stage === s.stage)
+          const choose = () => select({ kind: 'stage', stage: s.stage, period: 'current' })
+          return (
+            <li key={s.stage} className={styles.timingRow}>
+              <div>
+                <button type="button" data-nav-item className={styles.link} onClick={choose}>
+                  {label(s.stage)}
+                </button>
+                <p>
+                  <button type="button" data-nav-item className={styles.link} onClick={choose}>
+                    {s.samples.length} {s.samples.length === 1 ? 'Task' : 'Tasks'}
+                  </button>
+                </p>
+              </div>
+              <div className={styles.timingNumber}>
+                <strong>{hours(s.samples.length ? s.totalMs : null)}</strong>
+                {previous && (
+                  <TimingChange
+                    current={s.samples.length ? s.totalMs : null}
+                    previous={prior?.samples.length ? prior.totalMs : null}
+                  />
+                )}
                 <button
                   type="button"
                   data-nav-item
                   className={styles.link}
-                  onClick={() => select({ kind: 'stage', stage: s.stage, period: 'current' })}
+                  aria-label={`Inspect ${label(s.stage)} Stage`}
+                  onClick={choose}
                 >
-                  {s.samples.length} Tasks
+                  →
                 </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
       {period.stages.every((s) => s.samples.length === 0) && (
         <p className={styles.empty}>
           No measurable Stage intervals in this period. Total: 0 Task-hours; distribution
           unavailable.
         </p>
       )}
-    </div>
+    </>
   )
 }
 
@@ -194,12 +193,14 @@ function FlowSample({
   asOf,
   onClose,
   onOpenTask,
+  selectPrevious,
 }: {
   data: DashboardFlow
   selection: FlowSelection
   asOf: string
   onClose: () => void
   onOpenTask: (id: string) => void
+  selectPrevious: () => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useId()
@@ -216,18 +217,63 @@ function FlowSample({
   if (!period) return null
   const records = new Map(data.tasks.map((t) => [t.id, t]))
   const title =
-    selection.kind === 'stage'
-      ? `${label(selection.stage)} · Per-Task elapsed time`
-      : selection.kind === 'send-back'
-        ? `${label(selection.from)} → ${label(selection.to)} · Actual transitions`
-        : selection.kind === 'affected'
-          ? 'Tasks affected by send-backs'
-          : selection.kind === 'incomplete'
-            ? 'Incomplete timing history'
-            : `${outcomes[selection.outcome]} · First-pass Validate`
+    selection.kind === 'reason'
+      ? `${reasonNames[selection.reason]} · Measured time`
+      : selection.kind === 'guide'
+        ? 'Follow the time to the Task'
+        : selection.kind === 'stage'
+          ? `${label(selection.stage)} · Per-Task elapsed time`
+          : selection.kind === 'send-back'
+            ? `${label(selection.from)} → ${label(selection.to)} · Actual transitions`
+            : selection.kind === 'affected'
+              ? 'Tasks affected by send-backs'
+              : selection.kind === 'incomplete'
+                ? 'Incomplete timing history'
+                : `${outcomes[selection.outcome]} · First-pass Validate`
   const items: { key: string; taskId: string; lines: string[] }[] = []
-  if (selection.kind === 'stage') {
-    for (const s of period.stages.find((s) => s.stage === selection.stage)?.samples ?? []) {
+  const reason =
+    selection.kind === 'reason'
+      ? period.reasons.find((r) => r.reason === selection.reason)
+      : undefined
+  const stage =
+    selection.kind === 'stage' ? period.stages.find((s) => s.stage === selection.stage) : undefined
+  const prior =
+    selection.kind === 'reason'
+      ? data.previous?.reasons.find((r) => r.reason === selection.reason)
+      : selection.kind === 'stage'
+        ? data.previous?.stages.find((s) => s.stage === selection.stage)
+        : undefined
+  if (selection.kind === 'reason' && reason) {
+    for (const s of reason.samples.toSorted(
+      (a, b) => (b.elapsedMs ?? -1) - (a.elapsedMs ?? -1) || a.taskId.localeCompare(b.taskId),
+    ))
+      items.push({
+        key: s.taskId,
+        taskId: s.taskId,
+        lines: [
+          `${hours(s.elapsedMs)} · ${s.coverage} coverage`,
+          `Covered Task-time: ${s.coveredMs === null ? 'Unavailable or invocation-specific; inspect the recorded boundaries' : `${hours(s.coveredMs)} of ${hours(s.eligibleMs)}`}`,
+          ...s.intervals.flatMap((i) => [
+            `${at(i.from)} – ${at(i.to)} (end excluded)`,
+            ...i.contributors.map(
+              (c) =>
+                `${c.id}${c.detail ? ` · ${c.detail}` : ''}: ${at(c.start)} – ${at(c.end)} · ${c.startSource} → ${c.endSource}`,
+            ),
+          ]),
+          ...s.coverageIntervals.map(
+            (c) => `${c.state}: ${at(c.start)} – ${at(c.end)} · ${c.source}`,
+          ),
+          ...s.invocations.map(
+            (i) =>
+              `Invocation ${i.id}: ${i.coverage} · registered ${at(i.registeredAt)}${i.runId ? ` · direct Run ${i.runId}` : ''}${i.checkRunId ? ` · Check ${i.checkRunId}, position ${i.position}` : ''}${i.openWaitStartedAt ? ` · open wait from ${at(i.openWaitStartedAt)}; final duration unavailable` : ''}${i.outcome ? ` · reporting ${i.outcome}; not a test result` : ''}${i.checkCommand ? ` · Check command ${at(i.checkCommand.from)} – ${at(i.checkCommand.to)}; ${hours(i.checkCommand.overlapMs)} of confirmed wait overlaps the command and also appears in Running Checks` : ''}`,
+          ),
+          ...s.notices,
+        ],
+      })
+  } else if (selection.kind === 'stage') {
+    for (const s of (
+      period.stages.find((s) => s.stage === selection.stage)?.samples ?? []
+    ).toSorted((a, b) => b.elapsedMs - a.elapsedMs || a.taskId.localeCompare(b.taskId))) {
       const incomplete = period.incomplete.find((i) => i.taskId === s.taskId)
       items.push({
         key: s.taskId,
@@ -269,7 +315,7 @@ function FlowSample({
   } else if (selection.kind === 'incomplete') {
     for (const s of period.incomplete)
       items.push({ key: s.taskId, taskId: s.taskId, lines: s.reasons })
-  } else {
+  } else if (selection.kind === 'validate') {
     for (const s of period.firstPass.samples.filter((s) => s.outcome === selection.outcome))
       items.push({
         key: s.taskId,
@@ -313,6 +359,93 @@ function FlowSample({
         As of {at(asOf)} · {items.length} {selection.kind === 'send-back' ? 'transitions' : 'Tasks'}
         . Open a Task for its existing history and verification evidence.
       </p>
+      {selection.kind === 'guide' && (
+        <>
+          <h3>1. Start with one reason</h3>
+          <p>
+            Task-hours add measured time across Tasks. Signed percentages compare the preceding
+            equal period.
+          </p>
+          <h3>2. Open it to investigate</h3>
+          <p>
+            See the largest Task delays, typical range, per-period samples and recorded intervals.
+            Use Stages for elapsed time by Stage and Overview for completions.
+          </p>
+          <h3>3. Check the gaps</h3>
+          <p>
+            Reasons overlap; durations and percentages cannot be added. Partial history can hide
+            time. A reported test-lock wait may also be inside a running Check command.
+          </p>
+        </>
+      )}
+      {(reason || stage) && (
+        <>
+          <div className={styles.timingStats}>
+            <div>
+              <small>Total Task-hours</small>
+              <strong>{hours(reason ? reasonValue(reason) : (stage?.totalMs ?? null))}</strong>
+              {selection.period === 'current' && data.previous && (
+                <TimingChange
+                  current={
+                    reason ? reasonValue(reason) : stage?.samples.length ? stage.totalMs : null
+                  }
+                  previous={
+                    prior && 'reason' in prior
+                      ? reasonValue(prior)
+                      : prior?.samples.length
+                        ? prior.totalMs
+                        : null
+                  }
+                  neutral={
+                    selection.kind === 'reason' &&
+                    ['run-working', 'running-check'].includes(selection.reason)
+                  }
+                />
+              )}
+            </div>
+            <div>
+              <small>Middle Task · median</small>
+              <strong>{hours((reason ?? stage)?.medianMs ?? null)}</strong>
+            </div>
+            <div>
+              <small>Middle 50%</small>
+              <strong>
+                {hours((reason ?? stage)?.p25Ms ?? null)} –{' '}
+                {hours((reason ?? stage)?.p75Ms ?? null)}
+              </strong>
+            </div>
+          </div>
+          {reason && <p>{coverageLabel(reason)}. Partial measured samples may understate delay.</p>}
+          {selection.period === 'current' &&
+            data.previous &&
+            (selection.kind === 'reason' || selection.kind === 'stage') && (
+              <details className={styles.dataTable}>
+                <summary>Comparison evidence</summary>
+                <p>
+                  Previous total: {hours(prior?.totalMs ?? null)} · Middle Task:{' '}
+                  {hours(prior?.medianMs ?? null)} · Middle 50%: {hours(prior?.p25Ms ?? null)} –{' '}
+                  {hours(prior?.p75Ms ?? null)}.
+                </p>
+                <p>
+                  {prior && 'reason' in prior
+                    ? coverageLabel(prior)
+                    : `${prior?.samples.length ?? 0} measured Tasks`}
+                  . Each period has its own Tasks and coverage; direction alone does not prove
+                  improvement.
+                </p>
+                <button
+                  type="button"
+                  data-nav-item
+                  className={styles.link}
+                  onClick={selectPrevious}
+                >
+                  Inspect previous-period Tasks
+                </button>
+              </details>
+            )}
+          <StatisticsHelp />
+        </>
+      )}
       <ul className={styles.taskList}>
         {items.map((item) => {
           const task = records.get(item.taskId)
@@ -336,16 +469,27 @@ function FlowSample({
                       : `${task.endReason === 'archived' ? 'Archived' : 'Done'} ${task.endedAt ? at(task.endedAt) : ''}`}
                 </p>
               )}
-              {[...new Set(item.lines)].map((line) => (
-                <p className={styles.caption} key={line}>
-                  {line}
-                </p>
-              ))}
+              {(selection.kind === 'stage' || selection.kind === 'reason') && (
+                <p className={styles.caption}>{item.lines[0]}</p>
+              )}
+              <details
+                className={styles.dataTable}
+                open={selection.kind !== 'stage' && selection.kind !== 'reason'}
+              >
+                <summary>Interval evidence</summary>
+                {[...new Set(item.lines)].map((line) => (
+                  <p className={styles.caption} key={line}>
+                    {line}
+                  </p>
+                ))}
+              </details>
             </li>
           )
         })}
       </ul>
-      {!items.length && <p>No Tasks or transitions in this sample.</p>}
+      {!items.length && selection.kind !== 'guide' && (
+        <p>No Tasks or transitions in this sample.</p>
+      )}
     </dialog>
   )
 }
@@ -353,6 +497,7 @@ function FlowSample({
 export function Flow({
   data,
   asOf,
+  panel,
   selection,
   select,
   onClose,
@@ -360,6 +505,7 @@ export function Flow({
 }: {
   data: DashboardFlow
   asOf: string
+  panel: 'flow' | 'stages'
   selection?: FlowSelection | undefined
   select: (s: FlowSelection) => void
   onClose: () => void
@@ -369,97 +515,97 @@ export function Flow({
   const previousSelect = (s: FlowSelection) => select({ ...s, period: 'previous' })
   return (
     <section className={styles.flow} aria-labelledby={heading}>
-      <h2 id={heading}>Flow</h2>
-      <p className={styles.caption}>Where elapsed time and rework accumulate.</p>
-      <section className={styles.flowCard} aria-label="Elapsed time by Stage">
-        <header className={styles.flowHead}>
-          <h3>Elapsed time by Stage</h3>
-          <span className={styles.caption}>
-            {data.current.taskIds.length} Tasks open during this period
-          </span>
-        </header>
-        <p className={styles.caption}>
-          Wall-clock time including waiting. Each Task’s repeated visits are added together.
-        </p>
-        <StageTable period={data.current} select={select} />
-        {data.current.incomplete.length > 0 && (
-          <p className={styles.notice}>
-            <button
-              type="button"
-              data-nav-item
-              className={styles.link}
-              onClick={() => select({ kind: 'incomplete', period: 'current' })}
-            >
-              {data.current.incomplete.length} Tasks have incomplete timing history
-            </button>
-            . Unmeasurable intervals are excluded; measured time may be incomplete.
+      <header className={styles.flowHead}>
+        <div>
+          <h2 id={heading}>{panel === 'stages' ? 'Time by Stage' : 'Flow'}</h2>
+          <p className={styles.caption}>
+            {panel === 'stages'
+              ? 'See which Stages take time, including waits and repeat visits.'
+              : 'See where Tasks spend time and what holds them up.'}
           </p>
+        </div>
+        {panel === 'flow' && (
+          <button
+            type="button"
+            data-nav-item
+            className={styles.link}
+            onClick={() => select({ kind: 'guide', period: 'current' })}
+          >
+            Quick guide ↗
+          </button>
         )}
-        {data.previous && (
-          <details className={styles.dataTable}>
-            <summary>Previous period · all Stage measures</summary>
-            <StageTable period={data.previous} select={previousSelect} />
-            {data.previous.incomplete.length > 0 && (
+      </header>
+      <p className={styles.caption}>
+        {data.current.taskIds.length} Tasks open during this period · As of {at(asOf)}
+      </p>
+      {panel === 'stages' ? (
+        <section className={styles.flowCard} aria-label="Elapsed time by Stage">
+          <h3>Elapsed time by Stage</h3>
+          <StageTable period={data.current} previous={data.previous} select={select} />
+          {data.current.incomplete.length > 0 && (
+            <p className={styles.notice}>
               <button
                 type="button"
+                data-nav-item
                 className={styles.link}
-                onClick={() => previousSelect({ kind: 'incomplete', period: 'current' })}
+                onClick={() => select({ kind: 'incomplete', period: 'current' })}
               >
-                Previous {data.previous.incomplete.length} Tasks with incomplete timing history
+                {data.current.incomplete.length}{' '}
+                {data.current.incomplete.length === 1 ? 'Task has' : 'Tasks have'} incomplete timing
+                history
               </button>
-            )}
-          </details>
-        )}
-        <p className={styles.flowFoot}>
-          Started non-setup Tasks whose open lifetime overlaps the period, including Tasks now Done
-          or archived. Intervals are clipped to this period and first Intake through first Done or
-          archive; open Tasks end at the as-of instant. Backlog is excluded. Tasks without a
-          measured visit contribute no zero. Quartiles use linear interpolation between sorted
-          per-Task times.
-        </p>
-      </section>
-      <div className={styles.flowGrid}>
-        <section className={styles.flowCard} aria-label="Actual send-backs">
-          <h3>Actual send-backs</h3>
-          <SendBacks period={data.current} select={select} />
-          {data.previous && (
-            <details className={styles.dataTable}>
-              <summary>Previous period · send-backs</summary>
-              <p className={styles.caption}>{bounds(data.previous)}</p>
-              <SendBacks period={data.previous} select={previousSelect} />
-            </details>
-          )}
-          <p className={styles.flowFoot}>
-            Actual transitions recorded during this period, including uncounted send-backs. Pending
-            questions and retries are excluded. No recorded send-backs does not establish that
-            history is complete.
-          </p>
-        </section>
-        <section className={styles.flowCard} aria-label="First-pass Validate">
-          <h3>First-pass Validate</h3>
-          <FirstPass period={data.current} select={select} />
-          {data.previous && (
-            <details className={styles.dataTable}>
-              <summary>Previous period · first-pass Validate</summary>
-              <p className={styles.caption}>{bounds(data.previous)}</p>
-              <FirstPass period={data.previous} select={previousSelect} />
-            </details>
+              . Unmeasurable intervals are excluded.
+            </p>
           )}
           <details className={styles.dataTable}>
-            <summary>What counts as a pass?</summary>
+            <summary>How Stage time is measured</summary>
             <p>
-              Recorded passing Checks and review, applicable visual verification and no actual
-              send-back on the first visit. Only fully recorded first-visit outcomes enter the
-              denominator. Missing visual verification or applicability stays unknown. Later visits
-              do not replace the first visit’s result.
+              Wall-clock time including waiting, stops and rework, not agent effort. Each Task’s
+              repeated visits are added together. Started non-setup Tasks open during this period
+              contribute, including Tasks now Done or archived.
+            </p>
+            <p>
+              Intervals are clipped to this period and first Intake through first Done or archive.
+              Open Tasks end at the as-of instant. Backlog is excluded. Missing visits contribute no
+              zero samples. Stage time can include overlapping wait reasons shown in Flow.
             </p>
           </details>
+          <StatisticsHelp />
         </section>
-      </div>
+      ) : (
+        <>
+          <TimingOverview data={data} select={select} />
+          <div className={styles.flowGrid}>
+            <section className={styles.flowCard} aria-label="Actual send-backs">
+              <h3>Actual send-backs</h3>
+              <SendBacks period={data.current} select={select} />
+              {data.previous && (
+                <details className={styles.dataTable}>
+                  <summary>Previous send-back evidence</summary>
+                  <SendBacks period={data.previous} select={previousSelect} />
+                </details>
+              )}
+              <p className={styles.flowFoot}>
+                Actual transitions, including uncounted send-backs. Pending questions and retries
+                are excluded. No recorded send-backs does not establish complete history.
+              </p>
+            </section>
+            <section className={styles.flowCard} aria-label="First-pass Validate">
+              <h3>First-pass Validate</h3>
+              <FirstPass period={data.current} select={select} />
+              {data.previous && (
+                <details className={styles.dataTable}>
+                  <summary>Previous first-pass evidence</summary>
+                  <FirstPass period={data.previous} select={previousSelect} />
+                </details>
+              )}
+            </section>
+          </div>
+        </>
+      )}
       <p className={styles.definition}>
-        All measures use retained structured history at the same as-of instant. Missing records
-        never imply success; deleted Tasks are unavailable. Stage samples and completed-Task samples
-        are distinct.
+        All measures use retained structured history at the same as-of instant. Deleted Tasks are
+        unavailable. Stage/working/waiting samples and completed-Task samples are distinct.
       </p>
       {selection && (
         <FlowSample
@@ -468,6 +614,7 @@ export function Flow({
           selection={selection}
           onClose={onClose}
           onOpenTask={onOpenTask}
+          selectPrevious={() => select({ ...selection, period: 'previous' })}
         />
       )}
     </section>

@@ -3623,7 +3623,7 @@ export async function openStore({
       return task
     },
     factoryDashboard(factoryId, range, asOf = Date.now()) {
-      return readFactoryDashboard(store, factoryId, range, asOf)
+      return readFactoryDashboard(store, factoryId, range, asOf, observationSessionId)
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),

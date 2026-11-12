@@ -8,6 +8,7 @@ import type {
   ValidationSnapshot,
 } from '@ted/protocol'
 import type { DashboardTaskFacts } from './dashboard.ts'
+import { type FlowTimingFacts, summarizeReasons, timingSamples } from './dashboard-timing.ts'
 
 export interface FlowJudgment {
   at: string
@@ -28,6 +29,7 @@ export interface FlowCheck {
 }
 
 export interface FlowFacts {
+  activity?: FlowTimingFacts
   transitions?: readonly { stage: string; at: string; sequence?: number }[]
   archivedAt?: string | null
   archives?: readonly string[]
@@ -252,6 +254,7 @@ function period(
     taskIds: [],
     incomplete: [],
     stages: [],
+    reasons: [],
     sendBacks: [],
     firstPass: { passed: 0, denominator: 0, percent: null, samples: [] },
   }
@@ -271,6 +274,7 @@ function period(
   )
   const completed = new Set(completedIds)
   const groups = new Map<string, FlowPeriod['sendBacks'][number]>()
+  const reasonSamples: ReturnType<typeof timingSamples>[] = []
   for (const task of facts) {
     const measured = timings.get(task.id)
     if (!measured) continue
@@ -293,6 +297,16 @@ function period(
       sample.intervals.push({ from: iso(a), to: iso(b) })
       perStage.set(interval.stage, sample)
     }
+    if (overlaps && measured.start !== undefined)
+      reasonSamples.push(
+        timingSamples(
+          task.id,
+          task.activity,
+          [...perStage.values()].flatMap((s) => s.intervals),
+          task.activity?.history.asOf ?? iso(to),
+          measured.reasons,
+        ),
+      )
     for (const [name, sample] of perStage) {
       const stage = stages.get(name) ?? {
         stage: name,
@@ -326,6 +340,7 @@ function period(
       if (visit) result.firstPass.samples.push(visit)
     }
   }
+  result.reasons = summarizeReasons(reasonSamples)
   result.stages = [...stages.values()].sort((a, b) => {
     const ai = order.indexOf(a.stage)
     const bi = order.indexOf(b.stage)

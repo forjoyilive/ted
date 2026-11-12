@@ -458,3 +458,308 @@ test('unfinished Check results are unknown even if a review failure is recorded'
     'The first visit has a recorded failure or actual send-back.',
   )
 })
+
+function observedTask(id = 'observed'): DashboardTaskFacts {
+  const start = now - 10 * hour
+  const at = (h: number) => iso(start + h * hour)
+  const spans = [
+    ['run-working', 0, 3],
+    ['run-working', 2, 5],
+    ['user-request', 1, 5],
+    ['user-request', 3, 6],
+    ['run-slot', 2, 4],
+    ['github', 3, 6],
+    ['agent-paused', 4, 7],
+    ['blocker', 0, 4],
+    ['stopped', 8, 10],
+  ] as const
+  return {
+    id,
+    displayId: `NB-${id}`,
+    title: 'Observed intervals',
+    stage: 'work',
+    setup: false,
+    archived: false,
+    createdAt: at(0),
+    entries: [
+      { stage: 'intake', at: at(0) },
+      { stage: 'work', at: at(0) },
+    ],
+    activity: {
+      history: {
+        taskId: id,
+        asOf: iso(now),
+        lifecycle: [],
+        intervals: spans.map(([reason, a, b], i) => ({
+          reason,
+          start: at(a),
+          end: at(b),
+          contributors: [
+            {
+              id: `source-${i}`,
+              start: at(a),
+              end: at(b),
+              startSource: 'recorded start',
+              endSource: 'recorded end',
+            },
+          ],
+        })),
+        coverage: (
+          [
+            'run-working',
+            'user-request',
+            'run-slot',
+            'github',
+            'agent-paused',
+            'blocker',
+            'stopped',
+          ] as const
+        ).map((reason) => ({
+          reason,
+          start: at(0),
+          end: at(10),
+          state: 'known',
+          source: 'durable-history',
+        })),
+      },
+      checks: [0, 1].map((index) => ({
+        id: `check-${index}`,
+        taskId: id,
+        stage: 'work',
+        trigger: 'agent',
+        startedAt: at(1),
+        finishedAt: at(9),
+        checks: [{ name: 'Tests', command: 'vitest', timeout: '10m', state: 'passed' }],
+        timing: {
+          checkRunId: `check-${index}`,
+          taskId: id,
+          stage: 'work',
+          trigger: 'agent',
+          queue: {
+            status: 'complete',
+            startedAt: at(1 + index * 0.5),
+            endedAt: at(2 + index * 0.5),
+            durationMs: hour,
+          },
+          execution: [
+            {
+              position: 0,
+              status: 'complete',
+              startedAt: at(index === 0 ? 2 : 6),
+              endedAt: at(index === 0 ? 8 : 9),
+              durationMs: (index === 0 ? 6 : 3) * hour,
+            },
+          ],
+        },
+      })),
+      invocations: [0, 1].map((i) => ({
+        id: `invocation-${i}`,
+        taskId: id,
+        supported: true,
+        registeredAt: Date.parse(at(2)),
+        ...(i === 0 ? { runId: 'direct' } : { checkRunId: 'check-0', position: 0 }),
+        reports: [
+          { sequence: 0, kind: 'wait-start', at: Date.parse(at(3 + i)) },
+          { sequence: 1, kind: 'wait-end', at: Date.parse(at(5 + i)) },
+          { sequence: 2, kind: 'finished', at: Date.parse(at(7)) },
+        ],
+      })),
+    },
+  }
+}
+
+test('unions every observed reason independently and preserves direct/Check test containment evidence', () => {
+  const flow = factoryDashboard([observedTask()], '7d', now).flow
+  const totals = Object.fromEntries(flow.current.reasons.map((r) => [r.reason, r.totalMs / hour]))
+  expect(totals).toEqual({
+    'run-working': 5,
+    'running-check': 7,
+    'user-request': 5,
+    'run-slot': 2,
+    'check-slot': 1.5,
+    'test-lock': 3,
+    github: 3,
+    'agent-paused': 3,
+    blocker: 4,
+    stopped: 2,
+  })
+  for (const r of flow.current.reasons) {
+    const s = required(r.samples[0])
+    expect(s.intervals.reduce((n, i) => n + Date.parse(i.to) - Date.parse(i.from), 0)).toBe(
+      r.totalMs,
+    )
+    expect(s.elapsedMs).toBe(r.totalMs)
+    expect(r.medianMs).toBe(r.totalMs)
+    expect(s.coverage).toBe(r.reason === 'test-lock' ? 'partial' : 'full')
+  }
+  const test = required(flow.current.reasons.find((r) => r.reason === 'test-lock'))
+  expect(test.samples[0]?.intervals[0]?.contributors).toHaveLength(2)
+  expect(test.samples[0]?.invocations[1]?.checkCommand?.overlapMs).toBe(2 * hour)
+  expect(test.samples[0]?.invocations).toMatchObject([
+    { runId: 'direct' },
+    { checkRunId: 'check-0', position: 0 },
+  ])
+  expect(test.samples[0]?.intervals[0]?.contributors[1]?.detail).toContain(
+    'Associated Check check-0',
+  )
+  expect(flow.previous?.reasons.every((r) => r.samples.length === 0 && r.medianMs === null)).toBe(
+    true,
+  )
+})
+
+test('clips all reasons to active Stage windows, excludes Backlog, and uses one as-of for both periods', () => {
+  const task = observedTask()
+  const at = (h: number) => iso(now - (200 - h) * hour)
+  task.createdAt = at(0)
+  task.entries = [
+    { stage: 'intake', at: at(0) },
+    { stage: 'work', at: at(0) },
+    { stage: 'backlog', at: at(30) },
+    { stage: 'work', at: at(40) },
+  ]
+  required(task.activity).history.intervals = [
+    {
+      reason: 'user-request',
+      start: at(0),
+      end: iso(now + hour),
+      contributors: [
+        {
+          id: 'request',
+          start: at(0),
+          end: iso(now + hour),
+          startSource: 'posted',
+          endSource: 'query',
+        },
+      ],
+    },
+  ]
+  required(task.activity).history.coverage = [
+    {
+      reason: 'user-request',
+      start: at(0),
+      end: iso(now),
+      state: 'known',
+      source: 'durable-history',
+    },
+  ]
+  const flow = factoryDashboard([task], '7d', now).flow
+  expect(flow.current.reasons.find((r) => r.reason === 'user-request')?.totalMs).toBe(160 * hour)
+  expect(flow.previous?.reasons.find((r) => r.reason === 'user-request')?.totalMs).toBe(30 * hour)
+  expect(
+    flow.current.reasons.find((r) => r.reason === 'user-request')?.samples[0]?.intervals.at(-1)?.to,
+  ).toBe(iso(now))
+})
+
+test('partial/old/recovered/unsupported and empty histories never become invented zero-duration samples', () => {
+  const task = observedTask()
+  const activity = required(task.activity)
+  activity.history.coverage = activity.history.coverage.map((c) => ({
+    ...c,
+    state: 'unknown',
+    source: 'daemon-gap',
+  }))
+  activity.history.intervals = activity.history.intervals.filter((i) => i.reason !== 'github')
+  required(required(activity.checks[0]).timing).queue = {
+    status: 'interrupted',
+    startedAt: iso(now - 9 * hour),
+    detectedAt: iso(now - hour),
+  }
+  activity.checks = activity.checks.slice(0, 1)
+  activity.invocations = [
+    {
+      id: 'unsupported',
+      taskId: task.id,
+      supported: false,
+      registeredAt: now - 5 * hour,
+      reports: [],
+    },
+    {
+      id: 'open',
+      taskId: task.id,
+      runId: 'direct',
+      supported: true,
+      ownerEnded: true,
+      registeredAt: now - 5 * hour,
+      reports: [{ sequence: 0, kind: 'wait-start', at: now - 4 * hour }],
+    },
+  ]
+  const flow = factoryDashboard([task], 'all', now).flow
+  expect(flow.previous).toBeNull()
+  const get = (reason: string) => required(flow.current.reasons.find((r) => r.reason === reason))
+  expect(get('run-working').samples[0]).toMatchObject({
+    elapsedMs: 5 * hour,
+    coverage: 'partial',
+    coveredMs: 0,
+  })
+  expect(get('github')).toMatchObject({
+    totalMs: 0,
+    medianMs: null,
+    samples: [{ elapsedMs: null, coverage: 'unavailable' }],
+  })
+  expect(get('check-slot').samples[0]).toMatchObject({ elapsedMs: null, coverage: 'unavailable' })
+  expect(get('check-slot').samples[0]?.notices.join(' ')).toContain('end unavailable')
+  expect(get('test-lock')).toMatchObject({ totalMs: 0, medianMs: null })
+  expect(get('test-lock').samples[0]?.invocations).toMatchObject([
+    { coverage: 'unsupported' },
+    { coverage: 'incomplete', openWaitStartedAt: iso(now - 4 * hour) },
+  ])
+  expect(get('test-lock').samples[0]?.notices.join(' ')).toContain('no closing report')
+  expect(
+    factoryDashboard([], '7d', now).flow.current.reasons.every(
+      (r) => r.samples.length === 0 && r.medianMs === null,
+    ),
+  ).toBe(true)
+})
+
+test('known immediate Check admission and supported zero-wait reporting remain measured zero, with invocation-only coverage', () => {
+  const task = observedTask(),
+    activity = required(task.activity)
+  activity.checks = activity.checks.slice(0, 1)
+  required(required(activity.checks[0]).timing).queue = {
+    status: 'complete',
+    startedAt: iso(now - hour),
+    endedAt: iso(now - hour),
+    durationMs: 0,
+  }
+  activity.invocations = [
+    {
+      id: 'zero',
+      taskId: task.id,
+      runId: 'direct',
+      supported: true,
+      registeredAt: now - hour,
+      reports: [{ sequence: 0, kind: 'finished', at: now - hour }],
+    },
+  ]
+  const reasons = factoryDashboard([task], '7d', now).flow.current.reasons
+  expect(reasons.find((r) => r.reason === 'check-slot')).toMatchObject({
+    totalMs: 0,
+    medianMs: 0,
+    samples: [{ coverage: 'full' }],
+  })
+  expect(reasons.find((r) => r.reason === 'test-lock')).toMatchObject({
+    totalMs: 0,
+    medianMs: 0,
+    samples: [{ coverage: 'partial', coveredMs: null }],
+  })
+})
+
+test('large retained cohort aggregates interval evidence without dropping samples', () => {
+  const tasks = Array.from({ length: 1000 }, (_, i) => observedTask(String(i)))
+  const started = performance.now()
+  const result = factoryDashboard(tasks, '30d', now)
+  const elapsed = performance.now() - started
+  const bytes = JSON.stringify(result).length
+  expect(result.flow.current.reasons.find((r) => r.reason === 'test-lock')).toMatchObject({
+    totalMs: 3000 * hour,
+  })
+  expect(result.flow.current.reasons.every((r) => r.samples.length === 1000)).toBe(true)
+  console.info(
+    `Flow retained fixture: 1000 Tasks, ${elapsed.toFixed(1)}ms calculation, ${bytes} response bytes`,
+  )
+})
+
+function required<T>(value: T | undefined | null): T {
+  if (value === undefined || value === null) throw new Error('Required fixture evidence is missing')
+  return value
+}

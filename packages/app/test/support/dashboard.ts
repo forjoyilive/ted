@@ -1,4 +1,4 @@
-import type { DashboardPeriod, FactoryDashboard, FlowPeriod } from '@ted/protocol'
+import type { DashboardPeriod, FactoryDashboard, FlowPeriod, FlowReasonId } from '@ted/protocol'
 
 export function dashboardFixture(empty = false): FactoryDashboard {
   const current: DashboardPeriod = {
@@ -108,6 +108,74 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
     to: period.to,
     taskIds: empty ? [] : ['t1', 't3'],
     incomplete: empty ? [] : [{ taskId: 't2', reasons: ['First Intake timestamp is missing.'] }],
+    reasons: (
+      [
+        'run-working',
+        'running-check',
+        'user-request',
+        'run-slot',
+        'check-slot',
+        'test-lock',
+        'github',
+        'agent-paused',
+        'blocker',
+        'stopped',
+      ] as FlowReasonId[]
+    ).map((reason) => ({
+      reason,
+      totalMs: empty ? 0 : (reason === 'test-lock' ? 3 : 5) * 3_600_000,
+      medianMs: empty ? null : (reason === 'test-lock' ? 1.5 : 2.5) * 3_600_000,
+      p25Ms: empty ? null : (reason === 'test-lock' ? 1.25 : 2.25) * 3_600_000,
+      p75Ms: empty ? null : (reason === 'test-lock' ? 1.75 : 2.75) * 3_600_000,
+      samples: empty
+        ? []
+        : ['t1', 't3'].map((taskId, index) => ({
+            taskId,
+            elapsedMs: (index + (reason === 'test-lock' ? 1 : 2)) * 3_600_000,
+            eligibleMs: 10 * 3_600_000,
+            coveredMs: reason === 'test-lock' ? null : 10 * 3_600_000,
+            coverage: reason === 'test-lock' ? 'partial' : 'full',
+            coverageIntervals: [],
+            notices: reason === 'test-lock' ? ['Only registered invocations are measured.'] : [],
+            intervals: [
+              {
+                from: '2026-11-04T03:00:00.000Z',
+                to: new Date(
+                  Date.parse('2026-11-04T03:00:00.000Z') +
+                    (index + (reason === 'test-lock' ? 1 : 2)) * 3_600_000,
+                ).toISOString(),
+                contributors: [
+                  {
+                    id: `evidence-${index}`,
+                    start: '2026-11-04T03:00:00.000Z',
+                    end: new Date(
+                      Date.parse('2026-11-04T03:00:00.000Z') +
+                        (index + (reason === 'test-lock' ? 1 : 2)) * 3_600_000,
+                    ).toISOString(),
+                    startSource: 'reported wait-start',
+                    endSource: 'reported wait-end',
+                    detail:
+                      reason === 'test-lock'
+                        ? 'Associated Check check-1, position 0; overlapping command time is also counted in Running Checks'
+                        : 'Recorded boundary',
+                  },
+                ],
+              },
+            ],
+            invocations:
+              reason === 'test-lock'
+                ? [
+                    {
+                      id: `invocation-${index}`,
+                      checkRunId: 'check-1',
+                      position: 0,
+                      registeredAt: '2026-11-04T03:00:00.000Z',
+                      coverage: 'reported',
+                    },
+                  ]
+                : [],
+          })),
+    })),
     stages: [
       {
         stage: 'work',
@@ -126,7 +194,7 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
               {
                 taskId: 't3',
                 elapsedMs: 9 * 3_600_000,
-                intervals: [{ from: '2026-11-08T03:00:00.000Z', to: period.to }],
+                intervals: [{ from: '2026-11-04T03:00:00.000Z', to: period.to }],
               },
             ],
       },
