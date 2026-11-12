@@ -405,6 +405,7 @@ export function RequestCard({
 }) {
   const now = useNow()
   const repairFormId = useId()
+  const boxId = useId()
   const [selection, setSelection] = useState<QuestionSelection>()
   const [otherText, setOtherText] = useState('')
   const sendingRef = useRef(false)
@@ -479,6 +480,22 @@ export function RequestCard({
   const other = selection && 'other' in selection
   const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
   const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
+  const failure =
+    request.purpose?.kind === 'failure' ||
+    reasonChoices.length > 0 ||
+    request.choices?.includes('Wait for a repair Task') === true ||
+    (request.choices?.includes(validateFailureChoices.retry) === true &&
+      request.choices.includes(validateFailureChoices.fix))
+  const failureChoice = failure && questionChoices
+  const boxLabel = !failureChoice
+    ? undefined
+    : needsReason
+      ? selectedChoice === failureChoices.fixed
+        ? 'Why is this failure fixed?'
+        : 'Why does this failure no longer apply?'
+      : other
+        ? 'Message to the Task Lead'
+        : undefined
   const answerText = questionChoices && other ? otherText : text
   const ready = questionChoices
     ? !repairing &&
@@ -542,11 +559,7 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
-      ) : request.purpose?.kind === 'failure' ||
-        reasonChoices.length > 0 ||
-        request.choices?.includes('Wait for a repair Task') ||
-        (request.choices?.includes(validateFailureChoices.retry) &&
-          request.choices.includes(validateFailureChoices.fix)) ? (
+      ) : failure ? (
         <FailureRequestDetails
           taskId={task.id}
           requestId={request.id}
@@ -639,28 +652,40 @@ export function RequestCard({
           onSelect={setSelection}
           allowOther={!request.linearTeam}
           disabled={sending || readOnly}
+          {...(failure && {
+            legend: 'Your decision',
+            otherLabel: 'Send a message to the Task Lead',
+          })}
         />
       )}
       {!readOnly && !request.round && !request.proposal && (
         <>
+          {boxLabel !== undefined && (
+            <label className={styles.boxLabel} htmlFor={boxId}>
+              {boxLabel}
+            </label>
+          )}
           {!request.linearTeam && (
             <textarea
+              id={boxId}
               className={styles.box}
               data-answer-box
               form={repairing ? repairFormId : undefined}
-              aria-label="Your answer"
+              aria-label={boxLabel ?? 'Your answer'}
               placeholder={
                 request.simulator
                   ? 'Comment…'
                   : needsReason
-                    ? 'Your reason…'
+                    ? 'Explain what changed…'
                     : request.permission
                       ? 'Comment, or say why you’re denying…'
                       : request.design
                         ? 'Comment, or say what to change…'
                         : questionChoices
                           ? other
-                            ? 'Your answer…'
+                            ? failure
+                              ? 'Ask a question or add context…'
+                              : 'Your answer…'
                             : 'Add to this answer…'
                           : 'Comment to the Task Lead…'
               }
@@ -685,7 +710,12 @@ export function RequestCard({
             />
           )}
           {needsReason && (
-            <p className={styles.caption}>Write a reason before sending this decision.</p>
+            <p className={styles.caption}>A reason is required. Confirming closes this failure.</p>
+          )}
+          {failureChoice && other && (
+            <p className={styles.caption}>
+              Sending a message leaves this failure open. Choose a decision to resolve it.
+            </p>
           )}
           {questionChoices && request.choices?.includes('Wait for a repair Task') && (
             <div hidden={!repairing}>
@@ -789,7 +819,11 @@ export function RequestCard({
                   pending={sending && submission?.action === 'answer'}
                   onClick={sendAnswer}
                 >
-                  Send
+                  {failureChoice && selectedChoice !== undefined
+                    ? `Confirm ${selectedChoice}`
+                    : failureChoice && other
+                      ? 'Send message'
+                      : 'Send'}
                 </Button>
               </>
             ) : null}
