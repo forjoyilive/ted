@@ -5,6 +5,7 @@ import {
   agentKinds,
   agentProblem,
   agentShortNames,
+  antigravityPlanNotice,
   bannerId,
   type DaemonEvent,
   type FixCommand,
@@ -439,6 +440,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   const billed = (settings: MachineSettings) =>
     JSON.stringify([settings.billing, settings.antigravityPlanAccepted])
   let billedAs = billed(store.settings())
+  // Before the first check finishes, queued work asks the store whether a kind is paused.
+  if (billing('antigravity') === 'subscription' && !store.settings().antigravityPlanAccepted)
+    store.pauseAgent('antigravity', antigravityPlanNotice)
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'settings-changed') {
       const display = JSON.stringify([event.settings.timeFormat, event.settings.timeZone])
