@@ -1535,6 +1535,12 @@ export async function openStore({
     reads: TaskReads = perTask,
   ): StoredTask => {
     const stage = row.stage as StageId
+    const pendingMessages: LeadMessage[] =
+      pendingLeadDeliveries !== null
+        ? JSON.parse(pendingLeadDeliveries)
+        : pendingLeadMessage !== null
+          ? [{ id: `stage-legacy-${row.id}`, text: pendingLeadMessage }]
+          : []
     const all = reads.runs(row.id)
     const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
@@ -1565,9 +1571,12 @@ export async function openStore({
     const queued = reads.queued(row.id).at(0)
     const paused = reads.pauses()
     const held = reads.held(row.id).at(0)
+    const queuedContinuation = pendingMessages.some((message) => message.waitForSlot)
     const place =
-      queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
-      (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0)
+      queued || queuedContinuation
+        ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
+          (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
+        : 0
     const pausedRuns = taskPauses({
       taskId: row.id,
       heldAgent: held?.agent,
@@ -1755,12 +1764,7 @@ export async function openStore({
         },
       }),
       ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
-      pendingLeadMessages:
-        pendingLeadDeliveries !== null
-          ? (JSON.parse(pendingLeadDeliveries) as LeadMessage[])
-          : pendingLeadMessage !== null
-            ? [{ id: `stage-legacy-${row.id}`, text: pendingLeadMessage }]
-            : [],
+      pendingLeadMessages: pendingMessages,
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,

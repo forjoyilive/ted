@@ -90,7 +90,7 @@ export function effectiveLead(task: StoredTask, fallback?: TaskLead): TaskLead |
 }
 export const sameChoice = (lead: TaskLead, run: Run) =>
   lead.agent === run.agent && lead.model === run.model && lead.effort === run.effort
-const atIdlePoint = (run: Run) =>
+export const atIdlePoint = (run: Run) =>
   run.state === 'idle' || (run.problem !== undefined && run.state === 'waiting')
 
 export const continueMessage =
@@ -239,6 +239,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       }
     } finally {
       applying.delete(taskId)
+      if (store.getTask(taskId)?.pendingLeadMessages.some((message) => message.waitForSlot)) wake()
     }
     const after = find(taskId)
     const live = liveLead(after)

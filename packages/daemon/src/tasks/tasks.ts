@@ -216,6 +216,7 @@ import {
 import { createPullRequestWatch } from './github-watch.ts'
 import { answered as answeredItems, answeredSince, waiting as waitingItems } from './inbox.ts'
 import {
+  atIdlePoint,
   continueMessage,
   createLeadLifecycle,
   effectiveLead,
@@ -1271,11 +1272,11 @@ export function createTasks(options: {
       store.tasksWithQueuedContinuations().flatMap((id) => {
         const task = store.getTask(id)
         if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
-        if (holds.has(id) || advancing.has(id)) return []
+        if (holds.has(id) || advancing.has(id) || leadLifecycle.applying(id)) return []
         if (!includeFailures && continuationFailures.has(id)) return []
         if (!task.pendingLeadMessages.some((message) => message.waitForSlot)) return []
         const run = liveLeadOf(store, task)
-        if (run?.state !== 'idle' || store.agentPauses()[run.agent] !== undefined) return []
+        if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
         return [
           {
             id,

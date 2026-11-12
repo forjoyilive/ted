@@ -239,6 +239,8 @@ describe('the queue', () => {
     let client = await startWithStub({ clock, nudgeAfterMs: 1000 })
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const never = path.join(scratch, 'never')
+    const briefFile = path.join(scratch, 'brief.md')
+    await writeFile(briefFile, '## Goal\nContinue the Task after sign-off.\n')
     const afterAnswer = [{ hook: 'PreToolUse' }, { waitFor: never }]
     const low = await startTask(
       client,
@@ -254,24 +256,32 @@ describe('the queue', () => {
       client,
       steps(
         { everyMessage: afterAnswer },
+        { run: ['ted', 'brief', 'write', '--file', briefFile] },
         { run: ['ted', 'outcome', 'advance'] },
         { endTurn: true },
       ),
       'high',
     )
     await waitForRunState(client, high, 'idle')
+    await client.ok('PUT', `/tasks/${low.id}/lead`, { agent: 'claude', model: 'unavailable' })
+    await waitForRunState(client, low, 'waiting')
     const blocker = await startTask(client, workingUntil(never))
     await waitForRunState(client, blocker, 'working')
     const fresh = await startTask(client, 'Fresh urgent Task', 'urgent')
-    const items = await client.ok<InboxItem[]>('GET', '/inbox')
-    const question = items.find((item) => item.task.id === low.id)?.request
-    const signoff = items.find((item) => item.task.id === high.id)?.request
-    if (!question || !signoff) throw new Error('missing requests')
+    const { question, signoff } = await waitUntil(async () => {
+      const items = await client.ok<InboxItem[]>('GET', '/inbox')
+      const question = items.find(
+        (item) => item.task.id === low.id && item.request.choices?.includes('Continue'),
+      )?.request
+      const signoff = items.find((item) => item.task.id === high.id && item.request.gate)?.request
+      return question && signoff ? { question, signoff } : undefined
+    }, 'the question and sign-off requests')
     await client.ok('POST', `/comments/${question.id}/answer`, {
       action: 'answer',
       choice: 'Continue',
     })
     await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+    await client.ok('PUT', `/tasks/${low.id}/lead`, { agent: 'claude', model: 'sonnet' })
     const remaining = (await client.ok<InboxItem[]>('GET', '/inbox')).map((item) => item.request.id)
     expect(remaining).not.toContain(question.id)
     expect(remaining).not.toContain(signoff.id)
