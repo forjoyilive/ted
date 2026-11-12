@@ -4,12 +4,10 @@ import type {
   CheckRun,
   ClarifyDepth,
   Comment,
-  ConversationTab,
   DescriptionVersion,
   Factory,
   LineComment,
   Priority,
-  RunState,
   Task,
   TaskBrief,
   TaskChanges,
@@ -62,13 +60,15 @@ import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
-import { ScrollMemory, type ScrollReveal } from '../components/ScrollMemory.tsx'
+import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { RunWithSideChat } from '../components/SideChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
 import { TaskBrowserView } from '../components/TaskBrowserView.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
+import { TaskConversationTabs } from '../components/TaskConversationTabs.tsx'
+import { TaskDiscussion } from '../components/TaskDiscussion.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
@@ -81,6 +81,7 @@ import {
   useStageEntries,
   useTaskBriefState,
   useTaskRuns,
+  useTaskRunsState,
   useThreadEventList,
 } from '../data.ts'
 import { briefPart, briefSummary } from '../details.ts'
@@ -254,67 +255,6 @@ function EventRow({
   )
 }
 
-const tabDotStates: Record<RunState, string> = {
-  working: 'working',
-  waiting: 'waiting',
-  idle: 'idle',
-  finished: 'finished',
-}
-
-function ConversationTabs({
-  tabs,
-  shown,
-  onShow,
-  onClose,
-}: {
-  tabs: readonly ConversationTab[]
-  shown: string | undefined
-  onShow: (runId: string | undefined) => void
-  onClose: (runId: string) => void
-}) {
-  if (tabs.length === 0) return null
-  return (
-    <div className={styles.tabs} role="tablist" aria-label="Thread and Conversations">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={shown === undefined}
-        className={styles.tab}
-        onClick={() => onShow(undefined)}
-      >
-        Thread
-      </button>
-      {tabs.map((tab) => (
-        <span key={tab.runId} className={styles.tabWrap} data-selected={shown === tab.runId}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={shown === tab.runId}
-            className={styles.tab}
-            onClick={() => onShow(tab.runId)}
-          >
-            <span
-              className={styles.tabDot}
-              data-state={tabDotStates[tab.state]}
-              role="img"
-              aria-label={tab.state}
-            />
-            {tab.name}
-          </button>
-          <button
-            type="button"
-            className={styles.tabClose}
-            aria-label={`Close ${tab.name}`}
-            onClick={() => onClose(tab.runId)}
-          >
-            ×
-          </button>
-        </span>
-      ))}
-    </div>
-  )
-}
-
 export function TaskPanes({
   task,
   tasks,
@@ -481,7 +421,7 @@ export function TaskPanes({
           taskId={task.id}
           file={pane.file}
           backLabel={
-            state.changes?.taskId === task.id || state.brief === task.id ? '← Back' : '← Thread'
+            state.changes?.taskId === task.id || state.brief === task.id ? '← Back' : '← Task Lead'
           }
           onBack={() => go({ kind: 'file', file: undefined })}
         />
@@ -515,7 +455,7 @@ export function TaskPanes({
           seams={source === 'local' ? seams : {}}
           focus={view.focus}
           footer={source === 'local' ? bar : undefined}
-          backLabel={reviewOpen ? '← Back to sign-off' : '← Thread'}
+          backLabel={reviewOpen ? '← Back to sign-off' : '← Task Lead'}
           onBack={back}
           onOpen={openFile}
           remote={remoteReader}
@@ -638,6 +578,18 @@ export function TaskThread({
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onCloseApp?: (() => void) | undefined
 }) {
+  const runList = useTaskRunsState(
+    task.id,
+    task.leadRunId !== undefined || task.runs.length > 0 || task.tabs.length > 0,
+  )
+  const runs = runList.value ?? []
+  const earlier = runs
+    .filter((run) => run.role === 'lead' && run.id !== task.leadRunId)
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+  const showingSubAgent =
+    shownRun !== undefined &&
+    shownRun !== task.leadRunId &&
+    !earlier.some((run) => run.id === shownRun)
   const commentList = useCommentList(task.id)
   const eventList = useThreadEventList(task.id)
   const checkList = useCheckRunList(task.id)
@@ -660,6 +612,15 @@ export function TaskThread({
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
   const [reveal, setReveal] = useState<ScrollReveal>()
+  const [conversationReveal, setConversationReveal] = useState<{
+    runId: string
+    target: ScrollReveal
+  }>()
+  const openConversation = (runId: string) => {
+    setReveal(undefined)
+    setConversationReveal({ runId, target: { id: `conversation:${runId}` } })
+    onOpenRun(runId)
+  }
   useEffect(() => {
     setFilter(undefined)
     setReveal(revealRequest ?? (answeredId === undefined ? undefined : { id: answeredId }))
@@ -687,20 +648,110 @@ export function TaskThread({
   )
   const unread = comments.some((c) => c.author.kind !== 'human' && c.readAt === undefined)
   useEffect(() => {
-    if (unread && shownRun === undefined) {
+    if (unread && !showingSubAgent) {
       void ted.markCommentsRead(task.id).catch(() => undefined)
     }
-  }, [unread, task.id, shownRun])
+  }, [unread, task.id, showingSubAgent])
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
   const headerAction = statusAction(task)
   const now = useNow()
   const activity = mergedLine(task, now) ?? task.activity
   const jumpToRequest = (id: string) => {
+    if (shownRun !== undefined) onShowRun(undefined)
+    setConversationReveal(undefined)
     setFilter(undefined)
     setReveal({ id })
     inbox?.select(id)
   }
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
+
+  const renderItem = (item: ThreadItem) => {
+    if (item.kind === 'event') {
+      const { event } = item
+      return (
+        <EventRow
+          failures={failures}
+          key={event.id}
+          event={event}
+          checkRun={checkRuns.find((r) => r.id === event.checkRunId)}
+          onOpenOutput={openOutput}
+          onOpenRun={onOpenRun}
+          onOpenPlan={onOpenPlan}
+        />
+      )
+    }
+    if (item.kind === 'check-run') {
+      return (
+        <CheckRunLine key={item.checkRun.id} checkRun={item.checkRun} onOpenOutput={openOutput} />
+      )
+    }
+    const { comment } = item
+    if (comment.kind === 'note' && comment.author.kind === 'ted') {
+      return (
+        <EventLine
+          key={comment.id}
+          tone="quiet"
+          text={comment.body.replace(/\s+/g, ' ')}
+          at={comment.createdAt}
+        />
+      )
+    }
+    if (comment.kind === 'note') {
+      return <NoteRow key={comment.id} task={task} comment={comment} lines={lines} now={now} />
+    }
+    if (comment.answer !== undefined) {
+      const { answer } = comment
+      const newer =
+        answer.kind === 'superseded' ? comments.find((c) => c.id === answer.by) : undefined
+      return (
+        <li
+          key={comment.id}
+          className={styles.requestItem}
+          data-chat-item={comment.id}
+          tabIndex={-1}
+          data-nav-item
+        >
+          <AnsweredCard
+            key={comment.id === answeredId ? 'shown' : 'collapsed'}
+            request={comment}
+            task={task}
+            newer={newer}
+            expanded={comment.id === answeredId}
+            onOpenRun={onOpenRun}
+          />
+          {comment.lineComments && (
+            <SentLineComments
+              comments={comment.lineComments}
+              taskId={task.id}
+              current={lines?.current ?? []}
+              onOpen={(c) => lines?.onOpen(c)}
+            />
+          )}
+        </li>
+      )
+    }
+    return (
+      <li
+        key={comment.id}
+        className={styles.requestItem}
+        data-chat-item={comment.id}
+        tabIndex={-1}
+        data-nav-item
+        hidden={!shownItems.has(item)}
+      >
+        <RequestCard
+          taskChanges={taskChanges}
+          onOpenFile={onOpenFile}
+          onAllChanges={onAllChanges}
+          request={comment}
+          task={task}
+          onOpenRun={onOpenRun}
+          onOpenApp={onOpenApp}
+          onOpenPlan={onOpenPlan}
+        />
+      </li>
+    )
+  }
 
   const talking = talk !== undefined && shownRun !== undefined && shownApp === undefined
 
@@ -810,10 +861,13 @@ export function TaskThread({
           </div>
           {task.description !== '' && <p className={styles.description}>{task.description}</p>}
         </header>
-        <ConversationTabs
-          tabs={task.tabs}
+        <TaskConversationTabs
+          task={task}
+          runs={runs}
+          resource={runList}
           shown={shownRun}
           onShow={onShowRun}
+          onOpen={openConversation}
           onClose={onCloseRun}
         />
         {shownApp?.browser ? (
@@ -830,25 +884,39 @@ export function TaskThread({
             shown={shownApp}
             onBack={() => onCloseApp?.()}
           />
-        ) : shownRun !== undefined && !talking ? (
-          <RunWithSideChat
-            key={shownRun}
-            runId={shownRun}
-            bar={shownRun !== task.leadRunId}
-            endedNote={
-              task.canResume
-                ? 'This Run has ended and is read-only. Resume the Task to carry on.'
-                : undefined
-            }
-            onStopTask={() =>
-              void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
-            }
-          />
+        ) : showingSubAgent && shownRun !== undefined && !talking ? (
+          <>
+            {open.length > 0 && (
+              <div className={styles.filterNote}>
+                A Task request needs your answer ·{' '}
+                <button
+                  type="button"
+                  className={styles.linkButton}
+                  onClick={() => {
+                    onShowRun(undefined)
+                    if (open[0]) jumpToRequest(open[0].id)
+                  }}
+                >
+                  View in Task Lead
+                </button>
+              </div>
+            )}
+            <RunWithSideChat
+              key={shownRun}
+              runId={shownRun}
+              bar={shownRun !== task.leadRunId}
+              endedNote={
+                task.canResume
+                  ? 'This Run has ended and is read-only. Resume the Task to carry on.'
+                  : undefined
+              }
+              onStopTask={() =>
+                void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
+              }
+            />
+          </>
         ) : null}
-        <div
-          className={styles.threadBody}
-          hidden={shownRun !== undefined || shownApp !== undefined}
-        >
+        <div className={styles.threadBody} hidden={showingSubAgent || shownApp !== undefined}>
           {stage !== undefined && (
             <p className={styles.filterNote}>
               Showing {stageName(stage)} only ·{' '}
@@ -869,134 +937,70 @@ export function TaskThread({
             }))}
             onJump={jumpToRequest}
           />
-          <ScrollMemory
-            list
-            reveal={reveal}
-            spot={`thread:${task.id}`}
-            count={historyLoading ? 0 : shown.length}
-            active={!hidden && shownRun === undefined && shownApp === undefined}
-            className={styles.thread}
-          >
-            {historyError && (
-              <li>
-                <LoadingError error={historyError} retry={retryHistory} />
-              </li>
+          <TaskDiscussion
+            taskId={task.id}
+            leadRunId={task.leadRunId}
+            earlier={earlier}
+            revealRun={
+              conversationReveal?.runId === shownRun
+                ? conversationReveal?.target
+                : shownRun !== task.leadRunId
+                  ? shownRun
+                  : undefined
+            }
+            revealRequest={reveal}
+            comments={commentList.items}
+            entries={entries}
+            stage={stage}
+            active={!hidden && !talking && !showingSubAgent && shownApp === undefined}
+            loading={historyLoading}
+            extra={[
+              ...rendered.map((item) => ({
+                id:
+                  item.kind === 'comment'
+                    ? `comment:${item.comment.id}`
+                    : item.kind === 'event'
+                      ? `event:${item.event.id}`
+                      : `check:${item.checkRun.id}`,
+                at: item.createdAt,
+                hidden: !shownItems.has(item),
+                node: <ul className={styles.discussionExtra}>{renderItem(item)}</ul>,
+              })),
+              ...(historyError
+                ? [
+                    {
+                      id: 'history-error',
+                      at: task.createdAt,
+                      node: <LoadingError error={historyError} retry={retryHistory} />,
+                    },
+                  ]
+                : []),
+              ...(historyLoading
+                ? [
+                    {
+                      id: 'history-loading',
+                      at: task.createdAt,
+                      node: <Skeleton shape="history" label="Loading Task history…" />,
+                    },
+                  ]
+                : []),
+            ]}
+            footer={(chat) => (
+              <div className={styles.threadComposer}>
+                <UnsentChip
+                  drafts={(lines?.current ?? []).filter(isDraft)}
+                  onOpen={(c) => lines?.onOpen(c)}
+                />
+                <CommentBox
+                  key={task.id}
+                  task={task}
+                  run={chat?.run}
+                  hasLineComments={(lines?.current ?? []).some(isDraft)}
+                  onFollowedUp={onFollowedUp}
+                />
+              </div>
             )}
-            {historyLoading && (
-              <li aria-busy="true">
-                <Skeleton shape="history" label="Loading Task history…" />
-              </li>
-            )}
-            {!historyLoading &&
-              rendered.map((item) => {
-                if (item.kind === 'event') {
-                  const { event } = item
-                  return (
-                    <EventRow
-                      failures={failures}
-                      key={event.id}
-                      event={event}
-                      checkRun={checkRuns.find((r) => r.id === event.checkRunId)}
-                      onOpenOutput={openOutput}
-                      onOpenRun={onOpenRun}
-                      onOpenPlan={onOpenPlan}
-                    />
-                  )
-                }
-                if (item.kind === 'check-run') {
-                  return (
-                    <CheckRunLine
-                      key={item.checkRun.id}
-                      checkRun={item.checkRun}
-                      onOpenOutput={openOutput}
-                    />
-                  )
-                }
-                const { comment } = item
-                if (comment.kind === 'note' && comment.author.kind === 'ted') {
-                  return (
-                    <EventLine
-                      key={comment.id}
-                      tone="quiet"
-                      text={comment.body.replace(/\s+/g, ' ')}
-                      at={comment.createdAt}
-                    />
-                  )
-                }
-                if (comment.kind === 'note') {
-                  return (
-                    <NoteRow
-                      key={comment.id}
-                      task={task}
-                      comment={comment}
-                      lines={lines}
-                      now={now}
-                    />
-                  )
-                }
-                if (comment.answer !== undefined) {
-                  const { answer } = comment
-                  const newer =
-                    answer.kind === 'superseded'
-                      ? comments.find((c) => c.id === answer.by)
-                      : undefined
-                  return (
-                    <li
-                      key={comment.id}
-                      className={styles.requestItem}
-                      data-chat-item={comment.id}
-                      tabIndex={-1}
-                      data-nav-item
-                    >
-                      <AnsweredCard
-                        key={comment.id === answeredId ? 'shown' : 'collapsed'}
-                        request={comment}
-                        task={task}
-                        newer={newer}
-                        expanded={comment.id === answeredId}
-                        onOpenRun={onOpenRun}
-                      />
-                      {comment.lineComments && (
-                        <SentLineComments
-                          comments={comment.lineComments}
-                          taskId={task.id}
-                          current={lines?.current ?? []}
-                          onOpen={(c) => lines?.onOpen(c)}
-                        />
-                      )}
-                    </li>
-                  )
-                }
-                return (
-                  <li
-                    key={comment.id}
-                    className={styles.requestItem}
-                    data-chat-item={comment.id}
-                    tabIndex={-1}
-                    data-nav-item
-                    hidden={!shownItems.has(item)}
-                  >
-                    <RequestCard
-                      taskChanges={taskChanges}
-                      onOpenFile={onOpenFile}
-                      onAllChanges={onAllChanges}
-                      request={comment}
-                      task={task}
-                      onOpenRun={onOpenRun}
-                      onOpenApp={onOpenApp}
-                      onOpenPlan={onOpenPlan}
-                    />
-                  </li>
-                )
-              })}
-          </ScrollMemory>
-          <div className={styles.threadComposer}>
-            <UnsentChip
-              drafts={(lines?.current ?? []).filter(isDraft)}
-              onOpen={(c) => lines?.onOpen(c)}
-            />
-            <CommentBox key={task.id} task={task} onFollowedUp={onFollowedUp} />
-          </div>
+          />
         </div>
         {output && (
           <CheckOutputDialog
@@ -1336,7 +1340,9 @@ function OriginalRequest({ task }: { task: Task }) {
           Original request
         </button>
         <button type="button" className={styles.linkButton} onClick={() => setHistory(true)}>
-          {edits === 0 ? 'History' : `History · ${edits} ${edits === 1 ? 'edit' : 'edits'}`}
+          {edits === 0
+            ? 'Description history'
+            : `Description history · ${edits} ${edits === 1 ? 'edit' : 'edits'}`}
         </button>
       </div>
       {open && (

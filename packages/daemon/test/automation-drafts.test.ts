@@ -1,7 +1,13 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { AutomationPromptDraft, RunSlots, RunWithConversation, Task } from '@ted/protocol'
+import type {
+  Activity,
+  AutomationPromptDraft,
+  RunSlots,
+  RunWithConversation,
+  Task,
+} from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -280,6 +286,9 @@ describe('Automation Prompt drafting', () => {
       title: 'Ordinary queued work',
     })
     expect(ordinary.status).toBe(201)
+    await expect
+      .poll(async () => (await client.call('GET', '/activity')).body as Activity)
+      .toMatchObject({ runs: { active: 2, queued: 1 } })
     const slots = (await client.call('GET', '/slots')).body as RunSlots
     expect(slots).toMatchObject({ working: 2, heldForLoad: true })
     expect(slots.holders.filter((h) => h.kind === 'automation-draft').map((h) => h.runId)).toEqual(

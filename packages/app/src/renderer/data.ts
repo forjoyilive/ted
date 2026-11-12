@@ -713,9 +713,9 @@ export function useRunChat(runId: string): RunChat | undefined {
   return useRunChatState(runId).value
 }
 
-export function useRunChatState(runId: string) {
+export function useRunChatState(runId: string | undefined) {
   return useReloadingState(
-    () => ted.getRunChat(runId),
+    () => (runId === undefined ? Promise.resolve(undefined) : ted.getRunChat(runId)),
     (event) =>
       (event.type === 'run-output' && event.runId === runId) ||
       (event.type === 'run-updated' && event.run.id === runId) ||
@@ -723,20 +723,23 @@ export function useRunChatState(runId: string) {
         event.comment.kind === 'permission' &&
         event.comment.author.kind === 'run' &&
         event.comment.author.runId === runId),
-    runId,
+    runId ?? '',
     outputLines,
   )
 }
 
 export function useTaskRuns(taskId: string): RunSummary[] {
-  return (
-    useReloading(
-      () => ted.listTaskRuns(taskId),
-      (event) =>
-        (event.type === 'run-updated' && event.run.taskId === taskId) ||
-        (event.type === 'task-updated' && event.task.id === taskId),
-      taskId,
-    ) ?? []
+  return useTaskRunsState(taskId).value ?? []
+}
+
+export function useTaskRunsState(taskId: string, enabled = true) {
+  return useReloadingState(
+    () => (enabled ? ted.listTaskRuns(taskId) : Promise.resolve([])),
+    (event) =>
+      enabled &&
+      ((event.type === 'run-updated' && event.run.taskId === taskId) ||
+        (event.type === 'task-updated' && event.task.id === taskId)),
+    `task-runs:${enabled ? taskId : 'none'}`,
   )
 }
 

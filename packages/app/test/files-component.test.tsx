@@ -173,7 +173,7 @@ test('Cmd/Ctrl+P opens the Task file dialog through the shared keymap and choosi
   await user().keyboard('{Enter}')
   await screen.findByText('unchanged file contents')
   expect(screen.queryByRole('dialog', { name: 'Quick open' })).toBeNull()
-  await user().click(screen.getByRole('button', { name: '← Thread' }))
+  await user().click(screen.getByRole('button', { name: '← Task Lead' }))
   expect(screen.queryByRole('region', { name: 'File contents' })).toBeNull()
 })
 

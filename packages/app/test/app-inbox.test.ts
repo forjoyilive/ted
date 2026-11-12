@@ -184,7 +184,7 @@ describe('Inbox and Gates', () => {
     await thread
       .getByRole('heading', { name: 'Talking through Round 1' })
       .waitFor({ state: 'detached' })
-    await thread.getByRole('tab', { name: 'Thread' }).click()
+    await thread.getByRole('tab', { name: 'Task Lead' }).click()
     const answered = thread.getByRole('region', { name: 'Clarify round, answered' })
     await answered.getByText(/^Answered in Talk it through · \d+ messages$/).waitFor()
     await thread.getByText('Summary of Talk it through, Round 1: keep both copies.').waitFor()
@@ -442,11 +442,11 @@ describe('Permission requests', () => {
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details.getByRole('button', { name: /Task Lead/ }).click()
     const chat = window.getByRole('region', { name: 'Run chat' })
-    await chat.getByText(/You denied · /).waitFor()
+    await chat.getByText('You denied', { exact: true }).waitFor()
     await chat.getByRole('button', { name: 'Approve' }).click()
     await chat.getByText(/You approved · /).waitFor()
 
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     await thread.getByText('You approved · this request only').waitFor()
     await expect.poll(() => card.count()).toBe(0)
   })

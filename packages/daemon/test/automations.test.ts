@@ -885,6 +885,9 @@ describe('Automations', () => {
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(tasks.find((t) => t.id === second.id)?.leadRunId).toBeUndefined()
     expect(tasks.find((t) => t.id === busy.id)?.leadRunId).toBeDefined()
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { active: 2, queued: 1 } })
     await release()
     await waitForHistory(
       client,

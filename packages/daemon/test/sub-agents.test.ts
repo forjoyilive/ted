@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, RunSlots, RunSummary, Task } from '@ted/protocol'
+import type { Activity, Comment, Factory, RunSlots, RunSummary, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -280,6 +280,9 @@ describe('sub-agents', () => {
     expect((await getTask(client, other.id)).runs[0]?.state).toBe('working')
     const slots = await client.ok<RunSlots>('GET', '/slots')
     expect(slots).toMatchObject({ limit: 1, working: 2, queued: 1 })
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { working: 2, active: 3, queued: 1 } })
     expect(slots.holders).toEqual([
       expect.objectContaining({ displayId: 'NB-1', runs: 1, subAgents: 1 }),
       expect.objectContaining({ displayId: 'NB-2', runs: 1, subAgents: 0 }),

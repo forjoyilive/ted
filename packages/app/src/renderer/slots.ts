@@ -5,11 +5,11 @@ import { plural } from './words.ts'
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''
   const busy = slots.heldForLoad ? ` · ${busyHold}` : ''
-  return `${slots.working} of ${slots.limit} Runs working${queued}${busy}`
+  return `${plural(slots.working, 'slot')} in use · limit ${slots.limit}${queued}${busy}`
 }
 
 export function runsLine(slots: RunSlots): string {
-  return slots.working === 0 && slots.queued === 0 ? 'Nothing running' : counts(slots)
+  return counts(slots)
 }
 
 export function nowLine(slots: RunSlots, simulators?: SimulatorSlots): string {

@@ -81,6 +81,7 @@ export interface QueueSource {
   queued(): QueueEntry[]
   runnable(id: string): boolean
   begin(id: string): void
+  starting?(): readonly string[]
   holders(): SlotHolder[]
   describe(id: string, place: number): QueuedForSlot | undefined
 }

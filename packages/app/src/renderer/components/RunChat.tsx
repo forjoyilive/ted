@@ -7,6 +7,7 @@ import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
+import { conversationRows } from '../task-conversations.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
@@ -318,7 +319,7 @@ function HumanMessage({
   options = {},
 }: {
   item: Extract<ChatItem, { kind: 'human' }>
-  run?: Pick<RunSummary, 'id' | 'state'>
+  run?: Pick<RunSummary, 'id' | 'state' | 'role'>
   now: number
   options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect'>
 }) {
@@ -332,7 +333,7 @@ function HumanMessage({
         <div className={styles.messageHead}>
           <span className={styles.author}>{profile.name}</span>
           <span className={styles.when}>
-            {run && ' · to this Run only'}
+            {run && (run.role === 'lead' ? ' · to the Task Lead' : ' · to this Run only')}
             {!queued && ` · ${ago(item.at, now)}`}
             {!item.sent && !queued && ' · sending'}
           </span>
@@ -526,6 +527,7 @@ export interface ChatExtra {
   id: string
   at: string
   node: ReactNode
+  hidden?: boolean
 }
 
 export interface ChatOptions {
@@ -553,31 +555,6 @@ export interface ChatOptions {
   stopTurn?: () => Promise<unknown>
 }
 
-function withExtras(
-  items: readonly ChatItem[],
-  extra: readonly ChatExtra[],
-): ({ item: ChatItem } | { extra: ChatExtra })[] {
-  const merged: ({ item: ChatItem } | { extra: ChatExtra })[] = items.map((item) => ({ item }))
-  let lastAt = ''
-  const times = items.map((item) => {
-    if ('at' in item && item.at !== undefined) lastAt = item.at
-    return lastAt
-  })
-  for (const added of [...extra].sort((a, b) => a.at.localeCompare(b.at))) {
-    let at = merged.length
-    for (let i = merged.length - 1; i >= 0; i--) {
-      const entry = merged[i]
-      if (!entry) continue
-      const when = 'item' in entry ? (times[items.indexOf(entry.item)] ?? '') : entry.extra.at
-      const queued = 'item' in entry && entry.item.kind === 'human' && entry.item.queued === true
-      if (!queued && when <= added.at) break
-      at = i
-    }
-    merged.splice(at, 0, { extra: added })
-  }
-  return merged
-}
-
 function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }) {
   const working = options.working ?? run.state === 'working'
   return (
@@ -589,7 +566,7 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       endedPlaceholder={options.endedPlaceholder ?? 'This Run has finished. Its chat is read-only.'}
       help={
         options.help ??
-        'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To leave a Comment on the Task, use the Thread tab.'
+        'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. Task Comments and requests are in the Task Lead tab.'
       }
       endedNote={options.endedNote}
       interrupt={options.interrupt !== false}
@@ -723,6 +700,55 @@ export function Composer({
   )
 }
 
+export function ChatTimeline({
+  chat,
+  options = {},
+}: {
+  chat?: Chat | undefined
+  options?: ChatOptions
+}) {
+  const items = chat?.items ?? []
+  const run = chat?.run
+  const rows = conversationRows(items, options.extra ?? [], run?.startedAt ?? '')
+  const ticking = useTicking(
+    items.some((item) => item.kind === 'tool' && item.status === 'running'),
+  )
+  const now = useNow()
+  return (
+    <>
+      {rows.map((row) =>
+        'item' in row && run ? (
+          <div
+            key={`${run.id}:${row.item.kind}:${row.item.id}`}
+            data-chat-item={row.item.id}
+            tabIndex={options.matchItemId === row.item.id ? -1 : undefined}
+            className={options.matchItemId === row.item.id ? styles.searchMatch : undefined}
+          >
+            <ChatRow
+              item={row.item}
+              run={run}
+              now={row.item.kind === 'tool' && row.item.status === 'running' ? ticking : now}
+              options={options}
+            />
+          </div>
+        ) : 'extra' in row ? (
+          <div
+            key={`extra:${row.extra.id}`}
+            hidden={row.extra.hidden}
+            data-chat-item={row.extra.id}
+            tabIndex={-1}
+            data-nav-item={
+              options.requests?.some((request) => request.id === row.extra.id) || undefined
+            }
+          >
+            {row.extra.node}
+          </div>
+        ) : null,
+      )}
+    </>
+  )
+}
+
 export function ChatBody({
   chat,
   onStopTask,
@@ -737,10 +763,7 @@ export function ChatBody({
   useEffect(() => {
     setRequestReveal(options.revealRequest)
   }, [options.revealRequest])
-  const rows = withExtras(items, options.extra ?? [])
-  const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
-  const ticking = useTicking(running)
-  const now = useNow()
+  const rows = conversationRows(items, options.extra ?? [], run.startedAt)
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
 
   return (
@@ -765,34 +788,7 @@ export function ChatBody({
         grows={lastText}
         className={styles.items}
       >
-        {rows.map((row) =>
-          'item' in row ? (
-            <div
-              key={`${row.item.kind}:${row.item.id}`}
-              data-chat-item={row.item.id}
-              tabIndex={options.matchItemId === row.item.id ? -1 : undefined}
-              className={options.matchItemId === row.item.id ? styles.searchMatch : undefined}
-            >
-              <ChatRow
-                item={row.item}
-                run={run}
-                now={row.item.kind === 'tool' && row.item.status === 'running' ? ticking : now}
-                options={options}
-              />
-            </div>
-          ) : (
-            <div
-              key={`extra:${row.extra.id}`}
-              data-chat-item={row.extra.id}
-              tabIndex={-1}
-              data-nav-item={
-                options.requests?.some((request) => request.id === row.extra.id) || undefined
-              }
-            >
-              {row.extra.node}
-            </div>
-          ),
-        )}
+        <ChatTimeline chat={chat} options={options} />
       </ScrollMemory>
       {options.pinned}
       {!options.inspect && (options.readOnly ?? <RunComposer run={run} options={options} />)}

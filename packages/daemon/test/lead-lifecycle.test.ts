@@ -328,6 +328,31 @@ test('startup reconstructs a pending revival from the store and drops it when th
   expect(clock.pending).toEqual([])
 })
 
+test.each(['stopped', 'archived', 'revived'] as const)(
+  'the recovery snapshot includes held work and excludes %s recovery',
+  async (ending) => {
+    startLead()
+    finishLead()
+    const { lifecycle } = harness()
+    await lifecycle.failed('lead')
+    store.pauseAgent('codex', 'offline')
+    store.holdForLoad(true)
+    store.holdNewWork('disk full')
+    expect(lifecycle.pendingRecoveryTaskIds()).toEqual([taskId])
+
+    if (ending === 'stopped') store.stopTask(taskId, { runs: 1, why: 'human' })
+    if (ending === 'archived') store.archiveTask(taskId)
+    if (ending === 'revived') {
+      store.pauseAgent('codex', undefined)
+      store.holdForLoad(false)
+      store.holdNewWork(undefined)
+      await lifecycle.beginRevive(taskId)
+    }
+    expect(lifecycle.pendingRecoveryTaskIds()).toEqual([])
+    lifecycle.close()
+  },
+)
+
 test('startup discovers an unrecorded crash', async () => {
   startLead()
   finishLead()
