@@ -434,6 +434,9 @@ export const comments = State.SQLite.table({
     deliveredAt: State.SQLite.text({ nullable: true }),
     readAt: State.SQLite.text({ nullable: true }),
     answerHeld: State.SQLite.boolean({ default: false }),
+    answerQueuedAt: State.SQLite.text({ nullable: true }),
+    answerSentRunId: State.SQLite.text({ nullable: true }),
+    answerSentAt: State.SQLite.text({ nullable: true }),
     failedRunId: State.SQLite.text({ nullable: true }),
     talkRunId: State.SQLite.text({ nullable: true }),
     talkStartedAt: State.SQLite.text({ nullable: true }),
@@ -2345,6 +2348,18 @@ export const events = {
     name: 'v1.CommentAnswerHeld',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
+  commentAnswerQueued: Events.synced({
+    name: 'v1.CommentAnswerQueued',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  commentAnswersSent: Events.synced({
+    name: 'v1.CommentAnswersSent',
+    schema: Schema.Struct({
+      ids: Schema.Array(Schema.String),
+      runId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   commentAnswersDelivered: Events.synced({
     name: 'v1.CommentAnswersDelivered',
     schema: Schema.Struct({
@@ -4011,6 +4026,14 @@ const materializers = counted(
       'v1.LineCommentsSent': ({ ids, commentId, at }) =>
         ids.map((id) =>
           lineComments.update({ commentId, sentAt: at }).where({ id, commentId: null }),
+        ),
+      'v1.CommentAnswerQueued': ({ id, at }) =>
+        comments.update({ answerHeld: true, answerQueuedAt: at }).where({ id }),
+      'v1.CommentAnswersSent': ({ ids, runId, at }) =>
+        ids.map((id) =>
+          comments
+            .update({ answerHeld: false, answerSentRunId: runId, answerSentAt: at })
+            .where({ id }),
         ),
       'v1.CommentAnswerHeld': ({ id }) => comments.update({ answerHeld: true }).where({ id }),
       'v1.CommentAnswersDelivered': ({ ids }) =>

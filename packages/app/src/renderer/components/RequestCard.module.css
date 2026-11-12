@@ -414,3 +414,19 @@
 .removed {
   color: var(--diff-removed-count);
 }
+
+.replyProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-caption);
+  font-size: var(--text-13);
+}
+
+.replyActivity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

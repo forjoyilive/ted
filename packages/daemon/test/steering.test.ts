@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type ChatItem,
+  type Comment,
   type Factory,
   type RunChat,
   type RunMessage,
@@ -46,9 +47,10 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startTed() {
+async function startTed(online?: Parameters<typeof startDaemon>[0]['online']) {
   daemon = await startDaemon({
     home,
+    ...(online && { online }),
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
@@ -356,4 +358,127 @@ describe('Steering a working Run', () => {
     expect((await client.call('POST', '/runs/run-1/boundary')).status).toBe(403)
     expect((await client.call('POST', '/runs/nope/interrupt')).status).toBe(404)
   })
+})
+
+async function questionDuringWork(
+  client: Client,
+  beforeReply?: (task: Task, runId: string) => Promise<void>,
+) {
+  const origin = await makeOriginRepo(scratch)
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+  })
+  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const task = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({
+      steps: [
+        { say: 'ready for a question' },
+        { waitFor: file('answer-boundary') },
+        { tool: 'Bash' },
+        { waitFor: file('finish-answer') },
+        { endTurn: true },
+      ],
+    }),
+    factory: 'NB',
+    start: true,
+  })
+  const runId = await waitUntil(async () => {
+    const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+    return current?.leadRunId
+  }, 'the Task Lead')
+  await said(client, runId, 'ready for a question')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const lead = api(daemon?.port ?? 0, tokens.issue(runId))
+  const posted = await lead.call('POST', `/tasks/${task.id}/comments`, {
+    body: 'Should tools be disabled?',
+    choices: ['Yes', 'No'],
+  })
+  expect(posted.status).toBe(201)
+  const question = posted.body as Comment
+  await beforeReply?.(task, runId)
+  const reply = 'Tell me more about why it is helpful for tools to be disabled'
+  const saved = await client.ok<Comment>('POST', `/comments/${question.id}/answer`, {
+    action: 'answer',
+    text: reply,
+  })
+  const current = async () =>
+    (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+      (c) => c.id === question.id,
+    )
+  return { task, runId, lead, saved, current, reply }
+}
+
+test('question replies wait for a safe boundary and survive a failed transport before retry', async () => {
+  const client = await startTed()
+  const { runId, lead, saved, current, reply } = await questionDuringWork(client)
+  expect(saved.answerDelivery).toEqual({ queuedAt: saved.answer?.at })
+  const input = path.join(home, 'runs', runId, 'input.jsonl')
+  const original = await readFile(input).catch(() => undefined)
+  await rm(input, { force: true })
+  await mkdir(input)
+  try {
+    const failure = await lead.call('POST', `/runs/${runId}/boundary`)
+    expect(failure.status).toBe(500)
+    expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  } finally {
+    await rm(input, { recursive: true, force: true })
+    if (original) await writeFile(input, original)
+  }
+  await writeFile(file('answer-boundary'), '')
+  const receipt = await waitUntil(async () => (await current())?.answerDelivery?.sent, 'reply sent')
+  expect(receipt.runId).toBe(runId)
+  await waitUntil(async () => {
+    const texts = assistantTexts((await client.getRun(runId)).conversation)
+    return texts.some((text) => text.includes(`Read: The user replied`) && text.includes(reply))
+      ? true
+      : undefined
+  }, 'the reply at the boundary')
+  await writeFile(file('finish-answer'), '')
+})
+
+test('an unsent question reply reaches a replacement Task Lead in its starting prompt', async () => {
+  const client = await startTed()
+  const { task, runId, current, reply } = await questionDuringWork(client)
+  await client.ok('POST', `/tasks/${task.id}/stop`)
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  await client.ok('POST', `/tasks/${task.id}/resume`, {})
+  const sent = await waitUntil(
+    async () => (await current())?.answerDelivery?.sent,
+    'replacement delivery',
+  )
+  expect(sent.runId).not.toBe(runId)
+  const replacement = await client.getRun(sent.runId)
+  expect(replacement.run.prompt).toContain(reply)
+  expect(replacement.run.prompt).toContain('ask it again')
+  expect(replacement.run.prompt).toContain('A request for explanation gives no consent')
+  await said(client, sent.runId, 'ready for a question')
+  await writeFile(file('answer-boundary'), '')
+  await writeFile(file('finish-answer'), '')
+})
+
+test('a reply saved while its idle Task Lead is offline is sent when health recovers', async () => {
+  let online = true
+  const client = await startTed({
+    isOnline: async () => online,
+    onlineEveryMs: 20,
+    offlineEveryMs: 20,
+  })
+  const { runId, saved, current } = await questionDuringWork(client, async (task, runId) => {
+    await writeFile(file('answer-boundary'), '')
+    await writeFile(file('finish-answer'), '')
+    await waitForState(client, runId, 'idle')
+    online = false
+    await waitUntil(async () => {
+      const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+      return current?.runs.find((r) => r.id === runId)?.paused ? true : undefined
+    }, 'the idle Task Lead to be paused')
+  })
+  expect(saved.answerDelivery?.sent).toBeUndefined()
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  online = true
+  const sent = await waitUntil(
+    async () => (await current())?.answerDelivery?.sent,
+    'reply after recovery',
+  )
+  expect(sent.runId).toBe(runId)
 })

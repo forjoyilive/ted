@@ -736,7 +736,12 @@ export interface TedStore extends TaskHistory {
   removeTaskDraft(factoryId: string): void
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
-  answerComment(id: string, answer: CommentAnswer, lineComments?: readonly string[]): Comment
+  answerComment(
+    id: string,
+    answer: CommentAnswer,
+    lineComments?: readonly string[],
+    queueAnswer?: boolean,
+  ): Comment
   draftLineComment(input: NewLineComment): LineComment
   editLineComment(id: string, body: string): LineComment
   deleteLineComments(taskId: string, ids: readonly string[]): void
@@ -1757,6 +1762,9 @@ export async function openStore({
     permission,
     simulator,
     answerHeld: _,
+    answerQueuedAt,
+    answerSentRunId,
+    answerSentAt,
     failedRunId,
     talkRunId,
     talkStartedAt,
@@ -1795,6 +1803,15 @@ export async function openStore({
         ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
         ...(deliveredRunId !== null &&
           deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
+        ...(answerQueuedAt !== null && {
+          answerDelivery: {
+            queuedAt: answerQueuedAt,
+            ...(answerSentRunId !== null &&
+              answerSentAt !== null && {
+                sent: { runId: answerSentRunId, at: answerSentAt },
+              }),
+          },
+        }),
         ...(readAt !== null && { readAt }),
         ...(failedRunId !== null && { failed: { runId: failedRunId } }),
         ...(tutorial && { tutorial: true as const }),
@@ -3861,9 +3878,10 @@ export async function openStore({
         .map(toComment)
     },
     getComment,
-    answerComment(id, answer, sending) {
+    answerComment(id, answer, sending, queueAnswer = false) {
       commit(
         events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }),
+        ...(queueAnswer ? [events.commentAnswerQueued({ id, at: answer.at })] : []),
         ...lineCommentsSent(sending, id, answer.at),
       )
       const comment = emitComment(id)
@@ -3930,7 +3948,8 @@ export async function openStore({
         .map(toComment),
     answersDelivered(ids, runId) {
       if (ids.length === 0) return
-      commit(events.commentAnswersDelivered({ ids, runId, at: new Date().toISOString() }))
+      commit(events.commentAnswersSent({ ids, runId, at: new Date().toISOString() }))
+      for (const id of ids) emitComment(id)
     },
     ...history,
     taskIntervalHistory(taskId, asOf = new Date().toISOString()) {

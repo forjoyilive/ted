@@ -164,6 +164,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { answerMessage } from './answer-message.ts'
 import {
   type BaseConflict,
   baseCheckTimeoutMs,
@@ -3427,6 +3428,13 @@ export function createTasks(options: {
             },
           ]
         }
+        if (
+          c.kind === 'question' &&
+          c.purpose?.kind === 'question' &&
+          c.answer?.kind === 'answered'
+        ) {
+          return [{ at: c.answer.at, line: answerMessage(c, linesText(c)) }]
+        }
         const answer = answerText(c)
         return answer === undefined
           ? []
@@ -3455,7 +3463,9 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
-    if (waitingForRun(taskId).comments.length > 0) await sendComment(run.id)
+    const waiting = waitingForRun(taskId)
+    if (waiting.comments.length > 0 || waiting.answers.some((c) => c.answerDelivery))
+      await sendComment(run.id)
   }
 
   async function sendComment(runId: string): Promise<void> {
@@ -3980,6 +3990,11 @@ export function createTasks(options: {
   }
 
   async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
+    if (store.getComment(comment.id)?.answerDelivery) {
+      await store.persisted()
+      await sendWaiting(task.id)
+      return
+    }
     if (!(await deliver(task, text))) store.holdAnswer(comment.id)
   }
 
@@ -5928,10 +5943,48 @@ export function createTasks(options: {
     finished: leadLifecycle.finished,
   })
 
-  health.onReady(leadLifecycle.ready)
+  health.onReady((agent) => {
+    leadLifecycle.ready(agent)
+    for (const run of store.liveRuns()) {
+      if (
+        run.agent === agent &&
+        run.taskId !== undefined &&
+        store.getTask(run.taskId)?.leadRunId === run.id
+      ) {
+        inBackground('refresh reply delivery after agent recovery', () =>
+          options.steering.refresh(run.id),
+        )
+      }
+    }
+  })
   health.onPaused((agent, state) => {
     if (state === 'offline') leadLifecycle.offline(agent)
   })
+  options.steering.addSource({
+    pending(run) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (
+        !task ||
+        liveLead(task)?.id !== run.id ||
+        task.stopped ||
+        task.archived ||
+        store.agentPauses()[run.agent] !== undefined
+      )
+        return []
+      return store
+        .heldAnswers(task.id)
+        .filter((comment) => comment.answerDelivery && !promptComments.has(comment.id))
+        .map((comment) => ({
+          id: comment.id,
+          text: answerMessage(comment, linesText(comment)),
+          at: comment.answerDelivery?.queuedAt ?? comment.createdAt,
+        }))
+    },
+    delivered(run, ids) {
+      store.answersDelivered(ids, run.id)
+    },
+  })
+
   health.onProbe(leadLifecycle.probe)
 
   const failures = createFailureCases({

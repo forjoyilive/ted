@@ -1436,3 +1436,84 @@ test('design summaries and review points use Markdown without changing media con
   expect(screen.getByText('code').tagName).toBe('CODE')
   expect(screen.getByRole('region', { name: 'Worth your eye' })).toBeTruthy()
 })
+
+test.each(['working', 'waiting', 'idle', 'paused', 'stopped'] as const)(
+  'reply transport stays separate from the Task Lead’s actual %s state',
+  async (state) => {
+    requestApi()
+    const open = vi.fn()
+    const current = task({
+      stage: 'work',
+      leadRunId: 'current-lead',
+      runs:
+        state === 'stopped'
+          ? []
+          : [
+              {
+                id: 'current-lead',
+                agent: 'claude',
+                role: 'lead',
+                name: 'Task Lead',
+                state: state === 'paused' ? 'idle' : state,
+                ...(state === 'paused' && { paused: 'Usage limit' }),
+              },
+            ],
+    })
+    const request = comment({
+      author: { kind: 'run', runId: 'previous-lead' },
+      purpose: { kind: 'question' },
+      answer: { kind: 'answered', at: createdAt, text: 'Why disable tools?' },
+      answerDelivery: { queuedAt: createdAt },
+    })
+    const view = render(<AnsweredCard request={request} task={current} onOpenRun={open} />)
+    expect(screen.getByText('You replied in your own words')).toBeTruthy()
+    expect(screen.getByText('Waiting to reach Task Lead')).toBeTruthy()
+    expect(screen.queryByText('Sent to Task Lead')).toBeNull()
+    expect(
+      screen.getByText(
+        state === 'paused' ? 'Task Lead paused · Usage limit' : `Task Lead ${state}`,
+      ),
+    ).toBeTruthy()
+    await user().click(screen.getByRole('button', { name: 'Open Conversation' }))
+    expect(open).toHaveBeenCalledWith('current-lead')
+    view.rerender(
+      <AnsweredCard
+        request={{
+          ...request,
+          answerDelivery: {
+            queuedAt: createdAt,
+            sent: { runId: 'previous-lead', at: createdAt },
+          },
+        }}
+        task={current}
+        onOpenRun={open}
+      />,
+    )
+    expect(screen.getByText('Sent to Task Lead')).toBeTruthy()
+    expect(screen.queryByText('Waiting to reach Task Lead')).toBeNull()
+    expect(
+      screen.getByText(
+        state === 'paused' ? 'Task Lead paused · Usage limit' : `Task Lead ${state}`,
+      ),
+    ).toBeTruthy()
+  },
+)
+
+test('older replies have no invented sent receipt, and permission cards keep their approval wording', () => {
+  requestApi()
+  const request = comment({
+    author: { kind: 'run', runId: 'lead' },
+    answer: { kind: 'answered', at: createdAt, text: 'Why?' },
+  })
+  const view = render(<AnsweredCard request={request} task={task()} />)
+  expect(screen.getByText('Delivery not recorded')).toBeTruthy()
+  expect(screen.queryByText('Sent to Task Lead')).toBeNull()
+  view.rerender(
+    <AnsweredCard
+      request={{ ...request, kind: 'permission', answer: { kind: 'approved', at: createdAt } }}
+      task={task()}
+    />,
+  )
+  expect(screen.getByText('You approved')).toBeTruthy()
+  expect(screen.queryByLabelText('Reply delivery')).toBeNull()
+})
