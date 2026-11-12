@@ -1979,6 +1979,7 @@ export function createTasks(options: {
       const failures = handOffFailures(current)
       const head = `# A Check failed\n\nTED ran the Factory’s Checks before moving ${current.displayId} to Validate and one failed, so the Task stays in Work. This isn’t a send-back and doesn’t count against Validate’s limit.`
       if (failures >= handOffCheckLimit) {
+        setChecking(taskId, false)
         const request = store.postComment({
           taskId,
           kind: 'question',
