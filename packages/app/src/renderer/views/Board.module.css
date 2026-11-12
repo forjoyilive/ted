@@ -335,6 +335,10 @@
   padding-bottom: 140px;
 }
 
+.selecting .column {
+  min-height: max-content;
+}
+
 .cardEnd {
   align-items: center;
   gap: 6px;

@@ -1,6 +1,6 @@
 import type { AutopilotChoice, MachineSettings, RunSlots, Task } from '@ted/protocol'
 import { priorities } from '@ted/protocol/task'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { usePendingAction } from '../pending-action.ts'
 import { startSplit, startWaitLine } from '../slots.ts'
 import { statusAction } from '../task-actions.ts'
@@ -60,6 +60,13 @@ export function SelectionBar({
   const [priorityOpen, setPriorityOpen] = useState(false)
   const [moreAt, setMoreAt] = useState<MenuPosition>()
   const moreWasOpen = useRef(false)
+  useLayoutEffect(() => {
+    if (!moreAt) return
+    const menu = document.querySelector('[role="menu"][aria-label="More actions"]')
+    if (!menu) return
+    const y = moreAt.trigger.getBoundingClientRect().top - menu.getBoundingClientRect().height - 6
+    if (Math.abs(y - moreAt.y) >= 1) setMoreAt({ ...moreAt, y })
+  }, [moreAt])
   const [snoozing, setSnoozing] = useState(false)
   const [deleting, setDeleting] = useState<'archive' | 'delete'>()
 
@@ -283,7 +290,7 @@ export function SelectionBar({
                 }
                 const box = event.currentTarget.getBoundingClientRect()
                 setPriorityOpen(false)
-                setMoreAt({ x: box.left, y: box.top - 48, trigger: event.currentTarget })
+                setMoreAt({ x: box.left, y: box.top - 86, trigger: event.currentTarget })
               }}
             >
               <MoreIcon />
