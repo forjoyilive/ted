@@ -98,6 +98,10 @@ const entries = {
     name: 'The ted command',
     help: 'Lets you use ted in any terminal. Agents always have it in their Runs.',
   },
+  'app.general.editor.path': {
+    name: 'Add ~/.local/bin to your PATH',
+    detail: 'Your login shell doesn’t look there yet. Add this line to your shell’s profile:',
+  },
   'app.general.about': { name: 'About and updates', heading: true },
   'app.general.about.licenses': {
     name: 'Third-party licenses',
@@ -225,7 +229,7 @@ const entries = {
   'app.developer.profile': {
     name: 'Record a CPU profile',
     keywords:
-      'Records where TED’s background process spends its time and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. Nothing is uploaded.',
+      'Records where TED’s background process spends its time and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists TED’s own functions and file paths, with no Task content, prompts or tokens. TED keeps the newest five. Nothing is uploaded.',
   },
   'app.developer.diagnostics': { name: 'Diagnostics', heading: true },
   'app.developer.diagnostics.memory': {
@@ -242,17 +246,15 @@ const entries = {
   'factory.general.auto-start': {
     name: 'Start Backlog Tasks automatically',
     detail:
-      'Start the next eligible Task when a working-Run slot is free. Uses Priority and manual order, skips blocked Tasks, and gives Queued work precedence.',
+      'Start the next eligible Task when a working-Run slot is free. Uses Priority and manual order, skips blocked Tasks, and gives Queued work precedence. Takes effect immediately. Turning this off leaves started Tasks running.',
   },
   'factory.linear-intake': {
     name: 'Linear intake',
-    detail: 'Choose which Linear issues Automations can bring into this Factory.',
+    detail:
+      'Choose which Linear issues Automations can bring into this Factory. The built-in Linear Automation brings in issues assigned to you that haven’t started yet. Changes apply immediately to automatic intake. You can still paste any Linear issue into a new Task. Existing Tasks and status-sync consent stay as they are.',
     heading: true,
   },
-  'factory.linear-intake.scope': {
-    name: 'Scope',
-    help: 'The built-in Linear Automation brings in issues assigned to you that haven’t started yet, from the Team or Project you choose.',
-  },
+  'factory.linear-intake.scope': { name: 'Scope', keywords: 'team project' },
   'factory.repos': { name: 'Repos', heading: true },
   'factory.repos.base-branch': { name: 'Base branch' },
   'factory.repos.merge-method': { name: 'Merge method' },
@@ -281,15 +283,15 @@ const entries = {
   },
   'factory.workflow.p1-only': {
     name: 'Send back only for P1 Findings',
-    help: 'Off: every blocking Finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new Finding sends it back only if it is P1. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
+    help: 'Off: every blocking Finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from an earlier round that is still not fixed sends it back too. Every other new Finding stays unfixed and is listed as a note for you at Review. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
   },
   'factory.workflow.validate-sub-agents': {
     name: 'Other sub-agents in Validate',
-    help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests.',
+    help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests. Each one takes a working Run, and a sub-agent that reviews the diff adds Findings that can cost another round. The one-reviewer rule stays either way.',
   },
   'factory.workflow.lead-closes-failures': {
     name: 'Task Lead closes its own fixed failures',
-    help: 'On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question.',
+    help: 'Off: when a test the Task Lead ran itself failed outside Validate and it recorded the failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question. TED doesn’t run the test, so you are trusting the Task Lead’s report. Failed Checks and failures found in Validate still need your decision, and only you can accept a failure that still happens.',
   },
   'factory.checks': {
     name: 'Checks',
@@ -305,6 +307,8 @@ const entries = {
     name: 'Permission mode',
     keywords: 'auto bypass',
     help: 'Permission mode is saved only on this computer, separately for each Factory.',
+    detail:
+      'Saved here immediately. Applies to new and restarted Task Leads, sub-agents and reviewers, and new Checks and agent-started Apps. Running processes keep their current permissions; stop them to end existing access. Planning, Automation and Coordinator Runs always use Auto.',
     heading: true,
   },
   'factory.permissions.working-run-limit': {

@@ -68,7 +68,7 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
       </SettingRow>
       {addToPath !== undefined && (
         <SettingRow
-          title="Add ~/.local/bin to your PATH"
+          setting="app.general.editor.path"
           detail={
             <>
               Your login shell doesn’t look there yet. Add this line to your shell’s profile:{' '}

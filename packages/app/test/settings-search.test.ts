@@ -78,6 +78,11 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
   expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions'])
   expect(find('deletes its tasks').map((hit) => hit.id)).toEqual(['factory.danger-zone.remove'])
   expect(find('fewer rounds').map((hit) => hit.id)).toEqual(['factory.workflow.p1-only'])
+  expect(find('only you can accept').map((hit) => hit.id)).toEqual([
+    'factory.workflow.lead-closes-failures',
+  ])
+  expect(find('newest five').map((hit) => hit.id)).toEqual(['app.developer.profile'])
+  expect(find('local/bin')[0]?.id).toBe('app.general.editor.path')
   expect(find('teardown', { factory: undefined }).map((hit) => hit.id)).toEqual([
     'app.limits.low-priority',
   ])
