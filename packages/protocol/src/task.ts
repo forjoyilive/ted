@@ -586,6 +586,7 @@ export type RequestPurpose =
     }
 
 export interface Comment {
+  peer?: { sender?: string; text: string }
   purpose?: RequestPurpose
   id: string
   taskId: string
