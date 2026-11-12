@@ -1,3 +1,4 @@
+import { readFile, writeFile } from 'node:fs/promises'
 import type { CheckRun, Comment, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
@@ -97,6 +98,61 @@ describe('Approve and merge', () => {
     expect(done.repos[0]?.pullRequest?.merged).toMatchObject({ method: 'squash', noCi: false })
     expect(await merges()).toHaveLength(1)
     expect(await lines(client, task)).toContain(`Merged ${done.repos[0]?.name}`)
+  })
+
+  test('a Task waiting at Merge can be reset: TED closes the pull request and deletes the branch, and a branch GitHub won’t delete stops the reset', async () => {
+    const client = await start({
+      files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
+      merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
+    })
+    const { task, signoff } = await toSignoff(client)
+    await approve(client, signoff)
+    const waiting = await eventWait(
+      client.subscribe,
+      async () => {
+        const current = await getTask(client, task.id)
+        return current.status?.kind === 'waiting-for-github' ? current : undefined
+      },
+      'Waiting for CI',
+    )
+    const repo = waiting.repos[0]
+    if (!repo) throw new Error('no repo')
+    const route = `repos/${repo.repo.split('/').map(encodeURIComponent).join('/')}/git/refs/heads/${repo.branch.split('/').map(encodeURIComponent).join('/')}`
+    const state = JSON.parse(await readFile(ctx.ghState, 'utf8')) as Record<string, unknown>
+    await writeFile(
+      ctx.ghState,
+      JSON.stringify({ ...state, paths: { [route]: { status: 403, message: 'Forbidden' } } }),
+    )
+
+    const refused = await client.call('POST', `/tasks/${task.id}/reset`)
+    expect(refused.status).toBe(409)
+    expect(JSON.stringify(refused.body)).toContain(`couldn’t delete the branch ${repo.branch}`)
+    const kept = await getTask(client, task.id)
+    expect(kept.stage).toBe('merge')
+    expect(kept.statuses).toContain('stopped')
+    expect(kept.repos[0]?.pullRequest?.state).toBe('closed')
+    expect(await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).not.toEqual([])
+
+    const now = JSON.parse(await readFile(ctx.ghState, 'utf8')) as Record<string, unknown>
+    delete now.paths
+    await writeFile(ctx.ghState, JSON.stringify(now))
+    await client.ok('POST', `/tasks/${task.id}/reset`)
+
+    const fresh = await eventWait(
+      client.subscribe,
+      async () => {
+        const current = await getTask(client, task.id)
+        return current.stage === 'intake' && current.leadRunId !== undefined ? current : undefined
+      },
+      'the reset Task to start again from Intake',
+    )
+    expect(fresh.repos.every((r) => r.pullRequest === undefined)).toBe(true)
+    expect(await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).toEqual([])
+    expect((await lines(client, task))[0]).toBe('Task was reset')
+    const calls = await ghCalls()
+    expect(calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'close')).toHaveLength(1)
+    expect(calls.some((c) => c.args[0] === 'api' && c.args.includes(route))).toBe(true)
+    expect(await merges()).toEqual([])
   })
 
   test('a conflict-free rebase onto a moved base reruns Checks and merges without a new sign-off', async () => {

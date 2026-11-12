@@ -307,10 +307,19 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
   const resetting = useRef(false)
   const worktrees = task.repos.filter((r) => !r.removed)
   const branches = [...new Set(task.repos.map((r) => r.branch))]
-  const conversations =
-    runs === 0
-      ? ''
-      : ` and ${runs === 1 ? 'the Run with its Conversation' : `its ${runs} Runs with their Conversations`}`
+  const thread = [
+    'Comments',
+    'questions and answers',
+    'the Task brief',
+    'Findings',
+    ...(runs === 0
+      ? []
+      : [
+          runs === 1
+            ? 'the Run with its Conversation'
+            : `its ${runs} Runs with their Conversations`,
+        ]),
+  ]
   const lost = [
     ...(worktrees.length > 0
       ? [
@@ -327,7 +336,7 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
           `${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ repo, pr }) => `${repo.name} #${pr.number}`))}, which TED closes on GitHub`,
         ]
       : []),
-    `The thread: Comments, questions and answers, the Task brief and Findings${conversations}`,
+    `The thread: ${joinAnd(thread)}`,
     'Edits to the description, and files attached in Comments',
   ]
   const files =

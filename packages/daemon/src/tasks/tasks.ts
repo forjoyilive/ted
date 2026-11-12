@@ -121,7 +121,7 @@ import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
-import type { Gh } from '../github/gh.ts'
+import { type Gh, GhError } from '../github/gh.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
@@ -5720,7 +5720,13 @@ export function createTasks(options: {
   }
 
   async function reset(ref: string): Promise<Task> {
-    const { id } = find(ref)
+    const { id, displayId } = find(ref)
+    const checksRunning = () => {
+      if (checking.has(id)) {
+        throw new RequestError(409, `${displayId}’s Checks are running; try again when they finish`)
+      }
+    }
+    checksRunning()
     await untilFree(id)
     const task = find(id)
     const refused = resetRefusal(publicTask(id))
@@ -5730,34 +5736,44 @@ export function createTasks(options: {
         `${task.displayId} ${resetRefusals[refused]}, so it can’t be reset`,
       )
     }
-    if (merging.has(id)) {
-      throw new RequestError(409, `${task.displayId} is merging; try again in a moment`)
-    }
+    checksRunning()
     if (deleting.has(id)) {
       throw new RequestError(409, `${task.displayId} is being deleted or reset`)
     }
     deleting.add(id)
     try {
       await holding(task, async () => {
-        options.planning?.()?.taskGone(id, 'reset')
-        browser.cancel(id)
-        browserApps.delete(id)
         if (!task.stopped) store.stopTask(id, { runs: task.runs.length, why: 'human' })
-        const open = task.repos.some(
-          (r) =>
-            r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged',
-        )
-        if (open) pullRequestWork(id, 'close')
-        await clearing(id)
+        await mergeWatcher.settled(id)
         await pullRequestQueue.get(id)
-        const last = find(id)
+        const open = (current: StoredTask) =>
+          current.repos.filter(
+            (r) =>
+              r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged',
+          )
         if (resetRefusal(publicTask(id)) === 'merged') {
           throw new RequestError(409, `${task.displayId} has a merged pull request`)
         }
+        if (open(find(id)).length > 0) {
+          pullRequestWork(id, 'close')
+          await pullRequestQueue.get(id)
+        }
+        const left = open(find(id))
+        if (left.length > 0 || resetRefusal(publicTask(id)) === 'merged') {
+          throw new RequestError(
+            409,
+            `TED couldn’t close ${left.map((r) => `${r.repo}#${r.pullRequest?.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t reset. It is stopped and nothing was discarded.`,
+          )
+        }
+        options.planning?.()?.taskGone(id, 'reset')
+        browser.cancel(id)
+        browserApps.delete(id)
+        await clearing(id)
+        const last = find(id)
         await removeBranches(last)
         await lifecycle.cleanFolders(await execution.local(id))
         const runIds = store.taskRunList(id).map((r) => r.id)
-        const files = store.taskFiles(id)
+        const files = [...store.taskFiles(id), ...store.messageDraftFiles(id)]
         failures.forget(id)
         autoStartFailures.delete(id)
         continuationFailures.delete(id)
@@ -5780,22 +5796,22 @@ export function createTasks(options: {
 
   async function removeBranches(task: StoredTask): Promise<void> {
     const gh = options.gh
-    for (const repo of task.repos) {
-      await git
-        .deleteBranch(clonePath(reposDir, repo), repo.branch)
-        .catch((error: unknown) =>
-          console.error(
-            `couldn’t delete the branch ${repo.branch} of reset ${task.displayId}:`,
-            redactSecrets(error instanceof Error ? error.message : String(error)),
-          ),
-        )
-      if (!gh || (!repo.pushed && !repo.pullRequest)) continue
-      await deleteBranch(gh, repo).catch((error: unknown) =>
-        console.error(
-          `couldn’t delete the branch ${repo.branch} on ${repo.repo}:`,
-          redactSecrets(error instanceof Error ? error.message : String(error)),
-        ),
+    const refuse = (where: string, branch: string, error: unknown) =>
+      new RequestError(
+        409,
+        `TED couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t reset: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
       )
+    for (const repo of task.repos) {
+      if (gh && (repo.pushed || repo.pullRequest)) {
+        await deleteBranch(gh, repo).catch((error: unknown) => {
+          const status = error instanceof GhError ? error.status : undefined
+          if (status !== 404 && status !== 422) throw refuse(`on ${repo.repo}`, repo.branch, error)
+        })
+      }
+      await git.deleteBranch(clonePath(reposDir, repo), repo.branch).catch((error: unknown) => {
+        const text = error instanceof Error ? error.message : String(error)
+        if (!/not found/i.test(text)) throw refuse(`in ${repo.name}’s clone`, repo.branch, error)
+      })
     }
   }
 
