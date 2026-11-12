@@ -13,6 +13,7 @@ export function bridge(given: Record<string, Handler>) {
   const handlers: Record<string, Handler> = {
     getSideChat: () => null,
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
+    getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()
