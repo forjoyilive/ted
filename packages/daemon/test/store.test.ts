@@ -167,7 +167,10 @@ describe('TedStore', () => {
   test('an event log that holds v2.RunOutputRead lines loads, and its lines stay out of the state database', async () => {
     const first = await openStore({ directory: dir })
     first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })
-    first.recordRunOutput('run-1', { toOffset: 40, output: {} })
+    expect(first.recordRunOutput('run-1', { toOffset: 20, output: {} })).toBe(false)
+    expect(first.runReadOffset('run-1')).toBe(20)
+    expect(first.recordRunOutput('run-1', { toOffset: 40, state: 'idle' })).toBe(true)
+    expect(first.lastOutputAt('run-1')).toBeDefined()
     await first.persisted()
     await first.close()
     const old = {

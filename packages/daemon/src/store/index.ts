@@ -841,7 +841,8 @@ export interface TedStore extends TaskHistory {
   setOnSubAgents(runId: string, on: boolean): void
   onSubAgents(runId: string): boolean
   reconcileRunState(runId: string): void
-  recordRunOutput(runId: string, output: RunOutput): void
+  recordRunOutput(runId: string, output: RunOutput): boolean
+  holdRunOutput(runId: string, read: { toOffset: number; lastOutputAt?: string }): void
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
@@ -2072,6 +2073,7 @@ export async function openStore({
 
   const nextRank = () => Math.max(0, ...store.query(allTasks).map((t) => t.rank ?? t.number)) + 1
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
+  const heldOutput = new Map<string, { toOffset: number; lastOutputAt?: string }>()
   const listTasks = () => store.query(allTasks).map((row) => toTask(row))
   const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
@@ -4472,40 +4474,45 @@ export async function openStore({
       const stateChanged = target !== undefined && target !== current.state
       const nowRetrying = state === 'finished' ? false : (retrying ?? current.retrying)
       const retryChanged = nowRetrying !== current.retrying
+      const held = heldOutput.get(runId)
+      const lastOutputAt = output ? (output.lastAt ?? at) : held?.lastOutputAt
+      const changes = [
+        ...(sessionId !== undefined && sessionId !== current.sessionId
+          ? [events.runSessionIdentified({ runId, sessionId })]
+          : []),
+        ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+        ...(retryChanged ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })] : []),
+        ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
+        ...(stateChanged && target !== undefined
+          ? [events.runStateChanged({ runId, state: target, at })]
+          : []),
+        ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
+        ...asked.flatMap(({ id, event }) => [
+          event,
+          events.commentPurposeRecorded({
+            commentId: id,
+            purpose: JSON.stringify({ kind: 'permission' }),
+          }),
+        ]),
+        ...withdrawnOnce.map(({ id, answer }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
+      ]
+      if (changes.length === 0) {
+        heldOutput.set(runId, { toOffset, ...(lastOutputAt !== undefined && { lastOutputAt }) })
+        if (output) emit({ type: 'run-output', runId, lines: true })
+        return false
+      }
       waitingUnchanged = asked.length === 0 && withdrawnOnce.length === 0
       try {
         commit(
-          events.runOutputReadV3({
-            runId,
-            toOffset,
-            lastOutputAt: output ? (output.lastAt ?? at) : null,
-          }),
-          ...(sessionId !== undefined && sessionId !== current.sessionId
-            ? [events.runSessionIdentified({ runId, sessionId })]
-            : []),
-          ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
-          ...(retryChanged
-            ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })]
-            : []),
-          ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
-          ...(stateChanged && target !== undefined
-            ? [events.runStateChanged({ runId, state: target, at })]
-            : []),
-          ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
-          ...asked.flatMap(({ id, event }) => [
-            event,
-            events.commentPurposeRecorded({
-              commentId: id,
-              purpose: JSON.stringify({ kind: 'permission' }),
-            }),
-          ]),
-          ...withdrawnOnce.map(({ id, answer }) =>
-            events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
-          ),
+          events.runOutputReadV3({ runId, toOffset, lastOutputAt: lastOutputAt ?? null }),
+          ...changes,
         )
       } finally {
         waitingUnchanged = false
       }
+      heldOutput.delete(runId)
       if (output) emit({ type: 'run-output', runId, lines: true })
       for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const { id } of withdrawnOnce) emitComment(id)
@@ -4522,6 +4529,11 @@ export async function openStore({
         observedRuns.add(runId)
         noteActivity()
       }
+      return true
+    },
+    holdRunOutput(runId, read) {
+      const row = runRow(runId)
+      if (row && read.toOffset > row.readOffset) heldOutput.set(runId, read)
     },
     setRunPermissions(runId, permissions) {
       const row = runRow(runId)
@@ -4582,7 +4594,8 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
-    lastOutputAt: (runId) => runRow(runId)?.lastOutputAt ?? undefined,
+    lastOutputAt: (runId) =>
+      heldOutput.get(runId)?.lastOutputAt ?? runRow(runId)?.lastOutputAt ?? undefined,
     getRun(id) {
       const row = runRow(id)
       return row && toRun(row)
@@ -4646,7 +4659,7 @@ export async function openStore({
         .query(allTasks)
         .filter((row) => row.stage === 'backlog' && row.archivedAt === null)
         .map((row) => ({ id: row.id, snoozed: Boolean(row.snoozedUntil) })),
-    runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
+    runReadOffset: (id) => Math.max(runRow(id)?.readOffset ?? 0, heldOutput.get(id)?.toOffset ?? 0),
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {
       const taskId = taskIdOfRun(runId) ?? null

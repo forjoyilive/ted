@@ -9,7 +9,9 @@ import {
   openSync,
   readFileSync,
   readSync,
+  renameSync,
   statSync,
+  writeFileSync,
   writeSync,
 } from 'node:fs'
 import { appendFile, mkdir, open, readFile, rename, stat, writeFile } from 'node:fs/promises'
@@ -246,6 +248,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     signal: AbortSignal,
   ): Promise<void> {
     const files = runFiles(path.join(runsDir, runId))
+    const held = heldRead(files)
+    if (held !== undefined) store.holdRunOutput(runId, held)
     let offset = store.runReadOffset(runId)
     const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
     const generation = await generationBefore(files.log, offset, (line) =>
@@ -354,6 +358,35 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
+  function heldRead(
+    files: ReturnType<typeof runFiles>,
+  ): { toOffset: number; lastOutputAt?: string } | undefined {
+    try {
+      const read = JSON.parse(readFileSync(files.readTo, 'utf8')) as {
+        toOffset?: unknown
+        lastOutputAt?: unknown
+      }
+      const { toOffset, lastOutputAt } = read
+      if (!Number.isSafeInteger(toOffset) || typeof toOffset !== 'number' || toOffset < 0)
+        return undefined
+      if (toOffset > statSync(files.log).size) return undefined
+      return { toOffset, ...(typeof lastOutputAt === 'string' && { lastOutputAt }) }
+    } catch {
+      return undefined
+    }
+  }
+
+  function holdRead(runId: string, toOffset: number): void {
+    const { readTo } = runFiles(path.join(runsDir, runId))
+    const lastOutputAt = store.lastOutputAt(runId)
+    try {
+      writeFileSync(`${readTo}.tmp`, JSON.stringify({ toOffset, lastOutputAt }), { mode: 0o600 })
+      renameSync(`${readTo}.tmp`, readTo)
+    } catch (error) {
+      console.error(`could not save the read offset of Run ${runId}:`, error)
+    }
+  }
+
   function commitBatch(
     runId: string,
     batch: RecordBatch,
@@ -449,7 +482,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const asked = askable
       ? prompts.filter((prompt) => prompt.refuse !== true && prompt.generation === generation.count)
       : []
-    store.recordRunOutput(runId, {
+    const saved = store.recordRunOutput(runId, {
       ...(asked.length > 0 && { permissionPrompts: asked }),
       ...(closedPermissions.length > 0 && { closedPermissions }),
       ...(agentRestarted && { agentRestarted }),
@@ -462,6 +495,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(state === 'finished' && { ending: ending(runId, exit, generation) }),
       ...(retrying !== undefined && { retrying }),
     })
+    if (!saved) holdRead(runId, batch.toOffset)
     if (credential) {
       const report = credential
       tellObservers(runId, (observer, run) => observer.credential?.(run, report))
