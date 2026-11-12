@@ -8,6 +8,7 @@ import { GeneralPage } from './GeneralPage.tsx'
 import { IntegrationsPage } from './IntegrationsPage.tsx'
 import { LibraryPage } from './LibraryPage.tsx'
 import { LimitsPage } from './LimitsPage.tsx'
+import { MachinesPage } from './MachinesPage.tsx'
 import { NotificationsPage } from './NotificationsPage.tsx'
 import { StoragePage } from './StoragePage.tsx'
 import styles from './settings.module.css'
@@ -34,6 +35,7 @@ export function NotBuiltYet({ title }: { title: string }) {
 export const settingsSections: readonly SettingsSection[] = [
   { id: 'general', label: 'General', Page: GeneralPage },
   { id: 'notifications', label: 'Notifications', Page: NotificationsPage },
+  { id: 'machines', label: 'Machines', Page: MachinesPage },
   { id: 'agents', label: 'Agents', Page: AgentsPage },
   { id: 'limits', label: 'Limits', Page: LimitsPage },
   { id: 'integrations', label: 'Integrations', Page: IntegrationsPage },

@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export * from './agent-availability.ts'
 export type * from './api-cost.ts'
 export {
   type AppCapture,
@@ -247,6 +248,7 @@ export {
   type ReservationId,
   type TaskAssignment,
 } from './execution.ts'
+export * from './execution-pairing.ts'
 export {
   type ExportFormat,
   type ExportRun,
@@ -365,7 +367,12 @@ export {
   parseVerifyFailureRequest,
 } from './failure-parsers.ts'
 export type * from './failures.ts'
-export { failureChoices, validateFailureChoices, validationExecution } from './failures.ts'
+export {
+  ciFailureLabel,
+  failureChoices,
+  validateFailureChoices,
+  validationExecution,
+} from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,

@@ -3,10 +3,13 @@ import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useState } from 'react'
 import { keysFor } from '../keymap.ts'
+import { usePendingAction } from '../pending-action.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
+import { ActionButton } from './ActionButton.tsx'
+import { useEnabledAgents } from './AgentOptions.tsx'
 import {
   ArchiveDialog,
   archiveTaskEvent,
@@ -38,7 +41,7 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
   const id = useId()
   return (
     <div className={styles.first}>
-      <button
+      <ActionButton
         type="button"
         role="menuitem"
         className={styles.item}
@@ -59,7 +62,7 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
           action.kind !== 'follow-up' && (
             <span className={styles.hint}>{keysFor('status').join(' or ')}</span>
           )}
-      </button>
+      </ActionButton>
       {hover ? (
         <Tooltip id={id} className={styles.tooltip}>
           {action.help}
@@ -85,16 +88,19 @@ function Choice({
   label,
   checked,
   onChoose,
+  disabled,
 }: {
   label: string
   checked: boolean
+  disabled?: boolean
   onChoose: () => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="menuitemradio"
       aria-checked={checked}
+      disabled={disabled}
       className={styles.item}
       onClick={onChoose}
     >
@@ -102,7 +108,7 @@ function Choice({
         {checked ? '✓' : ''}
       </span>
       <span className={styles.label}>{label}</span>
-    </button>
+    </ActionButton>
   )
 }
 
@@ -152,6 +158,7 @@ export function TaskActionsMenu({
   onFollowedUp?: (followUp: Task) => void
   onOpenBrief?: (() => void) | undefined
 }) {
+  const enabledAgents = useEnabledAgents()
   const [position, setPosition] = useState<MenuPosition>()
   const open = position !== undefined
   const close = () => {
@@ -221,10 +228,16 @@ export function TaskActionsMenu({
   const [restarting, setRestarting] = useState(false)
   const linear = task.source?.linear
 
+  const activity = usePendingAction(`task-actions:${task.id}`)
   const act = (work: () => Promise<unknown>) => {
-    close()
     setError(undefined)
-    work().catch((failure: unknown) => setError(readableError(failure)))
+    return activity.run(work)?.then(
+      () => close(),
+      (failure: unknown) => {
+        close()
+        setError(readableError(failure))
+      },
+    )
   }
 
   const choose = (which: TaskDialogKind) => {
@@ -243,16 +256,21 @@ export function TaskActionsMenu({
   )
 
   const deleteItem = (
-    <button type="button" role="menuitem" className={styles.item} onClick={() => choose('delete')}>
+    <ActionButton
+      type="button"
+      role="menuitem"
+      className={styles.item}
+      onClick={() => choose('delete')}
+    >
       <span className={styles.label}>Delete…</span>
-    </button>
+    </ActionButton>
   )
 
   if (task.archived) {
     return (
       <div className={styles.anchor}>
         {!contextOnly && (
-          <button
+          <ActionButton
             type="button"
             className={styles.more}
             aria-label="Task actions"
@@ -266,28 +284,33 @@ export function TaskActionsMenu({
             }}
           >
             <MoreIcon />
-          </button>
+          </ActionButton>
         )}
         {position && (
-          <ContextMenu at={position} label={`Task actions · ${task.displayId}`} onClose={close}>
-            <button
+          <ContextMenu
+            at={position}
+            label={`Task actions · ${task.displayId}`}
+            onClose={close}
+            pending={activity.pending}
+          >
+            <ActionButton
               type="button"
               role="menuitem"
               className={styles.item}
               onClick={() => act(() => ted.unarchiveTask(task.id))}
             >
               <span className={styles.label}>Unarchive</span>
-            </button>
-            <button
+            </ActionButton>
+            <ActionButton
               type="button"
               role="menuitem"
               className={styles.item}
               onClick={() => act(() => navigator.clipboard.writeText(task.displayId))}
             >
               Copy Task ID
-            </button>
+            </ActionButton>
             {onOpenBrief && (
-              <button
+              <ActionButton
                 type="button"
                 role="menuitem"
                 className={styles.item}
@@ -297,12 +320,12 @@ export function TaskActionsMenu({
                 }}
               >
                 Full brief
-              </button>
+              </ActionButton>
             )}
             {deleteItem}
           </ContextMenu>
         )}
-        {error !== undefined && !open && (
+        {error !== undefined && (
           <p className={errorClass} role="alert">
             {error}
           </p>
@@ -315,7 +338,7 @@ export function TaskActionsMenu({
   return (
     <div className={styles.anchor}>
       {!contextOnly && (
-        <button
+        <ActionButton
           type="button"
           className={styles.more}
           aria-label="Task actions"
@@ -329,10 +352,15 @@ export function TaskActionsMenu({
           }}
         >
           <MoreIcon />
-        </button>
+        </ActionButton>
       )}
       {position && (
-        <ContextMenu at={position} label={`Task actions · ${task.displayId}`} onClose={close}>
+        <ContextMenu
+          at={position}
+          label={`Task actions · ${task.displayId}`}
+          onClose={close}
+          pending={activity.pending}
+        >
           {action && (
             <>
               <FirstItem
@@ -344,7 +372,7 @@ export function TaskActionsMenu({
                 }
               />
               {task.preparation === 'ready' && (
-                <button
+                <ActionButton
                   type="button"
                   role="menuitem"
                   className={styles.item}
@@ -352,10 +380,10 @@ export function TaskActionsMenu({
                   onClick={() => act(() => ted.stopTask(task.id))}
                 >
                   <span className={styles.label}>Stop Task</span>
-                </button>
+                </ActionButton>
               )}
               {lead !== undefined && lead.state !== 'finished' && (
-                <button
+                <ActionButton
                   type="button"
                   role="menuitem"
                   className={styles.item}
@@ -371,14 +399,14 @@ export function TaskActionsMenu({
                   }
                 >
                   <span className={styles.label}>Restart</span>
-                </button>
+                </ActionButton>
               )}
               <hr className={styles.separator} />
             </>
           )}
           {task.stage === 'backlog' && !task.setup && (
             <>
-              <button
+              <ActionButton
                 type="button"
                 role="menuitem"
                 className={styles.item}
@@ -387,17 +415,17 @@ export function TaskActionsMenu({
                 <span className={styles.label}>
                   {task.snoozedUntil ? 'Change snooze…' : 'Snooze…'}
                 </span>
-              </button>
+              </ActionButton>
               {task.snoozedUntil && (
-                <button
+                <ActionButton
                   type="button"
                   role="menuitem"
                   className={styles.item}
-                  title="Restores normal Backlog behavior. Automatic starts or Autopilot may start it immediately."
+                  title="Restores normal Backlog behavior. Automatic starts may start it immediately."
                   onClick={() => act(() => ted.setTaskSnooze(task.id, null))}
                 >
                   <span className={styles.label}>Cancel snooze</span>
-                </button>
+                </ActionButton>
               )}
               <hr className={styles.separator} />
             </>
@@ -414,25 +442,28 @@ export function TaskActionsMenu({
           </Submenu>
           {task.stage !== 'done' && (
             <Submenu label="Task Lead" hint={task.lead ? leadSummary(task.lead) : 'Default'}>
-              {agentKinds.map((agent) => (
-                <Choice
-                  key={agent}
-                  label={agentLabels[agent]}
-                  checked={task.lead?.agent === agent}
-                  onChoose={() =>
-                    act(() =>
-                      task.lead?.agent === agent
-                        ? Promise.resolve()
-                        : ted.setTaskLead(task.id, { agent }),
-                    )
-                  }
-                />
-              ))}
+              {agentKinds
+                .filter((agent) => enabledAgents.includes(agent) || task.lead?.agent === agent)
+                .map((agent) => (
+                  <Choice
+                    key={agent}
+                    label={`${agentLabels[agent]}${enabledAgents.includes(agent) ? '' : ' · Off — new Runs wait'}`}
+                    disabled={!enabledAgents.includes(agent)}
+                    checked={task.lead?.agent === agent}
+                    onChoose={() =>
+                      act(() =>
+                        task.lead?.agent === agent
+                          ? Promise.resolve()
+                          : ted.setTaskLead(task.id, { agent }),
+                      )
+                    }
+                  />
+                ))}
             </Submenu>
           )}
           {task.stage !== 'done' &&
             (clarifyIsOver(task.stage) ? (
-              <button
+              <ActionButton
                 type="button"
                 role="menuitem"
                 className={styles.item}
@@ -441,7 +472,7 @@ export function TaskActionsMenu({
               >
                 <span className={styles.label}>Clarify depth</span>
                 <span className={styles.hint}>Clarify is over</span>
-              </button>
+              </ActionButton>
             ) : (
               <Submenu label="Clarify depth" hint={clarifyDepthLabels[task.clarifyDepth]}>
                 {clarifyDepths.map((depth) => (
@@ -455,23 +486,23 @@ export function TaskActionsMenu({
               </Submenu>
             ))}
           {task.stage !== 'done' && (
-            <button
+            <ActionButton
               type="button"
               role="menuitem"
               className={styles.item}
               onClick={() => {
                 close()
-                onPickBlocker
+                return onPickBlocker
                   ? onPickBlocker(task)
                   : window.dispatchEvent(new CustomEvent(pickBlockerEvent, { detail: task.id }))
               }}
             >
               <span className={styles.label}>Blocked by…</span>
               <span className={styles.hint}>{keysFor('blocked-by').join(' or ')}</span>
-            </button>
+            </ActionButton>
           )}
           {onOpenBrief && (
-            <button
+            <ActionButton
               type="button"
               role="menuitem"
               className={styles.item}
@@ -481,9 +512,9 @@ export function TaskActionsMenu({
               }}
             >
               Full brief
-            </button>
+            </ActionButton>
           )}
-          <button
+          <ActionButton
             type="button"
             role="menuitem"
             className={styles.item}
@@ -491,19 +522,19 @@ export function TaskActionsMenu({
           >
             <span className={styles.label}>Edit title and description…</span>
             <span className={styles.hint}>{keysFor('edit').join(' or ')}</span>
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             role="menuitem"
             className={styles.item}
             onClick={() => act(() => navigator.clipboard.writeText(task.displayId))}
           >
             Copy Task ID
-          </button>
+          </ActionButton>
           {linear && (
             <>
               <hr className={styles.separator} />
-              <button
+              <ActionButton
                 type="button"
                 role="menuitem"
                 className={styles.item}
@@ -511,9 +542,9 @@ export function TaskActionsMenu({
               >
                 <span className={styles.label}>Open source in Linear</span>
                 <span className={styles.hint}>{linear.identifier}</span>
-              </button>
+              </ActionButton>
               {task.linearSync === 'ask' && (
-                <button
+                <ActionButton
                   type="button"
                   role="menuitem"
                   className={styles.item}
@@ -521,12 +552,12 @@ export function TaskActionsMenu({
                 >
                   <span className={styles.label}>Sync with Linear</span>
                   <span className={styles.hint}>An Automation made this Task</span>
-                </button>
+                </ActionButton>
               )}
             </>
           )}
           <hr className={styles.separator} />
-          <button
+          <ActionButton
             type="button"
             role="menuitem"
             className={styles.item}
@@ -534,11 +565,11 @@ export function TaskActionsMenu({
           >
             <span className={styles.label}>Archive…</span>
             <span className={styles.hint}>{keysFor('archive').join(' or ')}</span>
-          </button>
+          </ActionButton>
           {deleteItem}
         </ContextMenu>
       )}
-      {error !== undefined && !open && (
+      {error !== undefined && (
         <p className={errorClass} role="alert">
           {error}
         </p>

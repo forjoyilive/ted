@@ -283,7 +283,7 @@ test('runner cleans real fixture roots and processes after a worker crashes befo
 
 test('skip-only run supplies no passing evidence and never invokes executor or machine discovery', async () => {
   const result = await runValidation(
-    { ...options(), scenarios: ['two-mac', 'production-transport', 'gui'] },
+    { ...options(), scenarios: ['two-mac', 'product-pairing'] },
     {
       candidate,
       versions,
@@ -295,7 +295,7 @@ test('skip-only run supplies no passing evidence and never invokes executor or m
   expect(result.code).toBe(2)
   expect(result.report.result).toBe('skipped')
   expect(result.report.scenarios.every((s) => s.result === 'skipped' && s.reason)).toBe(true)
-  expect(new Set(result.report.scenarios.map((s) => s.evidence)).size).toBe(3)
+  expect(new Set(result.report.scenarios.map((s) => s.evidence)).size).toBe(1)
   await expect(validationCli(['--report-dir', root], true)).rejects.toThrow('--opt-in')
 })
 

@@ -52,7 +52,7 @@
 
 .button {
   align-self: flex-start;
-  min-height: 26px;
+  min-height: var(--button-height);
   padding: 3px 10px;
   text-align: left;
   border: 1px solid var(--border-control);

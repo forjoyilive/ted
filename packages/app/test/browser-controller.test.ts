@@ -540,6 +540,37 @@ test('reopening an App after switching away detects its restart before lifecycle
   expect(mocks.sessions).toHaveLength(2)
 })
 
+test('a Task whose App is being switched reports Opening until the new page is ready', async () => {
+  const transport = bridge()
+  const other = { ...app, name: 'Other', url: 'http://localhost:4000/' }
+  vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) =>
+    selected.name === other.name ? other : app,
+  )
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('first', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  expect(await controller.state('one')).toEqual({ url: 'http://localhost:3000/', text: 'Ready' })
+  let release: (() => void) | undefined
+  mocks.sessions[0]?.clearStorageData.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      }),
+  )
+  await transport.send('switch', 'one', 'open', {}, 5_000, undefined, other)
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  expect(await controller.state('one')).toEqual({ url: '', text: 'Opening…', opening: true })
+  release?.()
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  expect(await controller.state('one')).toEqual({ url: 'http://localhost:3000/', text: 'Ready' })
+  expect(await controller.state('two')).toEqual({ url: '', text: 'Open a running web App' })
+})
+
 test('switching Apps does not discard a pending lifecycle check for the retained session', async () => {
   const transport = bridge()
   const other = { ...app, name: 'Other', url: 'http://localhost:4000/' }

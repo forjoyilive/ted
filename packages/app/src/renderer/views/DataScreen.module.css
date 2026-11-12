@@ -114,7 +114,8 @@
 
 .primary,
 .secondary {
-  padding: 6px 13px;
+  height: var(--button-height);
+  padding: 0 12px;
   border: 1px solid transparent;
   border-radius: 6px;
   font: inherit;

@@ -5,6 +5,7 @@ import './styles/base.css'
 import { createRoot } from 'react-dom/client'
 import { ConnectionContext, useConnectionState } from './data.ts'
 import { Root } from './Root.tsx'
+import { WorkerWindow } from './WorkerWindow.tsx'
 
 function Connected() {
   return (
@@ -14,4 +15,6 @@ function Connected() {
   )
 }
 
-createRoot(document.getElementById('root') as HTMLElement).render(<Connected />)
+createRoot(document.getElementById('root') as HTMLElement).render(
+  new URLSearchParams(location.search).has('worker') ? <WorkerWindow /> : <Connected />,
+)

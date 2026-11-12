@@ -8,6 +8,7 @@ import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { hours, StatisticsHelp, TimingChange } from './DashboardMeasures.tsx'
 import { coverageLabel, reasonNames, reasonValue, TimingOverview } from './DashboardTiming.tsx'
+import { flowWithoutUserWaits, type LeftOutTask, useIncludeUserWaits } from './stage-waits.ts'
 
 const at = (date: string) =>
   formatDate(date, {
@@ -197,6 +198,7 @@ function FlowSample({
   onClose,
   onOpenTask,
   selectPrevious,
+  withoutWaits,
 }: {
   data: DashboardFlow
   selection: FlowSelection
@@ -204,6 +206,9 @@ function FlowSample({
   onClose: () => void
   onOpenTask: (id: string) => void
   selectPrevious: () => void
+  withoutWaits?:
+    | { original: DashboardFlow; leftOut: { current: LeftOutTask[]; previous: LeftOutTask[] } }
+    | undefined
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useId()
@@ -232,7 +237,9 @@ function FlowSample({
               ? 'Tasks affected by send-backs'
               : selection.kind === 'incomplete'
                 ? 'Incomplete timing history'
-                : `${outcomes[selection.outcome]} · First-pass Validate`
+                : selection.kind === 'left-out'
+                  ? 'Tasks left out of Stage time'
+                  : `${outcomes[selection.outcome]} · First-pass Validate`
   const items: { key: string; taskId: string; lines: string[] }[] = []
   const reason =
     selection.kind === 'reason'
@@ -278,11 +285,18 @@ function FlowSample({
       period.stages.find((s) => s.stage === selection.stage)?.samples ?? []
     ).toSorted((a, b) => b.elapsedMs - a.elapsedMs || a.taskId.localeCompare(b.taskId))) {
       const incomplete = period.incomplete.find((i) => i.taskId === s.taskId)
+      const withWaits = (
+        selection.period === 'previous'
+          ? withoutWaits?.original.previous
+          : withoutWaits?.original.current
+      )?.stages
+        .find((o) => o.stage === selection.stage)
+        ?.samples.find((o) => o.taskId === s.taskId)
       items.push({
         key: s.taskId,
         taskId: s.taskId,
         lines: [
-          `${hours(s.elapsedMs)} · ${s.intervals.length} measured ${s.intervals.length === 1 ? 'visit' : 'visits'}`,
+          `${hours(s.elapsedMs)} · ${s.intervals.length} measured ${s.intervals.length === 1 ? 'visit' : 'visits'}${withWaits ? ` · ${hours(withWaits.elapsedMs - s.elapsedMs)} waiting for you left out` : ''}`,
           ...s.intervals.map((i) => `${at(i.from)} – ${at(i.to)} (end excluded)`),
           ...(incomplete?.reasons ?? []),
         ],
@@ -317,6 +331,9 @@ function FlowSample({
     }
   } else if (selection.kind === 'incomplete') {
     for (const s of period.incomplete)
+      items.push({ key: s.taskId, taskId: s.taskId, lines: s.reasons })
+  } else if (selection.kind === 'left-out') {
+    for (const s of withoutWaits?.leftOut[selection.period] ?? [])
       items.push({ key: s.taskId, taskId: s.taskId, lines: s.reasons })
   } else if (selection.kind === 'validate') {
     for (const s of period.firstPass.samples.filter((s) => s.outcome === selection.outcome))
@@ -362,6 +379,16 @@ function FlowSample({
         As of {at(asOf)} · {items.length} {selection.kind === 'send-back' ? 'transitions' : 'Tasks'}
         . Open a Task for its existing history and verification evidence.
       </p>
+      {selection.kind === 'stage' && (
+        <p className={styles.caption}>
+          {withoutWaits ? 'Without time waiting for you.' : 'Includes time waiting for you.'}
+        </p>
+      )}
+      {selection.kind === 'left-out' && (
+        <p className={styles.caption}>
+          TED has no complete record of when these Tasks were waiting for you.
+        </p>
+      )}
       {selection.kind === 'guide' && (
         <>
           <h3>1. Start with one reason</h3>
@@ -490,7 +517,7 @@ function FlowSample({
 }
 
 export function Flow({
-  data,
+  data: all,
   asOf,
   panel,
   selection,
@@ -508,15 +535,21 @@ export function Flow({
 }) {
   const heading = useId()
   const previousSelect = (s: FlowSelection) => select({ ...s, period: 'previous' })
+  const [includeWaits, setIncludeWaits] = useIncludeUserWaits()
+  const reduced = panel === 'stages' && !includeWaits ? flowWithoutUserWaits(all) : undefined
+  const data = reduced?.data ?? all
+  const leftOut = reduced?.leftOut.current.length ?? 0
   return (
     <section className={styles.flow} aria-labelledby={heading}>
       <header className={styles.flowHead}>
         <div>
           <h2 id={heading}>{panel === 'stages' ? 'Time by Stage' : 'Flow'}</h2>
           <p className={styles.caption}>
-            {panel === 'stages'
-              ? 'See which Stages take time, including waits and repeat visits.'
-              : 'See where Tasks spend time and what holds them up.'}
+            {panel !== 'stages'
+              ? 'See where Tasks spend time and what holds them up.'
+              : includeWaits
+                ? 'See which Stages take time, including time waiting for you and repeat visits.'
+                : 'See which Stages take time, without the time Tasks spent waiting for you.'}
           </p>
         </div>
         {panel === 'flow' && (
@@ -551,15 +584,51 @@ export function Flow({
       )}
       {panel === 'stages' ? (
         <section className={styles.flowCard} aria-label="Elapsed time by Stage">
-          <h3>Elapsed time by Stage</h3>
+          <div className={styles.stageHead}>
+            <h3>Elapsed time by Stage</h3>
+            <label className={styles.stageWaits}>
+              <input
+                type="checkbox"
+                data-nav-item
+                checked={includeWaits}
+                onChange={(event) => setIncludeWaits(event.target.checked)}
+              />
+              Include time waiting for me
+            </label>
+          </div>
+          {leftOut > 0 && (
+            <p className={styles.notice}>
+              <button
+                type="button"
+                data-nav-item
+                className={styles.link}
+                onClick={() => select({ kind: 'left-out', period: 'current' })}
+              >
+                {leftOut} {leftOut === 1 ? 'Task is' : 'Tasks are'} left out
+              </button>
+              : TED has no complete record of when {leftOut === 1 ? 'it was' : 'they were'} waiting
+              for you. Tick “Include time waiting for me” to count {leftOut === 1 ? 'it' : 'them'}.
+            </p>
+          )}
           <StageTable period={data.current} previous={data.previous} select={select} />
           <details className={styles.dataTable}>
             <summary>How Stage time is measured</summary>
-            <p>
-              Wall-clock time including waiting, stops and rework, not agent effort. Each Task’s
-              repeated visits are added together. Started non-setup Tasks open during this period
-              contribute, including Tasks now Done or archived.
-            </p>
+            {includeWaits ? (
+              <p>
+                Wall-clock time including waiting, stops and rework, not agent effort. Each Task’s
+                repeated visits are added together. Started non-setup Tasks open during this period
+                contribute, including Tasks now Done or archived.
+              </p>
+            ) : (
+              <p>
+                Wall-clock time including stops and rework, not agent effort, without the time a
+                Task had an open request to you: a question, a sign-off, a Clarify round or a
+                permission ask. Other waits still count. Tasks without a complete record of those
+                requests are left out. Each Task’s repeated visits are added together. Started
+                non-setup Tasks open during this period contribute, including Tasks now Done or
+                archived.
+              </p>
+            )}
             <p>
               Intervals are clipped to this period and first Intake through first Done or archive.
               Open Tasks end at the as-of instant. Backlog is excluded. Missing visits contribute no
@@ -611,6 +680,7 @@ export function Flow({
           onClose={onClose}
           onOpenTask={onOpenTask}
           selectPrevious={() => select({ ...selection, period: 'previous' })}
+          withoutWaits={reduced && { original: all, leftOut: reduced.leftOut }}
         />
       )}
     </section>

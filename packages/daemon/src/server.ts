@@ -33,6 +33,7 @@ import { appRoutes } from './routes/apps.ts'
 import { automationRoutes } from './routes/automations.ts'
 import { browserRoutes } from './routes/browser.ts'
 import { coordinatorRoutes } from './routes/coordinators.ts'
+import { executionRoutes } from './routes/execution.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { libraryRoutes } from './routes/library.ts'
@@ -173,6 +174,7 @@ const routes: Route[] = [
   ...browserRoutes,
   ...factoryRoutes,
   ...machineRoutes,
+  ...executionRoutes,
   ...libraryRoutes,
   ...integrationRoutes,
   ...runRoutes,

@@ -4,6 +4,7 @@ import { appStatusLine, hostOf, isLive, type PreviewChoice, previewChoice } from
 import { useTaskApps } from '../data.ts'
 import { useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { OpenIcon, PlayIcon } from './icons.tsx'
@@ -44,7 +45,7 @@ function Preview({
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
@@ -90,13 +91,13 @@ function Preview({
     action = (
       <>
         {ended && onOpenApp && (
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
             onClick={() => onOpenApp({ repo: app.repo, name: app.name })}
           >
             Log
-          </button>
+          </ActionButton>
         )}
         <Button
           size="small"
@@ -116,13 +117,13 @@ function Preview({
     action = (
       <>
         {again && onOpenApp && (
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
             onClick={() => onOpenApp({ repo: app.repo, name: app.name })}
           >
             Log
-          </button>
+          </ActionButton>
         )}
         <Button
           size="small"

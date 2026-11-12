@@ -4,6 +4,7 @@ import { sendOnEnter } from '../composer-keys.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import styles from './CommentBox.module.css'
 import { Help } from './Help.tsx'
@@ -38,6 +39,8 @@ export function CommentBox({
   const draft = useMessageDraft(state === 'archived' ? undefined : { kind: 'comment', id: task.id })
   const { text, setText, attachments: files, setAttachments: setFiles } = draft
   const [sending, setSending] = useState(false)
+  const [submission, setSubmission] = useState<'comment' | 'resume' | 'follow-up' | 'interrupt'>()
+  const submitting = useRef(false)
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
   const [uploading, setUploading] = useState(0)
@@ -106,7 +109,9 @@ export function CommentBox({
   }
 
   async function send(then?: 'resume' | 'follow-up', interrupting = false) {
-    if (!ready || sending || (cancels && !typed)) return
+    if (!ready || submitting.current || (cancels && !typed)) return
+    submitting.current = true
+    setSubmission(interrupting ? 'interrupt' : (then ?? 'comment'))
     setSending(true)
     setError(undefined)
     const refs = files.map(({ hash, name, mediaType }) => ({ hash, name, mediaType }))
@@ -132,6 +137,7 @@ export function CommentBox({
     } catch (failed) {
       setError(readableError(failed))
     } finally {
+      submitting.current = false
       setSending(false)
     }
   }
@@ -172,7 +178,7 @@ export function CommentBox({
         onChange={(event) => setText(event.target.value)}
         onPaste={onPaste}
         onKeyDown={sendOnEnter(
-          (command) => void send(resumes ? 'resume' : done ? 'follow-up' : undefined, command),
+          (command) => send(resumes ? 'resume' : done ? 'follow-up' : undefined, command),
           (typedText) => typedText.trim() !== '' || (files.length > 0 && !cancels),
         )}
       />
@@ -182,14 +188,14 @@ export function CommentBox({
             <li key={`${a.hash}:${a.name}`} className={styles.chip}>
               {a.name}
               <span className={styles.chipMeta}>{formatSize(a.size)}</span>
-              <button
+              <ActionButton
                 type="button"
                 className={styles.chipRemove}
                 aria-label={`Remove ${a.name}`}
                 onClick={() => setFiles((current) => current.filter((c) => c !== a))}
               >
                 <CloseIcon size={11} />
-              </button>
+              </ActionButton>
             </li>
           ))}
           {uploading > 0 && <li className={styles.chipMeta}>Attaching…</li>}
@@ -201,15 +207,16 @@ export function CommentBox({
         </p>
       )}
       <div className={styles.buttons}>
-        <button
+        <ActionButton
           type="button"
           className={styles.attach}
+          pending={uploading > 0}
           aria-label="Attach files"
           title="Attach files — or drop or paste them into the box"
           onClick={() => fileInput.current?.click()}
         >
           <PaperclipIcon />
-        </button>
+        </ActionButton>
         <input
           ref={fileInput}
           type="file"
@@ -217,13 +224,12 @@ export function CommentBox({
           hidden
           aria-label="Choose files to attach"
           onChange={(event) => {
-            void attach([...(event.target.files ?? [])])
+            attach([...(event.target.files ?? [])])
             event.target.value = ''
           }}
         />
         {direct && run && (
           <Button
-            size="small"
             aria-label="Stop the turn"
             disabled={stopping || !working}
             onClick={async () => {
@@ -244,10 +250,10 @@ export function CommentBox({
         <span className={styles.spacer} />
         {direct && (
           <Button
-            size="small"
             shortcut="⌘↵"
             disabled={sending || !ready || !working}
-            onClick={() => void send(undefined, true)}
+            pending={sending && submission === 'interrupt'}
+            onClick={() => send(undefined, true)}
           >
             Interrupt and send
           </Button>
@@ -257,7 +263,8 @@ export function CommentBox({
           variant={cancels ? 'danger' : resumes || done ? 'secondary' : 'primary'}
           disabled={sending || !ready || (cancels && !typed)}
           {...(!resumes && !done && { shortcut: '↵' })}
-          onClick={() => void send()}
+          pending={sending && submission === 'comment'}
+          onClick={() => send()}
         >
           {done ? 'Comment only' : cancels ? 'Send and cancel merge' : 'Send'}
         </Button>
@@ -266,7 +273,8 @@ export function CommentBox({
             variant="primary"
             disabled={sending || !ready}
             shortcut="↵"
-            onClick={() => void send('resume')}
+            pending={sending && submission === 'resume'}
+            onClick={() => send('resume')}
           >
             Send and resume
           </Button>
@@ -276,7 +284,8 @@ export function CommentBox({
             variant="primary"
             disabled={sending || !ready}
             shortcut="↵"
-            onClick={() => void send('follow-up')}
+            pending={sending && submission === 'follow-up'}
+            onClick={() => send('follow-up')}
           >
             Follow up
           </Button>

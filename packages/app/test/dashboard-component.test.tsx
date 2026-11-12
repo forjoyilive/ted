@@ -245,16 +245,64 @@ test('unavailable completion history never assigns an unrecorded completion to t
 })
 
 test('Flow keeps its open-Task sample separate, shows distributions and opens exact clipped intervals', async () => {
-  bridge({ factoryDashboard: () => dashboardFixture() })
+  const data = dashboardFixture()
+  data.flow.current.stages.push({
+    stage: 'review',
+    totalMs: 3_600_000,
+    medianMs: 3_600_000,
+    p25Ms: 3_600_000,
+    p75Ms: 3_600_000,
+    samples: [
+      {
+        taskId: 't2',
+        elapsedMs: 3_600_000,
+        intervals: [{ from: '2026-11-05T00:00:00.000Z', to: '2026-11-05T01:00:00.000Z' }],
+      },
+    ],
+  })
+  bridge({ factoryDashboard: () => data })
   const open = vi.fn()
-  render(<DashboardView open={open} />)
+  const view = render(<DashboardView open={open} />)
   await user().click(await screen.findByRole('tab', { name: 'Stages' }))
   const region = await screen.findByRole('region', { name: 'Elapsed time by Stage' })
-  expect(within(region).getByText('14h')).toBeTruthy()
-  const opener = within(region).getByRole('button', { name: '2 Tasks' })
-  await user().click(opener)
+  const waits = () =>
+    within(screen.getByRole('region', { name: 'Elapsed time by Stage' })).getByRole('checkbox', {
+      name: 'Include time waiting for me',
+    }) as HTMLInputElement
+  expect(waits().checked).toBe(false)
+  expect(within(region).getByText('9h')).toBeTruthy()
+  expect(within(region).queryByText('14h')).toBeNull()
+  expect(within(region).getByRole('button', { name: '0 Tasks' })).toBeTruthy()
+  expect(screen.getByText(/without the time Tasks spent waiting for you/)).toBeTruthy()
+  expect(region.textContent).toContain('Tasks without a complete record of those requests')
+  await user().click(within(region).getByRole('button', { name: '2 Tasks' }))
   let sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Without time waiting for you.')
+  expect(sample.textContent).toContain('6h · 1 measured visit · 3h waiting for you left out')
+  expect(sample.textContent).toContain('4.5h')
+  expect(sample.textContent).toContain('3.75h – 5.25h')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  await user().click(within(region).getByRole('button', { name: '1 Task is left out' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
+  expect(sample.textContent).toContain('No record of requests to you for this Task.')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  await user().click(waits())
+  expect(within(region).queryByRole('button', { name: /left out/ })).toBeNull()
+  expect(within(region).getByRole('button', { name: '1 Task' })).toBeTruthy()
+  expect(screen.getByText(/including time waiting for you and repeat visits/)).toBeTruthy()
+  view.unmount()
+  render(<DashboardView open={open} />)
+  await user().click(await screen.findByRole('tab', { name: 'Stages' }))
+  expect(waits().checked).toBe(true)
+  const region2 = screen.getByRole('region', { name: 'Elapsed time by Stage' })
+  expect(within(region2).getByText('14h')).toBeTruthy()
+  const opener = within(region2).getByRole('button', { name: '2 Tasks' })
+  await user().click(opener)
+  sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Includes time waiting for you.')
   expect(sample.textContent).toContain('9h · 1 measured visit')
+  expect(sample.textContent).not.toContain('left out')
   expect(sample.textContent).toContain('7h')
   expect(sample.textContent).toContain('6h – 8h')
   expect(sample.textContent).toContain('Open at the as-of instant')
@@ -334,6 +382,7 @@ test('previous-period Flow samples retain their own period and restore focus aft
       ],
     },
   ]
+  localStorage.setItem('ted.dashboard.stage-waits', 'true')
   bridge({ factoryDashboard: () => data })
   render(<DashboardView open={vi.fn()} />)
   await user().click(await screen.findByRole('tab', { name: 'Stages' }))

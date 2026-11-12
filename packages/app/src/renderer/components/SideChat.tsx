@@ -76,17 +76,17 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const show = () => {
     setOpen(true)
     setWhich('side')
-    void act((source) => ted.openSideChat(source)).catch(() => undefined)
+    return act((source) => ted.openSideChat(source)).catch(() => undefined)
   }
   const working = side?.state === 'working' || side?.state === 'queued'
   return (
     <div className={styles.container}>
       {eligible && open && (
         <nav className={styles.switch} aria-label="Conversation view">
-          <Button size="small" aria-pressed={which === 'source'} onClick={() => setWhich('source')}>
+          <Button aria-pressed={which === 'source'} onClick={() => setWhich('source')}>
             Original Run · {chat.run.state}
           </Button>
-          <Button size="small" aria-pressed={which === 'side'} onClick={() => setWhich('side')}>
+          <Button aria-pressed={which === 'side'} onClick={() => setWhich('side')}>
             Side chat
           </Button>
         </nav>
@@ -95,7 +95,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
         <div className={styles.source} data-hidden={open && which !== 'source'}>
           {eligible && options.bar === false && (
             <div className={styles.actions}>
-              <Button size="small" disabled={busy} onClick={show}>
+              <Button disabled={busy} onClick={show}>
                 {side ? 'Open side chat' : 'Side chat'}
               </Button>
             </div>
@@ -111,7 +111,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
               options={{
                 ...options,
                 headerAction: eligible && (
-                  <Button size="small" disabled={busy} onClick={show}>
+                  <Button disabled={busy} onClick={show}>
                     {side ? 'Open side chat' : 'Side chat'}
                   </Button>
                 ),
@@ -135,7 +135,6 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                         : 'Ready'}
               </span>
               <Button
-                size="small"
                 aria-label="Close side chat"
                 onClick={() => {
                   setOpen(false)
@@ -195,10 +194,9 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                   pinned: working ? (
                     <div className={styles.actions}>
                       <Button
-                        size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.stopSideChat(source)).catch(() => undefined)
+                          return act((source) => ted.stopSideChat(source)).catch(() => undefined)
                         }}
                       >
                         Stop reply
@@ -207,10 +205,9 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
                   ) : side.state === 'failed' ? (
                     <div className={styles.actions}>
                       <Button
-                        size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.retrySideChat(source)).catch(() => undefined)
+                          return act((source) => ted.retrySideChat(source)).catch(() => undefined)
                         }}
                       >
                         Retry
