@@ -33,6 +33,7 @@ export interface KeyActions {
   pressDialogPrimary: () => boolean
   focusFilter: () => boolean
   moveInRank: (direction: 'up' | 'down') => boolean
+  select: () => boolean
 }
 
 export interface CommandContext {
@@ -394,6 +395,7 @@ export const keyCommands: readonly Command[] = [
   keyCommand('move-up', 'Move up in rank', (k) => k.moveInRank('up')),
   keyCommand('move-down', 'Move down in rank', (k) => k.moveInRank('down')),
   keyCommand('filter', 'Filter', (k) => k.focusFilter()),
+  keyCommand('select', 'Select or deselect', (k) => k.select()),
 ]
 
 export function availableCommands(context: CommandContext): Command[] {
