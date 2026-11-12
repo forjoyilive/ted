@@ -140,10 +140,50 @@ describe('Board', () => {
     const window = await boardOf()
     const client = await daemonClient()
     await client.updateSettings({ maxWorkingRuns: 1 })
-    await ted('task', 'create', '--factory', 'NB', forever())
+    const activity =
+      'Couldn’t start: git worktree failed at /projects/a-very-long-worktree-path/'.repeat(2)
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [{ run: ['ted', 'status', activity] }, { waitFor: path.join(ctx.home, 'never') }],
+      }),
+    )
     await ted('task', 'create', '--factory', 'NB', 'Export notes')
     await ted('task', 'start', 'NB-1')
     const board = await openBoard(window)
+    const activityLine = board.getByText(activity, { exact: true })
+    await activityLine.waitFor()
+    expect(
+      await board
+        .locator('[data-stage]')
+        .evaluateAll((columns) =>
+          columns.every((column) => column.getBoundingClientRect().width === 248),
+        ),
+    ).toBe(true)
+    expect(
+      await activityLine.evaluate((element) => {
+        const card = element.closest('[data-task]')
+        if (!card) return false
+        const line = element.getBoundingClientRect()
+        const bounds = card.getBoundingClientRect()
+        return (
+          line.left >= bounds.left &&
+          line.right <= bounds.right &&
+          element.scrollWidth > element.clientWidth &&
+          getComputedStyle(element).textOverflow === 'ellipsis'
+        )
+      }),
+    ).toBe(true)
+    await board.getByRole('region', { name: 'Done', exact: true }).scrollIntoViewIfNeeded()
+    expect(
+      await board.getByRole('region', { name: 'Done', exact: true }).evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        return bounds.left >= 0 && bounds.right <= innerWidth
+      }),
+    ).toBe(true)
     const backlog = board.getByRole('region', { name: 'Backlog' })
     const intake = board.getByRole('region', { name: 'Intake' })
     await backlog.locator('[data-task="NB-2"]').waitFor()
