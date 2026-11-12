@@ -22,6 +22,7 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { observeStartup } from './startup-evidence.ts'
 import { resolveElectron } from './support/electron-installation.ts'
 
 export const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -73,6 +74,7 @@ export async function launchApp(more: Record<string, string> = {}): Promise<Page
     args: [appDir],
     env: { ...env(), ...more },
   })
+  observeStartup(ctx.app, more.TED_HOME ?? ctx.home)
   const window = await loadedWindow(ctx.app)
   await window.emulateMedia({ colorScheme: null })
   return window
