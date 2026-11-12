@@ -483,7 +483,7 @@ test('Flow discloses unknown-boundary Tasks in mixed and unknown-only periods', 
   await user().click(await screen.findByRole('tab', { name: 'Flow' }))
   expect(screen.getByText(/2 Tasks with a recorded Intake boundary/)).toBeTruthy()
   expect(screen.getByText(/Reason coverage counts apply only/)).toBeTruthy()
-  await user().click(screen.getByRole('button', { name: /1 Task has incomplete timing history/ }))
+  await user().click(screen.getByRole('button', { name: /^1 Task has incomplete timing history$/ }))
   let dialog = screen.getByRole('dialog')
   expect(dialog.textContent).toContain('First Intake timestamp is missing.')
   await user().click(within(dialog).getByRole('button', { name: /NB-2.*Improve search/ }))
@@ -505,7 +505,7 @@ test('Flow discloses unknown-boundary Tasks in mixed and unknown-only periods', 
     await screen.findByText(/Incomplete history may hide started Tasks and delays/),
   ).toBeTruthy()
   expect(screen.queryByText(/No started Tasks in this period/)).toBeNull()
-  await user().click(screen.getByRole('button', { name: /1 Task has incomplete timing history/ }))
+  await user().click(screen.getByRole('button', { name: /^1 Task has incomplete timing history$/ }))
   dialog = screen.getByRole('dialog')
   expect(dialog.textContent).toContain('First Intake timestamp is missing.')
   expect(within(dialog).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
