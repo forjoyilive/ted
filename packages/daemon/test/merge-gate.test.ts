@@ -20,7 +20,6 @@ import {
   commitStep,
   ctx,
   getTask,
-  ghCalls,
   lines,
   merges,
   readGh,
@@ -41,11 +40,6 @@ const ci = { '.github/workflows/ci.yml': 'on: pull_request\n' }
 const comments = (client: Client, task: Task) =>
   client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
 
-const githubReads = async () =>
-  (await ghCalls()).filter(
-    (c) => c.args[0] === 'api' && c.args[1] === 'graphql' && c.stdin?.includes('mergeStateStatus'),
-  )
-
 const mergeSignoff = (client: Client, task: Task) =>
   eventWait(
     client.subscribe,
@@ -59,7 +53,7 @@ const mergeSignoff = (client: Client, task: Task) =>
   )
 
 describe('Merge sign-off', () => {
-  test('TED posts the Merge sign-off only once CI passes, it still waits for the human when overnight mode turns on, and Merge merges at once', async () => {
+  test('TED posts the Merge sign-off only once CI passes, Autopilot approves the waiting request when turned on, and Merge merges at once', async () => {
     const client = await start({
       files: ci,
       workflow: ['stages:', '  merge: { gate: true }'],
@@ -103,41 +97,31 @@ describe('Merge sign-off', () => {
     expect(await merges()).toEqual([])
 
     await client.ok('PATCH', '/settings', { overnightMode: true })
-    const reads = (await githubReads()).length
-    await waitUntil(async () => (await githubReads()).length >= reads + 3, 'three more polls')
-    expect(await merges()).toEqual([])
-    expect((await getTask(client, task.id)).stage).toBe('merge')
-    const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
-    expect(merge.map((c) => [c.id, c.answer])).toEqual([[card.id, undefined]])
-    const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
-    const row = rows.find((r) => r.stage === 'merge')
-    expect(row).toMatchObject({ effective: true })
-    expect(row?.overnight).toBeUndefined()
-
-    await client.ok('POST', `/comments/${card.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'done')
+    const automatic = (await comments(client, task)).find((c) => c.id === card.id)
+    expect(automatic).toMatchObject({ autopilotAnswered: true, answer: { kind: 'approved' } })
     const done = await waitForStage(client, task, 'done')
     expect(done.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await merges()).toHaveLength(1)
     expect(await lines(client, task)).not.toContain(
-      'Overnight mode is on, so TED skipped the Merge sign-off',
+      'Autopilot is on, so TED skipped the Merge sign-off',
     )
   })
 
-  test('overnight mode merges without the Merge sign-off, and turning it off does not bring the sign-off back', async () => {
+  test('Autopilot merges without the Merge sign-off, and turning it off does not bring the sign-off back', async () => {
     const client = await start({
       files: ci,
       workflow: ['stages:', '  merge: { gate: true }'],
       merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
     })
-    const { task, signoff } = await toSignoff(client)
+    const { task } = await toSignoff(client)
     await client.ok('PATCH', '/settings', { overnightMode: true })
-    await approve(client, signoff)
     await waitUntil(async () => {
       const current = await getTask(client, task.id)
       return current.stage === 'merge' && current.status?.kind === 'waiting-for-github'
     }, 'Waiting for CI')
     expect(await lines(client, task)).toContain(
-      'Overnight mode is on, so TED skipped the Merge sign-off',
+      'Autopilot is on, so TED skipped the Merge sign-off',
     )
     await client.ok('PATCH', '/settings', { overnightMode: false })
     const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)

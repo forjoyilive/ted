@@ -381,12 +381,14 @@ export function FactorySettings({
                   </p>
                 </div>
               )}
-              {!view && !loadError && (
-                <Skeleton shape="settings" label="Loading Factory settings…" />
-              )}
               {view?.invalid && <InvalidNotice invalid={view.invalid} />}
               <GeneralSection factory={factory} />
               <LinearIntakeSection key={factory.id} factoryId={factory.id} />
+              {!view && !loadError && (
+                <div className={styles.wideSection}>
+                  <Skeleton shape="settings" label="Loading Factory settings…" />
+                </div>
+              )}
               {loadError !== undefined && (
                 <p className={styles.loadError} role="alert">
                   {loadError}

@@ -817,6 +817,12 @@ function answerLine(
 ): { mark: string; tone: string; text: string } | undefined {
   const { answer } = request
   if (!answer) return undefined
+  if (request.autopilotAnswered)
+    return {
+      mark: '✓',
+      tone: 'good',
+      text: answer.kind === 'approved' ? 'Autopilot approved' : 'Autopilot answered',
+    }
   switch (answer.kind) {
     case 'approved':
       if (answer.created) {

@@ -41,6 +41,7 @@ export {
   signRequest,
 } from './app-auth.ts'
 export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
+export { type AsanaConfiguration, type AsanaStatus, parseAsanaConfiguration } from './asana.ts'
 export type {
   AnswerAutomationRequest,
   Automation,
@@ -72,6 +73,13 @@ export {
   parseEditAutomationRequest,
   parseSchedulePreviewRequest,
 } from './automation-parsers.ts'
+export {
+  type AutopilotChoice,
+  autopilotEnabled,
+  parseSetTaskAutopilotRequest,
+  type SetTaskAutopilotRequest,
+  type TaskAutopilot,
+} from './autopilot.ts'
 export {
   type Banner,
   type BannerAction,

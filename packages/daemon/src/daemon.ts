@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { DaemonClient, type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
+import { type AsanaOptions, createAsana } from './asana/asana.ts'
 import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
@@ -63,6 +64,7 @@ export interface DaemonOptions {
   healthIntervalMs?: number
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
+  asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring }
   linear?: { apiUrl?: string; keyring?: Keyring }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   linearSyncMs?: number
@@ -172,6 +174,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
     },
     ...(options.linear?.apiUrl !== undefined && { apiUrl: options.linear.apiUrl }),
+  })
+  const asana = createAsana({
+    ...options.asana,
+    home: options.home,
+    hold: () => idle?.hold() ?? (() => undefined),
+    ...(options.clock && { clock: options.clock }),
+    keyring:
+      options.asana?.keyring ?? (await loadKeyring(process.env, process.platform, 'asana-oauth')),
   })
   const lock = acquireLock(paths.daemonLock)
   const idle =
@@ -659,6 +669,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     runTokens,
     attachments,
     linear,
+    asana,
     reposDir: paths.repos,
     appStreams: new Set(),
     onShutdown: options.onShutdown ?? (() => undefined),
@@ -678,6 +689,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     port,
     appToken,
     async stop(onStep) {
+      await asana.close()
       idle?.cancel()
       slow.close()
       profiler.close()

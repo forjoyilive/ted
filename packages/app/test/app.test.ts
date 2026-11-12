@@ -1,7 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { commitToOrigin, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
+import {
+  commitToOrigin,
+  makeOriginRepo,
+  waitForExit,
+  waitUntil,
+} from '../../daemon/test/helpers.ts'
 import {
   addFactory,
   commandOf,
@@ -376,6 +381,9 @@ describe('TED app', () => {
   }, 90_000)
 
   test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
+    const started = performance.now()
+    const reached = (step: string) =>
+      console.log(`Conversation tab: ${step} at ${Math.round(performance.now() - started)} ms`)
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     await commitToOrigin(path.join(ctx.home, 'origin'), {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
@@ -425,7 +433,10 @@ describe('TED app', () => {
       .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
       .toBe('idle')
 
+    reached('run-idle')
+
     let window = await launchApp()
+    reached('first-launch-loaded')
     await openAllTasks(window)
     await taskRow(window, 'NB-1').click()
     const details = window.getByRole('complementary', { name: 'Task details' })
@@ -481,10 +492,17 @@ describe('TED app', () => {
     await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
     await thread.getByRole('button', { name: 'View message' }).click()
     await chat.getByText('Keep pinned notes in the order they were pinned.').waitFor()
+    reached('message-delivered')
 
+    const oldDaemon = await daemonPid()
+    reached('quit-start')
     await ctx.app?.close()
     ctx.app = undefined
+    reached('quit-finished')
+    await waitForExit(oldDaemon)
+    reached('old-daemon-exited')
     window = await launchApp()
+    reached('second-launch-loaded')
     await openAllTasks(window)
     await taskRow(window, 'NB-1').click()
     await window.getByRole('tab', { name: /Task Lead/ }).click()

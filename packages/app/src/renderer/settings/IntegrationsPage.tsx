@@ -12,6 +12,7 @@ import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
+import { AsanaGroup } from './AsanaGroup.tsx'
 import { Button, SettingsGroup, SettingsPage } from './controls.tsx'
 import styles from './integrations.module.css'
 import { LinearGroup } from './LinearGroup.tsx'
@@ -126,6 +127,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
           />
         )}
       </SettingsGroup>
+      <AsanaGroup />
       <LinearGroup
         sync={settings.linearSync}
         teams={settings.linearSyncTeams}

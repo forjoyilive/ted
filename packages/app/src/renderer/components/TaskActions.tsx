@@ -368,7 +368,7 @@ export function TaskActionsMenu({
                   type="button"
                   role="menuitem"
                   className={styles.item}
-                  title="Keeps this Task stopped when Overnight mode is on. Resume still starts it."
+                  title="Keeps this Task stopped when Autopilot is on. Resume still starts it."
                   onClick={() => act(() => ted.stopTask(task.id))}
                 >
                   <span className={styles.label}>Stop Task</span>
@@ -413,7 +413,7 @@ export function TaskActionsMenu({
                   type="button"
                   role="menuitem"
                   className={styles.item}
-                  title="Restores normal Backlog behavior. Automatic starts or Overnight mode may start it immediately."
+                  title="Restores normal Backlog behavior. Automatic starts or Autopilot may start it immediately."
                   onClick={() => act(() => ted.setTaskSnooze(task.id, null))}
                 >
                   <span className={styles.label}>Cancel snooze</span>

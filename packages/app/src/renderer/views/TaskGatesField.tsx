@@ -1,17 +1,28 @@
-import type { TaskGateOverrides, TaskGates } from '@ted/protocol'
-import { useRef, useState } from 'react'
+import type { Task, TaskGateOverrides, TaskGates } from '@ted/protocol'
+import { useContext, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Loading } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
 import { stageName } from '../list-view.ts'
-import { OvernightNotice } from '../overnight.tsx'
+import { OvernightContext } from '../overnight.tsx'
 import { ted } from '../ted.ts'
 import styles from './TaskGatesField.module.css'
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-export function TaskGatesField({ taskId, factoryId }: { taskId: string; factoryId: string }) {
+export function TaskGatesField({
+  taskId,
+  factoryId,
+  task,
+}: {
+  taskId: string
+  factoryId: string
+  task?: Task
+}) {
+  const { on } = useContext(OvernightContext)
+  const automatic =
+    task?.autopilot?.choice === 'on' || ((task?.autopilot?.choice ?? 'inherit') === 'inherit' && on)
   const [draft, setDraft] = useState<TaskGateOverrides>({})
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -88,7 +99,12 @@ export function TaskGatesField({ taskId, factoryId }: { taskId: string; factoryI
       </Button>
       {open && data && (
         <section className={styles.editor} aria-label="Sign-offs for this Task">
-          <OvernightNotice />
+          {automatic && (
+            <p className={styles.note}>
+              Autopilot is on. Ordinary sign-offs are off; your saved choices apply again when
+              Autopilot is off. Required sign-offs still wait for you.
+            </p>
+          )}
           <p className={styles.note}>
             Choose where TED waits for your sign-off. Stage work stays the same.
           </p>

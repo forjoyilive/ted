@@ -26,6 +26,7 @@ import {
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AppLogView } from '../components/AppLogView.tsx'
 import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
+import { AutopilotField } from '../components/Autopilot.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -1161,9 +1162,13 @@ export function TaskDetails({
             </>
           )}
         </dd>
+        <dt>Autopilot</dt>
+        <dd>
+          <AutopilotField task={task} />
+        </dd>
         <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
-          <TaskGatesField key={task.id} taskId={task.id} factoryId={task.factoryId} />
+          <TaskGatesField key={task.id} taskId={task.id} factoryId={task.factoryId} task={task} />
         </dd>
         {factory && showsRepos(factory) && (
           <>

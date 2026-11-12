@@ -30,11 +30,11 @@ export function OvernightNotice() {
   const { on, openGeneral } = useContext(OvernightContext)
   if (!on) return null
   return (
-    <p className={sections.warning} role="status" aria-label="Overnight mode is on">
+    <p className={sections.warning} role="status" aria-label="Autopilot is on">
       <span className={sections.warnMark} aria-hidden>
         ▲
       </span>{' '}
-      Overnight mode is on. Sign-offs set here are off until you turn it off in{' '}
+      Autopilot is on. Sign-offs set here are off until you turn it off in{' '}
       <button type="button" className={base.link} onClick={openGeneral}>
         Settings → General
       </button>
