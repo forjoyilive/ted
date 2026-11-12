@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { AttachmentBytes, Automation, AutomationDetail, RunChat } from '@ted/protocol'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { DesignReviewContent } from '../src/renderer/components/DesignReview.tsx'
 import {
@@ -73,12 +73,53 @@ function view(kind: 'details' | 'run') {
   )
 }
 
+test('Automations load in a six-column table and keep loaded rows during refresh', async () => {
+  const pending = deferred<Automation[]>()
+  const api = bridge({ listAutomations: () => pending.promise, automationTemplates: () => [] })
+  render(
+    <AutomationsPage
+      factory={factory()}
+      banners={null}
+      onOpen={vi.fn()}
+      onNew={vi.fn()}
+      onOpenTask={vi.fn()}
+    />,
+  )
+  const loading = screen.getByRole('status', { name: 'Loading Automations…' })
+  const table = within(loading).getByRole('table', { hidden: true })
+  expect(table.querySelectorAll('thead th')).toHaveLength(6)
+  expect([...table.querySelectorAll('tbody tr')].map((row) => row.children.length)).toEqual([
+    6, 6, 6,
+  ])
+  expect(loading.querySelector('button, [tabindex]')).toBeNull()
+  await act(async () => pending.resolve([detail().automation]))
+  expect(screen.queryByRole('status')).toBeNull()
+  expect(screen.getAllByRole('columnheader')).toHaveLength(6)
+  const refresh = deferred<Automation[]>()
+  api.handle('listAutomations', () => refresh.promise)
+  act(() => api.emit({ type: 'automation-updated', automationId: 'automation-a' }))
+  expect(screen.getByRole('button', { name: 'Weekly triage' })).toBeTruthy()
+  expect(screen.queryByRole('status')).toBeNull()
+  await act(async () => refresh.resolve([detail().automation]))
+})
+
 for (const kind of ['details', 'run'] as const) {
   test(`${kind}: initial Automation failure offers retry and recovers without claiming deletion`, async () => {
     const pending = deferred<AutomationDetail>()
     const api = bridge({ getAutomation: () => pending.promise, getRunChat: chat })
     render(view(kind))
     expect(screen.getByRole('status')).toBeTruthy()
+    if (kind === 'details') {
+      expect(screen.getByRole('heading', { name: 'History' })).toBeTruthy()
+      const loading = screen.getByRole('status', { name: 'Loading Automation…' })
+      const table = within(loading).getByRole('table', { hidden: true })
+      expect(table.querySelectorAll('thead th')).toHaveLength(4)
+      expect([...table.querySelectorAll('tbody tr')].map((row) => row.children.length)).toEqual([
+        4, 4, 4,
+      ])
+      expect(screen.queryByRole('button', { name: 'Run now' })).toBeNull()
+      expect(screen.queryByRole('switch')).toBeNull()
+    }
     expect(screen.getByRole('button', { name: '← Automations' })).toBeTruthy()
     await act(async () => pending.reject(new Error('Temporary Automation failure')))
     expect(screen.getByRole('alert').textContent).toContain('Temporary Automation failure')
