@@ -7,7 +7,7 @@ import { Button } from './Button.tsx'
 import { CopyIcon } from './icons.tsx'
 import styles from './Markdown.module.css'
 
-function CodeBlock({ children }: { children: ReactNode }) {
+function CodeBlock({ children }: { children?: ReactNode }) {
   const pre = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)
   const [copying, setCopying] = useState(false)
