@@ -1087,7 +1087,7 @@ test.skipIf(!realAntigravity)(
       expect(injected).toBe(true)
       expect(
         JSON.stringify({ requests: requests.slice(beforeInjection), messages: nativeMessages }),
-      ).toMatch(/unknown tool[^]*manage_task/i)
+      ).toMatch(/unknown tool.*manage_task/is)
       expect(nativeMessages.some((m) => m.method === 'session/request_permission')).toBe(false)
       for (const request of requests) expect(request.tools ?? []).toEqual([])
       await expect(access(marker)).rejects.toThrow()
