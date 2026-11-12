@@ -251,11 +251,11 @@ function BriefSections({ text, title }: { text: string; title: string }) {
     )
     .filter((section) => section.body !== '')
   return (
-    <div className={styles.content}>
+    <div className={styles.details}>
       {sections.map(({ heading, body }) => (
         <section key={heading} className={styles.section} aria-label={heading}>
           <h3 className={styles.sectionHeading}>{heading}</h3>
-          <Markdown className={styles.sectionBody} text={body} />
+          <Markdown text={body} />
         </section>
       ))}
     </div>
@@ -328,17 +328,11 @@ function SignoffDecisions({ text }: { text: string }) {
   const open = body('open questions')
   return (
     <>
-      <section className={styles.content} aria-label="Decisions so far">
+      <section className={styles.section} aria-label="Decisions so far">
         <h3 className={styles.sectionHeading}>Decisions so far</h3>
-        {decisions === '' ? (
-          <p className={styles.sectionBody}>None yet.</p>
-        ) : (
-          <Markdown text={decisions} />
-        )}
+        <Markdown text={decisions === '' ? 'None yet.' : decisions} />
       </section>
-      <div className={styles.openQuestions}>
-        <Markdown text={`Open questions: ${open === '' ? 'none.' : open}`} />
-      </div>
+      <Markdown text={`Open questions: ${open === '' ? 'none.' : open}`} />
     </>
   )
 }
