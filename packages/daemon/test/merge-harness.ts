@@ -42,7 +42,8 @@ export async function cleanupMergeHarness(
   report: (event: MergeCleanupEvent) => void = (event) =>
     console.error('[merge-cleanup]', JSON.stringify(event)),
 ): Promise<void> {
-  if (!ctx.home) return
+  const { home, scratch, daemon, cleanup, ghState, ghLog } = ctx
+  if (!home) return
   let active: { step: string; since: number } | undefined
   const finish = (state: 'end' | 'failed') => {
     if (active)
@@ -60,19 +61,17 @@ export async function cleanupMergeHarness(
   }
   try {
     begin('daemon')
-    await ctx.daemon?.stop((step) => begin(`daemon.${step}`))
-    ctx.daemon = undefined
+    await daemon?.stop((step) => begin(`daemon.${step}`))
+    if (ctx.daemon === daemon) ctx.daemon = undefined
     begin('run-hosts')
-    await killRunHosts(ctx.home)
-    delete process.env.TED_STUB_GH
-    delete process.env.TED_STUB_GH_LOG
+    await killRunHosts(home)
+    if (process.env.TED_STUB_GH === ghState) delete process.env.TED_STUB_GH
+    if (process.env.TED_STUB_GH_LOG === ghLog) delete process.env.TED_STUB_GH_LOG
     begin('home')
-    await ctx.cleanup()
+    await cleanup()
     begin('scratch')
-    await rm(ctx.scratch, { recursive: true, force: true })
+    await rm(scratch, { recursive: true, force: true })
     finish('end')
-    ctx.home = ''
-    ctx.scratch = ''
   } catch (error) {
     finish('failed')
     throw error

@@ -64,35 +64,88 @@ include both final persistence and LiveStore shutdown; home timings include the
 existing process sweep as well as folder removal. A future capture at either
 boundary can justify narrower instrumentation without attributing it prematurely.
 
+## Cleanup ownership
+
+Cleanup captures its original daemon, home, scratch folder and removal callback
+before its first await. It clears the daemon reference only if that daemon is
+still current, and clears fixture environment values only if they still refer
+to the original fixture. It leaves the stored paths intact. A late cleanup
+therefore cannot switch to a replacement test’s resources or blank its paths.
+
+This matters when a hook times out: its asynchronous cleanup can continue after
+Vitest starts the next test. Validation of the first implementation exposed
+that overlap. That implementation read mutable context after waiting and added
+empty-path resets; those resets were removed. This is a defect found in this
+Task’s first implementation, not evidence of the original KRI-340 cause.
+
 ## Deterministic verification
 
-The new case in `merge-gate.test.ts` uses the real daemon and existing
-`beforeMerge` seam with a promise controlled by the test. It starts harness
-cleanup while the merge is held, verifies the last boundary is
-`daemon.services`, verifies no Run host cleanup has started and verifies both
-folders remain. Releasing the merge permits normal shutdown and store close.
+`merge-cleanup.test.ts` tests the existing harness cleanup boundary without
+starting a full Task and walking its Stages. Its first case holds the daemon
+stop contract with a controlled promise and starts a real idle Node child,
+recorded as a fixture Run host. While shutdown is held, the child and both
+folders must remain, and diagnostics must identify `daemon.services` as pending.
+Releasing shutdown must kill the fixture host through the existing
+`killRunHosts` helper. A second hold at the home-removal callback must change the
+reported waiting boundary to `home` while retaining both folders. Releasing it
+must finish normal folder removal. This test controls the stop contract; it
+does not simulate or claim to verify LiveStore’s internal persistence timing.
 
-The same case then holds the home-cleanup callback. The reported boundary must
-change to `home`, with store close and Run host cleanup completed and scratch
-still present. Releasing that hold must finish the original cleanup, remove
-both folders and leave no process marked with that home. Holds are released in
-`finally`; waits for boundary entry use the existing bounded event helper.
-There are no injected sleeps, timeout increases, deletion retries, skipped
-cleanup, lock changes or worker-cap changes. Existing removal helpers retain
-their existing behavior.
+The second case replaces the shared context while old shutdown is held. Old
+cleanup must remove its own folders while retaining the newer folders, daemon,
+removal callback and environment values. The newer cleanup must then remove its
+own folders. This case would catch the ownership defect independently of
+machine load or an actual hook timeout.
 
-The regression has a different setup from existing Merge behavior cases: it
-deliberately keeps a real merge in flight across daemon shutdown. No additional
-daemon is started to repeat CI/Gate assertions already covered by the watcher.
+Holds are released in `finally`; boundary entry uses the existing bounded event
+helper, and the owned child is reaped. There are no injected cleanup sleeps,
+timeout increases, deletion retries, skipped cleanup, lock changes or worker-cap
+changes. The child’s idle interval keeps that fixture alive; it is not a delay
+used to order cleanup. The real merge harness still uses its original
+`makeTempHome` removal callback and process sweep.
 
-Work did not run test files, in accordance with this Factory’s Stage rules.
-Validate should run these three affected files in one command:
+These two focused setups differ from existing Merge behavior cases: one owns a
+controlled shutdown boundary and host, and one deliberately replaces the
+context during shutdown. Neither needs a daemon or a Task Lead just to test
+harness ownership. Existing integration cases exercise the actual daemon/data
+close observers; watcher cases preserve no-check / Keep waiting / Merge anyway
+behavior.
+
+## Validation history and remaining coverage
+
+The first Validate visit checked cbdf9ec3 after Typecheck and Lint passed. The
+new full-Task regression timed out at 30 seconds, with its afterEach exceeding
+10 seconds. The completed three-file run finished with 31 failed and 30 passed
+tests in 569.01 seconds. Old cleanup records continued during later tests.
+Several watcher and data tests also failed, including hook timeouts and final
+event persistence timeouts. Do not erase that failure history or treat the
+first regression as passed.
+
+The same three files passed all 60 tests on source snapshot 84ec6d1c in 151.80
+seconds. The base lacks the new regression. Both completed runs used the normal
+shared lock outside the sandbox. They occurred at different times with no
+controlled background workload; the comparison does not by itself establish a
+cause. An earlier sandbox-limited branch attempt was interrupted, and an
+initial base snapshot attempt collected no tests until workspace dependency
+links were supplied. Those tooling attempts are not passing evidence.
+
+The first reviewer reported no blocking Findings. Subsequent Task Lead
+verification and inspection found the new regression failure and cleanup
+ownership defect, and sent the Task back to Work. The report and test changes
+now address those Findings but require fresh Validate verification. Work ran no
+test files. Logs and Findings are preserved under
+`.suite-measurements/ted-205/` and attached to the Task. Temporary snapshot and
+fixture artifacts captured by TED’s checkpoint were removed from the branch.
+
+Next Validate should run the three files covering the riskiest behavior:
 
 ```sh
-pnpm vitest run packages/daemon/test/merge-gate.test.ts packages/daemon/test/merge-watcher.test.ts packages/daemon/test/data.test.ts
+pnpm vitest run packages/daemon/test/merge-cleanup.test.ts packages/daemon/test/merge-gate.test.ts packages/daemon/test/merge-watcher.test.ts
 ```
 
-These cover the new lifecycle regression, existing Merge sign-offs and CI-stuck
-behavior, and the data lifecycle changed by the optional observer. Factory
-Typecheck and Lint run at handoff. Validation results belong in the Task brief
-and thread; this report describes the implementation and its evidence limits.
+These cover the focused lifecycle regressions, real Merge integration cleanup
+and CI-stuck decisions. `data.test.ts` remains additional coverage beyond the
+Factory’s three-file limit for one visit; its earlier failures remain recorded,
+and later full validation by the user or merge remains necessary. Factory
+Typecheck and Lint run at handoff. Fresh validation results belong in the Task
+brief and thread.
