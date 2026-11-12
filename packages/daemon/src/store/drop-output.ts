@@ -190,7 +190,7 @@ async function flush(file: string): Promise<void> {
   }
 }
 
-// ADR 0121: run only with the store closed, when the state is about to be rebuilt from the
+// ADR 0122: run only with the store closed, when the state is about to be rebuilt from the
 // event log. Every state file, of any schema, goes before the renumbered log is in place.
 export async function dropSupersededOutput(
   directory: string,
