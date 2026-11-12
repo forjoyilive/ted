@@ -11,7 +11,7 @@ import styles from './TaskGatesField.module.css'
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-export function TaskGatesField({ taskId }: { taskId: string }) {
+export function TaskGatesField({ taskId, factoryId }: { taskId: string; factoryId: string }) {
   const [draft, setDraft] = useState<TaskGateOverrides>({})
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -26,7 +26,7 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
     event: (event) =>
       (event.type === 'task-updated' && event.task.id === taskId) ||
       event.type === 'library-changed' ||
-      event.type === 'factory-updated'
+      (event.type === 'factory-updated' && event.factory.id === factoryId)
         ? 'reload'
         : undefined,
     changed: (next) => {

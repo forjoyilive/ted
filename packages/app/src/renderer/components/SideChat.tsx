@@ -8,6 +8,9 @@ import { Button } from './Button.tsx'
 import { type ChatOptions, ChatSection } from './RunChat.tsx'
 import styles from './SideChat.module.css'
 
+const outputEveryMs = 1_000
+const slotsEveryMs = 500
+
 type Props = {
   runId: string | undefined
   onStopTask?: (() => void) | undefined
@@ -41,14 +44,16 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
     key: runId ?? '',
     enabled: eligible,
     load: () => (runId === undefined ? Promise.resolve(null) : ted.getSideChat(runId)),
-    event: (event) =>
-      (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
-      (event.type === 'run-output' && event.runId === sideId.current) ||
-      (event.type === 'run-updated' && event.run.id === sideId.current) ||
-      event.type === 'agent-health-changed' ||
-      event.type === 'slots-changed'
+    event: (event) => {
+      if (event.type === 'run-output' && event.runId === sideId.current)
+        return event.lines ? outputEveryMs : 'reload'
+      if (event.type === 'slots-changed') return slotsEveryMs
+      return (event.type === 'side-chat-changed' && event.sourceRunId === runId) ||
+        (event.type === 'run-updated' && event.run.id === sideId.current) ||
+        event.type === 'agent-health-changed'
         ? 'reload'
-        : undefined,
+        : undefined
+    },
     error: (failed) => setError(readableError(failed)),
   })
   sideId.current = side?.id
