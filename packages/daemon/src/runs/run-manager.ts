@@ -26,6 +26,7 @@ import type {
   RunState,
 } from '@ted/protocol'
 import { filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { chatToolPolicy } from '@ted/protocol/run'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -561,7 +562,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(run.effort !== undefined && { effort: run.effort }),
       permissions,
       ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
-        tools: 'none' as const,
+        tools: chatToolPolicy(run.agent),
       }),
       billing: billingOf(run.agent),
     })
@@ -786,7 +787,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...(effort !== undefined && { effort }),
           permissions,
           ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
-            tools: 'none' as const,
+            tools: chatToolPolicy(kind),
           }),
           billing: billingOf(kind),
         })
@@ -856,7 +857,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...(choice.effort !== undefined && { effort: choice.effort }),
           permissions,
           ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
-            tools: 'none' as const,
+            tools: chatToolPolicy(run.agent),
           }),
           billing: billingOf(run.agent),
         })
@@ -934,7 +935,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...(flags.effort !== undefined && { effort: flags.effort }),
             permissions,
             ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
-              tools: 'none' as const,
+              tools: chatToolPolicy(run.agent),
             }),
             billing: billingOf(run.agent),
           })

@@ -135,7 +135,7 @@ export interface Agent {
     model?: string
     effort?: Effort
     permissions: PermissionMode
-    tools?: 'none'
+    tools?: 'none' | 'isolated'
     billing?: Billing
   }): AgentLaunch
   message(text: string): string

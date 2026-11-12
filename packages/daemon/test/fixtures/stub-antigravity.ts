@@ -33,5 +33,43 @@ for await (const line of createInterface({ input: process.stdin })) {
         : message.method === 'session/prompt'
           ? { stopReason: 'end_turn' }
           : {}
+  if (message.method === 'session/prompt') {
+    const sessionId = message.params.sessionId
+    if (process.cwd().endsWith('/antigravity-text-only')) {
+      send({
+        method: 'session/update',
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: 'tool_call',
+            toolCallId: 'task-list',
+            title: 'manage_task',
+            kind: 'other',
+          },
+        },
+      })
+      send({
+        method: 'session/update',
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'task-list',
+            status: 'completed',
+          },
+        },
+      })
+    }
+    send({
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'Supplied context reply.' },
+        },
+      },
+    })
+  }
   if (message.id !== undefined && message.method !== undefined) send({ id: message.id, result })
 }

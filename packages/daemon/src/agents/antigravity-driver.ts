@@ -6,6 +6,7 @@ import { list, parseObject, record, str } from './chat-entries.ts'
 export interface AntigravityPlan {
   prompt: string
   textOnly?: boolean
+  isolated?: boolean
   resume?: string
   billing: Billing
   model?: string
@@ -157,7 +158,6 @@ export const drive: DriveAgent = ({ input, cwd, send, stop, emit }) => {
     const params = {
       cwd,
       mcpServers: [],
-      ...(plan.textOnly && { _meta: { disableBuiltInTools: true } }),
       ...(plan.resume !== undefined && { sessionId: plan.resume }),
     }
     if (plan.resume !== undefined && record(caps.sessionCapabilities).resume === undefined)
@@ -235,6 +235,7 @@ export const drive: DriveAgent = ({ input, cwd, send, stop, emit }) => {
         message.method === 'session/request_permission' &&
         params.sessionId === sessionId &&
         !plan.textOnly &&
+        !plan.isolated &&
         ready &&
         !interrupted
       ) {

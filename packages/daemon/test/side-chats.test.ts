@@ -1,8 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type Factory, type SideChat, type Task, tedPaths } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { fileURLToPath } from 'node:url'
+import {
+  type AutomationPromptDraft,
+  type Factory,
+  type SideChat,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -36,13 +43,17 @@ afterEach(async () => {
   await killRunHosts(home)
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
+  vi.unstubAllEnvs()
 })
-async function start() {
+async function start(antigravity = false) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
+    ...(antigravity && {
+      antigravityBin: fileURLToPath(new URL('./fixtures/stub-antigravity.ts', import.meta.url)),
+    }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -244,4 +255,76 @@ test('queues every side turn, releases its slot on stop, retries and refuses too
     return c.state === 'failed' ? c : undefined
   }, 'empty answer refused')
   expect(empty.error).toContain('empty')
+})
+
+test('Antigravity Side chats and Automation drafts complete with visible isolated tool activity', async () => {
+  vi.stubEnv('GEMINI_API_KEY', 'local-stub-only')
+  let client = await start(true)
+  await client.ok('PATCH', '/settings', {
+    billing: { claude: 'subscription', codex: 'subscription', antigravity: 'api-key' },
+  })
+  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const created = await client.ok<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: 'Antigravity source',
+    lead: { agent: 'antigravity' },
+    start: true,
+  })
+  const task = await waitUntil(async () => {
+    const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === created.id)
+    return current?.runs[0]?.state === 'idle' ? current : undefined
+  }, 'Antigravity source idle')
+  const route = `/runs/${task.leadRunId}/side-chat`
+  const side = await client.ok<SideChat>('POST', route)
+  await client.ok('POST', `${route}/messages`, { text: 'Explain the supplied context.' })
+  const ready = await waitUntil(async () => {
+    const value = await client.ok<SideChat>('GET', route)
+    if (value.state === 'failed') throw new Error(JSON.stringify(value))
+    return value.state === 'ready' && value.chat.items.some((item) => item.kind === 'tool')
+      ? value
+      : undefined
+  }, 'isolated Side chat tool reply')
+  expect(ready.chat.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: 'tool', status: 'done' }),
+      expect.objectContaining({ kind: 'agent', text: 'Supplied context reply.' }),
+    ]),
+  )
+  const launch = JSON.parse(await readFile(path.join(home, 'runs', side.id, 'launch.json'), 'utf8'))
+  expect(JSON.parse(launch.input)).toMatchObject({ isolated: true })
+  expect(launch.args).not.toContain('--dangerously-skip-permissions')
+  await daemon?.stop()
+  client = await start(true)
+  expect((await client.ok<SideChat>('GET', route)).chat.items).toEqual(ready.chat.items)
+  await client.ok('POST', `${route}/messages`, { text: 'Continue.' })
+  await waitUntil(async () => {
+    const value = await client.ok<SideChat>('GET', route)
+    if (value.state === 'failed') throw new Error(JSON.stringify(value))
+    return value.state === 'ready' ? true : undefined
+  }, 'recovered isolated Side chat')
+  const sessions = (
+    await readFile(path.join(launch.cwd, 'stub-antigravity-workspaces.jsonl'), 'utf8')
+  )
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  expect(sessions.some((session) => session.method === 'session/resume')).toBe(true)
+  const draft = await client.ok<AutomationPromptDraft>('POST', '/automation-prompt-drafts', {
+    factory: 'NB',
+    agent: 'antigravity',
+    request: 'Write instructions using supplied context.',
+  })
+  const result = await waitUntil(async () => {
+    const value = await client.ok<AutomationPromptDraft>(
+      'GET',
+      `/automation-prompt-drafts/${draft.id}`,
+    )
+    if (value.state === 'failed') throw new Error(JSON.stringify(value))
+    return value.state === 'ready' ? value : undefined
+  }, 'isolated Automation draft')
+  expect(result.prompt).toBe('Supplied context reply.')
+  expect(result.chat?.items).toEqual(
+    expect.arrayContaining([expect.objectContaining({ kind: 'tool', status: 'done' })]),
+  )
+  expect(result.chat?.items.every((item) => item.kind === 'tool')).toBe(true)
 })

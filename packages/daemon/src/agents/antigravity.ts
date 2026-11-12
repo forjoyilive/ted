@@ -5,7 +5,7 @@ import { withoutCredentials } from './agent.ts'
 import { antigravityChat, antigravityChatFrom } from './antigravity-chat.ts'
 import type { AntigravityPlan } from './antigravity-driver.ts'
 import { antigravityHealth } from './antigravity-health.ts'
-import { antigravityTextOnly } from './antigravity-text-only.ts'
+import { antigravityIsolatedChat } from './antigravity-text-only.ts'
 import { list, parseObject, record, str } from './chat-entries.ts'
 
 const driver = fileURLToPath(new URL('./antigravity-driver.ts', import.meta.url))
@@ -73,7 +73,11 @@ export function antigravityAgent(binary: string): Agent {
       billing = 'subscription',
       tools,
     }) {
-      const restricted = tools === 'none' ? antigravityTextOnly(runDir) : undefined
+      if (tools === 'none')
+        throw new Error(
+          'Antigravity cannot guarantee tool-free chats. Use the isolated chat policy.',
+        )
+      const restricted = tools === 'isolated' ? antigravityIsolatedChat(runDir) : undefined
       if (model !== undefined && !isModelName(model))
         throw new Error(`“${model}” isn’t a model name`)
       if (billing === 'api-key' && !env.GEMINI_API_KEY)
@@ -84,7 +88,7 @@ export function antigravityAgent(binary: string): Agent {
         prompt,
         billing,
         clientVersion: tedVersion,
-        ...(restricted && { textOnly: true }),
+        ...(restricted && { isolated: true }),
         ...(resume !== undefined && { resume }),
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),

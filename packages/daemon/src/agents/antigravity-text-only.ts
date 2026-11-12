@@ -3,7 +3,7 @@ import path from 'node:path'
 const name = 'ted-text-only'
 const agent = `---
 name: ${name}
-description: Answer using only the supplied conversation context.
+description: Answer using the supplied conversation context. Do not run commands, access files or contact services.
 tools: []
 excludeDefaultComponents: true
 inheritCustomizations: false
@@ -14,10 +14,10 @@ mainAgent: true
 subagent: false
 commandExecutionPolicy: "off"
 ---
-Answer using only the supplied conversation context.
+Answer using the supplied conversation context. Do not run commands, access files or contact services.
 `
 
-export function antigravityTextOnly(runDir: string) {
+export function antigravityIsolatedChat(runDir: string) {
   const profile = path.join(runDir, 'antigravity-isolated')
   const cwd = path.join(runDir, 'antigravity-text-only')
   const settings = {

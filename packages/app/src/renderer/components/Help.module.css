@@ -45,3 +45,8 @@
   box-shadow: 0 4px 6px var(--shadow-popover);
   white-space: normal;
 }
+
+.end {
+  left: auto;
+  right: 0;
+}

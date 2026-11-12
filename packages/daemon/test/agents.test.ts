@@ -556,19 +556,11 @@ test.each([undefined, 'session'])(
   },
 )
 
-test.each([undefined, 'session'])(
-  'Antigravity disables built-in tools before creating or recovering a tool-free session: %s',
-  async (resume) => {
-    const method = resume ? 'session/resume' : 'session/new'
-    for (const textOnly of [true, false]) {
-      const h = antigravityHarness({ prompt: '', textOnly, ...(resume && { resume }) })
-      await vi.waitFor(() => expect(h.sent.some((message) => message.method === method)).toBe(true))
-      expect(h.sent.find((message) => message.method === method)?.params?._meta).toEqual(
-        textOnly ? { disableBuiltInTools: true } : undefined,
-      )
-    }
-  },
-)
+test('Antigravity refuses a strict tool-free launch rather than weakening its contract', () => {
+  expect(() => antigravityAgent('/nowhere/agy').launch({ ...run, tools: 'none' })).toThrow(
+    'cannot guarantee tool-free',
+  )
+})
 
 describe('Antigravity', () => {
   const agent = antigravityAgent('/nowhere/agy')
@@ -852,12 +844,12 @@ test('Antigravity accepts advertised model slugs with an effort suffix', async (
 })
 
 test.each([undefined, 'session'])(
-  'Antigravity isolates tool-free Runs on new and resumed sessions: %s',
+  'Antigravity isolates chat Runs on new and resumed sessions: %s',
   (resume) => {
     const agent = antigravityAgent('/nowhere/agy')
     const launch = agent.launch({
       ...run,
-      tools: 'none',
+      tools: 'isolated',
       permissions: 'bypass',
       ...(resume !== undefined && { resume }),
     })
@@ -871,7 +863,7 @@ test.each([undefined, 'session'])(
       ]),
     )
     expect(launch.cwd).toBe('/tmp/run/antigravity-text-only')
-    expect(JSON.parse(launch.input)).toMatchObject({ textOnly: true })
+    expect(JSON.parse(launch.input)).toMatchObject({ isolated: true })
     const settings = JSON.parse(
       launch.files['antigravity-isolated/antigravity-cli/settings.json'] ?? '{}',
     )
@@ -931,11 +923,47 @@ test('Antigravity cancels every tool permission in a tool-free Run and stops on 
   h.complete()
 })
 
+test.each([undefined, 'session'])(
+  'Antigravity isolated chats retain tool activity and cancel permissions: %s',
+  async (resume) => {
+    const h = antigravityHarness({ isolated: true, ...(resume && { resume }) })
+    await vi.waitFor(() => expect(h.sent.some((m) => m.method === 'session/prompt')).toBe(true))
+    h.update({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'list',
+      title: 'manage_task',
+      kind: 'other',
+    })
+    h.update({ sessionUpdate: 'tool_call_update', toolCallId: 'list', status: 'completed' })
+    expect(h.stop).not.toHaveBeenCalled()
+    h.driver.onLine(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'denied',
+        method: 'session/request_permission',
+        params: { sessionId: 'session', options: [{ optionId: 'allow', kind: 'allow_once' }] },
+      }),
+    )
+    expect(h.sent.find((message) => message.id === 'denied')?.result).toEqual({
+      outcome: { outcome: 'cancelled' },
+    })
+    expect(h.events.some((line) => JSON.parse(line).ted_antigravity === 'permission')).toBe(false)
+    h.complete()
+    await vi.waitFor(() => expect(h.events.at(-1)).toContain('idle'))
+    expect(
+      antigravityAgent('/nowhere/agy').chat(
+        h.events.map((line, offset) => ({ line, offset })),
+        '/task-worktree',
+      ),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool', status: 'done' })]))
+  },
+)
+
 const realAntigravity = process.env.TED_REAL_ANTIGRAVITY_BIN
 
-test.skipIf(!realAntigravity)(
-  'native Antigravity tool-free profile excludes tools and inherited hooks while retaining model replies',
-  async () => {
+test.skipIf(!realAntigravity).each([false, true])(
+  'native Antigravity isolated chat exposes only task management and completes tool use (recovered: %s)',
+  async (recover) => {
     if (!realAntigravity) throw new Error('Missing native CLI path')
     const root = await mkdtemp(path.join(tmpdir(), 'ted-agy-text-only-'))
     const marker = path.join(root, 'hook-ran')
@@ -990,37 +1018,66 @@ test.skipIf(!realAntigravity)(
         env: { ...process.env, HOME: root, GEMINI_API_KEY: 'local-fixture-only' },
         billing: 'api-key',
         permissions: 'bypass',
-        tools: 'none',
+        tools: 'isolated',
       })
       for (const [name, content] of Object.entries(launch.files)) {
         const file = path.join(runDir, name)
         await mkdir(path.dirname(file), { recursive: true })
         await writeFile(file, content)
       }
-      // The native CLI talks only to this fixture; no Google key or model endpoint is used.
-      child = spawn(launch.command, launch.args, {
-        cwd: launch.cwd ?? runDir,
-        env: { ...launch.env, GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${address.port}` },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-      closed = once(child, 'close')
-      const events: string[] = []
-      child.stdin?.on('error', () => {})
-      child.stderr?.resume()
-      const running = child
-      const driver = drive({
-        cwd: launch.cwd ?? runDir,
-        input: launch.input,
-        send: (line) => running.stdin?.write(`${line}\n`),
-        emit: (line) => events.push(line),
-        stop: () => {
-          running.kill('SIGTERM')
-        },
-      })
-      if (!child.stdout) throw new Error('Missing native CLI output')
-      const lines = createInterface({ input: child.stdout })
-      const onLine = (line: string) => driver.onLine(line)
-      lines.on('line', onLine)
+      function connect(resume?: string) {
+        // The native CLI talks only to this fixture; no Google key or model endpoint is used.
+        const running = spawn(launch.command, launch.args, {
+          cwd: launch.cwd ?? runDir,
+          env: { ...launch.env, GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${address.port}` },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+        child = running
+        closed = once(running, 'close')
+        const events: string[] = []
+        running.stdin?.on('error', () => {})
+        running.stderr?.resume()
+        const driver = drive({
+          cwd: launch.cwd ?? runDir,
+          input:
+            resume === undefined
+              ? launch.input
+              : JSON.stringify({ ...JSON.parse(launch.input), resume }),
+          send: (line) => running.stdin?.write(`${line}\n`),
+          emit: (line) => events.push(line),
+          stop: () => {
+            running.kill('SIGTERM')
+          },
+        })
+        if (!running.stdout) throw new Error('Missing native CLI output')
+        const lines = createInterface({ input: running.stdout })
+        lines.on('line', (line) => driver.onLine(line))
+        return { events, driver, lines }
+      }
+      let connected = connect()
+      if (recover) {
+        await vi.waitFor(
+          () => {
+            const failure = connected.events.find(
+              (line) => JSON.parse(line).ted_antigravity === 'error',
+            )
+            if (failure) throw new Error(failure)
+            expect(
+              connected.events.some((line) => JSON.parse(line).ted_antigravity === 'completed'),
+            ).toBe(true)
+          },
+          { timeout: 30_000, interval: 50 },
+        )
+        const session = connected.events
+          .map((line) => JSON.parse(line))
+          .find((event) => event.sessionId)
+        expect(session?.sessionId).toBeTruthy()
+        connected.lines.close()
+        child?.kill('SIGTERM')
+        await closed
+        connected = connect(session.sessionId)
+      }
+      const { events, driver, lines } = connected
       await vi.waitFor(
         () => {
           const failure = events.find((line) => JSON.parse(line).ted_antigravity === 'error')
@@ -1030,7 +1087,20 @@ test.skipIf(!realAntigravity)(
         { timeout: 30_000, interval: 50 },
       )
       expect(requests.length).toBeGreaterThan(0)
-      for (const request of requests) expect(request.tools ?? []).toEqual([])
+      for (const request of requests) {
+        const tools = request.tools as {
+          functionDeclarations?: {
+            name: string
+            parametersJsonSchema: { properties: { Action: { enum: string[] } } }
+          }[]
+        }[]
+        expect(
+          tools.flatMap((tool) => tool.functionDeclarations?.map((fn) => fn.name) ?? []),
+        ).toEqual(['manage_task'])
+        expect(
+          tools[0]?.functionDeclarations?.[0]?.parametersJsonSchema.properties.Action.enum.toSorted(),
+        ).toEqual(['kill', 'list', 'send_input', 'status'])
+      }
       expect(events.some((line) => JSON.parse(line).update?.sessionUpdate === 'tool_call')).toBe(
         false,
       )
@@ -1048,48 +1118,48 @@ test.skipIf(!realAntigravity)(
           }),
         ]),
       )
-      // Bypass TED’s stop-on-tool guard so only native dispatch can reject the forged call.
-      lines.off('line', onLine)
-      const nativeMessages: Record<string, unknown>[] = []
-      lines.on('line', (line) => {
-        const message = JSON.parse(line)
-        nativeMessages.push(message)
-        if (message.method === 'session/request_permission')
-          running.stdin?.write(
-            `${JSON.stringify({
-              jsonrpc: '2.0',
-              id: message.id,
-              result: { outcome: { outcome: 'cancelled' } },
-            })}\n`,
-          )
-      })
-      const session = events.map((line) => JSON.parse(line)).find((e) => e.sessionId)
-      expect(session?.sessionId).toBeTruthy()
       injectTool = true
       const beforeInjection = requests.length
-      running.stdin?.write(
-        `${JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'tool-isolation-probe',
-          method: 'session/prompt',
-          params: {
-            sessionId: session.sessionId,
-            prompt: [{ type: 'text', text: 'Reply using supplied context only.' }],
-          },
-        })}\n`,
-      )
+      const beforeEvents = events.length
+      driver.onInput?.(JSON.stringify({ text: 'Reply using supplied context only.' }))
       await vi.waitFor(
         () => {
-          expect(nativeMessages.some((message) => message.id === 'tool-isolation-probe')).toBe(true)
+          const turn = events.slice(beforeEvents).map((line) => JSON.parse(line))
+          expect(turn.find((event) => event.ted_antigravity === 'error')).toBeUndefined()
+          expect(turn.some((event) => event.ted_antigravity === 'completed')).toBe(true)
         },
         { timeout: 30_000, interval: 50 },
       )
       expect(injected).toBe(true)
+      const afterInjection = JSON.stringify(requests.slice(beforeInjection))
+      expect(afterInjection).toContain('functionResponse')
+      expect(afterInjection).toContain('manage_task')
+      expect(afterInjection).not.toMatch(/unknown tool/i)
       expect(
-        JSON.stringify({ requests: requests.slice(beforeInjection), messages: nativeMessages }),
-      ).toMatch(/unknown tool.*manage_task/is)
-      expect(nativeMessages.some((m) => m.method === 'session/request_permission')).toBe(false)
-      for (const request of requests) expect(request.tools ?? []).toEqual([])
+        events
+          .slice(beforeEvents)
+          .some((line) => JSON.parse(line).update?.sessionUpdate === 'tool_call'),
+      ).toBe(true)
+      expect(
+        agent.chat(
+          events.map((line, offset) => ({ line, offset })),
+          launch.cwd ?? runDir,
+        ),
+      ).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool', status: 'done' })]))
+      for (const request of requests) {
+        const tools = request.tools as {
+          functionDeclarations?: {
+            name: string
+            parametersJsonSchema: { properties: { Action: { enum: string[] } } }
+          }[]
+        }[]
+        expect(
+          tools.flatMap((tool) => tool.functionDeclarations?.map((fn) => fn.name) ?? []),
+        ).toEqual(['manage_task'])
+        expect(
+          tools[0]?.functionDeclarations?.[0]?.parametersJsonSchema.properties.Action.enum.toSorted(),
+        ).toEqual(['kill', 'list', 'send_input', 'status'])
+      }
       await expect(access(marker)).rejects.toThrow()
       lines.close()
     } finally {
@@ -1110,5 +1180,5 @@ test.skipIf(!realAntigravity)(
       await rm(root, { recursive: true, force: true })
     }
   },
-  75_000,
+  105_000,
 )

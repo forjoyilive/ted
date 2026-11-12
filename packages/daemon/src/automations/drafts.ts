@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { AutomationPromptDraft, DraftAutomationPromptRequest, SlotHolder } from '@ted/protocol'
+import { chatToolPolicy } from '@ted/protocol/run'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
+import { chatItems } from '../runs/conversations.ts'
 import type { StoredAutomationDraft } from '../store/automation-drafts.ts'
 import type { QueueSource } from '../tasks/queue.ts'
 import { removeInside } from '../tasks/remove-files.ts'
@@ -42,8 +44,32 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     state: draft.state,
     ...(draft.prompt !== undefined && { prompt: draft.prompt }),
     ...(draft.error !== undefined && { error: draft.error }),
+    ...toolActivity(draft.id),
     ...(active(draft) && paused(draft) && { paused: paused(draft) }),
   })
+  function toolActivity(id: string): Pick<AutomationPromptDraft, 'chat'> {
+    const run = store.getRun(id)
+    if (!run || chatToolPolicy(run.agent) !== 'isolated') return {}
+    const entries = agents.get(run.agent).chat(runs.output.entries(id), run.cwd)
+    const items = chatItems({ run, entries, messages: [], preamble: '' }).filter(
+      (item) => item.kind === 'tool',
+    )
+    if (items.length === 0) return {}
+    return {
+      chat: {
+        run: {
+          id: run.id,
+          name: 'Draft Automation Prompt',
+          role: 'run',
+          agent: run.agent,
+          state: run.state,
+          current: false,
+          startedAt: run.startedAt,
+        },
+        items,
+      },
+    }
+  }
   function changed() {
     const pending = saved.list().some(active) || starting.size > 0 || stopping.size > 0
     if (pending && !releaseIdle) releaseIdle = options.idle?.hold()

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { RunChat, SideChat } from '@ted/protocol'
+import { chatToolPolicy } from '@ted/protocol/run'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -158,7 +159,11 @@ export function createSideChats(options: {
     c = reconcile(c)
     const entries = runs.output.entries(id).filter((e) => e.offset >= c.outputAfter)
     const agent = agents.get(run.agent)
-    if (agent.chat(entries, run.cwd).some((e) => e.kind === 'tool') || run.state === 'waiting') {
+    if (
+      (chatToolPolicy(run.agent) === 'none' &&
+        agent.chat(entries, run.cwd).some((e) => e.kind === 'tool')) ||
+      run.state === 'waiting'
+    ) {
       fail(c, 'The side chat attempted to use a tool. Its reply was stopped.')
       return
     }

@@ -8,6 +8,7 @@ import {
   runsPaused,
 } from '@ted/protocol/health'
 import { useEffect, useId, useState } from 'react'
+import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
 import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
@@ -159,6 +160,7 @@ function BillingChoice({
           </label>
         ))}
       </div>
+      {agent === 'antigravity' && <AntigravityChatWarning agent={agent} />}
       {agent === 'antigravity' && (
         <p className={styles.line}>
           {billing === 'subscription'

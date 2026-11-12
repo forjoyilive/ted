@@ -11,6 +11,10 @@ export function runTokenFrom(env: NodeJS.ProcessEnv): string | undefined {
 
 export const agentKinds: readonly AgentKind[] = ['claude', 'codex', 'antigravity']
 
+export function chatToolPolicy(agent: AgentKind): 'none' | 'isolated' {
+  return agent === 'antigravity' ? 'isolated' : 'none'
+}
+
 export type RunState = 'working' | 'idle' | 'waiting' | 'finished'
 
 export type RunProblem = 'model-unavailable'

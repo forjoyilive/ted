@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { useEventValue, useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
+import { AntigravityChatWarning } from './AntigravityChatWarning.tsx'
 import { Button } from './Button.tsx'
 import { type ChatOptions, ChatSection } from './RunChat.tsx'
 import styles from './SideChat.module.css'
@@ -124,6 +125,7 @@ function RunSideChat({
                 ×
               </Button>
             </header>
+            {side && <AntigravityChatWarning agent={side.chat.run.agent} />}
             {side && (
               <div className={styles.notice}>
                 <div>Conversation snapshot · {clockTime(side.snapshotAt)}</div>
@@ -155,7 +157,10 @@ function RunSideChat({
                     : busy
                       ? 'Sending…'
                       : 'This side chat’s output is no longer kept.',
-                  help: 'Answers only from the starting Conversation snapshot. It can’t inspect files or change the Task.',
+                  help:
+                    side.chat.run.agent === 'antigravity'
+                      ? 'Uses the starting Conversation snapshot. Antigravity can use built-in tools; see the help beside the tool warning.'
+                      : 'Answers only from the starting Conversation snapshot. It can’t inspect files or change the Task.',
                   live: side.available && !working && !busy,
                   working: false,
                   interrupt: false,
