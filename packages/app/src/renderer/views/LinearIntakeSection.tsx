@@ -1,12 +1,16 @@
 import type { LinearIntakeChoices, LinearIntakeScope } from '@ted/protocol'
-import { useEffect, useId, useState } from 'react'
+import { memo, useEffect, useId, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Select } from '../components/Select.tsx'
 import { useConnection, useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './FactorySettings.module.css'
 
-export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
+export const LinearIntakeSection = memo(function LinearIntakeSection({
+  factoryId,
+}: {
+  factoryId: string
+}) {
   const settings = useSettings()
   const scope = settings?.linearIntakeScopes[factoryId]
   const [draftKind, setDraftKind] = useState<'none' | 'team' | 'project'>()
@@ -183,4 +187,4 @@ export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
       </span>
     </section>
   )
-}
+})

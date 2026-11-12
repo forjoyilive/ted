@@ -6,7 +6,7 @@ import type {
   StageId,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { Skeleton } from '../components/Loading.tsx'
@@ -63,7 +63,11 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   const [error, setError] = useState<string>()
   const [changedOnDisk, setChangedOnDisk] = useState(false)
   const [saving, setSaving] = useState(false)
-  const count = draft && loaded ? unsavedLibrary(draft, loaded) : 0
+  const savingNow = useRef(false)
+  const count = useMemo(
+    () => (draft && loaded ? unsavedLibrary(draft, loaded) : 0),
+    [draft, loaded],
+  )
 
   const show = useCallback((next: LibraryView) => {
     const fresh = libraryDraft(next)
@@ -80,7 +84,8 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   const { update, refresh } = useEventValue<LibraryView | undefined>({
     initial: undefined,
     load: ted.library,
-    event: (event) => (event.type === 'library-changed' ? 'reload' : undefined),
+    event: (event) =>
+      event.type === 'library-changed' && !savingNow.current ? 'reload' : undefined,
     changed: (next) => {
       if (!next || next.version === shown.current.version) return
       setError(undefined)
@@ -102,6 +107,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   async function save() {
     if (!draft || !loaded || !view) return
     setSaving(true)
+    savingNow.current = true
     setError(undefined)
     try {
       const next = await ted.saveLibrary({
@@ -112,8 +118,12 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
       update(() => next)
       setEditing(undefined)
     } catch (failure) {
-      setError(readableError(failure))
+      const message = readableError(failure)
+      savingNow.current = false
+      await refresh()
+      setError(message)
     } finally {
+      savingNow.current = false
       setSaving(false)
     }
   }
@@ -445,6 +455,14 @@ function StageFile({
     ['preview', 'Preview'],
     ['compare', 'Compare with default'],
   ]
+  const defaultText = row.defaultText ?? ''
+  const compared = useMemo(
+    () =>
+      open && tab === 'compare' && text !== null && text !== defaultText
+        ? fileChange(name, defaultText, text)
+        : undefined,
+    [open, tab, text, defaultText, name],
+  )
   return (
     <div className={open ? sections.stageOpen : styles.fileBlock}>
       <div className={styles.fileRow}>
@@ -520,13 +538,10 @@ function StageFile({
             </div>
           )}
           {tab === 'compare' &&
-            (text === (row.defaultText ?? '') ? (
-              <p className={base.caption}>Same as TED’s default.</p>
+            (compared ? (
+              <FileDiff file={compared} label={`${name} compared with TED’s default`} />
             ) : (
-              <FileDiff
-                file={fileChange(name, row.defaultText ?? '', text)}
-                label={`${name} compared with TED’s default`}
-              />
+              <p className={base.caption}>Same as TED’s default.</p>
             ))}
         </div>
       )}
