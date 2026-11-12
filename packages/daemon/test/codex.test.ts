@@ -83,6 +83,35 @@ describe('Codex Runs', () => {
     }, 'the Run to go idle')
     expect(assistantTexts(done.conversation)).toEqual(['hello', 'world'])
     expect(done.run.sessionId).toMatch(/^0199a000-/)
+    const { env } = await stubRecord()
+    expect(env.CODEX_HOME).toBe(path.join(home, 'codex'))
+    expect(env.CODEX_SQLITE_HOME).toBe(path.join(home, 'codex'))
+
+    const restarted = await client.call('POST', `/runs/${run.id}/restart`)
+    expect(restarted.status).toBe(200)
+    const starts = await waitUntil(async () => {
+      const records = await hostRecords(home, run.id)
+      return records.filter((r) => r.t === 'start').length === 2 ? records : undefined
+    }, 'the isolated agent to restart')
+    expect(starts.filter((r) => r.t === 'start')).toHaveLength(2)
+    expect((await stubRecord()).env.CODEX_HOME).toBe(path.join(home, 'codex'))
+    expect(
+      (
+        await client.call('POST', `/runs/${run.id}/messages`, {
+          text: JSON.stringify({ steps: [{ say: 'continued privately' }, { endTurn: true }] }),
+        })
+      ).status,
+    ).toBe(201)
+    const continued = await waitUntil(async () => {
+      const r = await client.getRun(run.id)
+      return assistantTexts(r.conversation).includes('continued privately') ? r : undefined
+    }, 'the resumed thread to answer')
+    expect(continued.run.sessionId).toBe(done.run.sessionId)
+    expect(assistantTexts(continued.conversation)).toEqual([
+      'hello',
+      'world',
+      'continued privately',
+    ])
   })
 
   test('Codex events move the Run between working, waiting, idle and finished', async () => {
@@ -140,6 +169,8 @@ describe('Codex Runs', () => {
 
       expect(argv).toEqual([
         'app-server',
+        '-c',
+        `sqlite_home=${JSON.stringify(path.join(home, 'codex'))}`,
         '-c',
         'sandbox_mode="workspace-write"',
         '-c',

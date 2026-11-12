@@ -929,3 +929,33 @@ function useValidationData<T>(taskId: string, read: (id: string) => Promise<T>):
         : undefined,
   }).value
 }
+
+export function useFactoryDashboard(
+  factoryId: string,
+  range: import('@ted/protocol').DashboardRange,
+) {
+  const resource = useReloadingState(
+    () => ted.factoryDashboard(factoryId, range),
+    (event) =>
+      ((event.type === 'task-created' || event.type === 'task-updated') &&
+        event.task.factoryId === factoryId) ||
+      event.type === 'task-deleted' ||
+      (event.type === 'factory-removed' && event.factoryId === factoryId) ||
+      (event.type === 'factory-updated' && event.factory.id === factoryId) ||
+      event.type === 'settings-changed',
+    JSON.stringify([factoryId, range]),
+    () => true,
+  )
+  const retry = useRef(resource.retry)
+  retry.current = resource.retry
+  useEffect(() => {
+    const refresh = () => retry.current()
+    const timer = setInterval(refresh, 30_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
+  return resource
+}

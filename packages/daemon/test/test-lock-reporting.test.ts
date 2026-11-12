@@ -7,7 +7,10 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { reportedTestLock, runnerReporter, testReporter } from '../../../scripts/test-reporting.ts'
-import type { TestInvocationReport } from '../../protocol/src/test-invocations.ts'
+import type {
+  TestInvocationReport,
+  TestInvocationUpdate,
+} from '../../protocol/src/test-invocations.ts'
 import { runChecks, supportsTestReporting } from '../src/tasks/checks.ts'
 import { heldLockEnv } from './support/suite-lock.ts'
 
@@ -28,19 +31,23 @@ const locks = () => ({
 })
 const capture = () => {
   const reports: TestInvocationReport[] = []
+  const updates: TestInvocationUpdate[] = []
   return {
     reports,
+    updates,
     reporter: testReporter(async (r) => {
-      reports.push(r)
+      updates.push(r)
+      if (r.kind !== 'running' && r.kind !== 'waiting' && r.kind !== 'inactive') reports.push(r)
       return true
     }),
   }
 }
 
 test('immediate acquisition reports a finished invocation without acquisition overhead as waiting', async () => {
-  const { reports, reporter } = capture()
+  const { reports, updates, reporter } = capture()
   const release = await reportedTestLock(1, locks(), reporter)
   expect(reports).toEqual([])
+  expect(updates).toMatchObject([{ sequence: 0, kind: 'running' }])
   await release?.()
   await release?.()
   expect(reports).toMatchObject([{ sequence: 0, kind: 'finished' }])
@@ -56,7 +63,7 @@ test('an inherited lock reports no duplicate wait or terminal event', async () =
 })
 
 test('report delivery is ordered, captures boundary times and stops after a lost delivery', async () => {
-  const reports: TestInvocationReport[] = []
+  const reports: TestInvocationUpdate[] = []
   const reporter = testReporter(async (r) => {
     reports.push(r)
     return r.sequence === 0
@@ -69,6 +76,7 @@ test('report delivery is ordered, captures boundary times and stops after a lost
   await reporter.finish()
   expect(reports).toEqual([
     { sequence: 0, kind: 'wait-start', at: 100 },
+    { sequence: 1, kind: 'waiting', at: expect.any(Number) },
     { sequence: 1, kind: 'wait-end', at: 200 },
   ])
 })
@@ -146,7 +154,7 @@ test('direct commands register once and use only the returned credential to repo
   reporter?.contention(true, Date.now())
   reporter?.contention(false, Date.now())
   await reporter?.finish()
-  expect(requests).toHaveLength(4)
+  expect(requests).toHaveLength(5)
   expect(requests[0]).toMatchObject({
     url: '/tasks/NB-1/test-invocations',
     auth: 'Bearer run-token',
@@ -253,7 +261,7 @@ test('small runs measure contention until a slot is free, excluding confirmation
   const reports: TestInvocationReport[] = []
   let acquisitionFinishedAt = 0
   const reporter = testReporter(async (r) => {
-    reports.push(r)
+    if (r.kind !== 'running' && r.kind !== 'waiting' && r.kind !== 'inactive') reports.push(r)
     return true
   })
   const pending = reportedTestLock(1, { ...locks(), pid: 4242 }, reporter)
@@ -483,4 +491,44 @@ test('separate project loaders release references after setup, cleanup and acqui
     afterFailure: { acquired: 1, released: 0 },
     final: { acquired: 3, released: 3 },
   })
+})
+
+test('live pulses refresh running and waiting without consuming historical report slots', async () => {
+  vi.useFakeTimers()
+  try {
+    const { reports, updates, reporter } = capture()
+    reporter.contention(true, Date.now())
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(updates.filter((r) => r.kind === 'waiting')).toHaveLength(2)
+    expect(reports.map((r) => r.kind)).toEqual(['wait-start'])
+    reporter.contention(false, Date.now())
+    await reporter.running()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(updates.filter((r) => r.kind === 'running')).toMatchObject([
+      { sequence: 2 },
+      { sequence: 2 },
+    ])
+    await reporter.finish()
+    const count = updates.length
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(updates).toHaveLength(count)
+    expect(reports.map((r) => r.kind)).toEqual(['wait-start', 'wait-end', 'finished'])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a daemon without live reporting support still receives the historical wait measurements', async () => {
+  const history: TestInvocationReport[] = []
+  const reporter = testReporter(async (report) => {
+    if (report.kind === 'running' || report.kind === 'waiting' || report.kind === 'inactive')
+      return false
+    history.push(report)
+    return true
+  })
+  reporter.contention(true, 100)
+  reporter.contention(false, 200)
+  await reporter.running()
+  await reporter.finish()
+  expect(history.map((r) => r.kind)).toEqual(['wait-start', 'wait-end', 'finished'])
 })

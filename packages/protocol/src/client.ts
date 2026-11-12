@@ -59,6 +59,7 @@ import type {
   CoordinatorStatus,
 } from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
+import type { DashboardRange, FactoryDashboard } from './dashboard.ts'
 import type {
   BackupsSummary,
   DataStatus,
@@ -190,8 +191,8 @@ import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
-  TestInvocationReport,
   TestInvocationSummary,
+  TestInvocationUpdate,
 } from './test-invocations.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
@@ -665,7 +666,7 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/test-invocations`)
   }
 
-  async reportTestInvocation(id: string, input: TestInvocationReport): Promise<boolean> {
+  async reportTestInvocation(id: string, input: TestInvocationUpdate): Promise<boolean> {
     try {
       const res = await this.#send(
         'POST',
@@ -767,6 +768,13 @@ export class DaemonClient {
 
   listFactories(): Promise<Factory[]> {
     return this.#request('GET', '/factories')
+  }
+
+  factoryDashboard(factoryId: string, range: DashboardRange): Promise<FactoryDashboard> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/dashboard?range=${encodeURIComponent(range)}`,
+    )
   }
 
   factoryBoard(factoryId: string): Promise<FactoryBoard> {

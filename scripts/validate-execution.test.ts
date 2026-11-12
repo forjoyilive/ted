@@ -108,6 +108,28 @@ test('runner selects exact files, reports metadata and observations, and cleans 
   await observe('runner-reporting', { selectedFiles: true, durableReport: true, cleanup: true })
 })
 
+test('an owned lab adapter supplies its report allocator without weakening the normal policy', async () => {
+  const reportDir = path.join(root, 'ted-validation-lab', 'reports')
+  await expect(reportDirectory(reportDir, process.cwd())).rejects.toThrow('fixture scratch')
+  await mkdir(reportDir, { recursive: true })
+  const result = await runValidation(
+    { ...options(), reportDir },
+    {
+      candidate,
+      versions,
+      execute: successful,
+      reportDirectory: async (requested) => {
+        expect(requested).toBe(reportDir)
+        return mkdtemp(path.join(reportDir, 'validation-'))
+      },
+    },
+  )
+  expect(result.code).toBe(0)
+  expect(
+    JSON.parse(await readFile(path.join(result.directory, 'report.json'), 'utf8')),
+  ).toMatchObject({ result: 'pass' })
+})
+
 test('nonzero command preserves bounded redacted evidence and replay argv', async () => {
   const token = `ghp_${'a'.repeat(30)}`
   let scratch = ''

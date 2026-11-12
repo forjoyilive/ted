@@ -19,13 +19,14 @@ export interface Agents {
 }
 
 export function createAgents(options: {
+  home?: string
   claudeBin?: string
   codexBin?: string
   env?: () => NodeJS.ProcessEnv
 }): Agents {
   const byKind: Record<AgentKind, Agent> = {
     claude: claudeAgent(options.claudeBin ?? 'claude'),
-    codex: codexAgent(options.codexBin ?? 'codex'),
+    codex: codexAgent(options.codexBin ?? 'codex', options.home),
   }
   const env = options.env ?? (() => process.env)
   const installed = (kind: AgentKind) => findBinSync(byKind[kind].binary, env()) !== undefined

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import styles from './StatusChip.module.css'
 
-export type StatusTone = 'working' | 'waiting' | 'failed' | 'neutral' | 'success'
+export type StatusTone = 'working' | 'waiting' | 'failed' | 'neutral' | 'success' | 'testing'
 
 export type StatusGlyph =
   | 'failed'
@@ -109,13 +109,15 @@ export function StatusChip({
   tone,
   glyph,
   children,
+  title,
 }: {
   tone: StatusTone
   glyph?: StatusGlyph
   children: ReactNode
+  title?: string
 }) {
   return (
-    <span className={`${styles.chip} ${styles[tone]}`}>
+    <span className={`${styles.chip} ${styles[tone]}`} title={title}>
       {glyph && (
         <svg
           className={glyph === 'working' ? `${styles.glyph} ${styles.spinning}` : styles.glyph}

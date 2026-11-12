@@ -225,6 +225,7 @@ test('the sidebar lists Coordinator above Board and shows Working only while it 
     .getAllByRole('button')
     .map((button) => button.textContent)
   expect(names.indexOf('Coordinator')).toBeGreaterThan(-1)
+  expect(names.indexOf('Dashboard')).toBe(names.indexOf('Coordinator') - 1)
   expect(names.indexOf('Coordinator')).toBe(names.indexOf('Board') - 1)
   const row = () => within(nav()).getByRole('button', { name: /^Coordinator/ })
   expect(within(row()).queryByRole('img')).toBeNull()
