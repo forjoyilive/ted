@@ -13,6 +13,7 @@ import {
   report,
 } from '../diagnostics.ts'
 import { RequestError as HttpError } from '../errors.ts'
+import { matchReference } from '@ted/protocol/reference'
 import { resolveReference } from '../references.ts'
 import { jsonRoute, type Route, routePattern } from './route.ts'
 
@@ -235,7 +236,9 @@ export const runRoutes: Route[] = routes.map((route) => {
           : options.store.getRun(reference)
             ? [reference]
             : options.store.listRuns().map((run) => run.id)
-      const id = resolveReference(context.params[0] ?? '', ids, 'Run')
+      const id = matchReference(reference, ids).kind === 'missing'
+        ? reference
+        : resolveReference(reference, ids, 'Run')
       return route.handle({ ...context, params: [id, ...context.params.slice(1)] }, options)
     },
   }

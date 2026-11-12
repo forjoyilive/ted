@@ -1,3 +1,4 @@
+import { shortReference } from '@ted/protocol/reference'
 import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -304,7 +305,7 @@ describe('Checks before a Task leaves Work', () => {
       'the Task Lead to hear what the human chose',
     )
     expect(chosen).toContain('The human added:\n\nTests are broken on main')
-    expect(chosen).toContain(failure.id)
+    expect(chosen).toContain(shortReference(failure.id))
   }, 180_000)
 })
 
@@ -365,7 +366,7 @@ describe('Checks at Validate', () => {
     await waitUntil(
       async () =>
         (await leadMessages(client, task)).some(
-          (m) => m.includes('# A Check failed') && m.includes(failure.id),
+          (m) => m.includes('# A Check failed') && m.includes(shortReference(failure.id)),
         ),
       'diagnosis instructions',
     )

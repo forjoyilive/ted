@@ -1,3 +1,4 @@
+import { shortReference } from '@ted/protocol/reference'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -145,7 +146,7 @@ test('message and attributed Comment are atomic, replay-safe and survive a daemo
   })
   const wrappedBody = store.getComment(sent.id)?.body
   expect(wrappedBody).toContain('Peer message from DEV-1')
-  expect(wrappedBody).toContain(`(Run ${sent.senderRunId})`)
+  expect(wrappedBody).toContain(`(Run ${shortReference(sent.senderRunId)})`)
   expect(wrappedBody).toMatch(/<<<PEER ([\w-]+)>>>\n.*\n<<<END PEER \1>>>/s)
   expect(posted).toEqual([store.getComment(sent.id)])
   expect(store.listComments(recipient)[0]?.peer).toEqual({ sender: 'DEV-1', text: input.text })

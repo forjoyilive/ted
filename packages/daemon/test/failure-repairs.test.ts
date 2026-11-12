@@ -1,3 +1,4 @@
+import { shortReference } from '@ted/protocol/reference'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
@@ -182,7 +183,7 @@ test('approved repair creation is idempotent, stops the Lead and retains failure
   })
   const brief = await s.client.ok<TaskBrief>('GET', `${s.root}/brief`)
   expect(brief.text).toContain(created.displayId)
-  expect(brief.text).toContain(s.failure.id)
+  expect(brief.text).toContain(shortReference(s.failure.id))
   expect((await s.resolve({ ...repair, title: 'Different repair' })).status).toBe(409)
 })
 
