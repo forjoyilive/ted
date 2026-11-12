@@ -22,7 +22,9 @@ import {
   type Appearance,
   type AppStarter,
   type Attachment,
+  type AutopilotChoice,
   agentStageIds,
+  autopilotEnabled,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -739,6 +741,7 @@ export interface TedStore extends TaskHistory {
   tasksWithQueuedContinuations(): string[]
   holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean): void
   deliveredLeadMessages(taskId: string, ids: readonly string[]): void
+  setTaskAutopilot(taskId: string, choice: AutopilotChoice): Task
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
     taskId: string,
@@ -756,7 +759,12 @@ export interface TedStore extends TaskHistory {
   removeTaskDraft(factoryId: string): void
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
-  answerComment(id: string, answer: CommentAnswer, lineComments?: readonly string[]): Comment
+  answerComment(
+    id: string,
+    answer: CommentAnswer,
+    lineComments?: readonly string[],
+    autopilot?: boolean,
+  ): Comment
   draftLineComment(input: NewLineComment): LineComment
   editLineComment(id: string, body: string): LineComment
   deleteLineComments(taskId: string, ids: readonly string[]): void
@@ -1536,6 +1544,7 @@ export async function openStore({
       followUpOf,
       forcedGates,
       gateOverrides,
+      autopilotChoice,
       changesSettings,
       splitFrom,
       needsPlanningAt,
@@ -1781,6 +1790,13 @@ export async function openStore({
       waitsForBlockers,
       stopped: stoppedAt !== null,
       ...((preparation === 'preparing' || preparation === 'ready') && { preparation }),
+      autopilot: {
+        choice: (autopilotChoice ?? 'inherit') as AutopilotChoice,
+        enabled: autopilotEnabled(
+          (autopilotChoice ?? 'inherit') as AutopilotChoice,
+          reads.settings().overnightMode,
+        ),
+      },
       gateOverrides: gateOverrides === null ? {} : (JSON.parse(gateOverrides) as TaskGateOverrides),
       forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
       changesSettings,
@@ -4058,6 +4074,10 @@ export async function openStore({
         }),
       )
     },
+    setTaskAutopilot(taskId, choice) {
+      commit(events.taskAutopilotChanged({ taskId, choice, at: new Date().toISOString() }))
+      return updatedTask(taskId)
+    },
     setTaskGates(taskId, overrides) {
       commit(
         events.taskGatesChanged({
@@ -4183,9 +4203,18 @@ export async function openStore({
         .map(toComment)
     },
     getComment,
-    answerComment(id, answer, sending) {
+    answerComment(id, answer, sending, autopilot = false) {
       commit(
         events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }),
+        ...(autopilot
+          ? [
+              events.commentAnsweredByAutopilot({
+                taskId: requireComment(id).taskId,
+                commentId: id,
+                at: answer.at,
+              }),
+            ]
+          : []),
         ...lineCommentsSent(sending, id, answer.at),
       )
       const comment = emitComment(id)
@@ -5158,6 +5187,7 @@ export async function openStore({
           }),
         )
         emit({ type: 'settings-changed', settings: settings() })
+        if ('overnightMode' in changed) for (const row of store.query(allTasks)) updatedTask(row.id)
       }
       return settings()
     },

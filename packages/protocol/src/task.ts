@@ -194,6 +194,7 @@ export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest 
 
 export interface Task {
   snoozedUntil?: string
+  autopilot?: import('./autopilot.ts').TaskAutopilot
   gateOverrides?: import('./task-gates.ts').TaskGateOverrides
   id: string
   factoryId: string
@@ -586,6 +587,7 @@ export type RequestPurpose =
     }
 
 export interface Comment {
+  autopilotAnswered?: boolean
   peer?: { sender?: string; text: string }
   purpose?: RequestPurpose
   id: string
