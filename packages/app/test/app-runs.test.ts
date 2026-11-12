@@ -128,9 +128,7 @@ describe('Stop and Resume', () => {
         return Math.abs(bubble.y + bubble.height / 2 - (text.y + text.height / 2))
       }),
     ).toBeLessThan(1)
-    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).isDisabled()).toBe(
-      true,
-    )
+    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(0)
     await first.click()
 
     await header.getByText(/^Stopped by you · /).waitFor()

@@ -51,7 +51,6 @@ export const forwardedRequests = [
   'interruptRun',
   'sendQueuedMessageNow',
   'deleteQueuedMessage',
-  'restartRun',
   'stopRun',
   'listTaskRuns',
   'openRunTab',

@@ -146,6 +146,7 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   expect(within(required(rows[0])).queryByRole('button', { name: 'Stop Task' })).toBeNull()
   await user().click(within(required(rows[1])).getByRole('button', { name: /Reviewer/ }))
   expect(open).toHaveBeenCalledWith('r2')
+  expect(within(required(rows[1])).queryByRole('button', { name: 'Restart' })).toBeNull()
   await user().click(within(required(rows[1])).getByRole('button', { name: 'Stop Run' }))
   expect(api.request).toHaveBeenCalledWith('stopRun', 'r2')
   expect(screen.getByText('on sub-agents')).toBeTruthy()
@@ -173,35 +174,15 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   expect(screen.queryByRole('list')).toBeNull()
 })
 
-test('Task menu restarts the current Lead, follows its state and reports restart failures', async () => {
+test('Task menu stops the Task and has no Restart for an idle Lead', async () => {
   const current = task({ stage: 'work', leadRunId: 'r1', runs: [{ ...lead, state: 'idle' }] })
-  const api = bridge({ restartRun: () => Promise.reject(new Error('The disk is full')) })
-  const view = render(<TaskActionsMenu task={current} />)
+  const api = bridge({ stopTask: vi.fn() })
+  render(<TaskActionsMenu task={current} />)
   const u = user()
   await u.click(screen.getByRole('button', { name: 'Task actions' }))
-  expect(screen.getByRole('menuitem', { name: /Stop Task/ })).toBeTruthy()
-  await u.click(screen.getByRole('menuitem', { name: /^Restart$/ }))
-  expect(api.request).toHaveBeenCalledWith('restartRun', 'r1')
-  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The disk is full')
-
-  view.rerender(<TaskActionsMenu task={{ ...current, runs: [lead] }} />)
-  await u.click(screen.getByRole('button', { name: 'Task actions' }))
-  const restart = screen.getByRole('menuitem', { name: /^Restart$/ })
-  expect(restart).toHaveProperty('disabled', true)
-  expect(restart.title).toBe('Restart works when the Run is idle')
-  await u.click(restart)
-  expect(api.request).toHaveBeenCalledTimes(1)
-
-  view.rerender(<TaskActionsMenu task={{ ...current, runs: [{ ...lead, state: 'finished' }] }} />)
   expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
-  view.rerender(<TaskActionsMenu task={task({ stage: 'work', runs: current.runs })} />)
-  expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
-  view.rerender(
-    <TaskActionsMenu
-      task={{ ...current, archived: { at: createdAt, ended: { kind: 'stopped', stage: 'work' } } }}
-    />,
-  )
-  expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
+  await u.click(screen.getByRole('menuitem', { name: /Stop Task/ }))
+  expect(api.request).toHaveBeenCalledWith('stopTask', current.id)
 })
 
 test('Task Lead is the main chat and earlier conversations open inline', async () => {

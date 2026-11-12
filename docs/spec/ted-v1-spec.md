@@ -752,7 +752,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Per-Run flags only.** TED passes everything as flags on each Run (`--settings`, `--mcp-config`, `-c key=value`, …) and never writes to `~/.claude` or `~/.codex`. The `ted mcp` server is passed the same way. (KRI-53, KRI-59)
 - **Comments into Runs:** the human’s Comments on a Task go straight into the Task Lead’s live Run, queued if it is mid-turn. A Comment counts as read once the agent has started a turn with it. Agents’ Comments count as read when the human opens them. A message typed into a Run chat goes only to that Run and is not a Comment. (KRI-11, KRI-20)
 - **Stop** a Run: it becomes read-only history and is never resumed; work continues in a fresh Run. (KRI-11, glossary)
-- **Restart:** a manual action on an idle or waiting Run (greyed out while working), plus an automatic restart of idle Runs onto a new Claude Code or Codex version (Settings → Agents, on by default). (KRI-20, KRI-63)
+- **Restart:** TED restarts idle Runs onto a new Claude Code or Codex version by itself (Settings → Agents, on by default). There is no manual Restart for a Run; the human stops the Task and starts it again. (KRI-20, KRI-63, KRI-375)
 - **Resume, not replace.** TED records each Run’s agent session ID. On a restart (new agent version, a model or effort change, a daemon restart or update) it resumes that session in the same worktree (`claude --resume`, `codex resume` / `thread/resume`) and passes the per-Run flags again. It stays the same Run. If the resume fails (session file gone, incompatible format, crash loop), TED starts a fresh Run from the brief and shows it as a new Run. (KRI-53)
 - **Fresh Task Lead Run from the brief** plus Comments since, when there is no live session to continue: after a failed resume, on Resume or Retry, on unarchive, when a blocker merges for a Task blocked mid-flow, on restart after Plan it outside TED, when GitHub events arrive with no open Run, and when the Task Lead’s agent changes. (KRI-17, KRI-15, KRI-19, KRI-20, KRI-53, KRI-55)
 
@@ -1114,7 +1114,7 @@ Figma: KRI-61 Task thread (every request card, answered states, event lines, hea
 
 Figma: KRI-63 Task details (Run chat in a Conversation tab; “Steering · message while working” 44:5104; “Steering · after redirect” 45:1181).
 
-- A **Run bar** above the chat: Run name, agent · model · effort · credential · tokens · start time, **Restart** (greyed while working), and **Stop Task** for the Task Lead or **Stop Run** for a sub-agent. (KRI-63)
+- A **Run bar** above the chat: Run name, agent · model · effort · credential · tokens · start time, and **Stop Task** for the Task Lead or **Stop Run** for a sub-agent. (KRI-63, KRI-375)
 - **Chat content:** TED’s instructions as a collapsed first row, then the prompt (collapsed); agent messages; tool calls as collapsible rows, Edit rows expanding to a diff; the human’s messages in a tinted bubble labelled “to this Run only”; permission rows inline (“You approved · 9m ago”, or Approve and Deny); a running command with its elapsed time; the streaming message marked “writing…”. (KRI-63, KRI-53)
 - **Steering a working Run** (the Task Lead’s or a sub-agent’s): (KRI-8 consistency pass, steering)
   - **Send ↵** queues the message for the agent’s next step. It shows at once, marked “Queued”.
@@ -1138,7 +1138,7 @@ Figma: KRI-63 Task details; Page 1 (Apps section 13:3, Full brief 14:204).
   2. **Fields:** Priority, Task Lead (the setting as written, “Claude · opus · high”), Clarify depth (“Few · by the Task Lead”), Repos (multi-repo only), Blocked by, Blocks.
   3. **Code:** per repo, the pull request, branch, worktree path, **Shell**, **Open in editor** (9.8).
   4. **Changes** (9.5).
-  5. **Runs:** a summary line (7.7); live Runs first, the Task Lead with its sub-agents indented under it; stopped Runs under a collapsible “3 stopped Runs” line, newest first. Each row, flush left: Run icon, Run name, state; agent · model · effort as the CLI reported at Run start (an unset model shows the real name; unreported effort shows “default effort”); Subscription or API key · tokens, plus dollars for API-key Runs. Hover shows Restart and Stop; Stop on the Task Lead is Stop Task. Clicking opens the Conversation tab. Run state words are lower case.
+  5. **Runs:** a summary line (7.7); live Runs first, the Task Lead with its sub-agents indented under it; stopped Runs under a collapsible “3 stopped Runs” line, newest first. Each row, flush left: Run icon, Run name, state; agent · model · effort as the CLI reported at Run start (an unset model shows the real name; unreported effort shows “default effort”); Subscription or API key · tokens, plus dollars for API-key Runs. Hover shows Stop on a sub-agent’s row; the Task Lead is stopped with Stop Task. Clicking opens the Conversation tab. Run state words are lower case.
   6. **Apps** (9.6), including a hosted preview row.
   7. **Task brief:** Goal and Next step, plus **Full brief**.
 - **Original request** is a collapsed row at the end of the Task brief section, with a link to the description’s history. (KRI-19)

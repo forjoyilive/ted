@@ -6,7 +6,7 @@ import { activeSubAgentCount, activeSubAgentLabel } from '../sub-agents.ts'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
-import { ChevronIcon, RestartIcon, StopIcon } from './icons.tsx'
+import { ChevronIcon, StopIcon } from './icons.tsx'
 import { tokenCount } from './RunChat.tsx'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import styles from './RunsSection.module.css'
@@ -168,16 +168,6 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
       </ActionButton>
       {live && !isLead && (
         <span className={styles.actions}>
-          <ActionButton
-            type="button"
-            className={styles.action}
-            aria-label="Restart"
-            title={run.state === 'working' ? 'Restart works when the Run is idle' : 'Restart'}
-            disabled={busy || run.state === 'working'}
-            onClick={() => act(() => ted.restartRun(run.id))}
-          >
-            <RestartIcon />
-          </ActionButton>
           <ActionButton
             type="button"
             className={styles.action}
