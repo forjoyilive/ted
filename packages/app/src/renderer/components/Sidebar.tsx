@@ -506,7 +506,7 @@ export function Sidebar({
                 type="button"
                 className={footer.update.busy ? styles.updateBusy : styles.updateChip}
                 disabled={footer.update.busy}
-                onClick={onUpdate}
+                onClick={() => void onUpdate?.()}
               >
                 {footer.update.label}
               </ActionButton>
