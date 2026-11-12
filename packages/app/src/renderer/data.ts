@@ -1046,3 +1046,42 @@ export function useFactoryDashboard(
   }, [])
   return resource
 }
+
+export function usePolledResource<T>(load: () => Promise<T>, everyMs = 1500) {
+  const { epoch } = useConnection()
+  const [value, setValue] = useState<T>()
+  const [error, setError] = useState<string>()
+  const [generation, setGeneration] = useState(0)
+  useEffect(() => {
+    void epoch
+    void generation
+    let active = true,
+      running = false
+    const refresh = () => {
+      if (running) return
+      running = true
+      void load()
+        .then(
+          (next) => {
+            if (active) {
+              setValue(next)
+              setError(undefined)
+            }
+          },
+          (failure: unknown) => {
+            if (active) setError(failure instanceof Error ? failure.message : String(failure))
+          },
+        )
+        .finally(() => {
+          running = false
+        })
+    }
+    refresh()
+    const timer = setInterval(refresh, everyMs)
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [load, everyMs, epoch, generation])
+  return { value, error, reload: () => setGeneration((n) => n + 1) }
+}

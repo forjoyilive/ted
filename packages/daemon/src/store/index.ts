@@ -117,6 +117,7 @@ import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
+import { createPairingStore, type PairingStore } from './execution-pairing.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { intervalBoundaries } from './interval-schema.ts'
@@ -536,6 +537,7 @@ export interface HeldRun {
 
 export interface TedStore extends TaskHistory {
   execution: ExecutionStore
+  pairing: PairingStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
@@ -2879,6 +2881,7 @@ export async function openStore({
 
   return {
     execution,
+    pairing: createPairingStore(store, commit),
     sideChats: createSideChatStore({
       store,
       commit,

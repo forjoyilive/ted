@@ -36,12 +36,14 @@ export interface HostRequest {
     | 'cleanup'
     | 'verify'
     | 'scenario'
+    | 'product'
     | 'connect'
     | 'disconnect'
   runId: string
   timeoutMs?: number
   files?: ContentFile[]
   candidate?: { revision: string; contentHash: string; dirtyPatchIdentity: string | null }
+  product?: { operation: string; pair?: { details: string; capacity: number } }
   scenarios?: string[]
 }
 
@@ -280,7 +282,21 @@ export function markedListing(text: string, uid: number, runId: string, home: st
     new RegExp(`(?:^|\\s)${name}=${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`).test(
       text,
     )
-  return text.startsWith(`${uid} `) && marker('TED_LAB_RUN', runId) && marker('TED_HOME', home)
+  const root = path.dirname(home)
+  const entry = (file: string) =>
+    new RegExp(`(?:^|\\s)${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`).test(text)
+  const ordinary = marker('TED_HOME', home)
+  const productWorker =
+    marker('TED_EXECUTION_HOME', path.join(root, 'execution-worker')) &&
+    entry(path.join(root, 'source/packages/daemon/src/execution/main.ts'))
+  const productController =
+    marker('TED_HOME', path.join(root, 'pairing-fixture/home')) &&
+    entry(path.join(root, 'source/packages/daemon/test/fixtures/execution-machine.ts'))
+  return (
+    text.startsWith(`${uid} `) &&
+    marker('TED_LAB_RUN', runId) &&
+    (ordinary || productWorker || productController)
+  )
 }
 
 async function markedProcesses(uid: number, runId: string, home: string, env: NodeJS.ProcessEnv) {
@@ -436,6 +452,21 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
   await plain(path.join(run, '.owner'), false)
   if ((await readFile(path.join(run, '.owner'), 'utf8')) !== owner)
     throw new Error('run ownership mismatch')
+  if (action === 'product') {
+    if (
+      !request.product ||
+      !['start', 'stop', 'restart', 'status', 'pair', 'attempt'].includes(request.product.operation)
+    )
+      throw new Error('Invalid product operation')
+    const adapter = path.join(source, 'scripts/execution-lab/product-worker.ts')
+    await plain(adapter, false)
+    const { productWorker } = await import(pathToFileURL(adapter).href)
+    return productWorker(
+      run,
+      { ...env, TED_TEST_RUN: runId, TED_TEST_FILE: runId },
+      request.product,
+    )
+  }
   if (action === 'verify') {
     await plain(path.join(run, 'manifest.json'), false)
     const files = JSON.parse(
@@ -496,6 +527,27 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
     if (!artifacts.length) throw new Error('renderer artifacts missing')
     await writeFile(path.join(run, 'artifacts.json'), JSON.stringify(artifacts), { mode: 0o600 })
     return { install, build, artifacts }
+  }
+  if (
+    action === 'cleanup' &&
+    !(await missing(path.join(run, 'execution-worker', 'control.json')))
+  ) {
+    const { productWorker } = await import(
+      pathToFileURL(path.join(source, 'scripts/execution-lab/product-worker.ts')).href
+    )
+    try {
+      await productWorker(run, env, { operation: 'stop' })
+    } catch (error) {
+      if (
+        !(
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          ['ECONNREFUSED', 'ENOENT'].includes(String(error.code))
+        )
+      )
+        throw error
+    }
   }
   if (action === 'scenario') {
     if (!request.scenarios?.length) throw new Error('select implementation scenarios explicitly')

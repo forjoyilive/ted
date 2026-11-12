@@ -309,7 +309,7 @@ describe('lab configuration and SSH control', () => {
         configFile: file,
         root: checkout,
         action: 'dry-run',
-        scenarios: ['lab-access'],
+        scenarios: ['product-pairing'],
       },
       async () => {
         throw new Error('host contact')
@@ -561,6 +561,29 @@ describe('candidate content and standalone overrides', () => {
     expect(markedListing(listing, 501, `${run}x`, home)).toBe(false)
     expect(markedListing(listing, 501, run, `${home}-sibling`)).toBe(false)
     expect(markedListing(`${listing}-sibling`, 501, run, home)).toBe(false)
+    const root = path.dirname(home)
+    const worker = `501 Tue Nov 11 10:00:00 2026 node ${root}/source/packages/daemon/src/execution/main.ts TED_LAB_RUN=${run} TED_EXECUTION_HOME=${root}/execution-worker`
+    expect(markedListing(worker, 501, run, home)).toBe(true)
+    expect(markedListing(worker.replace('main.ts ', 'main.ts.bak '), 501, run, home)).toBe(false)
+    expect(
+      markedListing(
+        worker.replace('/execution-worker', '/execution-worker-sibling'),
+        501,
+        run,
+        home,
+      ),
+    ).toBe(false)
+    expect(markedListing(worker, 502, run, home)).toBe(false)
+    const controller = `501 Tue Nov 11 10:00:00 2026 node ${root}/source/packages/daemon/test/fixtures/execution-machine.ts TED_LAB_RUN=${run} TED_HOME=${root}/pairing-fixture/home`
+    expect(markedListing(controller, 501, run, home)).toBe(true)
+    expect(
+      markedListing(
+        controller.replace('/pairing-fixture/home', '/pairing-fixture/home-sibling'),
+        501,
+        run,
+        home,
+      ),
+    ).toBe(false)
   })
   it('rejects traversal, personal environment, credentials and special content paths', () => {
     for (const name of [
