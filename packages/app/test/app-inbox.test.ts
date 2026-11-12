@@ -367,6 +367,11 @@ describe('Full Inbox', () => {
         await inbox.getByRole('button', { name: /^Filter/ }).click()
       }
     }
+    const closeFilter = async () => {
+      if ((await inbox.getByRole('menu', { name: 'Filter' }).count()) > 0) {
+        await inbox.getByRole('button', { name: /^Filter/ }).click()
+      }
+    }
     await openFilter()
     await chip('All 3').waitFor()
     await chip('notebook 2').waitFor()
@@ -411,6 +416,7 @@ describe('Full Inbox', () => {
 
     await openFilter()
     await inbox.getByRole('switch', { name: 'Answered' }).click()
+    await closeFilter()
     await expect.poll(headlines).toEqual(['Urgent question?'])
     expect(await weight('Urgent question?')).toBe('400')
     await row('Urgent question?').click()
@@ -420,6 +426,7 @@ describe('Full Inbox', () => {
 
     await openFilter()
     await inbox.getByRole('menuitemradio', { name: /^Kind/ }).click()
+    await closeFilter()
     const heading = inbox.locator('li > button[aria-expanded]')
     await heading.waitFor()
     expect(await heading.textContent()).toBe('Questions1')

@@ -557,7 +557,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
   await user().click(screen.getByRole('button', { name: 'Show answered' }))
   expect(props.onShowAnswered).toHaveBeenCalledWith(true)
   view.rerender(<Inbox {...props} factoryId="f1" />)
-  expect(screen.getByText(/widgets/)).toBeTruthy()
+  expect(screen.getAllByText(/widgets/)).toHaveLength(2)
   await user().click(screen.getByRole('button', { name: 'Show all Factories' }))
   expect(props.onFilter).toHaveBeenCalledWith(undefined)
 })
