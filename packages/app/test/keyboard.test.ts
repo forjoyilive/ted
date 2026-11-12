@@ -253,7 +253,9 @@ describe('Keyboard shortcuts', () => {
       return Number(document.documentElement.dataset.approvalFrames)
     })
     expect(frames).toBe(0)
+    await inbox.getByRole('button', { name: /^Filter/ }).click()
     await inbox.getByRole('switch', { name: 'Answered' }).click()
+    await inbox.getByRole('button', { name: /^Filter/ }).click()
     await inbox.getByRole('button').filter({ hasText: 'Permission' }).click()
     await window
       .getByRole('region', { name: 'Task thread' })
