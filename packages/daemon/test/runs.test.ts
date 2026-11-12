@@ -409,6 +409,10 @@ test('the host passes the Task workspace to new and resumed Antigravity sessions
     antigravityBin: fileURLToPath(new URL('./fixtures/stub-antigravity.ts', import.meta.url)),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
+  await expect(client.startRun([], cwd, 'antigravity')).rejects.toThrow('Google’s terms')
+  expect((await client.call('PATCH', '/settings', { antigravityPlanAccepted: true })).status).toBe(
+    200,
+  )
   const run = await client.startRun([], cwd, 'antigravity')
   await waitUntil(
     async () => (await client.getRun(run.id)).run.state === 'idle' || undefined,

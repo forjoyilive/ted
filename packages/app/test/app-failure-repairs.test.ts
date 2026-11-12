@@ -80,17 +80,23 @@ test.each(['new', 'existing'] as const)(
     const question = thread
       .getByRole('region', { name: 'Question', exact: true })
       .filter({ hasText: 'How should we handle the Tests failure?' })
-    await question.getByRole('button', { name: 'Wait for a repair Task', exact: true }).click()
+    await question.getByRole('radio', { name: 'Wait for a repair Task', exact: true }).click()
     const form = question.getByRole('region', { name: 'Wait for a repair Task', exact: true })
     await form.waitFor()
+    expect((await client.listInbox()).some((i) => i.request.id === requestId)).toBe(true)
+    expect(await client.listTasks()).toHaveLength(before)
+    expect(await form.getByRole('button', { name: 'Send', exact: true }).isDisabled()).toBe(true)
     if (kind === 'new') {
       await form.getByRole('radio', { name: 'Create a repair Task' }).check()
       expect(await form.getByRole('checkbox').isChecked()).toBe(true)
-      expect(await form.getByLabel('Repair description').inputValue()).toContain(failure.id)
+      const description = await form.getByLabel('Repair description').inputValue()
+      expect(description).toContain(`Failure ${failure.id.slice(0, 6)}\n`)
+      if (!failure.contextId) throw new Error('missing tested context')
+      expect(description).toContain(`Original tested context: ${failure.contextId.slice(0, 6)}\n`)
       await form.getByRole('button', { name: 'Cancel', exact: true }).click()
       expect(await client.listTasks()).toHaveLength(before)
       expect((await client.listInbox()).some((i) => i.request.id === requestId)).toBe(true)
-      await question.getByRole('button', { name: 'Wait for a repair Task', exact: true }).click()
+      await question.getByRole('radio', { name: 'Wait for a repair Task', exact: true }).click()
       await form.getByRole('radio', { name: 'Create a repair Task' }).check()
       await form.getByLabel('Repair title', { exact: true }).fill('Repair environment')
       await form
@@ -101,9 +107,7 @@ test.each(['new', 'existing'] as const)(
       await form.getByRole('button', { name: 'Choose repair', exact: true }).click()
       await form.getByRole('combobox', { name: 'Find a Task' }).fill(existing.displayId)
       await form.getByRole('option').filter({ hasText: existing.displayId }).click()
-      await form
-        .getByRole('button', { name: `Wait for ${existing.displayId}`, exact: true })
-        .click()
+      await form.getByRole('button', { name: 'Send', exact: true }).click()
       await form.getByRole('alert').waitFor()
       expect(await form.getByRole('alert').textContent()).toContain('cycle')
       expect(await client.listTasks()).toHaveLength(before)
@@ -115,7 +119,7 @@ test.each(['new', 'existing'] as const)(
     await form.screenshot({ path: path.join(captures, `native-repair-${kind}.png`) })
     await form
       .getByRole('button', {
-        name: existing ? `Wait for ${existing.displayId}` : 'Approve and create repair',
+        name: 'Send',
         exact: true,
       })
       .click()

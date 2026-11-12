@@ -1,5 +1,6 @@
 import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol/failures'
+import { shortReference } from '@ted/protocol/reference'
 import { useState } from 'react'
 import { useCheckRuns, useFailures, useTasks, useValidationObligations } from '../data.ts'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
@@ -69,6 +70,7 @@ export function FailureDetails({
               ? 'verified by a later execution'
               : 'verified with recorded evidence'
             : (decision?.resolution ?? 'unresolved')
+  const contextId = requestId ? request?.contextId : failure.contextId
   const what =
     failure.source.kind === 'finding'
       ? failure.source.finding
@@ -100,7 +102,7 @@ export function FailureDetails({
       <details>
         <summary className={styles.caption}>Evidence and history</summary>
         <p className={styles.sectionBody}>
-          Failure {failure.id} · {disposition}
+          Failure <span title={failure.id}>{shortReference(failure.id)}</span> · {disposition}
         </p>
         <p className={styles.sectionBody}>{failure.evidence}</p>
         {failure.additions
@@ -120,7 +122,8 @@ export function FailureDetails({
             </p>
           ))}
         <p className={styles.sectionBody}>
-          Tested context: {(requestId ? request?.contextId : failure.contextId) ?? 'unknown'}
+          Tested context:{' '}
+          <span title={contextId}>{contextId ? shortReference(contextId) : 'unknown'}</span>
         </p>
       </details>
       <p className={styles.caption}>

@@ -33,6 +33,7 @@
     "./update": "./src/update.ts",
     "./proposal": "./src/proposal.ts",
     "./plan": "./src/plan.ts",
-    "./export-file": "./src/export-file.ts"
+    "./export-file": "./src/export-file.ts",
+    "./reference": "./src/reference.ts"
   }
 }

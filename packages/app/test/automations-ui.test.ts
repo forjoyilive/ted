@@ -391,7 +391,9 @@ describe('Automations in the app', () => {
     await details.getByRole('button', { name: 'NB-1' }).waitFor()
 
     const card = runView.getByRole('region', { name: 'Question from this Run' })
-    await card.getByRole('button', { name: 'Skip it' }).click()
+    await card.getByRole('radio', { name: 'Skip it' }).check()
+    expect(await card.isVisible()).toBe(true)
+    await card.getByRole('button', { name: 'Send' }).click()
     await card.waitFor({ state: 'detached' })
     await inbox.getByRole('button', { name: /Is it real\?/ }).waitFor({ state: 'detached' })
     await runView.waitFor({ state: 'detached' })

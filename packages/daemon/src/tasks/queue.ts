@@ -8,6 +8,7 @@ export const queueKinds = [
   'side-chat',
   'automation-draft',
   'automation',
+  'continuation',
   'task',
 ] as const
 
@@ -41,7 +42,7 @@ export function heldForLoad(held: boolean, ratio: number): boolean {
 
 export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
   const priorityRank = (e: QueueEntry) =>
-    e.kind === 'task' ? priorities.indexOf(e.priority ?? 'none') : 0
+    e.kind === 'task' || e.kind === 'continuation' ? priorities.indexOf(e.priority ?? 'none') : 0
   return [...entries].sort(
     (a, b) =>
       queueKinds.indexOf(a.kind === 'coordinator' || a.kind === 'side-chat' ? 'planning' : a.kind) -

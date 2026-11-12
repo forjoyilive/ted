@@ -1,6 +1,7 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
+  ApiCostReport,
   Automation,
   AutomationDetail,
   AutomationRequest,
@@ -540,6 +541,13 @@ function mergeHealth(current: AgentHealth[], incoming: AgentHealth[]): AgentHeal
 
 export function useAgentHealth(): AgentHealth[] {
   return useAgentHealthState().health
+}
+
+const finishedRun = (event: TedEvent) =>
+  event.type === 'run-updated' && event.run.state === 'finished'
+
+export function useApiCost(): ApiCostReport | undefined {
+  return useReloading(ted.apiCost, finishedRun, 'api-cost')
 }
 
 export function useAgentHealthState() {

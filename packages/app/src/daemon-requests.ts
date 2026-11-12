@@ -165,6 +165,7 @@ export const forwardedRequests = [
   'dismissBanner',
   'actOnBanner',
   'agentHealth',
+  'apiCost',
   'checkAgentHealth',
   'fixAgent',
   'getIntegrations',

@@ -325,6 +325,37 @@ export function createConversations(options: {
 
   const steering = options.steering
 
+  // ADR 0126: a Run’s output is deleted a while after its Task is done, so what it used is
+  // saved when it ends. After the commit that ended it, not inside it.
+  const saveUse = (run: Run) => {
+    try {
+      const parsed = parsedOutput(runs.output, agents, run)
+      const { input, output } = parsed.tokenUse()
+      // A Run on the agent’s default model has no model of its own to price by.
+      const model = run.usesDefaultModel ? undefined : run.model
+      const cost = parsed.cost(model)
+      if (input + output === 0 && cost === undefined) return
+      store.recordRunUsage({
+        runId: run.id,
+        agent: run.agent,
+        ...(model !== undefined && { model }),
+        input,
+        output,
+        ...(cost !== undefined && { cost }),
+      })
+    } catch (error) {
+      console.error(`couldn’t save what Run ${run.id} used:`, error)
+    }
+  }
+  runs.observe({ finished: (run) => void setImmediate(() => saveUse(run)) })
+  // Runs the daemon found finished while it was starting ended before anyone was listening.
+  const startedAt = new Date(Date.now() - process.uptime() * 1000).toISOString()
+  setImmediate(() => {
+    for (const run of store.listRuns()) {
+      if (run.state === 'finished' && (run.ended?.at ?? '') >= startedAt) saveUse(run)
+    }
+  })
+
   const usageOf = (run: Run): Usage => {
     const read = () => parsedOutput(runs.output, agents, run)
     if (run.state !== 'finished') {

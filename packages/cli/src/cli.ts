@@ -56,6 +56,7 @@ import {
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
+import { matchReference, shortReference } from '@ted/protocol/reference'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
   type HandlerName,
@@ -244,8 +245,10 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       }),
     )
     const when = sub.state === 'queued' ? 'queued for a free slot' : 'started'
-    console.log(`Started sub-agent “${printable(sub.name)}” (Run ${sub.id}), ${when}.`)
-    console.log(`Run \`ted run wait ${sub.id}\` for its final message.`)
+    console.log(
+      `Started sub-agent “${printable(sub.name)}” (Run ${shortReference(sub.id)}), ${when}.`,
+    )
+    console.log(`Run \`ted run wait ${shortReference(sub.id)}\` for its final message.`)
   }
 
   async function waitForSubAgent(id: string): Promise<void> {
@@ -463,7 +466,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
 
   function formatRun({ run, conversation }: RunWithConversation): string {
     return [
-      `Run ${run.id}  ${run.agent}  ${run.state}${run.problem === 'model-unavailable' ? '  model unavailable' : ''}`,
+      `Run ${shortReference(run.id)}  ${run.agent}  ${run.state}${run.problem === 'model-unavailable' ? '  model unavailable' : ''}`,
       `Session ${run.sessionId ?? 'not known yet'}`,
       ...conversation.map((entry) => summarize(entry.line)),
     ].join('\n')
@@ -737,7 +740,32 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   ): Promise<void> {
     const ref = taskRef()
     console.log(
-      printable(JSON.stringify(await withDaemon(home, (client) => work(client, ref)), null, 2)),
+      printable(
+        JSON.stringify(
+          await withDaemon(home, (client) => work(client, ref)),
+          (_key, value: unknown) => {
+            if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+            const record = value as Record<string, unknown>
+            return {
+              ...record,
+              ...(typeof record.id === 'string' &&
+                ('source' in record || 'fingerprint' in record || 'disposition' in record) && {
+                  reference: shortReference(record.id),
+                }),
+              ...(typeof record.recordedBy === 'string' && {
+                recordedByReference: shortReference(record.recordedBy),
+              }),
+              ...(typeof record.runId === 'string' && {
+                runReference: shortReference(record.runId),
+              }),
+              ...(typeof record.contextId === 'string' && {
+                contextReference: shortReference(record.contextId),
+              }),
+            }
+          },
+          2,
+        ),
+      ),
     )
   }
 
@@ -772,7 +800,17 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     failureObligations: () => failureResult((client, ref) => client.validationObligations(ref)),
     failureShow: () =>
       failureResult(async (client, ref) => {
-        const found = (await client.listFailures(ref)).find((value) => value.id === args[0])
+        const values = await client.listFailures(ref)
+        const match = matchReference(
+          args[0] ?? '',
+          values.map((value) => value.id),
+        )
+        if (match.kind === 'ambiguous')
+          throw new UsageError(
+            'More than one failure case matches. Use more characters or the full ID.',
+          )
+        const found =
+          match.kind === 'found' ? values.find((value) => value.id === match.id) : undefined
         if (!found) throw new UsageError('no such failure on this Task')
         return found
       }),
@@ -1095,7 +1133,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (text.trim() === '') throw new UsageError('give the message as text or on stdin')
       const sub = await withDaemon(home, (client) => client.sendSubAgent(id, text))
       console.log(
-        `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
+        `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${shortReference(sub.id)}\` for its answer.`,
       )
     },
     boundary: async () => {

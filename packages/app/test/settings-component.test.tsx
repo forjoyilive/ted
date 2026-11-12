@@ -249,7 +249,7 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
     expect(screen.getByText(reading)).toBeTruthy()
   expect(
     within(screen.getByRole('region', { name: 'Diagnostics' })).getByRole('cell', {
-      name: 'run-1234',
+      name: 'run-12',
     }),
   ).toBeTruthy()
   await user().selectOptions(screen.getByRole('combobox', { name: 'Log' }), 'run-123456')

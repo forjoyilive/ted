@@ -1,5 +1,6 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import type { ApiCostReport } from './api-cost.ts'
 import type {
   AppCapture,
   AppLog,
@@ -1094,6 +1095,10 @@ export class DaemonClient {
 
   agentHealth(): Promise<AgentHealth[]> {
     return this.#request('GET', '/agents/health')
+  }
+
+  apiCost(): Promise<ApiCostReport> {
+    return this.#request('GET', '/agents/api-cost')
   }
 
   checkAgentHealth(): Promise<AgentHealth[]> {
