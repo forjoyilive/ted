@@ -31,9 +31,10 @@ async function stopSessionWorkers(ses: Session) {
   const control = new WebContentsView({
     webPreferences: { session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false },
   }).webContents
+  // Chromium gives up on a worker that won’t stop after 5 s and only then answers, so wait longer.
   const timer = setTimeout(() => {
     if (!control.isDestroyed()) control.close({ waitForBeforeUnload: false })
-  }, 5_000)
+  }, 10_000)
   try {
     await control.loadURL('about:blank')
     control.debugger.attach('1.3')
@@ -569,6 +570,8 @@ export function createTaskBrowsers(
     hide,
     async state(taskId: string) {
       const page = pages.get(taskId)
+      if (!page?.ready && running.has(taskId))
+        return { url: '', text: 'Opening…', opening: true as const }
       if (!page) return { url: '', text: 'Open a running web App' }
       await valid(taskId, page.app)
       return {

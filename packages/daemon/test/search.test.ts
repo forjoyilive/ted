@@ -101,6 +101,10 @@ describe('search over the store', () => {
     store.postComment({ taskId: task.id, body: 'Nothing here', author: { kind: 'ted' } })
 
     const results = search(store, { query: 'CACHE' })
+    const tasks = store.listTasks()
+    const builds = store.taskBuilds()
+    expect(search(store, { query: 'CACHE' }, tasks)).toEqual(results)
+    expect(store.taskBuilds()).toBe(builds)
 
     expect(results.tasks).toEqual([])
     expect(results.comments.map((c) => [c.author.kind, c.snippet, c.displayId])).toEqual([

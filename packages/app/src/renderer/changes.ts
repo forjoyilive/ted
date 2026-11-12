@@ -1,6 +1,7 @@
 import type { ChangeFile, PullRequestChanges, Task, TaskChanges } from '@ted/protocol'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useConnection, useEventValue } from './data.ts'
+import { useRefreshAction } from './refresh-action.ts'
 import { ted } from './ted.ts'
 
 export interface ChangedFile extends ChangeFile {
@@ -49,22 +50,23 @@ export interface PullRequestChangesState {
 
 export function usePullRequestChanges(task: Task, active: boolean): PullRequestChangesState {
   const { epoch } = useConnection()
-  const [version, setVersion] = useState(0)
+  const { revision: version, refresh, settled } = useRefreshAction()
   const identity = JSON.stringify(
     task.repos
       .filter((r) => r.pullRequest)
       .map((r) => ({ name: r.name, pr: r.pullRequest, pushed: r.pushed })),
   )
-  const refresh = () => setVersion((v) => v + 1)
   useEffect(() => {
     if (!active) {
-      setVersion((v) => v + 1)
+      settled(version)
       return
     }
-    const focus = () => setVersion((v) => v + 1)
+    const focus = () => {
+      void refresh()
+    }
     window.addEventListener('focus', focus)
     return () => window.removeEventListener('focus', focus)
-  }, [active])
+  }, [active, refresh, settled, version])
   const resource = useEventValue<
     | {
         changes: TaskChanges
@@ -77,33 +79,37 @@ export function usePullRequestChanges(task: Task, active: boolean): PullRequestC
     enabled: active,
     event: () => undefined,
     load: async () => {
-      const snapshots = new Map<string, PullRequestChanges>()
-      const repos = task.repos.filter((r) => r.pullRequest)
-      const changed = await Promise.all(
-        repos.map(async (repo) => {
-          try {
-            const snapshot = await ted.pullRequestChanges(task.id, repo.name)
-            snapshots.set(repo.name, snapshot)
-            return snapshot.repo
-          } catch {
-            return {
-              name: repo.name,
-              baseBranch: repo.pullRequest?.base ?? '',
-              files: [],
-              added: 0,
-              removed: 0,
-              unavailable: `${repo.name}: Couldn’t load pull request #${repo.pullRequest?.number} changes. Check your connection and GitHub access, then retry.`,
+      try {
+        const snapshots = new Map<string, PullRequestChanges>()
+        const repos = task.repos.filter((r) => r.pullRequest)
+        const changed = await Promise.all(
+          repos.map(async (repo) => {
+            try {
+              const snapshot = await ted.pullRequestChanges(task.id, repo.name)
+              snapshots.set(repo.name, snapshot)
+              return snapshot.repo
+            } catch {
+              return {
+                name: repo.name,
+                baseBranch: repo.pullRequest?.base ?? '',
+                files: [],
+                added: 0,
+                removed: 0,
+                unavailable: `${repo.name}: Couldn’t load pull request #${repo.pullRequest?.number} changes. Check your connection and GitHub access, then retry.`,
+              }
             }
-          }
-        }),
-      )
-      return {
-        changes: {
-          taskId: task.id,
-          files: changed.reduce((n, r) => n + r.files.length, 0),
-          repos: changed,
-        },
-        snapshots,
+          }),
+        )
+        return {
+          changes: {
+            taskId: task.id,
+            files: changed.reduce((n, r) => n + r.files.length, 0),
+            repos: changed,
+          },
+          snapshots,
+        }
+      } finally {
+        settled(version)
       }
     },
   })

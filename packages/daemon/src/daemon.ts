@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { DaemonClient, type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
+import { createAgentAvailability } from './agent-availability.ts'
 import { createAgents } from './agents/index.ts'
 import { type AsanaOptions, createAsana } from './asana/asana.ts'
 import { createAttachments } from './attachments.ts'
@@ -17,6 +18,7 @@ import { createData, type DataCloseStep, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
 import { RequestError } from './errors.ts'
+import { createExecutionController } from './execution/controller.ts'
 import { ensureClone } from './factories.ts'
 import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
@@ -46,6 +48,7 @@ import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
 import { createCheckSlots } from './tasks/check-slots.ts'
+import { factoryRepos } from './tasks/repos.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import type { WorkflowSettings } from './workflow/check.ts'
@@ -53,6 +56,7 @@ import { createWorkflows } from './workflow/workflows.ts'
 
 export interface DaemonOptions {
   home: string
+  execution?: { now?: () => number }
   version: string
   claudeBin?: string
   codexBin?: string
@@ -568,7 +572,37 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         ...(idle && { idle }),
       })
+      const execution = createExecutionController({
+        home: paths.home,
+        store,
+        ...options.execution,
+        onProblem(text) {
+          if (text)
+            banners.raise({
+              problem: 'execution-listener',
+              severity: 'warning',
+              text,
+              action: { label: 'Open', opens: { kind: 'settings', section: 'machines' } },
+            })
+          else banners.clear({ problem: 'execution-listener' })
+        },
+        async repos() {
+          const entries = await Promise.all(
+            store.listFactories().map(async (factory) => {
+              const { workflow } = await workflows.resolve(factory, { fetch: false })
+              return factoryRepos(workflow, factory).map((repo) => ({
+                factoryId: factory.id,
+                factoryName: factory.name,
+                repo: repo.repo.toLowerCase(),
+              }))
+            }),
+          )
+          return entries.flat()
+        },
+      })
+      await execution.start()
       const factoryRemovals = createFactoryRemovals({
+        execution,
         factorySettings,
         sideChats,
         coordinators,
@@ -602,7 +636,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
-      return {
+      const services = {
+        execution,
         sideChats,
         coordinators,
         automations,
@@ -624,6 +659,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         async close() {
+          await execution.close()
           const shellsClosed = shells.close()
           await sideChats.close()
           await coordinators.close()
@@ -648,6 +684,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           await shellsClosed
         },
       }
+      return { ...services, agentAvailability: createAgentAvailability({ ...services, store }) }
     },
   })
   const commandLine = createCommandLine(options.commandLine)

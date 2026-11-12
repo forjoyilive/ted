@@ -20,6 +20,7 @@ import {
   listSorts,
   type MachineSettings,
   parseBannerActionInput,
+  parseChangeAgentAvailabilityRequest,
   priorities,
   quitChoices,
   runOutputDayLimits,
@@ -37,6 +38,20 @@ import { readProfile } from '../profile.ts'
 import { jsonRoute, type Route, readJson } from './route.ts'
 
 export const machineRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/agents\/availability$/,
+    handle: async ({ caller }, { agentAvailability }) => {
+      if (caller.kind !== 'app')
+        throw new HttpError(403, 'Only the app can inspect agent availability')
+      return [200, agentAvailability.list()]
+    },
+  },
+  jsonRoute(parseChangeAgentAvailabilityRequest, {
+    method: 'POST',
+    path: /^\/agents\/availability$/,
+    handle: async ({ body }, { agentAvailability }) => [200, await agentAvailability.change(body)],
+  }),
   {
     method: 'GET',
     path: /^\/settings$/,
@@ -205,6 +220,12 @@ function boardView(value: unknown): BoardView {
 }
 
 const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+  enabledAgents() {
+    throw new HttpError(
+      400,
+      'Change agents through Settings → Agents so existing Runs are accounted for.',
+    )
+  },
   timeFormat(value) {
     const format = timeFormats.find((format) => format === value)
     if (!format) throw new HttpError(400, `timeFormat must be ${timeFormats.join(', ')}`)

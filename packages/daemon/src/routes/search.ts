@@ -1,3 +1,4 @@
+import { searchTerms } from '@ted/protocol'
 import { searchConversations } from '../conversation-search.ts'
 import { search } from '../search.ts'
 import type { Route } from './route.ts'
@@ -15,8 +16,9 @@ export const searchRoutes: Route[] = [
         query: (params.get('q') ?? '').slice(0, maxQueryLength),
         ...(factoryId !== undefined && { factoryId }),
       }
-      const results = search(store, request)
-      results.conversations = await searchConversations(store, conversations, request)
+      const tasks = searchTerms(request.query).length > 0 ? store.listTasks() : []
+      const results = search(store, request, tasks)
+      results.conversations = await searchConversations(store, conversations, request, tasks)
       return [200, results]
     },
   },

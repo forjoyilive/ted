@@ -3,6 +3,7 @@ import {
   type NewTaskDraft,
   parseAddFailureEvidenceRequest,
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAssessFailureRequest,
   parseBlockTaskRequest,
@@ -25,6 +26,7 @@ import {
   parseSetActivityRequest,
   parseSetClarifyDepthRequest,
   parseSetPriorityRequest,
+  parseSetTaskAutopilotRequest,
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
   parseSetTaskSnoozeRequest,
@@ -44,6 +46,33 @@ import type {
 import { jsonRoute, type Route } from './route.ts'
 
 export const taskRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/ted-stops$/,
+    handle: async (_, { tasks }) => [200, tasks.tedStops()],
+  },
+  jsonRoute(parseAnswerTedStopsRequest, {
+    method: 'POST',
+    path: /^\/ted-stops\/answer$/,
+    async handle({ body }, { tasks }) {
+      return [200, await tasks.answerTedStops(body)]
+    },
+  }),
+  jsonRoute(parseSetTaskAutopilotRequest, {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/autopilot$/,
+    async handle({ body, params: [ref = ''], caller }, { tasks }) {
+      return [200, await tasks.setTaskAutopilot(ref, caller, body)]
+    },
+  }),
+  jsonRoute(parseAnswerRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/autopilot\/([^/]+)$/,
+    runToken: true,
+    async handle({ body, params: [ref = '', id = ''], caller }, { tasks }) {
+      return [200, await tasks.answerAutopilot(ref, id, caller, body)]
+    },
+  }),
   {
     method: 'GET',
     path: /^\/tasks\/([^/]+)\/gates$/,

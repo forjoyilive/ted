@@ -22,6 +22,8 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
@@ -148,6 +150,7 @@ function NewTaskForm({
   const [uploading, setUploading] = useState(0)
   const uploads = useRef(new Set<Promise<void>>())
   const [busy, setBusy] = useState(false)
+  const [creatingMore, setCreatingMore] = useState(false)
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
   const lookups = useRef(0)
@@ -237,24 +240,30 @@ function NewTaskForm({
   useEffect(() => {
     if (factory === undefined || !ready) return
     let current = true
-    Promise.all([ted.taskDefaults(factory), ted.checkAgentHealth()]).then(
-      ([defaults, health]) => {
+    Promise.all([ted.taskDefaults(factory), ted.checkAgentHealth(), ted.getSettings()]).then(
+      ([defaults, health, settings]) => {
         if (!current) return
         setHealth(health)
-        const fallback = health.find((entry) => entry.state !== 'not-installed')
-        const availableDefault: TaskLead = health.some(
-          (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
+        const fallback = health.find(
+          (entry) =>
+            settings.enabledAgents.includes(entry.agent) && entry.state !== 'not-installed',
         )
-          ? defaults.lead
-          : fallback
-            ? { agent: fallback.agent, effortMode: 'stage' }
-            : defaults.lead
+        const availableDefault: TaskLead =
+          !settings.enabledAgents.includes(defaults.lead.agent) ||
+          health.some(
+            (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
+          )
+            ? defaults.lead
+            : fallback
+              ? { agent: fallback.agent, effortMode: 'stage' }
+              : defaults.lead
         setDefaultLead(availableDefault)
         setDefaultDepth(defaults.clarifyDepth)
         const restored = session.get()
         let restoredLead = restored.lead
         if (
           restoredLead &&
+          settings.enabledAgents.includes(restoredLead.agent) &&
           health.some(
             (entry) => entry.agent === restoredLead?.agent && entry.state === 'not-installed',
           )
@@ -357,6 +366,7 @@ function NewTaskForm({
   async function create(more: boolean) {
     if (!canCreate || submitting.current) return
     submitting.current = true
+    setCreatingMore(more)
     lookups.current++
     let created = false
     setBusy(true)
@@ -472,7 +482,7 @@ function NewTaskForm({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        void close()
+        return close()
       }}
       onKeyDown={onKeyDown}
       onPointerDown={(event) => {
@@ -499,7 +509,7 @@ function NewTaskForm({
           disabled={factories.length === 0 || !ready || busy || uploading > 0}
           onChange={(event) => {
             const next = event.target.value
-            void close(() => onFactory(next))
+            return close(() => onFactory(next))
           }}
         >
           {factories.length === 0 && <option value="">No Factories yet</option>}
@@ -509,14 +519,14 @@ function NewTaskForm({
             </option>
           ))}
         </Select>
-        <button
+        <ActionButton
           type="button"
           className={styles.close}
           aria-label="Close"
-          onClick={() => void close()}
+          onClick={() => close()}
         >
           <CloseIcon />
-        </button>
+        </ActionButton>
       </header>
 
       <fieldset disabled={!ready || !defaultsReady || busy} className={styles.fields}>
@@ -561,26 +571,27 @@ function NewTaskForm({
             <span key={`${a.hash}:${a.name}`} className={styles.chip}>
               {a.name}
               <span className={styles.chipMeta}>{formatSize(a.size)}</span>
-              <button
+              <ActionButton
                 type="button"
                 className={styles.chipRemove}
                 aria-label={`Remove ${a.name}`}
                 onClick={() => setAttachments((current) => current.filter((c) => c !== a))}
               >
                 <CloseIcon size={11} />
-              </button>
+              </ActionButton>
             </span>
           ))}
           {(uploading > 0 || heldFiles.length > 0) && (
             <span className={styles.chipMeta}>Attaching…</span>
           )}
-          <button
+          <ActionButton
             type="button"
             className={styles.attach}
+            pending={uploading > 0}
             onClick={() => fileInput.current?.click()}
           >
             Drop files here, or click to attach
-          </button>
+          </ActionButton>
           <input
             ref={fileInput}
             type="file"
@@ -588,7 +599,7 @@ function NewTaskForm({
             hidden
             aria-label="Attach files"
             onChange={(event) => {
-              void attach([...(event.target.files ?? [])])
+              attach([...(event.target.files ?? [])])
               event.target.value = ''
             }}
           />
@@ -620,7 +631,7 @@ function NewTaskForm({
         </div>
 
         <section className={styles.more}>
-          <button
+          <ActionButton
             type="button"
             className={styles.moreToggle}
             aria-expanded={moreOpen}
@@ -629,7 +640,7 @@ function NewTaskForm({
             <ChevronIcon open={moreOpen} className={styles.moreChevron} />
             <span className={styles.moreLabel}>More</span>
             {!moreOpen && <span className={styles.moreSummary}>{summary}</span>}
-          </button>
+          </ActionButton>
           {moreOpen && (
             <div className={styles.moreBody}>
               <div className={styles.field}>
@@ -688,18 +699,18 @@ function NewTaskForm({
           <p className={styles.setupNotice} role="note">
             <span>{setupNoticeText(setup)}</span>
             {onOpenTask && setup.kind === 'open' && (
-              <button
+              <ActionButton
                 type="button"
                 className={styles.setupLink}
                 onClick={() => {
-                  void close(() => {
+                  return close(() => {
                     onClose()
                     onOpenTask(setup.task)
                   })
                 }}
               >
                 Open setup Task
-              </button>
+              </ActionButton>
             )}
           </p>
         )}
@@ -726,7 +737,7 @@ function NewTaskForm({
             </span>
           </div>
           <span className={styles.spacer} />
-          <Button disabled={!canCreate} onClick={() => void create(true)}>
+          <Button disabled={!canCreate} pending={busy && creatingMore} onClick={() => create(true)}>
             Create more
           </Button>
           <Button
@@ -734,7 +745,8 @@ function NewTaskForm({
             shortcut="⌘↵"
             aria-keyshortcuts="Meta+Enter"
             disabled={!canCreate}
-            onClick={() => void create(false)}
+            pending={busy && !creatingMore}
+            onClick={() => create(false)}
           >
             Create
           </Button>
@@ -791,14 +803,14 @@ function SourceCard({
                   come with the Task.
                 </Help>
                 {linearDescription !== undefined && (
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.keyLink}
                     aria-expanded={showing}
                     onClick={() => setShowing((open) => !open)}
                   >
                     {showing ? 'Hide Linear’s description' : 'Show Linear’s description'}
-                  </button>
+                  </ActionButton>
                 )}
               </>
             ) : (
@@ -806,14 +818,14 @@ function SourceCard({
             )}
           </span>
         </span>
-        <button
+        <ActionButton
           type="button"
           className={styles.chipRemove}
           aria-label="Remove source"
           onClick={onRemove}
         >
           <CloseIcon size={11} />
-        </button>
+        </ActionButton>
       </fieldset>
       {linearFiles.length > 0 && (
         <section className={styles.sourceFiles} aria-label="Files from Linear">
@@ -894,20 +906,20 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
               event.preventDefault()
-              void save()
+              save()
             }
           }}
         />
-        <Button size="small" disabled={key.trim() === '' || saving} onClick={() => void save()}>
+        <Button disabled={key.trim() === '' || saving} onClick={() => save()}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
-        <button
+        <ActionButton
           type="button"
           className={styles.keyLink}
-          onClick={() => void ted.openLinearKeyPage()}
+          onClick={() => ted.openLinearKeyPage()}
         >
           Create a key ↗
-        </button>
+        </ActionButton>
       </div>
       {problem !== undefined && (
         <p className={styles.sourceProblem} role="status">
@@ -998,11 +1010,7 @@ export function LeadFields({
             )
           }}
         >
-          {agentKinds.map((agent) => (
-            <option key={agent} value={agent}>
-              {agentLabels[agent]}
-            </option>
-          ))}
+          <AgentOptions current={lead.agent} />
         </Select>
         <Select
           aria-label="Model"

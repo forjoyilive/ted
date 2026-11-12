@@ -2,7 +2,7 @@ import type { BoardView } from './board-view.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
-import type { AgentKind, PermissionMode } from './run.ts'
+import { type AgentKind, agentKinds, type PermissionMode } from './run.ts'
 import type { EditorChoice } from './shell.ts'
 
 export const timeFormats = ['system', '12-hour', '24-hour'] as const
@@ -53,6 +53,7 @@ export interface MachineSettings {
   listViews: Readonly<Record<string, ListView>>
   boardViews: Readonly<Record<string, BoardView>>
   firstLaunchDone: boolean
+  enabledAgents: readonly AgentKind[]
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
   editorCommand: string
@@ -93,6 +94,7 @@ export const defaultMachineSettings: MachineSettings = {
   listViews: {},
   boardViews: {},
   firstLaunchDone: false,
+  enabledAgents: [...agentKinds],
   billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },
   editor: null,
   editorCommand: '',

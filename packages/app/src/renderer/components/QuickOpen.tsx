@@ -114,12 +114,10 @@ export function QuickOpen({
       </div>
       <footer className={styles.footer}>
         <span>↑ ↓ to choose · ↵ to open · Esc to close</span>
-        <Button size="small" variant="quiet" onClick={refresh}>
+        <Button variant="quiet" onClick={refresh}>
           Refresh files
         </Button>
-        <Button size="small" onClick={onClose}>
-          Close
-        </Button>
+        <Button onClick={onClose}>Close</Button>
       </footer>
     </dialog>
   )
