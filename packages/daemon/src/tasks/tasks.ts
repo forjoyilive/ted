@@ -2186,21 +2186,27 @@ export function createTasks(options: {
     )
   }
 
+  let ciNoted = new Set<string>()
+
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
     if (closed) return
     // Only a Task with a pull request or a failure case can be affected by what GitHub
     // reported; building every other Task after every read held the daemon for a long time.
-    const unarchived = store
-      .unarchivedTaskRepos()
-      .filter(
-        ({ id, repos }) =>
-          repos.some((repo) => !repo.removed && repo.pullRequest) ||
-          store.failures.list(id).length > 0,
-      )
+    const all = store.unarchivedTaskRepos()
+    const unarchived = all.filter(
+      ({ id, repos }) =>
+        repos.some((repo) => !repo.removed && repo.pullRequest) ||
+        store.failures.list(id).length > 0,
+    )
+    // A Task that just lost its last pull request gets one more look, so the CI noted for
+    // it is cleared.
+    const kept = new Set(unarchived.map(({ id }) => id))
+    const left = all.filter(({ id }) => ciNoted.has(id) && !kept.has(id))
+    ciNoted = kept
     const breathe = () => new Promise<void>((resolve) => setImmediate(resolve))
     // No pause in this loop: a caller waiting for this read must find the CI it reported
     // already noted, or its tested context counts as superseded.
-    for (const { id, stage } of unarchived) {
+    for (const { id, stage } of [...unarchived, ...left]) {
       if (stage === 'done') continue
       const task = store.getTask(id)
       if (!task) continue
