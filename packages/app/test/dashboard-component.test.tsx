@@ -264,7 +264,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(open).toHaveBeenCalledWith('t3')
   await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
   expect(document.activeElement).toBe(opener)
-  await user().click(within(region).getByRole('button', { name: /1 Task has incomplete/ }))
+  await user().click(screen.getByRole('button', { name: /1 Task has incomplete/ }))
   sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('First Intake timestamp is missing.')
 })
@@ -414,6 +414,101 @@ test('reason drawers expose measured distributions, partial coverage, Check cont
   await user().click(within(dialog).getByRole('button', { name: 'Inspect previous-period Tasks' }))
   dialog = screen.getByRole('dialog')
   expect(dialog.textContent).toContain('Previous period')
+})
+
+test('detail totals distinguish unavailable prior and Stage history from measured zero', async () => {
+  const data = dashboardFixture()
+  const previous = data.flow.previous
+  const source = data.flow.current.reasons.find((r) => r.reason === 'user-request')
+  const unknown = previous?.reasons.find((r) => r.reason === 'user-request')
+  const zero = previous?.reasons.find((r) => r.reason === 'run-slot')
+  if (!source || !unknown || !zero) throw new Error('Missing reason fixture')
+  unknown.samples = structuredClone(source.samples)
+  for (const sample of unknown.samples) {
+    sample.elapsedMs = null
+    sample.coveredMs = null
+    sample.coverage = 'unavailable'
+    sample.intervals = []
+  }
+  zero.samples = structuredClone(source.samples)
+  zero.medianMs = zero.p25Ms = zero.p75Ms = 0
+  for (const sample of zero.samples) {
+    sample.elapsedMs = 0
+    sample.intervals = []
+  }
+  data.flow.current.stages = data.flow.current.stages.map((s) => ({
+    ...s,
+    totalMs: 0,
+    medianMs: null,
+    p25Ms: null,
+    p75Ms: null,
+    samples: [],
+  }))
+  bridge({ factoryDashboard: () => data })
+  render(<DashboardView open={vi.fn()} />)
+  await user().click(await screen.findByRole('tab', { name: 'Flow' }))
+  const panel = screen.getByRole('region', { name: 'Observed working time and wait reasons' })
+  await user().click(within(panel).getByText(/more wait reasons/))
+  await user().click(within(panel).getByRole('button', { name: 'Open user requests' }))
+  let dialog = screen.getByRole('dialog')
+  await user().click(within(dialog).getByText('Comparison evidence'))
+  expect(dialog.textContent).toContain('Previous total: Unavailable')
+  expect(dialog.textContent).toContain('0 measured of 2 Tasks · 2 unavailable')
+  await user().click(within(dialog).getByRole('button', { name: 'Close Flow sample' }))
+  await user().click(within(panel).getByRole('button', { name: 'Run-slot waits' }))
+  dialog = screen.getByRole('dialog')
+  await user().click(within(dialog).getByText('Comparison evidence'))
+  expect(dialog.textContent).toContain('Previous total: 0h')
+  await user().click(within(dialog).getByRole('button', { name: 'Close Flow sample' }))
+  await user().click(screen.getByRole('tab', { name: 'Stages' }))
+  expect(screen.getByText(/Total and distribution unavailable/)).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Work', exact: true }))
+  dialog = screen.getByRole('dialog')
+  expect(
+    within(dialog).getByText('Total Task-hours').parentElement?.querySelector('strong')
+      ?.textContent,
+  ).toBe('Unavailable')
+  await user().click(within(dialog).getByText('Comparison evidence'))
+  expect(dialog.textContent).toContain('Previous total: Unavailable')
+})
+
+test('Flow discloses unknown-boundary Tasks in mixed and unknown-only periods', async () => {
+  let data = dashboardFixture()
+  const missing = data.flow.current.incomplete
+  const records = data.flow.tasks.filter((t) => t.id === 't2')
+  if (data.flow.previous) data.flow.previous.incomplete = missing
+  bridge({ factoryDashboard: () => data })
+  const open = vi.fn()
+  render(<DashboardView open={open} />)
+  await user().click(await screen.findByRole('tab', { name: 'Flow' }))
+  expect(screen.getByText(/2 Tasks with a recorded Intake boundary/)).toBeTruthy()
+  expect(screen.getByText(/Reason coverage counts apply only/)).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: /1 Task has incomplete timing history/ }))
+  let dialog = screen.getByRole('dialog')
+  expect(dialog.textContent).toContain('First Intake timestamp is missing.')
+  await user().click(within(dialog).getByRole('button', { name: /NB-2.*Improve search/ }))
+  expect(open).toHaveBeenCalledWith('t2')
+  await user().click(within(dialog).getByRole('button', { name: 'Close Flow sample' }))
+  await user().click(screen.getByText('Coverage and recording gaps'))
+  await user().click(
+    screen.getByRole('button', { name: /Previous period · 1 Task has incomplete timing history/ }),
+  )
+  dialog = screen.getByRole('dialog')
+  expect(dialog.textContent).toContain('Previous period')
+  expect(dialog.textContent).toContain('First Intake timestamp is missing.')
+  await user().click(within(dialog).getByRole('button', { name: 'Close Flow sample' }))
+  data = dashboardFixture(true)
+  data.flow.current.incomplete = missing
+  data.flow.tasks = records
+  await user().selectOptions(screen.getByRole('combobox', { name: 'Historical period' }), '30d')
+  expect(
+    await screen.findByText(/Incomplete history may hide started Tasks and delays/),
+  ).toBeTruthy()
+  expect(screen.queryByText(/No started Tasks in this period/)).toBeNull()
+  await user().click(screen.getByRole('button', { name: /1 Task has incomplete timing history/ }))
+  dialog = screen.getByRole('dialog')
+  expect(dialog.textContent).toContain('First Intake timestamp is missing.')
+  expect(within(dialog).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
 })
 
 test('percentage changes preserve sign/color and zero/missing baselines without inventing comparisons', async () => {

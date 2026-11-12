@@ -121,7 +121,9 @@ export function TimingOverview({
         <p className={styles.notice}>
           {data.current.taskIds.length
             ? 'No confirmed positive waits to rank. Inspect coverage before drawing conclusions.'
-            : 'No started Tasks in this period. Choose a longer period to look for recorded delays.'}
+            : data.current.incomplete.length
+              ? 'No Tasks have measurable timing in this period. Incomplete history may hide started Tasks and delays.'
+              : 'No started Tasks in this period. Choose a longer period to look for recorded delays.'}
         </p>
       )}
       <h3>Recorded activity</h3>
@@ -143,8 +145,23 @@ export function TimingOverview({
         <summary>Coverage and recording gaps</summary>
         <p>
           Each reason has its own coverage. Open it for recording windows, unknown spans, incomplete
-          boundaries and Task evidence. Unknown history is excluded, never treated as zero.
+          boundaries and Task evidence. Unknown history is excluded, never treated as zero. Tasks
+          without a recorded Intake boundary stay in the incomplete-history evidence.
         </p>
+        {data.previous && data.previous.incomplete.length > 0 && (
+          <p>
+            <button
+              type="button"
+              data-nav-item
+              className={styles.link}
+              onClick={() => select({ kind: 'incomplete', period: 'previous' })}
+            >
+              Previous period · {data.previous.incomplete.length}{' '}
+              {data.previous.incomplete.length === 1 ? 'Task has' : 'Tasks have'} incomplete timing
+              history
+            </button>
+          </p>
+        )}
         <p>
           Test-lock coverage describes registered invocations and executed Checks, not all commands.
           Unsupported runners, unreported Checks and unfinished reports stay visible. Unregistered

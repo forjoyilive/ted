@@ -21,6 +21,14 @@ const at = (date: string) =>
   })
 const bounds = (period: FlowPeriod) =>
   `${period.from ? at(period.from) : 'All retained history'} – ${at(period.to)} (end excluded)`
+const totalValue = (
+  measure: FlowPeriod['reasons'][number] | FlowPeriod['stages'][number] | undefined,
+) =>
+  measure && 'reason' in measure
+    ? reasonValue(measure)
+    : measure?.samples.length
+      ? measure.totalMs
+      : null
 const outcomes: Record<FlowValidateOutcome, string> = {
   passed: 'Passed',
   failed: 'Failed',
@@ -58,13 +66,8 @@ function StageTable({
                 </p>
               </div>
               <div className={styles.timingNumber}>
-                <strong>{hours(s.samples.length ? s.totalMs : null)}</strong>
-                {previous && (
-                  <TimingChange
-                    current={s.samples.length ? s.totalMs : null}
-                    previous={prior?.samples.length ? prior.totalMs : null}
-                  />
-                )}
+                <strong>{hours(totalValue(s))}</strong>
+                {previous && <TimingChange current={totalValue(s)} previous={totalValue(prior)} />}
                 <button
                   type="button"
                   data-nav-item
@@ -81,8 +84,7 @@ function StageTable({
       </ul>
       {period.stages.every((s) => s.samples.length === 0) && (
         <p className={styles.empty}>
-          No measurable Stage intervals in this period. Total: 0 Task-hours; distribution
-          unavailable.
+          No measurable Stage intervals in this period. Total and distribution unavailable.
         </p>
       )}
     </>
@@ -383,19 +385,11 @@ function FlowSample({
           <div className={styles.timingStats}>
             <div>
               <small>Total Task-hours</small>
-              <strong>{hours(reason ? reasonValue(reason) : (stage?.totalMs ?? null))}</strong>
+              <strong>{hours(totalValue(reason ?? stage))}</strong>
               {selection.period === 'current' && data.previous && (
                 <TimingChange
-                  current={
-                    reason ? reasonValue(reason) : stage?.samples.length ? stage.totalMs : null
-                  }
-                  previous={
-                    prior && 'reason' in prior
-                      ? reasonValue(prior)
-                      : prior?.samples.length
-                        ? prior.totalMs
-                        : null
-                  }
+                  current={totalValue(reason ?? stage)}
+                  previous={totalValue(prior)}
                   neutral={
                     selection.kind === 'reason' &&
                     ['run-working', 'running-check'].includes(selection.reason)
@@ -422,7 +416,7 @@ function FlowSample({
               <details className={styles.dataTable}>
                 <summary>Comparison evidence</summary>
                 <p>
-                  Previous total: {hours(prior?.totalMs ?? null)} · Middle Task:{' '}
+                  Previous total: {hours(totalValue(prior))} · Middle Task:{' '}
                   {hours(prior?.medianMs ?? null)} · Middle 50%: {hours(prior?.p25Ms ?? null)} –{' '}
                   {hours(prior?.p75Ms ?? null)}.
                 </p>
@@ -536,27 +530,28 @@ export function Flow({
         )}
       </header>
       <p className={styles.caption}>
-        {data.current.taskIds.length} Tasks open during this period · As of {at(asOf)}
+        {data.current.taskIds.length} Tasks with a recorded Intake boundary · As of {at(asOf)}
       </p>
+      {data.current.incomplete.length > 0 && (
+        <p className={styles.notice}>
+          <button
+            type="button"
+            data-nav-item
+            className={styles.link}
+            onClick={() => select({ kind: 'incomplete', period: 'current' })}
+          >
+            {data.current.incomplete.length}{' '}
+            {data.current.incomplete.length === 1 ? 'Task has' : 'Tasks have'} incomplete timing
+            history
+          </button>
+          . Unmeasurable intervals are excluded. Reason coverage counts apply only to Tasks with a
+          recorded Intake boundary.
+        </p>
+      )}
       {panel === 'stages' ? (
         <section className={styles.flowCard} aria-label="Elapsed time by Stage">
           <h3>Elapsed time by Stage</h3>
           <StageTable period={data.current} previous={data.previous} select={select} />
-          {data.current.incomplete.length > 0 && (
-            <p className={styles.notice}>
-              <button
-                type="button"
-                data-nav-item
-                className={styles.link}
-                onClick={() => select({ kind: 'incomplete', period: 'current' })}
-              >
-                {data.current.incomplete.length}{' '}
-                {data.current.incomplete.length === 1 ? 'Task has' : 'Tasks have'} incomplete timing
-                history
-              </button>
-              . Unmeasurable intervals are excluded.
-            </p>
-          )}
           <details className={styles.dataTable}>
             <summary>How Stage time is measured</summary>
             <p>
