@@ -1,7 +1,9 @@
 import type { InboxItem } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { inboxChange } from '../src/renderer/inbox-events.ts'
-import { comment, task } from './support/fixtures.ts'
+import { comment, createdAt, task } from './support/fixtures.ts'
+
+const archive = { at: createdAt, ended: { kind: 'never-started' as const } }
 
 const items: InboxItem[] = [
   { request: comment({ id: 'c1' }), task: task({ id: 'a' }) },
@@ -37,7 +39,7 @@ test('a Task update replaces the Task on its items and an archived or deleted Ta
   expect(next.map((item) => item.request.id)).toEqual(['c1', 'c2', 'c3'])
   expect(next[1]).toBe(items[1])
 
-  const archived = task({ id: 'a', archived: true })
+  const archived = task({ id: 'a', archived: archive })
   for (const list of ['waiting', 'answered'] as const) {
     const left = apply(inboxChange({ type: 'task-updated', task: archived }, items, list))
     expect(left.map((item) => item.request.id)).toEqual(['c2'])
@@ -51,7 +53,7 @@ test('a Task the list does not show changes nothing, except that Answered reload
   expect(apply(inboxChange({ type: 'task-updated', task: other }, items, 'waiting'))).toBe(items)
   expect(apply(inboxChange({ type: 'task-deleted', taskId: 'z' }, items, 'waiting'))).toBe(items)
   expect(inboxChange({ type: 'task-updated', task: other }, items, 'answered')).toBe(2000)
-  const gone = task({ id: 'z', archived: true })
+  const gone = task({ id: 'z', archived: archive })
   expect(apply(inboxChange({ type: 'task-updated', task: gone }, items, 'answered'))).toBe(items)
   const loaded = apply(inboxChange({ type: 'task-updated', task: other }, [], 'waiting'), items)
   expect(loaded).toBe(items)
