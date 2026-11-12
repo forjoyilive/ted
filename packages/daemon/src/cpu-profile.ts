@@ -59,7 +59,7 @@ export function createCpuProfiler(home: string, stalls?: StallProfiles): CpuProf
 
 type Session = Awaited<ReturnType<typeof connect>>
 
-// ADR 0123: keeps a coarse profile of the last minute and saves it when the event loop was
+// ADR 0124: keeps a coarse profile of the last minute and saves it when the event loop was
 // blocked for `stallMs` or more, so a freeze names the code that caused it. The sampler runs
 // on V8’s own thread, so it keeps sampling while the loop is blocked.
 function watchStalls(home: string, options: StallProfiles) {
