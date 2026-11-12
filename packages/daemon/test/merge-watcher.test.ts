@@ -695,3 +695,13 @@ test('cancelling while local Check coverage settles prevents posting a Merge sig
   expect(port.postGate).not.toHaveBeenCalled()
   expect(gh.run).not.toHaveBeenCalled()
 })
+
+test('pending requests hold merging while incorporated repair Checks can be verified', async () => {
+  port.held = () => true
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.checks).toHaveBeenCalledTimes(1)
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(port.postGate).not.toHaveBeenCalled()
+  port.held = () => false
+  expect(await watcher.cycle(id, read())).toBe('done')
+})

@@ -2478,6 +2478,7 @@ export function createTasks(options: {
     port: {
       find,
       busy: (id) => advancing.has(id),
+      held: holdsMerge,
       untilFree,
       holding,
       resolve: (task) => gateWorkflow(task, { fetch: false }),
@@ -2514,7 +2515,13 @@ export function createTasks(options: {
             read = await watch.next({ now: urgent })
             if (closed || !watched(store.getTask(taskId))) return
           }
-          if (canAct()) {
+          const current = store.getTask(taskId)
+          const repair =
+            current &&
+            !current.stopped &&
+            !checking.has(taskId) &&
+            validation.pendingRepair(current)
+          if (canAct() || repair) {
             next = await mergeWatcher.cycle(taskId, read).catch((error: unknown) => {
               if (error instanceof RequestError && error.status === 409) return 'busy' as const
               console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))

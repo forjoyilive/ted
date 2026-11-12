@@ -29,6 +29,7 @@ export type MergeWork = MergeTarget & { url: string; worktree: string }
 export interface MergePort {
   find(id: string): StoredTask
   busy(id: string): boolean
+  held?(id: string): boolean
   untilFree(id: string): Promise<void>
   holding<T>(task: StoredTask, work: () => Promise<T>): Promise<T>
   resolve(task: StoredTask): Promise<WorkflowResolution>
@@ -371,6 +372,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       const current = find(taskId)
       if (mergeMode(store, current, (await port.resolve(current)).workflow) !== mode) return 'busy'
     }
+    if (port.held?.(taskId)) return 'wait'
     if (store.failures.list(task.id).length > 0) {
       if (read) recordPullRequests(task, read)
       try {

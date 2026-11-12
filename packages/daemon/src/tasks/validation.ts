@@ -149,6 +149,13 @@ export function createValidation(options: ValidationOptions) {
     }
   }
 
+  function mergeChecksStarted(task: Task): boolean {
+    const since = store.listStageEntries(task.id).findLast((e) => e.stage === 'merge')?.at ?? ''
+    return store
+      .listCheckRuns(task.id)
+      .some((run) => run.trigger === 'merge' && run.stage === 'merge' && run.startedAt >= since)
+  }
+
   async function beginChecks(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -162,7 +169,9 @@ export function createValidation(options: ValidationOptions) {
       store.listStageEntries(task.id).findLast((e) => e.stage === 'merge')?.at ?? ''
     const merging =
       task.stage === 'merge' &&
-      (trigger === 'merge' || store.latestRebase(task.id, mergeVisit) !== undefined)
+      (trigger === 'merge' ||
+        store.latestRebase(task.id, mergeVisit) !== undefined ||
+        mergeChecksStarted(task))
     if (merging) trigger = 'merge'
     const validating = task.stage === 'validate' && trigger !== 'merge'
     const diagnosing = validating || merging
@@ -617,7 +626,12 @@ export function createValidation(options: ValidationOptions) {
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
     const task = find(taskId)
     const since = store.listStageEntries(taskId).findLast((e) => e.stage === 'merge')?.at ?? ''
-    if (store.latestRebase(taskId, since) === undefined && !pendingRepair(task)) return true
+    if (
+      store.latestRebase(taskId, since) === undefined &&
+      !pendingRepair(task) &&
+      !mergeChecksStarted(task)
+    )
+      return true
     if (options.isChecking(taskId) || task.stopped || task.archived || task.waitsForBlockers)
       return false
     let reserved = false

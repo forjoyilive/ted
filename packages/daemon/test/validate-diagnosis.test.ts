@@ -410,19 +410,25 @@ test.each(
   (['validate', 'merge'] as const).flatMap((stage) =>
     [
       ...(['retained', 'reset', 'held', 'interrupted'] as const),
-      ...(stage === 'validate' ? (['complete', 'prefix'] as const) : (['replaced'] as const)),
+      ...(stage === 'validate'
+        ? (['complete', 'prefix'] as const)
+        : (['replaced', 'retry', 'accept'] as const)),
     ].map((state) => ({ stage, state })),
   ),
 )('$stage restart after persisted repair incorporation: $state', async ({ stage, state }) => {
   const matchingCoverage = state === 'complete' || state === 'prefix'
+  const continuation = state === 'retry' || state === 'accept'
   const s = await setup(
     [
       ...(matchingCoverage ? ['      - { name: Prefix, run: "true" }'] : []),
-      '      - { name: Tests, run: "test -f timezone.txt" }',
+      continuation
+        ? '      - { name: Tests, run: "test -f timezone.txt && test -f stub-repair-passes" }'
+        : '      - { name: Tests, run: "test -f timezone.txt" }',
+      ...(continuation ? ['      - { name: Later, run: "true" }'] : []),
     ],
     'intake, work, validate, review, merge',
     false,
-    state === 'replaced',
+    state === 'replaced' || continuation,
   )
   const decision = state === 'replaced' ? undefined : await s.ask(s.one)
   const task = await getTask(s.client, s.task.id)
@@ -566,6 +572,7 @@ test.each(
     })
   }
   const before = store.listCheckRuns(task.id).length
+  if (continuation) expect(store.latestRebase(task.id, '')).toBeUndefined()
   if (state === 'interrupted')
     store.startChecks({
       taskId: task.id,
@@ -587,6 +594,56 @@ test.each(
       JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
     )
   const client = await restart()
+  if (continuation) {
+    const fresh = await waitUntil(async () => {
+      const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
+      const task = (await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)
+      return !task?.markers.some((m) => m.kind === 'test-activity' && m.source === 'checks')
+        ? cases.find((value) => value.id !== saved.id && value.source.kind === 'post-rebase-check')
+        : undefined
+    }, 'failed Merge repair execution')
+    expect(fresh.contextId).toBeDefined()
+    const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+    const lead = api(client.port, tokens.issue(task.leadRunId ?? ''))
+    expect(
+      (
+        await lead.call('POST', `${s.root}/failures/${fresh.id}/assessments`, {
+          assessment: 'unrelated',
+          recommendation: 'Retry or accept this separate verification failure.',
+        })
+      ).status,
+    ).toBe(200)
+    const asked = await lead.call('POST', `${s.root}/failures/${fresh.id}/decision`)
+    expect(asked.status).toBe(201)
+    const requestId = (asked.body as FailureCase).decisions.at(-1)?.commentId
+    if (state === 'retry') await writeFile(path.join(repo.worktree, 'stub-repair-passes'), '')
+    const resolved = await client.call('POST', `${s.root}/failures/${fresh.id}/resolve`, {
+      requestId,
+      resolution: state === 'retry' ? 'retry' : 'accepted',
+    })
+    expect(resolved.status, JSON.stringify(resolved.body)).toBe(200)
+    const runs = await waitUntil(async () => {
+      const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
+      return runs.length === before + 2 && runs.at(-1)?.outcome === 'passed' ? runs : undefined
+    }, 'Merge repair decision to continue Checks without a rebase')
+    expect(runs.at(-1)?.checks.map((check) => check.name)).toEqual(
+      state === 'retry' ? ['Tests', 'Later'] : ['Later'],
+    )
+    expect(
+      runs.find(
+        (run) => fresh.source.kind === 'post-rebase-check' && run.id === fresh.source.checkRunId,
+      )?.outcome,
+    ).toBe('failed')
+    const result = (await client.read<FailureCase[]>(`${s.root}/failures`)).find(
+      (value) => value.id === fresh.id,
+    )
+    if (state === 'retry') expect(result?.verifications).toHaveLength(1)
+    else {
+      expect(result?.resolutions.at(-1)?.resolution).toBe('accepted')
+      expect(result?.verifications).toBeUndefined()
+    }
+    return
+  }
   if (state === 'reset' || state === 'held') {
     await waitUntil(
       async () =>

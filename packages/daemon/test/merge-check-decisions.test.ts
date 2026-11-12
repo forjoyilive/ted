@@ -105,7 +105,7 @@ async function assess(client: Client, task: Task, failure: FailureCase, assessme
 async function ask(client: Client, task: Task, failure: FailureCase) {
   const agent = await assess(client, task, failure)
   const response = await agent.call('POST', `/tasks/${task.id}/failures/${failure.id}/decision`)
-  expect(response.status, JSON.stringify(response.body)).toBe(200)
+  expect(response.status, JSON.stringify(response.body)).toBe(201)
   return (response.body as FailureCase).decisions.at(-1)?.commentId ?? ''
 }
 
@@ -274,7 +274,7 @@ test(
           text: await readFile(client.briefFile, 'utf8'),
         })
       ).status,
-    ).toBe(200)
+    ).toBe(201)
     expect(
       (await agent.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })).status,
     ).toBe(200)
@@ -312,7 +312,7 @@ test(
     await writeFile(path.join(t.repos[0]?.worktree ?? '', 'stub-later-fixed'), '')
     const request = await ask(client, task, failure)
     expect((await resolve(client, task, failure, request, 'accepted')).status).toBe(200)
-    await waitUntil(
+    const signoff = await waitUntil(
       async () =>
         (await comments(client, task)).find(
           (c) => c.stage === 'merge' && c.kind === 'signoff' && !c.answer,
@@ -321,6 +321,7 @@ test(
     )
     await commitToOrigin(ctx.scratch, { 'another-base-change': 'A second rebase.\n' })
     await setGh({ mergeState: 'BEHIND' })
+    await approve(client, signoff)
     const fresh = await failed(client, task, 2)
     expect(fresh.contextId).not.toBe(failure.contextId)
     expect((await cases(client, task))[0]?.invalidations).toHaveLength(1)
