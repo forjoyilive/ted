@@ -316,7 +316,6 @@ export function FactorySettings({
           </span>
         )}
         <Button
-          size="small"
           onClick={() => {
             setSetupError(undefined)
             return ted
@@ -445,10 +444,8 @@ export function FactorySettings({
             <p className={styles.saveHint}>Review your changes before creating a pull request.</p>
           </div>
           <span className={views.headerSpacer} />
-          <Button size="small" onClick={() => restart(view)}>
-            Discard
-          </Button>
-          <Button size="small" variant="primary" onClick={() => setReviewing(true)}>
+          <Button onClick={() => restart(view)}>Discard</Button>
+          <Button variant="primary" onClick={() => setReviewing(true)}>
             Review and save…
           </Button>
         </footer>
@@ -515,13 +512,11 @@ function SavedNotice({
         {error && <p role="alert">{error}</p>}
         <div className={styles.noticeActions}>
           {!result.merged && result.receipt && (
-            <Button size="small" variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
+            <Button variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
               {merging ? 'Merging…' : 'Merge pull request'}
             </Button>
           )}
-          <Button size="small" onClick={() => ted.openOnGitHub(url)}>
-            Open on GitHub
-          </Button>
+          <Button onClick={() => ted.openOnGitHub(url)}>Open on GitHub</Button>
         </div>
       </div>
       <ActionButton
@@ -1244,14 +1239,8 @@ function LocalFolder({
             : 'None. Files to copy come from this folder on this machine.'}
         </span>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={() => choose()}>
-          {missing ? 'Locate…' : 'Choose…'}
-        </Button>
-        {folder && (
-          <Button size="small" onClick={() => act(undefined)}>
-            Clear
-          </Button>
-        )}
+        <Button onClick={() => choose()}>{missing ? 'Locate…' : 'Choose…'}</Button>
+        {folder && <Button onClick={() => act(undefined)}>Clear</Button>}
       </div>
       {missing && (
         <p className={styles.folderWarning}>
@@ -1407,9 +1396,7 @@ function AppEditor({
           Remove App
         </ActionButton>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={onDone}>
-          Done
-        </Button>
+        <Button onClick={onDone}>Done</Button>
       </div>
     </fieldset>
   )
@@ -1612,11 +1599,8 @@ function AddRepo({
       />
       <div className={styles.addActions}>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={onCancel}>
-          Cancel
-        </Button>
+        <Button onClick={onCancel}>Cancel</Button>
         <Button
-          size="small"
           variant="primary"
           disabled={!ready}
           onClick={() => {

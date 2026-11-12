@@ -225,11 +225,7 @@ function ReviewChanges({
             {changes.repos.reduce((sum, r) => sum + r.added, 0)} −
             {changes.repos.reduce((sum, r) => sum + r.removed, 0)}
           </p>
-          {changes.files > 0 && (
-            <Button size="small" onClick={onAll}>
-              View all changes
-            </Button>
-          )}
+          {changes.files > 0 && <Button onClick={onAll}>View all changes</Button>}
           {changes.files === 0 && changes.repos.every((r) => !r.unavailable) && (
             <p className={styles.summary}>No current Task changes.</p>
           )}

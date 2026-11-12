@@ -8,7 +8,7 @@
   align-items: center;
   justify-content: center;
   width: 32px;
-  height: 22px;
+  height: var(--button-height-small);
   padding: 0;
   border: 1px solid var(--border-control);
   border-radius: 6px;

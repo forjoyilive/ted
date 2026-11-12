@@ -101,12 +101,12 @@ export function CoordinatorView({
               chat && <span className={styles.meta}>{runMeta(chat.run)}</span>
             )}
             {status === 'failed' && (
-              <Button size="small" disabled={busy} onClick={() => retry()}>
+              <Button disabled={busy} onClick={() => retry()}>
                 Retry
               </Button>
             )}
             {coordinator && (
-              <Button size="small" disabled={busy} onClick={() => setResetting(true)}>
+              <Button disabled={busy} onClick={() => setResetting(true)}>
                 New conversation
               </Button>
             )}
@@ -121,7 +121,7 @@ export function CoordinatorView({
               <p>
                 I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.
               </p>
-              <Button size="small" onClick={() => setText('What should we work on next?')}>
+              <Button onClick={() => setText('What should we work on next?')}>
                 What should we work on next?
               </Button>
             </div>

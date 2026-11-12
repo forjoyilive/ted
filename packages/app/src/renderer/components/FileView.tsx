@@ -54,18 +54,17 @@ export function FileView({
   return (
     <section className={styles.pane} aria-label="File contents">
       <header className={styles.header}>
-        <Button variant="quiet" size="small" onClick={onBack}>
+        <Button variant="quiet" onClick={onBack}>
           {backLabel}
         </Button>
         <div className={styles.toolbar}>
           <span className={styles.path}>
             {file.repo} / {file.path}
           </span>
-          <Button size="small" variant="quiet" onClick={() => setRevision((r) => r + 1)}>
+          <Button variant="quiet" onClick={() => setRevision((r) => r + 1)}>
             Refresh
           </Button>
           <Button
-            size="small"
             variant="quiet"
             disabled={content?.kind !== 'text'}
             onClick={() => {

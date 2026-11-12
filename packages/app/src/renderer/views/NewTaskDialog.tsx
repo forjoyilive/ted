@@ -903,7 +903,7 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
             }
           }}
         />
-        <Button size="small" disabled={key.trim() === '' || saving} onClick={() => save()}>
+        <Button disabled={key.trim() === '' || saving} onClick={() => save()}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
         <ActionButton

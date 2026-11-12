@@ -99,8 +99,8 @@
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 28px;
-  height: 28px;
+  width: var(--button-height-small);
+  height: var(--button-height-small);
   padding: 0;
   justify-content: center;
 }

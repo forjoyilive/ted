@@ -171,9 +171,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
       {loadError && (
         <div>
           <p className={styles.fieldError}>{loadError} A saved scope stays in effect.</p>
-          <Button size="small" onClick={() => setRetry((value) => value + 1)}>
-            Try again
-          </Button>
+          <Button onClick={() => setRetry((value) => value + 1)}>Try again</Button>
         </div>
       )}
       {saveError && (

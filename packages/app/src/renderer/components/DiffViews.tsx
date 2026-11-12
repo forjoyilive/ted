@@ -124,7 +124,7 @@ function PullRequestSummary({ remote, repo }: { remote: PullRequestChangesState;
           {s.limited && ' · Showing the first 1,000 files only.'}
         </p>
       ))}
-      <Button size="small" onClick={remote.refresh}>
+      <Button onClick={remote.refresh}>
         {remote.changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
       </Button>
     </div>
@@ -286,9 +286,7 @@ export function AllChanges({
           {files.length === 1 ? '1 file' : `${files.length} files`}
         </h2>
         <span className={styles.spacer} />
-        <Button size="small" onClick={onCollapse}>
-          {backLabel}
-        </Button>
+        <Button onClick={onCollapse}>{backLabel}</Button>
       </header>
       {remote && <PullRequestSummary remote={remote} />}
       <div className={styles.allBody}>

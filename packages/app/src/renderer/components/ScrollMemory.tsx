@@ -132,7 +132,7 @@ export function ScrollMemory({
     'data-scroller': '',
   }
   const jumpRow = newBelow && (
-    <Button size="small" className={styles.jump} onClick={jump}>
+    <Button className={styles.jump} onClick={jump}>
       New messages ↓
     </Button>
   )

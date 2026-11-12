@@ -240,10 +240,8 @@ function LineCommentEditor({
       <div className={styles.editorRow}>
         <span className={styles.meta}>{label}</span>
         <span className={styles.spacer} />
-        <Button size="small" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button size="small" variant="primary" disabled={!ready} onClick={() => save()}>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" disabled={!ready} onClick={() => save()}>
           {saveLabel}
         </Button>
       </div>
@@ -294,20 +292,15 @@ export function DraftBar({
         </span>
       )}
       <span className={styles.spacer} />
-      <Button
-        size="small"
-        disabled={busy}
-        onClick={() => run(() => ted.discardLineComments(taskId))}
-      >
+      <Button disabled={busy} onClick={() => run(() => ted.discardLineComments(taskId))}>
         Discard all
       </Button>
       {mode === 'request' ? (
-        <Button size="small" variant="primary" onClick={onBack}>
+        <Button variant="primary" onClick={onBack}>
           Back to sign-off
         </Button>
       ) : mode === 'none' ? (
         <Button
-          size="small"
           variant="primary"
           disabled={busy}
           onClick={() => run(() => ted.sendLineComments(taskId))}

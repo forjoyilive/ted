@@ -69,9 +69,7 @@ export function LoadingError({ error, retry }: { error: string; retry: () => voi
   return (
     <div className={styles.error} role="alert">
       <span>{error}</span>
-      <Button size="small" onClick={retry}>
-        Try again
-      </Button>
+      <Button onClick={retry}>Try again</Button>
     </div>
   )
 }
