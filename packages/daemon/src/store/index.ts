@@ -2307,8 +2307,18 @@ export async function openStore({
   const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
+  const emitting: DaemonEvent[] = []
   const emit = (event: DaemonEvent) => {
-    for (const listener of listeners) listener(event)
+    emitting.push(event)
+    if (emitting.length > 1) return
+    try {
+      for (let next = emitting[0]; next; next = emitting[0]) {
+        for (const listener of listeners) listener(next)
+        emitting.shift()
+      }
+    } finally {
+      emitting.length = 0
+    }
   }
 
   const getComment = (id: string) => {
