@@ -44,7 +44,20 @@ export function ciSource(
 }
 
 export function mergeCiCase(value: FailureCase): value is CiCase {
-  return value.validation === true && value.source.kind === 'github-ci'
+  return (
+    value.validation === true &&
+    value.source.kind === 'github-ci' &&
+    value.source.checkKey !== undefined
+  )
+}
+
+export function withoutCheckName<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(withoutCheckName) as T
+  if (typeof value !== 'object' || value === null || !('source' in value)) return value
+  const source = value.source as FailureSource
+  if (source.kind !== 'github-ci' || source.check === undefined) return value
+  const { check: _, ...rest } = source
+  return { ...value, source: rest }
 }
 
 export function openCiCase(value: FailureCase): value is CiCase {
@@ -94,6 +107,7 @@ function wantsSendBack(value: CiCase): boolean {
 
 export function ciFailureSteps(input: {
   merging: boolean
+  complete?: boolean
   cases: readonly FailureCase[]
   pulls: readonly CiPull[]
 }): CiStep[] {
@@ -136,8 +150,9 @@ export function ciFailureSteps(input: {
       })
     }
   }
+  const scoped = input.complete !== false && !input.pulls.some((pull) => unscoped(pull.pr))
   for (const pull of input.pulls) {
-    if (!input.merging || !pull.record || unscoped(pull.pr)) continue
+    if (!input.merging || !scoped || !pull.record) continue
     for (const check of relevantChecks(pull.pr)) {
       if (check.state !== 'failed') continue
       const source = ciSource(pull, check)

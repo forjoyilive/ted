@@ -96,7 +96,10 @@ const assessmentWords: Record<AssessFailureRequest['assessment'], string> = {
 function whatFailed(value: FailureCase): string {
   const { source } = value
   if (source.kind === 'finding') return `Failed: ${source.finding}`
-  if (source.kind === 'github-ci') return `Failed: ${ciFailureLabel(source)}`
+  if (source.kind === 'github-ci') {
+    const label = ciFailureLabel(source, false)
+    return `Failed: ${label.startsWith('A ') ? `a ${label.slice(2)}` : label}`
+  }
   return `Failed: the ${value.originalCheck?.name ?? 'Factory'} Check`
 }
 
@@ -334,7 +337,7 @@ export function createFailureCases(options: {
                 // the Tasks module, so a rerun must not first count as a changed context here.
                 (
                     value.source.kind === 'github-ci'
-                      ? value.validation === true ||
+                      ? value.source.checkKey !== undefined ||
                         observedCi.failures?.includes(ciFailureKey(value.source)) === true
                       : observedCi.value === context.ci
                   )

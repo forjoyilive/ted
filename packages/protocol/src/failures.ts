@@ -21,14 +21,18 @@ export type FailureSource =
       required?: boolean
     }
 
-export function ciFailureLabel(source: Extract<FailureSource, { kind: 'github-ci' }>): string {
+export function ciFailureLabel(
+  source: Extract<FailureSource, { kind: 'github-ci' }>,
+  named = true,
+): string {
   const where = `${source.repo}#${source.number}`
   if (source.checkKey === undefined) return `CI on ${where}`
   const required =
     source.required === undefined ? '' : source.required ? ' (required)' : ' (not required)'
-  return source.check
+  if (source.check === undefined) return `A CI check from an outside app on ${where}${required}`
+  return named
     ? `CI check “${source.check}” on ${where}${required}`
-    : `A CI check from an outside app on ${where}${required}`
+    : `A CI check on ${where}${required}`
 }
 
 export interface FailureContext {

@@ -161,9 +161,13 @@ test(
     if (!failure) throw new Error('no failure')
     const request = await ask(first.client, task, failure)
     const before = await comments(first.client, task)
-    expect(before.find((c) => c.id === request)?.body).toContain(
-      'CI check “build” on acme/widgets#',
-    )
+    const asked = before.find((c) => c.id === request)?.body
+    expect(asked).toContain('a CI check on acme/widgets#')
+    expect(asked).not.toContain('build')
+    const agent = await lead(first.client, task)
+    const seen = (await agent.call('GET', `/tasks/${task.id}/failures`)).body as FailureCase[]
+    expect(seen[0]?.source).toMatchObject({ kind: 'github-ci', required: false })
+    expect(seen[0]?.source).not.toHaveProperty('check')
     await polls()
     const client = await restart(first.client)
     await polls()

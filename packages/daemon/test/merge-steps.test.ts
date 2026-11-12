@@ -1,6 +1,6 @@
 import { ciFailureLabel, type FailureCase, type FailureContext } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { ciFailureSteps, ciSource } from '../src/tasks/ci-failures.ts'
+import { ciFailureSteps, ciSource, withoutCheckName } from '../src/tasks/ci-failures.ts'
 import { ciFailureKey, sameTestedFor } from '../src/tasks/failure-cases.ts'
 import { ciFailureEvidence } from '../src/tasks/github-activity.ts'
 import {
@@ -206,6 +206,42 @@ describe('failed CI at Merge', () => {
     ).toEqual([])
     const unscoped = pull([check({ identity: undefined })])
     expect(ciFailureSteps({ merging: true, cases: [], pulls: [unscoped] })).toEqual([])
+  })
+
+  test('nothing is recorded while any of the Task’s pull requests has an incomplete check list', () => {
+    const scoped = pull([check()])
+    const other = { ...pull([check({ identity: undefined })]), repo: 'acme/api', record: false }
+    expect(ciFailureSteps({ merging: true, cases: [], pulls: [scoped, other] })).toEqual([])
+    const truncated = { ...other, pr: pr({ checks: [], checksComplete: false }) }
+    expect(ciFailureSteps({ merging: true, cases: [], pulls: [scoped, truncated] })).toEqual([])
+    expect(ciFailureSteps({ merging: true, complete: false, cases: [], pulls: [scoped] })).toEqual(
+      [],
+    )
+    expect(ciFailureSteps({ merging: true, cases: [], pulls: [scoped] })).toHaveLength(1)
+  })
+
+  test('a CI case the Task Lead recorded in Validate is left alone', () => {
+    const own = recorded({
+      kind: 'github-ci',
+      repo: 'acme/app',
+      number: 12,
+      head: 'abc',
+      attempt: 'run-1:start:end',
+    })
+    expect(ciFailureSteps({ merging: false, cases: [own], pulls: [] })).toEqual([])
+    const moved = { ...pull([check()], { headRefOid: 'def' }), record: false }
+    expect(ciFailureSteps({ merging: true, cases: [own], pulls: [moved] })).toEqual([])
+  })
+
+  test('a Run’s copy of a case has no check name, and the question’s label has none either', () => {
+    const source = ciSource(pull([check()]), check())
+    const value = recorded(source)
+    expect(value.source).toHaveProperty('check', 'build')
+    const [forRun] = withoutCheckName([value])
+    expect(forRun?.source).not.toHaveProperty('check')
+    expect(forRun?.source).toMatchObject({ attempt: 'run-1:start:end', checkKey: source.checkKey })
+    expect(withoutCheckName(value).source).not.toHaveProperty('check')
+    expect(ciFailureLabel(source, false)).toBe('A CI check on acme/app#12 (not required)')
   })
 
   test('a later attempt closes or replaces the case; a new commit or leaving Merge closes it without a pass', () => {

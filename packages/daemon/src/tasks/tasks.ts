@@ -192,7 +192,14 @@ import {
   tedSettingsCheck,
   touchesSettings,
 } from './checks.ts'
-import { acceptedCiCase, awaitsRerun, ciFailureSteps, openCiCase } from './ci-failures.ts'
+import {
+  acceptedCiCase,
+  awaitsRerun,
+  ciFailureSteps,
+  openCiCase,
+  unscoped,
+  withoutCheckName,
+} from './ci-failures.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
@@ -208,7 +215,6 @@ import { freshAfterFailure, retryChoice } from './failures.ts'
 import { listTaskFiles, readTaskFile } from './files.ts'
 import {
   activityMessage,
-  checkList,
   ciFailureEvidence,
   clean,
   failedChecks,
@@ -2555,9 +2561,6 @@ export function createTasks(options: {
     return tails
   }
 
-  const ciCheckNames = (pr: RemotePullRequest, checks: readonly RemoteCheck[]) =>
-    checkList(pr, checks) || 'a check'
-
   async function reconcileCi(taskId: string, read: PullRequestRead): Promise<void> {
     const task = find(taskId)
     const failed = task.repos.some((repo) =>
@@ -2596,7 +2599,17 @@ export function createTasks(options: {
         },
       ]
     })
-    const steps = ciFailureSteps({ merging, cases: store.failures.list(taskId), pulls })
+    const complete = task.repos.every((repo) => {
+      if (repo.removed || !repo.pullRequest) return true
+      const pr = read.pulls.get(`${taskId}:${repo.name}`)
+      return pr !== undefined && !unscoped(pr)
+    })
+    const steps = ciFailureSteps({
+      merging,
+      complete,
+      cases: store.failures.list(taskId),
+      pulls,
+    })
     for (const step of steps) {
       if (step.kind !== 'close') continue
       failures.verifyResult(find(taskId), step.id, step.evidence)
@@ -2669,7 +2682,7 @@ export function createTasks(options: {
   async function ciBlocked(
     taskId: string,
     target: MergeWork,
-    pr: RemotePullRequest,
+    _pr: RemotePullRequest,
     checks: readonly RemoteCheck[],
   ): Promise<void> {
     const keys = new Set(checks.map((check) => check.identity))
@@ -2678,7 +2691,7 @@ export function createTasks(options: {
       .filter(acceptedCiCase)
       .filter((value) => keys.has(value.source.attempt))
     if (cases.length === 0) return
-    const body = `You accepted the failure of ${ciCheckNames(pr, checks)} on ${target.repo}#${target.number} (${cases.map((value) => `failure ${shortReference(value.id)}`).join(', ')}), but GitHub still won’t merge the pull request. Accepting a failure in TED never overrides GitHub’s own rules. TED merges once GitHub allows it: rerun the check on GitHub so it passes, or change the branch rule that requires it. Until then the Task waits at Merge.`
+    const body = `You accepted ${cases.length === 1 ? 'a failed CI check' : `${cases.length} failed CI checks`} on ${target.repo}#${target.number} (${cases.map((value) => `failure ${shortReference(value.id)}`).join(', ')}), but GitHub still won’t merge the pull request. Accepting a failure in TED never overrides GitHub’s own rules. TED merges once GitHub allows it: rerun the check on GitHub so it passes, or change the branch rule that requires it. Until then the Task waits at Merge.`
     if (
       store
         .listComments(taskId)
@@ -7293,7 +7306,7 @@ export function createTasks(options: {
         store.getRun(runId)?.state === 'finished'
       )
         throw new RequestError(409, 'failure cases cannot change on an archived or Done Task')
-      return work(current, runId)
+      return withoutCheckName(await work(current, runId))
     })
   }
 
@@ -7315,7 +7328,8 @@ export function createTasks(options: {
     },
     async listFailures(ref, caller) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
-      return failures.list(task)
+      const values = failures.list(task)
+      return caller.kind === 'run' ? withoutCheckName(values) : values
     },
     async validationObligations(ref, caller) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
