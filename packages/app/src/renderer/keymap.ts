@@ -24,7 +24,11 @@ const sections: readonly SheetSection[] = [
       { id: 'open-factory', label: 'Open Factory 1 to 9', keys: ['⌘1–⌘9'] },
       { id: 'back', label: 'Back', keys: ['⌘['] },
       { id: 'forward', label: 'Forward', keys: ['⌘]'] },
-      { id: 'close', label: 'Close the open Task, or leave Settings', keys: ['Esc'] },
+      {
+        id: 'close',
+        label: 'Close the open Task, leave Settings, or clear the selection',
+        keys: ['Esc'],
+      },
       { id: 'settings', label: 'Settings', keys: ['⌘,'] },
       { id: 'shortcuts', label: 'Keyboard shortcuts', keys: ['?', '⌘/'] },
       { id: 'quit', label: 'Quit TED', keys: ['⌘Q'] },
@@ -39,6 +43,11 @@ const sections: readonly SheetSection[] = [
       { id: 'column-right', label: 'Column to the right (Board)', keys: ['L', '→'] },
       { id: 'open', label: 'Open', keys: ['↵'] },
       { id: 'context-menu', label: 'Open actions menu', keys: ['⇧F10', 'ContextMenu'] },
+      {
+        id: 'select',
+        label: 'Select or deselect the Task under the pointer, or the focused one (List and Board)',
+        keys: ['X'],
+      },
     ],
   },
   {

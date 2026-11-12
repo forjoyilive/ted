@@ -1,6 +1,7 @@
-import type { Factory, ListGroup, Task } from '@ted/protocol'
+import type { Factory, ListGroup, RunSlots, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import {
+  columnSelection,
   defaultView,
   doneView,
   dropAction,
@@ -18,6 +19,7 @@ import {
   summaryLine,
   viewFor,
 } from '../src/renderer/list-view.ts'
+import { startSplit, startWaitLine } from '../src/renderer/slots.ts'
 
 let made = 0
 
@@ -298,6 +300,55 @@ describe('selection', () => {
     expect(selectionRange(list, 'NB-2', 'NB-4')).toEqual(['NB-2', 'NB-3', 'NB-4'])
     expect(selectionRange(list, 'NB-4', 'NB-1')).toEqual(['NB-1', 'NB-2', 'NB-3', 'NB-4'])
     expect(selectionRange(list, undefined, 'NB-3')).toEqual(['NB-3'])
+  })
+
+  test('on the Board, ⇧-click selects a range in the anchor’s column and toggles from another', () => {
+    const column = list.slice(0, 3)
+    expect(columnSelection(['NB-1', 'NB-4'], column, 'NB-1', 'NB-3')).toEqual([
+      'NB-4',
+      'NB-1',
+      'NB-2',
+      'NB-3',
+    ])
+    expect(columnSelection(['NB-4'], column, 'NB-4', 'NB-2')).toEqual(['NB-4', 'NB-2'])
+    expect(columnSelection(['NB-4', 'NB-2'], column, 'NB-4', 'NB-2')).toEqual(['NB-4'])
+    expect(columnSelection([], column, undefined, 'NB-2')).toEqual(['NB-2'])
+  })
+
+  test('Start says how many selected Tasks start now and how many wait for a Run slot', () => {
+    const slots = (fields: Partial<RunSlots> = {}): RunSlots => ({
+      limit: 4,
+      working: 2,
+      queued: 0,
+      holders: [],
+      queue: [],
+      factories: [],
+      ...fields,
+    })
+    const three = list.slice(0, 3)
+    expect(startSplit(slots(), three)).toEqual({ now: 2, wait: 1 })
+    expect(startSplit(slots({ working: 0 }), three)).toEqual({ now: 3, wait: 0 })
+    expect(
+      startSplit(slots({ factories: [{ factoryId: 'nb', cap: 3, working: 2 }] }), three),
+    ).toEqual({ now: 1, wait: 2 })
+    expect(startSplit(slots({ heldForLoad: true }), three)).toEqual({ now: 0, wait: 3 })
+    expect(startSplit(slots({ working: 0, heldForLoad: true }), three)).toEqual({ now: 1, wait: 2 })
+    const queued = {
+      kind: 'task' as const,
+      place: 1,
+      taskId: 'NB-9',
+      displayId: 'NB-9',
+      title: 'Queued first',
+      factoryId: 'nb',
+      priority: 'none' as const,
+    }
+    expect(startSplit(slots({ queued: 1, queue: [queued] }), three)).toEqual({ now: 1, wait: 2 })
+
+    expect(startWaitLine({ now: 3, wait: 0 })).toBeUndefined()
+    expect(startWaitLine({ now: 2, wait: 3 })).toBe('2 start now, 3 wait for a Run slot')
+    expect(startWaitLine({ now: 1, wait: 1 })).toBe('1 starts now, 1 waits for a Run slot')
+    expect(startWaitLine({ now: 0, wait: 3 })).toBe('All 3 wait for a Run slot')
+    expect(startWaitLine({ now: 0, wait: 1 })).toBe('It waits for a Run slot')
   })
 })
 
