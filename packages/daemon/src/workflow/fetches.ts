@@ -1,18 +1,34 @@
+import { type Clock, systemClock, type Timer } from '../clock.ts'
+
 export interface Fetches {
   fresh(clone: string): Promise<void>
   soon(clone: string): Promise<void>
+  close(): void
 }
 
 export const backgroundFetchEveryMs = 60_000
+
+interface Later {
+  promise: Promise<void>
+  resolve: () => void
+  reject: (error: unknown) => void
+  timer: Timer
+}
 
 export function createFetches(options: {
   fetch: (clone: string) => Promise<void>
   now?: () => number
   everyMs?: number
+  timeout?: Clock['timeout']
 }): Fetches {
   const now = options.now ?? Date.now
   const everyMs = options.everyMs ?? backgroundFetchEveryMs
-  const clones = new Map<string, { running?: Promise<void>; next?: Promise<void>; at?: number }>()
+  const timeout = options.timeout ?? systemClock.timeout
+  const clones = new Map<
+    string,
+    { running?: Promise<void>; next?: Promise<void>; at?: number; later?: Later }
+  >()
+  let closed = false
 
   function stateOf(clone: string) {
     let state = clones.get(clone)
@@ -27,6 +43,11 @@ export function createFetches(options: {
     const state = stateOf(clone)
     const running = options.fetch(clone).then(() => {
       state.at = now()
+      const later = state.later
+      if (!later) return
+      delete state.later
+      later.timer.cancel()
+      later.resolve()
     })
     state.running = running
     const settle = () => {
@@ -34,6 +55,25 @@ export function createFetches(options: {
     }
     running.then(settle, settle)
     return running
+  }
+
+  function afterWindow(clone: string, wait: number): Promise<void> {
+    const state = stateOf(clone)
+    if (state.later) return state.later.promise
+    const { promise, resolve, reject } = Promise.withResolvers<void>()
+    const timer = timeout(() => {
+      if (state.later !== later) return
+      const fetch = state.next ?? state.running ?? start(clone)
+      fetch.catch((error: unknown) => {
+        if (state.later !== later) return
+        delete state.later
+        reject(error)
+      })
+    }, wait)
+    timer.unref()
+    const later: Later = { promise, resolve, reject, timer }
+    state.later = later
+    return promise
   }
 
   return {
@@ -55,8 +95,20 @@ export function createFetches(options: {
       const state = stateOf(clone)
       if (state.next) return state.next
       if (state.running) return state.running
-      if (state.at !== undefined && now() - state.at < everyMs) return Promise.resolve()
+      if (closed) return Promise.resolve()
+      const since = state.at === undefined ? everyMs : now() - state.at
+      if (since < everyMs) return afterWindow(clone, everyMs - since)
       return start(clone)
+    },
+    close() {
+      closed = true
+      for (const state of clones.values()) {
+        const later = state.later
+        if (!later) continue
+        delete state.later
+        later.timer.cancel()
+        later.resolve()
+      }
     },
   }
 }

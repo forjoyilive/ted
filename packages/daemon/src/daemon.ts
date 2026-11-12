@@ -615,6 +615,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           libraryWatch.close()
           versionRestarts.close()
           await checkTries.close()
+          workflows.close()
           await factorySettings.close()
           stayAwake?.close()
           disk.close()

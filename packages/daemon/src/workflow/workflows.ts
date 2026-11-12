@@ -1,5 +1,6 @@
 import type { DriftCounts, LayerKind, LayerUse } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
+import type { Clock } from '../clock.ts'
 import { clonePath } from '../factories.ts'
 import { exists } from '../files.ts'
 import * as git from '../git.ts'
@@ -39,6 +40,7 @@ export interface Workflows {
   inherited(): Promise<CheckedLayer[]>
   drift(): DriftCounts
   forget(factoryId: string): void
+  close(): void
 }
 
 export const invalidSettingsProblem = 'workflow-invalid'
@@ -56,12 +58,15 @@ export function createWorkflows(options: {
   ) => Promise<void>
   fetch?: (clone: string) => Promise<void>
   now?: () => number
+  timeout?: Clock['timeout']
 }): Workflows {
   const { store, banners, libraryDir, reposDir } = options
   const fetches = createFetches({
     fetch: options.fetch ?? git.fetch,
     ...(options.now && { now: options.now }),
+    ...(options.timeout && { timeout: options.timeout }),
   })
+  let closed = false
   const factoryLayers = new Map<string, CheckedLayer | undefined>()
   const factoryFiles = new Map<
     string,
@@ -328,10 +333,15 @@ export function createWorkflows(options: {
     async refresh(factory, seen) {
       const clone = clonePath(reposDir, factory)
       await fetches.soon(clone)
+      if (closed) return false
       const at = (await exists(clone)) ? await factoryFilesAt(factory, clone) : undefined
       if (!at || at.commit === seen) return false
       await resolve(factory, { fetch: false })
       return true
+    },
+    close() {
+      closed = true
+      fetches.close()
     },
   }
 }

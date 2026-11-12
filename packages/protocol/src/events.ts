@@ -47,6 +47,6 @@ export type DaemonEvent =
   | { type: 'automation-deleted'; automationId: string }
   | { type: 'plan-updated'; planId: string }
   | { type: 'plan-deleted'; planId: string }
-  | { type: 'library-changed' }
+  | { type: 'library-changed'; version?: string }
   | { type: 'drift-changed'; drift: DriftCounts }
   | { type: 'line-comments-changed'; taskId: string }

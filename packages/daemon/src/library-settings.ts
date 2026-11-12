@@ -299,7 +299,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       }
       const saved = await view()
       options.saved?.(saved.version)
-      options.emit({ type: 'library-changed' })
+      options.emit({ type: 'library-changed', version: saved.version })
       return saved
     },
   }

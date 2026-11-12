@@ -240,6 +240,9 @@ describe('Library settings', () => {
         'library-changed',
       )
       const broken = await client.view()
+      expect(events.filter((e) => e.type === 'library-changed')).toEqual([
+        { type: 'library-changed', version: broken.version },
+      ])
       expect(broken.invalid).toMatchObject({ file: 'workflow.yaml', line: expect.any(Number) })
       expect(broken.invalid?.lastValid?.version).toMatch(/^[0-9a-f]{7}$/)
       expect(broken.stages.find((s) => s.id === 'merge')).toMatchObject({ enabled: false })
@@ -251,7 +254,9 @@ describe('Library settings', () => {
         'version: 1\nstages:\n  merge:\n    enabled: true\n',
       )
       await new Promise((resolve) => setTimeout(resolve, 500))
-      expect(events.filter((e) => e.type === 'library-changed')).toHaveLength(1)
+      expect(events.filter((e) => e.type === 'library-changed')).toEqual([
+        { type: 'library-changed', version: fixed.version },
+      ])
     } finally {
       subscription.close()
     }

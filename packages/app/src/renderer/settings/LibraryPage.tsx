@@ -64,6 +64,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   const [changedOnDisk, setChangedOnDisk] = useState(false)
   const [saving, setSaving] = useState(false)
   const savingNow = useRef(false)
+  const missed = useRef<(string | undefined)[]>([])
   const count = useMemo(
     () => (draft && loaded ? unsavedLibrary(draft, loaded) : 0),
     [draft, loaded],
@@ -84,8 +85,16 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   const { update, refresh } = useEventValue<LibraryView | undefined>({
     initial: undefined,
     load: ted.library,
-    event: (event) =>
-      event.type === 'library-changed' && !savingNow.current ? 'reload' : undefined,
+    event: (event) => {
+      if (event.type !== 'library-changed') return undefined
+      if (savingNow.current) {
+        missed.current.push(event.version)
+        return undefined
+      }
+      return event.version !== undefined && event.version === shown.current.version
+        ? undefined
+        : 'reload'
+    },
     changed: (next) => {
       if (!next || next.version === shown.current.version) return
       setError(undefined)
@@ -108,6 +117,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
     if (!draft || !loaded || !view) return
     setSaving(true)
     savingNow.current = true
+    missed.current = []
     setError(undefined)
     try {
       const next = await ted.saveLibrary({
@@ -117,6 +127,8 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
       show(next)
       update(() => next)
       setEditing(undefined)
+      savingNow.current = false
+      if (missed.current.some((version) => version !== next.version)) await refresh()
     } catch (failure) {
       const message = readableError(failure)
       savingNow.current = false

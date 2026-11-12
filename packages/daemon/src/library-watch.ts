@@ -33,7 +33,7 @@ export async function watchLibrary(options: {
           if (closed || version === seen) return
           seen = version
           await options.workflows.inherited()
-          if (!closed) options.emit({ type: 'library-changed' })
+          if (!closed) options.emit({ type: 'library-changed', ...(version && { version }) })
         })
         .catch((error: unknown) => console.error('couldn’t read the Library:', error))
     }, options.debounceMs ?? 150)
