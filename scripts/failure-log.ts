@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
+  existsSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -147,9 +148,11 @@ export function pruneFailureLog(file: string, now: number = Date.now()): void {
       .split('\n')
       .filter((line) => Date.parse(parseRecord(line)?.at ?? '') >= cutoff)
     if (kept.length > 0) appendFileSync(file, kept.map((line) => `${line}\n`).join(''))
-  } finally {
-    rmSync(aside, { force: true })
+  } catch (error) {
+    if (!existsSync(file)) renameSync(aside, file)
+    throw error
   }
+  rmSync(aside, { force: true })
 }
 
 export function recordRun(

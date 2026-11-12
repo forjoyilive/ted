@@ -1913,6 +1913,7 @@ export function createTasks(options: {
     },
   ): Promise<void> {
     let handedOver = false
+    let cleared = false
     const again = 'Report the outcome again with `ted outcome advance` when the work is finished.'
     try {
       if (!begun) await execution.local(taskId)
@@ -1985,6 +1986,7 @@ export function createTasks(options: {
       const head = `# A Check failed\n\nTED ran the Factory’s Checks before moving ${current.displayId} to Validate and one failed, so the Task stays in Work. This isn’t a send-back and doesn’t count against Validate’s limit.`
       if (failures >= handOffCheckLimit) {
         setChecking(taskId, false)
+        cleared = true
         const request = store.postComment({
           taskId,
           kind: 'question',
@@ -2018,7 +2020,7 @@ export function createTasks(options: {
         `${head} Fix what the Check reports and nothing else, commit, then report \`ted outcome advance\` again. This is failure ${failures} of ${handOffCheckLimit} in this visit to Work; at ${handOffCheckLimit} TED asks the human, who can keep the Task in Work or move it to Validate to diagnose the failure there. If the Check fails for a reason outside this Task, don’t change unrelated code to make it pass: say so in the Task brief with what shows it, and report again.\n\n${findings}`,
       )
     } finally {
-      if (!handedOver) setChecking(taskId, false)
+      if (!handedOver && !cleared) setChecking(taskId, false)
     }
   }
 
