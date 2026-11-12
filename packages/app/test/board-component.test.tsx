@@ -471,3 +471,87 @@ test('List and Board keep the user request beside purple running and neutral wai
   expect(labels(taskMarkers({ ...facts, stage: 'done' }, undefined))).toEqual([])
   expect(taskMarkers({ ...facts, archived: true }, undefined)).toEqual([])
 })
+
+test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s bar and menu', async () => {
+  const a = appState()
+  a.state.slots = { ...a.state.slots, working: 2 }
+  a.state.tasks = [
+    task({ title: 'One' }),
+    task({ id: 'NB-2', displayId: 'NB-2', number: 2, title: 'Two', rank: 2 }),
+    task({ id: 'NB-3', displayId: 'NB-3', number: 3, title: 'Three', rank: 3 }),
+    task({ id: 'NB-4', displayId: 'NB-4', number: 4, title: 'Four', stage: 'work', rank: 4 }),
+  ]
+  a.handle('factoryBoard', () => ({
+    stages: [
+      { id: 'backlog', enabled: true, gate: false },
+      { id: 'intake', enabled: true, gate: false },
+      { id: 'work', enabled: true, gate: false },
+      { id: 'done', enabled: true, gate: false },
+    ],
+  }))
+  a.handle('startTask', vi.fn())
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
+  await screen.findByRole('region', { name: 'Work' })
+  const card = (id: string) => {
+    const found = document.querySelector<HTMLElement>(`article[data-task="${id}"]`)
+    if (!found) throw new Error(`Missing card ${id}`)
+    return found
+  }
+  const title = (id: string) => {
+    const found = card(id).querySelector<HTMLElement>('[data-card-title]')
+    if (!found) throw new Error(`Missing title of ${id}`)
+    return found
+  }
+  const picked = () =>
+    [...document.querySelectorAll('article[data-selected]')].map((e) => e.getAttribute('data-task'))
+
+  fireEvent.click(title('NB-1'), { metaKey: true })
+  fireEvent.click(screen.getByRole('button', { name: 'Start NB-2' }), { metaKey: true })
+  expect(picked()).toEqual(['NB-1', 'NB-2'])
+  expect(a.request.mock.calls.some(([name]) => name === 'startTask')).toBe(false)
+  const search = screen.getByRole('searchbox', { name: 'Filter by ID or title' })
+  fireEvent.change(search, { target: { value: 'Two' } })
+  expect(picked()).toEqual(['NB-2'])
+  fireEvent.change(search, { target: { value: '' } })
+  expect(picked()).toEqual(['NB-2'])
+  fireEvent.click(title('NB-2'), { metaKey: true })
+  expect(picked()).toEqual([])
+
+  fireEvent.click(title('NB-1'), { metaKey: true })
+  fireEvent.click(title('NB-3'), { shiftKey: true })
+  expect(picked()).toEqual(['NB-1', 'NB-2', 'NB-3'])
+  fireEvent.click(title('NB-4'), { shiftKey: true })
+  expect(picked()).toEqual(['NB-1', 'NB-2', 'NB-3', 'NB-4'])
+  const bar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
+  expect(bar.getByText('4 selected')).toBeTruthy()
+  expect(bar.getByRole('button', { name: 'Start 3' })).toBeTruthy()
+  expect(document.querySelector('[data-wait-line]')?.textContent).toBe(
+    '1 starts now, 2 wait for a Run slot',
+  )
+
+  fireEvent.pointerMove(card('NB-4'))
+  fireEvent.keyDown(window, { key: 'x' })
+  expect(picked()).toEqual(['NB-1', 'NB-2', 'NB-3'])
+
+  fireEvent.contextMenu(card('NB-2'), { clientX: 50, clientY: 80 })
+  const menu = await screen.findByRole('menu', { name: '3 selected Tasks' })
+  fireEvent.keyDown(menu, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: '3 selected Tasks' })).toBeNull()
+  expect(picked()).toHaveLength(3)
+
+  await u.click(bar.getByRole('button', { name: 'Start' }))
+  for (const id of ['NB-1', 'NB-2', 'NB-3']) expect(a.request).toHaveBeenCalledWith('startTask', id)
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(picked()).toEqual([])
+  expect(screen.queryByRole('toolbar', { name: 'Selected Tasks' })).toBeNull()
+
+  await u.click(title('NB-4'))
+  expect(await screen.findByRole('region', { name: 'Task thread' })).toBeTruthy()
+})

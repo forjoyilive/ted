@@ -6,6 +6,7 @@ import type {
   ListFilters,
   MachineSettings,
   QueuedForSlot,
+  RunSlots,
   StageId,
   Task,
 } from '@ted/protocol'
@@ -13,6 +14,7 @@ import { boardCardSizes, boardFields } from '@ted/protocol/board-view'
 import {
   type DragEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -43,13 +45,22 @@ import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useConnection } from '../data.ts'
 import { boardEmpty } from '../empty-states.ts'
-import { activeFilterCount, filterChips, filterTasks, stageName, toggled } from '../list-view.ts'
+import {
+  activeFilterCount,
+  columnSelection,
+  filterChips,
+  filterTasks,
+  stageName,
+  toggled,
+} from '../list-view.ts'
 import { useNow } from '../requests.ts'
+import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
 import { ted } from '../ted.ts'
 import styles from './Board.module.css'
@@ -143,6 +154,22 @@ function RefusedDrop({ x, y, dragging }: { x: number; y: number; dragging: Dragg
   )
 }
 
+function SelectedTick() {
+  return (
+    <span className={styles.tick}>
+      <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-hidden>
+        <path
+          d="M1.5 4.7 3.6 6.8 7.5 2.4"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  )
+}
+
 function MoreIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
@@ -216,10 +243,11 @@ export function Board({
   tasks,
   factories,
   queue,
+  slots,
+  settings,
   capLine,
   banners,
   filters,
-  settings,
   onFilters,
   onOpen,
   onOpenTask,
@@ -233,10 +261,11 @@ export function Board({
   tasks: readonly Task[]
   factories: readonly Factory[]
   queue: readonly QueuedForSlot[]
+  slots?: RunSlots | undefined
+  settings?: MachineSettings | undefined
   capLine?: string | undefined
   banners?: ReactNode
   filters: ListFilters
-  settings?: MachineSettings | undefined
   onFilters: (filters: ListFilters) => void
   onOpen: (task: Task) => void
   onOpenTask: (ref: string) => void
@@ -293,6 +322,40 @@ export function Board({
     setDraft({ factoryId, view: next })
     ted.updateSettings({ boardViews: { ...settings?.boardViews, [factoryId]: next } }).catch(report)
   }
+  const selectable = shown.filter((t) => !view.hiddenStages.includes(t.stage))
+  const { selected, setSelected, anchor, setAnchor, toggle, clear } = useSelection(
+    selectable,
+    factoryId,
+  )
+  const chosen = selectable.filter((t) => selected.includes(t.id))
+
+  const shownIds = selectable.map((t) => t.id).join('\n')
+  useEffect(() => {
+    const ids = new Set(shownIds.split('\n'))
+    setSelected((current) => {
+      const kept = current.filter((id) => ids.has(id))
+      return kept.length === current.length ? current : kept
+    })
+  }, [shownIds, setSelected])
+
+  function selectOnModifiedClick(event: MouseEvent<HTMLElement>, task: Task, column: BoardColumn) {
+    if (event.shiftKey) {
+      const inColumn = anchor !== undefined && column.tasks.some((t) => t.id === anchor)
+      setSelected(columnSelection(selected, column.tasks, anchor, task.id))
+      if (!inColumn) setAnchor(task.id)
+    } else if (event.metaKey || event.ctrlKey) toggle(task.id)
+    else return
+    event.stopPropagation()
+  }
+
+  function onCardClick(event: MouseEvent<HTMLElement>, task: Task) {
+    if (!(event.target as HTMLElement).closest('button[data-card-title]')) return
+    clear()
+    onOpen(task)
+  }
+
+  const menuFor = (task: Task) =>
+    selected.includes(task.id) && chosen.length > 1 ? chosen.map((t) => t.id) : [task.id]
 
   function endDrag() {
     setDragging(undefined)
@@ -381,19 +444,25 @@ export function Board({
   function card(task: Task, column: BoardColumn) {
     const activity = cardActivity(task, now)
     const startable = canStart(task) && start !== undefined
+    const isSelected = selected.includes(task.id)
     return (
       <article
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
-        {...contextMenu((at) => openTaskActions(at, [task.id]))}
+        {...contextMenu((at) => openTaskActions(at, menuFor(task)))}
         data-task={task.displayId}
         data-nav-item
+        data-selected={isSelected || undefined}
+        {...selectionTarget(task.displayId)}
         tabIndex={-1}
         onKeyDown={(event) => openOnEnter(event, task)}
+        onClickCapture={(event) => selectOnModifiedClick(event, task, column)}
+        onClick={(event) => onCardClick(event, task)}
         className={[
           styles.card,
           compact ? styles.compact : '',
           dragging?.task.id === task.id ? styles.dragged : '',
+          isSelected ? styles.selected : '',
         ].join(' ')}
         draggable={!task.archived}
         onDragStart={(event) => {
@@ -412,11 +481,12 @@ export function Board({
               <span className={styles.cardId}>{task.displayId}</span>
               <button
                 type="button"
+                data-card-title
                 className={`${styles.cardTitle} ${styles.compactTitle}`}
-                onClick={() => onOpen(task)}
               >
                 {task.title}
               </button>
+              {isSelected && <SelectedTick />}
             </span>
             <TaskStatusChips task={task} onOpenTask={onOpenTask} />
           </>
@@ -426,6 +496,7 @@ export function Board({
               {shows('priority') && <PriorityIcon priority={task.priority} />}
               <span className={styles.cardId}>{task.displayId}</span>
               <span className={styles.cardEnd}>
+                {isSelected && <SelectedTick />}
                 {startable ? (
                   <button
                     type="button"
@@ -443,7 +514,7 @@ export function Board({
                 )}
               </span>
             </span>
-            <button type="button" className={styles.cardTitle} onClick={() => onOpen(task)}>
+            <button type="button" data-card-title className={styles.cardTitle}>
               {task.title}
             </button>
             <TaskStatusWithSubAgents
@@ -460,23 +531,24 @@ export function Board({
     )
   }
 
-  function doneCard(task: Task) {
+  function doneCard(task: Task, column: BoardColumn) {
+    const isSelected = selected.includes(task.id)
     return (
       <article
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
-        {...contextMenu((at) => openTaskActions(at, [task.id]))}
+        {...contextMenu((at) => openTaskActions(at, menuFor(task)))}
         data-task={task.displayId}
         data-nav-item
+        data-selected={isSelected || undefined}
+        {...selectionTarget(task.displayId)}
         tabIndex={-1}
         onKeyDown={(event) => openOnEnter(event, task)}
-        className={`${styles.card} ${styles.doneCard}`}
+        onClickCapture={(event) => selectOnModifiedClick(event, task, column)}
+        onClick={(event) => onCardClick(event, task)}
+        className={[styles.card, styles.doneCard, isSelected ? styles.selected : ''].join(' ')}
       >
-        <button
-          type="button"
-          className={`${styles.cardTitle} ${styles.doneTitle}`}
-          onClick={() => onOpen(task)}
-        >
+        <button type="button" data-card-title className={`${styles.cardTitle} ${styles.doneTitle}`}>
           {task.title}
         </button>
         <span className={styles.cardActivity}>{doneCardLine(task, now)}</span>
@@ -487,7 +559,7 @@ export function Board({
   function cards(column: BoardColumn) {
     if (column.stage === 'done') {
       return [
-        ...column.tasks.map(doneCard),
+        ...column.tasks.map((task) => doneCard(task, column)),
         ...((column.allDone ?? 0) > 0
           ? [
               <button
@@ -642,7 +714,10 @@ export function Board({
         </span>
       </div>
       <div className={styles.boardArea}>
-        <div className={styles.board} data-rank-order>
+        <div
+          className={`${styles.board} ${chosen.length > 0 ? styles.selecting : ''}`}
+          data-rank-order
+        >
           {layout.columns.map((column) => {
             const state = columnState(column)
             return (
@@ -707,6 +782,14 @@ export function Board({
             </aside>
           )}
         </div>
+        <SelectionBar
+          scope={factoryId}
+          chosen={chosen}
+          allTasks={tasks}
+          slots={slots}
+          settings={settings}
+          onSelect={setSelected}
+        />
         {empty === 'no-tasks' && (
           <div className={styles.emptyOverlay}>
             <EmptyState

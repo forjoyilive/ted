@@ -715,6 +715,7 @@ export {
   type ProposalRowInput,
   type PullRequestPreview,
   parseSetTaskSnoozeRequest,
+  parseSnoozeRequestRequest,
   priorities,
   type ReportOutcomeRequest,
   type RepoSetupReport,
@@ -741,6 +742,7 @@ export {
   type SignOffChanges,
   type SizeCheck,
   type SizeCheckInput,
+  type SnoozeRequestRequest,
   type StageId,
   type StartTaskRequest,
   sizeChoices,
@@ -839,7 +841,7 @@ export {
 export type { UpdateWork } from './update.ts'
 export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
-export type { WaitingRequest } from './waiting.ts'
+export type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,
