@@ -214,7 +214,7 @@ import {
   unseen,
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
-import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
+import { answered as answeredItems, answeredSince, waiting as waitingItems } from './inbox.ts'
 import {
   continueMessage,
   createLeadLifecycle,
@@ -7077,11 +7077,14 @@ export function createTasks(options: {
     peers,
 
     inbox() {
-      return waitingItems(store.listOpenRequests(), store.listTasks())
+      const requests = store.listOpenRequests()
+      return waitingItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))))
     },
 
     answered() {
-      return answeredItems(store.listAnsweredRequests(), store.listTasks(), new Date())
+      const now = new Date()
+      const requests = store.listAnsweredRequests(answeredSince(now))
+      return answeredItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))), now)
     },
 
     talkThrough: (id) => talkThrough(id),
