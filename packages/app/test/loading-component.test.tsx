@@ -436,7 +436,7 @@ test('initial Sign-offs loading is disabled and its failed request can be retrie
   const { TaskGatesField } = await import('../src/renderer/views/TaskGatesField.tsx')
   const initial = deferred<never>()
   const api = bridge({ taskGates: () => initial.promise })
-  render(<TaskGatesField taskId="task-a" />)
+  render(<TaskGatesField taskId="task-a" factoryId="factory-a" />)
   const loading = screen.getByRole('button', { name: 'Loading sign-offs…' })
   expect(loading.hasAttribute('disabled')).toBe(true)
   await user().click(loading)

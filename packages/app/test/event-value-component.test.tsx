@@ -150,7 +150,7 @@ test('Library event refresh preserves a draft until Discard reloads the current 
 
 function Changes({ t }: { t: ReturnType<typeof task> }) {
   const changes = useTaskChanges(t)
-  const comments = useLineComments(t.id)
+  const comments = useLineComments(t)
   return (
     <output>
       {changes?.repos.length ?? 'loading'} repos, {comments.length} comments
@@ -199,7 +199,7 @@ function Obligations() {
   )
 }
 
-test('validation obligations subscribe before the initial read can emit an update', async () => {
+test('an update during the first validation obligations read is followed by one more read', async () => {
   const first = deferred<import('@ted/protocol').ValidationObligations>()
   let reads = 0
   const api = bridge({
@@ -211,10 +211,17 @@ test('validation obligations subscribe before the initial read can emit an updat
       return { checkRuns: [], satisfied: true, cases: [], blockers: [] }
     },
   })
-  render(<Obligations />)
-  await screen.findByText('Satisfied')
+  render(
+    <>
+      <Obligations />
+      <Obligations />
+    </>,
+  )
+  await act(async () => api.emit({ type: 'task-updated', task: task() }))
+  expect(reads).toBe(1)
   await act(async () =>
     first.resolve({ checkRuns: [], satisfied: false, cases: [], blockers: ['Old read'] }),
   )
-  expect(screen.getByText('Satisfied')).toBeTruthy()
+  expect(await screen.findAllByText('Satisfied')).toHaveLength(2)
+  expect(reads).toBe(2)
 })

@@ -5,6 +5,8 @@ import { Button } from './Button.tsx'
 import { ChatSection } from './RunChat.tsx'
 import styles from './SearchPalette.module.css'
 
+const outputEveryMs = 1_000
+
 export function ConversationSearchView({
   hit,
   onBack,
@@ -16,11 +18,11 @@ export function ConversationSearchView({
     initial: undefined,
     key: hit.runId,
     load: () => ted.getRunChat(hit.runId),
-    event: (event) =>
-      (event.type === 'run-output' && event.runId === hit.runId) ||
-      (event.type === 'run-updated' && event.run.id === hit.runId)
-        ? 'reload'
-        : undefined,
+    event: (event) => {
+      if (event.type === 'run-output' && event.runId === hit.runId)
+        return event.lines ? outputEveryMs : 'reload'
+      return event.type === 'run-updated' && event.run.id === hit.runId ? 'reload' : undefined
+    },
   })
   const missing = chat !== undefined && !chat.items.some((item) => item.id === hit.itemId)
   return (

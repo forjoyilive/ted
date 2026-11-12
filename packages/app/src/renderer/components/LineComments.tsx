@@ -1,4 +1,4 @@
-import type { DiffRow, LineComment } from '@ted/protocol'
+import type { DiffRow, LineComment, Task } from '@ted/protocol'
 import { lineLabel } from '@ted/protocol/changes'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
@@ -13,7 +13,10 @@ import styles from './LineComments.module.css'
 
 const settleMs = 1_500
 
-export function useLineComments(taskId: string): LineComment[] {
+export function useLineComments(task: Task): LineComment[] {
+  const taskId = task.id
+  const runIds = useRef(new Set<string>())
+  runIds.current = new Set(task.runs.map((r) => r.id))
   return useEventValue<LineComment[]>({
     initial: [],
     key: taskId,
@@ -23,7 +26,7 @@ export function useLineComments(taskId: string): LineComment[] {
       if (event.type === 'line-comments-changed' && event.taskId === taskId) return 'reload'
       if (
         (event.type === 'task-updated' && event.task.id === taskId) ||
-        event.type === 'run-output'
+        (event.type === 'run-output' && runIds.current.has(event.runId))
       )
         return settleMs
       return undefined

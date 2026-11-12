@@ -54,7 +54,7 @@ test('partial events and removals reconcile with unrelated loaded entries', asyn
 
 test('newer refreshes win and disposed results and errors are ignored', async () => {
   const s = source(0, () => 'reload')
-  s.emit('reload')
+  void s.refresh()
   s.calls[1]?.resolve(2)
   await Promise.resolve()
   s.calls[0]?.resolve(1)
@@ -68,22 +68,94 @@ test('newer refreshes win and disposed results and errors are ignored', async ()
   expect(s.unsubscribe).toHaveBeenCalledOnce()
 })
 
-test('debounced invalidation rejects an older load before the next load starts', async () => {
+test('reload events during a load keep one request in flight and one queued', async () => {
+  const s = source(0, () => 'reload')
+  for (let i = 0; i < 5; i++) s.emit('reload')
+  expect(s.calls).toHaveLength(1)
+  s.calls[0]?.resolve(1)
+  await Promise.resolve()
+  expect(s.changed).toHaveBeenLastCalledWith(1)
+  expect(s.calls).toHaveLength(2)
+  s.emit('reload')
+  s.calls[1]?.resolve(2)
+  await Promise.resolve()
+  expect(s.changed).toHaveBeenLastCalledWith(2)
+  expect(s.calls).toHaveLength(3)
+  s.calls[2]?.reject(new Error('offline'))
+  await Promise.resolve()
+  expect(s.calls).toHaveLength(3)
+  s.emit('reload')
+  expect(s.calls).toHaveLength(4)
+  s.dispose()
+})
+
+test('an explicit refresh covers a queued reload', async () => {
+  const s = source(0, () => 'reload')
+  s.emit('reload')
+  void s.refresh()
+  s.calls[1]?.resolve(2)
+  await Promise.resolve()
+  expect(s.calls).toHaveLength(2)
+  s.dispose()
+})
+
+test('a timed invalidation loads once per interval while events keep coming', async () => {
   vi.useFakeTimers()
   try {
     const s = source(0, () => 1500)
-    s.emit('reload')
     s.calls[0]?.resolve(1)
     await Promise.resolve()
-    expect(s.changed).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(1500)
-    s.calls[1]?.resolve(2)
+    for (let i = 0; i < 40; i++) {
+      s.emit('output')
+      await vi.advanceTimersByTimeAsync(150)
+      s.calls.at(-1)?.resolve(s.calls.length)
+    }
     await Promise.resolve()
-    expect(s.changed).toHaveBeenLastCalledWith(2)
+    expect(s.calls).toHaveLength(5)
+    expect(s.changed.mock.calls.map(([v]) => v)).toEqual([1, 2, 3, 4, 5])
     s.dispose()
   } finally {
     vi.useRealTimers()
   }
+})
+
+test('a timed invalidation keeps the reply in flight and takes the shortest wait', async () => {
+  vi.useFakeTimers()
+  try {
+    const s = source(0, (e) => (e === 'soon' ? 500 : 1500))
+    s.emit('later')
+    s.calls[0]?.resolve(1)
+    await Promise.resolve()
+    expect(s.changed).toHaveBeenLastCalledWith(1)
+    s.emit('soon')
+    s.emit('later')
+    await vi.advanceTimersByTimeAsync(499)
+    expect(s.calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(s.calls).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(s.calls).toHaveLength(2)
+    s.emit('later')
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(s.calls).toHaveLength(2)
+    s.calls[1]?.resolve(2)
+    await Promise.resolve()
+    expect(s.calls).toHaveLength(3)
+    s.dispose()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('an update that returns the same value publishes nothing but still applies to a load', async () => {
+  const s = source<number[]>([], (e) => (current) => (e === 'same' ? current : [...current, 1]))
+  s.emit('same')
+  expect(s.changed).not.toHaveBeenCalled()
+  s.emit('add')
+  s.calls[0]?.resolve([0])
+  await Promise.resolve()
+  expect(s.changed).toHaveBeenLastCalledWith([0, 1])
+  s.dispose()
 })
 
 test('load failures are reported and a later event can recover', async () => {
@@ -142,7 +214,7 @@ test('an awaited refresh follows the replacement read without waiting for its ob
   const s = source(0, () => 'reload')
   const completed = vi.fn()
   const pending = s.refresh().then(completed)
-  s.emit('reload')
+  void s.refresh()
   s.calls[2]?.resolve(3)
   await pending
   expect(completed).toHaveBeenCalledExactlyOnceWith(3)
@@ -158,7 +230,7 @@ test.each(['failure', 'dispose'] as const)(
   async (ending) => {
     const s = source(0, () => 'reload')
     const pending = s.refresh()
-    s.emit('reload')
+    void s.refresh()
     if (ending === 'failure') s.calls[2]?.reject(new Error('Current read failed'))
     else s.dispose()
     expect(await pending).toBeUndefined()

@@ -33,10 +33,21 @@ import type {
   ThreadEvent,
   ValidationObligations,
 } from '@ted/protocol'
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
 import { type EventChange, eventValue, type ValueUpdate } from './event-value.ts'
+import { inboxChange } from './inbox-events.ts'
+import { sharedValues } from './shared-value.ts'
 import { readableError, type TedEvent, ted } from './ted.ts'
 
 export interface Connection {
@@ -158,6 +169,35 @@ export function useEventValue<T>(options: {
     refresh,
     update,
   }
+}
+
+const shared = sharedValues<TedEvent>({
+  subscribe: (listener) => ted.onEvent(listener),
+  describe: readableError,
+})
+
+function useShared<T>(
+  key: string,
+  load: () => Promise<T>,
+  event: (event: TedEvent) => EventChange<T | undefined>,
+) {
+  const { epoch } = useConnection()
+  const request = useRef({ load, event, epoch })
+  request.current = { load, event, epoch }
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      shared.use<T>(
+        key,
+        request.current.epoch,
+        { load: () => request.current.load(), event: (e) => request.current.event(e) },
+        notify,
+      ),
+    [key],
+  )
+  const snapshot = useSyncExternalStore(subscribe, () => shared.read<T>(key))
+  useEffect(() => shared.renew(key, epoch), [key, epoch])
+  const retry = useCallback(() => void shared.refresh(key), [key])
+  return { ...snapshot, retry }
 }
 
 export function useBrowserOpen(
@@ -353,42 +393,37 @@ export function useThreadEvents(taskId: string): ThreadEvent[] {
 }
 
 export function useThreadEventList(taskId: string) {
-  return useEventValue<ThreadEvent[] | undefined>({
-    initial: undefined,
-    key: taskId,
-    load: () => ted.listThreadEvents(taskId),
-    event: (event) =>
+  return useShared<ThreadEvent[]>(
+    `thread-events:${taskId}`,
+    () => ted.listThreadEvents(taskId),
+    (event) =>
       (event.type === 'task-updated' && event.task.id === taskId) ||
       ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
         event.comment.taskId === taskId)
         ? 'reload'
         : undefined,
-  })
+  )
 }
 
-const inboxEvents = new Set<TedEvent['type']>([
-  'comment-posted',
-  'comment-updated',
-  'task-created',
-  'task-updated',
-  'task-deleted',
-])
-
 export function useInbox(): InboxItem[] {
-  return useInboxList(ted.listInbox, true)
+  return useInboxList('waiting', true)
 }
 
 export function useAnswered(enabled: boolean): InboxItem[] {
-  return useInboxList(ted.listAnswered, enabled)
+  return useInboxList('answered', enabled)
 }
 
-function useInboxList(list: () => Promise<InboxItem[]>, enabled: boolean): InboxItem[] {
+function useInboxList(list: 'waiting' | 'answered', enabled: boolean): InboxItem[] {
+  const shown = useRef<readonly InboxItem[]>([])
   return useEventValue<InboxItem[]>({
     initial: [],
-    load: list,
+    load: list === 'waiting' ? ted.listInbox : ted.listAnswered,
     enabled,
-    key: list === ted.listInbox ? 'inbox' : 'answered',
-    event: (event) => (inboxEvents.has(event.type) ? 'reload' : undefined),
+    key: list,
+    event: (event) => inboxChange(event, shown.current, list),
+    changed: (value) => {
+      shown.current = value
+    },
   }).value
 }
 
@@ -613,12 +648,15 @@ function useReloadingState<T>(
   }
 }
 
-const planEvent = (event: TedEvent, planId?: string) =>
+const planEvent = (event: TedEvent, factoryId: string | undefined, planId?: string) =>
   ((event.type === 'plan-updated' || event.type === 'plan-deleted') &&
     (planId === undefined || event.planId === planId)) ||
   (event.type === 'run-updated' && (planId === undefined || event.run.id === planId)) ||
   event.type === 'slots-changed' ||
-  event.type === 'task-updated'
+  (event.type === 'task-updated' && (factoryId === undefined || event.task.factoryId === factoryId))
+
+const busyEvents = (event: TedEvent) =>
+  event.type === 'task-updated' || event.type === 'run-updated' || event.type === 'slots-changed'
 
 export function useCoordinator(factoryId: string): Coordinator | null | undefined {
   return useCoordinatorState(factoryId).value
@@ -629,11 +667,12 @@ export function useCoordinatorState(factoryId: string) {
     () => ted.coordinator(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
-      event.type === 'task-updated' ||
+      (event.type === 'task-updated' && event.task.factoryId === factoryId) ||
       event.type === 'run-updated' ||
       event.type === 'slots-changed' ||
       event.type === 'agent-health-changed',
     factoryId,
+    busyEvents,
   )
 }
 
@@ -674,18 +713,21 @@ export function usePlan(planId: string | undefined): PlanDetail | undefined {
 export function usePlanState(planId: string | undefined) {
   return useReloadingState(
     () => (planId === undefined ? Promise.resolve(undefined) : ted.getPlan(planId)),
-    (event) => planId !== undefined && planEvent(event, planId),
+    (event, current) =>
+      planId !== undefined && planEvent(event, current.value?.plan.factoryId, planId),
     planId ?? '',
+    busyEvents,
   )
 }
 
 export function usePlans(factoryId: string): Plan[] {
   return (
-    useReloading(
+    useReloadingState(
       () => ted.listPlans(factoryId),
-      (event) => planEvent(event),
+      (event) => planEvent(event, factoryId),
       factoryId,
-    ) ?? []
+      busyEvents,
+    ).value ?? []
   )
 }
 
@@ -753,13 +795,15 @@ export function useSimulators(): SimulatorSlots | undefined {
 
 export function useTaskApps(taskId: string): TaskApp[] {
   return (
-    useReloading(
+    useShared<TaskApp[]>(
+      `apps:${taskId}`,
       () => ted.listApps(taskId),
       (event) =>
         (event.type === 'apps-changed' && event.taskId === taskId) ||
-        (event.type === 'task-updated' && event.task.id === taskId),
-      taskId,
-    ) ?? []
+        (event.type === 'task-updated' && event.task.id === taskId)
+          ? 'reload'
+          : undefined,
+    ).value ?? []
   )
 }
 
@@ -888,11 +932,11 @@ export function useAutomationState(id: string) {
 
 export function useWaitingCount(): number {
   return (
-    useReloading(
-      async () => (await ted.listWaiting()).length,
-      (event) => event.type === 'inbox-changed',
-      '',
-    ) ?? 0
+    useEventValue<number | undefined>({
+      initial: undefined,
+      load: async () => (await ted.listWaiting()).length,
+      event: (event) => (event.type === 'inbox-changed' ? () => event.waiting.length : undefined),
+    }).value ?? 0
   )
 }
 
@@ -911,26 +955,22 @@ export function useAutomationTemplates(): AutomationTemplate[] {
 }
 
 export function useFailures(taskId: string): FailureCase[] {
-  return useValidationData(taskId, ted.listFailures) ?? []
+  return useValidationData(`failures:${taskId}`, () => ted.listFailures(taskId), taskId) ?? []
 }
 
 export function useValidationObligations(taskId: string): ValidationObligations | undefined {
-  return useValidationData(taskId, ted.validationObligations)
+  return useValidationData(`obligations:${taskId}`, () => ted.validationObligations(taskId), taskId)
 }
 
-function useValidationData<T>(taskId: string, read: (id: string) => Promise<T>): T | undefined {
-  return useEventValue<T | undefined>({
-    initial: undefined,
-    key: taskId,
-    load: () => read(taskId),
-    event: (event) =>
-      (event.type === 'task-updated' && event.task.id === taskId) ||
-      ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
-        event.comment.taskId === taskId) ||
-      (event.type === 'check-run-updated' && event.checkRun.taskId === taskId)
-        ? 'reload'
-        : undefined,
-  }).value
+function useValidationData<T>(key: string, load: () => Promise<T>, taskId: string): T | undefined {
+  return useShared<T>(key, load, (event) =>
+    (event.type === 'task-updated' && event.task.id === taskId) ||
+    ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+      event.comment.taskId === taskId) ||
+    (event.type === 'check-run-updated' && event.checkRun.taskId === taskId)
+      ? 'reload'
+      : undefined,
+  ).value
 }
 
 export function useFactoryDashboard(
