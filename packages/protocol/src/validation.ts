@@ -1,4 +1,4 @@
-import { type AgentKind, agentKinds } from './run.ts'
+import { type AgentKind, agentKindList, agentKinds } from './run.ts'
 import { type Effort, efforts, isModelName } from './task.ts'
 
 export class RequestValidationError extends Error {
@@ -39,7 +39,7 @@ export function agentChoice(value: unknown, name?: string): AgentChoice {
   const field = (key: string) => (name === undefined ? key : `${name}.${key}`)
   const { agent, model, effort } = given
   if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-    throw new RequestValidationError(400, `${field('agent')} must be ${agentKinds.join(' or ')}`)
+    throw new RequestValidationError(400, `${field('agent')} must be ${agentKindList}`)
   }
   if (model !== undefined && !isModelName(model)) {
     throw new RequestValidationError(

@@ -576,6 +576,7 @@ export function createTasks(options: {
   clock?: Clock
   nudgeAfterMs?: number
   mergePollMs?: number
+  githubReadBurst?: number
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
@@ -863,6 +864,7 @@ export function createTasks(options: {
       gh: options.gh,
       clock,
       everyMs: mergePollMs,
+      ...(options.githubReadBurst !== undefined && { urgentBurst: options.githubReadBurst }),
       refs: watchedPullRequests,
       onRead: reactToGitHub,
       inBackground: (what, work) => inBackground(what, work),
@@ -949,11 +951,7 @@ export function createTasks(options: {
     const workflow = task.setup
       ? setupWorkflow(based, await setupInstructions(factory.showTutorial))
       : based
-    const overnightGates = night.off.filter(
-      (id) =>
-        workflow.settings.stages[id]?.gate !== true &&
-        !(id === 'clarify' && task.clarifyDepth === 'grilling' && !taskAutopilot(task)),
-    )
+    const overnightGates = night.off.filter((id) => workflow.settings.stages[id]?.gate !== true)
     if (kept !== undefined) {
       const stages = agentStageIds.filter(
         (id) =>
@@ -1106,12 +1104,7 @@ export function createTasks(options: {
 
   function gateOn(task: Task, workflow: ResolvedWorkflow, stage: AgentStageId): boolean {
     if (workflow.settings.stages[stage]?.gate === true) return true
-    if (
-      stage === 'clarify' &&
-      task.clarifyDepth === 'grilling' &&
-      (!taskAutopilot(task) || task.setup || workflow.overnightKept)
-    )
-      return true
+    if (stage === task.stage && openGateRequest(task)) return true
     return (
       workflow.overnightGates?.includes(stage) === true &&
       stage === task.stage &&
@@ -1140,17 +1133,13 @@ export function createTasks(options: {
       .map((stage) => {
         const required = task.forcedGates.includes(stage)
           ? 'Required by TED for this Task'
-          : task.setup && ['clarify', 'design', 'review'].includes(stage)
+          : task.setup && ['design', 'review'].includes(stage)
             ? 'Required for Factory setup'
-            : stage === 'clarify' &&
-                task.clarifyDepth === 'grilling' &&
-                (!taskAutopilot(task) || guard !== undefined)
-              ? 'Required at grilling depth'
-              : stage === 'review' && guard === 'settings'
-                ? 'Required while Autopilot is on: this Task changes .ted/'
-                : stage === 'review' && guard === 'unreadable'
-                  ? 'Required while Autopilot is on: TED couldn’t read this Task’s changes'
-                  : undefined
+            : stage === 'review' && guard === 'settings'
+              ? 'Required while Autopilot is on: this Task changes .ted/'
+              : stage === 'review' && guard === 'unreadable'
+                ? 'Required while Autopilot is on: TED couldn’t read this Task’s changes'
+                : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'

@@ -1922,6 +1922,18 @@ export async function openStore({
     return purpose ? { ...comment, purpose } : comment
   }
 
+  const commentPeer = (id: string): Pick<Comment, 'peer'> => {
+    const peer = store.query(queryDb(peerMessages.where({ id }))).at(0)
+    if (!peer) return {}
+    const sender = taskRow(peer.senderTaskId) ?? deletedRows(peer.senderTaskId).at(0)
+    return {
+      peer: {
+        ...(sender && { sender: `${factoryKey(sender.factoryId)}-${sender.number}` }),
+        text: peer.text,
+      },
+    }
+  }
+
   const toComment = ({
     authorKind,
     authorRunId,
@@ -1984,6 +1996,7 @@ export async function openStore({
         ...(design !== null && { design: JSON.parse(design) as DesignReview }),
         ...withFiles(row.id),
         ...withLineComments(row.id),
+        ...commentPeer(row.id),
       },
       purpose,
     )

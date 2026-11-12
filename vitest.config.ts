@@ -64,6 +64,9 @@ const testOptions = {
   ],
   env: {
     TED_GH_BIN: here('./packages/daemon/test/fixtures/stub-gh.ts'),
+    TED_CLAUDE_BIN: here('./packages/daemon/test/fixtures/stub-claude.ts'),
+    TED_CODEX_BIN: here('./packages/daemon/test/fixtures/stub-codex.ts'),
+    TED_ANTIGRAVITY_BIN: here('./packages/daemon/test/fixtures/no-antigravity-here'),
     TED_XCRUN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
     TED_OPEN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
     TED_LOGIN_SHELL: 'off',

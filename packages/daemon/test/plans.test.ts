@@ -148,6 +148,14 @@ describe('Planning chats', () => {
     const run = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
     expect(run.run.prompt).toContain('## Write clearly for the user')
     expect(run.run.prompt).toContain('Rewrite dense source wording in plain language')
+    for (const guidance of [
+      'question count can vary widely and has no target or minimum',
+      'goal, scope and exclusions, user behavior (including edge cases), constraints, risks and acceptance criteria',
+      'ask the user to confirm your understanding and whether to split it into Tasks',
+      'Keep the layers needed for that result together',
+    ]) {
+      expect(run.run.prompt).toContain(guidance)
+    }
     const folder = path.join(home, 'plans', plan.id)
     expect(run.run.cwd).toBe(path.join(folder, 'widgets'))
     expect(run.run.taskId).toBeUndefined()
@@ -176,6 +184,14 @@ describe('Planning chats', () => {
     )
     expect(proposed.plan.proposedTasks).toBe(2)
     const proposalRequest = proposed.requests.find((r) => r.kind === 'proposal') as PlanRequest
+    await waitUntil(async () => {
+      const sent = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+      return (
+        JSON.stringify(sent.conversation).includes(
+          'Follow newly exposed decisions into another focused round',
+        ) || undefined
+      )
+    }, 'discovery guidance to reach the planner after a round')
     expect(proposalRequest.proposal?.rows.map((r) => [r.title, r.priority, r.blockedBy])).toEqual([
       ['Notebook owners', 'high', []],
       ['Share dialog', 'none', [1]],
@@ -245,7 +261,12 @@ describe('Planning chats', () => {
     await open('changes')
     await waitUntil(async () => {
       const sent = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
-      return JSON.stringify(sent.conversation).includes('Split the dialog in two') || undefined
+      const conversation = JSON.stringify(sent.conversation)
+      return (
+        (conversation.includes('Split the dialog in two') &&
+          conversation.includes('return to discovery rounds and confirm the changed plan')) ||
+        undefined
+      )
     }, 'the changes to reach the planner')
     const second = await waitForPlan(
       client,
@@ -456,6 +477,8 @@ describe('Plans list', () => {
       'Share dialog',
       'NB-1',
       'NB-2',
+      'Reuse answers already supplied in this or an earlier planning chat',
+      'ask the user to confirm your understanding and whether to split it into Tasks',
     ]) {
       expect(chat).toContain(part)
     }

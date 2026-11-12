@@ -1,5 +1,7 @@
 # Overnight mode turns Workflow Gates off
 
+**Updated by KRI-362:** Grilling depth no longer forces Clarify sign-off. Clarify follows its effective Workflow or Task sign-off setting at every depth, including overnight mode. Explicit forced Gates and setup Tasks’ Design and Review Gates remain required. The earlier Grilling exception described below is superseded.
+
 Overnight mode started Backlog Tasks in every Factory and told each Task Lead to stop at its Gates. The human wanted Tasks to run through on their own, and got that only by editing `workflow.yaml` to turn Gates off at night and back on in the morning. Overnight mode now does it: while `overnightMode` is on, a Gate set by the Workflow (TED’s defaults, the Library, the Factory) or by a per-Task override counts as off. Nothing saved changes; the Workflow files and `gateOverrides` stay as they are.
 
 ## Where it is decided

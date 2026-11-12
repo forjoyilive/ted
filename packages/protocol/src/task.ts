@@ -588,6 +588,7 @@ export type RequestPurpose =
 
 export interface Comment {
   autopilotAnswered?: boolean
+  peer?: { sender?: string; text: string }
   purpose?: RequestPurpose
   id: string
   taskId: string

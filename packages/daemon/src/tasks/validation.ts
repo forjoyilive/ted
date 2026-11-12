@@ -73,6 +73,15 @@ export function createValidation(options: ValidationOptions) {
       .context(task)
       .then(coverageOf)
       .catch(() => undefined)
+  const codeOf = (covered: string) => JSON.stringify(JSON.parse(covered).repos)
+  const merged = (task: Task) => {
+    const opened = task.repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    return (
+      task.stage === 'merge' &&
+      opened.length > 0 &&
+      opened.every((r) => r.pullRequest?.state === 'merged')
+    )
+  }
 
   async function failureEvidence(task: Task, run: CheckRun, position: number) {
     const evidence = generatedFailureText(
@@ -633,6 +642,16 @@ export function createValidation(options: ValidationOptions) {
     if (task.stage === 'done') return true
     if (!progress) return task.stage !== 'validate' && visitStart(task) === ''
     if (progress.pending || progress.next < progress.checks.length) return false
+    const previous = progress.contextId ? store.failures.context(progress.contextId) : undefined
+    const tested = progress.coverage ?? (previous && coverageOf(previous))
+    // The Check plan is read from the default branch, which holds this Task’s own changes
+    // once its pull requests have merged, so only the code is compared from then on.
+    if (merged(task)) {
+      if (progress.visit !== visitStart(task)) return false
+      if (progress.checks.every((c) => c.state === 'skipped')) return true
+      const local = await coverage(task)
+      return local !== undefined && tested !== undefined && codeOf(local) === codeOf(tested)
+    }
     const resolution = await options.workflow(task)
     const plan = await options.plan(task, resolution)
     const samePlan =
@@ -643,8 +662,6 @@ export function createValidation(options: ValidationOptions) {
       progress.checks.every((c) => c.state === 'skipped') &&
       plan.every((p) => p.check.state === 'skipped')
     const local = samePlan && !skipped ? await coverage(task) : undefined
-    const previous = progress.contextId ? store.failures.context(progress.contextId) : undefined
-    const tested = progress.coverage ?? (previous && coverageOf(previous))
     if (samePlan && (skipped || (local && tested === local))) return true
     store.failures.saveProgress({
       taskId: task.id,

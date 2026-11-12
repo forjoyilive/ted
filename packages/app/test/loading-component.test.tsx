@@ -120,7 +120,7 @@ test('a failed History load exits loading and can be retried', async () => {
   await within(dialog).findByText('No description history.')
 })
 
-test('Task history waits for comments, events and Checks, then keeps content on refresh', async () => {
+test('Task history loads Comments and collapsed peer messages, then keeps content on refresh', async () => {
   const comments = deferred<Comment[]>()
   const events = deferred<ThreadEvent[]>()
   const api = bridge({
@@ -128,17 +128,69 @@ test('Task history waits for comments, events and Checks, then keeps content on 
     listThreadEvents: () => events.promise,
     listCheckRuns: () => [],
     listFailures: () => [],
+    markCommentsRead: () => undefined,
   })
   render(history())
   expect(screen.getByRole('status', { name: 'Loading Task history…' })).toBeTruthy()
   await act(async () =>
     comments.resolve([
       comment({ kind: 'note', author: { kind: 'human' }, body: 'History has arrived.' }),
+      comment({
+        id: 'peer-1',
+        kind: 'note',
+        author: { kind: 'run', runId: 'peer-run' },
+        body: 'Peer message from NB-2 (Run peer-run).\n<<<PEER nonce>>>\nraw wrapper\n<<<END PEER nonce>>>',
+        peer: {
+          sender: 'NB-2',
+          text: '**Ready** to coordinate.\n\n- Read the [guide](https://example.com/guide).\n\n```ts\nconst key = "literal";\n```',
+        },
+      }),
+      comment({
+        id: 'peer-2',
+        kind: 'note',
+        author: { kind: 'run', runId: 'other-peer-run' },
+        peer: { text: 'Another message.' },
+        body: 'Second raw wrapper',
+      }),
+      comment({
+        id: 'ordinary',
+        kind: 'note',
+        author: { kind: 'human' },
+        body: 'Peer message from NB-3 is ordinary quoted text.',
+      }),
     ]),
   )
   expect(screen.getByRole('status', { name: 'Loading Task history…' })).toBeTruthy()
   await act(async () => events.resolve([]))
   await screen.findByText('History has arrived.')
+  const peer = screen.getByRole('button', { name: 'Peer · NB-2' })
+  const other = screen.getByRole('button', { name: 'Peer message' })
+  expect(peer.getAttribute('aria-expanded')).toBe('false')
+  expect(other.getAttribute('aria-expanded')).toBe('false')
+  expect(within(peer).getByText(/Ready to coordinate/).textContent).toBe(
+    'Ready to coordinate. Read the guide. const key = "literal";',
+  )
+  expect(screen.queryByRole('link', { name: 'guide' })).toBeNull()
+  expect(screen.queryByText(/raw wrapper/)).toBeNull()
+  expect(screen.getByText('Peer message from NB-3 is ordinary quoted text.')).toBeTruthy()
+  await user().click(peer)
+  expect(peer.getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByText('Ready').tagName).toBe('STRONG')
+  expect(screen.getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
+    'https://example.com/guide',
+  )
+  expect(screen.getByRole('region', { name: 'Code block' }).textContent).toContain(
+    'const key = "literal";',
+  )
+  other.focus()
+  await user().keyboard('{Enter}')
+  expect(other.getAttribute('aria-expanded')).toBe('true')
+  expect(peer.getAttribute('aria-expanded')).toBe('true')
+  peer.focus()
+  await user().keyboard(' ')
+  expect(peer.getAttribute('aria-expanded')).toBe('false')
+  expect(other.getAttribute('aria-expanded')).toBe('true')
+  expect(screen.queryByRole('link', { name: 'guide' })).toBeNull()
   const refresh = deferred<ThreadEvent[]>()
   api.handle('listThreadEvents', () => refresh.promise)
   act(() => api.emit({ type: 'task-updated', task: task() }))

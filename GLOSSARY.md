@@ -61,7 +61,7 @@ The Markdown instructions an agent follows while a Task is in that Stage.
 _Avoid_: Prompt, playbook
 
 **Clarify depth**:
-How much questioning Clarify does on a Task: none, a few simple questions in one round, or a grilling session of several rounds that ends in the human’s sign-off. The Task Lead picks it unless the human or the Workflow sets it.
+How much questioning Clarify does on a Task: none, a few simple questions in one round, or a grilling session of several rounds. The Stage’s Sign-off setting applies at every depth. The Task Lead picks it unless the human or the Workflow sets it.
 _Avoid_: Tier, level
 
 **Check**:
