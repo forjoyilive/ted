@@ -51,8 +51,10 @@ export function createExecutionCommands(options: {
   store: Pick<TedStore, 'execution' | 'operations' | 'pairing' | 'persisted'>
   pollMs?: number
   log?: (line: string) => void
+  maxPerAnswer?: number
 }) {
   const { store } = options
+  const maxPerAnswer = options.maxPerAnswer ?? executionLimits.unconfirmed
   const write = options.log ?? ((line: string) => console.warn(line))
   const log = (line: string) => write(redactSecrets(line))
   const sessions = new Map<
@@ -186,7 +188,7 @@ export function createExecutionCommands(options: {
     canAccept: boolean,
   ): Pick<ExecutionSyncResponse, 'commands' | 'stops'> {
     const commands: ExecutionCommand[] = []
-    const stops: ExecutionStop[] = session.orphans.splice(0)
+    const stops: ExecutionStop[] = session.orphans.splice(0, maxPerAnswer)
     let bytes = 0
     const tasks = new Set<string>()
     for (const row of store.operations.forMachine(machineId)) {
@@ -195,6 +197,7 @@ export function createExecutionCommands(options: {
         row.command &&
         !terminal(row.state) &&
         !held(row.state) &&
+        stops.length < maxPerAnswer &&
         Date.now() - (session.stopsSent.get(row.id) ?? 0) >= resendStopMs
       ) {
         session.stopsSent.set(row.id, Date.now())
@@ -210,6 +213,7 @@ export function createExecutionCommands(options: {
       if (all.some((r) => held(r.state))) continue
       const next = all.find((r) => r.machineId === machineId && r.state === 'issued')
       if (!canAccept || !next?.command || next.stopRequestedAt || unsaved.has(next.id)) continue
+      if (commands.length >= maxPerAnswer) continue
       const size = Buffer.byteLength(JSON.stringify(next.command))
       if (bytes + size > executionLimits.syncResponseBytes / 2) continue
       bytes += size

@@ -17,6 +17,7 @@ import {
   executionIds,
   executionLimits,
   parseExecutionResult,
+  sameExecutionRef,
   type WorkerOperations,
 } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'
@@ -166,13 +167,19 @@ export async function createExecutionOperations(options: {
       await journal.tombstone(request.operationId, request.ref, request.order)
       return
     }
-    if (operation.state === 'accepted') {
+    if (
+      request.ref.machineId !== options.identity()?.grantId ||
+      !sameExecutionRef(request.ref, operation.ref)
+    )
+      return
+    const starting = running.get(operation.id)
+    if (operation.state === 'accepted' && !starting) {
       await journal.record('stopped', operation.id)
       return
     }
-    if (operation.state !== 'running' || operation.stopRequested) return
+    if ((operation.state !== 'running' && !starting) || operation.stopRequested) return
+    starting?.abort()
     await journal.record('stop', operation.id)
-    running.get(operation.id)?.abort()
   }
   async function run(operation: JournaledOperation & { command: ExecutionCommand }): Promise<void> {
     const abort = new AbortController()
@@ -183,7 +190,9 @@ export async function createExecutionOperations(options: {
       options.changed?.()
       let outcome: ExecutionResult | 'stopped'
       try {
-        outcome = await probe.run(probeRoot, operation.command, abort.signal)
+        outcome = abort.signal.aborted
+          ? 'stopped'
+          : await probe.run(probeRoot, operation.command, abort.signal)
       } catch (error) {
         outcome = {
           ok: false,

@@ -492,6 +492,41 @@ test('the controller reconciles before it sends, applies a result once and holds
     await sync('s4', { inventory: [] })
     expect(commands.operation('op-4')).toMatchObject({ state: 'uncertain' })
     expect(commands.summary(grant.id, false)?.text).toContain('may or may not have started')
+
+    const capped = createExecutionCommands({ store, pollMs: 5, maxPerAnswer: 2 })
+    const cappedSync = (more: Partial<ExecutionSyncRequest> = {}) =>
+      capped.sync(grant, {
+        ...executionHello(),
+        grantId: grant.id,
+        session: 'capped',
+        reports: [],
+        accepting: true,
+        ...more,
+      })
+    const backlog: ExecutionCommand[] = []
+    for (const n of [6, 7, 8, 9]) {
+      const next = await assigned()
+      backlog.push(await capped.issue({ ...input, operationId: `op-${n}`, taskId: next.id }))
+    }
+    await capped.stop('op-9')
+    const sendable = backlog.slice(0, 3)
+    const lost = (n: number) => ({
+      operationId: executionIds.operation(`lost-${n}`),
+      ref: { ...gone.ref, taskId: 'no-such-task' },
+      state: 'running' as const,
+    })
+    await cappedSync()
+    const firstAnswer = await cappedSync({ inventory: [lost(1), lost(2), lost(3)] })
+    expect(firstAnswer.stops.map((s) => s.operationId)).toEqual(['lost-1', 'lost-2'])
+    const secondAnswer = await cappedSync()
+    expect(secondAnswer.stops.map((s) => s.operationId)).toEqual(['lost-3', 'op-9'])
+    expect(secondAnswer.commands).toHaveLength(2)
+    expect(sendable).toEqual(expect.arrayContaining(secondAnswer.commands))
+    const thirdAnswer = await cappedSync({
+      reports: secondAnswer.commands.map((c) => report(c, 'accepted')),
+    })
+    const sent = secondAnswer.commands.map((c) => c.operationId)
+    expect(thirdAnswer.commands).toEqual(sendable.filter((c) => !sent.includes(c.operationId)))
   } finally {
     await store.close()
     await rm(directory, { recursive: true, force: true })
@@ -580,6 +615,36 @@ test('the execution Mac refuses work at its limits, keeps what it stored and say
       lowDisk: 'refused with reason',
       storedOperationsKept: 2,
     })
+
+    const stop = (target: ExecutionCommand, ref: Partial<ExecutionCommand['ref']> = {}) => ({
+      operationId: target.operationId,
+      ref: { ...target.ref, ...ref },
+      order: target.order,
+    })
+    const stateOf = async (n: number) =>
+      (await operations.request(false)).reports.find((r) => r.operationId === `op-${n}`)?.state
+    await operations.handle({
+      ...answer([]),
+      stops: [
+        stop(command(1), { generation: 2 }),
+        stop(command(1), { assignmentId: executionIds.assignment('assignment-other') }),
+        stop(command(1), { reservationId: executionIds.reservation('reservation-other') }),
+        stop(command(1), { machineId: executionIds.machine('grant-2') }),
+        stop(command(2)),
+      ],
+    })
+    await waitUntil(async () => (await stateOf(2)) === 'stopped', 'operation 2 stopped')
+    expect(await stateOf(1)).toBe('running')
+
+    const starting = operations.handle(answer([command(7, {})]))
+    const stopping = operations.handle({ ...answer([]), stops: [stop(command(7))] })
+    await Promise.all([starting, stopping])
+    await waitUntil(async () => (await stateOf(7)) === 'stopped', 'operation 7 stopped')
+    await operations.handle(answer([command(8, {})]))
+    await waitUntil(async () => (await stateOf(8)) === 'finished', 'operation 8 finished')
+    const effects = await readFile(path.join(home, 'probe', 'effects.log'), 'utf8')
+    expect(effects.split('\n').filter(Boolean)).toEqual(['op-6', 'op-8'])
+    expect(await stateOf(7)).toBe('stopped')
 
     expect(
       machineOperationsText(
