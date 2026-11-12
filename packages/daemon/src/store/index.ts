@@ -4984,6 +4984,8 @@ export async function openStore({
           at: new Date().toISOString(),
         }),
       )
+      const row = runRow(runId)
+      if (row) emit({ type: 'run-updated', run: toRun(row) })
     },
     apiCost(days, now = new Date()) {
       const since = new Date(now.getTime() - days * 86_400_000).toISOString()

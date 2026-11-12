@@ -17,3 +17,5 @@ The human pays for agents by subscription and wants to know what the same work w
 - The row outlives the Run’s output and its Task; it is not deleted with either.
 - Codex’s figure is only as current as the price table. Update the table and its date when OpenAI’s prices change.
 - The event adds one row per finished Run to the event log.
+- A Run that changed model part-way is priced whole at its last model, and a Run on the agent’s default model at TED’s fallback price for Codex. Claude Code’s figure is summed across agent restarts by `costOf`, which tells a restart by the reported cost going down.
+- A Run the daemon finds finished while it starts is saved then; one that finished under an older TED is not.
