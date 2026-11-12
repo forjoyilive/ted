@@ -764,6 +764,7 @@ export function QuestionCard({
       () => {
         setBusy(false)
         setText('')
+        setOtherText('')
         onAnswered?.()
       },
       (failure: unknown) => {

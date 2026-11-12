@@ -445,6 +445,7 @@ export function RequestCard({
     try {
       const answered = await ted.answerRequest(request.id, answer)
       setText('')
+      setOtherText('')
       if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
         onOpenPlan?.(answered.answer.planId)
       }

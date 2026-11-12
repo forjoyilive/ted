@@ -91,6 +91,12 @@ test('question choices wait for Send, preserve drafts when switching, and retain
   await u.click(screen.getByLabelText('Your answer'))
   await u.keyboard('{Enter}')
   expect(answer).toHaveBeenLastCalledWith('c1', { action: 'answer', text: 'Use a custom layout.' })
+  await waitFor(() =>
+    expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(''),
+  )
+  expect(send.disabled).toBe(true)
+  await u.keyboard('{Enter}')
+  expect(answer).toHaveBeenCalledTimes(2)
 })
 
 test('Linear team questions select before Send and offer only supported answers', async () => {
@@ -143,8 +149,20 @@ test('Automation question choices and written answers wait for Send', async () =
   await u.click(screen.getByRole('radio', { name: 'Other answer' }))
   expect(send.disabled).toBe(true)
   await u.type(screen.getByLabelText('Your answer'), 'Ask tomorrow.')
+  answer.mockImplementationOnce(() => {
+    throw new Error('Couldn’t answer')
+  })
+  await u.keyboard('{Enter}')
+  expect((await screen.findByRole('alert')).textContent).toBe('Couldn’t answer')
+  expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe('Ask tomorrow.')
   await u.keyboard('{Enter}')
   expect(answer).toHaveBeenLastCalledWith('aq', { text: 'Ask tomorrow.' })
+  await waitFor(() =>
+    expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(''),
+  )
+  expect(send.disabled).toBe(true)
+  await u.keyboard('{Enter}')
+  expect(answer).toHaveBeenCalledTimes(3)
 })
 
 test('rounds require explicit choices and keep written recommendations prefilled', async () => {
