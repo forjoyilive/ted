@@ -1,3 +1,4 @@
+import type { TedStoppedTask } from '@ted/protocol'
 import { useState } from 'react'
 import { useSlots, useTedStops } from '../data.ts'
 import { stageName } from '../list-view.ts'
@@ -9,11 +10,13 @@ import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import styles from './RestartStoppedDialog.module.css'
 
+const stopKey = (task: TedStoppedTask) => `${task.id}:${task.stoppedAt}`
+
 export function RestartStoppedDialog() {
   const offered = useTedStops()
   const slots = useSlots()
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set())
-  const stops = offered.filter((task) => !answered.has(task.id))
+  const stops = offered.filter((task) => !answered.has(stopKey(task)))
   const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -36,16 +39,17 @@ export function RestartStoppedDialog() {
     setBusy(true)
     setError(undefined)
     const restarting = new Set(restart)
-    const asked = stops.map((task) => task.id)
+    const asked = stops
     ted
       .answerTedStops({
         restart: [...restarting],
-        leave: asked.filter((id) => !restarting.has(id)),
+        leave: asked.filter((task) => !restarting.has(task.id)).map((task) => task.id),
       })
       .then(
         (left) => {
-          const still = new Set(left.map((task) => task.id))
-          setAnswered((before) => new Set([...before, ...asked.filter((id) => !still.has(id))]))
+          const still = new Set(left.map(stopKey))
+          const gone = asked.map(stopKey).filter((key) => !still.has(key))
+          setAnswered((before) => new Set([...before, ...gone]))
         },
         (failure: unknown) => setError(readableError(failure)),
       )
