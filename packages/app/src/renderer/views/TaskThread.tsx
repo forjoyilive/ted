@@ -14,7 +14,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import {

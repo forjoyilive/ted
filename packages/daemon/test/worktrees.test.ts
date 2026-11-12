@@ -320,7 +320,10 @@ describe('worktree setup outcomes', () => {
       'the setup command to stop and release its slot',
     )
     const archived = await getTask(client, task.id)
-    expect(archived).toMatchObject({ archived: true, repos: [{ removed: true }] })
+    expect(archived).toMatchObject({
+      archived: { ended: { kind: 'stopped', stage: 'intake' } },
+      repos: [{ removed: { at: expect.any(String) } }],
+    })
     expect(archived?.leadRunId).toBeUndefined()
     expect(await exists(worktreeOf())).toBe(false)
     expect((await client.ok<{ working: number }>('GET', '/slots')).working).toBe(0)
