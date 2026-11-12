@@ -25,6 +25,7 @@ import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
 import { resolveElectron } from './support/electron-installation.ts'
+import { executionStartupGate } from './support/execution-startup.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const stubClaudePath = fileURLToPath(
@@ -73,7 +74,7 @@ afterEach(async () => {
 const updateLog = () => path.join(home, 'update-test.log')
 const executionHome = async () => path.join(await realpath(home), 'execution-worker')
 
-async function launchApp(): Promise<Page> {
+async function launchApp(extraEnv: Record<string, string> = {}): Promise<Page> {
   const port = ((feed as http.Server).address() as AddressInfo).port
   app = await electron.launch({
     executablePath: electronPath,
@@ -87,6 +88,7 @@ async function launchApp(): Promise<Page> {
       TED_UPDATE_FEED: `http://127.0.0.1:${port}/`,
       TED_UPDATE_LOG: updateLog(),
       TED_EXECUTION_HOME: await executionHome(),
+      ...extraEnv,
     },
   })
   const window = await loadedWindow(app)
@@ -131,7 +133,8 @@ describe('in-app updates', () => {
   })
 
   test('Restart to update keeps a working Run going into the next launch with no lost output', async () => {
-    const window = await launchApp()
+    const gate = await executionStartupGate(home)
+    const window = await launchApp(gate.env)
     await sidebar(window)
       .getByRole('button', { name: /^Settings/ })
       .last()
@@ -169,18 +172,39 @@ describe('in-app updates', () => {
       'some output',
     )
 
-    const exited = once(
-      app?.process() as NonNullable<ReturnType<ElectronApplication['process']>>,
-      'exit',
-    )
-    await sidebar(window).getByRole('button', { name: 'Update ready · Restart' }).click()
-    await exited
+    await stopExecutionService(await executionHome())
+    await gate.hold()
+    const starting = worker
+      .evaluate(() => globalThis.window.ted.request('workerStart'))
+      .catch(() => undefined)
+    let startingPid: number
+    try {
+      startingPid = await gate.pid()
+      const installing = window.getByRole('button', { name: 'Update ready · Restart' })
+      const exited = once(
+        app?.process() as NonNullable<ReturnType<ElectronApplication['process']>>,
+        'exit',
+      )
+      await installing.click()
+      await window.getByRole('button', { name: 'Restarting…', exact: true }).waitFor()
+      await gate.release()
+      await exited
+      await starting
+      await waitUntil(() => !isAlive(startingPid), 'the delayed worker to exit during update')
+    } finally {
+      await gate.release()
+    }
+
     app = undefined
     expect(isAlive(workerControl.pid)).toBe(false)
     await expect(workerRequest(await executionHome(), 'status')).rejects.toThrow()
     await observe('worker-update-handover', {
       appOwnedWorker: 'exited before update installation completed',
       localControl: 'unavailable after shutdown',
+    })
+    await observe('worker-startup-update', {
+      startup: 'held before control publication',
+      update: 'waited for startup and confirmed owned worker exit',
     })
 
     expect(await readFile(updateLog(), 'utf8')).toBe('install 99.0.0\n')

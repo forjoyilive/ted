@@ -79,9 +79,9 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
       } catch (error) {
         if (signal.aborted) return
         if (error instanceof ExecutionRefused) {
-          status = { ...status, state: 'refused', message: error.message }
           await writePrivate(root, 'refused', 'Fresh pairing requires user approval.\n')
           abort.abort()
+          status = { ...status, state: 'refused', message: error.message }
           return
         }
         status = {
@@ -131,14 +131,19 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
       }
       abort = new AbortController()
       status = { ...status, state: 'connecting', message: 'Connecting to the saved controller…' }
-      working = report().catch(() => {
-        status = {
-          ...status,
-          state: 'refused',
-          message:
-            'Worker could not safely save its connection state. Stop and inspect its isolated storage.',
-        }
-      })
+      working = report()
+        .catch(() => {
+          status = {
+            ...status,
+            state: 'refused',
+            message:
+              'Worker could not safely save its connection state. Stop and inspect its isolated storage.',
+          }
+        })
+        .finally(() => {
+          working = undefined
+          abort = undefined
+        })
     },
     async pair(input: WorkerPairRequest) {
       if (stopped || working) throw new Error('Stop the worker before pairing again')
@@ -231,6 +236,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
         }
       })().finally(() => {
         working = undefined
+        abort = undefined
       })
     },
     async stop() {

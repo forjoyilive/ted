@@ -1,10 +1,11 @@
 import { once } from 'node:events'
 import { realpath } from 'node:fs/promises'
 import path from 'node:path'
-import { workerRequest } from '@ted/daemon/execution'
+import { stopExecutionService, workerRequest } from '@ted/daemon/execution'
 import { readDaemonInfo } from '@ted/protocol'
 import { _electron as electron } from 'playwright'
 import { expect, test } from 'vitest'
+import { isAlive, waitUntil } from '../../daemon/test/helpers.ts'
 import { observe } from '../../daemon/test/support/execution-observations.ts'
 import {
   appDir,
@@ -18,6 +19,7 @@ import {
 } from './app-harness.ts'
 
 import { loadedWindow } from './first-window.ts'
+import { executionStartupGate } from './support/execution-startup.ts'
 
 setUpAppTests()
 test('Machines opens an isolated worker window with expandable setup help and no approval interface', async () => {
@@ -57,7 +59,9 @@ test('Machines opens an isolated worker window with expandable setup help and no
 
 test('worker-only mode starts no Factory daemon, survives window closure and stops its app-owned service on Quit', async () => {
   const home = path.join(await realpath(ctx.home), 'isolated-worker')
+  const gate = await executionStartupGate(ctx.home)
   ctx.extraEnv.TED_EXECUTION_HOME = home
+  Object.assign(ctx.extraEnv, gate.env)
   ctx.app = await electron.launch({
     executablePath: electronPath,
     args: [appDir, '--worker'],
@@ -70,14 +74,34 @@ test('worker-only mode starts no Factory daemon, survives window closure and sto
   expect(await readDaemonInfo(ctx.home)).toBeUndefined()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
   expect((await workerRequest(home, 'status')).state).toBe('unpaired')
-  const exited = once(app.process(), 'exit')
-  await window.evaluate(() => globalThis.window.ted.request('quit')).catch(() => undefined)
-  await exited
+  await stopExecutionService(home)
+  await gate.hold()
+  const starting = window
+    .evaluate(() => globalThis.window.ted.request('workerStart'))
+    .catch(() => undefined)
+  try {
+    const pid = await gate.pid()
+    const exited = once(app.process(), 'exit')
+    await app.evaluate(({ app }) => app.quit()).catch(() => undefined)
+    await expect(
+      window.evaluate(() => globalThis.window.ted.request('workerStart')),
+    ).rejects.toThrow('Worker is stopping')
+    await gate.release()
+    await exited
+    await starting
+    await waitUntil(() => !isAlive(pid), 'the delayed app-owned worker to exit')
+  } finally {
+    await gate.release()
+  }
   ctx.app = undefined
   await expect(workerRequest(home, 'status')).rejects.toThrow()
   await observe('worker-only-lifecycle', {
     factoryDaemon: 'not started',
     windowClose: 'service stayed available',
     appQuit: 'service and app exited',
+  })
+  await observe('worker-startup-quit', {
+    startup: 'held before control publication',
+    quit: 'waited for startup and confirmed owned worker exit',
   })
 })

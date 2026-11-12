@@ -196,6 +196,23 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     expect(
       (await controller.client.executionMachines()).machines.find((m) => m.id === grant.id),
     ).toMatchObject({ connected: false, revokedAt: expect.any(String) })
+    const directOffer = await controller.client.createExecutionEnrollment()
+    await worker.request('pair', { details: JSON.stringify(directOffer), capacity: 2 })
+    const directReview = await pendingPairing(controller)
+    const directGrant = await controller.client.approveExecution({
+      id: directReview.id,
+      scopes: [scope],
+    })
+    expect(directGrant.id).not.toBe(grant.id)
+    expect(await worker.state('connected')).toMatchObject({ grantId: directGrant.id })
+    await observe('pairing-direct-repair', {
+      restartedWorker: 'paired directly after live revocation without Stop',
+      oldGrant: grant.id,
+      newGrant: directGrant.id,
+      approval: 'fresh app-authorized approval',
+    })
+    await controller.client.revokeExecution({ id: directGrant.id })
+    await worker.state('refused')
     await worker.close()
     await worker.start()
     await worker.request('start')
