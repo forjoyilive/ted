@@ -103,7 +103,7 @@ test('the Coordinator shows its conversation in the Run chat, with TED’s conti
   const fromTed = within(chat).getByRole('button', { name: /From TED/ })
   expect(fromTed.textContent).toContain(continuation)
   expect(within(chat).getAllByText('Nabha Cosley')).toHaveLength(2)
-  const unsent = within(chat).getByText('Never mind that one.').closest('div')
+  const unsent = within(chat).getByText('Never mind that one.').closest('[data-queued]')
   expect(unsent?.textContent).toContain('Not sent')
   expect(within(chat).queryByRole('button', { name: 'Delete' })).toBeNull()
   expect(within(chat).getByRole('button', { name: 'Started NB-1 · Queued at Intake' })).toBeTruthy()
