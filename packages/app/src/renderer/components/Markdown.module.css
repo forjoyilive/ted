@@ -82,15 +82,34 @@
   font-size: var(--text-12-5);
 }
 .code {
+  position: relative;
   max-width: 100%;
   margin: 10px 0;
-  padding: 10px 12px;
-  overflow-x: auto;
+  padding: 10px 44px 10px 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--surface-inset);
   white-space: pre;
   overflow-wrap: normal;
+}
+.codeScroll {
+  overflow-x: auto;
+}
+.copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.copyStatus {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 .code pre {
   margin: 0;
@@ -133,7 +152,7 @@
   border-top: 1px solid var(--border-default);
 }
 .markdown a:focus-visible,
-.code:focus-visible,
+.codeScroll:focus-visible,
 .table:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;

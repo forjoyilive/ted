@@ -11,7 +11,7 @@ import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
-import { createCpuProfiler } from './cpu-profile.ts'
+import { createCpuProfiler, type StallProfiles } from './cpu-profile.ts'
 import { createData, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
@@ -91,6 +91,7 @@ export interface DaemonOptions {
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
+  stallProfiles?: StallProfiles
   outputDrop?: DataOptions['outputDrop']
   slow?: { requestMs?: number; stallMs?: number }
 }
@@ -644,7 +645,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const token = randomBytes(32).toString('hex')
   const appToken = options.appToken ?? randomBytes(32).toString('hex')
   const slow = createSlowMonitor(options.slow)
-  const profiler = createCpuProfiler(paths.home)
+  const profiler = createCpuProfiler(paths.home, options.stallProfiles)
   const { server, port } = await listen({
     version: options.version,
     token,
