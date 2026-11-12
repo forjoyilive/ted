@@ -14,7 +14,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import {
@@ -619,6 +619,8 @@ export function TaskThread({
     runId: string
     target: ScrollReveal
   }>()
+  const [sideChatAsk, setSideChatAsk] = useState<{ taskId: string; runId: string }>()
+  const sideChatRun = earlier.find((run) => run.id === shownRun)?.id ?? task.leadRunId
   const openConversation = (runId: string) => {
     setReveal(undefined)
     setConversationReveal({ runId, target: { id: `conversation:${runId}` } })
@@ -849,7 +851,30 @@ export function TaskThread({
                 {headerAction.label}
               </Button>
             )}
-            <TaskActionsMenu task={task} onFollowedUp={onFollowedUp} onOpenBrief={onOpenBrief} />
+            <TaskActionsMenu
+              task={task}
+              onFollowedUp={onFollowedUp}
+              onOpenBrief={onOpenBrief}
+              history={{
+                earlier: [...earlier].reverse(),
+                finished: runs
+                  .filter((run) => run.role === 'sub-agent' && run.state === 'finished')
+                  .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+                loading: runList.value === undefined && !runList.error,
+                error: runList.error,
+                retry: runList.retry,
+                onOpen: openConversation,
+              }}
+              sideChat={{
+                available: sideChatRun !== undefined,
+                onOpen: () => {
+                  if (sideChatRun === undefined) return
+                  if (showingSubAgent) onShowRun(undefined)
+                  if (shownApp !== undefined) onCloseApp?.()
+                  setSideChatAsk({ taskId: task.id, runId: sideChatRun })
+                },
+              }}
+            />
           </div>
           <TaskDescription task={task} />
           <div className={styles.headerRow}>
@@ -869,7 +894,6 @@ export function TaskThread({
         <TaskConversationTabs
           task={task}
           runs={runs}
-          resource={runList}
           shown={shownRun}
           onShow={onShowRun}
           onOpen={openConversation}
@@ -960,6 +984,8 @@ export function TaskThread({
               stage={stage}
               active={!hidden && !talking && !showingSubAgent && shownApp === undefined}
               loading={historyLoading}
+              sideChatFor={sideChatAsk?.taskId === task.id ? sideChatAsk.runId : undefined}
+              onSideChatOpened={() => setSideChatAsk(undefined)}
               extra={[
                 ...rendered.map((item) => ({
                   id:

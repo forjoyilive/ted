@@ -180,6 +180,8 @@ test('Task menu restarts the current Lead, follows its state and reports restart
   const u = user()
   await u.click(screen.getByRole('button', { name: 'Task actions' }))
   expect(screen.getByRole('menuitem', { name: /Stop Task/ })).toBeTruthy()
+  expect(screen.queryByRole('menuitem', { name: /^History/ })).toBeNull()
+  expect(screen.queryByRole('menuitem', { name: /Side chat/ })).toBeNull()
   await u.click(screen.getByRole('menuitem', { name: /^Restart$/ }))
   expect(api.request).toHaveBeenCalledWith('restartRun', 'r1')
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The disk is full')
@@ -237,9 +239,11 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   const details = within(screen.getByRole('complementary', { name: 'Task details' }))
   expect(await details.findByText('Claude · claude-test · default effort')).toBeTruthy()
   expect(details.getByText('12k tokens')).toBeTruthy()
-  await u.click(chat.getByRole('button', { name: /^History/ }))
+  expect(chat.queryByRole('button', { name: /^History/ })).toBeNull()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: 'History · 1' }))
   await u.click(
-    within(screen.getByRole('region', { name: 'Conversation history' })).getByRole('button', {
+    within(screen.getByRole('menu', { name: /^History/ })).getByRole('menuitem', {
       name: /Earlier conversation/,
     }),
   )

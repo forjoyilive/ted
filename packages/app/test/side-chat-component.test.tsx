@@ -61,8 +61,10 @@ test('opens and reopens a separate exchange and sends only to side-chat controls
       return current
     },
   })
-  render(<RunWithSideChat runId="source" bar={false} />)
-  await user().click(await screen.findByRole('button', { name: 'Side chat' }))
+  const view = render(<RunWithSideChat runId="source" bar={false} />)
+  await screen.findByText('Original work continues.')
+  expect(screen.queryByRole('button', { name: /side chat/i })).toBeNull()
+  view.rerender(<RunWithSideChat runId="source" bar={false} openSideChat />)
   expect(screen.queryByRole('button', { name: 'Restart' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Stop Task' })).toBeNull()
   const panel = await screen.findByRole('region', { name: 'Side chat' })
@@ -78,7 +80,9 @@ test('opens and reopens a separate exchange and sends only to side-chat controls
   await user().click(within(panel).getByRole('button', { name: 'Stop reply' }))
   await user().click(await within(panel).findByRole('button', { name: 'Retry' }))
   await user().click(within(panel).getByRole('button', { name: 'Close side chat' }))
-  await user().click(screen.getByRole('button', { name: 'Open side chat' }))
+  expect(screen.queryByRole('region', { name: 'Side chat' })).toBeNull()
+  view.rerender(<RunWithSideChat runId="source" bar={false} />)
+  view.rerender(<RunWithSideChat runId="source" bar={false} openSideChat />)
   expect(await screen.findByText('Snapshot answer.')).toBeTruthy()
   expect(
     api.request.mock.calls.some(
@@ -91,9 +95,9 @@ test('does not offer side chats for sub-agents', async () => {
   const api = bridge({
     getRunChat: () => ({ ...source, run: { ...source.run, role: 'sub-agent' } }),
   })
-  render(<RunWithSideChat runId="source" />)
+  render(<RunWithSideChat runId="source" openSideChat />)
   await screen.findByText('Original work continues.')
-  expect(screen.queryByRole('button', { name: 'Side chat' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Side chat' })).toBeNull()
   expect(api.request).not.toHaveBeenCalledWith('getSideChat', 'source')
 })
 
@@ -107,8 +111,7 @@ test('Antigravity shows the approved tool explanation only in its help bubble, i
     getSideChat: () => antigravitySide,
     openSideChat: () => antigravitySide,
   })
-  render(<RunWithSideChat runId="source" bar={false} />)
-  await user().click(await screen.findByRole('button', { name: 'Open side chat' }))
+  const view = render(<RunWithSideChat runId="source" bar={false} openSideChat />)
   const panel = within(await screen.findByRole('region', { name: 'Side chat' }))
   expect(panel.getByText('Antigravity can use tools in this chat.')).toBeTruthy()
   expect(panel.queryByText(/Its built-in tools may run without asking/)).toBeNull()
@@ -121,7 +124,8 @@ test('Antigravity shows the approved tool explanation only in its help bubble, i
   fireEvent.keyDown(toolHelp, { key: 'Escape' })
   expect(panel.queryByRole('tooltip')).toBeNull()
   await user().click(panel.getByRole('button', { name: 'Close side chat' }))
-  await user().click(screen.getByRole('button', { name: 'Open side chat' }))
+  view.rerender(<RunWithSideChat runId="source" bar={false} />)
+  view.rerender(<RunWithSideChat runId="source" bar={false} openSideChat />)
   expect(
     within(await screen.findByRole('region', { name: 'Side chat' })).getByText(
       'Antigravity can use tools in this chat.',

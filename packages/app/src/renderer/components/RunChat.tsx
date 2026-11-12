@@ -58,15 +58,7 @@ export function runMeta(run: RunSummary): string {
     .join(' · ')
 }
 
-function RunBar({
-  run,
-  onStopTask,
-  action,
-}: {
-  run: RunSummary
-  onStopTask: (() => void) | undefined
-  action?: ReactNode
-}) {
+function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void) | undefined }) {
   const now = useNow()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -89,7 +81,6 @@ function RunBar({
           {!live && ' · finished'}
         </span>
       </div>
-      {action}
       {error !== undefined && (
         <span className={styles.barError} role="alert">
           {error}
@@ -531,7 +522,6 @@ export interface ChatExtra {
 }
 
 export interface ChatOptions {
-  headerAction?: ReactNode
   inspect?: boolean
   matchItemId?: string
 
@@ -771,9 +761,7 @@ export function ChatBody({
       {!options.inspect &&
         (options.header
           ? options.header(run)
-          : options.bar !== false && (
-              <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
-            ))}
+          : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />)}
       <RequestJumpBar
         requests={options.requests ?? []}
         onJump={(id) => {
