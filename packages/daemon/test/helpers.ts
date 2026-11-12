@@ -22,6 +22,7 @@ import { isLockHeld } from '../src/lock.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { runFiles } from '../src/runs/host-files.ts'
 import { signalGroup, signalProcess } from '../src/signal.ts'
+import { AppDaemons } from './support/app-daemons.ts'
 import { killMarked } from './support/processes.ts'
 
 const execFileAsync = promisify(execFile)
@@ -70,6 +71,7 @@ export async function tokenFor(home: string): Promise<string> {
 }
 
 export const testAppToken = 'test-app-token'
+const appDaemons = new AppDaemons()
 
 export function spawnDaemonProcess(args: string[], env: NodeJS.ProcessEnv): ChildProcess {
   const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
@@ -87,8 +89,8 @@ export async function daemonAsApp(home: string, env: NodeJS.ProcessEnv): Promise
   if (known && (await known.provesAppKey().catch(() => false))) return known
   await stopDaemonIn(home)
   await rm(path.join(home, 'daemon.json'), { force: true })
-  spawnDaemonProcess(['--exit-when-idle'], { ...env, TED_HOME: home })
-  return appClient(await waitUntil(() => readDaemonInfo(home), 'daemon.json'), testAppToken)
+  const child = spawnDaemonProcess(['--exit-when-idle'], { ...env, TED_HOME: home })
+  return appClient(await appDaemons.start(home, child), testAppToken)
 }
 
 export const stubClaudePath = fileURLToPath(new URL('./fixtures/stub-claude.ts', import.meta.url))
@@ -203,6 +205,7 @@ export async function removeHome(home: string): Promise<void> {
 }
 
 export async function stopDaemonIn(home: string): Promise<void> {
+  await appDaemons.stop(home)
   const info = await readDaemonInfo(home)
   if (info && isAlive(info.pid)) {
     process.kill(info.pid, 'SIGTERM')

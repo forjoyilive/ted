@@ -6,6 +6,19 @@ for (const name of ['TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_RUN', 'TED_TASK'
   delete process.env[name]
 }
 
+// Git sets these for commands it runs itself (a hook, an alias, `git bisect run`); with them
+// set, a test’s `git init --bare` would reinitialise the checkout the run started from.
+for (const name of [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_COMMON_DIR',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_PREFIX',
+]) {
+  delete process.env[name]
+}
+
 const file = randomUUID()
 process.env.TED_TEST_RUN = inject('tedTestRun')
 process.env.TED_TEST_FILE = file

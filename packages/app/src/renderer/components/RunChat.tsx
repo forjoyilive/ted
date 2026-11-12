@@ -9,6 +9,7 @@ import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { conversationRows } from '../task-conversations.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
@@ -74,7 +75,7 @@ function RunBar({
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
@@ -98,7 +99,6 @@ function RunBar({
       {live && (
         <>
           <Button
-            size="small"
             disabled={busy || run.state === 'working'}
             title={run.state === 'working' ? 'Restart works when the Run is idle' : undefined}
             onClick={() => act(() => ted.restartRun(run.id))}
@@ -107,7 +107,6 @@ function RunBar({
           </Button>
           {run.role === 'lead' && run.current ? (
             <Button
-              size="small"
               disabled={onStopTask === undefined}
               title={onStopTask === undefined ? 'Stopping a Task isn’t available yet' : undefined}
               onClick={onStopTask}
@@ -115,7 +114,7 @@ function RunBar({
               Stop Task
             </Button>
           ) : (
-            <Button size="small" disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
+            <Button disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
               Stop Run
             </Button>
           )}
@@ -144,7 +143,7 @@ function Collapsible({
   const empty = children === undefined || children === false || children === null
   return (
     <div className={styles.row} data-tone={tone}>
-      <button
+      <ActionButton
         type="button"
         className={styles.rowHead}
         aria-expanded={empty ? undefined : open}
@@ -155,7 +154,7 @@ function Collapsible({
         <span className={styles.rowLabel}>{label}</span>
         {mono !== undefined && <span className={styles.rowMono}>{mono}</span>}
         {meta !== undefined && <span className={styles.rowMeta}>{meta}</span>}
-      </button>
+      </ActionButton>
       {open && !empty && <div className={styles.rowBody}>{children}</div>}
     </div>
   )
@@ -278,7 +277,7 @@ function QueuedActions({
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
@@ -290,23 +289,23 @@ function QueuedActions({
         </span>
       )}
       {sendNow && (
-        <button
+        <ActionButton
           type="button"
           className={styles.link}
           disabled={busy}
           onClick={() => act(() => ted.sendQueuedMessageNow(runId, messageId))}
         >
           Send now
-        </button>
+        </ActionButton>
       )}
-      <button
+      <ActionButton
         type="button"
         className={styles.quietLink}
         disabled={busy}
         onClick={() => act(() => ted.deleteQueuedMessage(runId, messageId))}
       >
         Delete
-      </button>
+      </ActionButton>
       <Help>Only until the agent has read it.</Help>
     </span>
   )
@@ -445,10 +444,10 @@ function PermissionRow({
               {error}
             </span>
           )}
-          <Button disabled={sending} onClick={() => void send('deny')}>
+          <Button disabled={sending} onClick={() => send('deny')}>
             Deny
           </Button>
-          <Button variant="primary" disabled={sending} onClick={() => void send('approve')}>
+          <Button variant="primary" disabled={sending} onClick={() => send('approve')}>
             Approve
           </Button>
         </div>
@@ -611,12 +610,14 @@ export function Composer({
   const setText = onValue ?? setOwn
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
+  const [interrupting, setInterrupting] = useState(false)
   const [error, setError] = useState<string>()
   const typed = text.trim() !== ''
 
   async function send(interrupting: boolean) {
     if (!typed || sending || !live) return
     setSending(true)
+    setInterrupting(interrupting)
     setError(undefined)
     try {
       await sendText(text, interrupting)
@@ -651,7 +652,7 @@ export function Composer({
           disabled={!live}
           value={text}
           onChange={(event) => setText(event.target.value)}
-          onKeyDown={sendOnEnter((command) => void send(command))}
+          onKeyDown={sendOnEnter((command) => send(command))}
         />
         <span className={styles.boxHelp}>
           <Help>{help}</Help>
@@ -665,33 +666,32 @@ export function Composer({
       <div className={styles.buttons}>
         {live && (
           <Button
-            size="small"
             className={styles.stopTurn}
             aria-label="Stop the turn"
             title="Stop the turn without sending"
             disabled={stopping || !working}
-            onClick={() => void stopTurn()}
+            onClick={() => stopTurn()}
           >
             <StopIcon />
           </Button>
         )}
         {live && interrupt && (
           <Button
-            size="small"
             shortcut="⌘↵"
             disabled={sending || !typed || !working}
-            onClick={() => void send(true)}
+            pending={sending && interrupting}
+            onClick={() => send(true)}
           >
             Interrupt and send
           </Button>
         )}
         <Button
           variant="primary"
-          size="small"
           shortcut="↵"
           title={working ? 'Queues the message for the agent’s next step' : undefined}
           disabled={sending || !typed || !live}
-          onClick={() => void send(false)}
+          pending={sending && !interrupting}
+          onClick={() => send(false)}
         >
           Send
         </Button>

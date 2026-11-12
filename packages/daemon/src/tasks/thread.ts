@@ -168,7 +168,9 @@ export function threadEvents(
   context: ThreadContext,
 ): ThreadEvent[] {
   const approvals = context.comments.flatMap((c) =>
-    c.gate && c.answer?.kind === 'approved' ? [Date.parse(c.answer.at)] : [],
+    c.gate && c.answer?.kind === 'approved' && !c.autopilotAnswered
+      ? [Date.parse(c.answer.at)]
+      : [],
   )
   const usedApprovals = new Set<number>()
   const lines: ThreadEvent[] = []
@@ -412,12 +414,23 @@ export function threadEvents(
       case 'v1.TaskPreparationChanged':
         if (data.state === 'preparing') add(entry, 'run', 'Preparing through Design')
         break
+      case 'v1.TaskAutopilotChanged':
+        add(
+          entry,
+          'quiet',
+          data.choice === 'inherit'
+            ? 'Autopilot follows the global setting'
+            : data.choice === 'on'
+              ? 'Autopilot on'
+              : 'Autopilot off',
+        )
+        break
       case 'v1.TaskResumedOvernight':
-        add(entry, 'run', 'Overnight mode resumed the Task')
+        add(entry, 'run', 'Autopilot resumed the Task')
         break
       case 'v1.TaskStopped': {
         if (data.why === 'prepared') {
-          add(entry, 'quiet', 'Ready for Work · Resume or turn on Overnight mode')
+          add(entry, 'quiet', 'Ready for Work · Resume or turn on Autopilot')
           break
         }
         if (data.why === 'blockers-removed') {
@@ -606,7 +619,7 @@ export function threadEvents(
         add(
           entry,
           'quiet',
-          `Overnight mode is on, but ${
+          `Autopilot is on, but ${
             data.reason === 'unreadable'
               ? 'TED couldn’t read this Task’s changes'
               : 'this Task changes .ted/'
@@ -617,7 +630,7 @@ export function threadEvents(
         add(
           entry,
           'quiet',
-          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} sign-off`,
+          `Autopilot is on, so TED skipped the ${stageTitle(text(data.stage))} sign-off`,
         )
         break
       case 'v1.TaskLeadSet':
@@ -770,6 +783,13 @@ export function threadEvents(
           entry,
           'run',
           `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running Checks again`,
+        )
+        break
+      case 'v1.TaskPushRecordReconciled':
+        add(
+          entry,
+          'quiet',
+          `The ${text(data.name)} branch on GitHub was at ${text(data.remote).slice(0, 8)}, ahead of TED’s recorded push ${text(data.recorded).slice(0, 8)} · the commit being pushed includes it, so TED updated its record`,
         )
         break
       case 'v1.TaskRunReleased':

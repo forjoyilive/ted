@@ -1,6 +1,7 @@
 import type { AssignTaskExecution, TaskAssignment } from '@ted/protocol'
 
 export interface FixtureControl {
+  executionClockOffsetMs?: number
   freeBytes?: number
   load?: number
   online?: boolean

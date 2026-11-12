@@ -85,6 +85,19 @@ describe('Inbox and Gates', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Design review', exact: true })
     await card.getByText('Let notes be edited offline.', { exact: true }).waitFor()
+    const look = (el: Element) => {
+      const { fontSize, color } = getComputedStyle(el)
+      return { fontSize, color }
+    }
+    const state = card.getByRole('region', { name: 'Current state' })
+    expect(
+      await state.getByText('The approach is written up.', { exact: true }).evaluate(look),
+    ).toEqual(await card.getByRole('heading', { level: 2 }).evaluate(look))
+    expect(
+      await state.evaluate((el) =>
+        [el, el.parentElement as Element].map((at) => getComputedStyle(at).backgroundColor),
+      ),
+    ).toEqual(['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)'])
     const answer = thread.getByRole('region', { name: 'Answer', exact: true })
     await expectActionsInsideCard(window, answer, ['Request changes', 'Approve'])
     await thread.getByText('Waiting on you', { exact: true }).waitFor()

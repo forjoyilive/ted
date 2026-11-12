@@ -99,6 +99,7 @@ export const tasks = State.SQLite.table({
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
     gateOverrides: State.SQLite.text({ nullable: true }),
+    autopilotChoice: State.SQLite.text({ nullable: true }),
     changesSettings: State.SQLite.boolean({ default: false }),
     splitFrom: State.SQLite.text({ nullable: true }),
     needsPlanningAt: State.SQLite.text({ nullable: true }),
@@ -106,6 +107,11 @@ export const tasks = State.SQLite.table({
     setup: State.SQLite.boolean({ default: false }),
     createdAt: State.SQLite.text(),
   },
+})
+
+export const executionPairing = State.SQLite.table({
+  name: 'executionPairing',
+  columns: { id: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
 })
 
 export const executionMachine = State.SQLite.table({
@@ -418,6 +424,7 @@ export const comments = State.SQLite.table({
     taskId: State.SQLite.text(),
     kind: State.SQLite.text(),
     body: State.SQLite.text(),
+    autopilotAnswered: State.SQLite.boolean({ default: false }),
     authorKind: State.SQLite.text({ default: 'run' }),
     authorRunId: State.SQLite.text({ nullable: true }),
     stage: State.SQLite.text({ nullable: true }),
@@ -434,6 +441,9 @@ export const comments = State.SQLite.table({
     deliveredAt: State.SQLite.text({ nullable: true }),
     readAt: State.SQLite.text({ nullable: true }),
     answerHeld: State.SQLite.boolean({ default: false }),
+    answerQueuedAt: State.SQLite.text({ nullable: true }),
+    answerSentRunId: State.SQLite.text({ nullable: true }),
+    answerSentAt: State.SQLite.text({ nullable: true }),
     failedRunId: State.SQLite.text({ nullable: true }),
     talkRunId: State.SQLite.text({ nullable: true }),
     talkStartedAt: State.SQLite.text({ nullable: true }),
@@ -975,6 +985,18 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  executionControllerConfigured: Events.synced({
+    name: 'v1.ExecutionControllerConfigured',
+    schema: Schema.Struct({ data: Schema.String }),
+  }),
+  executionMachineApproved: Events.synced({
+    name: 'v1.ExecutionMachineApproved',
+    schema: Schema.Struct({ id: Schema.String, data: Schema.String }),
+  }),
+  executionMachineRevoked: Events.synced({
+    name: 'v1.ExecutionMachineRevoked',
+    schema: Schema.Struct({ id: Schema.String, data: Schema.String }),
+  }),
   testInvocationRecorded: Events.synced({
     name: 'v1.TestInvocationRecorded',
     schema: Schema.Struct({ id: Schema.String, taskId: Schema.String, data: Schema.String }),
@@ -1342,6 +1364,14 @@ export const events = {
   taskFollowsUp: Events.synced({
     name: 'v1.TaskFollowsUp',
     schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskAutopilotChanged: Events.synced({
+    name: 'v1.TaskAutopilotChanged',
+    schema: Schema.Struct({ taskId: Schema.String, choice: Schema.String, at: Schema.String }),
+  }),
+  commentAnsweredByAutopilot: Events.synced({
+    name: 'v1.CommentAnsweredByAutopilot',
+    schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
   }),
   taskGatesChanged: Events.synced({
     name: 'v1.TaskGatesChanged',
@@ -1727,6 +1757,16 @@ export const events = {
       taskId: Schema.String,
       name: Schema.String,
       message: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskPushRecordReconciled: Events.synced({
+    name: 'v1.TaskPushRecordReconciled',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      recorded: Schema.String,
+      remote: Schema.String,
       at: Schema.String,
     }),
   }),
@@ -2380,6 +2420,18 @@ export const events = {
     name: 'v1.CommentAnswerHeld',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
+  commentAnswerQueued: Events.synced({
+    name: 'v1.CommentAnswerQueued',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  commentAnswersSent: Events.synced({
+    name: 'v1.CommentAnswersSent',
+    schema: Schema.Struct({
+      ids: Schema.Array(Schema.String),
+      runId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   commentAnswersDelivered: Events.synced({
     name: 'v1.CommentAnswersDelivered',
     schema: Schema.Struct({
@@ -3015,6 +3067,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   }),
   'v1.TaskSnoozed': (args) => task(args, { until: args.until }),
   'v1.TaskSnoozeCleared': (args) => task(args),
+  'v1.TaskAutopilotChanged': (args) => task(args, { choice: args.choice }),
+  'v1.CommentAnsweredByAutopilot': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskGatesChanged': (args) => task(args, { overrides: args.overrides }),
   'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
@@ -3119,6 +3173,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { name: args.name, method: args.method, requested: args.requested }),
   'v1.PullRequestAutoMergeDisabled': (args) => task(args, { name: args.name }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
+  'v1.TaskPushRecordReconciled': (args) =>
+    task(args, { name: args.name, recorded: args.recorded, remote: args.remote }),
   'v1.MergeStoppedPartway': (args) => task(args, { merged: args.merged, open: args.open }),
   'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
   'v1.PullRequestClosedOnGitHub': (args) => task(args, { name: args.name }),
@@ -3271,6 +3327,12 @@ const materializers = counted(
       ],
       'v1.FactoryCloned': ({ factoryId, at }) =>
         factories.update({ clonedAt: at }).where({ id: factoryId }),
+      'v1.ExecutionControllerConfigured': ({ data }) =>
+        executionPairing.insert({ id: 'controller', data }).onConflict('id', 'replace'),
+      'v1.ExecutionMachineApproved': ({ id, data }) =>
+        executionPairing.insert({ id, data }).onConflict('id', 'ignore'),
+      'v1.ExecutionMachineRevoked': ({ id, data }) =>
+        executionPairing.update({ data }).where({ id }),
       'v1.LocalMachineIdentified': ({ machineId }) =>
         executionMachine.insert({ id: 'local', machineId }).onConflict('id', 'ignore'),
       'v1.TaskExecutionAssigned': (assignment) =>
@@ -3383,6 +3445,10 @@ const materializers = counted(
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
+      'v1.TaskAutopilotChanged': ({ taskId, choice, at }) =>
+        tasks.update({ autopilotChoice: choice, changedAt: at }).where({ id: taskId }),
+      'v1.CommentAnsweredByAutopilot': ({ commentId }) =>
+        comments.update({ autopilotAnswered: true }).where({ id: commentId }),
       'v1.TaskGatesChanged': ({ taskId, overrides, at }) =>
         tasks.update({ gateOverrides: overrides, changedAt: at }).where({ id: taskId }),
       'v1.TaskGatesForced': ({ taskId, stages }) =>
@@ -3912,6 +3978,8 @@ const materializers = counted(
           .update({ pushError: message, pushErrorAt: at, signedOffCommit: null })
           .where({ id: `${taskId}:${name}` }),
       ],
+      'v1.TaskPushRecordReconciled': ({ taskId, name, remote }) =>
+        pullRequests.update({ pushedCommit: remote }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestOpened': ({ taskId, name, number, url, base }) => [
         pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
         pullRequests
@@ -4049,6 +4117,14 @@ const materializers = counted(
       'v1.LineCommentsSent': ({ ids, commentId, at }) =>
         ids.map((id) =>
           lineComments.update({ commentId, sentAt: at }).where({ id, commentId: null }),
+        ),
+      'v1.CommentAnswerQueued': ({ id, at }) =>
+        comments.update({ answerHeld: true, answerQueuedAt: at }).where({ id }),
+      'v1.CommentAnswersSent': ({ ids, runId, at }) =>
+        ids.map((id) =>
+          comments
+            .update({ answerHeld: false, answerSentRunId: runId, answerSentAt: at })
+            .where({ id }),
         ),
       'v1.CommentAnswerHeld': ({ id }) => comments.update({ answerHeld: true }).where({ id }),
       'v1.CommentAnswersDelivered': ({ ids }) =>
@@ -4191,6 +4267,7 @@ const state = State.SQLite.makeState({
     factoryOrder,
     tasks,
     taskQueue,
+    executionPairing,
     executionMachine,
     executionAssignments,
     taskBlockers,

@@ -138,6 +138,44 @@ describe('TedStore', () => {
     }
   })
 
+  test('an event a listener causes reaches later listeners after the event it answers', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const first = await store.createTask({ title: 'First' })
+      const second = await store.createTask({ title: 'Second' })
+      store.queueTask(first.id, 'intake')
+      store.queueTask(second.id, 'intake')
+      const places = (ids: string[]) =>
+        store.setQueueActivity({
+          taskPlaces: ids.map((id, index) => ({ id, place: index + 1 })),
+          queuedTasks: [],
+          queuedRuns: [],
+          startingRuns: [],
+          startingTasks: [],
+        })
+      places([first.id, second.id])
+      let moved = false
+      store.subscribe((event) => {
+        if (moved || event.type !== 'task-updated' || event.task.id !== second.id) return
+        moved = true
+        places([second.id, first.id])
+      })
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+      store.rankTask(second.id, first.rank - 1, second.priority)
+      expect(
+        seen.flatMap((event) =>
+          event.type === 'task-updated' && event.task.id === second.id ? [event.task.status] : [],
+        ),
+      ).toEqual([
+        { kind: 'queued', place: 2 },
+        { kind: 'queued', place: 1 },
+      ])
+    } finally {
+      await store.close()
+    }
+  })
+
   test('queued work and start holds count once and disappear as real Runs start', async () => {
     const store = await openStore({ directory: dir })
     try {

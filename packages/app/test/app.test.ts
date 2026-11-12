@@ -271,7 +271,11 @@ describe('TED app', () => {
         .poll(() => screenshot.evaluate((el) => el.getBoundingClientRect().height))
         .toBe(108)
       await expect
-        .poll(() => screenshot.locator('span').evaluate((el) => getComputedStyle(el).fontSize))
+        .poll(() =>
+          screenshot
+            .getByText('Step 1 · Welcome', { exact: true })
+            .evaluate((el) => getComputedStyle(el).fontSize),
+        )
         .toBe(`${(12.5 * textSize) / 100}px`)
       await mkdir(path.resolve('node_modules/.cache/ted-100/app'), { recursive: true })
       await screenshot.screenshot({
@@ -478,6 +482,9 @@ describe('TED app', () => {
       )
       .toBe(2)
     expect((await client.listTasks())[0]?.leadRunId).toBe(runId)
+    await window
+      .getByRole('menuitem', { name: 'Restart', exact: true })
+      .waitFor({ state: 'detached' })
     await taskHeader.getByRole('button', { name: 'Task actions' }).click()
     await expect
       .poll(() => window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())

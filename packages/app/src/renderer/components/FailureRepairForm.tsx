@@ -187,7 +187,12 @@ export function FailureRepairForm({
           <Button disabled={sending || !active} onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" disabled={sending || !active || !valid}>
+          <Button
+            variant="primary"
+            type="submit"
+            pending={sending}
+            disabled={sending || !active || !valid}
+          >
             Send
           </Button>
         </div>

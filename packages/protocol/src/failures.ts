@@ -10,7 +10,30 @@ export const failureChoices = {
 export type FailureSource =
   | { kind: 'factory-check' | 'post-rebase-check'; checkRunId: string; position: number }
   | { kind: 'finding'; runId: string; finding: string; category?: 'review' | 'visual' | 'test' }
-  | { kind: 'github-ci'; repo: string; number: number; head: string; attempt: string }
+  | {
+      kind: 'github-ci'
+      repo: string
+      number: number
+      head: string
+      attempt: string
+      check?: string
+      checkKey?: string
+      required?: boolean
+    }
+
+export function ciFailureLabel(
+  source: Extract<FailureSource, { kind: 'github-ci' }>,
+  named = true,
+): string {
+  const where = `${source.repo}#${source.number}`
+  if (source.checkKey === undefined) return `CI on ${where}`
+  const required =
+    source.required === undefined ? '' : source.required ? ' (required)' : ' (not required)'
+  if (source.check === undefined) return `A CI check from an outside app on ${where}${required}`
+  return named
+    ? `CI check “${source.check}” on ${where}${required}`
+    : `A CI check on ${where}${required}`
+}
 
 export interface FailureContext {
   id: string

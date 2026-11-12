@@ -1,5 +1,6 @@
 import type { NewTaskDraft } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
+import { defaultMachineSettings } from '@ted/protocol/settings'
 import { cleanup } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
@@ -11,8 +12,12 @@ type Handler = (...args: unknown[]) => unknown
 
 export function bridge(given: Record<string, Handler>) {
   const handlers: Record<string, Handler> = {
+    getSettings: () => defaultMachineSettings,
+    agentAvailability: () => [],
+    apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     getSideChat: () => null,
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
+    getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()

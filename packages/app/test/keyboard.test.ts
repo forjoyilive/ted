@@ -244,11 +244,7 @@ describe('Keyboard shortcuts', () => {
       .toBe('approved')
     const inbox = window.getByRole('region', { name: 'Inbox' })
     await inbox.getByText('Nothing waiting on you').waitFor()
-    await inbox
-      .getByRole('status')
-      .getByText(`Approved ${task.displayId}’s permission request`)
-      .waitFor()
-    await inbox.getByRole('status').getByText('This request only').waitFor()
+    expect(await inbox.getByRole('status').count()).toBe(0)
     const frames = await window.evaluate(async () => {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),

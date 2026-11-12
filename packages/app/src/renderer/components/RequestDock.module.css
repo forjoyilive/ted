@@ -58,6 +58,7 @@
 }
 
 .step {
+  height: var(--button-height-small);
   padding: 0 6px;
   border: 1px solid var(--border-control);
   border-radius: 5px;

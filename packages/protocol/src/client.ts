@@ -1,5 +1,10 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import type {
+  AgentAvailability,
+  ChangeAgentAvailabilityRequest,
+  ChangeAgentAvailabilityResult,
+} from './agent-availability.ts'
 import type { ApiCostReport } from './api-cost.ts'
 import type {
   AppCapture,
@@ -33,6 +38,7 @@ import type {
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
+import type { SetTaskAutopilotRequest } from './autopilot.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type {
@@ -71,6 +77,13 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type {
+  ApproveExecution,
+  ExecutionEndpoint,
+  ExecutionGrant,
+  ExecutionMachines,
+  ExecutionOffer,
+} from './execution-pairing.ts'
 import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
@@ -235,6 +248,28 @@ export class DaemonClient {
     this.#token = token
     this.#appKey = appKey
     this.#idleTimeoutMs = idleTimeoutMs
+  }
+
+  executionMachines(): Promise<ExecutionMachines> {
+    return this.#request('GET', '/execution/machines')
+  }
+  configureExecution(input: ExecutionEndpoint): Promise<ExecutionMachines> {
+    return this.#request('POST', '/execution/configure', input)
+  }
+  cancelExecutionEnrollment(): Promise<unknown> {
+    return this.#request('POST', '/execution/cancel-enrollment')
+  }
+  createExecutionEnrollment(): Promise<ExecutionOffer> {
+    return this.#request('POST', '/execution/enrollment')
+  }
+  approveExecution(input: ApproveExecution): Promise<ExecutionGrant> {
+    return this.#request('POST', '/execution/approve', input)
+  }
+  rejectExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/reject', input)
+  }
+  revokeExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/revoke', input)
   }
 
   async provesAppKey(): Promise<boolean> {
@@ -477,6 +512,18 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  setTaskAutopilot(ref: string, request: SetTaskAutopilotRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/autopilot`, request)
+  }
+
+  answerAutopilot(ref: string, id: string, request: AnswerRequest): Promise<Comment> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/autopilot/${encodeURIComponent(id)}`,
+      request,
+    )
   }
 
   taskGates(ref: string): Promise<TaskGates> {
@@ -1027,6 +1074,16 @@ export class DaemonClient {
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup-log`,
     )
     return text
+  }
+
+  agentAvailability(): Promise<AgentAvailability[]> {
+    return this.#request('GET', '/agents/availability')
+  }
+
+  changeAgentAvailability(
+    input: ChangeAgentAvailabilityRequest,
+  ): Promise<ChangeAgentAvailabilityResult> {
+    return this.#request('POST', '/agents/availability', input)
   }
 
   getSettings(): Promise<MachineSettings> {
