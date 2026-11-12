@@ -1098,6 +1098,7 @@ export function createTasks(options: {
 
   function gateOn(task: Task, workflow: ResolvedWorkflow, stage: AgentStageId): boolean {
     if (workflow.settings.stages[stage]?.gate === true) return true
+    if (stage === task.stage && openGateRequest(task)) return true
     return (
       workflow.overnightGates?.includes(stage) === true &&
       stage === task.stage &&

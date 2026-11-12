@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, ThreadEvent } from '@ted/protocol'
+import type { Comment, Factory, InboxItem, Run, Task, TaskGates, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -264,7 +264,7 @@ describe('Clarify rounds', () => {
     expect(answer).toContain('run `ted outcome advance`')
   })
 
-  test('at grilling with sign-off on, Request changes asks for another round and Approve moves on', async () => {
+  test('Grilling sign-off stays pending after the Workflow turns it off; changes and approval still work', async () => {
     const client = await start(true)
     const task = await startTask(
       client,
@@ -273,6 +273,8 @@ describe('Clarify rounds', () => {
       ask(client.storageFile),
       { waitFor: client.waitFile('round1') },
       { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      advance,
+      { waitFor: client.waitFile('setting-off') },
       advance,
       { waitFor: client.waitFile('changes') },
       ask(client.syncFile),
@@ -307,6 +309,28 @@ describe('Clarify rounds', () => {
       },
     })
     expect((await getTask(client, task.id)).stage).toBe('clarify')
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml':
+        'version: 1\norder: [intake, clarify, work]\nstages:\n  clarify: { gate: false }\n',
+    })
+    await client.go('setting-off')
+    await waitUntil(async () => {
+      const results = await commandResults(client, task)
+      return results.some((r) => r.stderr.includes('already waiting at the Clarify sign-off'))
+    }, 'the pending sign-off to block advancement with the Workflow setting off')
+    const gates = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    expect(gates.rows.find((r) => r.stage === 'clarify')).toMatchObject({
+      inherited: false,
+      locked: 'Sign-off has been requested; answer it in the thread',
+    })
+    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    expect(
+      (await comments(client, task)).find((c) => c.id === signoff.request.id)?.answer,
+    ).toBeUndefined()
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml':
+        'version: 1\norder: [intake, clarify, work]\nstages:\n  clarify: { gate: true }\n',
+    })
     await client.ok('POST', `/comments/${signoff.request.id}/answer`, {
       action: 'request-changes',
       text: 'Ask about how long devices stay offline.',
@@ -348,7 +372,9 @@ describe('Clarify rounds', () => {
       ask(client.storageFile),
       advance,
       { waitFor: client.waitFile('answered') },
+      { tool: 'Read' },
       { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { waitFor: client.waitFile('guidance-received') },
       advance,
       { endTurn: true },
     )
@@ -362,14 +388,18 @@ describe('Clarify rounds', () => {
       action: 'accept-recommended',
     })
     await client.go('answered')
-    await waitForStage(client, task, 'work')
-    expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
-    const answer = (await userMessages(client, task)).find((m) =>
-      m.includes('The human answered Round'),
+    const answer = await waitUntil(
+      async () =>
+        (await userMessages(client, task)).find((m) => m.includes('The human answered Round')),
+      'the round-answer guidance to reach the Task Lead before leaving Clarify',
     )
     expect(answer).toContain(
       'TED requests sign-off if the effective Clarify sign-off setting is on',
     )
+    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    await client.go('guidance-received')
+    await waitForStage(client, task, 'work')
+    expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
   })
 
   test('overnight mode suppresses the configured Grilling sign-off', async () => {
