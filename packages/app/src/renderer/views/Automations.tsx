@@ -341,7 +341,21 @@ function useAutomationMenu(
   onDeleted?: () => void,
   available?: readonly Automation[],
 ) {
-  const actions = useActionMenu(JSON.stringify(available?.map((a) => [a.id, a.name, a.on])))
+  const actions = useActionMenu(
+    JSON.stringify(
+      available?.map((a) => [
+        a.id,
+        a.name,
+        a.on,
+        a.factoryKey,
+        a.prompt,
+        a.schedule,
+        a.agent,
+        a.model,
+        a.effort,
+      ]),
+    ),
+  )
   const [deleting, setDeleting] = useState<Automation>()
   return {
     isOpen: actions.isOpen,

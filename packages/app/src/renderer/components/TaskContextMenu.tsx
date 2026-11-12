@@ -8,6 +8,7 @@ import { readableError, ted } from '../ted.ts'
 import dialogStyles from './ArchiveDialogs.module.css'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
+import menuStyles from './ContextMenu.module.css'
 import { ContextMenu, type MenuAction, MenuItems, type MenuPosition } from './ContextMenu.tsx'
 import { SnoozeTaskDialog } from './SnoozeTaskDialog.tsx'
 import { TaskActionsMenu } from './TaskActions.tsx'
@@ -169,7 +170,11 @@ function BulkTaskMenu({
       {snoozing && tasks[0] && (
         <SnoozeTaskDialog task={tasks[0]} tasks={tasks} onClose={() => setSnoozing(false)} />
       )}
-      {error && !confirmation && <p role="alert">{error}</p>}
+      {error && !confirmation && (
+        <p className={menuStyles.error} role="alert">
+          {error}
+        </p>
+      )}
       {confirmation && (
         <Dialog
           onClose={() => {

@@ -27,11 +27,15 @@ describe('List and All Tasks', () => {
       .locator('tbody tr[data-task]')
       .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-task')))
 
-  test('a failed single-Task context action keeps its error inside the viewport', async () => {
+  test('failed single and bulk Task context actions keep errors inside the viewport without shrinking the app', async () => {
     await twoFactories()
     await ted('task', 'create', '--factory', 'NB', 'Notebook covers')
+    await ted('task', 'create', '--factory', 'NB', 'Export notes')
     const window = await launchApp()
     await sidebar(window).getByRole('button', { name: 'All Tasks', exact: true }).click()
+    const mainWidth = await window
+      .getByRole('main')
+      .evaluate((element) => element.getBoundingClientRect().width)
     await window.evaluate(() => {
       Object.defineProperty(navigator.clipboard, 'writeText', {
         configurable: true,
@@ -55,6 +59,20 @@ describe('List and All Tasks', () => {
           box.left >= 0 &&
           box.right <= innerWidth
         )
+      }),
+    ).toBe(true)
+    for (const id of ['NB-1', 'NB-2'])
+      await window.locator(`tr[data-task="${id}"]`).click({ modifiers: ['Meta'] })
+    await window.locator('tr[data-task="NB-1"]').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Copy Task IDs', exact: true }).click()
+    await alert.waitFor()
+    expect(
+      await window.getByRole('main').evaluate((element) => element.getBoundingClientRect().width),
+    ).toBe(mainWidth)
+    expect(
+      await alert.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth
       }),
     ).toBe(true)
   })

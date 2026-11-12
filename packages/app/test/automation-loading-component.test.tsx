@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
-import type { AttachmentBytes, AutomationDetail, RunChat } from '@ted/protocol'
+import type { AttachmentBytes, Automation, AutomationDetail, RunChat } from '@ted/protocol'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { DesignReviewContent } from '../src/renderer/components/DesignReview.tsx'
-import { AutomationRunView, AutomationView } from '../src/renderer/views/Automations.tsx'
+import {
+  AutomationRunView,
+  AutomationsPage,
+  AutomationView,
+} from '../src/renderer/views/Automations.tsx'
 import { bridge, deferred, user } from './support/component.ts'
-import { createdAt } from './support/fixtures.ts'
+import { createdAt, factory } from './support/fixtures.ts'
 
 function detail(): AutomationDetail {
   return {
@@ -150,3 +154,60 @@ test('Automation header right-click shares actions with ⋯ and Delete still ask
   expect(await screen.findByRole('dialog', { name: 'Delete “Weekly triage”?' })).toBeTruthy()
   expect(api.request).not.toHaveBeenCalledWith('deleteAutomation', 'automation-a')
 })
+
+const automationEdits: { label: string; change: Partial<Automation> }[] = [
+  { label: 'prompt', change: { prompt: 'Triage updated requests.' } },
+  { label: 'schedule', change: { schedule: { kind: 'weekly', days: ['fri'], at: '14:00' } } },
+  { label: 'agent', change: { agent: 'codex' } },
+  { label: 'model', change: { model: 'updated-model' } },
+  { label: 'effort', change: { effort: 'high' } },
+]
+
+for (const kind of ['list', 'details'] as const) {
+  test.each(automationEdits)(
+    `${kind}: a $label update closes an open menu before Duplicate`,
+    async ({ change }) => {
+      let current = detail()
+      const api = bridge({
+        getAutomation: () => current,
+        listAutomations: () => [current.automation],
+        automationTemplates: () => [],
+        createAutomation: () => current.automation,
+      })
+      render(
+        kind === 'details' ? (
+          view('details')
+        ) : (
+          <AutomationsPage
+            factory={factory()}
+            banners={null}
+            onOpen={vi.fn()}
+            onNew={vi.fn()}
+            onOpenTask={vi.fn()}
+          />
+        ),
+      )
+      const target =
+        kind === 'details'
+          ? await screen.findByRole('heading', { name: 'Weekly triage' })
+          : await screen.findByRole('button', { name: 'Weekly triage' })
+      fireEvent.contextMenu(target)
+      expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeTruthy()
+      current = { ...current, automation: { ...current.automation, ...change } }
+      act(() => api.emit({ type: 'automation-updated', automationId: 'automation-a' }))
+      await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+      fireEvent.contextMenu(target)
+      await user().click(screen.getByRole('menuitem', { name: 'Duplicate' }))
+      await vi.waitFor(() =>
+        expect(api.request).toHaveBeenCalledWith(
+          'createAutomation',
+          expect.objectContaining({
+            ...change,
+            name: 'Weekly triage copy',
+            on: false,
+          }),
+        ),
+      )
+    },
+  )
+}
