@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, TaskGates, ThreadEvent } from '@ted/protocol'
+import type { Comment, Factory, InboxItem, Run, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -84,9 +84,9 @@ const syncRound = {
   ],
 }
 
-async function start() {
+async function start(clarifyGate = false) {
   await commitToOrigin(scratch, {
-    '.ted/workflow.yaml': 'version: 1\norder: [intake, clarify, work]\n',
+    '.ted/workflow.yaml': `version: 1\norder: [intake, clarify, work]\nstages:\n  clarify: { gate: ${clarifyGate} }\n`,
   })
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -264,8 +264,8 @@ describe('Clarify rounds', () => {
     expect(answer).toContain('run `ted outcome advance`')
   })
 
-  test('at grilling, rounds end in a sign-off Gate; Request changes asks for another round and Approve moves on', async () => {
-    const client = await start()
+  test('at grilling with sign-off on, Request changes asks for another round and Approve moves on', async () => {
+    const client = await start(true)
     const task = await startTask(
       client,
       advance,
@@ -339,8 +339,41 @@ describe('Clarify rounds', () => {
     expect(changes).toContain('ted ask --round')
   })
 
-  test('overnight mode leaves the grilling sign-off on', async () => {
+  test('Grilling with sign-off off still waits for round answers, then advances without sign-off', async () => {
     const client = await start()
+    const task = await startTask(
+      client,
+      advance,
+      depth('grilling', 'conflict choices need discussion'),
+      ask(client.storageFile),
+      advance,
+      { waitFor: client.waitFile('answered') },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      advance,
+      { endTurn: true },
+    )
+    const round = await openRequest(client, 'round')
+    await waitUntil(async () => {
+      const results = await commandResults(client, task)
+      return results.some((r) => r.stderr.includes('still waiting on the human'))
+    }, 'advancement to be refused while the round is open')
+    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    await client.ok('POST', `/comments/${round.request.id}/answer`, {
+      action: 'accept-recommended',
+    })
+    await client.go('answered')
+    await waitForStage(client, task, 'work')
+    expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
+    const answer = (await userMessages(client, task)).find((m) =>
+      m.includes('The human answered Round'),
+    )
+    expect(answer).toContain(
+      'TED requests sign-off if the effective Clarify sign-off setting is on',
+    )
+  })
+
+  test('overnight mode suppresses the configured Grilling sign-off', async () => {
+    const client = await start(true)
     const task = await startTask(
       client,
       { waitFor: client.waitFile('overnight') },
@@ -353,13 +386,11 @@ describe('Clarify rounds', () => {
     await client.ok('PATCH', '/settings', { overnightMode: true })
     await client.go('overnight')
 
-    const signoff = await openRequest(client, 'signoff')
-    expect(signoff.request).toMatchObject({ stage: 'clarify', gate: { approveLabel: 'Approve' } })
-    expect((await getTask(client, task.id)).stage).toBe('clarify')
-    const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
-    const row = rows.find((r) => r.stage === 'clarify')
-    expect(row).toMatchObject({ effective: true, required: true })
-    expect(row?.overnight).toBeUndefined()
+    await waitForStage(client, task, 'work')
+    expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
+    expect(await threadLines(client, task)).toContain(
+      'Overnight mode is on, so TED skipped the Clarify sign-off',
+    )
   })
 
   test('the Task Lead can switch from Few to grilling, and says why', async () => {

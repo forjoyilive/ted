@@ -945,11 +945,7 @@ export function createTasks(options: {
     const workflow = task.setup
       ? setupWorkflow(based, await setupInstructions(factory.showTutorial))
       : based
-    const overnightGates = night.off.filter(
-      (id) =>
-        workflow.settings.stages[id]?.gate !== true &&
-        !(id === 'clarify' && task.clarifyDepth === 'grilling'),
-    )
+    const overnightGates = night.off.filter((id) => workflow.settings.stages[id]?.gate !== true)
     if (kept !== undefined) {
       const stages = agentStageIds.filter(
         (id) =>
@@ -1102,7 +1098,6 @@ export function createTasks(options: {
 
   function gateOn(task: Task, workflow: ResolvedWorkflow, stage: AgentStageId): boolean {
     if (workflow.settings.stages[stage]?.gate === true) return true
-    if (stage === 'clarify' && task.clarifyDepth === 'grilling') return true
     return (
       workflow.overnightGates?.includes(stage) === true &&
       stage === task.stage &&
@@ -1131,15 +1126,13 @@ export function createTasks(options: {
       .map((stage) => {
         const required = task.forcedGates.includes(stage)
           ? 'Required by TED for this Task'
-          : task.setup && ['clarify', 'design', 'review'].includes(stage)
+          : task.setup && ['design', 'review'].includes(stage)
             ? 'Required for Factory setup'
-            : stage === 'clarify' && task.clarifyDepth === 'grilling'
-              ? 'Required at grilling depth'
-              : stage === 'review' && guard === 'settings'
-                ? 'Required while overnight mode is on: this Task changes .ted/'
-                : stage === 'review' && guard === 'unreadable'
-                  ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
-                  : undefined
+            : stage === 'review' && guard === 'settings'
+              ? 'Required while overnight mode is on: this Task changes .ted/'
+              : stage === 'review' && guard === 'unreadable'
+                ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
+                : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'

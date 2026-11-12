@@ -140,7 +140,7 @@ describe('Task details in the app', () => {
     }
   })
 
-  test('a required Sign-off displays On while retaining a previously saved Off choice', async () => {
+  test('Grilling keeps a saved Clarify sign-off Off and editable', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const daemon = await daemonAsApp(home, env())
     await daemon.addFactory({ repo: origin, key: 'NB' })
@@ -160,10 +160,9 @@ describe('Task details in the app', () => {
     await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
     await daemon.setClarifyDepth(task.id, { depth: 'grilling' })
     await details.getByRole('button', { name: '1 overridden · Edit' }).click()
-    await expect(clarify.inputValue()).resolves.toBe('required')
-    await expect(clarify.isDisabled()).resolves.toBe(true)
-    await editor.getByText('Required at grilling depth', { exact: true }).waitFor()
-    await editor.getByText('Your Off choice applies when this sign-off is optional.').waitFor()
+    await expect(clarify.inputValue()).resolves.toBe('off')
+    await expect(clarify.isDisabled()).resolves.toBe(false)
+    expect(await editor.getByText('Required at grilling depth', { exact: true }).count()).toBe(0)
     expect((await daemon.taskGates(task.id)).overrides.clarify).toBe(false)
     if (process.env.TED_REQUIRED_GATE_SCREENSHOT) {
       if (app)
