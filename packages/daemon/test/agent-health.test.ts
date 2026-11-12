@@ -324,3 +324,56 @@ test('Antigravity ACP failures offer repair guidance instead of sign-in and reco
   expect(repaired?.state).not.toBe('unavailable')
   expect(repaired?.fix?.label).not.toBe('Update')
 })
+
+test('off agents skip routine checks and setup banners until re-enabled', async () => {
+  await setStub('claude', { signedIn: false })
+  const client = await start()
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'signed-out',
+    'signed-out health',
+  )
+  expect(await agentBanner(client, 'claude')).toBeDefined()
+  await client.ok('POST', '/agents/availability', { agent: 'claude', enabled: false })
+  expect(await agentBanner(client, 'claude')).toBeUndefined()
+  await setStub('claude', { signedIn: true })
+  await client.ok('POST', '/agents/health/check')
+  expect((await healthOf(client, 'claude'))?.state).toBe('signed-out')
+  expect(await agentBanner(client, 'claude')).toBeUndefined()
+  await client.ok('POST', '/agents/availability', { agent: 'claude', enabled: true })
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'ready',
+    'fresh check after enabling',
+  )
+})
+
+test('Runs kept going still receive runtime authentication safeguards while the agent is off', async () => {
+  const client = await start()
+  const release = path.join(scratch, 'report-auth-error')
+  const run = await client.ok<{ id: string }>('POST', '/dev/runs', {
+    agent: 'claude',
+    cwd: scratch,
+    prompt: steps({ waitFor: release }, { authError: true }),
+  })
+  await client.ok('POST', '/agents/availability', {
+    agent: 'claude',
+    enabled: false,
+    existing: 'keep',
+    confirmedRunIds: [run.id],
+  })
+  await setStub('claude', { signedIn: false })
+  await writeFile(release, '')
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'signed-out',
+    'retained Run authentication failure',
+  )
+  expect(await agentBanner(client, 'claude')).toBeDefined()
+  expect(
+    (await client.ok<{ enabledAgents: string[] }>('GET', '/settings')).enabledAgents,
+  ).not.toContain('claude')
+  await setStub('claude', { signedIn: true })
+  await client.ok('POST', '/agents/health/check')
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'ready',
+    'retained Run authentication recovery',
+  )
+})

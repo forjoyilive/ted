@@ -1,10 +1,10 @@
 import type { AgentKind, Effort, Run, Task, TaskLead } from '@ted/protocol'
-import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
 import { type FormEvent, useEffect, useId, useState } from 'react'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
-import { agentLabels, leadSummary } from '../task-fields.ts'
+import { leadSummary } from '../task-fields.ts'
 import { ted } from '../ted.ts'
 import styles from './TaskLeadField.module.css'
 
@@ -96,11 +96,7 @@ export function TaskLeadField({ task }: { task: Task }) {
             value={agent}
             onChange={(e) => setAgent(e.target.value as AgentKind)}
           >
-            {agentKinds.map((kind) => (
-              <option key={kind} value={kind}>
-                {agentLabels[kind]}
-              </option>
-            ))}
+            <AgentOptions current={agent} />
           </Select>
         </label>
         <label className={styles.label}>

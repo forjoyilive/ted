@@ -1,4 +1,11 @@
-import type { AgentHealth, AgentKind, Billing, PlanUsage, PlanWindow } from '@ted/protocol'
+import type {
+  AgentAvailability,
+  AgentHealth,
+  AgentKind,
+  Billing,
+  PlanUsage,
+  PlanWindow,
+} from '@ted/protocol'
 import {
   agentDisplayNames,
   billingNames,
@@ -9,12 +16,14 @@ import {
 } from '@ted/protocol/health'
 import { useEffect, useId, useState } from 'react'
 import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
+import dialogStyles from '../components/ArchiveDialogs.module.css'
+import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
-import { useAgentHealthState } from '../data.ts'
+import { useAgentHealthState, useEventValue } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { timePreferences } from '../time.ts'
 import { AgentDefaults } from './AgentDefaults.tsx'
 import styles from './AgentsPage.module.css'
@@ -202,6 +211,11 @@ function PlanUsageSection({ health }: { health: AgentHealth }) {
 
 function AgentCard({
   health,
+  enabled,
+  lastEnabled,
+  activeRuns,
+  changing,
+  onToggle,
   billing,
   opened,
   onFix,
@@ -211,6 +225,11 @@ function AgentCard({
   error,
 }: {
   health: AgentHealth
+  enabled: boolean
+  lastEnabled: boolean
+  activeRuns: number
+  changing: boolean
+  onToggle: (enabled: boolean) => void
   billing: Billing
   opened: boolean
   onFix: () => void
@@ -220,7 +239,7 @@ function AgentCard({
   error: string | undefined
 }) {
   const ready = health.state === 'ready'
-  const stopping = stopsWork(health)
+  const stopping = enabled && stopsWork(health)
   const name = agentDisplayNames[health.agent]
   const chip =
     health.pausedRuns > 0 && !ready
@@ -241,70 +260,101 @@ function AgentCard({
     >
       <div className={styles.top}>
         <div className={styles.head}>
-          <HealthIcon ready={ready} />
+          {enabled && <HealthIcon ready={ready} />}
           <h2 className={styles.name}>{name}</h2>
-          <StatusChip tone={ready ? 'success' : stopping ? 'failed' : 'neutral'}>{chip}</StatusChip>
+          <StatusChip
+            tone={!enabled ? 'neutral' : ready ? 'success' : stopping ? 'failed' : 'neutral'}
+          >
+            {enabled ? chip : 'Off'}
+          </StatusChip>
+          <span
+            title={lastEnabled ? 'Enable another agent before turning this one off.' : undefined}
+          >
+            <Switch
+              label={`Use ${name}`}
+              checked={enabled}
+              disabled={changing || lastEnabled}
+              onChange={onToggle}
+            />
+          </span>
           <span className={styles.spacer} />
-          {health.fix && (
+          {enabled && health.fix && (
             <Button onClick={() => void ted.copyText(health.fix?.command ?? '')}>
               Copy command
             </Button>
           )}
-          <Button onClick={onCheck} disabled={checking}>
-            {checking ? <Loading compact label="Checking…" /> : 'Check again'}
-          </Button>
-          {health.fix && (
+          {enabled && (
+            <Button onClick={onCheck} disabled={checking}>
+              {checking ? <Loading compact label="Checking…" /> : 'Check again'}
+            </Button>
+          )}
+          {enabled && health.fix && (
             <Button primary onClick={onFix}>
               {health.fix.label}
             </Button>
           )}
         </div>
-        <div className={styles.lines}>
-          <p className={styles.line}>{facts}</p>
-          {signedIn && health.account !== undefined && (
-            <p className={styles.line}>{health.account}</p>
-          )}
-          {health.state === 'unavailable' && <p className={styles.line}>{health.reason}</p>}
-          {health.state === 'signed-out' && <p className={styles.line}>Not signed in.</p>}
-          {health.state === 'too-old' && (
-            <p className={styles.line}>
-              This version is older than TED supports. TED never updates it without asking.
-            </p>
-          )}
-          {health.state === 'not-installed' && health.fix && (
-            <p className={styles.line}>
-              Not installed. Install it with{' '}
-              <code className={styles.code}>{health.fix.command}</code>
-            </p>
-          )}
-          {health.state === 'usage-limit' && (
-            <p className={styles.line}>
-              {limitLine(health)}{' '}
-              <Help>
-                Runs stay open and carry on by themselves. TED never switches them to the other
-                agent; change the Task Lead field if you want to.
-              </Help>
-            </p>
-          )}
-          {health.state === 'offline' && (
-            <p className={styles.line}>Paused until the connection returns.</p>
-          )}
-          {health.state === 'wrong-credential' && (
-            <p className={`${styles.line} ${styles.error}`}>
-              A Run is using an API key, not your subscription. {health.keySource}
-            </p>
-          )}
-          {opened && health.fix && (
-            <p className={styles.line}>
-              Opened <code className={styles.code}>{health.fix.command}</code> in {terminalName()}.
-              Checking again every 5 seconds…
-            </p>
-          )}
-          {error !== undefined && <p className={`${styles.line} ${styles.error}`}>{error}</p>}
-        </div>
+        {!enabled && (
+          <p className={styles.line}>
+            Off for new Runs. Saved choices and billing are kept.
+            {activeRuns > 0 ? ` ${activeRuns} existing Runs kept going.` : ''}
+          </p>
+        )}
+        {lastEnabled && (
+          <p className={styles.line}>Enable another agent before turning this one off.</p>
+        )}
+        {enabled && (
+          <div className={styles.lines}>
+            <p className={styles.line}>{facts}</p>
+            {signedIn && health.account !== undefined && (
+              <p className={styles.line}>{health.account}</p>
+            )}
+            {health.state === 'unavailable' && <p className={styles.line}>{health.reason}</p>}
+            {health.state === 'signed-out' && <p className={styles.line}>Not signed in.</p>}
+            {health.state === 'too-old' && (
+              <p className={styles.line}>
+                This version is older than TED supports. TED never updates it without asking.
+              </p>
+            )}
+            {health.state === 'not-installed' && health.fix && (
+              <p className={styles.line}>
+                Not installed. Install it with{' '}
+                <code className={styles.code}>{health.fix.command}</code>
+              </p>
+            )}
+            {health.state === 'usage-limit' && (
+              <p className={styles.line}>
+                {limitLine(health)}{' '}
+                <Help>
+                  Runs stay open and carry on by themselves. TED never switches them to the other
+                  agent; change the Task Lead field if you want to.
+                </Help>
+              </p>
+            )}
+            {health.state === 'offline' && (
+              <p className={styles.line}>Paused until the connection returns.</p>
+            )}
+            {health.state === 'wrong-credential' && (
+              <p className={`${styles.line} ${styles.error}`}>
+                A Run is using an API key, not your subscription. {health.keySource}
+              </p>
+            )}
+            {opened && health.fix && (
+              <p className={styles.line}>
+                Opened <code className={styles.code}>{health.fix.command}</code> in {terminalName()}
+                . Checking again every 5 seconds…
+              </p>
+            )}
+            {error !== undefined && <p className={`${styles.line} ${styles.error}`}>{error}</p>}
+          </div>
+        )}
       </div>
-      <BillingChoice agent={health.agent} billing={billing} onChange={onBilling} />
-      <PlanUsageSection health={health} />
+      {enabled && (
+        <>
+          <BillingChoice agent={health.agent} billing={billing} onChange={onBilling} />
+          <PlanUsageSection health={health} />
+        </>
+      )}
     </section>
   )
 }
@@ -312,11 +362,49 @@ function AgentCard({
 export function AgentsPage({ settings }: SettingsPageProps) {
   const resource = useAgentHealthState()
   const health = resource.health
+  const availability = useEventValue<AgentAvailability[]>({
+    initial: [],
+    load: ted.agentAvailability,
+    event: (event) =>
+      ['settings-changed', 'run-updated'].includes(event.type) ? 'reload' : undefined,
+  })
+  const [confirmation, setConfirmation] = useState<AgentAvailability>()
+  const [changing, setChanging] = useState(false)
+  const [toggleError, setToggleError] = useState<string>()
+  async function toggle(agent: AgentKind, enabled: boolean, existing?: 'keep' | 'stop') {
+    setChanging(true)
+    setToggleError(undefined)
+    try {
+      const result = await ted.changeAgentAvailability({
+        agent,
+        enabled,
+        ...(existing && { existing }),
+        ...(confirmation && {
+          confirmedRunIds: [...confirmation.runs, ...confirmation.additionalRuns].map(
+            (run) => run.id,
+          ),
+        }),
+      })
+      if (result.confirmationRequired) setConfirmation(result.availability)
+      else {
+        setConfirmation(undefined)
+        void availability.refresh()
+      }
+    } catch (error) {
+      setToggleError(readableError(error))
+    } finally {
+      setChanging(false)
+    }
+  }
   const [opened, setOpened] = useState<Partial<Record<AgentKind, boolean>>>({})
   const [checking, setChecking] = useState(false)
   const [errors, setErrors] = useState<Partial<Record<AgentKind, string>>>({})
-  const waiting = health.some((h) => opened[h.agent] && h.state !== 'ready')
-  const anyProblem = health.some((h) => h.state !== 'ready')
+  const waiting = health.some(
+    (h) => settings.enabledAgents.includes(h.agent) && opened[h.agent] && h.state !== 'ready',
+  )
+  const anyProblem = health.some(
+    (h) => settings.enabledAgents.includes(h.agent) && h.state !== 'ready',
+  )
 
   const check = async () => {
     setChecking(true)
@@ -366,6 +454,74 @@ export function AgentsPage({ settings }: SettingsPageProps) {
 
   return (
     <SettingsPage title="Agents">
+      {toggleError && (
+        <p role="alert" className={styles.error}>
+          {toggleError}
+        </p>
+      )}
+      {confirmation && (
+        <Dialog
+          onClose={() => {
+            if (!changing) {
+              setConfirmation(undefined)
+              setToggleError(undefined)
+            }
+          }}
+        >
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogStyles.heading}>
+                Turn off {agentDisplayNames[confirmation.agent]}?
+              </h2>
+              <p className={dialogStyles.text}>
+                {confirmation.runs.length} existing Runs use this agent. Queued work will wait until
+                it is enabled again.
+              </p>
+              {confirmation.additionalRuns.length > 0 && (
+                <>
+                  <p className={dialogStyles.text}>
+                    Stopping a Task Lead also stops these {confirmation.additionalRuns.length} Runs:
+                  </p>
+                  <ul>
+                    {confirmation.additionalRuns.map((run) => (
+                      <li key={run.id}>
+                        {run.name} · {agentDisplayNames[run.agent]}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <p className={dialogStyles.text}>
+                Stopped Tasks need Resume. Re-enabling an agent does not resume stopped work.
+              </p>
+              {toggleError && (
+                <p role="alert" className={styles.error}>
+                  {toggleError}
+                </p>
+              )}
+              <div className={dialogStyles.actions}>
+                <Button disabled={changing} onClick={() => setConfirmation(undefined)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={changing}
+                  onClick={() => void toggle(confirmation.agent, false, 'stop')}
+                >
+                  Turn off &amp; stop{' '}
+                  {confirmation.runs.length + confirmation.additionalRuns.length} Runs
+                </Button>
+                <Button
+                  primary
+                  disabled={changing}
+                  onClick={() => void toggle(confirmation.agent, false, 'keep')}
+                >
+                  Turn off &amp; keep going
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
       <div className={styles.cards}>
         {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
         {!resource.loaded && health.length === 0 && !resource.error && (
@@ -375,6 +531,15 @@ export function AgentsPage({ settings }: SettingsPageProps) {
           <AgentCard
             key={h.agent}
             health={h}
+            enabled={settings.enabledAgents.includes(h.agent)}
+            lastEnabled={
+              settings.enabledAgents.length === 1 && settings.enabledAgents.includes(h.agent)
+            }
+            activeRuns={
+              availability.value.find((entry) => entry.agent === h.agent)?.runs.length ?? 0
+            }
+            changing={changing}
+            onToggle={(enabled) => void toggle(h.agent, enabled)}
             billing={settings.billing[h.agent]}
             opened={opened[h.agent] === true && h.state !== 'ready'}
             onFix={() => void fix(h.agent)}

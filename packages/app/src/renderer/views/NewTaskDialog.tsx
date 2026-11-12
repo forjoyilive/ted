@@ -22,6 +22,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
@@ -237,24 +238,30 @@ function NewTaskForm({
   useEffect(() => {
     if (factory === undefined || !ready) return
     let current = true
-    Promise.all([ted.taskDefaults(factory), ted.checkAgentHealth()]).then(
-      ([defaults, health]) => {
+    Promise.all([ted.taskDefaults(factory), ted.checkAgentHealth(), ted.getSettings()]).then(
+      ([defaults, health, settings]) => {
         if (!current) return
         setHealth(health)
-        const fallback = health.find((entry) => entry.state !== 'not-installed')
-        const availableDefault: TaskLead = health.some(
-          (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
+        const fallback = health.find(
+          (entry) =>
+            settings.enabledAgents.includes(entry.agent) && entry.state !== 'not-installed',
         )
-          ? defaults.lead
-          : fallback
-            ? { agent: fallback.agent, effortMode: 'stage' }
-            : defaults.lead
+        const availableDefault: TaskLead =
+          !settings.enabledAgents.includes(defaults.lead.agent) ||
+          health.some(
+            (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
+          )
+            ? defaults.lead
+            : fallback
+              ? { agent: fallback.agent, effortMode: 'stage' }
+              : defaults.lead
         setDefaultLead(availableDefault)
         setDefaultDepth(defaults.clarifyDepth)
         const restored = session.get()
         let restoredLead = restored.lead
         if (
           restoredLead &&
+          settings.enabledAgents.includes(restoredLead.agent) &&
           health.some(
             (entry) => entry.agent === restoredLead?.agent && entry.state === 'not-installed',
           )
@@ -998,11 +1005,7 @@ export function LeadFields({
             )
           }}
         >
-          {agentKinds.map((agent) => (
-            <option key={agent} value={agent}>
-              {agentLabels[agent]}
-            </option>
-          ))}
+          <AgentOptions current={lead.agent} />
         </Select>
         <Select
           aria-label="Model"

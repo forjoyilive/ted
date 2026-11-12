@@ -4,6 +4,7 @@ import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AgentsPage } from '../src/renderer/settings/AgentsPage.tsx'
+import { LeadSelects } from '../src/renderer/views/PlanChat.tsx'
 import { bridge, user } from './support/component.ts'
 import { createdAt } from './support/fixtures.ts'
 
@@ -93,4 +94,105 @@ test('Antigravity shares agent health controls and saves its billing choice with
   expect(
     card.getByText('Usage figures are unavailable unless reported by Antigravity.'),
   ).toBeTruthy()
+})
+
+test('off cards stay discoverable and the last enabled switch explains its restriction', async () => {
+  const settings = { ...defaultMachineSettings, enabledAgents: ['codex'] as const }
+  bridge({
+    getSettings: () => settings,
+    agentHealth: () => [signedOut, { ...signedOut, agent: 'codex', state: 'ready' }],
+    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    agentAvailability: () => [
+      { agent: 'claude', enabled: false, runs: [{ id: 'one' }], additionalRuns: [] },
+    ],
+  })
+  render(<AgentsPage settings={settings} dispatch={vi.fn()} />)
+  const claude = within(await screen.findByRole('region', { name: 'Claude Code' }))
+  expect(claude.getByText('Off')).toBeTruthy()
+  expect(claude.queryByRole('button', { name: 'Sign in' })).toBeNull()
+  await claude.findByText(/1 existing Runs kept going/)
+  const codex = within(screen.getByRole('region', { name: 'Codex' }))
+  expect(codex.getByRole<HTMLButtonElement>('switch', { name: 'Use Codex' }).disabled).toBe(true)
+  expect(codex.getByText('Enable another agent before turning this one off.')).toBeTruthy()
+})
+
+test('turning off confirms the count and collateral Runs, supports Cancel and sends the confirmed decision', async () => {
+  const availability = {
+    agent: 'claude',
+    enabled: true,
+    runs: [{ id: 'lead', agent: 'claude', name: 'NB-1' }],
+    additionalRuns: [{ id: 'child', agent: 'codex', name: 'Reviewer' }],
+  }
+  const change = vi.fn().mockResolvedValue({ availability, confirmationRequired: true })
+  const api = bridge({
+    agentHealth: () => [signedOut],
+    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    changeAgentAvailability: change,
+  })
+  render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const toggle = await screen.findByRole('switch', { name: 'Use Claude Code' })
+  await user().click(toggle)
+  let dialog = within(await screen.findByRole('dialog', { name: 'Turn off Claude Code?' }))
+  expect(dialog.getByText('Reviewer · Codex')).toBeTruthy()
+  await user().click(dialog.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(change).toHaveBeenCalledTimes(1)
+  await user().click(toggle)
+  dialog = within(await screen.findByRole('dialog', { name: 'Turn off Claude Code?' }))
+  change.mockResolvedValueOnce({
+    availability: { ...availability, enabled: false },
+    confirmationRequired: false,
+  })
+  await user().click(dialog.getByRole('button', { name: 'Turn off & keep going' }))
+  expect(api.request).toHaveBeenCalledWith('changeAgentAvailability', {
+    agent: 'claude',
+    enabled: false,
+    existing: 'keep',
+    confirmedRunIds: ['lead', 'child'],
+  })
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('the stop choice includes all affected Runs and refreshes the confirmation if its count changes', async () => {
+  const availability = {
+    agent: 'claude',
+    enabled: true,
+    runs: [{ id: 'lead', agent: 'claude', name: 'NB-1' }],
+    additionalRuns: [],
+  }
+  const change = vi
+    .fn()
+    .mockResolvedValueOnce({ availability, confirmationRequired: true })
+    .mockResolvedValueOnce({
+      availability: {
+        ...availability,
+        runs: [...availability.runs, { id: 'new', agent: 'claude', name: 'NB-2' }],
+      },
+      confirmationRequired: true,
+    })
+  const api = bridge({
+    agentHealth: () => [signedOut],
+    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    changeAgentAvailability: change,
+  })
+  render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  await user().click(await screen.findByRole('switch', { name: 'Use Claude Code' }))
+  const dialog = within(await screen.findByRole('dialog'))
+  await user().click(dialog.getByRole('button', { name: 'Turn off & stop 1 Runs' }))
+  expect(api.request).toHaveBeenCalledWith('changeAgentAvailability', {
+    agent: 'claude',
+    enabled: false,
+    existing: 'stop',
+    confirmedRunIds: ['lead'],
+  })
+  expect(await dialog.findByRole('button', { name: 'Turn off & stop 2 Runs' })).toBeTruthy()
+})
+
+test('agent menus hide off kinds but preserve an explicit current choice with an explanation', async () => {
+  bridge({ getSettings: () => ({ ...defaultMachineSettings, enabledAgents: ['antigravity'] }) })
+  render(<LeadSelects lead={{ agent: 'claude' }} onChange={vi.fn()} />)
+  const menu = within(screen.getByRole('combobox', { name: 'Agent' }))
+  expect(await menu.findByRole('option', { name: 'Claude · Off — new Runs wait' })).toBeTruthy()
+  expect(menu.queryByRole('option', { name: 'Codex' })).toBeNull()
+  expect(menu.getByRole('option', { name: 'Antigravity' })).toBeTruthy()
 })

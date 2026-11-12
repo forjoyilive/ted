@@ -24,6 +24,7 @@ import {
   type SlotHolder,
   systemTimeZone,
 } from '@ted/protocol'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { type Clock, systemClock, type Timer } from '../clock.ts'
@@ -278,7 +279,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
     runnable(id) {
       const firing = saved.firing(id)
       const agent = firing && agentOf(firing)
-      return agent !== undefined && store.agentPauses()[agent] === undefined
+      return (
+        agent !== undefined &&
+        !agentStartHold(store, agent, id) &&
+        store.agentPauses()[agent] === undefined
+      )
     },
     begin(id) {
       if (starting.has(id)) return
@@ -358,8 +363,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
       const cwd = path.join(options.home, 'automations', automation.id)
       await mkdir(cwd, { recursive: true, mode: 0o700 })
       const prompt = runPrompt(automation, factory, firing)
-      saved.began(id)
       await runs.start({
+        onStarting: () => saved.began(id),
         id,
         agent: automation.agent,
         prompt,
@@ -371,6 +376,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         ...(automation.effort !== undefined && { effort: automation.effort }),
       })
     } catch (error) {
+      if (error instanceof AgentDisabledError) return
       const current = saved.firing(id)
       if (current?.state === 'started' && !store.getRun(id)) {
         fail(current, `Couldn’t start: ${messageOf(error)}`)
@@ -651,7 +657,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const status = statusOf(firing)
     if (status === 'queued') {
       const agent = agentOf(firing)
-      const reason = agent === undefined ? undefined : store.agentPauses()[agent]
+      const reason =
+        agent === undefined
+          ? undefined
+          : (agentStartHold(store, agent, firing.id) ?? store.agentPauses()[agent])
       return reason !== undefined
         ? { kind: 'paused', reason }
         : { kind: 'queued', place: place(firing.id) }
@@ -808,11 +817,15 @@ export function createAutomations(options: AutomationsOptions): Automations {
   async function defaultLead(factory: StoredFactory) {
     const settings = (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))
       ?.workflow.settings
-    return resolveAgentChoices(settings, {
-      claude: agents.installed('claude'),
-      antigravity: agents.installed('antigravity'),
-      codex: agents.installed('codex'),
-    }).lead
+    return resolveAgentChoices(
+      settings,
+      {
+        claude: agents.installed('claude'),
+        antigravity: agents.installed('antigravity'),
+        codex: agents.installed('codex'),
+      },
+      store.settings().enabledAgents,
+    ).lead
   }
 
   function fireByHand(

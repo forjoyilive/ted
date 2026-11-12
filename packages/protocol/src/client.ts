@@ -1,6 +1,11 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
 import type {
+  AgentAvailability,
+  ChangeAgentAvailabilityRequest,
+  ChangeAgentAvailabilityResult,
+} from './agent-availability.ts'
+import type {
   AppCapture,
   AppLog,
   AppRef,
@@ -1025,6 +1030,16 @@ export class DaemonClient {
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup-log`,
     )
     return text
+  }
+
+  agentAvailability(): Promise<AgentAvailability[]> {
+    return this.#request('GET', '/agents/availability')
+  }
+
+  changeAgentAvailability(
+    input: ChangeAgentAvailabilityRequest,
+  ): Promise<ChangeAgentAvailabilityResult> {
+    return this.#request('POST', '/agents/availability', input)
   }
 
   getSettings(): Promise<MachineSettings> {

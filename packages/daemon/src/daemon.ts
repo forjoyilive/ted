@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { DaemonClient, type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
+import { createAgentAvailability } from './agent-availability.ts'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
@@ -583,7 +584,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
-      return {
+      const services = {
         sideChats,
         coordinators,
         automations,
@@ -627,6 +628,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           await shellsClosed
         },
       }
+      return { ...services, agentAvailability: createAgentAvailability({ ...services, store }) }
     },
   })
   const commandLine = createCommandLine(options.commandLine)

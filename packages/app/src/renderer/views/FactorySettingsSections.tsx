@@ -16,6 +16,7 @@ import type {
   StageRowView,
 } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
@@ -912,19 +913,6 @@ function AgentRow({
   const shown = own ?? row.inherited
   const locked = own === null
   const name = roleNames[row.role]
-  const agents =
-    row.role === 'reviewer'
-      ? [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-          ['same', 'Same as Task Lead'],
-        ]
-      : [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-        ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...(own ?? {}), ...fields }
     for (const key of ['model', 'effort'] as const) if (!next[key]) delete next[key]
@@ -946,11 +934,7 @@ function AgentRow({
         value={shown.agent ?? 'claude'}
         onChange={(event) => update({ agent: event.target.value })}
       >
-        {agents.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
+        <AgentOptions current={shown.agent} same={row.role === 'reviewer'} />
       </Select>
       <input
         aria-label={`${name} model`}

@@ -363,11 +363,15 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
   function agentRows(base: Base): AgentRowView[] {
     const inherited = resolveWorkflow(base.inherited).settings
     const library = base.inherited.find((l) => l.kind === 'library')?.settings
-    const resolved = resolveAgentChoices(inherited, {
-      claude: options.installed('claude'),
-      antigravity: options.installed('antigravity'),
-      codex: options.installed('codex'),
-    })
+    const resolved = resolveAgentChoices(
+      inherited,
+      {
+        claude: options.installed('claude'),
+        antigravity: options.installed('antigravity'),
+        codex: options.installed('codex'),
+      },
+      options.store.settings().enabledAgents,
+    )
     return agentRoles.map((role) => {
       const own = base.settings?.[role]
       const shown = { ...inherited[role], agent: inherited[role]?.agent ?? resolved[role].agent }

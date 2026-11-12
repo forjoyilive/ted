@@ -1,4 +1,5 @@
 import type { AgentKind, Comment, Run, TaskLead, TaskRepo } from '@ted/protocol'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Clock, Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
@@ -275,7 +276,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     await local(task.id)
     const lead = effectiveLead(current, defaultLead(resolution.workflow.settings)) as TaskLead
     const agent = lead.agent
-    if (!(await health.ready(agent))) {
+    if (agentStartHold(store, agent) || !(await health.ready(agent))) {
       store.holdTaskRun({
         taskId: task.id,
         agent,
@@ -315,6 +316,14 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
         waiting.comments.map((c) => c.id),
         run.id,
       )
+    } catch (error) {
+      if (!(error instanceof AgentDisabledError)) throw error
+      store.holdTaskRun({
+        taskId: task.id,
+        agent,
+        ...(resumeSession !== undefined && { sessionId: resumeSession }),
+      })
+      return
     } finally {
       protectComments(waiting.comments, false)
     }

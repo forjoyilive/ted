@@ -52,6 +52,7 @@ import { plural } from './text.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
+  agentAvailability: ReturnType<typeof import('./agent-availability.ts').createAgentAvailability>
   sideChats: SideChats
   store: TedStore
   automations: Automations

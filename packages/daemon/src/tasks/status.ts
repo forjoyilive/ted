@@ -224,6 +224,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     return `${joinAnd(merged)} merged · ${joinAnd(open)} not yet`
   }
   if (facts.settingUp) return 'Setting up the worktree'
+  if (facts.queue && 'hold' in facts.queue && facts.runs.length === 0) return facts.queue.hold
   if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {
     return `Queued · ${ordinal(facts.queue.place)}`
   }

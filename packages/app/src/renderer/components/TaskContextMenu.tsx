@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { useEnabledAgents } from './AgentOptions.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
@@ -34,6 +35,7 @@ function BulkTaskMenu({
   at: MenuPosition | undefined
   onClose: () => void
 }) {
+  const enabledAgents = useEnabledAgents()
   const [snoozing, setSnoozing] = useState(false)
   const [confirmation, setConfirmation] = useState<'archive' | 'delete'>()
   const [closePullRequests, setClosePullRequests] = useState(true)
@@ -97,13 +99,19 @@ function BulkTaskMenu({
     if (tasks.every((t) => t.stage !== 'done'))
       items.push({
         label: 'Task Lead',
-        items: agentKinds.map((agent) => ({
-          label: agentLabels[agent],
-          action: () =>
-            each((t) =>
-              t.lead?.agent === agent ? Promise.resolve() : ted.setTaskLead(t.id, { agent }),
-            ),
-        })),
+        items: agentKinds
+          .filter(
+            (agent) =>
+              enabledAgents.includes(agent) || tasks.every((task) => task.lead?.agent === agent),
+          )
+          .map((agent) => ({
+            label: `${agentLabels[agent]}${enabledAgents.includes(agent) ? '' : ' · Off — new Runs wait'}`,
+            disabled: !enabledAgents.includes(agent),
+            action: () =>
+              each((t) =>
+                t.lead?.agent === agent ? Promise.resolve() : ted.setTaskLead(t.id, { agent }),
+              ),
+          })),
       })
     if (tasks.every((t) => !clarifyIsOver(t.stage)))
       items.push({

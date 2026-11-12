@@ -1,4 +1,5 @@
 import type { NewTaskDraft } from '@ted/protocol'
+import { defaultMachineSettings } from '@ted/protocol/settings'
 import { cleanup } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
@@ -10,6 +11,8 @@ type Handler = (...args: unknown[]) => unknown
 
 export function bridge(given: Record<string, Handler>) {
   const handlers: Record<string, Handler> = {
+    getSettings: () => defaultMachineSettings,
+    agentAvailability: () => [],
     getSideChat: () => null,
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
     ...given,

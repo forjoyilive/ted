@@ -1452,7 +1452,17 @@ export async function openStore({
         !recovering &&
         !waitsForBlockers &&
         repos.some((r) => !r.removed) && { interrupted: true }),
-      ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
+      ...((place > 0 || held) && {
+        queue:
+          (leadAgent ?? held?.agent) &&
+          !settings().enabledAgents.includes((leadAgent ?? held?.agent) as AgentKind)
+            ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Agents.` }
+            : place > 0
+              ? newWorkHeld === undefined
+                ? { place }
+                : { hold: newWorkHeld }
+              : { hold: 'Waiting for the agent' },
+      }),
       ...(place > 0 && heldForLoad && { heldForLoad }),
       queuedSubAgents: store
         .query(queryDb(subAgentRequests.where({ taskId: row.id })))
@@ -1461,11 +1471,13 @@ export async function openStore({
           ...(paused[r.agent as AgentKind] !== undefined && {
             paused: paused[r.agent as AgentKind],
           }),
-          ...(newWorkHeld !== undefined
-            ? { hold: newWorkHeld }
-            : heldForLoad
-              ? { hold: busyHold }
-              : {}),
+          ...(!settings().enabledAgents.includes(r.agent as AgentKind)
+            ? { hold: `${r.agent} is off. Enable it in Settings → Agents.` }
+            : newWorkHeld !== undefined
+              ? { hold: newWorkHeld }
+              : heldForLoad
+                ? { hold: busyHold }
+                : {}),
         })),
       pausedRuns,
       runs: live.map((r) => r.state as RunState),
@@ -4778,6 +4790,10 @@ export async function openStore({
           }),
         )
         emit({ type: 'settings-changed', settings: settings() })
+        if (changes.enabledAgents) {
+          updatedQueue()
+          for (const held of store.query(queryDb(heldRuns))) updatedTask(held.taskId)
+        }
       }
       return settings()
     },
