@@ -3,13 +3,14 @@ import type { Comment, DescriptionVersion, RunChat, ThreadEvent } from '@ted/pro
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RunChat as Conversation } from '../src/renderer/components/RunChat.tsx'
+import { TaskDescription } from '../src/renderer/components/TaskDescription.tsx'
 import { ConnectionContext } from '../src/renderer/data.ts'
 import { Root } from '../src/renderer/Root.tsx'
 import { SettingsShell } from '../src/renderer/settings/SettingsShell.tsx'
-import { TaskDetails, TaskThread } from '../src/renderer/views/TaskThread.tsx'
+import { TaskThread } from '../src/renderer/views/TaskThread.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
-import { comment, createdAt, factory, task } from './support/fixtures.ts'
+import { comment, createdAt, task } from './support/fixtures.ts'
 
 const callbacks = {
   onBack: vi.fn(),
@@ -23,18 +24,6 @@ const callbacks = {
 
 function history(t = task()) {
   return <TaskThread task={t} backLink={undefined} shownRun={undefined} {...callbacks} />
-}
-
-function details(t = task()) {
-  return (
-    <TaskDetails
-      task={t}
-      tasks={[t]}
-      factories={[factory()]}
-      onOpenRun={vi.fn()}
-      onOpenShell={vi.fn()}
-    />
-  )
 }
 
 function detailHandlers() {
@@ -93,7 +82,7 @@ test('settings replaces its loading state with an error and retry action', async
 test('History opens immediately, stays closable while pending, then displays versions', async () => {
   const pending = deferred<DescriptionVersion[]>()
   bridge({ ...detailHandlers(), taskDescriptions: () => pending.promise })
-  render(details())
+  render(<TaskDescription task={task()} />)
   await user().click(screen.getByRole('button', { name: 'Description history' }))
   let dialog = screen.getByRole('dialog', { name: 'NB-1 description history' })
   expect(within(dialog).getByRole('status', { name: 'Loading description history…' })).toBeTruthy()
@@ -109,7 +98,7 @@ test('History opens immediately, stays closable while pending, then displays ver
 test('a failed History load exits loading and can be retried', async () => {
   const pending = deferred<DescriptionVersion[]>()
   const api = bridge({ ...detailHandlers(), taskDescriptions: () => pending.promise })
-  render(details())
+  render(<TaskDescription task={task()} />)
   await user().click(screen.getByRole('button', { name: 'Description history' }))
   await act(async () => pending.reject(new Error('History unavailable')))
   const dialog = screen.getByRole('dialog')
@@ -128,6 +117,7 @@ test('Task history loads Comments and collapsed peer messages, then keeps conten
     listThreadEvents: () => events.promise,
     listCheckRuns: () => [],
     listFailures: () => [],
+    taskDescriptions: () => [],
     markCommentsRead: () => undefined,
   })
   render(history())
@@ -207,6 +197,7 @@ test('switching Tasks resets history loading and ignores a late response for the
     listThreadEvents: () => [],
     listCheckRuns: () => [],
     listFailures: () => [],
+    taskDescriptions: () => [],
   })
   const view = render(history())
   view.rerender(history(task({ id: 'NB-2', displayId: 'NB-2' })))
@@ -335,7 +326,8 @@ test('Full brief preserves loaded sections through a failed refresh and pending 
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
-  await user().click(await screen.findByRole('button', { name: 'Full brief' }))
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
   const full = screen.getByRole('region', { name: 'Full brief' })
   expect(within(full).getByText('Keep this loaded goal visible.')).toBeTruthy()
   a.handle('taskBrief', () => Promise.reject(new Error('Temporary refresh failure')))
@@ -357,8 +349,7 @@ test('Full brief preserves loaded sections through a failed refresh and pending 
 test('Original request stays visible when its refresh fails and recovers after retry', async () => {
   const version = { version: 1, at: createdAt, text: 'Keep the original request visible.' }
   const api = bridge({ ...detailHandlers(), taskDescriptions: () => [version] })
-  render(details())
-  await user().click(screen.getByRole('button', { name: 'Original request' }))
+  render(<TaskDescription task={task()} />)
   await screen.findByText(version.text)
   api.handle('taskDescriptions', () => Promise.reject(new Error('Description refresh failed')))
   act(() => api.emit({ type: 'task-updated', task: task() }))
@@ -418,7 +409,7 @@ test('Developer diagnostics retain their values after a rejected poll and during
   }
 })
 
-test('Task brief summary exposes initial loading, failed loads and retry without hiding loaded content', async () => {
+test('Full brief exposes its initial loading and retry after opening from Task actions', async () => {
   const a = appState()
   const current = task()
   const brief = {
@@ -426,7 +417,7 @@ test('Task brief summary exposes initial loading, failed loads and retry without
     version: 1,
     stage: 'design',
     createdAt,
-    text: '## Goal\n\nShow this brief summary.',
+    text: '## Goal\n\nShow this brief.',
   }
   const initial = deferred<typeof brief>()
   a.state.tasks = [current]
@@ -434,32 +425,21 @@ test('Task brief summary exposes initial loading, failed loads and retry without
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
-  const summary = screen.getByRole('region', { name: 'Task brief' })
-  expect(within(summary).getByRole('status', { name: 'Loading Task brief…' })).toBeTruthy()
-  expect(within(summary).queryByRole('button', { name: 'Full brief' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Task brief' })).toBeNull()
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(screen.getByRole('menuitem', { name: 'Full brief' }))
+  const full = screen.getByRole('region', { name: 'Full brief' })
+  expect(within(full).getByRole('status', { name: 'Loading Task brief…' })).toBeTruthy()
   await act(async () => initial.reject(new Error('Initial brief load failed')))
-  expect(within(summary).getByRole('alert').textContent).toContain('Initial brief load failed')
-  expect(within(summary).queryByRole('status')).toBeNull()
+  expect(within(full).getByRole('alert').textContent).toContain('Initial brief load failed')
+  expect(within(full).queryByRole('status')).toBeNull()
   const retry = deferred<typeof brief>()
   a.handle('taskBrief', () => retry.promise)
-  await user().click(within(summary).getByRole('button', { name: 'Try again' }))
-  expect(within(summary).getByRole('status', { name: 'Loading Task brief…' })).toBeTruthy()
+  await user().click(within(full).getByRole('button', { name: 'Try again' }))
+  expect(within(full).getByRole('status', { name: 'Loading Task brief…' })).toBeTruthy()
   await act(async () => retry.resolve(brief))
-  expect(within(summary).getByText('Goal: Show this brief summary.')).toBeTruthy()
-  expect(within(summary).getByRole('button', { name: 'Full brief' })).toBeTruthy()
-  expect(within(summary).queryByRole('status')).toBeNull()
-  a.handle('taskBrief', () => Promise.reject(new Error('Brief summary refresh failed')))
-  act(() => a.emit({ type: 'task-updated', task: current }))
-  await within(summary).findByRole('alert')
-  expect(within(summary).getByText('Goal: Show this brief summary.')).toBeTruthy()
-  const refreshed = deferred<typeof brief>()
-  a.handle('taskBrief', () => refreshed.promise)
-  await user().click(within(summary).getByRole('button', { name: 'Try again' }))
-  expect(within(summary).getByText('Goal: Show this brief summary.')).toBeTruthy()
-  expect(within(summary).queryByRole('status')).toBeNull()
-  await act(async () => refreshed.resolve({ ...brief, text: '## Goal\n\nRecovered summary.' }))
-  expect(within(summary).getByText('Goal: Recovered summary.')).toBeTruthy()
-  expect(within(summary).queryByRole('alert')).toBeNull()
+  expect(within(full).getByText('Show this brief.')).toBeTruthy()
+  expect(within(full).queryByRole('status')).toBeNull()
 })
 
 test('pending Automation details keep their heading and back navigation available', async () => {
@@ -512,4 +492,95 @@ test('spinners keep accessible loading names without visible loading text', asyn
   )
   expect(screen.getByRole('button', { name: 'Checking…' })).toBeTruthy()
   expect(screen.getByRole('status').textContent).toBe('')
+})
+
+test('the request shows images while collapsed, expands formatting and files, and resets on another Task', async () => {
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(80)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40)
+  const image = { hash: 'image', name: 'request.png', mediaType: 'image/png', size: 68 }
+  const file = { hash: 'file', name: 'reference.txt', mediaType: 'text/plain', size: 12 }
+  const current = task({ attachments: [image, file], description: 'Latest edited scope.' })
+  const api = bridge({
+    taskDescriptions: () => [
+      {
+        version: 1,
+        at: createdAt,
+        text: '**Original scope**\n\nRead the [guide](https://example.com/guide).\n\n```ts\nconst value = 1\n```',
+      },
+      { version: 2, at: createdAt, text: current.description },
+    ],
+    readAttachment: () => ({ data: 'aW1hZ2U=' }),
+  })
+  const view = render(<TaskDescription task={current} />)
+  const request = screen.getByRole('region', { name: 'Original request' })
+  await within(request).findByRole('img', { name: image.name })
+  expect(within(request).queryByText('1 image')).toBeNull()
+  expect(within(request).queryByText(current.description)).toBeNull()
+  expect(within(request).queryByText(file.name)).toBeNull()
+  expect(within(request).getByText(/Original scope/).textContent).not.toContain('**')
+  expect(within(request).getByText('Original scope').closest('[inert]')).toBeNull()
+  expect(within(request).getByText('guide')).toBeTruthy()
+  expect(within(request).queryByRole('link')).toBeNull()
+  expect(within(request).queryByRole('button', { name: 'Copy code' })).toBeNull()
+  await user().click(within(request).getByRole('button', { name: `View ${image.name}` }))
+  const viewer = screen.getByRole('dialog', { name: image.name })
+  await user().click(within(viewer).getByRole('button', { name: 'Close' }))
+  await user().click(within(request).getByRole('button', { name: 'See more' }))
+  expect(within(request).getByText('Original scope').tagName).toBe('STRONG')
+  expect(within(request).getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
+    'https://example.com/guide',
+  )
+  expect(within(request).getByRole('button', { name: 'Copy code' })).toBeTruthy()
+  expect(within(request).getByText(file.name)).toBeTruthy()
+  expect(within(request).getAllByRole('img', { name: image.name })).toHaveLength(1)
+  await user().click(within(request).getByRole('button', { name: 'See less' }))
+  expect(within(request).queryByText(file.name)).toBeNull()
+  expect(within(request).getByRole('img', { name: image.name })).toBeTruthy()
+  await user().click(within(request).getByRole('button', { name: 'See more' }))
+  const pending = deferred<DescriptionVersion[]>()
+  api.handle('taskDescriptions', () => pending.promise)
+  view.rerender(<TaskDescription task={task({ id: 'NB-2', displayId: 'NB-2' })} />)
+  expect(screen.queryByRole('img', { name: image.name })).toBeNull()
+  expect(screen.queryByText(current.description)).toBeNull()
+  expect(screen.getByRole('status', { name: 'Loading original request…' })).toBeTruthy()
+  await act(async () => pending.resolve([{ version: 1, at: createdAt, text: 'Second request.' }]))
+  expect(screen.queryByRole('button', { name: 'See less' })).toBeNull()
+  expect(screen.getByText('Second request.')).toBeTruthy()
+})
+
+test('short, image-only and empty requests need no expansion control', async () => {
+  const image = { hash: 'image', name: 'request.png', mediaType: 'image/png', size: 68 }
+  const api = bridge({
+    taskDescriptions: () => [{ version: 1, at: createdAt, text: 'A short request.' }],
+    readAttachment: () => ({ data: 'aW1hZ2U=' }),
+  })
+  const current = task()
+  const view = render(<TaskDescription task={current} />)
+  await screen.findByText('A short request.')
+  expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
+  api.handle('taskDescriptions', () => [{ version: 1, at: createdAt, text: '' }])
+  view.rerender(<TaskDescription task={task({ id: 'NB-2', attachments: [image] })} />)
+  await screen.findByRole('img', { name: image.name })
+  expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
+  expect(screen.queryByText('No description.')).toBeNull()
+  view.rerender(<TaskDescription task={task({ id: 'NB-3' })} />)
+  await screen.findByText('No description.')
+  expect(screen.queryByRole('img')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
+})
+
+test('a short linked request can reveal its interactive content without hiding the preview', async () => {
+  bridge({
+    taskDescriptions: () => [
+      { version: 1, at: createdAt, text: 'Read the [guide](https://example.com/guide).' },
+    ],
+  })
+  render(<TaskDescription task={task()} />)
+  const guide = await screen.findByText('guide')
+  expect(guide.closest('[inert]')).toBeNull()
+  expect(screen.queryByRole('link')).toBeNull()
+  await user().click(await screen.findByRole('button', { name: 'See more' }))
+  expect(screen.getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
+    'https://example.com/guide',
+  )
 })

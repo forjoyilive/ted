@@ -80,6 +80,7 @@ describe('Archive, Unarchive and Delete', () => {
     expect(await menu.getByRole('menuitem').allTextContents()).toEqual([
       'Unarchive',
       'Copy Task ID',
+      'Full brief',
       'Delete…',
     ])
     await window.keyboard.press('Escape')
