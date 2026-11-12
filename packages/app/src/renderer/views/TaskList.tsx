@@ -8,6 +8,7 @@ import type {
   ListView,
   MachineSettings,
   Priority,
+  RunSlots,
   StatusFilter,
   Task,
 } from '@ted/protocol'
@@ -22,14 +23,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import dialogStyles from '../components/ArchiveDialogs.module.css'
-import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
@@ -61,11 +61,11 @@ import {
   viewKey,
 } from '../list-view.ts'
 import { age, useNow } from '../requests.ts'
+import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
 import { activeSubAgentCount } from '../sub-agents.ts'
-import { statusAction } from '../task-actions.ts'
 import { priorityLabels } from '../task-fields.ts'
-import { readableError, ted } from '../ted.ts'
+import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import styles from './TaskList.module.css'
 import views from './views.module.css'
@@ -469,6 +469,7 @@ export function TaskList({
   onPlan,
   banners,
   capLine,
+  slots,
 }: {
   scope: string
   title: string
@@ -482,6 +483,7 @@ export function TaskList({
   onPlan?: () => void
   banners?: ReactNode
   capLine?: string | undefined
+  slots?: RunSlots | undefined
 }) {
   const now = useNow()
   const allTasks = isAllTasks(scope)
@@ -494,23 +496,12 @@ export function TaskList({
   }, [savedKey])
   const [text, setText] = useState('')
   const collapse = useListCollapsed(scope, view.group)
-  const [selected, setSelected] = useState<string[]>([])
-  const [anchor, setAnchor] = useState<string>()
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
   const [spot, setSpot] = useState<DropSpot>()
-  const [confirmArchive, setConfirmArchive] = useState(false)
-  const [prepareNotice, setPrepareNotice] = useState(false)
-  const [noticeSeen, setNoticeSeen] = useState(false)
-  const [preparing, setPreparing] = useState(false)
-  const [prepareError, setPrepareError] = useState<string>()
-  const [closePullRequests, setClosePullRequests] = useState(true)
-  const [priorityOpen, setPriorityOpen] = useState(false)
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
 
   useEffect(() => {
     void scope
-    setSelected([])
-    setAnchor(undefined)
     setText('')
   }, [scope])
 
@@ -540,6 +531,7 @@ export function TaskList({
   ].join(' ')
   const chips = filterChips(view.filters, factories)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
+  const { selected, setSelected, anchor, setAnchor, toggle } = useSelection(ordered, scope)
   const chosen = tasks.filter((t) => selected.includes(t.id))
 
   function select(task: Task, event: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) {
@@ -548,8 +540,7 @@ export function TaskList({
       return true
     }
     if (event.metaKey || event.ctrlKey) {
-      setSelected((current) => toggled(current, task.id))
-      setAnchor(task.id)
+      toggle(task.id)
       return true
     }
     return false
@@ -571,9 +562,6 @@ export function TaskList({
         setSelected(selectionRange(ordered, start, next.id))
       }
       rowRefs.current.get(next.id)?.focus()
-    } else if (event.key === 'Escape' && selected.length > 0) {
-      event.preventDefault()
-      setSelected([])
     }
   }
 
@@ -692,6 +680,7 @@ export function TaskList({
         )}
         data-task={task.displayId}
         data-nav-item
+        {...selectionTarget(task.displayId)}
         className={[
           styles.row,
           isSelected ? styles.selected : '',
@@ -732,13 +721,11 @@ export function TaskList({
           <input
             type="checkbox"
             className={styles.selectionCheckbox}
+            data-selection-box
             aria-label={`Select ${task.displayId}`}
             checked={isSelected}
             onClick={(event) => event.stopPropagation()}
-            onChange={() => {
-              setSelected((current) => toggled(current, task.id))
-              setAnchor(task.id)
-            }}
+            onChange={() => toggle(task.id)}
           />
         </td>
         {queueMode && (
@@ -787,50 +774,6 @@ export function TaskList({
     return items
   }
 
-  const startable = chosen.filter((t) => t.stage === 'backlog' && !t.statuses.includes('blocked'))
-  const preparable = startable.filter((t) => !t.archived && !t.setup)
-  const resumable = chosen.filter((t) => statusAction(t)?.kind === 'resume')
-  const archivable = chosen.filter((t) => !t.archived)
-  const openPullRequests = archivable.flatMap((t) =>
-    t.repos.flatMap((r) =>
-      r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
-        ? [`${r.repo}#${r.pullRequest.number}`]
-        : [],
-    ),
-  )
-
-  async function bulk(action: (task: Task) => Promise<unknown>, on: readonly Task[]) {
-    await Promise.all(on.map((task) => action(task).catch(report)))
-  }
-
-  async function prepareTasks() {
-    setPreparing(true)
-    setPrepareError(undefined)
-    try {
-      if (!settings?.preparationNoticeSeen && !noticeSeen) {
-        await ted.updateSettings({ preparationNoticeSeen: true })
-        setNoticeSeen(true)
-      }
-      setPrepareNotice(false)
-      const failures = await Promise.all(
-        preparable.map(async (task) => {
-          try {
-            await ted.startTask(task.id, { prepare: true })
-            return undefined
-          } catch (error) {
-            return `${task.displayId}: ${readableError(error)}`
-          }
-        }),
-      )
-      const errors = failures.filter((error) => error !== undefined)
-      if (errors.length > 0) setPrepareError(errors.join('\n'))
-    } catch (error) {
-      setPrepareError(readableError(error))
-    } finally {
-      setPreparing(false)
-    }
-  }
-
   function empty() {
     if (inScope.length === 0) {
       return (
@@ -868,17 +811,6 @@ export function TaskList({
     <section
       className={`${views.pane} ${styles.listPane} ${chosen.length > 0 ? styles.selecting : ''}`}
       aria-label={title}
-      onKeyDown={(event) => {
-        if (
-          event.key === 'Escape' &&
-          chosen.length > 0 &&
-          !document.querySelector('dialog[open], [role="menu"]')
-        ) {
-          setSelected([])
-          setConfirmArchive(false)
-          setPriorityOpen(false)
-        }
-      }}
     >
       <header className={views.header}>
         <h1 className={views.title}>
@@ -1016,6 +948,7 @@ export function TaskList({
                         <input
                           type="checkbox"
                           className={styles.selectionCheckbox}
+                          data-selection-box
                           aria-label={`Select all ${group.label} Tasks`}
                           aria-checked={
                             group.tasks.some((t) => selected.includes(t.id)) &&
@@ -1069,149 +1002,13 @@ export function TaskList({
           </table>
         </div>
       )}
-      {chosen.length > 0 && (
-        <div className={styles.selectionBar} role="toolbar" aria-label="Selected Tasks">
-          <span className={styles.selectionCount}>{chosen.length} selected</span>
-          <Button
-            size="small"
-            disabled={startable.length === 0}
-            onClick={() => bulk((t) => ted.startTask(t.id), startable).catch(report)}
-          >
-            {startable.length === chosen.length || startable.length === 0
-              ? 'Start'
-              : `Start ${startable.length}`}
-          </Button>
-          <Button
-            size="small"
-            disabled={preparable.length === 0 || preparing}
-            title="Runs through Design, then waits before Work. Resume or Overnight mode lets it continue."
-            onClick={() => {
-              if (settings?.preparationNoticeSeen || noticeSeen) void prepareTasks()
-              else {
-                setNoticeSeen(true)
-                setPrepareNotice(true)
-                ted
-                  .updateSettings({ preparationNoticeSeen: true })
-                  .catch((error: unknown) => setPrepareError(readableError(error)))
-              }
-            }}
-          >
-            {preparable.length === chosen.length || preparable.length === 0
-              ? 'Prepare through Design'
-              : `Prepare through Design ${preparable.length}`}
-          </Button>
-          {resumable.length > 0 && (
-            <Button
-              size="small"
-              onClick={() => bulk((task) => ted.resumeTask(task.id), resumable).catch(report)}
-            >
-              {resumable.length === chosen.length ? 'Resume' : `Resume ${resumable.length}`}
-            </Button>
-          )}
-          <div className={styles.menuAnchor}>
-            <Button
-              size="small"
-              aria-haspopup="menu"
-              aria-expanded={priorityOpen}
-              onClick={() => setPriorityOpen((o) => !o)}
-            >
-              Priority
-            </Button>
-            {priorityOpen && (
-              <div className={`${styles.menu} ${styles.upward}`} role="menu" aria-label="Priority">
-                {priorities.map((priority) => (
-                  <button
-                    key={priority}
-                    type="button"
-                    role="menuitem"
-                    className={styles.menuItem}
-                    onClick={() => {
-                      setPriorityOpen(false)
-                      bulk((t) => ted.setPriority(t.id, priority), archivable).catch(report)
-                    }}
-                  >
-                    <PriorityIcon priority={priority} />
-                    <span className={styles.menuLabel}>
-                      {priority === 'none' ? 'No priority' : priorityLabels[priority]}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {confirmArchive && openPullRequests.length > 0 && (
-            <label className={styles.closePullRequests} title={openPullRequests.join(', ')}>
-              <input
-                type="checkbox"
-                checked={closePullRequests}
-                onChange={(event) => setClosePullRequests(event.target.checked)}
-              />
-              {`Close ${openPullRequests.length === 1 ? 'the pull request' : `${openPullRequests.length} pull requests`} on GitHub`}
-            </label>
-          )}
-          {confirmArchive ? (
-            <Button
-              size="small"
-              variant="primary"
-              onClick={() => {
-                setConfirmArchive(false)
-                const close = closePullRequests && openPullRequests.length > 0
-                bulk((t) => ted.archiveTask(t.id, { closePullRequests: close }), archivable)
-                  .then(() => setSelected([]))
-                  .catch(report)
-              }}
-            >
-              {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
-            </Button>
-          ) : (
-            <Button
-              size="small"
-              disabled={archivable.length === 0}
-              onClick={() => setConfirmArchive(true)}
-            >
-              Archive
-            </Button>
-          )}
-        </div>
-      )}
-      {prepareError && (
-        <p role="alert" className={dialogStyles.error}>
-          {prepareError}
-        </p>
-      )}
-      {prepareNotice && (
-        <Dialog onClose={() => setPrepareNotice(false)}>
-          {(headingId) => (
-            <>
-              <h2 id={headingId} className={dialogStyles.heading}>
-                Prepare through Design
-              </h2>
-              <p className={dialogStyles.body}>
-                Settle questions and review designs now. Each Task enters Work and waits before
-                implementation starts.
-              </p>
-              <p className={dialogStyles.body}>
-                Answer questions and approve sign-offs as usual. Resume prepared Tasks individually
-                or in bulk, or turn on Overnight mode to let them continue.
-              </p>
-              {settings?.overnightMode && (
-                <p className={dialogStyles.body}>
-                  Overnight mode is on, so these Tasks can continue into Work as soon as Design
-                  finishes.
-                </p>
-              )}
-              <div className={dialogStyles.buttons}>
-                <Button onClick={() => setPrepareNotice(false)}>Cancel</Button>
-                <Button
-                  variant="primary"
-                  disabled={preparing || preparable.length === 0}
-                  onClick={() => void prepareTasks()}
-                >{`Prepare ${preparable.length} ${preparable.length === 1 ? 'Task' : 'Tasks'}`}</Button>
-              </div>
-            </>
-          )}
-        </Dialog>
-      )}
+      <SelectionBar
+        chosen={chosen}
+        allTasks={tasks}
+        slots={slots}
+        settings={settings}
+        onClear={() => setSelected([])}
+      />
     </section>
   )
 }
