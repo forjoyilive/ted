@@ -2,8 +2,10 @@ import type { AgentKind, Effort, Run, Task, TaskLead } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
 import { type FormEvent, useEffect, useId, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
+import { usePendingAction } from '../pending-action.ts'
 import { agentLabels, leadSummary } from '../task-fields.ts'
 import { ted } from '../ted.ts'
 import styles from './TaskLeadField.module.css'
@@ -12,6 +14,7 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 export function TaskLeadField({ task }: { task: Task }) {
   const id = useId()
+  const activity = usePendingAction()
   const lead = task.lead
   const runId = task.leadRunId
   const { value: run } = useEventValue<Run | undefined>({
@@ -50,7 +53,7 @@ export function TaskLeadField({ task }: { task: Task }) {
           ? { effort }
           : {}),
     }
-    ted.setTaskLead(task.id, choice).then(
+    return ted.setTaskLead(task.id, choice).then(
       () => setError(undefined),
       (e: unknown) => setError(errorText(e)),
     )
@@ -58,7 +61,7 @@ export function TaskLeadField({ task }: { task: Task }) {
 
   const { useDefaultModel: resetDefaultModel } = ted
   const pickDefaultModel = () => {
-    resetDefaultModel(task.id).then(
+    return resetDefaultModel(task.id).then(
       () => setError(undefined),
       (e: unknown) => setError(errorText(e)),
     )
@@ -81,12 +84,18 @@ export function TaskLeadField({ task }: { task: Task }) {
       {run?.problem === 'model-unavailable' && (
         <div className={styles.problem}>
           <span>Model unavailable</span>
-          <button type="button" className={styles.button} onClick={pickDefaultModel}>
+          <ActionButton type="button" className={styles.button} onClick={pickDefaultModel}>
             Use the default model
-          </button>
+          </ActionButton>
         </div>
       )}
-      <form className={styles.form} onSubmit={save}>
+      <form
+        className={styles.form}
+        onSubmit={(event) => {
+          event.preventDefault()
+          activity.run(() => save(event))
+        }}
+      >
         <label className={styles.label} htmlFor={`${id}-agent`}>
           Agent
           <Select
@@ -130,9 +139,9 @@ export function TaskLeadField({ task }: { task: Task }) {
             ))}
           </Select>
         </label>
-        <button type="submit" className={styles.button}>
+        <ActionButton type="submit" className={styles.button} pending={activity.pending}>
           Save
-        </button>
+        </ActionButton>
       </form>
       {error && (
         <p role="alert" className={styles.error}>

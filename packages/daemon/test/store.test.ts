@@ -241,6 +241,43 @@ describe('TedStore', () => {
     }
   })
 
+  test('what Runs used is summed per agent over the last days, counting only Runs with a cost as priced', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      expect(store.apiCost(30)).toMatchObject({ days: 30, agents: [] })
+      expect(store.apiCost(30).countedFrom).toBeUndefined()
+      store.recordRunUsage({
+        runId: 'a',
+        agent: 'claude',
+        model: 'm',
+        input: 100,
+        output: 10,
+        cost: 1.5,
+      })
+      store.recordRunUsage({ runId: 'b', agent: 'claude', input: 200, output: 20 })
+      store.recordRunUsage({ runId: 'c', agent: 'codex', input: 5, output: 1, cost: 0.25 })
+      store.recordRunUsage({
+        runId: 'a',
+        agent: 'claude',
+        model: 'm',
+        input: 300,
+        output: 30,
+        cost: 2,
+      })
+      const report = store.apiCost(30)
+      expect(report.countedFrom).toBeDefined()
+      expect(report.agents).toEqual([
+        { agent: 'claude', runs: 2, pricedRuns: 1, cost: 2, input: 500, output: 50 },
+        { agent: 'codex', runs: 1, pricedRuns: 1, cost: 0.25, input: 5, output: 1 },
+      ])
+      const later = store.apiCost(30, new Date(Date.now() + 31 * 86_400_000))
+      expect(later.agents).toEqual([])
+      expect(later.countedFrom).toBe(report.countedFrom)
+    } finally {
+      await store.close()
+    }
+  })
+
   test('an event log that holds v2.RunOutputRead lines loads, and its lines stay out of the state database', async () => {
     const first = await openStore({ directory: dir })
     first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })

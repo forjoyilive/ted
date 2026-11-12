@@ -15,6 +15,7 @@ const home = fixtureHome
 const directory = path.join(home, 'ownership-store')
 const mode = process.argv[2]
 let store = mode === 'store' ? await openStore({ directory }) : undefined
+let executionClockOffsetMs = 0
 let freeBytes = 500e9
 let load = 0
 let online = true
@@ -23,6 +24,7 @@ const daemon =
     ? undefined
     : await startDaemon({
         home,
+        execution: { now: () => Date.now() + executionClockOffsetMs },
         version: '9.9.9',
         claudeBin: stubClaudePath,
         codexBin: stubCodexPath,
@@ -110,6 +112,7 @@ async function execute(command: FixtureCommand): Promise<unknown> {
   if (command.action === 'counts') return counts
   if (command.action === 'control') {
     const c = command.changes
+    if (c.executionClockOffsetMs !== undefined) executionClockOffsetMs = c.executionClockOffsetMs
     if (c.freeBytes !== undefined) freeBytes = c.freeBytes
     if (c.load !== undefined) load = c.load
     if (c.online !== undefined) online = c.online

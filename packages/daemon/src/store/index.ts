@@ -5,6 +5,8 @@ import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
 import type {
+  AgentApiCost,
+  ApiCostReport,
   DashboardRange,
   FactoryDashboard,
   NewTaskDraft,
@@ -20,7 +22,9 @@ import {
   type Appearance,
   type AppStarter,
   type Attachment,
+  type AutopilotChoice,
   agentStageIds,
+  autopilotEnabled,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -113,6 +117,7 @@ import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
+import { createPairingStore, type PairingStore } from './execution-pairing.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { intervalBoundaries } from './interval-schema.ts'
@@ -154,6 +159,7 @@ import {
   runInterrupts,
   runMessages,
   runs,
+  runUsage,
   schema,
   sendBackAsks,
   sendBackResets,
@@ -231,7 +237,14 @@ export interface LeadFailure {
   ask?: { title: string; body: string }
 }
 
+export interface LeadMessage {
+  id: string
+  text: string
+  waitForSlot?: true
+}
+
 export interface QueueActivity {
+  taskPlaces?: readonly { id: string; place: number }[]
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
@@ -292,7 +305,7 @@ export interface NewFactory {
 }
 
 export interface StoredTask extends Task {
-  pendingLeadMessages: { id: string; text: string }[]
+  pendingLeadMessages: LeadMessage[]
   leadRestartPending: boolean
   forcedGates: AgentStageId[]
   changesSettings: boolean
@@ -524,6 +537,7 @@ export interface HeldRun {
 
 export interface TedStore extends TaskHistory {
   execution: ExecutionStore
+  pairing: PairingStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
@@ -726,8 +740,10 @@ export interface TedStore extends TaskHistory {
   seenStageFileText(hash: string): SeenStageFile | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
   setLeadRestartPending(taskId: string, pending: boolean): void
-  holdLeadMessage(taskId: string, text: string): void
+  tasksWithQueuedContinuations(): string[]
+  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean): void
   deliveredLeadMessages(taskId: string, ids: readonly string[]): void
+  setTaskAutopilot(taskId: string, choice: AutopilotChoice): Task
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
     taskId: string,
@@ -745,7 +761,12 @@ export interface TedStore extends TaskHistory {
   removeTaskDraft(factoryId: string): void
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
-  answerComment(id: string, answer: CommentAnswer, lineComments?: readonly string[]): Comment
+  answerComment(
+    id: string,
+    answer: CommentAnswer,
+    lineComments?: readonly string[],
+    autopilot?: boolean,
+  ): Comment
   draftLineComment(input: NewLineComment): LineComment
   editLineComment(id: string, body: string): LineComment
   deleteLineComments(taskId: string, ids: readonly string[]): void
@@ -877,6 +898,15 @@ export interface TedStore extends TaskHistory {
   backlogTasks(): { id: string; snoozed: boolean }[]
   unarchivedTaskRepos(): { id: string; stage: StageId; repos: TaskRepo[] }[]
   runReadOffset(id: string): number
+  recordRunUsage(usage: {
+    runId: string
+    agent: AgentKind
+    model?: string
+    input: number
+    output: number
+    cost?: number
+  }): void
+  apiCost(days: number, now?: Date): ApiCostReport
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
   queueRunMessage(input: { runId: string; text: string; from?: 'ted' }): RunMessage
@@ -1516,6 +1546,7 @@ export async function openStore({
       followUpOf,
       forcedGates,
       gateOverrides,
+      autopilotChoice,
       changesSettings,
       splitFrom,
       needsPlanningAt,
@@ -1527,6 +1558,12 @@ export async function openStore({
     reads: TaskReads = perTask,
   ): StoredTask => {
     const stage = row.stage as StageId
+    const pendingMessages: LeadMessage[] =
+      pendingLeadDeliveries !== null
+        ? JSON.parse(pendingLeadDeliveries)
+        : pendingLeadMessage !== null
+          ? [{ id: `stage-legacy-${row.id}`, text: pendingLeadMessage }]
+          : []
     const all = reads.runs(row.id)
     const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
@@ -1557,7 +1594,12 @@ export async function openStore({
     const queued = reads.queued(row.id).at(0)
     const paused = reads.pauses()
     const held = reads.held(row.id).at(0)
-    const place = queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0
+    const queuedContinuation = pendingMessages.some((message) => message.waitForSlot)
+    const place =
+      queued || queuedContinuation
+        ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
+          (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
+        : 0
     const pausedRuns = taskPauses({
       taskId: row.id,
       heldAgent: held?.agent,
@@ -1745,16 +1787,18 @@ export async function openStore({
         },
       }),
       ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
-      pendingLeadMessages:
-        pendingLeadDeliveries !== null
-          ? (JSON.parse(pendingLeadDeliveries) as { id: string; text: string }[])
-          : pendingLeadMessage !== null
-            ? [{ id: `stage-legacy-${row.id}`, text: pendingLeadMessage }]
-            : [],
+      pendingLeadMessages: pendingMessages,
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
       ...((preparation === 'preparing' || preparation === 'ready') && { preparation }),
+      autopilot: {
+        choice: (autopilotChoice ?? 'inherit') as AutopilotChoice,
+        enabled: autopilotEnabled(
+          (autopilotChoice ?? 'inherit') as AutopilotChoice,
+          reads.settings().overnightMode,
+        ),
+      },
       gateOverrides: gateOverrides === null ? {} : (JSON.parse(gateOverrides) as TaskGateOverrides),
       forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
       changesSettings,
@@ -2837,6 +2881,7 @@ export async function openStore({
 
   return {
     execution,
+    pairing: createPairingStore(store, commit),
     sideChats: createSideChatStore({
       store,
       commit,
@@ -3998,12 +4043,24 @@ export async function openStore({
     setLeadRestartPending(taskId, pending) {
       commit(events.taskLeadRestartPendingSet({ taskId, pending, at: new Date().toISOString() }))
     },
-    holdLeadMessage(taskId, text) {
+    tasksWithQueuedContinuations: () =>
+      store
+        .query(queryDb(tasks.where({ pendingLeadDeliveries: { op: '!=', value: null } })))
+        .filter((row) =>
+          (JSON.parse(row.pendingLeadDeliveries ?? '[]') as LeadMessage[]).some(
+            (message) => message.waitForSlot,
+          ),
+        )
+        .map((row) => row.id),
+    holdLeadMessage(taskId, text, waitForSlot = false) {
       const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
       commit(
         events.taskLeadMessagesHeld({
           taskId,
-          messages: JSON.stringify([...pending, { id: randomUUID(), text }]),
+          messages: JSON.stringify([
+            ...pending,
+            { id: randomUUID(), text, ...(waitForSlot && { waitForSlot: true }) },
+          ]),
           at: new Date().toISOString(),
         }),
       )
@@ -4019,6 +4076,10 @@ export async function openStore({
           at: new Date().toISOString(),
         }),
       )
+    },
+    setTaskAutopilot(taskId, choice) {
+      commit(events.taskAutopilotChanged({ taskId, choice, at: new Date().toISOString() }))
+      return updatedTask(taskId)
     },
     setTaskGates(taskId, overrides) {
       commit(
@@ -4145,9 +4206,18 @@ export async function openStore({
         .map(toComment)
     },
     getComment,
-    answerComment(id, answer, sending) {
+    answerComment(id, answer, sending, autopilot = false) {
       commit(
         events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }),
+        ...(autopilot
+          ? [
+              events.commentAnsweredByAutopilot({
+                taskId: requireComment(id).taskId,
+                commentId: id,
+                at: answer.at,
+              }),
+            ]
+          : []),
         ...lineCommentsSent(sending, id, answer.at),
       )
       const comment = emitComment(id)
@@ -4960,6 +5030,53 @@ export async function openStore({
         .filter((row) => row.archivedAt === null)
         .map((row) => ({ id: row.id, stage: row.stage as StageId, repos: reposOf(row.id) })),
     runReadOffset: (id) => Math.max(runRow(id)?.readOffset ?? 0, heldOutput.get(id)?.toOffset ?? 0),
+    recordRunUsage({ runId, agent, model, input, output, cost }) {
+      commit(
+        events.runUsageRecorded({
+          runId,
+          agent,
+          model: model ?? null,
+          input,
+          output,
+          cost: cost ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      const row = runRow(runId)
+      if (row) emit({ type: 'run-updated', run: toRun(row) })
+    },
+    apiCost(days, now = new Date()) {
+      const since = new Date(now.getTime() - days * 86_400_000).toISOString()
+      const rows = store.query(queryDb(runUsage.orderBy('at', 'asc')))
+      const agents = new Map<AgentKind, AgentApiCost>()
+      for (const row of rows) {
+        if (row.at < since) continue
+        const agent = row.agent as AgentKind
+        const sum = agents.get(agent) ?? {
+          agent,
+          runs: 0,
+          pricedRuns: 0,
+          cost: 0,
+          input: 0,
+          output: 0,
+        }
+        sum.runs += 1
+        sum.input += row.input
+        sum.output += row.output
+        if (row.cost !== null) {
+          sum.pricedRuns += 1
+          sum.cost += row.cost
+        }
+        agents.set(agent, sum)
+      }
+      const first = rows[0]?.at
+      return {
+        days,
+        since,
+        ...(first !== undefined && { countedFrom: first }),
+        agents: [...agents.values()],
+      }
+    },
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {
       const taskId = taskIdOfRun(runId) ?? null
@@ -5045,7 +5162,12 @@ export async function openStore({
     activity,
     waiting,
     setQueueActivity(value) {
+      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, entry.place]))
+      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, entry.place]))
       queueActivity = value
+      for (const id of new Set([...before.keys(), ...after.keys()])) {
+        if (before.get(id) !== after.get(id) && taskRow(id)) updatedTask(id)
+      }
       noteActivity()
     },
     setShellsRunning(count) {
@@ -5068,6 +5190,7 @@ export async function openStore({
           }),
         )
         emit({ type: 'settings-changed', settings: settings() })
+        if ('overnightMode' in changed) for (const row of store.query(allTasks)) updatedTask(row.id)
       }
       return settings()
     },

@@ -581,3 +581,7 @@
     opacity: 1;
   }
 }
+
+.selectionControls {
+  display: contents;
+}

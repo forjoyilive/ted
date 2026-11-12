@@ -104,8 +104,10 @@ export class FixtureMachine {
     { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
   >()
 
-  constructor(root: string, name: string, mode: 'daemon' | 'store') {
+  readonly labRunId: string | undefined
+  constructor(root: string, name: string, mode: 'daemon' | 'store', labRunId?: string) {
     this.root = root
+    this.labRunId = labRunId
     this.home = path.join(root, 'home')
     this.name = name
     this.mode = mode
@@ -134,6 +136,10 @@ export class FixtureMachine {
     if (this.child) throw new Error('machine already started')
     this.ready = undefined
     const env = fixtureEnvironment(this.home)
+    if (this.labRunId) {
+      if (!/^[a-f0-9-]{36}$/.test(this.labRunId)) throw new Error('Invalid lab run marker')
+      env.TED_LAB_RUN = this.labRunId
+    }
     const entry = nodeEntry(
       fileURLToPath(new URL('../fixtures/execution-machine.ts', import.meta.url)),
       [this.mode],

@@ -79,7 +79,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
 
   const choosePicture = () => {
     setProblem(undefined)
-    ted.chooseProfilePicture().catch((error: unknown) => {
+    return ted.chooseProfilePicture().catch((error: unknown) => {
       setProblem(error instanceof Error ? error.message : String(error))
     })
   }
@@ -95,7 +95,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         >
           <Button onClick={choosePicture}>Change…</Button>
           <Button
-            onClick={() => void ted.updateSettings({ profilePicture: null })}
+            onClick={() => ted.updateSettings({ profilePicture: null })}
             disabled={picture === undefined}
           >
             Remove
@@ -110,7 +110,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             name="appearance"
             value={settings.appearance}
             options={appearanceOptions}
-            onChange={(appearance) => void ted.updateSettings({ appearance })}
+            onChange={(appearance) => ted.updateSettings({ appearance })}
           />
         </SettingRow>
         <SettingRow
@@ -125,11 +125,11 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             format={(value) => `${value}%`}
             lessLabel="Decrease text size"
             moreLabel="Increase text size"
-            onChange={(textSize) => void ted.updateSettings({ textSize })}
+            onChange={(textSize) => ted.updateSettings({ textSize })}
           />
           <Button
             disabled={settings.textSize === 100}
-            onClick={() => void ted.updateSettings({ textSize: 100 })}
+            onClick={() => ted.updateSettings({ textSize: 100 })}
           >
             Default
           </Button>
@@ -144,7 +144,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             value={settings.terminalFontSize}
             options={fontSizeOptions}
             width={80}
-            onChange={(terminalFontSize) => void ted.updateSettings({ terminalFontSize })}
+            onChange={(terminalFontSize) => ted.updateSettings({ terminalFontSize })}
           />
         </SettingRow>
       </SettingsGroup>
@@ -160,7 +160,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
               { value: '12-hour', label: '12-hour' },
               { value: '24-hour', label: '24-hour' },
             ]}
-            onChange={(timeFormat) => void ted.updateSettings({ timeFormat })}
+            onChange={(timeFormat) => ted.updateSettings({ timeFormat })}
           />
         </SettingRow>
         <SettingRow
@@ -180,7 +180,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
                 ]),
               ].map((zone) => ({ value: zone, label: zone.replaceAll('_', ' ') })),
             ]}
-            onChange={(timeZone) => void ted.updateSettings({ timeZone })}
+            onChange={(timeZone) => ted.updateSettings({ timeZone })}
             width={265}
           />
         </SettingRow>
@@ -196,20 +196,20 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </p>
       </SettingsGroup>
 
-      <SettingsGroup label="Overnight mode">
+      <SettingsGroup label="Autopilot">
         <SettingRow
-          title="Overnight mode across all Factories"
-          help="Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Sign-offs set in the Workflow or on a Task are off, so Tasks move through their Stages and merge without your sign-off. Setup Tasks and Tasks that change a Factory’s settings still wait for you, and so do questions and permission prompts."
+          title="Autopilot across all Factories"
+          help="Start eligible Backlog Tasks and carry work through Merge without routine questions or sign-offs. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed Checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you."
           detail={
             overnight.problem ??
             'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.'
           }
         >
           <Switch
-            label="Overnight mode across all Factories"
+            label="Autopilot across all Factories"
             checked={settings.overnightMode}
             disabled={overnight.saving}
-            onChange={(enabled) => void overnight.change(enabled)}
+            onChange={(enabled) => overnight.change(enabled)}
           />
         </SettingRow>
       </SettingsGroup>
@@ -221,12 +221,12 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           {...(loginNote !== undefined && { detail: loginNote })}
         >
           {loginItem === 'requires-approval' && settings.startAtLogin && (
-            <Button onClick={() => void ted.openLoginItemsSettings()}>Open System Settings</Button>
+            <Button onClick={() => ted.openLoginItemsSettings()}>Open System Settings</Button>
           )}
           <Switch
             label="Start TED in the background when you log in"
             checked={settings.startAtLogin}
-            onChange={(startAtLogin) => void ted.updateSettings({ startAtLogin })}
+            onChange={(startAtLogin) => ted.updateSettings({ startAtLogin })}
           />
         </SettingRow>
         <SettingRow
@@ -239,7 +239,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             value={settings.quitWithWorkRunning}
             options={quitOptions}
             width={240}
-            onChange={(quitWithWorkRunning) => void ted.updateSettings({ quitWithWorkRunning })}
+            onChange={(quitWithWorkRunning) => ted.updateSettings({ quitWithWorkRunning })}
           />
         </SettingRow>
         {onLinux && (
@@ -250,7 +250,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             <Switch
               label="Show tray icon"
               checked={settings.showTrayIcon}
-              onChange={(showTrayIcon) => void ted.updateSettings({ showTrayIcon })}
+              onChange={(showTrayIcon) => ted.updateSettings({ showTrayIcon })}
             />
           </SettingRow>
         )}
@@ -261,7 +261,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           <Switch
             label="Stay Awake while Runs are working"
             checked={settings.stayAwake}
-            onChange={(stayAwake) => void ted.updateSettings({ stayAwake })}
+            onChange={(stayAwake) => ted.updateSettings({ stayAwake })}
           />
         </SettingRow>
       </SettingsGroup>

@@ -402,7 +402,7 @@ describe('Clarify rounds', () => {
     expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
   })
 
-  test('overnight mode suppresses the configured Grilling sign-off', async () => {
+  test('Autopilot suppresses the configured Grilling sign-off', async () => {
     const client = await start(true)
     const task = await startTask(
       client,
@@ -419,7 +419,7 @@ describe('Clarify rounds', () => {
     await waitForStage(client, task, 'work')
     expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
     expect(await threadLines(client, task)).toContain(
-      'Overnight mode is on, so TED skipped the Clarify sign-off',
+      'Autopilot is on, so TED skipped the Clarify sign-off',
     )
   })
 

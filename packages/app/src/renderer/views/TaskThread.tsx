@@ -23,8 +23,10 @@ import {
   usePullRequestChanges,
   useTaskChanges,
 } from '../changes.ts'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { AppLogView } from '../components/AppLogView.tsx'
 import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
+import { AutopilotField } from '../components/Autopilot.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -220,23 +222,31 @@ function EventRow({
       at={event.at}
       action={
         planId !== undefined ? (
-          <button type="button" className={styles.linkButton} onClick={() => onOpenPlan(planId)}>
+          <ActionButton
+            type="button"
+            className={styles.linkButton}
+            onClick={() => onOpenPlan(planId)}
+          >
             Open chat
-          </button>
+          </ActionButton>
         ) : runId !== undefined ? (
-          <button type="button" className={styles.linkButton} onClick={() => onOpenRun(runId)}>
+          <ActionButton
+            type="button"
+            className={styles.linkButton}
+            onClick={() => onOpenRun(runId)}
+          >
             View message
-          </button>
+          </ActionButton>
         ) : (
           changes !== undefined && (
-            <button
+            <ActionButton
               type="button"
               className={styles.linkButton}
               aria-expanded={showChanges}
               onClick={() => setShowChanges((shown) => !shown)}
             >
               {showChanges ? 'Hide changes' : 'Show changes'}
-            </button>
+            </ActionButton>
           )
         )
       }
@@ -340,11 +350,11 @@ export function TaskPanes({
   const show = (runId: string | undefined) => go({ kind: 'run', runId })
   const openRun = (runId: string) => {
     show(runId)
-    void ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
+    return ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
   const closeRun = (runId: string) => {
     if (visibleRun === runId) show(undefined)
-    void ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
+    return ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
   const openShell = (repo: string) => go({ kind: 'shell', repo })
   useEffect(() => {
@@ -776,9 +786,9 @@ export function TaskThread({
         style={hidden || talking ? { display: 'none' } : undefined}
       >
         {backLink !== undefined && (
-          <button type="button" className={styles.back} onClick={onBack}>
+          <ActionButton type="button" className={styles.back} onClick={onBack}>
             {backLink}
-          </button>
+          </ActionButton>
         )}
         {task.archived && <ArchivedBar task={task} />}
         <header
@@ -791,39 +801,39 @@ export function TaskThread({
               {task.followUpOf ? (
                 <>
                   {'Follow-up to '}
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.metaLink}
                     onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
                   >
                     {task.followUpOf.displayId}
-                  </button>
+                  </ActionButton>
                 </>
               ) : task.setup ? (
                 'Created by TED'
               ) : task.splitFrom ? (
                 <>
                   {'Split from '}
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.metaLink}
                     onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
                   >
                     {task.splitFrom.displayId}
-                  </button>
+                  </ActionButton>
                 </>
               ) : task.fromPlan?.deleted ? (
                 'From a deleted planning chat'
               ) : task.fromPlan ? (
                 <>
                   {'From planning chat '}
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.metaLink}
                     onClick={() => task.fromPlan && onOpenPlan(task.fromPlan.id)}
                   >
                     {task.fromPlan.title}
-                  </button>
+                  </ActionButton>
                 </>
               ) : (
                 'Created by you'
@@ -840,7 +850,7 @@ export function TaskThread({
                 size="small"
                 variant="primary"
                 onClick={() =>
-                  void runStatusAction(headerAction.kind, task).catch((error: unknown) =>
+                  runStatusAction(headerAction.kind, task).catch((error: unknown) =>
                     console.error(error),
                   )
                 }
@@ -894,7 +904,7 @@ export function TaskThread({
               {open.length > 0 && (
                 <div className={styles.filterNote}>
                   A Task request needs your answer ·{' '}
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.linkButton}
                     onClick={() => {
@@ -903,7 +913,7 @@ export function TaskThread({
                     }}
                   >
                     View in Task Lead
-                  </button>
+                  </ActionButton>
                 </div>
               )}
               <RunWithSideChat
@@ -916,7 +926,7 @@ export function TaskThread({
                     : undefined
                 }
                 onStopTask={() =>
-                  void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
+                  ted.stopTask(task.id).catch((error: unknown) => console.error(error))
                 }
               />
             </>
@@ -925,13 +935,13 @@ export function TaskThread({
             {stage !== undefined && (
               <p className={styles.filterNote}>
                 Showing {stageName(stage)} only ·{' '}
-                <button
+                <ActionButton
                   type="button"
                   className={styles.linkButton}
                   onClick={() => setFilter(undefined)}
                 >
                   Show all
-                </button>
+                </ActionButton>
               </p>
             )}
             <RequestJumpBar
@@ -1037,21 +1047,21 @@ function ArchivedBar({ task }: { task: Task }) {
     <div className={styles.archivedBar}>
       <span>{`Archived ${at ? formatDate(at, { day: 'numeric', month: 'short' }) : ''}`}</span>
       <span aria-hidden>·</span>
-      <button
+      <ActionButton
         type="button"
         className={styles.archivedAction}
         disabled={busy}
         onClick={() => {
           setBusy(true)
           setError(undefined)
-          ted
+          return ted
             .unarchiveTask(task.id)
             .catch((failure: unknown) => setError(readableError(failure)))
             .finally(() => setBusy(false))
         }}
       >
         Unarchive
-      </button>
+      </ActionButton>
       {error !== undefined && (
         <span className={styles.archivedError} role="alert">
           {error}
@@ -1087,7 +1097,7 @@ export function TaskDetails({
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
     setError(undefined)
-    request.catch((failure: unknown) => setError(readableError(failure)))
+    return request.catch((failure: unknown) => setError(readableError(failure)))
   }
   const editable = !task.archived
   const blocks = tasks.filter((t) => t.blockedBy.includes(task.id))
@@ -1152,9 +1162,13 @@ export function TaskDetails({
             </>
           )}
         </dd>
+        <dt>Autopilot</dt>
+        <dd>
+          <AutopilotField task={task} />
+        </dd>
         <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
-          <TaskGatesField key={task.id} taskId={task.id} factoryId={task.factoryId} />
+          <TaskGatesField key={task.id} taskId={task.id} factoryId={task.factoryId} task={task} />
         </dd>
         {factory && showsRepos(factory) && (
           <>
@@ -1284,7 +1298,7 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
   const gone = task.blockedBy.filter((id) => !tasks.some((t) => t.id === id))
   const change = (request: Promise<Task>) => {
     setError(undefined)
-    request.catch((failure: unknown) => setError(readableError(failure)))
+    return request.catch((failure: unknown) => setError(readableError(failure)))
   }
   return (
     <>
@@ -1299,13 +1313,13 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
       {gone.map((id) => (
         <p key={id} className={styles.deletedBlocker}>
           A deleted Task
-          <button
+          <ActionButton
             type="button"
             className={styles.linkButton}
             onClick={() => change(ted.unblockTask(task.id, id))}
           >
             Remove
-          </button>
+          </ActionButton>
         </p>
       ))}
       {error !== undefined && (

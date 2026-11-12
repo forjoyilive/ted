@@ -22,10 +22,13 @@ export class KeyringUnavailableError extends Error {
 export const keyringService = identity().keyringService
 export const linearKeyAccount = 'linear-api-key'
 
-export function osKeyring(platform: NodeJS.Platform = process.platform): Keyring {
+export function osKeyring(
+  platform: NodeJS.Platform = process.platform,
+  account = linearKeyAccount,
+): Keyring {
   const kind: KeyringKind = platform === 'darwin' ? 'macos-keychain' : 'secret-service'
   const entry = () =>
-    new AsyncEntry(keyringService, linearKeyAccount, { linux: { store: 'secret-service' } })
+    new AsyncEntry(keyringService, account, { linux: { store: 'secret-service' } })
   const unavailable = (error: unknown): Error => {
     const detail = error instanceof Error ? error.message : String(error)
     if (/\block(ed)?\b/i.test(detail)) return new KeyringUnavailableError('locked', detail)
@@ -61,9 +64,12 @@ export function osKeyring(platform: NodeJS.Platform = process.platform): Keyring
 export async function loadKeyring(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
+  account = linearKeyAccount,
 ): Promise<Keyring> {
   const module = tedEnv('TED_KEYRING_MODULE', env)
-  if (!module) return osKeyring(platform)
-  const loaded = (await import(pathToFileURL(module).href)) as { default: () => Keyring }
-  return loaded.default()
+  if (!module) return osKeyring(platform, account)
+  const loaded = (await import(pathToFileURL(module).href)) as {
+    default: (account?: string) => Keyring
+  }
+  return loaded.default(account)
 }

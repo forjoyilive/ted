@@ -68,6 +68,7 @@ export interface LeadLifecycleOptions {
   setUp(task: StoredTask, steps: readonly SetupStep[]): Promise<string[] | undefined>
   setUpAdded(taskId: string, step: SetupStep): Promise<{ report?: string } | undefined>
   hold(taskId: string): () => void
+  mayContinue?(taskId: string): boolean
   stopRequested(taskId: string): boolean
   wake(): void
   background(what: string, work: () => Promise<void>): void
@@ -89,7 +90,7 @@ export function effectiveLead(task: StoredTask, fallback?: TaskLead): TaskLead |
 }
 export const sameChoice = (lead: TaskLead, run: Run) =>
   lead.agent === run.agent && lead.model === run.model && lead.effort === run.effort
-const atIdlePoint = (run: Run) =>
+export const atIdlePoint = (run: Run) =>
   run.state === 'idle' || (run.problem !== undefined && run.state === 'waiting')
 
 export const continueMessage =
@@ -183,6 +184,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const task = store.getTask(taskId)
     const lead = task && effectiveLead(task)
     if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
+    if (options.mayContinue?.(taskId) === false) return
     applying.add(taskId)
     try {
       if (!sameChoice(lead, run) || task.leadRestartPending) {
@@ -210,6 +212,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
           .dispatch(live.id, current.pendingLeadMessages, false, () => {
             const now = find(taskId)
             return (
+              options.mayContinue?.(taskId) !== false &&
               now.leadRunId === live.id &&
               !now.stopped &&
               !now.archived &&
@@ -236,6 +239,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       }
     } finally {
       applying.delete(taskId)
+      if (store.getTask(taskId)?.pendingLeadMessages.some((message) => message.waitForSlot)) wake()
     }
     const after = find(taskId)
     const live = liveLead(after)
@@ -516,7 +520,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       const messages = current.pendingLeadMessages
       await runs.revive(run.id, {
         prompt: [
-          overnightGuidance(store.settings().overnightMode),
+          overnightGuidance(current.autopilot?.enabled === true, current.setup),
           revivedMessage(reason),
           ...editedSince(task),
           ...messages.map((message) => message.text),

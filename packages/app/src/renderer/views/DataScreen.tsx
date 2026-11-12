@@ -1,5 +1,6 @@
 import type { Backup, DataStatus } from '@ted/protocol'
 import { useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Help } from '../components/Help.tsx'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
@@ -92,9 +93,9 @@ function Failed({ status }: { status: Extract<DataStatus, { state: 'failed' }> }
         {status.restore && <Restore backup={status.restore} primary withVersion />}
         <div className={styles.row}>
           <CopyReport status={status} />
-          <button type="button" className={styles.secondary} onClick={() => void ted.quit()}>
+          <ActionButton type="button" className={styles.secondary} onClick={() => ted.quit()}>
             Quit TED
-          </button>
+          </ActionButton>
         </div>
       </div>
     </>
@@ -117,9 +118,9 @@ function NeedsNewer({ status }: { status: Extract<DataStatus, { state: 'needs-ne
       </p>
       <div className={styles.actions}>
         <div className={styles.row}>
-          <button type="button" className={styles.primary} onClick={() => void ted.downloadTed()}>
+          <ActionButton type="button" className={styles.primary} onClick={() => ted.downloadTed()}>
             {needs ? `Download TED ${needs}` : 'Download TED'}
-          </button>
+          </ActionButton>
           <CopyReport status={status} />
         </div>
         {status.restore && (
@@ -146,17 +147,17 @@ function Restore({
   const when = withVersion && backup.dataFrom ? `, when TED ${backup.dataFrom} last ran` : ''
   return (
     <div className={styles.restore}>
-      <button
+      <ActionButton
         type="button"
         className={primary ? styles.primary : styles.secondary}
         disabled={restoring}
         onClick={() => {
           setRestoring(true)
-          ted.restoreBackup({ name: backup.name }).catch(() => setRestoring(false))
+          return ted.restoreBackup({ name: backup.name }).catch(() => setRestoring(false))
         }}
       >
         Restore the backup from before the update
-      </button>
+      </ActionButton>
       <div className={styles.loses}>
         <span>
           Loses changes since {since}
@@ -174,15 +175,15 @@ function Restore({
 function CopyReport({ status }: { status: ProblemStatus }) {
   const [copied, setCopied] = useState(false)
   return (
-    <button
+    <ActionButton
       type="button"
       className={styles.secondary}
       onClick={() => {
-        void ted.copyText(report(status)).then(() => setCopied(true))
+        return ted.copyText(report(status)).then(() => setCopied(true))
       }}
     >
       {copied ? 'Copied' : 'Copy report'}
-    </button>
+    </ActionButton>
   )
 }
 
