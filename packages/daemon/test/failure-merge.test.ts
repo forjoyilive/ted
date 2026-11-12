@@ -22,6 +22,8 @@ import {
   toSignoff,
   useMergeHarness,
 } from './merge-harness.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 useMergeHarness()
 
@@ -421,59 +423,137 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
   ).toBe(409)
 })
 
-test('completed acceptance survives background reads, explicit queries and daemon restart', async () => {
-  const client = await start()
-  const { task, signoff } = await toSignoff(client)
-  await writeFile(client.mergingFile, '')
-  const current = await getTask(client, task.id)
-  const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
-  const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
-  const post = async <T>(suffix: string, body: unknown = {}): Promise<T> => {
-    const result = await lead.call('POST', `/tasks/${task.id}${suffix}`, body)
-    expect(result.status, JSON.stringify(result.body)).toBeLessThan(300)
-    return result.body as T
+test('completed acceptance survives background reads, explicit queries and daemon restart', async ({
+  onTestFailed,
+}) => {
+  const timings: { phase: string; startedMs: number; endedMs?: number }[] = []
+  const started = performance.now()
+  const phase = async <T>(name: string, work: () => Promise<T>): Promise<T> => {
+    const timing: (typeof timings)[number] = { phase: name, startedMs: performance.now() - started }
+    timings.push(timing)
+    const result = await work()
+    timing.endedMs = performance.now() - started
+    return result
   }
-  const context = await post<FailureContext>('/failure-contexts')
-  const value = await post<FailureCase>('/failures', {
-    source: { kind: 'finding', runId: current.leadRunId, finding: 'Known unrelated issue' },
-    evidence: 'Observed',
-    contextId: context.id,
+  onTestFailed(() => console.error('Completed acceptance phases:', JSON.stringify(timings)))
+  const clock = new ManualClock()
+  const pollEveryMs = 50
+  const client = await phase('daemon and Factory startup', () =>
+    start({ mergePollMs: pollEveryMs, daemon: { clock } }),
+  )
+  const pollFinished = () =>
+    eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(pollEveryMs),
+      'completed acceptance: GitHub observation applied and poll rearmed',
+    )
+  const { task, signoff } = await phase('first Task to Review sign-off', () =>
+    toSignoff(client, {}, clock),
+  )
+  const { current, post } = await phase('read Task and prepare Task Lead requests', async () => {
+    await writeFile(client.mergingFile, '')
+    const current = await getTask(client, task.id)
+    return { current, ...(await leadFor(task.id, current.leadRunId ?? '')) }
   })
-  await post(`/failures/${value.id}/assessments`, {
-    assessment: 'unrelated',
-    recommendation: 'Accept',
-  })
-  const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
-  await client.ok('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
-    requestId: asked.decisions.at(-1)?.commentId,
-    resolution: 'accepted',
-  })
-  await approve(client, signoff)
-  await waitUntil(async () => (await getTask(client, task.id)).stage === 'done', 'Done')
+  const context = await phase('capture tested context', () =>
+    post<FailureContext>('/failure-contexts'),
+  )
+  const value = await phase('record Finding', () =>
+    post<FailureCase>('/failures', {
+      source: { kind: 'finding', runId: current.leadRunId, finding: 'Known unrelated issue' },
+      evidence: 'Observed',
+      contextId: context.id,
+    }),
+  )
+  await phase('assess Finding', () =>
+    post(`/failures/${value.id}/assessments`, {
+      assessment: 'unrelated',
+      recommendation: 'Accept',
+    }),
+  )
+  const asked = await phase('request failure decision', () =>
+    post<FailureCase>(`/failures/${value.id}/decision`),
+  )
+  await phase('accept failure', () =>
+    client.ok('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
+      requestId: asked.decisions.at(-1)?.commentId,
+      resolution: 'accepted',
+    }),
+  )
+  await phase('approve Review sign-off', () => approve(client, signoff))
+  await phase('merge to Done', () =>
+    waitUntil(async () => {
+      const done = (await getTask(client, task.id)).stage === 'done'
+      if (!done && clock.pending.includes(pollEveryMs)) clock.advance(pollEveryMs)
+      else if (!done && clock.pending.includes(100)) clock.advance(100)
+      return done
+    }, 'completed acceptance: Done'),
+  )
   await rm(client.mergingFile)
-  await toSignoff(client)
+  await phase('second Task to Review sign-off', () => toSignoff(client, {}, clock))
+  await phase('drain background poll', pollFinished)
 
   const query = `/tasks/${task.id}/validation-obligations`
-  expect(await client.ok('GET', query)).toMatchObject({
+  const accepted = {
     satisfied: true,
     cases: [{ id: value.id, disposition: 'accepted', context: 'historical' }],
+  }
+  const entered = path.join(ctx.scratch, 'completed-read-entered')
+  const release = path.join(ctx.scratch, 'completed-read-release')
+  await writeFile(
+    ctx.ghState,
+    JSON.stringify({
+      ...(await readGh()),
+      graphqlGate: { entered, release },
+    }),
+  )
+  clock.advance(pollEveryMs)
+  try {
+    await phase('background GitHub read enters gate', () =>
+      waitUntil(
+        () => readFile(entered, 'utf8').catch(() => undefined),
+        'completed acceptance: background GitHub read entered',
+      ),
+    )
+    await phase('explicit obligations during delayed background read', async () => {
+      expect(await client.ok('GET', query)).toMatchObject(accepted)
+    })
+  } finally {
+    await writeFile(release, '')
+  }
+  await phase('background GitHub read completes', pollFinished)
+  await phase('explicit obligations after background read', async () => {
+    expect(await client.ok('GET', query)).toMatchObject(accepted)
   })
-  const history = await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
+  const history = await phase('read accepted history', () =>
+    client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`),
+  )
   expect(history[0]?.invalidations).toEqual([])
   expect(history[0]?.resolutions[0]?.resolution).toBe('accepted')
-  await ctx.daemon?.stop()
-  ctx.daemon = await startDaemon({
-    home: ctx.home,
-    version: '9.9.9',
-    claudeBin: stubClaudePath,
-    mergePollMs: 100,
+  await phase('stop daemon', async () => {
+    await ctx.daemon?.stop()
   })
+  await phase('remove state for event-log replay', async () => {
+    const directory = path.join(tedPaths(ctx.home).store, 'ted')
+    for (const file of await readdir(directory))
+      if (file.startsWith('state')) await rm(path.join(directory, file), { force: true })
+  })
+  ctx.daemon = await phase('restart daemon and replay', () =>
+    startDaemon({
+      home: ctx.home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      mergePollMs: 100,
+    }),
+  )
   const restarted = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
-  expect((await restarted.call('GET', query)).body).toMatchObject({
-    satisfied: true,
-    cases: [{ id: value.id, disposition: 'accepted', context: 'historical' }],
+  await phase('obligations and identical history after replay', async () => {
+    expect(await restarted.call('GET', query)).toMatchObject({ status: 200, body: accepted })
+    const replayed = await restarted.call('GET', `/tasks/${task.id}/failures`)
+    expect(replayed.status).toBe(200)
+    expect(replayed.body).toEqual(history)
   })
-  expect((await restarted.call('GET', `/tasks/${task.id}/failures`)).body).toEqual(history)
+  console.info('Completed acceptance phases:', JSON.stringify(timings))
 }, 90_000)
 
 test('final changed and unavailable acceptance observations each invalidate other cases durably', async () => {

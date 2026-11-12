@@ -13,6 +13,7 @@ import {
   type TokenUse,
   tedPaths,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import type { Agents } from './agents/index.ts'
 import { redactSecrets } from './redact.ts'
 import { runFiles } from './runs/host-files.ts'
@@ -237,7 +238,7 @@ export async function report(sources: DiagnosticsSources): Promise<string> {
     'Processes',
     ...diagnostics.processes.map(
       (p) =>
-        `${p.pid} (parent ${p.ppid}) ${p.command} · ${p.owner === 'daemon' ? 'daemon' : `Run ${p.owner.runId}`} · CPU ${p.cpuPercent}% · ${megabytes(p.memoryBytes)}`,
+        `${p.pid} (parent ${p.ppid}) ${p.command} · ${p.owner === 'daemon' ? 'daemon' : `Run ${shortReference(p.owner.runId)}`} · CPU ${p.cpuPercent}% · ${megabytes(p.memoryBytes)}`,
     ),
     '',
     `Daemon log${log.truncated ? ' (last 64 KB)' : ''}`,

@@ -79,7 +79,10 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
     ? `${scope.kind === 'team' ? 'Team' : 'Project'}: ${scope.name} · ${scope.workspace}`
     : 'Unscoped'
   return (
-    <section className={styles.section} aria-labelledby={`${id}-heading`}>
+    <section
+      className={`${styles.section} ${styles.compactSection}`}
+      aria-labelledby={`${id}-heading`}
+    >
       <div className={styles.sectionHeading} id="linear-intake">
         <h2 id={`${id}-heading`} className={styles.sectionTitle}>
           Linear intake

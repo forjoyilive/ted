@@ -368,10 +368,15 @@ describe('the proposal', () => {
       await client.ok('PUT', `/tasks/${setup.id}`, {
         title: steps({ everyMessage: each }, ...each),
       })
+      const initialGates = await client.ok<TaskGates>('GET', `/tasks/${setup.id}/gates`)
+      expect(initialGates.rows.find((r) => r.stage === 'clarify')).toMatchObject({
+        effective: false,
+        required: false,
+      })
       if (overnight) {
         await client.ok('PATCH', '/settings', { overnightMode: true })
         const { rows } = await client.ok<TaskGates>('GET', `/tasks/${setup.id}/gates`)
-        for (const stage of ['clarify', 'design', 'review']) {
+        for (const stage of ['design', 'review']) {
           const row = rows.find((r) => r.stage === stage)
           expect(row).toMatchObject({ effective: true, required: true })
           expect(row?.overnight).toBeUndefined()
@@ -387,7 +392,6 @@ describe('the proposal', () => {
         await client.ok('POST', `/comments/${item.request.id}/answer`, { action: 'approve' })
         return item.request
       }
-      await answer('clarify')
       const review = await answer('design')
       expect(review).toMatchObject({
         kind: 'review',
@@ -430,6 +434,7 @@ describe('the proposal', () => {
       await answer('review')
 
       const comments = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)
+      expect(comments.some((c) => c.kind === 'signoff' && c.stage === 'clarify')).toBe(false)
       expect(comments.filter((c) => c.tutorial).map((c) => c.body)).toContain(
         'Each Stage, explained.',
       )

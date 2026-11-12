@@ -101,6 +101,7 @@ import {
   parseLinearUrl,
   sizeChoices,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
@@ -120,6 +121,7 @@ import type { Linear } from '../linear/linear.ts'
 import { machineLoadRatio } from '../load.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
+import { resolveReference } from '../references.ts'
 import { type WorktreeFileScope, worktreeFileScope } from '../regular-file.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
@@ -572,6 +574,7 @@ export function createTasks(options: {
   clock?: Clock
   nudgeAfterMs?: number
   mergePollMs?: number
+  githubReadBurst?: number
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
@@ -859,6 +862,7 @@ export function createTasks(options: {
       gh: options.gh,
       clock,
       everyMs: mergePollMs,
+      ...(options.githubReadBurst !== undefined && { urgentBurst: options.githubReadBurst }),
       refs: watchedPullRequests,
       onRead: reactToGitHub,
       inBackground: (what, work) => inBackground(what, work),
@@ -945,11 +949,7 @@ export function createTasks(options: {
     const workflow = task.setup
       ? setupWorkflow(based, await setupInstructions(factory.showTutorial))
       : based
-    const overnightGates = night.off.filter(
-      (id) =>
-        workflow.settings.stages[id]?.gate !== true &&
-        !(id === 'clarify' && task.clarifyDepth === 'grilling'),
-    )
+    const overnightGates = night.off.filter((id) => workflow.settings.stages[id]?.gate !== true)
     if (kept !== undefined) {
       const stages = agentStageIds.filter(
         (id) =>
@@ -1102,7 +1102,7 @@ export function createTasks(options: {
 
   function gateOn(task: Task, workflow: ResolvedWorkflow, stage: AgentStageId): boolean {
     if (workflow.settings.stages[stage]?.gate === true) return true
-    if (stage === 'clarify' && task.clarifyDepth === 'grilling') return true
+    if (stage === task.stage && openGateRequest(task)) return true
     return (
       workflow.overnightGates?.includes(stage) === true &&
       stage === task.stage &&
@@ -1131,15 +1131,13 @@ export function createTasks(options: {
       .map((stage) => {
         const required = task.forcedGates.includes(stage)
           ? 'Required by TED for this Task'
-          : task.setup && ['clarify', 'design', 'review'].includes(stage)
+          : task.setup && ['design', 'review'].includes(stage)
             ? 'Required for Factory setup'
-            : stage === 'clarify' && task.clarifyDepth === 'grilling'
-              ? 'Required at grilling depth'
-              : stage === 'review' && guard === 'settings'
-                ? 'Required while overnight mode is on: this Task changes .ted/'
-                : stage === 'review' && guard === 'unreadable'
-                  ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
-                  : undefined
+            : stage === 'review' && guard === 'settings'
+              ? 'Required while overnight mode is on: this Task changes .ted/'
+              : stage === 'review' && guard === 'unreadable'
+                ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
+                : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'
@@ -1774,8 +1772,9 @@ export function createTasks(options: {
   }
 
   async function applyValidationFix(task: StoredTask, value: FailureCase): Promise<void> {
-    const reference = `${failureCaseReference(value)}\n\n`
-    const matches = (record: { findings: string }) => record.findings.startsWith(reference)
+    const references = [failureCaseReference(value), failureCaseReference(value, true)]
+    const matches = (record: { findings: string }) =>
+      references.some((reference) => record.findings.startsWith(`${reference}\n\n`))
     if (store.sendBackAsks(task.id).some(matches) || store.loopChecks(task.id).some(matches)) return
     if (
       pendingLoopCheck(task.id) ||
@@ -6453,7 +6452,7 @@ export function createTasks(options: {
     if (!result.satisfied)
       throw new RequestError(
         409,
-        `Unresolved failure cases hold this Task: ${result.blockers.join(', ')}`,
+        `Unresolved failure cases hold this Task: ${result.blockers.map(shortReference).join(', ')}`,
       )
   }
   async function waitForRepair(task: StoredTask, id: string, input: ResolveFailureRequest) {
@@ -6468,6 +6467,7 @@ export function createTasks(options: {
       }
     if (input.reason) input = { ...input, reason: failureText(input.reason) }
     const value = failures.get(task, id)
+    id = value.id
     const prior = value.resolutions.find((r) => r.requestId === input.requestId)
     if (prior) {
       if (
@@ -6497,7 +6497,7 @@ export function createTasks(options: {
     const pending = failures.pendingDecision(current, id, input.requestId)
     const selection = input.repair
     if (!selection) throw new RequestError(400, 'choose an existing or new repair Task')
-    const note = `Waiting for REPAIR_TASK_REFERENCE to merge. Original failure: ${id}. Tested context: ${pending.decision.contextId ?? 'unknown'}. The failure remains unresolved. Keep this Stage and worktree; incorporate the merged repair before fresh validation. Removing a blocker without merging requires explicit Resume and does not pass validation.`
+    const note = `Waiting for REPAIR_TASK_REFERENCE to merge. Original failure: ${shortReference(pending.value.id)}. Tested context: ${pending.decision.contextId ? shortReference(pending.decision.contextId) : 'unknown'}. The failure remains unresolved. Keep this Stage and worktree; incorporate the merged repair before fresh validation. Removing a blocker without merging requires explicit Resume and does not pass validation.`
     const previous = store.latestBrief(task.id)?.text
     const brief = previous?.includes('## Current state')
       ? previous.replace('## Current state', `## Current state\n\n${note}\n`)
@@ -6720,7 +6720,15 @@ export function createTasks(options: {
   return {
     failureContext(ref, id, caller) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
-      const context = store.failures.context(id)
+      const context =
+        store.failures.context(id) ??
+        store.failures.context(
+          resolveReference(
+            id,
+            store.failures.contexts(task.id).map((value) => value.id),
+            'tested context on this Task',
+          ),
+        )
       if (!context || context.taskId !== task.id)
         throw new RequestError(404, 'no tested context on this Task')
       return context
@@ -6815,7 +6823,7 @@ export function createTasks(options: {
           taskId: task.id,
           author: { kind: 'run', runId: task.leadRunId ?? '' },
           title: 'Failure repair verified',
-          body: `Failure ${id}\n\n${result.verifications?.at(-1)?.evidence}`,
+          body: `Failure ${shortReference(result.id)}\n\n${result.verifications?.at(-1)?.evidence}`,
         })
         return result
       }),

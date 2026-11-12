@@ -38,8 +38,7 @@ export function OvernightNotice() {
       <button type="button" className={base.link} onClick={openGeneral}>
         Settings → General
       </button>
-      . Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait
-      for you.
+      . Setup Tasks and Tasks that change a Factory’s settings still wait for you.
     </p>
   )
 }

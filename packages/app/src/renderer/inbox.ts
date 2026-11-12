@@ -1,4 +1,4 @@
-import type { AutomationRequest, Comment, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
+import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
 
 export interface InboxChip {
   factoryId?: string
@@ -64,49 +64,4 @@ export function nextSelection<T extends { request: { id: string } }>(
     now[0] ??
     null
   )
-}
-
-export interface InboxConfirmation {
-  text: string
-  detail?: string
-}
-
-export function answerConfirmation(
-  request: Pick<Comment, 'kind' | 'answer' | 'permission'>,
-  owner: string,
-): InboxConfirmation | undefined {
-  const { answer } = request
-  if (!answer) return undefined
-  const noun = {
-    note: 'note',
-    question: 'question',
-    round: 'Clarify round',
-    review: 'design review',
-    signoff: 'sign-off',
-    permission: 'permission request',
-    proposal: 'proposal',
-  }[request.kind]
-  const target = `${owner}’s ${noun}`
-  switch (answer.kind) {
-    case 'approved':
-      return {
-        text: `Approved ${target}`,
-        ...(request.permission && { detail: 'This request only' }),
-        ...(answer.shutDown !== undefined && {
-          detail: `Shut down ${answer.shutDown}’s simulator`,
-        }),
-        ...(answer.created && {
-          detail: `Created ${answer.created.tasks.length} ${answer.created.tasks.length === 1 ? 'Task' : 'Tasks'}`,
-        }),
-      }
-    case 'denied':
-      return { text: `Denied ${target}` }
-    case 'changes-requested':
-      return { text: `Requested changes to ${target}` }
-    case 'answered':
-      return { text: `Answered ${target}` }
-    case 'withdrawn':
-    case 'superseded':
-      return undefined
-  }
 }

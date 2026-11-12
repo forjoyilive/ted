@@ -40,16 +40,42 @@ function requestApi() {
   return { ...api, answer }
 }
 
-test('rounds submit preselected recommendations with one submission action', async () => {
+test('rounds require explicit choices and keep written recommendations prefilled', async () => {
   const { answer } = requestApi()
+  const questions = [
+    ...round.questions,
+    { question: 'When to sync?', choices: ['Now', 'Later'], recommended: 'Now' },
+  ]
   render(
-    <RequestCard request={comment({ kind: 'round', round })} task={task()} onOpenRun={vi.fn()} />,
+    <RequestCard
+      request={comment({ kind: 'round', round: { ...round, questions } })}
+      task={task()}
+      onOpenRun={vi.fn()}
+    />,
   )
   expect(screen.queryByRole('button', { name: 'Accept all recommended' })).toBeNull()
-  await user().click(screen.getByRole('button', { name: 'Submit answers' }))
+  for (const radio of screen.getAllByRole('radio'))
+    expect((radio as HTMLInputElement).checked).toBe(false)
+  expect((screen.getByLabelText('Answer 2') as HTMLTextAreaElement).value).toBe('The edit wins.')
+  const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
+  expect(submit.disabled).toBe(true)
+  const u = user()
+  await u.type(screen.getByLabelText('Add to answer 1'), 'Clashes are rare.')
+  await u.click(submit)
+  expect(answer).not.toHaveBeenCalled()
+  expect(submit.disabled).toBe(true)
+  await u.click(screen.getByRole('radio', { name: /Keep both/ }))
+  expect(submit.disabled).toBe(true)
+  await u.click(screen.getByRole('radio', { name: 'Later' }))
+  expect(submit.disabled).toBe(false)
+  await u.click(submit)
   expect(answer).toHaveBeenCalledWith('c1', {
     action: 'answer-round',
-    answers: [{ answer: 'Keep both' }, { answer: 'The edit wins.' }],
+    answers: [
+      { answer: 'Keep both', note: 'Clashes are rare.' },
+      { answer: 'The edit wins.' },
+      { answer: 'Later' },
+    ],
   })
 })
 
@@ -82,7 +108,7 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   expect(screen.getAllByText('Recommended')).toHaveLength(2)
   const first = screen.getByRole('group', { name: /When edits conflict/ })
   const f = within(first)
-  expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
+  expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(false)
   await u.click(f.getByText('Keep latest'))
   expect(f.getByText('Changed ·')).toBeTruthy()
   await u.click(f.getByRole('button', { name: 'Reset' }))
@@ -770,7 +796,8 @@ test('a Review confirmation shows completed Checks once when progress is availab
 
 test('an obsolete Check repair does not claim a later execution', () => {
   const value: FailureCase = {
-    id: 'obsolete',
+    id: 'abcdef01-0000-4000-8000-000000000000',
+    contextId: '12345601-0000-4000-8000-000000000000',
     taskId: 'fixture',
     source: { kind: 'factory-check', checkRunId: 'failed-run', position: 0 },
     recordedBy: 'lead',
@@ -792,6 +819,8 @@ test('an obsolete Check repair does not claim a later execution', () => {
     ],
   }
   render(<FailureDetails failure={value} />)
+  expect(screen.getByText('abcdef').getAttribute('title')).toBe(value.id)
+  expect(screen.getByText('123456').getAttribute('title')).toBe(value.contextId)
   expect(screen.queryByText(/verified by a later execution/)).toBeNull()
   expect(screen.getByText(/verified with recorded evidence/)).toBeTruthy()
 })

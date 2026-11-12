@@ -677,134 +677,136 @@ function ChecksSectionView({
   }
 
   return (
-    <section className={base.section} aria-labelledby="checks">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="checks">
       <SectionHeading
         id="checks"
         title="Checks"
         help="Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
       />
       <div className={styles.table}>
-        <div className={`${multiRepo ? styles.checkRowRepo : styles.checkRow} ${styles.headRow}`}>
-          <span>Name</span>
-          <span>Command</span>
-          {multiRepo && <span>Repo</span>}
-          <span>Timeout</span>
-          <span>Last run</span>
-          <span className={base.visuallyHidden}>Actions</span>
-        </div>
-        {draft.checks.map((check, index) => {
-          const last = tries.find((t) => t.name === check.name.trim())
-          const ready = check.name.trim() !== '' && check.run.trim() !== ''
-          return (
-            <div
-              key={keys.current[index]}
-              className={multiRepo ? styles.checkRowRepo : styles.checkRow}
-            >
-              <input
-                aria-label="Check name"
-                className={styles.cellInput}
-                placeholder="Name"
-                value={check.name}
-                onChange={(event) => setCheck(index, { name: event.target.value })}
-              />
-              <input
-                aria-label={`${check.name || 'Check'} command`}
-                className={`${styles.cellInput} ${base.mono}`}
-                placeholder="npm test"
-                value={check.run}
-                onChange={(event) => setCheck(index, { run: event.target.value })}
-              />
-              {multiRepo && (
-                <Select
-                  fullWidth
-                  aria-label={`${check.name || 'Check'} repo`}
-                  controlClassName={styles.cellSelect}
-                  value={check.repo ?? draft.repos[0]?.name ?? ''}
-                  onChange={(event) =>
-                    setCheck(index, {
-                      repo: event.target.value === draft.repos[0]?.name ? '' : event.target.value,
-                    })
-                  }
-                >
-                  {draft.repos.map((repo) => (
-                    <option key={repo.name} value={repo.name}>
-                      {repo.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-              <input
-                aria-label={`${check.name || 'Check'} timeout`}
-                className={styles.cellInput}
-                placeholder="10m"
-                value={check.timeout ?? ''}
-                onChange={(event) => setCheck(index, { timeout: event.target.value })}
-              />
-              <span className={lastRunClass(last)}>
-                {last ? lastRunText(last, now) : <span className={styles.dash}>Never</span>}
-                {last && last.state !== 'running' && (
-                  <>
-                    {' · '}
-                    <ActionButton
-                      type="button"
-                      className={base.link}
-                      onClick={() =>
-                        ted.checkTryOutput(view.factoryId, last.name).then(
-                          (shown) => setOutput(shown.text || 'No output.'),
-                          (failure: unknown) => setError(readableError(failure)),
-                        )
-                      }
-                    >
-                      Output
-                    </ActionButton>
-                  </>
-                )}
-              </span>
-              <span className={styles.actions}>
-                {last?.state === 'running' ? (
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      ted
-                        .stopCheckTry(view.factoryId, last.name)
-                        .catch((failure: unknown) => setError(readableError(failure)))
+        <div className={styles.scrollTable}>
+          <div className={`${multiRepo ? styles.checkRowRepo : styles.checkRow} ${styles.headRow}`}>
+            <span>Name</span>
+            <span>Command</span>
+            {multiRepo && <span>Repo</span>}
+            <span>Timeout</span>
+            <span>Last run</span>
+            <span className={base.visuallyHidden}>Actions</span>
+          </div>
+          {draft.checks.map((check, index) => {
+            const last = tries.find((t) => t.name === check.name.trim())
+            const ready = check.name.trim() !== '' && check.run.trim() !== ''
+            return (
+              <div
+                key={keys.current[index]}
+                className={multiRepo ? styles.checkRowRepo : styles.checkRow}
+              >
+                <input
+                  aria-label="Check name"
+                  className={styles.cellInput}
+                  placeholder="Name"
+                  value={check.name}
+                  onChange={(event) => setCheck(index, { name: event.target.value })}
+                />
+                <input
+                  aria-label={`${check.name || 'Check'} command`}
+                  className={`${styles.cellInput} ${base.mono}`}
+                  placeholder="npm test"
+                  value={check.run}
+                  onChange={(event) => setCheck(index, { run: event.target.value })}
+                />
+                {multiRepo && (
+                  <Select
+                    fullWidth
+                    aria-label={`${check.name || 'Check'} repo`}
+                    controlClassName={styles.cellSelect}
+                    value={check.repo ?? draft.repos[0]?.name ?? ''}
+                    onChange={(event) =>
+                      setCheck(index, {
+                        repo: event.target.value === draft.repos[0]?.name ? '' : event.target.value,
+                      })
                     }
                   >
-                    Stop
-                  </Button>
-                ) : (
-                  <Button
-                    size="small"
-                    disabled={!ready || running || starting.pending}
-                    title={running ? 'Another Check is running.' : undefined}
-                    onClick={() => runNow(check)}
-                  >
-                    Run now
-                  </Button>
+                    {draft.repos.map((repo) => (
+                      <option key={repo.name} value={repo.name}>
+                        {repo.name}
+                      </option>
+                    ))}
+                  </Select>
                 )}
-                <ActionButton
-                  type="button"
-                  className={base.iconButton}
-                  aria-label={`Remove ${check.name || 'this Check'}`}
-                  onClick={() => {
-                    keys.current.splice(index, 1)
-                    return onDraft((d) => ({
-                      ...d,
-                      checks: d.checks.filter((_, i) => i !== index),
-                    }))
-                  }}
-                >
-                  <CloseIcon size={12} />
-                </ActionButton>
-              </span>
-            </div>
-          )
-        })}
+                <input
+                  aria-label={`${check.name || 'Check'} timeout`}
+                  className={styles.cellInput}
+                  placeholder="10m"
+                  value={check.timeout ?? ''}
+                  onChange={(event) => setCheck(index, { timeout: event.target.value })}
+                />
+                <span className={lastRunClass(last)}>
+                  {last ? lastRunText(last, now) : <span className={styles.dash}>Never</span>}
+                  {last && last.state !== 'running' && (
+                    <>
+                      {' · '}
+                      <ActionButton
+                        type="button"
+                        className={base.link}
+                        onClick={() =>
+                          ted.checkTryOutput(view.factoryId, last.name).then(
+                            (shown) => setOutput(shown.text || 'No output.'),
+                            (failure: unknown) => setError(readableError(failure)),
+                          )
+                        }
+                      >
+                        Output
+                      </ActionButton>
+                    </>
+                  )}
+                </span>
+                <span className={styles.actions}>
+                  {last?.state === 'running' ? (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        ted
+                          .stopCheckTry(view.factoryId, last.name)
+                          .catch((failure: unknown) => setError(readableError(failure)))
+                      }
+                    >
+                      Stop
+                    </Button>
+                  ) : (
+                    <Button
+                      size="small"
+                      disabled={!ready || running || starting.pending}
+                      title={running ? 'Another Check is running.' : undefined}
+                      onClick={() => runNow(check)}
+                    >
+                      Run now
+                    </Button>
+                  )}
+                  <ActionButton
+                    type="button"
+                    className={base.iconButton}
+                    aria-label={`Remove ${check.name || 'this Check'}`}
+                    onClick={() => {
+                      keys.current.splice(index, 1)
+                      return onDraft((d) => ({
+                        ...d,
+                        checks: d.checks.filter((_, i) => i !== index),
+                      }))
+                    }}
+                  >
+                    <CloseIcon size={12} />
+                  </ActionButton>
+                </span>
+              </div>
+            )
+          })}
+        </div>
         <div className={styles.builtInRow}>
           <span>TED settings</span>
           <span className={styles.builtInText}>Built in.</span>
           <span className={base.spacer} />
-          <Help>
+          <Help align="end">
             Added at Validate when a Task changes .ted/. It checks the TED settings files, like ted
             workflow check.
           </Help>
@@ -881,13 +883,13 @@ function AgentsSectionView({
   const set = (role: AgentRole, choice: AgentChoiceInput | null) =>
     onDraft((d) => ({ ...d, agents: { ...d.agents, [role]: choice } }))
   return (
-    <section className={base.section} aria-labelledby="agents">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="agents">
       <SectionHeading
         id="agents"
         title="Agents"
         help="Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
       />
-      <div className={styles.table}>
+      <div className={`${styles.table} ${styles.scrollTable}`}>
         {view.agents.map((row) => (
           <AgentRow
             key={row.role}
@@ -1056,7 +1058,7 @@ function PermissionsSectionView({
   }
   return (
     <>
-      <section className={base.section} aria-labelledby="permissions">
+      <section className={`${base.section} ${base.compactSection}`} aria-labelledby="permissions">
         <SectionHeading
           id="permissions"
           title="Permission mode"
@@ -1158,7 +1160,10 @@ function PermissionsSectionView({
           </dialog>
         )}
       </section>
-      <section className={base.section} aria-labelledby={`${id}-limits`}>
+      <section
+        className={`${base.section} ${base.compactSection}`}
+        aria-labelledby={`${id}-limits`}
+      >
         <SectionHeading
           id={`${id}-limits`}
           title="Working Run limit"
@@ -1201,7 +1206,7 @@ function NotesSectionView({
 }) {
   const [preview, setPreview] = useState(false)
   return (
-    <section className={base.section} aria-labelledby="notes">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="notes">
       <SectionHeading
         id="notes"
         title="Factory notes"

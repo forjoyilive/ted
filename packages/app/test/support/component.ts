@@ -1,4 +1,5 @@
 import type { NewTaskDraft } from '@ted/protocol'
+import { agentKinds } from '@ted/protocol/run'
 import { cleanup } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
@@ -101,6 +102,6 @@ export function draftHandlers() {
       return { draft }
     },
     checkAgentHealth: () =>
-      ['claude', 'codex'].map((agent) => ({ agent, state: 'ready', version: '2.0.0' })),
+      agentKinds.map((agent) => ({ agent, state: 'ready', version: '2.0.0' })),
   }
 }

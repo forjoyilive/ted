@@ -6,7 +6,9 @@ import { expect, test, vi } from 'vitest'
 import { ActionButton } from '../src/renderer/components/ActionButton.tsx'
 import { Button } from '../src/renderer/components/Button.tsx'
 import { buttonPosition, useActionMenu } from '../src/renderer/components/ContextMenu.tsx'
+import { Markdown } from '../src/renderer/components/Markdown.tsx'
 import { Composer } from '../src/renderer/components/RunChat.tsx'
+import { useFactoryList } from '../src/renderer/data.ts'
 import { settingsDraft } from '../src/renderer/factory-settings.ts'
 import { useTaskFiles } from '../src/renderer/files.ts'
 import { usePendingAction } from '../src/renderer/pending-action.ts'
@@ -14,7 +16,7 @@ import { Button as SettingsButton, Stepper } from '../src/renderer/settings/cont
 import { AutomationView } from '../src/renderer/views/Automations.tsx'
 import { ChecksSection } from '../src/renderer/views/FactorySettingsSections.tsx'
 import { bridge, deferred, required, user } from './support/component.ts'
-import { task } from './support/fixtures.ts'
+import { factory, task } from './support/fixtures.ts'
 
 function Save({ action }: { action: () => Promise<void> }) {
   const [saving, setSaving] = useState(false)
@@ -345,4 +347,51 @@ test('an effect-driven file refresh keeps its button pending until the new reque
   await act(async () => completion.resolve({ taskId: filesTask.id, repos: [] }))
   expect(screen.getByText('0 repos')).toBeTruthy()
   expect(button.getAttribute('aria-busy')).toBeNull()
+})
+
+test('the code-copy button from main retains its icon box and shows activity until the copy finishes', async () => {
+  const completion = deferred<void>()
+  const copy = vi.fn(() => completion.promise)
+  bridge({ copyText: copy })
+  render(<Markdown text={'```sh\npnpm typecheck\n```'} />)
+  const button = screen.getByRole('button', { name: 'Copy code' })
+  await user().click(button)
+  expect(button.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(button)
+  expect(copy).toHaveBeenCalledTimes(1)
+  await act(async () => completion.resolve())
+  expect(button.getAttribute('aria-busy')).toBeNull()
+  expect(screen.getByText('Copied')).toBeTruthy()
+})
+
+function FactoryList() {
+  const resource = useFactoryList()
+  return (
+    <span>
+      {resource.loaded ? resource.factories.map((f) => f.name).join(', ') : 'Loading Factories'}
+    </span>
+  )
+}
+
+test('automatic Factory retry survives the merge with effect-driven action completion', async () => {
+  vi.useFakeTimers()
+  try {
+    const completion = deferred<unknown>()
+    const list = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Busy'))
+      .mockReturnValue(completion.promise)
+    bridge({ listFactories: list })
+    render(<FactoryList />)
+    await act(async () => {})
+    expect(screen.getByText('Loading Factories')).toBeTruthy()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    expect(list).toHaveBeenCalledTimes(2)
+    await act(async () => completion.resolve([factory({ name: 'Widgets' })]))
+    expect(screen.getByText('Widgets')).toBeTruthy()
+  } finally {
+    vi.useRealTimers()
+  }
 })

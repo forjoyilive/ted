@@ -12,9 +12,11 @@ import type {
   TaskLead,
   TaskRepo,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
+import { resolveReference } from '../references.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type {
   ReviewerPurpose,
@@ -122,6 +124,21 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     if (caller.kind !== 'run') {
       throw new RequestError(403, 'only a Task Lead can start and steer sub-agents')
     }
+    if (!store.getRun(runId) && !store.subAgentRequests().some((r) => r.id === runId))
+      runId = resolveReference(
+        runId,
+        [
+          ...store
+            .listRuns()
+            .filter((run) => run.parentRunId === caller.runId)
+            .map((run) => run.id),
+          ...store
+            .subAgentRequests()
+            .filter((request) => request.parentRunId === caller.runId)
+            .map((request) => request.id),
+        ],
+        'sub-agent started by this Run',
+      )
     const run = store.getRun(runId)
     const request = run ? undefined : store.subAgentRequests().find((r) => r.id === runId)
     const parent = run?.parentRunId ?? request?.parentRunId
@@ -412,7 +429,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       deps.inBackground('tell the Task Lead a sub-agent failed', () =>
         runs.send(
           parent.id,
-          `Your sub-agent “${run.name ?? 'Sub-agent'}” (Run ${run.id}) failed: its process ended before it finished. Decide what to do next; \`ted run wait ${run.id}\` shows its last message.`,
+          `Your sub-agent “${run.name ?? 'Sub-agent'}” (Run ${shortReference(run.id)}) failed: its process ended before it finished. Decide what to do next; \`ted run wait ${shortReference(run.id)}\` shows its last message.`,
         ),
       )
     }
@@ -444,7 +461,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         if (earlier !== undefined) {
           throw new RequestError(
             409,
-            `this Validate visit already has its reviewer (Run ${earlier}), and each visit gets one review. Wait for its Findings with \`ted run wait ${earlier}\`, or send it a follow-up with \`ted run send ${earlier} "<text>"\`.`,
+            `this Validate visit already has its reviewer (Run ${shortReference(earlier)}), and each visit gets one review. Wait for its Findings with \`ted run wait ${shortReference(earlier)}\`, or send it a follow-up with \`ted run send ${shortReference(earlier)} "<text>"\`.`,
           )
         }
         const id = crypto.randomUUID()
@@ -539,7 +556,8 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     },
     startingTasks: () => [...startingNow.values()],
     async wait(runId, caller, timeoutMs) {
-      ownSubAgent(runId, caller)
+      const { run, request } = ownSubAgent(runId, caller)
+      runId = run?.id ?? request?.id ?? runId
       const leadRunId = caller.kind === 'run' ? caller.runId : ''
       return waitFor(runId, timeoutMs, {
         start: () => {

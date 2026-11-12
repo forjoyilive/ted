@@ -163,15 +163,60 @@ describe('TED app', () => {
   })
 
   test('quitting with nothing running ends the app and TED’s background process', async () => {
-    await launchApp()
-    const pid = await daemonPid()
-    const electronPid = ctx.app?.process().pid ?? 0
+    const started = performance.now()
+    const file = path.join(ctx.home, 'logs', 'empty-app-quit.json')
+    let electronPid: number | undefined
+    let pid: number | undefined
+    const observations: {
+      phase: string
+      elapsedMs: number
+      electronAlive: boolean | null
+      daemonAlive: boolean | null
+    }[] = []
+    const mark = async (phase: string) => {
+      const observation = {
+        phase,
+        elapsedMs: performance.now() - started,
+        electronAlive: electronPid === undefined ? null : isAlive(electronPid),
+        daemonAlive: pid === undefined ? null : isAlive(pid),
+      }
+      observations.push(observation)
+      console.log('Empty-app quit:', JSON.stringify({ home: ctx.home, ...observation }))
+      try {
+        await mkdir(path.dirname(file), { recursive: true })
+        await writeFile(
+          file,
+          JSON.stringify({ electronPid, daemonPid: pid, observations }, null, 2),
+        )
+      } catch {
+        console.warn('Empty-app quit: could not save diagnostics')
+      }
+    }
 
-    await ctx.app?.close()
-    ctx.app = undefined
+    try {
+      await mark('launch-start')
+      await launchApp()
+      electronPid = ctx.app?.process().pid
+      if (electronPid === undefined) throw new Error('Launched Electron has no process PID')
+      await mark('launch-loaded')
+      await mark('daemon-pid-start')
+      pid = await daemonPid()
+      await mark('daemon-pid-read')
 
-    await waitForExit(pid)
-    expect(isAlive(electronPid)).toBe(false)
+      await mark('close-start')
+      await ctx.app?.close()
+      await mark('close-resolved')
+      ctx.app = undefined
+
+      await mark('daemon-exit-start')
+      await waitForExit(pid)
+      await mark('daemon-exited')
+      expect(isAlive(electronPid)).toBe(false)
+      await mark('exit-assertions-passed')
+    } catch (error) {
+      await mark('failed')
+      throw error
+    }
   })
 
   test('the app takes over a daemon that ted started, which never learned the app’s token', async () => {

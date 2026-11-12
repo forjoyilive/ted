@@ -109,15 +109,18 @@ export function ContextMenu({
       if (event.target instanceof Element && event.target.closest('[data-context-popup]')) return
       other()
     }
+    const scrolled = (event: Event) => {
+      if (event.target instanceof Node && event.target.contains(at.trigger)) outside(event)
+    }
     window.addEventListener(menuOpened, other)
     window.addEventListener('pointerdown', outside, true)
     window.addEventListener('resize', other)
-    window.addEventListener('scroll', outside, true)
+    window.addEventListener('scroll', scrolled, true)
     return () => {
       window.removeEventListener(menuOpened, other)
       window.removeEventListener('pointerdown', outside, true)
       window.removeEventListener('resize', other)
-      window.removeEventListener('scroll', outside, true)
+      window.removeEventListener('scroll', scrolled, true)
     }
   }, [at, submenu])
   return createPortal(

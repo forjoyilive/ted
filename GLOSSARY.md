@@ -53,7 +53,7 @@ A setting on a Stage that makes the Task wait for the human’s sign-off at the 
 _Avoid_: Approval step, checkpoint
 
 **Overnight mode**:
-A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Sign-offs set in the Workflow or on one Task count as off, the Merge sign-off included. Sign-offs TED forces (a setup Task, Clarify at grilling depth), Sign-off requests already open, questions and permission prompts still wait for the human. A Task whose changes touch `.ted/` keeps every sign-off it has with the mode off, and its Review sign-off is on, so Workflow changes never merge unseen.
+A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Sign-offs set in the Workflow or on one Task count as off, the Merge sign-off included. Sign-offs TED forces (such as a setup Task’s Design and Review sign-offs), Sign-off requests already open, questions and permission prompts still wait for the human. A Task whose changes touch `.ted/` keeps every sign-off it has with the mode off, and its Review sign-off is on, so Workflow changes never merge unseen.
 _Avoid_: Night mode, autopilot
 
 **Stage file**:
@@ -61,7 +61,7 @@ The Markdown instructions an agent follows while a Task is in that Stage.
 _Avoid_: Prompt, playbook
 
 **Clarify depth**:
-How much questioning Clarify does on a Task: none, a few simple questions in one round, or a grilling session of several rounds that ends in the human’s sign-off. The Task Lead picks it unless the human or the Workflow sets it.
+How much questioning Clarify does on a Task: none, a few simple questions in one round, or a grilling session of several rounds. The Stage’s Sign-off setting applies at every depth. The Task Lead picks it unless the human or the Workflow sets it.
 _Avoid_: Tier, level
 
 **Check**:
