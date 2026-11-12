@@ -29,7 +29,8 @@ vi.setConfig({ testTimeout: 120_000 })
 beforeAll(async () => {
   await buildRenderer()
 })
-afterEach(async () => {
+afterEach(async ({ task }) => {
+  const test = task.name
   await cleanupWithEvidence(
     [
       { name: 'closeApp', run: () => closeApp(app) },
@@ -37,7 +38,7 @@ afterEach(async () => {
       { name: 'killRunHosts', run: () => killRunHosts(home) },
       { name: 'removeHome', run: () => removeHome(home) },
     ],
-    (evidence) => console.warn('Coordinator cleanup:', JSON.stringify(evidence)),
+    (evidence) => console.warn('Coordinator cleanup:', JSON.stringify({ test, ...evidence })),
   )
 })
 

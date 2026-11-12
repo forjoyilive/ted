@@ -90,16 +90,45 @@ failure and does not establish that it is unrelated to the ownership repair.
 The detailed first-visit output is attached to the Task as the Validate round 1
 report; neither invocation has been retried on unchanged source.
 
-The next diagnostic slice keeps cleanup order, behavior and deadlines unchanged.
-It records each cleanup step in memory and emits the active step plus elapsed
+The first diagnostic slice kept cleanup order, behavior and deadlines unchanged.
+It recorded each cleanup step in memory and emitted the active step plus elapsed
 times after eight seconds, before the existing ten-second hook deadline. It
-reports completion after a slow cleanup, or the failed step if cleanup rejects.
-Fast successful cleanup stays silent. Reporting failures cannot replace the
-original cleanup error, and the warning timer is canceled when cleanup ends.
-Only static operation names and timings are logged, not test data or secrets.
+reported completion after a slow cleanup, or the failed step if cleanup rejected.
+Fast successful cleanup stayed silent. Reporting failures could not replace the
+original cleanup error, and the warning timer was canceled when cleanup ended.
+Only static operation names and timings were logged, not test data or secrets.
 
 `cleanup-evidence.test.ts` prepares controlled coverage for a held cleanup step,
 preserved errors and warning-timer disposal. Test execution remains reserved for
 Validate. These diagnostics do not choose a repair for the remaining native
 failure or claim its cause. The next native execution must identify the boundary
 before a supported cleanup repair can be selected.
+
+## Diagnostic-first Validate result
+
+The user approved a diagnostic-first Validate pass before selecting the remaining
+repair. At `be2f2a6a`, the three diagnostic cases and both native cases passed
+with `--retry=0`, with no skipped cases or cleanup warning. Duration was 43.15
+seconds. Cleanup behavior was unchanged. The clean invocation therefore did not
+identify the earlier stalled operation or repair the observed intermittent
+failure. The round-1 Finding remains open; this pass was not failure acceptance.
+Scoped code/security review found no new blocker in the diagnostic change and
+confirmed that the repair part was absent. Detailed round-2 evidence and console
+are attached to the Task.
+
+The next diagnostic revision includes the fixed test name on every cleanup line
+and reports completed step timings even when cleanup finishes before the warning.
+This avoids losing useful measurements on a passing run or confusing a late
+completion line with the next case. The eight-second warning, cleanup operations
+and ten-second hook deadline remain unchanged.
+
+The next experiment continues the user-approved diagnostic-first approach: one focused invocation of
+the diagnostic and native files with retries disabled and six ready CPU workers,
+matching the added workload of the original observation. Prepare the renderer
+once under the normal shared test lock before starting that workload, using the
+existing per-run build marker so the native hook does not repeat the build. This
+targets native readiness and cleanup rather than the already-observed renderer
+build timeout, without extending any guard. Record the preflight and workload
+conditions, retain the worker caps, detect unexpected workload exit, and stop
+only the experiment’s own workers in finally. This remains a focused loaded
+diagnosis, not a replay or reliability certificate for the mixed full suite.

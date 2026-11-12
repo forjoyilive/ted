@@ -22,7 +22,6 @@ export async function cleanupWithEvidence(
 ): Promise<void> {
   const started = Date.now()
   const progress: CleanupProgress[] = []
-  let warned = false
   let outcome: CleanupEvidence['outcome'] = 'running'
   const snapshot = () => {
     try {
@@ -38,7 +37,6 @@ export async function cleanupWithEvidence(
     } catch {}
   }
   const warning = setTimeout(() => {
-    warned = true
     snapshot()
   }, 8000)
   warning.unref()
@@ -62,6 +60,6 @@ export async function cleanupWithEvidence(
     throw error
   } finally {
     clearTimeout(warning)
-    if (warned || outcome === 'failed') snapshot()
+    snapshot()
   }
 }

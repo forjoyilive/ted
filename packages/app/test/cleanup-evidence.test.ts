@@ -59,11 +59,15 @@ test('a cleanup error is preserved even if reporting fails', async () => {
   expect(vi.getTimerCount()).toBe(0)
 })
 
-test('quick cleanup stays silent and leaves no warning timer', async () => {
+test('quick cleanup records completed phases and leaves no warning timer', async () => {
   vi.useFakeTimers()
   const report = vi.fn()
   await cleanupWithEvidence([{ name: 'closeApp', run: async () => {} }], report)
   await vi.advanceTimersByTimeAsync(10_000)
-  expect(report).not.toHaveBeenCalled()
+  expect(report).toHaveBeenCalledExactlyOnceWith({
+    outcome: 'passed',
+    elapsedMs: 0,
+    steps: [{ name: 'closeApp', state: 'passed', elapsedMs: 0 }],
+  })
   expect(vi.getTimerCount()).toBe(0)
 })
