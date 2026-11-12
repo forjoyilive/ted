@@ -69,6 +69,22 @@
   gap: 14px;
 }
 
+.compactSection,
+.wideSection {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.compactSection {
+  max-width: 720px;
+}
+
+.wideSection {
+  max-width: 1040px;
+}
+
 .sectionHeading {
   display: flex;
   align-items: center;
@@ -128,7 +144,7 @@
 
 .fieldRow {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
 }
 
@@ -511,7 +527,7 @@
 
 .appFields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -969,4 +985,23 @@
   color: var(--text-secondary);
   font-size: var(--text-13-5);
   line-height: var(--leading-body);
+}
+
+@container (max-width: 640px) {
+  .fieldRow,
+  .twoColumns,
+  .threeColumns,
+  .appFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .envRow {
+    grid-template-columns: minmax(100px, 1fr) minmax(0, 1fr) 24px;
+  }
+
+  .cardHead,
+  .folderHead,
+  .folderLine {
+    flex-wrap: wrap;
+  }
 }

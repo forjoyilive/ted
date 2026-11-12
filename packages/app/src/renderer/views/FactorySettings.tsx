@@ -361,7 +361,7 @@ export function FactorySettings({
             <fieldset className={styles.settingsFields} disabled={merging}>
               <legend className={styles.visuallyHidden}>Factory settings</legend>
               {view && (
-                <div className={styles.repoGuide}>
+                <div className={`${styles.repoGuide} ${styles.wideSection}`}>
                   <strong>How repo settings are saved</strong>
                   <p>
                     Edit settings marked “In the repo”, then choose{' '}
@@ -590,7 +590,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
   }
 
   return (
-    <section className={styles.section} aria-labelledby="general">
+    <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="general">
       <SectionHeading id="general" title="General" where="machine" />
       <div className={styles.fieldRow}>
         <div className={styles.field}>
@@ -652,7 +652,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
 
 const DangerZoneSection = memo(function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
   return (
-    <section className={styles.section} aria-labelledby="danger-zone">
+    <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="danger-zone">
       <SectionHeading id="danger-zone" title="Danger zone" where="machine" />
       <div className={styles.removeRow}>
         <span className={styles.label}>
@@ -733,7 +733,7 @@ const ReposSection = memo(function ReposSection({
     }
   }
   return (
-    <section className={styles.section} aria-labelledby="repos">
+    <section className={`${styles.section} ${styles.wideSection}`} aria-labelledby="repos">
       <SectionHeading
         id="repos"
         title="Repos"
