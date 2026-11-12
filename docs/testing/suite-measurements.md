@@ -1,7 +1,11 @@
 # Suite measurements (KRI-256, stage 5)
 
-The restarted series is pending. Earlier observations failed the speed and
-reliability criteria; this procedure is not evidence that those targets passed.
+The restarted six-observation series is complete and failed the speed and
+reliability criteria. See the [final results](suite-measurement-results.md) and
+[evidence manifest](suite-measurement-results.json). The measured commit stays
+separate from the later reporting commit. Tracker follow-through is pending
+because Linear rejected the final writes; [drafts](suite-measurement-follow-ups.md)
+are ready for review. This procedure is not evidence that the targets passed.
 Agents must never run these full-suite commands. The human runs them in a normal terminal outside an agent
 Run or TED Task shell. No GitHub workflow is needed.
 
@@ -174,14 +178,12 @@ failure-history file to support the top-10 recurring-failure report, including
 passes on retry. Unexpected skips or missing Electron execution require an
 explanation; a zero exit alone does not prove full coverage ran.
 
-| Attempt | Commit / Mac | Total s | Lock wait s | Check work s | Test-process envelope s | Exit / failures / retries | CPU load observations |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| series-2-baseline-1 | Pending | — | — | — | — | Pending | Pending |
-| series-2-baseline-2 | Pending | — | — | — | — | Pending | Pending |
-| series-2-baseline-3 | Pending | — | — | — | — | Pending | Pending |
-| series-2-loaded-1 | Pending | — | — | — | — | Pending | Pending |
-| series-2-loaded-2 | Pending | — | — | — | — | Pending | Pending |
-| series-2-loaded-3 | Pending | — | — | — | — | Pending | Pending |
+The six observations all used clean frozen commit
+`c0594f81851e15c8d68faf96da8d0b1a164d8d7c` on the Mac described above.
+The [final results](suite-measurement-results.md#results) record every timing,
+workload, failure and retry. Baselines were FAIL/PASS/FAIL; loaded observations
+were FAIL/FAIL/FAIL. No run met the 180-second Check-work target and the loaded
+passing streak is zero. No further measurements are authorized by this procedure.
 
 Report every attempt against 180 seconds, without averaging away a slow run.
 Require three consecutive loaded passes with complete evidence, no retry defects
@@ -193,8 +195,9 @@ unmet; measurements alone are not completion.
 
 ## Coverage audit
 
-The audit is of source coverage responsibilities; execution of all native paths
-remains pending the human’s full runs. No tests are removed by stage 5.
+The audit is of source coverage responsibilities. All six human-run observations
+collected the same test files; failed native paths prevent certifying successful
+execution of every main path. No tests are removed by stage 5.
 
 - [Daemon migration](daemon-decision-coverage.md): all four removed cases name
   exact unit replacements. Source confirms both Linear decision cases, queue
