@@ -75,6 +75,7 @@ export interface DaemonOptions {
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
+  githubReadBurst?: number
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   settingsMergeWaitMs?: number
@@ -422,6 +423,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
+        ...(options.githubReadBurst !== undefined && {
+          githubReadBurst: options.githubReadBurst,
+        }),
         ...(options.beforeMerge !== undefined && { beforeMerge: options.beforeMerge }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),

@@ -341,14 +341,25 @@ async function populateScenarios(
             await commitDemoTask(home, current)
             const count = target === 'validate' ? 1 : target === 'review' ? 2 : 3
             const brief = await readFile(path.join(home, 'inputs', 'brief.md'), 'utf8')
-            await checkedSteps(
-              task,
-              Array.from({ length: count }, () => [
-                { demoRequest: { brief } },
-                { demoRequest: { outcome: { outcome: 'advance' } } },
-              ]).flat(),
-              `advance ${task.displayId} toward ${target}`,
-            )
+            for (let n = 0; n < count; n++) {
+              const { stage } = await observed.task(task.id)
+              await checkedSteps(
+                task,
+                [{ demoRequest: { brief } }, { demoRequest: { outcome: { outcome: 'advance' } } }],
+                `advance ${task.displayId} toward ${target}`,
+              )
+              if (stage === 'work')
+                await until(async () => {
+                  const failed = (await client.listCheckRuns(task.id)).find(
+                    (r) => r.outcome === 'failed',
+                  )
+                  if (failed)
+                    throw new Error(
+                      `Demo Check failed: ${JSON.stringify(await client.getCheckRun(failed.id))}`,
+                    )
+                  return (await observed.task(task.id)).stage !== 'work'
+                }, `${task.displayId} to leave Work`)
+            }
             await until(
               async () =>
                 (await observed.task(task.id)).repos.every((r) => r.pullRequest !== undefined),
@@ -522,7 +533,7 @@ async function populateScenarios(
     await demoGit(home, journalRepo, 'add', '.ted/workflow.yaml')
     await demoGit(home, journalRepo, 'commit', '-m', 'Demonstrate an invalid Workflow')
     await demoGit(home, journalRepo, 'push', path.join(home, 'origins', 'journal.git'), 'HEAD:main')
-    await client.factorySettings(journal.id)
+    await client.factorySettings(journal.id, { refresh: 'first' })
   }
   async function configurePrs(task: Task, change: (index: number) => Record<string, unknown>) {
     const current = await observed.task(task.id)
