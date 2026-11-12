@@ -1,4 +1,3 @@
-import { shortReference } from '@ted/protocol/reference'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
@@ -11,6 +10,7 @@ import type {
   ValidationObligations,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, waitUntil } from './helpers.ts'

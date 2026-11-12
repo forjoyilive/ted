@@ -1,7 +1,7 @@
-import { shortReference } from '@ted/protocol/reference'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { shortReference } from '@ted/protocol/reference'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import { createPeers, type Peers } from '../src/tasks/peers.ts'

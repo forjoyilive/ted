@@ -1,4 +1,3 @@
-import { shortReference } from '@ted/protocol/reference'
 import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -14,6 +13,7 @@ import type {
   Task,
   ThreadEvent,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
