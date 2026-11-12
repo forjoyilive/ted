@@ -110,14 +110,16 @@ these are not exactly one sample per wall second. No cause is established.
   case is related to KRI-294; do not infer a production defect or a current-main
   regression without checking the later fixture repair.
 
-The final two observations’ tracker writes remain outstanding. Linear rejected
-three follow-up creations and the loaded-2 parent update with “user rejected MCP
-tool call”. No new issue IDs or successful parent update are claimed for them.
-Read-only duplicate searches found no exact open repair for the five draft
-scopes in [follow-up drafts](suite-measurement-follow-ups.md). Those drafts and
-related-evidence updates require the user to allow Linear writes before filing.
-No rejected action was retried through another channel. This tracker gap prevents
-calling the Task’s reporting work complete.
+The user restored Linear write access after the earlier rejected attempts. The
+complete final result and recurring report are now posted in
+[KRI-256](https://linear.app/kriyadesign/issue/KRI-256).
+Five duplicate-checked Backlog diagnostics were filed under KRI-256:
+KRI-357 (archive/setup slot), KRI-358 (Coordinator readiness/cleanup), KRI-359
+(empty-app quit retry), KRI-360 (update/restart preservation) and KRI-361
+(Conversation-tab retry). The [follow-up record](suite-measurement-follow-ups.md)
+retains their scopes. Related evidence was added to KRI-286, KRI-293, KRI-294 and
+KRI-290 without changing their closure decisions. KRI-256 remains In Progress,
+with its speed and reliability criteria unmet.
 
 ## Recurring-failure report
 
@@ -196,8 +198,8 @@ a slow run. No additional full runs, lock bypass or cap changes are authorized.
 
 ## Next work
 
-File the prepared follow-ups and post this result in KRI-256 while leaving it
-In Progress. Diagnose on current source before reproducing already repaired
-frozen-source failures. Focused passes are repair evidence, not full-series
+The final tracker updates are complete. Diagnose on current source before
+reproducing already repaired frozen-source failures. Focused passes are repair
+evidence, not full-series
 acceptance. A fresh series after repairs needs its own clean commit and human
 agreement; keep this failed series intact.

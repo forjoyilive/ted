@@ -1,12 +1,22 @@
-# Prepared tracker updates after the six observations
+# Filed tracker updates after the six observations
 
-These are drafts, not filed issues. Linear rejected the loaded-2 writes with
-“user rejected MCP tool call”. The result report is ready for the user to review
-before allowing those writes. Check for duplicates again immediately before
-creating an issue. Use team Kriya Design, project TED, parent KRI-256, Backlog.
-Keep KRI-256 In Progress; do not mark its speed or reliability criteria complete.
+The user restored Linear write access after the earlier rejected attempts. All
+five scopes below are now filed in Kriya Design / TED as Backlog children of
+KRI-256, after fresh duplicate searches:
 
-Evidence for every draft is in [the final report](suite-measurement-results.md)
+- [KRI-357](https://linear.app/kriyadesign/issue/KRI-357): archive/setup working slot.
+- [KRI-358](https://linear.app/kriyadesign/issue/KRI-358): Coordinator readiness/cleanup.
+- [KRI-359](https://linear.app/kriyadesign/issue/KRI-359): empty-app quit retry.
+- [KRI-360](https://linear.app/kriyadesign/issue/KRI-360): update/restart preservation.
+- [KRI-361](https://linear.app/kriyadesign/issue/KRI-361): Conversation-tab retry.
+
+The final report and recurring history were posted to KRI-256 (comment
+`4c84eddf-b3ff-41aa-a3c8-85eacd799215`). Related evidence was added to KRI-286,
+KRI-293, KRI-294 and KRI-290. KRI-293’s closure as unreproduced is preserved.
+KRI-256 remains In Progress; its speed and reliability criteria remain unmet.
+The scopes and publishing checklist below preserve what was filed.
+
+Evidence for every follow-up is in [the final report](suite-measurement-results.md)
 and [the evidence manifest](suite-measurement-results.json). Raw archives live
 under `.suite-measurements/` in TED-46’s checkout. The measured commit is
 `c0594f81851e15c8d68faf96da8d0b1a164d8d7c`, on the same M3 Pro Mac with six
