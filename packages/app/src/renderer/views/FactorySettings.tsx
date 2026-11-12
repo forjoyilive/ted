@@ -51,6 +51,7 @@ import {
   ChecksSection,
   InvalidNotice,
   NotesSection,
+  NotificationsSection,
   PermissionsSection,
   Toggle,
   WorkflowSection,
@@ -67,6 +68,7 @@ const sections = [
   ['checks', 'Checks'],
   ['agents', 'Agents'],
   ['permissions', 'Permissions'],
+  ['notifications', 'Notifications'],
   ['notes', 'Factory notes'],
   ['danger-zone', 'Danger zone'],
 ] as const
@@ -416,6 +418,7 @@ export function FactorySettings({
                     onDraft={onDraft}
                     onMode={onMode}
                   />
+                  <NotificationsSection factoryId={factory.id} />
                   <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
                 </>
               )}

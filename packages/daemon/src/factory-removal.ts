@@ -107,7 +107,10 @@ export function createFactoryRemovals(options: {
         const { [factory.id]: ___, ...outside } = settings.appsOutsideSandbox
         const { [factory.id]: removedScope, ...scopes } = settings.linearIntakeScopes
         const { [factory.id]: permissionsRemoved, ...permissions } = settings.factoryPermissions
+        const { [factory.id]: notificationsRemoved, ...notifications } =
+          settings.factoryNotifications
         store.updateSettings({
+          factoryNotifications: notifications,
           linearIntakeScopes: scopes,
           factoryPermissions: permissions,
           linearSyncTeams: teams,

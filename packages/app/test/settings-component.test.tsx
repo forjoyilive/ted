@@ -182,6 +182,7 @@ test('notification switches and an OS-disabled event show the settings action', 
   const open = vi.fn()
   const api = bridge({
     notificationsOff: () => false,
+    listFactories: () => [{ id: 'nb', name: 'notebook' }],
     updateSettings: update,
     openNotificationSettings: open,
   })
@@ -194,6 +195,18 @@ test('notification switches and an OS-disabled event show the settings action', 
     [{ notifyProblems: false }],
     [{ notifyTaskMerged: true }],
     [{ notifySound: true }],
+  ])
+  update.mockClear()
+  const byFactory = await screen.findByRole('group', { name: 'By Factory' })
+  const inboxItems = within(byFactory).getByRole<HTMLInputElement>('checkbox', {
+    name: 'Inbox items for notebook',
+  })
+  expect(inboxItems.checked).toBe(true)
+  await u.click(inboxItems)
+  await u.click(within(byFactory).getByRole('checkbox', { name: 'Task merged for notebook' }))
+  expect(update.mock.calls).toEqual([
+    [{ factoryNotifications: { nb: { inboxItems: false, taskMerged: false } } }],
+    [{ factoryNotifications: { nb: { inboxItems: true, taskMerged: true } } }],
   ])
   await act(async () => api.emit({ type: 'notifications-off', off: true }))
   expect(screen.getByRole('alert').textContent).toContain('Notifications are off for TED')

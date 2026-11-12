@@ -1,9 +1,17 @@
-import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
+import type {
+  AutomationRequest,
+  Factory,
+  InboxItem,
+  MachineSettings,
+  PlanInboxItem,
+} from '@ted/protocol'
+import { factoryNotifications } from '@ted/protocol/settings'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { contextMenu, useActionMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
+import { BellOffIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import { inboxChips, inFactory, nextSelection } from '../inbox.ts'
@@ -32,6 +40,8 @@ export function Inbox({
   onFilter,
   onShowAnswered,
   onNewTask,
+  onOpenNotifications,
+  settings,
   children,
 }: {
   items: readonly InboxItem[]
@@ -50,6 +60,8 @@ export function Inbox({
   onFilter: (factoryId: string | undefined) => void
   onShowAnswered: (show: boolean) => void
   onNewTask: () => void
+  onOpenNotifications?: () => void
+  settings?: MachineSettings | undefined
   children?: ReactNode
 }) {
   const requestMenu = (label: string, body: string, open: (() => void) | undefined) =>
@@ -60,6 +72,16 @@ export function Inbox({
       ]),
     )
   const now = useNow()
+  const quiet = (id: string) =>
+    settings !== undefined && !factoryNotifications(settings, id).inboxItems
+  const mark = (id: string) =>
+    !showAnswered &&
+    quiet(id) && (
+      <span className={styles.uncounted} title="Inbox items are off for this Factory">
+        <BellOffIcon />
+        Not counted
+      </span>
+    )
   const manyFactories = factories.length > 1
   const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set())
   const known = useRef(new Set<string>())
@@ -140,6 +162,17 @@ export function Inbox({
           b.request.createdAt.localeCompare(a.request.createdAt) ||
           a.request.id.localeCompare(b.request.id),
       )
+  const uncounted = showAnswered
+    ? []
+    : rows
+        .map((row) =>
+          row.kind === 'plan'
+            ? row.item.plan.factoryId
+            : row.kind === 'task'
+              ? row.item.task.factoryId
+              : row.item.factoryId,
+        )
+        .filter(quiet)
   const before = useRef(rows)
   const next = showAnswered ? undefined : nextSelection(before.current, rows, selected)
   useLayoutEffect(() => {
@@ -182,12 +215,31 @@ export function Inbox({
                   aria-pressed={chip.factoryId === factoryId}
                   onClick={() => onFilter(chip.factoryId)}
                 >
+                  {chip.factoryId !== undefined && quiet(chip.factoryId) && <BellOffIcon />}
                   {chip.label} <span className={styles.chipCount}>{chip.count}</span>
                 </button>
               ))}
             </div>
           )}
         </header>
+        {uncounted.length > 0 && (
+          <p className={styles.uncountedNote}>
+            <BellOffIcon />
+            <span>
+              {uncounted.length} not counted or notified: Inbox items are off for{' '}
+              {[...new Set(uncounted)].map((id) => factoryName(factories, id)).join(', ')}.
+            </span>
+            {onOpenNotifications && (
+              <button
+                type="button"
+                className={styles.uncountedChange}
+                onClick={onOpenNotifications}
+              >
+                Change
+              </button>
+            )}
+          </p>
+        )}
         {shown.length === 0 && asked.length === 0 && planRows.length === 0 ? (
           <InboxEmptyState
             empty={inboxEmpty({
@@ -226,6 +278,7 @@ export function Inbox({
                     >
                       <span className={styles.top}>
                         <span className={styles.kind}>{inboxLabel(request)}</span>
+                        {mark(plan.factoryId)}
                         <span className={styles.age}>{age(request.createdAt, now)}</span>
                       </span>
                       <span data-headline className={`${styles.headline} ${styles.unread}`}>
@@ -269,6 +322,7 @@ export function Inbox({
                         >
                           {requestLabel(request)}
                         </span>
+                        {mark(task.factoryId)}
                         <span className={styles.age}>
                           {age(request.answer?.at ?? request.createdAt, now)}
                         </span>
@@ -306,6 +360,7 @@ export function Inbox({
                   >
                     <span className={styles.top}>
                       <span className={styles.kind}>Question</span>
+                      {mark(question.factoryId)}
                       <span className={styles.age}>{age(question.createdAt, now)}</span>
                     </span>
                     <span data-headline className={`${styles.headline} ${styles.unread}`}>

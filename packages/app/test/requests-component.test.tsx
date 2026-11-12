@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import type { AutomationRequest, FailureCase, PlanInboxItem, Round } from '@ted/protocol'
+import {
+  type AutomationRequest,
+  defaultMachineSettings,
+  type FailureCase,
+  type PlanInboxItem,
+  type Round,
+} from '@ted/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
@@ -550,6 +556,30 @@ test('resolving a selected request opens the next request and clears when none r
   expect(props.onOpen).toHaveBeenCalledWith(second)
   view.rerender(<Inbox {...props} items={[]} selected="c2" />)
   expect(props.onClear).toHaveBeenCalledOnce()
+})
+
+test('a Factory with Inbox items off has its requests marked as not counted', async () => {
+  requestApi()
+  const props = inboxProps()
+  const onOpenNotifications = vi.fn()
+  const items = [{ task: task(), request: comment({ id: 'c1' }) }]
+  const view = render(<Inbox {...props} items={items} onOpenNotifications={onOpenNotifications} />)
+  expect(screen.queryByText('Not counted')).toBeNull()
+  view.rerender(
+    <Inbox
+      {...props}
+      items={items}
+      onOpenNotifications={onOpenNotifications}
+      settings={{
+        ...defaultMachineSettings,
+        factoryNotifications: { f1: { inboxItems: false, taskMerged: false } },
+      }}
+    />,
+  )
+  expect(screen.getByText('Not counted')).toBeTruthy()
+  expect(screen.getByText(/1 not counted or notified: Inbox items are off for/)).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Change' }))
+  expect(onOpenNotifications).toHaveBeenCalledOnce()
 })
 
 test('Inbox interleaves request types newest first, filters without reordering, and selects the next visible row', async () => {

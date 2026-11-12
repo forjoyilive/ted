@@ -34,6 +34,7 @@ import type {
   ThreadEvent,
   ValidationObligations,
 } from '@ted/protocol'
+import { countWaiting } from '@ted/protocol/waiting'
 import {
   createContext,
   useCallback,
@@ -977,8 +978,9 @@ export function useWaitingCount(): number {
   return (
     useEventValue<number | undefined>({
       initial: undefined,
-      load: async () => (await ted.listWaiting()).length,
-      event: (event) => (event.type === 'inbox-changed' ? () => event.waiting.length : undefined),
+      load: async () => countWaiting(await ted.listWaiting()),
+      event: (event) =>
+        event.type === 'inbox-changed' ? () => countWaiting(event.waiting) : undefined,
     }).value ?? 0
   )
 }

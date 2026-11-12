@@ -282,6 +282,21 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyProblems: onOff('notifyProblems'),
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
+  factoryNotifications(value) {
+    const message = 'factoryNotifications must give inboxItems and taskMerged for each Factory'
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new HttpError(400, message)
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([factoryId, choice]) => {
+        const { inboxItems, taskMerged } = (choice ?? {}) as Record<string, unknown>
+        if (!factoryId || typeof inboxItems !== 'boolean' || typeof taskMerged !== 'boolean') {
+          throw new HttpError(400, message)
+        }
+        return [factoryId, { inboxItems, taskMerged }]
+      }),
+    )
+  },
   firstLaunchDone: onOff('firstLaunchDone'),
   linearIntakeScopes(value) {
     if (

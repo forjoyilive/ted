@@ -540,7 +540,10 @@ export {
   type Appearance,
   appearances,
   checkLimits,
+  defaultFactoryNotifications,
   defaultMachineSettings,
+  type FactoryNotifications,
+  factoryNotifications,
   type MachineSettings,
   type Profile,
   type QuitChoice,
@@ -800,7 +803,7 @@ export {
 export type { UpdateWork } from './update.ts'
 export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
-export type { WaitingRequest } from './waiting.ts'
+export { countWaiting, type WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,

@@ -1,5 +1,6 @@
 import type { MachineSettings } from '@ted/protocol'
-import { useEventValue } from '../data.ts'
+import { FactoryNotificationsTable } from '../components/FactoryNotifications.tsx'
+import { useEventValue, useFactories } from '../data.ts'
 import { ted } from '../ted.ts'
 import { Button, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import styles from './notifications.module.css'
@@ -57,6 +58,7 @@ function NotifySwitch({
 
 export function NotificationsPage({ settings }: SettingsPageProps) {
   const off = useNotificationsOff()
+  const factories = useFactories()
   return (
     <SettingsPage
       title="Notifications"
@@ -79,6 +81,14 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
           <NotifySwitch key={row.setting} settings={settings} {...row} />
         ))}
       </SettingsGroup>
+      {factories.length > 0 && (
+        <SettingsGroup
+          label="By Factory"
+          help="A notification is sent only when it is on above and ticked for the Factory. These are the same choices as Notifications in each Factory’s Settings. With Inbox items unticked, a Factory’s requests stay in the Inbox but leave its count and the Dock badge."
+        >
+          <FactoryNotificationsTable settings={settings} factories={factories} />
+        </SettingsGroup>
+      )}
       <SettingsGroup label="Sound">
         <NotifySwitch
           settings={settings}

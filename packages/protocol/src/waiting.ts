@@ -5,6 +5,11 @@ interface WaitingBase {
   factoryId: string
   createdAt: string
   headline: string
+  uncounted?: true
+}
+
+export function countWaiting(requests: readonly WaitingRequest[]): number {
+  return requests.filter((r) => !r.uncounted).length
 }
 
 export type WaitingRequest =

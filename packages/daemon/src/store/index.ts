@@ -50,11 +50,13 @@ import {
   type DescriptionVersion,
   type DesignReview,
   type DiffRow,
+  defaultFactoryNotifications,
   defaultMachineSettings,
   type Effort,
   type Factory,
   type FailureCase,
   type FindingSeverity,
+  factoryNotifications,
   failureChoices,
   type GitHubWait,
   type LayerKind,
@@ -2644,8 +2646,31 @@ export async function openStore({
           },
         ]
       })
-    return [...fromTasks, ...fromAutomations, ...fromPlans].sort((a, b) =>
-      a.createdAt.localeCompare(b.createdAt),
+    const current = settings()
+    return [...fromTasks, ...fromAutomations, ...fromPlans]
+      .map(
+        (request): WaitingRequest =>
+          factoryNotifications(current, request.factoryId).inboxItems
+            ? request
+            : { ...request, uncounted: true },
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  }
+  if (
+    store.query(queryDb(machineSettingValues.where({ name: 'factoryNotifications' }))).length ===
+      0 &&
+    store.query(allFactories).length > 0
+  ) {
+    const merged = settings().notifyTaskMerged
+      ? store
+          .query(allFactories)
+          .map((f) => [f.id, { ...defaultFactoryNotifications, taskMerged: true }])
+      : []
+    commit(
+      events.machineSettingsChanged({
+        changes: JSON.stringify({ factoryNotifications: Object.fromEntries(merged) }),
+        at: new Date().toISOString(),
+      }),
     )
   }
   let lastWaiting: WaitingRequest[] | undefined

@@ -17,6 +17,20 @@ export function CopyIcon({ className }: IconProps) {
   )
 }
 
+export function BellOffIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path
+        d="M3.5 9.6V6.3a3.5 3.5 0 0 1 7 0v3.3l1 1.3h-9l1-1.3ZM5.8 12.2a1.3 1.3 0 0 0 2.4 0M2.2 2.2l9.6 9.6"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function SearchIcon({ className }: IconProps) {
   return (
     <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>

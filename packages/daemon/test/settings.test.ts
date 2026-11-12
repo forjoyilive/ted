@@ -338,6 +338,14 @@ describe('settings and Factories over the daemon API', () => {
       notifyProblems: false,
       notifySound: true,
     })
+
+    const choices = { nb: { inboxItems: false, taskMerged: true } }
+    await ted.updateSettings({ factoryNotifications: choices })
+    expect((await ted.getSettings()).factoryNotifications).toEqual(choices)
+    await expect(
+      ted.updateSettings({ factoryNotifications: { nb: { inboxItems: false } } } as never),
+    ).rejects.toThrow()
+    expect((await ted.getSettings()).factoryNotifications).toEqual(choices)
   })
 
   test('a client marks first launch done', async () => {
