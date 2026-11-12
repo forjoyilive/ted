@@ -1332,6 +1332,11 @@ export async function openStore({
       }
     })
 
+  const startRequestUsed = (taskId: string, at: string) =>
+    taskRow(taskId)?.startRequested
+      ? [events.taskStartRequestChanged({ taskId, startRequested: false, at })]
+      : []
+
   const commentFiles = (commentId: string): Attachment[] =>
     store
       .query(queryDb(commentAttachments.where({ commentId }).orderBy('position', 'asc')))
@@ -3227,6 +3232,7 @@ export async function openStore({
       const at = new Date().toISOString()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...startRequestUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskQueued({ taskId, stage, rank, at }),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
@@ -3275,6 +3281,7 @@ export async function openStore({
       const rank = nextRank()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...startRequestUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null

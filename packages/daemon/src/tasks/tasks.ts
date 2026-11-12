@@ -1422,7 +1422,6 @@ export function createTasks(options: {
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (task.snoozedUntil !== undefined ||
-        (store.settings().overnightMode && task.autopilot?.choice !== 'off') ||
         store.getFactory(task.factoryId)?.autoStartBacklog === true) &&
       unmergedBlockers(task.id).length === 0
     )
