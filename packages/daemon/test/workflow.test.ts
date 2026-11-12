@@ -6,6 +6,7 @@ import {
   resolveAgentChoices,
   resolveWorkflow,
 } from '../src/workflow/index.ts'
+import { sameFiles, sharedDefaultLayer } from '../src/workflow/layers.ts'
 import { subAgentPrompt, tedSubAgentPrompt } from '../src/workflow/workflow.ts'
 
 const defaults = () => readDefaultLayer()
@@ -426,8 +427,8 @@ describe('checking a layer', () => {
         ].join('\n'),
       }),
     ).toEqual([
-      'error .ted/workflow.yaml 1 16 `lead.agent` must be claude or codex',
-      'error .ted/workflow.yaml 2 11 `reviewer` must be codex, claude or same',
+      'error .ted/workflow.yaml 1 16 `lead.agent` must be claude, codex or antigravity',
+      'error .ted/workflow.yaml 2 11 `reviewer` must be codex, claude, antigravity or same',
       'error .ted/workflow.yaml 3 20 `planner.effort` must be one of low, medium, high, xhigh, max, ultra',
       'error .ted/workflow.yaml 4 14 `permissions` must be auto or bypass',
       'error .ted/workflow.yaml 5 19 `max_working_runs` must be a whole number above 0',
@@ -650,5 +651,32 @@ describe('Stage effort', () => {
         factory({ 'workflow.yaml': `version: 1\nstages:\n  work: { effort: ${effort} }\n` }).valid,
       ).toBe(true)
     }
+  })
+})
+
+describe('shared layers', () => {
+  test('every read of TED’s defaults is its own copy of one parsed layer', async () => {
+    const shared = await sharedDefaultLayer()
+    expect(await sharedDefaultLayer()).toBe(shared)
+    const first = await defaults()
+    const second = await defaults()
+    expect(first).toEqual(shared)
+    expect(first).not.toBe(shared)
+    first.settings.order?.push('merge')
+    first.settings.stages.work = { enabled: false }
+    first.stageFiles.work = 'changed'
+    first.files['workflow.yaml'] = 'changed'
+    expect(second).toEqual(shared)
+    expect(await defaults()).toEqual(second)
+  })
+
+  test('layer files are the same when every name and text matches', () => {
+    const files = { 'workflow.yaml': 'version: 1\n', 'stages/work.md': null }
+    expect(sameFiles(files, files)).toBe(true)
+    expect(sameFiles(files, { 'stages/work.md': null, 'workflow.yaml': 'version: 1\n' })).toBe(true)
+    expect(sameFiles(files, { ...files, 'workflow.yaml': 'version: 2\n' })).toBe(false)
+    expect(sameFiles(files, { ...files, 'notes.md': '' })).toBe(false)
+    expect(sameFiles(files, { 'workflow.yaml': 'version: 1\n', 'notes.md': null })).toBe(false)
+    expect(sameFiles({}, {})).toBe(true)
   })
 })

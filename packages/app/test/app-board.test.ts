@@ -9,6 +9,7 @@ import {
   ctx,
   daemonClient,
   launchApp,
+  openFactoryView,
   setUpAppTests,
   sidebar,
   ted,
@@ -26,6 +27,56 @@ describe('List and All Tasks', () => {
       .getByRole('main')
       .locator('tbody tr[data-task]')
       .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-task')))
+
+  test('failed single and bulk Task context actions keep errors inside the viewport without shrinking the app', async () => {
+    await twoFactories()
+    await ted('task', 'create', '--factory', 'NB', 'Notebook covers')
+    await ted('task', 'create', '--factory', 'NB', 'Export notes')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'All Tasks', exact: true }).click()
+    const mainWidth = await window
+      .getByRole('main')
+      .evaluate((element) => element.getBoundingClientRect().width)
+    await window.evaluate(() => {
+      Object.defineProperty(navigator.clipboard, 'writeText', {
+        configurable: true,
+        value: async () => {
+          throw new Error('Copy refused')
+        },
+      })
+    })
+    await window.locator('tr[data-task="NB-1"]').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Copy Task ID', exact: true }).click()
+    const alert = window.getByRole('alert').filter({ hasText: 'Copy refused' })
+    await alert.waitFor()
+    expect(
+      await alert.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return (
+          box.width > 0 &&
+          box.height > 0 &&
+          box.top >= 0 &&
+          box.bottom <= innerHeight &&
+          box.left >= 0 &&
+          box.right <= innerWidth
+        )
+      }),
+    ).toBe(true)
+    for (const id of ['NB-1', 'NB-2'])
+      await window.locator(`tr[data-task="${id}"]`).click({ modifiers: ['Meta'] })
+    await window.locator('tr[data-task="NB-1"]').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Copy Task IDs', exact: true }).click()
+    await alert.waitFor()
+    expect(
+      await window.getByRole('main').evaluate((element) => element.getBoundingClientRect().width),
+    ).toBe(mainWidth)
+    expect(
+      await alert.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth
+      }),
+    ).toBe(true)
+  })
 
   test('Open in List shows the machine-wide queue, and dragging there reorders it', async () => {
     await twoFactories()
@@ -74,7 +125,7 @@ describe('Board', () => {
   }
 
   async function openBoard(window: Page) {
-    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await openFactoryView(window, 'widgets', 'Board')
     const board = window.getByRole('region', { name: 'widgets' })
     await board.getByRole('region', { name: 'Backlog' }).waitFor()
     return board
@@ -89,10 +140,50 @@ describe('Board', () => {
     const window = await boardOf()
     const client = await daemonClient()
     await client.updateSettings({ maxWorkingRuns: 1 })
-    await ted('task', 'create', '--factory', 'NB', forever())
+    const activity =
+      'Couldn’t start: git worktree failed at /projects/a-very-long-worktree-path/'.repeat(2)
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [{ run: ['ted', 'status', activity] }, { waitFor: path.join(ctx.home, 'never') }],
+      }),
+    )
     await ted('task', 'create', '--factory', 'NB', 'Export notes')
     await ted('task', 'start', 'NB-1')
     const board = await openBoard(window)
+    const activityLine = board.getByText(activity, { exact: true })
+    await activityLine.waitFor()
+    expect(
+      await board
+        .locator('[data-stage]')
+        .evaluateAll((columns) =>
+          columns.every((column) => column.getBoundingClientRect().width === 248),
+        ),
+    ).toBe(true)
+    expect(
+      await activityLine.evaluate((element) => {
+        const card = element.closest('[data-task]')
+        if (!card) return false
+        const line = element.getBoundingClientRect()
+        const bounds = card.getBoundingClientRect()
+        return (
+          line.left >= bounds.left &&
+          line.right <= bounds.right &&
+          element.scrollWidth > element.clientWidth &&
+          getComputedStyle(element).textOverflow === 'ellipsis'
+        )
+      }),
+    ).toBe(true)
+    await board.getByRole('region', { name: 'Done', exact: true }).scrollIntoViewIfNeeded()
+    expect(
+      await board.getByRole('region', { name: 'Done', exact: true }).evaluate((element) => {
+        const bounds = element.getBoundingClientRect()
+        return bounds.left >= 0 && bounds.right <= innerWidth
+      }),
+    ).toBe(true)
     const backlog = board.getByRole('region', { name: 'Backlog' })
     const intake = board.getByRole('region', { name: 'Intake' })
     await backlog.locator('[data-task="NB-2"]').waitFor()
@@ -219,7 +310,7 @@ describe('Board', () => {
     await thread.getByText('You followed up in NB-2').waitFor()
 
     await thread.getByRole('button', { name: 'Task actions' }).click()
-    await thread.getByRole('menuitem', { name: /Follow up…/ }).click()
+    await window.getByRole('menuitem', { name: /Follow up…/ }).click()
     const dialog = window.getByRole('dialog', { name: 'Follow up NB-1?' })
     await dialog.getByRole('textbox').fill(forever())
     await dialog.getByRole('button', { name: 'Follow up' }).click()

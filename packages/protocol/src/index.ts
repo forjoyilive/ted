@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export type * from './api-cost.ts'
 export {
   type AppCapture,
   type AppLog,
@@ -189,12 +190,17 @@ export type {
   DashboardTask,
   FactoryDashboard,
   FlowInterval,
+  FlowMeasuredInterval,
   FlowPeriod,
+  FlowReason,
+  FlowReasonId,
+  FlowReasonSample,
   FlowSendBack,
   FlowSendBackGroup,
   FlowStage,
   FlowStageSample,
   FlowTask,
+  FlowTestEvidence,
   FlowValidateOutcome,
   FlowValidateSample,
 } from './dashboard.ts'
@@ -213,6 +219,7 @@ export type {
   Diagnostics,
   LogText,
   ProcessInfo,
+  ProcessUsage,
   RunDiagnostics,
   TokenUse,
 } from './diagnostics.ts'
@@ -359,6 +366,8 @@ export {
   agentHealthStates,
   agentProblem,
   agentShortNames,
+  antigravityPlanNotice,
+  antigravityTermsUrl,
   type Billing,
   billingNames,
   billings,

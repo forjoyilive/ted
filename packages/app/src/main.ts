@@ -93,7 +93,7 @@ import {
 import { nextReturn } from './renderer/banners.ts'
 import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
-import { fileLog, handleUncaught, ignoreBrokenPipes, watchParent } from './uncaught.ts'
+import { fileLog, handleUncaught, ignoreBrokenPipes, startupLog, watchParent } from './uncaught.ts'
 import { testFeedSource } from './update-source.ts'
 import {
   allowedUpdateUrl,
@@ -319,6 +319,8 @@ const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1'
 
 const testLaunch = hiddenWindow || tedEnv('TED_EXIT_WITH_PID') !== undefined
 const logUncaught = fileLog(path.join(tedPaths(tedHome()).logs, 'app.log'))
+const traceStartup = startupLog(path.join(tedPaths(tedHome()).logs, 'app-startup.log'), testLaunch)
+traceStartup('main-evaluated')
 
 watchExitWith(() => app.exit(0))
 if (testLaunch) watchParent(() => app.exit(0))
@@ -407,6 +409,7 @@ function makeLoginItem(): LoginItem {
 }
 
 function forward(event: DaemonEvent): void {
+  const drawn = state
   if (event.type === 'run-updated' && event.run.state === 'finished')
     taskBrowsers?.ended(event.run.id)
   if (event.type === 'apps-changed' || event.type === 'task-deleted')
@@ -434,7 +437,7 @@ function forward(event: DaemonEvent): void {
   if (event.type === 'task-updated') notifications.merged(event.task)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
-  refresh()
+  if (state !== drawn || event.type === 'settings-changed') refresh()
 }
 
 interface NotificationState {
@@ -760,6 +763,7 @@ async function decideQuit(): Promise<void> {
 }
 
 async function createWindow(): Promise<void> {
+  traceStartup('window-create-start')
   const created = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -776,6 +780,11 @@ async function createWindow(): Promise<void> {
     },
   })
   window = created
+  traceStartup('window-created')
+  created.webContents.once('dom-ready', () => traceStartup('renderer-dom-ready'))
+  created.webContents.once('did-fail-load', () => traceStartup('renderer-load-failed'))
+  created.webContents.once('render-process-gone', () => traceStartup('renderer-process-gone'))
+  created.once('unresponsive', () => traceStartup('window-unresponsive'))
   created.on('page-title-updated', (event) => event.preventDefault())
   created.on('close', (event) => {
     if (quitting) return
@@ -785,7 +794,9 @@ async function createWindow(): Promise<void> {
   created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   created.webContents.on('will-navigate', (event) => event.preventDefault())
   keepFramesInPlace(created.webContents)
+  traceStartup('renderer-load-start')
   await created.loadFile(path.join(import.meta.dirname, '../dist/renderer/index.html'))
+  traceStartup('renderer-load-finished')
 }
 
 async function loadState(): Promise<void> {
@@ -824,18 +835,21 @@ function onConnection(connection: DaemonConnection): void {
 }
 
 async function start(): Promise<void> {
+  traceStartup('app-ready')
   if (platform === 'darwin' && edition === 'dev' && !hiddenWindow) {
     app.dock?.setIcon(nativeImage.createFromBuffer(appIconPng({ size: 512, edition })))
   }
   loginItem = makeLoginItem()
   const background =
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
+  traceStartup(background ? 'background-mode' : 'window-mode')
   if (background) app.dock?.hide()
   if (tedEnv('TED_DEMO') === '1' && edition === 'dev') {
     const { checkDemoHome } = await import('@ted/daemon/demo')
     if (!(await checkDemoHome(tedHome()))?.complete)
       throw new Error('Prepare the demo home with pnpm app --demo first.')
   }
+  traceStartup('daemon-connect-start')
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
     ...(testAppToken && { appToken: testAppToken }),
@@ -843,6 +857,7 @@ async function start(): Promise<void> {
     onEvent: forward,
     onConnection,
   })
+  traceStartup('daemon-connected')
   supervisor = supervised
   client = supervised.client
   taskBrowsers = createTaskBrowsers(
@@ -857,7 +872,9 @@ async function start(): Promise<void> {
     },
   )
   servePrototypes((file) => supervised.client.readAttachment(file))
+  traceStartup('initial-state-start')
   await loadStateWhenReady()
+  traceStartup('initial-state-finished')
 
   const appRequests = {
     connection: async () => supervised.connection,
@@ -939,8 +956,13 @@ async function start(): Promise<void> {
   app.on('activate', showWindow)
   app.on('second-instance', showWindow)
   refresh()
+  traceStartup('updates-start')
   await startUpdates(supervised)
-  if (background) return
+  traceStartup('updates-finished')
+  if (background) {
+    traceStartup('background-ready')
+    return
+  }
   await createWindow()
   if (tedEnv('TED_DEMO_STARTED'))
     console.log(`Demo window ready in ${Date.now() - Number(tedEnv('TED_DEMO_STARTED'))} ms`)
@@ -954,6 +976,7 @@ if (tedEnv('TED_HOME') || edition !== 'release') {
 }
 
 if (!app.requestSingleInstanceLock()) {
+  traceStartup('single-instance-refused')
   app.exit(0)
 } else {
   // Electron emits 'ready' only after this module finishes evaluating, so a top-level await deadlocks.
@@ -961,6 +984,7 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(start)
     .catch((error: unknown) => {
+      traceStartup('startup-failed')
       if (testLaunch) console.error('TED could not start:', error)
       else
         dialog.showErrorBox(

@@ -7,7 +7,7 @@ import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
-import { task } from './support/fixtures.ts'
+import { createdAt, task } from './support/fixtures.ts'
 
 const blocked = task({
   id: 'NB-2',
@@ -231,6 +231,72 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
   expect(document.querySelector('tr[data-task="NB-2"]')?.textContent).not.toContain('Blocked')
   expect(a.request).toHaveBeenCalledWith('deleteTask', 'NB-1', { blocked: 'unblock' })
 })
+
+test('Task actions opens and chooses actions without opening the enclosing Task', async () => {
+  const open = vi.fn()
+  const api = bridge({ setPriority: vi.fn() })
+  await act(async () => {
+    render(
+      <table>
+        <tbody>
+          <tr onClick={open} onKeyDown={() => undefined} tabIndex={0}>
+            <td>
+              <TaskActionsMenu task={task()} />
+            </td>
+          </tr>
+        </tbody>
+      </table>,
+    )
+  })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  expect(screen.getByRole('menu', { name: /Task actions/ })).toBeTruthy()
+  expect(open).not.toHaveBeenCalled()
+  await u.click(screen.getByRole('menuitem', { name: /^Priority/ }))
+  await u.click(screen.getByRole('menuitemradio', { name: 'Urgent' }))
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
+  expect(open).not.toHaveBeenCalled()
+})
+
+test('Task menu keyboard navigation reaches choices, dismisses and restores focus', async () => {
+  bridge({ setPriority: vi.fn() })
+  await act(async () => {
+    render(<TaskActionsMenu task={task()} />)
+  })
+  const trigger = await screen.findByRole('button', { name: 'Task actions' })
+  await user().click(trigger)
+  const menu = screen.getByRole('menu', { name: /Task actions/ })
+  expect(document.activeElement?.textContent).toContain('Start')
+  fireEvent.keyDown(document.activeElement ?? menu, { key: 'End' })
+  expect(document.activeElement?.textContent).toContain('Delete')
+  fireEvent.keyDown(document.activeElement ?? menu, { key: 'Home' })
+  expect(document.activeElement?.textContent).toContain('Start')
+  fireEvent.keyDown(document.activeElement ?? menu, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: /Task actions/ })).toBeNull()
+  expect(document.activeElement).toBe(trigger)
+})
+
+test.each([false, true])(
+  'a context-only Task menu reports a rejected copy (archived: %s)',
+  async (archived) => {
+    bridge({})
+    const u = user()
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Copy refused'))
+    const trigger = document.createElement('button')
+    render(
+      <TaskActionsMenu
+        task={task(
+          archived ? { archived: { at: createdAt, ended: { kind: 'never-started' } } } : {},
+        )}
+        contextOnly
+        contextAt={{ x: 20, y: 20, trigger }}
+      />,
+    )
+    await u.click(await screen.findByRole('menuitem', { name: 'Copy Task ID' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Copy refused')
+    expect(screen.queryByRole('menu')).toBeNull()
+  },
+)
 
 test('Ready for Work keeps Resume and offers a manual Stop to exclude Overnight pickup', async () => {
   const ready = task({

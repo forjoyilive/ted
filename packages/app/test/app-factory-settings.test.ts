@@ -55,6 +55,32 @@ describe('Factory settings sections', () => {
     await window.getByText('Always last').waitFor()
     const jump = window.getByRole('navigation', { name: 'Jump to a section' })
 
+    for (const width of [1280, 900]) {
+      await window.setViewportSize({ width, height: 800 })
+      await jump.getByRole('button', { name: 'Checks', exact: true }).click()
+      const checks = window.getByRole('region', { name: 'Checks', exact: true })
+      const help = checks.getByRole('button', { name: 'Help', exact: true }).last()
+      for (const input of ['hover', 'focus'] as const) {
+        if (input === 'hover') await help.hover()
+        else {
+          await window.mouse.move(0, 0)
+          await help.focus()
+        }
+        const tooltip = checks.getByRole('tooltip')
+        await tooltip.waitFor()
+        expect(
+          await tooltip.evaluate((element) => {
+            const rect = element.getBoundingClientRect()
+            const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+            return hit === element || element.contains(hit)
+          }),
+        ).toBe(true)
+        await help.press('Escape')
+        await window.keyboard.press('Tab')
+      }
+    }
+    await window.setViewportSize({ width: 1280, height: 800 })
+
     for (const section of ['Workflow', 'Factory notes', 'Danger zone']) {
       await jump.getByRole('button', { name: section }).click()
       await sleep(300)

@@ -101,6 +101,7 @@ import {
   parseLinearUrl,
   sizeChoices,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
@@ -120,6 +121,7 @@ import type { Linear } from '../linear/linear.ts'
 import { machineLoadRatio } from '../load.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
+import { resolveReference } from '../references.ts'
 import { type WorktreeFileScope, worktreeFileScope } from '../regular-file.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
@@ -214,8 +216,9 @@ import {
   unseen,
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
-import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
+import { answered as answeredItems, answeredSince, waiting as waitingItems } from './inbox.ts'
 import {
+  atIdlePoint,
   continueMessage,
   createLeadLifecycle,
   effectiveLead,
@@ -445,6 +448,7 @@ export interface Tasks {
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
+  publishedSlots(): RunSlots | undefined
   subscribe(listener: (event: DaemonEvent) => void): () => void
   comment(
     ref: string,
@@ -571,6 +575,7 @@ export function createTasks(options: {
   clock?: Clock
   nudgeAfterMs?: number
   mergePollMs?: number
+  githubReadBurst?: number
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
@@ -618,6 +623,8 @@ export function createTasks(options: {
   const starting = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
+  const continuing = new Set<string>()
+  const continuationFailures = new Set<string>()
   const pullRequestChangeReads = new Map<string, Promise<PullRequestChanges>>()
   const advancing = new Set<string>()
   const released = new Map<string, Promise<void>>()
@@ -858,6 +865,7 @@ export function createTasks(options: {
       gh: options.gh,
       clock,
       everyMs: mergePollMs,
+      ...(options.githubReadBurst !== undefined && { urgentBurst: options.githubReadBurst }),
       refs: watchedPullRequests,
       onRead: reactToGitHub,
       inBackground: (what, work) => inBackground(what, work),
@@ -886,6 +894,7 @@ export function createTasks(options: {
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
+  let publishedSlots: RunSlots | undefined
   const loadRatio = options.load?.ratio ?? machineLoadRatio
   let heldAtLoad: number | undefined
   let loadTimer: NodeJS.Timeout | undefined
@@ -943,11 +952,7 @@ export function createTasks(options: {
     const workflow = task.setup
       ? setupWorkflow(based, await setupInstructions(factory.showTutorial))
       : based
-    const overnightGates = night.off.filter(
-      (id) =>
-        workflow.settings.stages[id]?.gate !== true &&
-        !(id === 'clarify' && task.clarifyDepth === 'grilling'),
-    )
+    const overnightGates = night.off.filter((id) => workflow.settings.stages[id]?.gate !== true)
     if (kept !== undefined) {
       const stages = agentStageIds.filter(
         (id) =>
@@ -1100,7 +1105,7 @@ export function createTasks(options: {
 
   function gateOn(task: Task, workflow: ResolvedWorkflow, stage: AgentStageId): boolean {
     if (workflow.settings.stages[stage]?.gate === true) return true
-    if (stage === 'clarify' && task.clarifyDepth === 'grilling') return true
+    if (stage === task.stage && openGateRequest(task)) return true
     return (
       workflow.overnightGates?.includes(stage) === true &&
       stage === task.stage &&
@@ -1129,15 +1134,13 @@ export function createTasks(options: {
       .map((stage) => {
         const required = task.forcedGates.includes(stage)
           ? 'Required by TED for this Task'
-          : task.setup && ['clarify', 'design', 'review'].includes(stage)
+          : task.setup && ['design', 'review'].includes(stage)
             ? 'Required for Factory setup'
-            : stage === 'clarify' && task.clarifyDepth === 'grilling'
-              ? 'Required at grilling depth'
-              : stage === 'review' && guard === 'settings'
-                ? 'Required while overnight mode is on: this Task changes .ted/'
-                : stage === 'review' && guard === 'unreadable'
-                  ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
-                  : undefined
+            : stage === 'review' && guard === 'settings'
+              ? 'Required while overnight mode is on: this Task changes .ted/'
+              : stage === 'review' && guard === 'unreadable'
+                ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
+                : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'
@@ -1251,6 +1254,7 @@ export function createTasks(options: {
   const ready = (): QueueEntry[] =>
     queueOrder<QueueEntry>([
       ...subAgents.queued(),
+      ...continuationsReady(),
       ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
       ...sources.flatMap((source) =>
         source
@@ -1260,6 +1264,45 @@ export function createTasks(options: {
           ),
       ),
     ]).filter((q) => q.kind !== 'sub-agent' || subAgentRunnable(q.id))
+
+  function continuationsReady(includeFailures = false): QueueEntry[] {
+    return queueOrder<QueueEntry>(
+      store.tasksWithQueuedContinuations().flatMap((id) => {
+        const task = store.getTask(id)
+        if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
+        if (holds.has(id) || advancing.has(id) || leadLifecycle.applying(id)) return []
+        if (!includeFailures && continuationFailures.has(id)) return []
+        if (!task.pendingLeadMessages.some((message) => message.waitForSlot)) return []
+        const run = liveLeadOf(store, task)
+        if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
+        return [
+          {
+            id,
+            kind: 'continuation',
+            rank: task.rank,
+            priority: task.priority,
+            factoryId: task.factoryId,
+          },
+        ]
+      }),
+    )
+  }
+
+  function beginContinuation(taskId: string): void {
+    continuing.add(taskId)
+    const release = hold(taskId)
+    inBackground('continue an answered Task', async () => {
+      try {
+        await applyLead(taskId)
+      } catch (error) {
+        continuationFailures.add(taskId)
+        throw error
+      } finally {
+        continuing.delete(taskId)
+        release()
+      }
+    })
+  }
 
   function subAgentRunnable(id: string): boolean {
     const request = store.subAgentRequests().find((r) => r.id === id)
@@ -1388,6 +1431,7 @@ export function createTasks(options: {
       if (reviveIds.has(entry.id)) {
         inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
       } else if (heldIds.has(entry.id)) relaunch(entry.id)
+      else if (entry.kind === 'continuation') beginContinuation(entry.id)
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
@@ -1445,7 +1489,23 @@ export function createTasks(options: {
     for (const request of store.subAgentRequests()) {
       if (!queuedRuns.has(request.id)) startingRuns.add(request.id)
     }
+    const ordered = queueOrder<QueueEntry>([
+      ...subAgents.queued(),
+      ...continuationsReady(true),
+      ...store.queue(),
+      ...sources.flatMap((source) => source.queued()),
+    ])
+    for (const entry of ordered) {
+      if (entry.kind !== 'continuation') continue
+      const runId = store.getTask(entry.id)?.leadRunId
+      if (runId) queuedRuns.add(runId)
+    }
     store.setQueueActivity({
+      taskPlaces: ordered.flatMap((entry, index) =>
+        entry.kind === 'task' || entry.kind === 'setup-task' || entry.kind === 'continuation'
+          ? [{ id: entry.id, place: index + 1 }]
+          : [],
+      ),
       queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
       queuedRuns: [...queuedRuns],
       startingRuns: [...startingRuns],
@@ -1481,6 +1541,7 @@ export function createTasks(options: {
     )
     const ordered = queueOrder<QueueEntry>([
       ...subAgents.queued(),
+      ...continuationsReady(true),
       ...store.queue(),
       ...sources.flatMap((source) => source.queued()),
     ])
@@ -1562,6 +1623,7 @@ export function createTasks(options: {
     if (!current || closed || shown === shownSlots) return
     const first = shownSlots === ''
     shownSlots = shown
+    publishedSlots = current
     if (first) return
     for (const listener of listeners) listener({ type: 'slots-changed', slots: current })
   }
@@ -1771,8 +1833,9 @@ export function createTasks(options: {
   }
 
   async function applyValidationFix(task: StoredTask, value: FailureCase): Promise<void> {
-    const reference = `${failureCaseReference(value)}\n\n`
-    const matches = (record: { findings: string }) => record.findings.startsWith(reference)
+    const references = [failureCaseReference(value), failureCaseReference(value, true)]
+    const matches = (record: { findings: string }) =>
+      references.some((reference) => record.findings.startsWith(`${reference}\n\n`))
     if (store.sendBackAsks(task.id).some(matches) || store.loopChecks(task.id).some(matches)) return
     if (
       pendingLoopCheck(task.id) ||
@@ -2186,10 +2249,27 @@ export function createTasks(options: {
     )
   }
 
+  let ciNoted = new Set<string>()
+
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
     if (closed) return
-    const unarchived = store.unarchivedTaskRepos()
-    for (const { id, stage } of unarchived) {
+    // Only a Task with a pull request or a failure case can be affected by what GitHub
+    // reported; building every other Task after every read held the daemon for a long time.
+    const all = store.unarchivedTaskRepos()
+    const unarchived = all.filter(
+      ({ id, repos }) =>
+        repos.some((repo) => !repo.removed && repo.pullRequest) ||
+        store.failures.list(id).length > 0,
+    )
+    // A Task that just lost its last pull request gets one more look, so the CI noted for
+    // it is cleared.
+    const kept = new Set(unarchived.map(({ id }) => id))
+    const left = all.filter(({ id }) => ciNoted.has(id) && !kept.has(id))
+    ciNoted = kept
+    const breathe = () => new Promise<void>((resolve) => setImmediate(resolve))
+    // No pause in this loop: a caller waiting for this read must find the CI it reported
+    // already noted, or its tested context counts as superseded.
+    for (const { id, stage } of [...unarchived, ...left]) {
       if (stage === 'done') continue
       const task = store.getTask(id)
       if (!task) continue
@@ -2205,6 +2285,8 @@ export function createTasks(options: {
     for (const { id, stage, repos } of unarchived) {
       if (closed) return
       if (stage === 'done' && !repos.some((repo) => read.pulls.has(`${id}:${repo.name}`))) continue
+      await breathe()
+      if (closed) return
       const task = store.getTask(id)
       if (!task || task.archived) continue
       try {
@@ -2217,7 +2299,11 @@ export function createTasks(options: {
         ) {
           inBackground(`verify ${task.displayId}’s failure context`, () =>
             holding(task, async () => {
-              const context = await failures.snapshot(find(task.id)).catch(() => null)
+              // With the read just made: asking for a fresh one here made every read cause
+              // the next, without end, while any open Task had a failure case.
+              const context = await failures
+                .snapshot(find(task.id), (bindCi) => failureSnapshot(find(task.id), read, bindCi))
+                .catch(() => null)
               if (!closed) await failures.obligations(find(task.id), context)
             }),
           )
@@ -2391,6 +2477,7 @@ export function createTasks(options: {
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
         let urgent = true
+        let busy = 0
         while (!closed) {
           if (!watched(store.getTask(taskId))) return
           await pullRequestQueue.get(taskId)
@@ -2408,9 +2495,14 @@ export function createTasks(options: {
             })
           }
           if (next === 'done') return
-          urgent = next === 'busy'
+          busy = next === 'busy' ? busy + 1 : 0
+          // A Task that stays busy is tried again a little later each time and, after the
+          // third try, with the next scheduled read, so it can’t ask GitHub in a tight loop.
+          urgent = busy > 0 && busy <= 3
           if (next === 'busy' || read === undefined) {
-            await clockWait(clock, next === 'busy' ? 100 : mergePollMs, stopping.signal)
+            const wait =
+              next === 'busy' ? Math.min(100 * 2 ** (busy - 1), mergePollMs) : mergePollMs
+            await clockWait(clock, wait, stopping.signal)
           }
         }
       } finally {
@@ -2681,6 +2773,7 @@ export function createTasks(options: {
   const leadFrom = (settings?: WorkflowSettings) =>
     resolveAgentChoices(settings, {
       claude: agents.installed('claude'),
+      antigravity: agents.installed('antigravity'),
       codex: agents.installed('codex'),
     }).lead
 
@@ -2971,6 +3064,9 @@ export function createTasks(options: {
     agents,
     stallAfterMs,
     local: (id) => execution.local(id),
+    beforeLeadStart: async (id) =>
+      (await incorporateRepairs(find(id))) ? taskWorkflow(find(id), { fetch: false }) : undefined,
+    afterLeadStart: scheduleRepairChecks,
     workflow: (task) => taskWorkflow(task, { fetch: false }),
     entries: (task, resolution) => factoryRepos(resolution.workflow, factoryOf(task)),
     defaultLead: leadFrom,
@@ -2992,6 +3088,17 @@ export function createTasks(options: {
     setUp: runSetups,
     setUpAdded: performAddedSetup,
     hold,
+    mayContinue: (id) => {
+      const task = store.getTask(id)
+      if (!task?.pendingLeadMessages.some((message) => message.waitForSlot)) return true
+      const run = liveLeadOf(store, task)
+      return (
+        continuing.has(id) &&
+        store.newWorkHold() === undefined &&
+        run !== undefined &&
+        store.agentPauses()[run.agent] === undefined
+      )
+    },
     stopRequested: (id) => stoppingByHand.has(id) || stoppingForBlockers.has(id),
     wake: () => {
       void pump()
@@ -3311,7 +3418,12 @@ export function createTasks(options: {
     setupReport: string | undefined,
     { resumeSession, pickUp }: { resumeSession?: string | undefined; pickUp?: string | undefined },
   ) {
-    const note = pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined)
+    const repairBrief =
+      resumeSession === undefined &&
+      store.failures.list(task.id).some((f) => f.resolutions.at(-1)?.resolution === 'repair')
+    const note = repairBrief
+      ? freshRunNote(current)
+      : (pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined))
     const followUp = resumeSession === undefined ? followUpNote(current) : undefined
     const waiting = waitingForRun(task.id)
     const since = sinceLastRun(task.id, waiting, resumeSession === undefined && note === undefined)
@@ -3354,6 +3466,33 @@ export function createTasks(options: {
         : []),
     ].join('\n\n')
     return { prompt, cwd, waiting, overnight: overnightMode }
+  }
+
+  function scheduleRepairChecks(taskId: string): void {
+    const task = find(taskId)
+    if (
+      checking.has(taskId) ||
+      task.archived ||
+      task.stopped ||
+      task.waitsForBlockers ||
+      !['validate', 'merge'].includes(task.stage) ||
+      !validation.pendingRepair(task)
+    )
+      return
+    setChecking(taskId, true)
+    inBackground(`revalidate ${task.displayId} after its repair`, async () => {
+      try {
+        await execution.local(taskId)
+        if (!(await incorporateRepairs(find(taskId)))) return
+        const current = find(taskId)
+        if (current.archived || current.stopped || current.waitsForBlockers) return
+        const resolution = await taskWorkflow(current, { fetch: false })
+        if (current.stage === 'validate') await validation.enter(taskId)
+        else if (current.stage === 'merge') await mergeChecks(taskId, resolution)
+      } finally {
+        setChecking(taskId, false)
+      }
+    })
   }
 
   function withOriginal(task: StoredTask, current: StoredTask): StoredTask & { original?: string } {
@@ -3759,6 +3898,7 @@ export function createTasks(options: {
       find,
       holding,
       failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+      holdingSignoff,
       humanComment,
       answerRunPermission: (runId, generation, reply) =>
         runs.answerPermission(runId, generation, reply),
@@ -3771,9 +3911,10 @@ export function createTasks(options: {
       liveLead,
       startMerging,
       watchMerge,
-      deliver,
+      deliver: (task, text) => deliver(task, text, true),
       pullRequestWork,
-      move,
+      move: (task, resolution, next, message, options) =>
+        move(task, resolution, next, message, { ...options, waitForSlot: true }),
       backMessage,
       leaveWorkToDiagnose,
       settleDependents,
@@ -3935,7 +4076,25 @@ export function createTasks(options: {
       advancing.delete(task.id)
       released.delete(task.id)
       release()
+      void pump()
     }
+  }
+
+  async function holdingSignoff<T>(task: Task, work: () => Promise<T>): Promise<T> {
+    const deadline = clock.now() + 60_000
+    for (let held = released.get(task.id); held; held = released.get(task.id)) {
+      const left = deadline - clock.now()
+      if (left <= 0) {
+        throw new RequestError(
+          409,
+          `${task.displayId} is still busy after waiting a minute. No answer was applied; try again when its current operation finishes.`,
+        )
+      }
+      const timer = new AbortController()
+      await Promise.race([held, clockWait(clock, left, timer.signal)])
+      timer.abort()
+    }
+    return holding(find(task.id), work)
   }
 
   async function untilFree(taskId: string): Promise<void> {
@@ -3949,7 +4108,7 @@ export function createTasks(options: {
     }
   }
 
-  async function deliver(task: Task, text: string): Promise<boolean> {
+  async function deliver(task: Task, text: string, waitForSlot = false): Promise<boolean> {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
@@ -3957,7 +4116,11 @@ export function createTasks(options: {
     const current = find(task.id)
     const lead = effectiveLead(current)
     const message = `${text}\n\n${overnightGuidance(mode)}`
-    if (
+    if (waitForSlot && run.state !== 'working' && !continuing.has(task.id)) {
+      store.holdLeadMessage(task.id, message, true)
+      await store.persisted()
+      void pump()
+    } else if (
       lead &&
       (!sameChoice(lead, run) ||
         leadLifecycle.applying(task.id) ||
@@ -3973,7 +4136,7 @@ export function createTasks(options: {
   }
 
   async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
-    if (!(await deliver(task, text))) store.holdAnswer(comment.id)
+    if (!(await deliver(task, text, true))) store.holdAnswer(comment.id)
   }
 
   function openTalkRound(commentId: string): { task: StoredTask; round: Comment } {
@@ -4107,7 +4270,11 @@ export function createTasks(options: {
     resolution: WorkflowResolution,
     to: AgentStageId | 'done',
     given: string | undefined,
-    { signedOff = false, checked }: { signedOff?: boolean; checked?: HandOffChecks } = {},
+    {
+      signedOff = false,
+      checked,
+      waitForSlot = false,
+    }: { signedOff?: boolean; checked?: HandOffChecks; waitForSlot?: boolean } = {},
   ): Promise<Task> {
     if (
       to === 'done' ||
@@ -4149,7 +4316,7 @@ export function createTasks(options: {
         validation.enter(task.id, message, checked),
       )
     } else if (message !== undefined) {
-      await deliver(task, message)
+      await deliver(task, message, waitForSlot)
     }
     if (next === 'merge') {
       const { workflow } = await gateWorkflow(find(task.id), { fetch: false })
@@ -4874,12 +5041,35 @@ export function createTasks(options: {
     return task
   }
 
-  function removeBlockers(taskId: string, caller: Caller, blockerId?: string): void {
+  function repairNotice(taskId: string, blockerId: string, explanation: string): void {
+    const repair = store.failures
+      .list(taskId)
+      .flatMap((f) => f.resolutions)
+      .find((r) => r.repairTask?.id === blockerId)?.repairTask
+    if (!repair) return
+    const body = `${repair.displayId} (“${repair.title}”) ${explanation} The original failure remains unresolved; this does not mean validation passed.`
+    if (store.listComments(taskId).some((c) => c.author.kind === 'ted' && c.body === body)) return
+    store.postComment({ taskId, author: { kind: 'ted' }, title: 'Repair Task changed', body })
+    const brief = store.latestBrief(taskId)?.text
+    if (brief)
+      store.writeBrief({
+        taskId,
+        text: brief.replace('## Current state', `## Current state\n\n${body}\n`),
+      })
+  }
+
+  function removeBlockers(
+    taskId: string,
+    caller: Caller,
+    blockerId?: string,
+    reason = 'was unblocked without merging. Use Resume when ready to reassess the failure.',
+  ): void {
     const links = store.blockers(taskId)
     const wasBlocked = links.some((l) => !l.merged)
     const runId = caller.kind === 'run' ? caller.runId : undefined
     for (const link of links) {
       if (blockerId === undefined || link.blockerId === blockerId) {
+        if (!link.merged) repairNotice(taskId, link.blockerId, reason)
         store.removeBlocker(taskId, link.blockerId, runId)
       }
     }
@@ -4893,10 +5083,12 @@ export function createTasks(options: {
     }
   }
 
-  function settleDependents(taskId: string, blocked: BlockedChoice): void {
-    if (blocked !== 'unblock') return
+  function settleDependents(taskId: string, blocked: BlockedChoice, action = 'archived'): void {
     for (const dependent of store.blockedBy(taskId)) {
-      removeBlockers(dependent, { kind: 'app' }, taskId)
+      const link = store.blockers(dependent).find((b) => b.blockerId === taskId)
+      const reason = `was ${action} without merging. ${blocked === 'unblock' ? 'Its blocker was removed. Use Resume when ready to reassess the failure.' : 'Its blocker was kept; this Task is still waiting. Choose another repair or remove the blocker in Task details.'}`
+      if (blocked === 'unblock') removeBlockers(dependent, { kind: 'app' }, taskId, reason)
+      else if (!link?.merged) repairNotice(dependent, taskId, reason)
     }
   }
 
@@ -5035,7 +5227,7 @@ export function createTasks(options: {
     deleting.add(task.id)
     try {
       options.planning?.()?.taskGone(task.id, 'deleted')
-      settleDependents(task.id, blocked)
+      settleDependents(task.id, blocked, 'deleted')
       if (!find(task.id).archived) archiveNow(find(task.id), false)
       await clearing(task.id)
       await pullRequestQueue.get(task.id)
@@ -5774,7 +5966,7 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
     if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
-    if (merging.has(task.id)) return
+    if (merging.has(task.id) || task.pendingLeadMessages.length > 0) return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
@@ -6015,7 +6207,7 @@ export function createTasks(options: {
     reportNotFound: (task, result) => reportNotFound(factoryOf(task).id, result),
     setChecking,
     isChecking: (id) => checking.has(id),
-    deliver,
+    deliver: (task, text) => deliver(task, text, true),
     instructions: async (task, resolution, message) => {
       const round = await validateRound(task, resolution.workflow)
       return [
@@ -6078,6 +6270,10 @@ export function createTasks(options: {
       return task && !leftWork(task) ? [task] : []
     })
   validation.recover()
+  for (const task of store.listTasks()) {
+    const lead = task.leadRunId && store.getRun(task.leadRunId)
+    if (lead && lead.state !== 'finished') scheduleRepairChecks(task.id)
+  }
   for (const task of interruptedHandOffs) {
     if (handOffHalted(task, task.leadRunId)) {
       inBackground(`tell ${task.displayId}’s Task Lead its Checks weren’t used`, () =>
@@ -6128,7 +6324,9 @@ export function createTasks(options: {
         if (run.state === 'working') options.steering.syncQueuedFlag(run.id)
       }
     }
+    if (event.type === 'settings-changed') continuationFailures.clear()
     if (event.type === 'run-updated') {
+      if (event.run.taskId) continuationFailures.delete(event.run.taskId)
       if (event.run.state === 'finished') overnightSeen.delete(event.run.id)
       else if (event.run.state === 'working') options.steering.syncQueuedFlag(event.run.id)
     }
@@ -6196,7 +6394,15 @@ export function createTasks(options: {
   wake()
   watch?.poke()
   for (const task of store.listTasks()) {
-    inBackground('stop a blocked Task Lead', () => stopForBlockers(task.id))
+    inBackground('stop a blocked Task Lead', async () => {
+      const current = find(task.id)
+      const repair = store.failures
+        .list(task.id)
+        .some((f) => f.resolutions.at(-1)?.resolution === 'repair')
+      if (current.stopped && repair) await stopRepairLead(task.id)
+      else if (current.waitsForBlockers && repair) await finishRepairWait(task.id)
+      else await stopForBlockers(task.id)
+    })
   }
 
   const hashContext = (value: unknown) =>
@@ -6330,9 +6536,251 @@ export function createTasks(options: {
     if (!result.satisfied)
       throw new RequestError(
         409,
-        `Unresolved failure cases hold this Task: ${result.blockers.join(', ')}`,
+        `Unresolved failure cases hold this Task: ${result.blockers.map(shortReference).join(', ')}`,
       )
   }
+  async function waitForRepair(task: StoredTask, id: string, input: ResolveFailureRequest) {
+    if (input.repair?.kind === 'new')
+      input = {
+        ...input,
+        repair: {
+          ...input.repair,
+          title: failureText(input.repair.title),
+          description: failureText(input.repair.description),
+        },
+      }
+    if (input.reason) input = { ...input, reason: failureText(input.reason) }
+    const value = failures.get(task, id)
+    id = value.id
+    const prior = value.resolutions.find((r) => r.requestId === input.requestId)
+    if (prior) {
+      if (
+        prior.resolution !== 'repair' ||
+        JSON.stringify(prior.repair) !== JSON.stringify(input.repair)
+      )
+        throw new RequestError(409, 'this failure decision already has a different answer')
+      await finishRepairWait(task.id)
+      return failures.get(find(task.id), id)
+    }
+    if (!['validate', 'merge'].includes(task.stage) || task.archived || task.stopped)
+      throw new RequestError(409, 'repair decisions require an active Validate or Merge Task')
+    if (checking.has(task.id))
+      throw new RequestError(409, 'wait for the running Checks before choosing a repair')
+    await failures.obligations(task)
+    const current = find(task.id)
+    if (failures.get(current, id).resolutions.some((r) => r.requestId === input.requestId))
+      return waitForRepair(current, id, input)
+    if (
+      current.archived ||
+      current.stopped ||
+      current.stage !== task.stage ||
+      checking.has(task.id) ||
+      removingFactories.has(task.factoryId)
+    )
+      throw new RequestError(409, 'the Task changed while preparing the repair; try again')
+    const pending = failures.pendingDecision(current, id, input.requestId)
+    const selection = input.repair
+    if (!selection) throw new RequestError(400, 'choose an existing or new repair Task')
+    const note = `Waiting for REPAIR_TASK_REFERENCE to merge. Original failure: ${shortReference(pending.value.id)}. Tested context: ${pending.decision.contextId ? shortReference(pending.decision.contextId) : 'unknown'}. The failure remains unresolved. Keep this Stage and worktree; incorporate the merged repair before fresh validation. Removing a blocker without merging requires explicit Resume and does not pass validation.`
+    const previous = store.latestBrief(task.id)?.text
+    const brief = previous?.includes('## Current state')
+      ? previous.replace('## Current state', `## Current state\n\n${note}\n`)
+      : `## Goal\n${task.title}\n\n## Decisions so far\nThe user approved waiting for a separate repair.\n\n## Current state\n${note}\n\n## Open questions\nThe original failure requires fresh verification.\n\n## Next step\nWait for the repair to merge, then incorporate it and revalidate.`
+    const approval = { failure: pending.value, request: input, brief, drafts: drafts(task.id) }
+    let repair: Task
+    if (selection.kind === 'existing') {
+      repair = find(selection.taskId)
+      if (repair.factoryId !== task.factoryId || repair.archived || repair.stage === 'done')
+        throw new RequestError(409, 'choose an open repair Task in the same Factory')
+      if (repair.id === task.id || cycleFrom(repair.id, task.id))
+        throw new RequestError(409, 'this repair would create a blocker cycle')
+      store.approveRepair(approval, repair)
+    } else {
+      const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+      const current = find(task.id)
+      if (failures.get(current, id).resolutions.some((r) => r.requestId === input.requestId))
+        return waitForRepair(current, id, input)
+      if (
+        current.archived ||
+        current.stopped ||
+        current.stage !== task.stage ||
+        checking.has(task.id) ||
+        removingFactories.has(task.factoryId)
+      )
+        throw new RequestError(409, 'the Task changed while preparing the repair; try again')
+      failures.pendingDecision(current, id, input.requestId)
+      repair = await store.createTask({
+        factoryId: task.factoryId,
+        title: failureText(selection.title),
+        description: failureText(selection.description),
+        lead: { ...leadFrom(resolution.workflow.settings), effortMode: 'stage' },
+        repairApproval: {
+          ...approval,
+          ...(selection.start && {
+            startStage: resolution.workflow.next('backlog') as AgentStageId,
+          }),
+        },
+      })
+    }
+    await store.persisted()
+    await finishRepairWait(task.id)
+    return failures.get(find(task.id), id)
+  }
+
+  async function incorporateRepairs(task: StoredTask): Promise<boolean> {
+    let incorporated = false
+    for (const value of store.failures.list(task.id)) {
+      const decision = value.resolutions.at(-1)
+      if (value.verifications?.length || decision?.resolution !== 'repair' || !decision.repairTask)
+        continue
+      const progress = value.repairProgress?.findLast((p) => p.requestId === decision.requestId)
+      if (progress) {
+        try {
+          for (const repo of task.repos.filter(
+            (r) => !r.removed && r.pullRequest?.state !== 'merged',
+          )) {
+            await worktreeFileScope(worktreesDir, repo.worktree)
+            const recorded = progress.repos.find((r) => sameRepo(r.repo, repo.repo))
+            if (
+              !recorded ||
+              !(await git.isAncestor(
+                repo.worktree,
+                recorded.head,
+                await git.headCommit(repo.worktree),
+              ))
+            )
+              throw new Error(`The recorded repair is missing from ${repo.repo}’s worktree`)
+          }
+          await taskWorkflow(find(task.id))
+          incorporated = true
+          continue
+        } catch (error) {
+          repairNotice(
+            task.id,
+            decision.repairTask.id,
+            `incorporation could not be confirmed: ${redactSecrets(textOf(error))}. Restore the incorporated revision before retrying validation.`,
+          )
+          store.stopTask(task.id, { runs: find(task.id).runs.length, why: 'repair-incorporation' })
+          await stopRepairLead(task.id)
+          await store.persisted()
+          throw error
+        }
+      }
+      const repair = store.getTask(decision.repairTask.id)
+      if (!repair || !store.isMerged(repair.id)) {
+        repairNotice(
+          task.id,
+          decision.repairTask.id,
+          'has not merged. Reassess the failure or select another repair; no repair was incorporated.',
+        )
+        continue
+      }
+      const resolution = await taskWorkflow(find(task.id), { fetch: false })
+      const factory = factoryOf(task)
+      const entries = factoryRepos(resolution.workflow, factory)
+      const prepared: {
+        repo: (typeof task.repos)[number]
+        head: string
+        commit: string
+        onto: string
+      }[] = []
+      try {
+        for (const repo of task.repos.filter(
+          (r) => !r.removed && r.pullRequest?.state !== 'merged',
+        )) {
+          await worktreeFileScope(worktreesDir, repo.worktree)
+          const entry = repoEntry(entries, repo)
+          if (!entry) throw new Error(`No Factory settings for ${repo.repo}`)
+          const base = repo.pullRequest?.base ?? entry.baseBranch ?? factory.defaultBranch
+          const onto = await git.fetchBranch(repo.worktree, { url: entry.cloneUrl, branch: base })
+          const repaired = repair.repos.find(
+            (r) => !r.removed && r.repo.toLowerCase() === repo.repo.toLowerCase(),
+          )
+          if (repaired) {
+            const repairHead = repaired.pullRequest?.signedOff ?? repaired.pushed?.commit
+            if (!repairHead)
+              throw new Error(`The merged repair’s commit for ${repo.repo} is unavailable`)
+            const contains = await git.isAncestor(repo.worktree, repairHead, onto)
+            if (!contains) {
+              const from = await git.mergeBase(repo.worktree, repairHead, onto)
+              const tree = await git.replayedTree(repo.worktree, { from, to: repairHead, onto })
+              if (tree !== (await git.treeOf(repo.worktree, onto)))
+                throw new Error(
+                  `The target branch of ${repo.repo} does not yet contain the merged repair`,
+                )
+            }
+          }
+          prepared.push({ repo, onto, ...(await git.prepareIncorporation(repo.worktree, onto)) })
+        }
+        const current = store.getTask(task.id)
+        if (!current || current.archived || current.stopped || stopping.signal.aborted) return false
+        if (unmergedBlockers(task.id).length > 0) {
+          store.waitForBlockers(task.id)
+          throw new Error(
+            'The Task is blocked again; wait for its blockers before incorporating the repair',
+          )
+        }
+        for (const plan of prepared) {
+          await worktreeFileScope(worktreesDir, plan.repo.worktree)
+          if ((await git.headCommit(plan.repo.worktree)) !== plan.head)
+            throw new Error('The worktree changed while incorporating the repair; try again')
+          await git.moveBranchTo(plan.repo.worktree, plan.commit)
+        }
+        await taskWorkflow(find(task.id))
+        const repos = prepared.map((p) => ({ repo: p.repo.repo, head: p.commit, onto: p.onto }))
+        const previous = value.repairProgress?.findLast((p) => p.requestId === decision.requestId)
+        if (JSON.stringify(previous?.repos) !== JSON.stringify(repos)) {
+          store.failures.save(
+            {
+              ...value,
+              repairProgress: [
+                ...(value.repairProgress ?? []),
+                {
+                  requestId: decision.requestId,
+                  at: new Date().toISOString(),
+                  repos,
+                },
+              ],
+            },
+            'repair',
+          )
+          repairNotice(
+            task.id,
+            repair.id,
+            'merged and was incorporated. Fresh validation is required; the original execution remains failed.',
+          )
+        }
+        await failures.obligations(find(task.id))
+        incorporated = true
+      } catch (error) {
+        const current = store.getTask(task.id)
+        if (!current || current.archived || stopping.signal.aborted) return false
+        repairNotice(
+          task.id,
+          repair.id,
+          `merged, but incorporation is held: ${redactSecrets(textOf(error))}. Resolve this before validation and use Resume to try again.`,
+        )
+        store.stopTask(task.id, { runs: find(task.id).runs.length, why: 'repair-incorporation' })
+        await stopRepairLead(task.id)
+        await store.persisted()
+        throw error
+      }
+    }
+    await store.persisted()
+    return incorporated
+  }
+
+  async function stopRepairLead(taskId: string) {
+    subAgents.dropFor(taskId)
+    if (store.heldRuns().some((h) => h.taskId === taskId)) store.releaseTaskRun(taskId)
+    await Promise.all(find(taskId).runs.map((run) => runs.stop(run.id)))
+    wake()
+  }
+
+  async function finishRepairWait(taskId: string) {
+    if (store.getTask(taskId)?.waitsForBlockers) await stopRepairLead(taskId)
+  }
+
   async function failureLead<T>(
     ref: string,
     caller: Caller,
@@ -6356,7 +6804,15 @@ export function createTasks(options: {
   return {
     failureContext(ref, id, caller) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
-      const context = store.failures.context(id)
+      const context =
+        store.failures.context(id) ??
+        store.failures.context(
+          resolveReference(
+            id,
+            store.failures.contexts(task.id).map((value) => value.id),
+            'tested context on this Task',
+          ),
+        )
       if (!context || context.taskId !== task.id)
         throw new RequestError(404, 'no tested context on this Task')
       return context
@@ -6395,7 +6851,12 @@ export function createTasks(options: {
     verifyFailure: (ref, caller, id, evidence) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
-        const own = !value.validation && value.source.kind === 'finding'
+        const repairedMergeFailure =
+          task.stage === 'merge' &&
+          ['finding', 'post-rebase-check'].includes(value.source.kind) &&
+          value.resolutions.at(-1)?.resolution === 'repair' &&
+          value.repairProgress?.some((p) => p.requestId === value.resolutions.at(-1)?.requestId)
+        const own = !repairedMergeFailure && !value.validation && value.source.kind === 'finding'
         if (own) {
           if (!leadClosesFailures((await taskWorkflow(task, { fetch: false })).workflow))
             throw new RequestError(409, leadClosesRefusal)
@@ -6406,18 +6867,29 @@ export function createTasks(options: {
           if (acceptedResolution(value))
             throw new RequestError(409, 'this failure already has current acceptance')
         } else if (
-          !value.validation ||
-          !['finding', 'factory-check'].includes(value.source.kind) ||
-          task.stage !== 'validate'
+          !repairedMergeFailure &&
+          (!value.validation ||
+            !['finding', 'factory-check'].includes(value.source.kind) ||
+            task.stage !== 'validate')
         )
           throw new RequestError(
             409,
-            'only a Validate Finding or repaired Factory Check can be verified by the Task Lead',
+            'verify a Validate failure or an incorporated repair’s Merge failure',
           )
+        if (repairedMergeFailure && checking.has(task.id))
+          throw new RequestError(409, 'wait for fresh Checks before verifying the repaired failure')
         if (!evidence.trim()) throw new RequestError(400, 'verification needs fresh evidence')
         if (
           !own &&
-          !['retry', 'fix'].includes(value.resolutions.at(-1)?.resolution ?? '') &&
+          ![
+            'retry',
+            'fix',
+            ...(value.repairProgress?.some(
+              (p) => p.requestId === value.resolutions.at(-1)?.requestId,
+            )
+              ? ['repair']
+              : []),
+          ].includes(value.resolutions.at(-1)?.resolution ?? '') &&
           value.assessments.at(-1)?.assessment !== 'regression'
         )
           throw new RequestError(
@@ -6428,14 +6900,14 @@ export function createTasks(options: {
         if (value.verifications?.length)
           throw new RequestError(409, 'this failure already has verification evidence')
         const result =
-          value.source.kind === 'factory-check'
+          value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
             ? await validation.verifyRepair(task, value, safeEvidence)
             : failures.verifyResult(task, id, safeEvidence)
         store.postComment({
           taskId: task.id,
           author: { kind: 'run', runId: task.leadRunId ?? '' },
           title: 'Failure repair verified',
-          body: `Failure ${id}\n\n${result.verifications?.at(-1)?.evidence}`,
+          body: `Failure ${shortReference(result.id)}\n\n${result.verifications?.at(-1)?.evidence}`,
         })
         return result
       }),
@@ -6444,7 +6916,12 @@ export function createTasks(options: {
     async resolveFailure(ref, id, input) {
       const task = find(ref)
       await untilFree(task.id)
-      return holding(find(task.id), () => validation.resolve(find(task.id), id, input))
+      while (input.resolution === 'repair' && advancing.has(task.id)) await untilFree(task.id)
+      return holding(find(task.id), () =>
+        input.resolution === 'repair'
+          ? waitForRepair(find(task.id), id, input)
+          : validation.resolve(find(task.id), id, input),
+      )
     },
     deliveryAllowed(runId) {
       const run = store.getRun(runId)
@@ -6591,6 +7068,7 @@ export function createTasks(options: {
       const depth = resolution.workflow.settings.stages.clarify?.depth
       const choices = resolveAgentChoices(resolution.workflow.settings, {
         claude: agents.installed('claude'),
+        antigravity: agents.installed('antigravity'),
         codex: agents.installed('codex'),
       })
       return {
@@ -6813,6 +7291,7 @@ export function createTasks(options: {
     },
 
     slots,
+    publishedSlots: () => publishedSlots,
     mergesInFlight: () => mergeWatcher.inFlightCount(),
     subscribe(listener) {
       listeners.add(listener)
@@ -7071,11 +7550,14 @@ export function createTasks(options: {
     peers,
 
     inbox() {
-      return waitingItems(store.listOpenRequests(), store.listTasks())
+      const requests = store.listOpenRequests()
+      return waitingItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))))
     },
 
     answered() {
-      return answeredItems(store.listAnsweredRequests(), store.listTasks(), new Date())
+      const now = new Date()
+      const requests = store.listAnsweredRequests(answeredSince(now))
+      return answeredItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))), now)
     },
 
     talkThrough: (id) => talkThrough(id),
@@ -7646,6 +8128,7 @@ export function createTasks(options: {
 
     wake(factoryId) {
       if (closed) return
+      continuationFailures.clear()
       if (factoryId !== undefined) caps.delete(factoryId)
       void pump()
       for (const task of store.listTasks()) {

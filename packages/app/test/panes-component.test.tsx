@@ -84,7 +84,8 @@ test('Full brief opens its five sections in the middle pane and returns to Threa
     text: '## Goal\n\nStop the TypeError.\n\n## Decisions so far\n\n- Guard in SearchPanel.\n\n## Current state\n\nDone.\n\n## Open questions\n\nNone.\n\n## Next step\n\nYour sign-off.',
   }))
   await openTask(a)
-  await user().click(await screen.findByRole('button', { name: 'Full brief' }))
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
   const full = screen.getByRole('region', { name: 'Full brief' })
   expect(
     within(full)
@@ -98,7 +99,7 @@ test('Full brief opens its five sections in the middle pane and returns to Threa
   expect(screen.getByRole('region', { name: 'Task thread' })).toBeTruthy()
 })
 
-test('Inbox answers close before its list refresh, keep confirmation, and clear it on leaving', async () => {
+test('Inbox answers close before its list refresh without recaps and remain in Answered history', async () => {
   const a = appState()
   const nextTask = task({ id: 'NB-2', displayId: 'NB-2', number: 2 })
   a.state.tasks = [task(), nextTask]
@@ -136,22 +137,28 @@ test('Inbox answers close before its list refresh, keep confirmation, and clear 
     return reply.promise
   })
   await user().click(
-    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Yes' }),
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('radio', { name: 'Yes' }),
+  )
+  expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
+  await user().click(
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
   )
   expect(
     within(screen.getByRole('region', { name: 'Permission' })).getByText('Second request'),
   ).toBeTruthy()
-  expect(within(inbox).getByRole('status').textContent).toBe('')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   await act(async () =>
     reply.resolve({ ...first, answer: { kind: 'answered', at: createdAt, choice: 'Yes' } }),
   )
-  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   expect(screen.queryByRole('region', { name: 'Question, answered' })).toBeNull()
   await user().click(within(inbox).getByRole('button', { name: 'Marketing 0' }))
-  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   await user().click(within(inbox).getByRole('button', { name: 'All 1' }))
+  a.handle('listAnswered', () => [{ task: task(), request: required(comments[0]) }])
   await user().click(within(inbox).getByRole('switch', { name: 'Answered' }))
-  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  expect(await within(inbox).findByText('First question?')).toBeTruthy()
+  expect(within(inbox).queryByRole('status')).toBeNull()
   await user().click(within(inbox).getByRole('switch', { name: 'Answered' }))
   await user().click(within(inbox).getByText('Second request'))
   a.handle('answerRequest', () => {
@@ -166,7 +173,7 @@ test('Inbox answers close before its list refresh, keep confirmation, and clear 
   expect(
     within(screen.getByRole('region', { name: 'Permission' })).getByText('Second request'),
   ).toBeTruthy()
-  expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   const answered = { ...second, answer: { kind: 'denied' as const, at: createdAt } }
   a.handle('answerRequest', () => answered)
   await user().click(
@@ -175,7 +182,7 @@ test('Inbox answers close before its list refresh, keep confirmation, and clear 
     }),
   )
   await screen.findByText('Nothing waiting on you')
-  expect(within(inbox).getByRole('status').textContent).toBe('Denied NB-2’s permission request')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
   expect(screen.queryByRole('complementary', { name: 'Task details' })).toBeNull()
   await act(async () => refresh.resolve([]))
@@ -185,9 +192,7 @@ test('Inbox answers close before its list refresh, keep confirmation, and clear 
       name: /^Inbox/,
     }),
   )
-  expect(
-    within(screen.getByRole('region', { name: 'Inbox' })).getByRole('status').textContent,
-  ).toBe('')
+  expect(within(screen.getByRole('region', { name: 'Inbox' })).queryByRole('status')).toBeNull()
 })
 
 test('external resolution clears an Inbox request without claiming the user answered it', async () => {
@@ -210,7 +215,7 @@ test('external resolution clears an Inbox request without claiming the user answ
     }),
   )
   expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
-  expect(within(inbox).getByRole('status').textContent).toBe('')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   await act(async () => refresh.resolve([]))
 })
 
@@ -307,7 +312,7 @@ test('S starts the open Task and its menu moves a queued Task back to Backlog', 
     }),
   )
   await user().click(screen.getByRole('button', { name: 'Task actions' }))
-  const menu = screen.getByRole('menu', { name: 'Task actions' })
+  const menu = screen.getByRole('menu', { name: /Task actions/ })
   expect(within(menu).getAllByRole('menuitem')[0]?.textContent).toContain('Move to Backlog')
   await user().click(within(menu).getByRole('menuitem', { name: /^Move to Backlog/ }))
   expect(a.request).toHaveBeenCalledWith('moveToBacklog', 'NB-1')
@@ -459,14 +464,14 @@ test.each(['response-first', 'event-first'] as const)(
       }),
     )
     expect(within(remaining).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
-    expect(within(inbox).getByRole('status').textContent).toBe('Denied NB-1’s permission request')
+    expect(within(inbox).queryByRole('status')).toBeNull()
     await act(async () => refresh.resolve([{ task: task(), request: first }]))
     expect(screen.getByRole('region', { name: 'Task thread' })).toBe(thread)
     expect(within(remaining).getByDisplayValue('Keep this unfinished answer')).toBe(draft)
   },
 )
 
-test('a delayed earlier response does not replace the newest answer confirmation', async () => {
+test('a delayed earlier response keeps the Inbox empty without an answer recap', async () => {
   const a = appState()
   const nextTask = task({ id: 'NB-2', displayId: 'NB-2', number: 2 })
   a.state.tasks = [task(), nextTask]
@@ -500,22 +505,24 @@ test('a delayed earlier response does not replace the newest answer confirmation
   const refresh = deferred<never[]>()
   a.handle('listInbox', () => refresh.promise)
   await user().click(
-    within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+    within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
       name: 'Yes',
     }),
+  )
+  await user().click(
+    within(screen.getByRole('region', { name: 'Question' })).getByRole('button', { name: 'Send' }),
   )
   const card = await screen.findByRole('region', { name: 'Permission' })
   await user().click(within(card).getByRole('button', { name: /^Approve/ }))
   await screen.findByText('Nothing waiting on you')
-  const status = within(inbox).getByRole('status')
-  expect(status.textContent).toBe('Approved NB-2’s permission requestThis request only')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   await act(async () => reply.resolve(answered))
-  expect(status.textContent).toBe('Approved NB-2’s permission requestThis request only')
+  expect(within(inbox).queryByRole('status')).toBeNull()
   await act(async () => refresh.resolve([]))
 })
 
 test.each(['response-first', 'event-first'] as const)(
-  'automatically opening a Planning request keeps Inbox confirmation (%s)',
+  'automatically opening and answering a Planning request shows no recap (%s)',
   async (order) => {
     const a = appState()
     a.state.tasks = [task()]
@@ -583,8 +590,13 @@ test.each(['response-first', 'event-first'] as const)(
     const refresh = deferred<never[]>()
     a.handle('listInbox', () => refresh.promise)
     await user().click(
-      within(await screen.findByRole('region', { name: 'Question' })).getByRole('button', {
+      within(await screen.findByRole('region', { name: 'Question' })).getByRole('radio', {
         name: 'Yes',
+      }),
+    )
+    await user().click(
+      within(screen.getByRole('region', { name: 'Question' })).getByRole('button', {
+        name: 'Send',
       }),
     )
     const answered: Comment = {
@@ -601,12 +613,10 @@ test.each(['response-first', 'event-first'] as const)(
     if (order === 'response-first')
       await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
     else await act(async () => reply.resolve(answered))
-    expect(within(inbox).getByRole('status').textContent).toBe('Answered NB-1’s question')
+    expect(within(inbox).queryByRole('status')).toBeNull()
     await user().click(within(planning).getByRole('button', { name: 'Submit answers' }))
     await screen.findByText('Nothing waiting on you')
-    expect(within(inbox).getByRole('status').textContent).toBe(
-      'Answered Plan the settings update’s Clarify round',
-    )
+    expect(within(inbox).queryByRole('status')).toBeNull()
     expect(screen.queryByRole('region', { name: 'Planning chat' })).toBeNull()
     await act(async () => refresh.resolve([]))
   },
@@ -686,7 +696,8 @@ test('Inbox reveals its request after delayed history and after other panes cove
   expect(document.activeElement?.contains(card)).toBe(true)
   const answer = within(card).getByRole('textbox', { name: 'Your answer' })
   await user().type(answer, 'Keep this draft')
-  await user().click(await screen.findByRole('button', { name: 'Full brief' }))
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
   await screen.findByRole('region', { name: 'Full brief' })
   await user().click(within(inbox).getByText(request.body))
   expect(screen.queryByRole('region', { name: 'Full brief' })).toBeNull()

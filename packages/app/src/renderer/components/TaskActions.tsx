@@ -1,7 +1,7 @@
 import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useState } from 'react'
 import { keysFor } from '../keymap.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
@@ -15,8 +15,9 @@ import {
   FollowUpDialog,
   followUpTaskEvent,
 } from './ArchiveDialogs.tsx'
+import menuStyles from './ContextMenu.module.css'
+import { buttonPosition, ContextMenu, type MenuPosition, MenuSubmenu } from './ContextMenu.tsx'
 import { Tooltip } from './Help.tsx'
-import { ChevronIcon } from './icons.tsx'
 import { SnoozeTaskDialog, snoozeTaskEvent } from './SnoozeTaskDialog.tsx'
 import styles from './TaskActions.module.css'
 
@@ -44,7 +45,6 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
         aria-describedby={id}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        onFocus={() => setHover(true)}
         onBlur={() => setHover(false)}
         onClick={onChoose}
       >
@@ -75,16 +75,9 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
 
 function Submenu({ label, hint, children }: { label: string; hint: string; children: ReactNode }) {
   return (
-    <div className={styles.submenuAnchor}>
-      <button type="button" role="menuitem" aria-haspopup="menu" className={styles.item}>
-        <span className={styles.label}>{label}</span>
-        <span className={styles.hint}>{hint}</span>
-        <ChevronIcon open={false} className={styles.chevron} />
-      </button>
-      <div className={styles.submenu} role="menu" aria-label={label}>
-        {children}
-      </div>
-    </div>
+    <MenuSubmenu label={label} hint={hint}>
+      {children}
+    </MenuSubmenu>
   )
 }
 
@@ -145,55 +138,56 @@ export function TaskDialog({
 export function TaskActionsMenu({
   task,
   onFollowedUp,
+  contextAt,
+  contextOnly = false,
+  onMenuClose,
+  onPickBlocker,
+  onOpenBrief,
 }: {
   task: Task
+  contextAt?: MenuPosition | undefined
+  contextOnly?: boolean
+  onMenuClose?: () => void
+  onPickBlocker?: (task: Task) => void
   onFollowedUp?: (followUp: Task) => void
+  onOpenBrief?: (() => void) | undefined
 }) {
-  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<MenuPosition>()
+  const open = position !== undefined
+  const close = () => {
+    setPosition(undefined)
+    onMenuClose?.()
+  }
+  useEffect(() => {
+    if (contextAt) setPosition(contextAt)
+  }, [contextAt])
   const [dialog, setDialog] = useState<TaskDialogKind>()
   const [error, setError] = useState<string>()
-  const ref = useRef<HTMLDivElement>(null)
-
+  const errorClass = contextOnly ? menuStyles.error : styles.error
   useEffect(() => {
-    if (!open) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      setOpen(false)
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('pointerdown', onPointerDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('pointerdown', onPointerDown, true)
-    }
-  }, [open])
-
-  useEffect(() => {
+    if (contextOnly) return
+    const close = () => setPosition(undefined)
     const onArchive = (event: Event) => {
       if (event instanceof CustomEvent && event.detail === task.id && !task.archived) {
-        setOpen(false)
+        close()
         setDialog('archive')
       }
     }
     const onEdit = (event: Event) => {
       if (event instanceof CustomEvent && event.detail === task.id && !task.archived) {
-        setOpen(false)
+        close()
         setDialog('edit')
       }
     }
     const onDelete = (event: Event) => {
       if (event instanceof CustomEvent && event.detail === task.id) {
-        setOpen(false)
+        close()
         setDialog('delete')
       }
     }
     const onFollowUp = (event: Event) => {
       if (event instanceof CustomEvent && event.detail === task.id && task.stage === 'done') {
-        setOpen(false)
+        close()
         setDialog('follow-up')
       }
     }
@@ -204,7 +198,7 @@ export function TaskActionsMenu({
         task.stage === 'backlog' &&
         !task.archived
       ) {
-        setOpen(false)
+        close()
         setDialog('snooze')
       }
     }
@@ -220,7 +214,7 @@ export function TaskActionsMenu({
       window.removeEventListener(deleteTaskEvent, onDelete)
       window.removeEventListener(followUpTaskEvent, onFollowUp)
     }
-  }, [task.id, task.archived, task.stage])
+  }, [task.id, task.archived, task.stage, contextOnly])
 
   const action = statusAction(task)
   const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
@@ -228,13 +222,13 @@ export function TaskActionsMenu({
   const linear = task.source?.linear
 
   const act = (work: () => Promise<unknown>) => {
-    setOpen(false)
+    close()
     setError(undefined)
     work().catch((failure: unknown) => setError(readableError(failure)))
   }
 
   const choose = (which: TaskDialogKind) => {
-    setOpen(false)
+    close()
     setError(undefined)
     setDialog(which)
   }
@@ -256,22 +250,26 @@ export function TaskActionsMenu({
 
   if (task.archived) {
     return (
-      <div ref={ref} className={styles.anchor}>
-        <button
-          type="button"
-          className={styles.more}
-          aria-label="Task actions"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => {
-            setError(undefined)
-            setOpen((o) => !o)
-          }}
-        >
-          <MoreIcon />
-        </button>
-        {open && (
-          <div className={styles.menu} role="menu" aria-label="Task actions">
+      <div className={styles.anchor}>
+        {!contextOnly && (
+          <button
+            type="button"
+            className={styles.more}
+            aria-label="Task actions"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            onClick={(event) => {
+              event.stopPropagation()
+              setError(undefined)
+              if (open) close()
+              else setPosition(buttonPosition(event.currentTarget))
+            }}
+          >
+            <MoreIcon />
+          </button>
+        )}
+        {position && (
+          <ContextMenu at={position} label={`Task actions · ${task.displayId}`} onClose={close}>
             <button
               type="button"
               role="menuitem"
@@ -280,11 +278,32 @@ export function TaskActionsMenu({
             >
               <span className={styles.label}>Unarchive</span>
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => act(() => navigator.clipboard.writeText(task.displayId))}
+            >
+              Copy Task ID
+            </button>
+            {onOpenBrief && (
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => {
+                  close()
+                  onOpenBrief()
+                }}
+              >
+                Full brief
+              </button>
+            )}
             {deleteItem}
-          </div>
+          </ContextMenu>
         )}
         {error !== undefined && !open && (
-          <p className={styles.error} role="alert">
+          <p className={errorClass} role="alert">
             {error}
           </p>
         )}
@@ -294,22 +313,26 @@ export function TaskActionsMenu({
   }
 
   return (
-    <div ref={ref} className={styles.anchor}>
-      <button
-        type="button"
-        className={styles.more}
-        aria-label="Task actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          setError(undefined)
-          setOpen((o) => !o)
-        }}
-      >
-        <MoreIcon />
-      </button>
-      {open && (
-        <div className={styles.menu} role="menu" aria-label="Task actions">
+    <div className={styles.anchor}>
+      {!contextOnly && (
+        <button
+          type="button"
+          className={styles.more}
+          aria-label="Task actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={(event) => {
+            event.stopPropagation()
+            setError(undefined)
+            if (open) close()
+            else setPosition(buttonPosition(event.currentTarget))
+          }}
+        >
+          <MoreIcon />
+        </button>
+      )}
+      {position && (
+        <ContextMenu at={position} label={`Task actions · ${task.displayId}`} onClose={close}>
           {action && (
             <>
               <FirstItem
@@ -437,12 +460,27 @@ export function TaskActionsMenu({
               role="menuitem"
               className={styles.item}
               onClick={() => {
-                setOpen(false)
-                window.dispatchEvent(new CustomEvent(pickBlockerEvent, { detail: task.id }))
+                close()
+                onPickBlocker
+                  ? onPickBlocker(task)
+                  : window.dispatchEvent(new CustomEvent(pickBlockerEvent, { detail: task.id }))
               }}
             >
               <span className={styles.label}>Blocked by…</span>
               <span className={styles.hint}>{keysFor('blocked-by').join(' or ')}</span>
+            </button>
+          )}
+          {onOpenBrief && (
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => {
+                close()
+                onOpenBrief()
+              }}
+            >
+              Full brief
             </button>
           )}
           <button
@@ -453,6 +491,14 @@ export function TaskActionsMenu({
           >
             <span className={styles.label}>Edit title and description…</span>
             <span className={styles.hint}>{keysFor('edit').join(' or ')}</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => act(() => navigator.clipboard.writeText(task.displayId))}
+          >
+            Copy Task ID
           </button>
           {linear && (
             <>
@@ -490,10 +536,10 @@ export function TaskActionsMenu({
             <span className={styles.hint}>{keysFor('archive').join(' or ')}</span>
           </button>
           {deleteItem}
-        </div>
+        </ContextMenu>
       )}
       {error !== undefined && !open && (
-        <p className={styles.error} role="alert">
+        <p className={errorClass} role="alert">
           {error}
         </p>
       )}

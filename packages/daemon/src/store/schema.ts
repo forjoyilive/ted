@@ -626,6 +626,20 @@ export const checkResults = State.SQLite.table({
   },
 })
 
+export const runUsage = State.SQLite.table({
+  name: 'runUsage',
+  indexes: [{ name: 'idx_runUsage_at', columns: ['at'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    agent: State.SQLite.text(),
+    model: State.SQLite.text({ nullable: true }),
+    input: State.SQLite.integer(),
+    output: State.SQLite.integer(),
+    cost: State.SQLite.real({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 export const sendBackResets = State.SQLite.table({
   name: 'sendBackResets',
   indexes: [{ name: 'idx_sendBackResets_taskId', columns: ['taskId'] }],
@@ -1052,6 +1066,15 @@ export const events = {
   }),
   failureDecisionRequested: Events.synced({
     name: 'v1.FailureDecisionRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureRepairIncorporated: Events.synced({
+    name: 'v1.FailureRepairIncorporated',
     schema: Schema.Struct({
       id: Schema.String,
       taskId: Schema.String,
@@ -1990,6 +2013,18 @@ export const events = {
   checksFinished: Events.synced({
     name: 'v1.ChecksFinished',
     schema: Schema.Struct({ checkRunId: Schema.String, outcome: Schema.String, at: Schema.String }),
+  }),
+  runUsageRecorded: Events.synced({
+    name: 'v1.RunUsageRecorded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      agent: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      input: Schema.Number,
+      output: Schema.Number,
+      cost: Schema.NullOr(Schema.Number),
+      at: Schema.String,
+    }),
   }),
   sendBackCountReset: Events.synced({
     name: 'v1.SendBackCountReset',
@@ -3543,6 +3578,7 @@ const materializers = counted(
       'v1.FailureAssessed': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureEvidenceAdded': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureDecisionRequested': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureRepairIncorporated': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAcceptanceInvalidated': (row) =>
         failureCases.insert(row).onConflict('id', 'replace'),
@@ -3649,6 +3685,8 @@ const materializers = counted(
         checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'running' }),
       ],
       'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
+      'v1.RunUsageRecorded': ({ runId, ...usage }) =>
+        runUsage.insert({ id: runId, ...usage }).onConflict('id', 'replace'),
       'v1.RunStarted': (run) =>
         runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
       'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
@@ -4181,6 +4219,7 @@ const state = State.SQLite.makeState({
     taskDescriptions,
     sendBacks,
     sendBackResets,
+    runUsage,
     checkRuns,
     testInvocations,
     checkResults,

@@ -50,6 +50,7 @@ import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
 import { type FactoryBadges, Sidebar } from './components/Sidebar.tsx'
 import { pickBlockerEvent, TaskDialog, type TaskDialogKind } from './components/TaskActions.tsx'
+import { TaskContextMenu } from './components/TaskContextMenu.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
   useAgentHealth,
@@ -84,7 +85,7 @@ import {
   replyBox,
   requestChangesBox,
 } from './key-targets.ts'
-import { imageNavigationKey, keyBindings } from './keymap.ts'
+import { contextMenuKey, imageNavigationKey, keyBindings } from './keymap.ts'
 import { doneView, failedView, queueView, rankMove } from './list-view.ts'
 import {
   backLink,
@@ -466,6 +467,21 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return
     }
     if (offline) return
+    if (contextMenuKey(event) && !isTyping(event.target)) {
+      const target = document.activeElement?.closest<HTMLElement>('[data-context-menu]')
+      if (target) {
+        event.preventDefault()
+        const box = target.getBoundingClientRect()
+        target.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            clientX: box.left + 8,
+            clientY: box.top + 20,
+          }),
+        )
+        return
+      }
+    }
     if (resizeSidebarFromKey(event)) {
       sequences.current.reset()
       return
@@ -901,6 +917,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           }
           return (
             <AutomationsPage
+              onEdit={(editing) => setAutomationDialog({ editing })}
               factory={factory}
               banners={view.banners}
               onOpen={openAutomation}
@@ -984,6 +1001,15 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const cardDialogTask = cardDialog && tasks.find((t) => t.id === cardDialog.taskId)
   const overlays = (
     <>
+      <TaskContextMenu
+        tasks={tasks}
+        place={`${place}:${navigation.taskId ?? ''}`}
+        onFollowedUp={openTask}
+        onPickBlocker={(target) => {
+          setPendingPick(target.id)
+          openTask(target)
+        }}
+      />
       {sheetOpen && <ShortcutSheet onClose={() => setSheetOpen(false)} />}
       {cardDialog && cardDialogTask && (
         <TaskDialog
@@ -1159,7 +1185,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           usage={
             <PlanUsage
               health={agentHealth}
-              billing={settings?.billing ?? { claude: 'subscription', codex: 'subscription' }}
+              billing={
+                settings?.billing ?? {
+                  claude: 'subscription',
+                  codex: 'subscription',
+                  antigravity: 'subscription',
+                }
+              }
               open={usageOpen}
               onToggle={() => {
                 setRunsOpen(false)

@@ -27,7 +27,10 @@ const scenarios = [
 test('acceptance, capture, obligations and the Gate each reject local verification superseded by a changed or unavailable CI observation, acceptance passes an identical one, and every case replays from the event log', async () => {
   const clock = new ManualClock()
   const pollEveryMs = 50
-  const client = await start({ mergePollMs: pollEveryMs, daemon: { clock } })
+  const client = await start({
+    mergePollMs: pollEveryMs,
+    daemon: { clock, githubReadBurst: 10_000 },
+  })
   const pollFinished = () =>
     eventWait(
       clock.subscribe,

@@ -26,7 +26,11 @@ export interface TaskFacts {
   checking?: { name: string; index: number; total: number }
   checksWaiting?: { place: number }
   testActivity?: ActiveTestInvocations
-  stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' | 'prepared' }
+  stopped?: {
+    at: string
+    runs: number
+    why: 'human' | 'blockers-removed' | 'repair-incorporation' | 'prepared'
+  }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
@@ -239,6 +243,8 @@ export function taskActivity(facts: TaskFacts): string | undefined {
 }
 
 function stoppedActivity({ runs, why }: NonNullable<TaskFacts['stopped']>): string {
+  if (why === 'repair-incorporation')
+    return 'Repair incorporation needs attention. See the thread, then Resume.'
   if (why === 'prepared') return 'Ready for Work · Resume or turn on Overnight mode.'
   if (why === 'blockers-removed') return 'Its blockers are gone. Resume to carry on.'
   if (runs === 0) return 'Worktree and Apps kept.'

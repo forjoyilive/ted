@@ -14,7 +14,8 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 
 | Inputs | Purpose in development and tests |
 | --- | --- |
-| `TED_CLAUDE_BIN`, `TED_CODEX_BIN`, `TED_GH_BIN` | Select agent and GitHub stubs or alternate development binaries. Release discovers the normal commands on the daemon’s login-shell `PATH`. |
+| `TED_REAL_ANTIGRAVITY_BIN` | Optional native CLI for the offline tool-free compatibility test. The test uses a local model fixture, never a Google key. |
+| `TED_CLAUDE_BIN`, `TED_CODEX_BIN`, `TED_ANTIGRAVITY_BIN`, `TED_GH_BIN` | Select agent and GitHub stubs or alternate development binaries. Release discovers the normal commands on the daemon’s login-shell `PATH`. |
 | `TED_XCRUN_BIN`, `TED_OPEN_BIN`, `TED_SANDBOX_BIN` | Substitute simulator, launcher and sandbox programs. |
 | `TED_KEYRING_MODULE` | Import a keyring implementation for tests. |
 | `TED_ASANA_API`, `TED_ASANA_CALLBACK_PORT` | Redirect Asana token/API requests to a loopback stub and isolate its temporary callback port. Ignored in release. |

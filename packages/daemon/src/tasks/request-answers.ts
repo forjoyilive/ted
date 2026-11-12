@@ -36,6 +36,7 @@ export interface RequestAnswerPort {
   untilFree(id: string): Promise<void>
   find(id: string): StoredTask
   holding<T>(task: Task, work: () => Promise<T>): Promise<T>
+  holdingSignoff<T>(task: Task, work: () => Promise<T>): Promise<T>
   failures: Pick<ReturnType<typeof createFailureCases>, 'findDecision' | 'resolve'>
   humanComment(
     task: StoredTask,
@@ -98,6 +99,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     untilFree,
     find,
     holding,
+    holdingSignoff,
     failures,
     humanComment,
     answerRunPermission,
@@ -531,7 +533,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     mark?: string,
   ): Promise<Comment> {
     const answering = store.getComment(id)
-    if (answering) await untilFree(answering.taskId)
+    if (answering && !answering.gate) await untilFree(answering.taskId)
     const comment = store.getComment(id)
     if (!comment) throw new RequestError(404, `no Comment ${id}`)
     if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
@@ -633,7 +635,8 @@ export function createRequestAnswers(port: RequestAnswerPort) {
       }
       return store.getComment(id) ?? comment
     }
-    return holding(task, async () => {
+    const hold = comment.gate ? holdingSignoff : holding
+    return hold(task, async () => {
       const current = store.getComment(id)
       if (current?.answer?.kind === 'withdrawn') {
         throw new RequestError(409, 'this request was withdrawn')

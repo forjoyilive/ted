@@ -61,25 +61,33 @@ describe('TED app', () => {
     await thread.getByText('Task moved to Intake').waitFor()
     await thread.getByText('Task Lead started · Claude').waitFor()
     await thread.getByText('Goes to the next Task Lead Run').waitFor({ state: 'detached' })
-    await expect.poll(() => box.getAttribute('placeholder')).toBe('Comment to the Task Lead…')
+    const message = thread.getByRole('textbox', { name: 'Message the Task Lead' })
+    await expect.poll(() => message.getAttribute('placeholder')).toBe('Message the Task Lead…')
     await thread.getByText('Not read yet').waitFor({ state: 'detached' })
     const dot = thread.locator('[data-tone="run"]').first()
     expect(await dot.textContent()).toContain('Task Lead started')
 
-    await box.fill('Also handle the empty query.')
-    await box.press('ControlOrMeta+Enter')
+    await message.fill('Also handle the empty query.')
+    await message.press('ControlOrMeta+Enter')
     await thread
       .getByRole('paragraph')
       .filter({ hasText: 'Also handle the empty query.' })
       .waitFor()
-    await expect.poll(() => box.inputValue()).toBe('')
+    await expect.poll(() => message.inputValue()).toBe('')
     const client = await daemonClient()
+    const runId = (await client.listTasks())[0]?.leadRunId
+    if (runId === undefined) throw new Error('Task has no Lead Run')
     await expect
       .poll(async () => {
-        const comments = await client.listComments('NB-1')
-        return comments.find((c) => c.body === 'Also handle the empty query.')?.readAt !== undefined
+        const { items } = await client.getRunChat(runId)
+        return items.find(
+          (item) => item.kind === 'human' && item.text === 'Also handle the empty query.',
+        )
       })
-      .toBe(true)
+      .toMatchObject({ sent: true })
+    expect((await client.listComments('NB-1')).map((c) => c.body)).toEqual([
+      'Keep the old export format.\nSame for CSV.',
+    ])
   })
 
   test('files in Comments: an agent’s image and HTML show in the thread; the human drops and pastes files', async () => {
@@ -138,7 +146,7 @@ describe('TED app', () => {
       }),
     ).toBe('no access')
 
-    const box = thread.getByRole('textbox', { name: 'Comment' })
+    const box = thread.getByRole('textbox', { name: 'Message the Task Lead' })
     const dropped = await window.evaluateHandle((png) => {
       const data = new DataTransfer()
       const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0))
@@ -364,7 +372,7 @@ describe('TED app', () => {
     await card.getByRole('button', { name: 'Approve' }).click()
     const answered = thread.getByRole('region', { name: 'Design review, answered' })
     await answered.getByText('You approved').waitFor()
-    await answered.getByText('“Keep the Skip link.”').waitFor()
+    await answered.locator('blockquote').getByText('Keep the Skip link.', { exact: true }).waitFor()
   }, 90_000)
 
   test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
@@ -431,9 +439,14 @@ describe('TED app', () => {
     expect(await chat.getByRole('button', { name: 'Restart' }).count()).toBe(0)
     const taskHeader = window.getByRole('region', { name: 'Task thread' }).locator('header')
     await taskHeader.getByRole('button', { name: 'Task actions' }).click()
-    expect(
-      await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled(),
-    ).toBe(true)
+    expect(await window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled()).toBe(
+      true,
+    )
+    await chat
+      .locator('[data-scroller]')
+      .first()
+      .evaluate((scroller) => scroller.dispatchEvent(new Event('scroll')))
+    expect(await window.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(1)
     const runId = (await client.listTasks())[0]?.leadRunId
     if (runId === undefined) throw new Error('Task has no Lead Run')
     const { run } = await client.getRun(runId)
@@ -441,7 +454,7 @@ describe('TED app', () => {
       path.join(ctx.home, 'stub-claude.json'),
       JSON.stringify({ resumeSteps: [{ say: 'Noted.' }, { endTurn: true }] }),
     )
-    await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).click()
+    await window.getByRole('menuitem', { name: 'Restart', exact: true }).click()
     await expect
       .poll(
         async () =>
@@ -452,7 +465,7 @@ describe('TED app', () => {
     expect((await client.listTasks())[0]?.leadRunId).toBe(runId)
     await taskHeader.getByRole('button', { name: 'Task actions' }).click()
     await expect
-      .poll(() => taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())
+      .poll(() => window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())
       .toBe(true)
     await window.keyboard.press('Escape')
 

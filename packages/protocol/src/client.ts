@@ -1,5 +1,6 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import type { ApiCostReport } from './api-cost.ts'
 import type {
   AppCapture,
   AppLog,
@@ -68,7 +69,7 @@ import type {
   RestoreBackupResult,
   ShutdownRequest,
 } from './data.ts'
-import type { Diagnostics, LogText } from './diagnostics.ts'
+import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { FactoryExport } from './export.ts'
 import type {
@@ -1044,6 +1045,10 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics')
   }
 
+  getProcessUsage(): Promise<ProcessUsage> {
+    return this.#request('GET', '/diagnostics/usage')
+  }
+
   getReport(): Promise<{ text: string }> {
     return this.#request('GET', '/diagnostics/report')
   }
@@ -1078,6 +1083,10 @@ export class DaemonClient {
 
   agentHealth(): Promise<AgentHealth[]> {
     return this.#request('GET', '/agents/health')
+  }
+
+  apiCost(): Promise<ApiCostReport> {
+    return this.#request('GET', '/agents/api-cost')
   }
 
   checkAgentHealth(): Promise<AgentHealth[]> {
@@ -1206,8 +1215,13 @@ export class DaemonClient {
     })
   }
 
-  factorySettings(factoryId: string): Promise<FactorySettingsView> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
+  factorySettings(
+    factoryId: string,
+    options: { refresh?: 'background' | 'first' | 'never' } = {},
+  ): Promise<FactorySettingsView> {
+    const { refresh = 'background' } = options
+    const query = refresh === 'background' ? '' : `?refresh=${refresh}`
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings${query}`)
   }
 
   previewFactorySettings(

@@ -1,7 +1,7 @@
 import { tedEnv } from './env.ts'
 import type { Effort } from './task.ts'
 
-export type AgentKind = 'claude' | 'codex'
+export type AgentKind = 'claude' | 'codex' | 'antigravity'
 
 export const runTokenEnv = 'TED_RUN_CAPABILITY'
 
@@ -9,7 +9,13 @@ export function runTokenFrom(env: NodeJS.ProcessEnv): string | undefined {
   return tedEnv(runTokenEnv, env) || tedEnv('TED_RUN_TOKEN', env) || undefined
 }
 
-export const agentKinds: readonly AgentKind[] = ['claude', 'codex']
+export const agentKinds: readonly AgentKind[] = ['claude', 'codex', 'antigravity']
+
+export const agentKindList = `${agentKinds.slice(0, -1).join(', ')} or ${agentKinds.at(-1)}`
+
+export function chatToolPolicy(agent: AgentKind): 'none' | 'isolated' {
+  return agent === 'antigravity' ? 'isolated' : 'none'
+}
 
 export type RunState = 'working' | 'idle' | 'waiting' | 'finished'
 

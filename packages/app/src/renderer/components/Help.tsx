@@ -17,7 +17,7 @@ export function Tooltip({
   )
 }
 
-export function Help({ children }: { children: ReactNode }) {
+export function Help({ children, align }: { children: ReactNode; align?: 'end' }) {
   const [open, setOpen] = useState(false)
   const id = useId()
 
@@ -28,6 +28,7 @@ export function Help({ children }: { children: ReactNode }) {
         className={styles.help}
         aria-label="Help"
         aria-describedby={open ? id : undefined}
+        onClick={() => setOpen(true)}
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
@@ -38,7 +39,11 @@ export function Help({ children }: { children: ReactNode }) {
       >
         ?
       </button>
-      {open && <Tooltip id={id}>{children}</Tooltip>}
+      {open && (
+        <Tooltip id={id} className={align === 'end' ? styles.end : undefined}>
+          {children}
+        </Tooltip>
+      )}
     </span>
   )
 }

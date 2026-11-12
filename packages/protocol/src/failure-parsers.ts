@@ -3,6 +3,7 @@ import type {
   AssessFailureRequest,
   FailureSource,
   RecordFailureRequest,
+  RepairSelection,
   ResolveFailureRequest,
   VerifyFailureRequest,
 } from './failures.ts'
@@ -102,12 +103,30 @@ export function parseResolveFailureRequest(value: unknown): ResolveFailureReques
     resolution !== 'fixed' &&
     resolution !== 'no-longer-applicable' &&
     resolution !== 'retry' &&
-    resolution !== 'fix'
+    resolution !== 'fix' &&
+    resolution !== 'repair'
   )
     throw new HttpError(400, 'unknown failure resolution')
+  let repair: RepairSelection | undefined
+  if (resolution === 'repair') {
+    const selected = failureObject(body.repair)
+    if (selected.kind === 'existing') {
+      repair = { kind: 'existing', taskId: failureString(selected, 'taskId') }
+    } else if (selected.kind === 'new') {
+      if (typeof selected.start !== 'boolean') throw new HttpError(400, 'start must be a boolean')
+      repair = {
+        kind: 'new',
+        title: failureString(selected, 'title'),
+        description: failureString(selected, 'description'),
+        start: selected.start,
+      }
+    } else throw new HttpError(400, 'choose an existing or new repair Task')
+  } else if (body.repair !== undefined)
+    throw new HttpError(400, 'repair selection needs repair resolution')
   const input: ResolveFailureRequest = {
     requestId: failureString(body, 'requestId'),
     resolution,
+    ...(repair && { repair }),
     ...(body.reason !== undefined && { reason: failureString(body, 'reason') }),
   }
   return input

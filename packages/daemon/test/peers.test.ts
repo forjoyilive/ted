@@ -128,6 +128,10 @@ test('watch handles changes, timeouts, disconnects and stale callers without lea
 
 test('message and attributed Comment are atomic, replay-safe and survive a daemon store restart', async () => {
   const run = lead(recipient)
+  const posted: unknown[] = []
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type === 'comment-posted') posted.push(event.comment)
+  })
   const input = {
     operation: 'coordinate-1',
     text: 'I am changing the protocol. Please wait for my interface.',
@@ -137,8 +141,15 @@ test('message and attributed Comment are atomic, replay-safe and survive a daemo
     taskId: recipient,
     kind: 'note',
     author: { kind: 'run', runId: sent.senderRunId },
+    peer: { sender: 'DEV-1', text: input.text },
   })
-  expect(store.getComment(sent.id)?.body).toContain('Peer message from DEV-1')
+  const wrappedBody = store.getComment(sent.id)?.body
+  expect(wrappedBody).toContain('Peer message from DEV-1')
+  expect(wrappedBody).toContain(`(Run ${sent.senderRunId})`)
+  expect(wrappedBody).toMatch(/<<<PEER ([\w-]+)>>>\n.*\n<<<END PEER \1>>>/s)
+  expect(posted).toEqual([store.getComment(sent.id)])
+  expect(store.listComments(recipient)[0]?.peer).toEqual({ sender: 'DEV-1', text: input.text })
+  unsubscribe()
   expect(notify).toHaveBeenCalledWith(run.id)
   expect(await peers.send(caller, recipient, input)).toEqual(sent)
   await expect(peers.send(caller, recipient, { ...input, text: 'Different' })).rejects.toThrow(
@@ -148,6 +159,10 @@ test('message and attributed Comment are atomic, replay-safe and survive a daemo
   await store.close()
   store = await openStore({ directory: dir })
   peers = services()
+  expect(store.getComment(sent.id)).toMatchObject({
+    body: wrappedBody,
+    peer: { sender: 'DEV-1', text: input.text },
+  })
   expect(await peers.send(caller, recipient, input)).toEqual(sent)
   const recipientCaller: Caller = { kind: 'run', runId: run.id }
   expect(peers.inbox(recipientCaller).messages).toEqual([sent])
@@ -179,11 +194,13 @@ test('outgoing notes survive sender deletion and restart until the recipient is 
   store.recordRunOutput(old.id, { toOffset: 1, state: 'finished' })
   store.deleteTask(sender)
   expect(store.getComment(sent.id)?.body).toContain('Peer message from DEV-1')
+  expect(store.getComment(sent.id)?.peer).toEqual({ sender: 'DEV-1', text: sent.text })
   expect(store.peerMessages()).toEqual([sent])
   await store.close()
   store = await openStore({ directory: dir })
   peers = services()
   const replacement = lead(recipient)
+  expect(store.getComment(sent.id)?.peer).toEqual({ sender: 'DEV-1', text: sent.text })
   const receiver: Caller = { kind: 'run', runId: replacement.id }
   expect(peers.isMessage(sent.id)).toBe(true)
   expect(peers.inbox(receiver).messages).toEqual([sent])

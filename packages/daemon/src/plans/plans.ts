@@ -552,6 +552,7 @@ export function createPlans(options: PlansOptions): Plans {
       ?.workflow.settings
     const planner = resolveAgentChoices(settings, {
       claude: options.agents.installed('claude'),
+      antigravity: options.agents.installed('antigravity'),
       codex: options.agents.installed('codex'),
     }).planner
     const agent = input.agent ?? planner.agent

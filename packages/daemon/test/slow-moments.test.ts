@@ -2,6 +2,7 @@ import { lstat, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/pro
 import path from 'node:path'
 import type { ProfileResult, SlowMoments } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { createCpuProfiler } from '../src/cpu-profile.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { appRoutes } from '../src/routes/apps.ts'
 import { automationRoutes } from '../src/routes/automations.ts'
@@ -295,6 +296,40 @@ describe('reading and profiling: who may call', () => {
 })
 
 describe('CPU profile', () => {
+  test('a long block of the event loop saves a profile that names the code that blocked', async () => {
+    const lines: string[] = []
+    const profiler = createCpuProfiler(home, {
+      stallMs: 1_000,
+      startAfterMs: 300,
+      tickMs: 50,
+      log: (line) => lines.push(line),
+    })
+    const dir = path.join(home, 'logs', 'profiles')
+    const saved = async () =>
+      (await readdir(dir).catch(() => [])).filter((name) => name.startsWith('stall-'))
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      block(600)
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      expect(await saved()).toEqual([])
+      block(1_500)
+      await expect.poll(saved).toHaveLength(1)
+      const [name = ''] = await saved()
+      expect(name).toMatch(/^stall-\d{8}-\d{6}\.cpuprofile$/)
+      expect((await lstat(path.join(dir, name))).mode & 0o777).toBe(0o600)
+      const profile = JSON.parse(await readFile(path.join(dir, name), 'utf8')) as {
+        nodes: { callFrame: { url: string } }[]
+      }
+      expect(
+        profile.nodes.some((node) => node.callFrame.url.endsWith('slow-moments.test.ts')),
+      ).toBe(true)
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toMatch(/^event loop blocked for \d+ ms; a CPU profile of it is in /)
+    } finally {
+      profiler.close()
+    }
+  }, 30_000)
+
   test('the app records one profile at a time into logs/profiles and keeps the newest five', async () => {
     const client = await start()
     const dir = path.join(home, 'logs', 'profiles')

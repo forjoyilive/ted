@@ -12,8 +12,8 @@ import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
-import { createCpuProfiler } from './cpu-profile.ts'
-import { createData, type DataOptions } from './data.ts'
+import { createCpuProfiler, type StallProfiles } from './cpu-profile.ts'
+import { createData, type DataCloseStep, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
 import { RequestError } from './errors.ts'
@@ -56,6 +56,7 @@ export interface DaemonOptions {
   version: string
   claudeBin?: string
   codexBin?: string
+  antigravityBin?: string
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
@@ -76,6 +77,7 @@ export interface DaemonOptions {
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
+  githubReadBurst?: number
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   settingsMergeWaitMs?: number
@@ -91,6 +93,7 @@ export interface DaemonOptions {
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
+  stallProfiles?: StallProfiles
   outputDrop?: DataOptions['outputDrop']
   slow?: { requestMs?: number; stallMs?: number }
 }
@@ -145,8 +148,10 @@ export interface DaemonIntegrationsOptions {
 export interface RunningDaemon {
   port: number
   appToken: string
-  stop(): Promise<void>
+  stop(onStep?: (step: DaemonCloseStep) => void): Promise<void>
 }
+
+export type DaemonCloseStep = 'connections' | DataCloseStep
 
 const pruneEveryMs = 6 * 60 * 60 * 1000
 
@@ -193,6 +198,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     home: paths.home,
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
+    ...(options.antigravityBin !== undefined && { antigravityBin: options.antigravityBin }),
     env: environment.current,
   })
   const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })
@@ -348,18 +354,20 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           if (!started) throw new RequestError(503, 'TED is still starting')
           return started.create(input)
         },
+        emit,
         ...(options.settingsMergeWaitMs !== undefined && {
           mergeWaitMs: options.settingsMergeWaitMs,
         }),
       })
+      const libraryWatch = await watchLibrary({ libraryDir: paths.library, workflows, emit })
       const library = createLibrarySettings({
         store,
         workflows,
         libraryDir: paths.library,
         installed: (kind) => agents.installed(kind),
         emit,
+        saved: (version) => libraryWatch.saw(version),
       })
-      const libraryWatch = await watchLibrary({ libraryDir: paths.library, workflows, emit })
       banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
         if (!factory) return
@@ -428,6 +436,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
+        ...(options.githubReadBurst !== undefined && {
+          githubReadBurst: options.githubReadBurst,
+        }),
         ...(options.beforeMerge !== undefined && { beforeMerge: options.beforeMerge }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
@@ -621,6 +632,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           libraryWatch.close()
           versionRestarts.close()
           await checkTries.close()
+          workflows.close()
+          await factorySettings.close()
           stayAwake?.close()
           disk.close()
           clearInterval(pruneTimer)
@@ -644,7 +657,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const token = randomBytes(32).toString('hex')
   const appToken = options.appToken ?? randomBytes(32).toString('hex')
   const slow = createSlowMonitor(options.slow)
-  const profiler = createCpuProfiler(paths.home)
+  const profiler = createCpuProfiler(paths.home, options.stallProfiles)
   const { server, port } = await listen({
     version: options.version,
     token,
@@ -675,17 +688,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   return {
     port,
     appToken,
-    async stop() {
+    async stop(onStep) {
       await asana.close()
       idle?.cancel()
       slow.close()
       profiler.close()
       await rm(paths.daemonInfo, { force: true })
+      onStep?.('connections')
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
         server.closeAllConnections()
       })
-      await data.close()
+      await data.close(onStep)
       lock.release()
     },
   }

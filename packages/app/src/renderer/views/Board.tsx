@@ -25,10 +25,12 @@ import {
 } from '../board.ts'
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
+import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
+import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal, RunIcons } from '../components/TaskStatus.tsx'
 import { useConnection } from '../data.ts'
 import { boardEmpty } from '../empty-states.ts'
@@ -312,6 +314,7 @@ export function Board({
       <article
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
+        {...contextMenu((at) => openTaskActions(at, [task.id]))}
         data-task={task.displayId}
         data-nav-item
         tabIndex={-1}
@@ -363,6 +366,7 @@ export function Board({
       <article
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
+        {...contextMenu((at) => openTaskActions(at, [task.id]))}
         data-task={task.displayId}
         data-nav-item
         tabIndex={-1}

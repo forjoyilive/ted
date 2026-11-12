@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { FailureCase, FailureContext } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { openStore } from '../src/store/index.ts'
@@ -252,7 +253,7 @@ test('rejected evidence and assessments preserve requests; fresh decisions expos
   const question = s.comment(asked.decisions.at(-1)?.commentId)
   expect(question?.body).toContain('The Task Lead’s assessment:')
   expect(question?.body).toContain('Recommendation:')
-  expect(question?.body).toContain(`Failure ${first.id}`)
+  expect(question?.body).toContain(`Failure ${shortReference(first.id)}`)
   expect(question?.body).not.toContain('New reproduction:')
   expect(question?.body).not.toContain(secret)
   expect(question?.body).not.toContain(context.id)
@@ -305,15 +306,17 @@ test('a changed HEAD refuses acceptance in plain words, tells the Task Lead once
   const told = s.notes('Failure acceptance refused')
   expect(told).toHaveLength(1)
   expect(told[0]?.author).toEqual({ kind: 'ted' })
-  expect(told[0]?.body).toContain(`failure case ${value.id}`)
+  expect(told[0]?.body).toContain(`failure case ${shortReference(value.id)}`)
   expect(told[0]?.body).toContain('`ted failure context`')
-  expect(told[0]?.body).toContain(`\`ted failure evidence ${value.id} --file <json>\``)
-  expect(told[0]?.body).toContain(`\`ted failure ask ${value.id}\``)
+  expect(told[0]?.body).toContain(
+    `\`ted failure evidence ${shortReference(value.id)} --file <json>\``,
+  )
+  expect(told[0]?.body).toContain(`\`ted failure ask ${shortReference(value.id)}\``)
   expect(s.comment(asked.decisions.at(-1)?.commentId)?.answer).toBeUndefined()
   s.evidence(value, 'Looked again without a new context')
   await s.assess(value)
   const stale = await refusalText(() => s.decision(value))
-  expect(stale).toContain(`tested context ${context.id}`)
+  expect(stale).toContain(`tested context ${shortReference(context.id)}`)
   expect(stale).toContain('`ted failure context`')
   const fresh = await s.capture()
   s.evidence(value, 'Reproduced on the new commit', fresh.id)
@@ -397,4 +400,91 @@ test('stored contexts are compared by what was tested, not by their fingerprint 
   expect(await accept(stored('other-ci', { ci: 'CI-A' }))).toBe(changed)
   expect(await accept(stored('other-ci-failures', { ciFailures: ['x'] }))).toBe(changed)
   expect(await accept(stored('other-checks', { checks: 'B' }))).toBe(changed)
+})
+
+test('short failure, Run and context references preserve canonical evidence and Task isolation', async () => {
+  const s = await setup()
+  const captured = await s.capture()
+  const context = s.store.failures.capture({
+    ...captured,
+    id: 'abcdef01-0000-4000-8000-000000000000',
+  })
+  const other = await s.store.createTask({ title: 'Other Task' })
+  s.store.failures.capture({
+    ...context,
+    taskId: other.id,
+    id: 'abcdef02-0000-4000-8000-000000000000',
+  })
+  s.store.startRun({
+    id: 'run-lead-foreign',
+    taskId: other.id,
+    agent: 'codex',
+    prompt: '',
+    cwd: '.',
+  })
+  const value = await s.service.record(s.task, lead, {
+    source: { kind: 'finding', runId: shortReference(lead), finding: 'Short references' },
+    contextId: shortReference(context.id),
+    evidence: 'Original evidence',
+  })
+  expect(value).toMatchObject({ contextId: context.id, source: { runId: lead } })
+  expect(s.service.get(s.task, shortReference(value.id)).id).toBe(value.id)
+  expect(await refusal(() => s.service.get(other, shortReference(value.id)))).toBe(404)
+  const updated = s.service.evidence(
+    s.task,
+    shortReference(value.id),
+    lead,
+    'Fresh evidence',
+    shortReference(context.id),
+  )
+  expect(updated.additions.at(-1)?.contextId).toBe(context.id)
+  const assessed = await s.service.assess(s.task, shortReference(value.id), lead, {
+    assessment: 'unrelated',
+    recommendation: 'Accept the recorded failure',
+  })
+  expect(assessed.assessments.at(-1)?.contextId).toBe(context.id)
+  const asked = await s.service.request(s.task, shortReference(value.id), lead)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)?.body).toContain(
+    `Failure ${shortReference(value.id)}\n`,
+  )
+  await s.service.resolve(s.task, shortReference(value.id), {
+    requestId: asked.decisions.at(-1)?.commentId ?? '',
+    resolution: 'accepted',
+  })
+  expect(s.store.failures.get(value.id)?.resolutions.at(-1)?.contextId).toBe(context.id)
+  s.store.failures.capture({ ...context, id: 'abcdef03-0000-4000-8000-000000000000' })
+  expect(
+    await refusal(() => s.service.evidence(s.task, value.id, lead, 'Ambiguous context', 'abcdef')),
+  ).toBe(409)
+  expect(s.store.failures.get(value.id)?.additions).toHaveLength(1)
+  const collisionA = { ...value, id: '12345601-0000-4000-8000-000000000000' }
+  const collisionB = { ...value, id: '12345602-0000-4000-8000-000000000000' }
+  s.store.failures.save(collisionA, 'recorded')
+  s.store.failures.save(collisionB, 'recorded')
+  expect(await refusal(() => s.service.get(s.task, '123456'))).toBe(409)
+  expect(s.service.get(s.task, '12345601').id).toBe(collisionA.id)
+  expect(s.service.get(s.task, collisionB.id).id).toBe(collisionB.id)
+  expect(
+    await refusal(() =>
+      s.service.record(s.task, lead, {
+        source: { kind: 'finding', runId: 'run-lead-foreign', finding: 'Wrong Task' },
+        evidence: 'Must not be recorded',
+      }),
+    ),
+  ).toBe(400)
+  s.store.startRun({
+    id: 'run-lead-second',
+    taskId: s.task.id,
+    agent: 'codex',
+    prompt: '',
+    cwd: '.',
+  })
+  expect(
+    await refusal(() =>
+      s.service.record(s.task, lead, {
+        source: { kind: 'finding', runId: shortReference(lead), finding: 'Ambiguous Run' },
+        evidence: 'Must not be recorded',
+      }),
+    ),
+  ).toBe(409)
 })

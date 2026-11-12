@@ -28,6 +28,7 @@ export type DaemonEvent =
   | { type: 'factory-added'; factory: Factory }
   | { type: 'factory-updated'; factory: Factory }
   | { type: 'factory-removed'; factoryId: string }
+  | { type: 'factory-settings-changed'; factoryId: string }
   | { type: 'settings-changed'; settings: MachineSettings }
   | { type: 'banner-raised'; banner: Banner }
   | { type: 'banner-updated'; banner: Banner }
@@ -46,6 +47,6 @@ export type DaemonEvent =
   | { type: 'automation-deleted'; automationId: string }
   | { type: 'plan-updated'; planId: string }
   | { type: 'plan-deleted'; planId: string }
-  | { type: 'library-changed' }
+  | { type: 'library-changed'; version?: string }
   | { type: 'drift-changed'; drift: DriftCounts }
   | { type: 'line-comments-changed'; taskId: string }

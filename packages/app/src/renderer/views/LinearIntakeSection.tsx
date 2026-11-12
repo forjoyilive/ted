@@ -1,12 +1,16 @@
 import type { LinearIntakeChoices, LinearIntakeScope } from '@ted/protocol'
-import { useEffect, useId, useState } from 'react'
+import { memo, useEffect, useId, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Select } from '../components/Select.tsx'
 import { useConnection, useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './FactorySettings.module.css'
 
-export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
+export const LinearIntakeSection = memo(function LinearIntakeSection({
+  factoryId,
+}: {
+  factoryId: string
+}) {
   const settings = useSettings()
   const scope = settings?.linearIntakeScopes[factoryId]
   const [draftKind, setDraftKind] = useState<'none' | 'team' | 'project'>()
@@ -75,7 +79,10 @@ export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
     ? `${scope.kind === 'team' ? 'Team' : 'Project'}: ${scope.name} · ${scope.workspace}`
     : 'Unscoped'
   return (
-    <section className={styles.section} aria-labelledby={`${id}-heading`}>
+    <section
+      className={`${styles.section} ${styles.compactSection}`}
+      aria-labelledby={`${id}-heading`}
+    >
       <div className={styles.sectionHeading} id="linear-intake">
         <h2 id={`${id}-heading`} className={styles.sectionTitle}>
           Linear intake
@@ -183,4 +190,4 @@ export function LinearIntakeSection({ factoryId }: { factoryId: string }) {
       </span>
     </section>
   )
-}
+})

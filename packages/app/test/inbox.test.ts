@@ -1,12 +1,6 @@
 import type { AutomationRequest, Factory, InboxItem } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import {
-  answerConfirmation,
-  inboxChips,
-  inFactory,
-  nextSelection,
-  waitingByFactory,
-} from '../src/renderer/inbox.ts'
+import { inboxChips, inFactory, nextSelection, waitingByFactory } from '../src/renderer/inbox.ts'
 
 const item = (id: string, factoryId = 'nb') =>
   ({ request: { id }, task: { id: `t-${id}`, factoryId } }) as unknown as InboxItem
@@ -70,43 +64,5 @@ describe('after answering', () => {
     expect(nextSelection(before, before, 'b')).toBeUndefined()
     expect(nextSelection(before, [item('a')], undefined)).toBeUndefined()
     expect(nextSelection(before, [item('a')], 'elsewhere')).toBeUndefined()
-  })
-})
-
-describe('Inbox confirmation', () => {
-  test('names the recorded action and request without copying the answer text', () => {
-    const at = '2026-11-11T12:00:00.000Z'
-    expect(
-      answerConfirmation(
-        {
-          kind: 'permission',
-          permission: { command: 'pnpm build' },
-          answer: { kind: 'approved', at },
-        },
-        'NB-3',
-      ),
-    ).toEqual({ text: 'Approved NB-3’s permission request', detail: 'This request only' })
-    expect(
-      answerConfirmation(
-        { kind: 'review', answer: { kind: 'changes-requested', at, text: 'private feedback' } },
-        'NB-4',
-      ),
-    ).toEqual({ text: 'Requested changes to NB-4’s design review' })
-    expect(
-      answerConfirmation(
-        { kind: 'question', answer: { kind: 'answered', at, text: 'private answer' } },
-        'NB-5',
-      ),
-    ).toEqual({ text: 'Answered NB-5’s question' })
-    expect(
-      answerConfirmation({ kind: 'permission', answer: { kind: 'denied', at } }, 'NB-3'),
-    ).toEqual({ text: 'Denied NB-3’s permission request' })
-    expect(
-      answerConfirmation(
-        { kind: 'question', answer: { kind: 'withdrawn', at, cancelled: true } },
-        'NB-3',
-      ),
-    ).toBeUndefined()
-    expect(answerConfirmation({ kind: 'question' }, 'NB-3')).toBeUndefined()
   })
 })

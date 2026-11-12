@@ -1,6 +1,15 @@
-import type { AgentHealth, AgentKind, Billing, PlanUsage, PlanWindow } from '@ted/protocol'
+import type {
+  AgentApiCost,
+  AgentHealth,
+  AgentKind,
+  ApiCostReport,
+  Billing,
+  PlanUsage,
+  PlanWindow,
+} from '@ted/protocol'
 import {
   agentDisplayNames,
+  antigravityTermsUrl,
   billingNames,
   billings,
   planWarnPercent,
@@ -8,10 +17,11 @@ import {
   runsPaused,
 } from '@ted/protocol/health'
 import { useEffect, useId, useState } from 'react'
+import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
 import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
-import { useAgentHealthState } from '../data.ts'
+import { useAgentHealthState, useApiCost } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { timePreferences } from '../time.ts'
@@ -25,6 +35,7 @@ export const fixCheckEveryMs = 5_000
 const stateLabels: Record<AgentHealth['state'], string> = {
   ready: 'Ready',
   'not-installed': 'Not installed',
+  unavailable: 'Can’t run',
   'signed-out': 'Signed out',
   'too-old': 'Too old',
   'wrong-credential': 'Using an API key',
@@ -40,6 +51,7 @@ const windowNames: Record<PlanWindow['window'], string> = {
 const keyVariables: Record<AgentKind, string> = {
   claude: 'ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN',
   codex: 'CODEX_API_KEY and OPENAI_API_KEY',
+  antigravity: 'GEMINI_API_KEY and Google Cloud credentials',
 }
 
 export function stopsWork(health: AgentHealth): boolean {
@@ -124,10 +136,14 @@ function BillingChoice({
   agent,
   billing,
   onChange,
+  planAccepted,
+  onAcceptPlan,
 }: {
   agent: AgentKind
   billing: Billing
   onChange: (billing: Billing) => void
+  planAccepted: boolean
+  onAcceptPlan: () => void
 }) {
   const name = useId()
   return (
@@ -157,6 +173,28 @@ function BillingChoice({
           </label>
         ))}
       </div>
+      {agent === 'antigravity' && <AntigravityChatWarning agent={agent} />}
+      {agent === 'antigravity' && billing === 'subscription' && (
+        <div className={styles.planNotice} role="note" aria-label="Google’s terms">
+          <p className={styles.line}>
+            Google’s terms say that using Antigravity through other software, such as TED, on a
+            Google plan can get your account suspended. Google recommends an API key for this. Read
+            them at {antigravityTermsUrl.replace('https://', '')}.
+          </p>
+          {planAccepted ? (
+            <p className={styles.line}>You chose to use your Google plan anyway.</p>
+          ) : (
+            <Button onClick={onAcceptPlan}>Use my Google plan anyway</Button>
+          )}
+        </div>
+      )}
+      {agent === 'antigravity' && (
+        <p className={styles.line}>
+          {billing === 'subscription'
+            ? 'Sign in with the Google account that has your Ultra plan.'
+            : 'Set GEMINI_API_KEY in your login-shell profile, then choose Check again. Requests are billed separately. TED never asks for or stores the key.'}
+        </p>
+      )}
     </div>
   )
 }
@@ -178,11 +216,83 @@ function PlanUsageSection({ health }: { health: AgentHealth }) {
         </div>
       ) : (
         <p className={styles.line}>
-          {health.agent === 'claude'
-            ? 'Shows once a Run has made a request.'
-            : 'Shows once a Run has started.'}
+          {health.agent === 'antigravity'
+            ? 'Usage figures are unavailable unless reported by Antigravity.'
+            : health.agent === 'claude'
+              ? 'Shows once a Run has made a request.'
+              : 'Shows once a Run has started.'}
         </p>
       )}
+    </div>
+  )
+}
+
+const dollars = (value: number) =>
+  value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+const millions = (tokens: number) =>
+  tokens >= 1_000_000
+    ? `${(tokens / 1_000_000).toFixed(1)}M`
+    : tokens >= 1_000
+      ? `${Math.round(tokens / 1_000)}K`
+      : String(tokens)
+
+export function apiCostLines(
+  agent: AgentKind,
+  report: ApiCostReport | undefined,
+): { figure: string; notes: string[] } | undefined {
+  if (!report) return undefined
+  if (agent === 'antigravity') {
+    return { figure: 'Not available', notes: ['Antigravity doesn’t report the tokens it uses.'] }
+  }
+  const since =
+    report.countedFrom !== undefined && report.countedFrom > report.since
+      ? [
+          `Counted since ${new Date(report.countedFrom).toLocaleDateString()}, when TED began saving this.`,
+        ]
+      : []
+  const used: AgentApiCost | undefined = report.agents.find((a) => a.agent === agent)
+  if (!used || used.runs === 0) return { figure: 'No finished Runs yet', notes: since }
+  const runs = `${used.runs} ${used.runs === 1 ? 'Run' : 'Runs'}`
+  return {
+    figure: `${dollars(used.cost)} for ${runs}`,
+    notes: [
+      `${millions(used.input)} input and ${millions(used.output)} output tokens.`,
+      agent === 'claude'
+        ? 'The cost Claude Code reported for each Run.'
+        : 'An estimate from OpenAI’s list prices.',
+      ...(used.pricedRuns < used.runs
+        ? [`${used.runs - used.pricedRuns} of them reported no cost and are left out.`]
+        : []),
+      ...since,
+    ],
+  }
+}
+
+function ApiCostSection({
+  agent,
+  report,
+}: {
+  agent: AgentKind
+  report: ApiCostReport | undefined
+}) {
+  const lines = apiCostLines(agent, report)
+  if (!lines) return null
+  return (
+    <div className={styles.section}>
+      <div className={styles.sectionHead}>
+        <h3 className={styles.sectionTitle}>On an API key, last {report?.days ?? 30} days</h3>
+        <Help>
+          What this agent’s finished Runs would have cost at API prices, whichever way you pay for
+          them.
+        </Help>
+      </div>
+      <p className={styles.line}>{lines.figure}</p>
+      {lines.notes.map((note) => (
+        <p key={note} className={styles.line}>
+          {note}
+        </p>
+      ))}
     </div>
   )
 }
@@ -194,15 +304,21 @@ function AgentCard({
   onFix,
   onCheck,
   onBilling,
+  planAccepted,
+  onAcceptPlan,
+  apiCost,
   checking,
   error,
 }: {
+  apiCost: ApiCostReport | undefined
   health: AgentHealth
   billing: Billing
   opened: boolean
   onFix: () => void
   onCheck: () => void
   onBilling: (billing: Billing) => void
+  planAccepted: boolean
+  onAcceptPlan: () => void
   checking: boolean
   error: string | undefined
 }) {
@@ -218,7 +334,7 @@ function AgentCard({
     `minimum ${health.minimumVersion}`,
     ...(health.path !== undefined ? [health.path] : []),
   ].join(' · ')
-  const signedIn = !['not-installed', 'signed-out', 'too-old'].includes(health.state)
+  const signedIn = !['not-installed', 'signed-out', 'too-old', 'unavailable'].includes(health.state)
 
   return (
     <section
@@ -251,6 +367,7 @@ function AgentCard({
           {signedIn && health.account !== undefined && (
             <p className={styles.line}>{health.account}</p>
           )}
+          {health.state === 'unavailable' && <p className={styles.line}>{health.reason}</p>}
           {health.state === 'signed-out' && <p className={styles.line}>Not signed in.</p>}
           {health.state === 'too-old' && (
             <p className={styles.line}>
@@ -289,7 +406,14 @@ function AgentCard({
           {error !== undefined && <p className={`${styles.line} ${styles.error}`}>{error}</p>}
         </div>
       </div>
-      <BillingChoice agent={health.agent} billing={billing} onChange={onBilling} />
+      <ApiCostSection agent={health.agent} report={apiCost} />
+      <BillingChoice
+        agent={health.agent}
+        billing={billing}
+        onChange={onBilling}
+        planAccepted={planAccepted}
+        onAcceptPlan={onAcceptPlan}
+      />
       <PlanUsageSection health={health} />
     </section>
   )
@@ -297,6 +421,7 @@ function AgentCard({
 
 export function AgentsPage({ settings }: SettingsPageProps) {
   const resource = useAgentHealthState()
+  const apiCost = useApiCost()
   const health = resource.health
   const [opened, setOpened] = useState<Partial<Record<AgentKind, boolean>>>({})
   const [checking, setChecking] = useState(false)
@@ -366,6 +491,13 @@ export function AgentsPage({ settings }: SettingsPageProps) {
             onFix={() => void fix(h.agent)}
             onCheck={() => void check()}
             onBilling={(billing) => chooseBilling(h.agent, billing)}
+            planAccepted={settings.antigravityPlanAccepted}
+            apiCost={apiCost}
+            onAcceptPlan={() =>
+              void ted
+                .updateSettings({ antigravityPlanAccepted: true })
+                .catch((error: unknown) => console.error(error))
+            }
             checking={checking}
             error={errors[h.agent]}
           />
@@ -374,7 +506,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
       <SettingsGroup>
         <SettingRow
           title="Restart idle Runs onto new agent versions"
-          help="When Claude Code or Codex updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
+          help="When an agent updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
         >
           <Switch
             label="Restart idle Runs onto new agent versions"

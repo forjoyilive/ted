@@ -14,6 +14,8 @@ Let TED merge the Task’s pull requests.
 6. If the human cancels the merge with a Comment, it counts as Request changes: send the Task back to Work or Design with `ted outcome back`.
 7. With several repos, TED merges in `repos` order, and only once every pull request is ready. If a merge fails after another merged, the Task shows Partly merged and goes back to Work. Fix only the repos that haven’t merged; TED never reverts a merged pull request.
 
+8. If a failure decision offers Wait for a repair Task, the user selects existing work or approves creation of a focused repair in this Factory. TED keeps this Stage and worktree, records the original failure and repair link in the brief, and stops the Task Lead without holding a working-Run slot. After the repair merges, TED queues continuation and incorporates it before fresh verification. Check the thread if incorporation is held. Archive, deletion or manual unblock never passes validation; a manually unblocked Task needs Resume. Existing revalidation and re-sign-off rules still apply, and only TED’s merge watcher can move Merge forward.
+
 ## Done when
 
 TED has merged every pull request. You have nothing to do until then.

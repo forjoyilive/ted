@@ -9,7 +9,7 @@ export interface AgentChoices {
 
 export function resolveAgentChoices(
   settings: Pick<WorkflowSettings, 'lead' | 'reviewer' | 'planner'> | undefined,
-  installed: Record<AgentKind, boolean>,
+  installed: Partial<Record<AgentKind, boolean>>,
 ): AgentChoices {
   const fallback: AgentKind = !installed.claude && installed.codex ? 'codex' : 'claude'
   const lead = choice(settings?.lead, fallback)

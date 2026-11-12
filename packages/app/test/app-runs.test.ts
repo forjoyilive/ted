@@ -76,8 +76,13 @@ describe('Archive, Unarchive and Delete', () => {
     }, 'NB-2 to read “Blocked by archived NB-1”')
 
     await header.getByRole('button', { name: 'Task actions' }).click()
-    const menu = header.getByRole('menu', { name: 'Task actions' })
-    expect(await menu.getByRole('menuitem').allTextContents()).toEqual(['Unarchive', 'Delete…'])
+    const menu = header.page().getByRole('menu', { name: /Task actions/ })
+    expect(await menu.getByRole('menuitem').allTextContents()).toEqual([
+      'Unarchive',
+      'Copy Task ID',
+      'Full brief',
+      'Delete…',
+    ])
     await window.keyboard.press('Escape')
 
     await thread.getByRole('button', { name: 'Unarchive' }).click()
@@ -106,7 +111,7 @@ describe('Stop and Resume', () => {
     await header.getByText('Working', { exact: true }).waitFor()
 
     await header.getByRole('button', { name: 'Task actions' }).click()
-    const menu = header.getByRole('menu', { name: 'Task actions' })
+    const menu = header.page().getByRole('menu', { name: /Task actions/ })
     const first = menu.getByRole('menuitem').first()
     expect(await first.textContent()).toContain('Stop Task')
     expect(await first.getAttribute('aria-describedby')).toBeTruthy()
@@ -181,7 +186,9 @@ describe('Failed', () => {
     await window.getByRole('tab', { name: 'Task Lead' }).click()
 
     await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
-    await card.getByRole('button', { name: 'Retry' }).click()
+    await card.getByRole('radio', { name: 'Retry', exact: true }).check()
+    expect((await client.listTasks())[0]?.status?.kind).toBe('failed')
+    await card.getByRole('button', { name: 'Send', exact: true }).click()
 
     await thread.getByText('You retried the Task').waitFor()
     const comments = await client.listComments('NB-1')

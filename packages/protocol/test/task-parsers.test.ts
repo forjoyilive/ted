@@ -188,7 +188,7 @@ roundTrip(P.parseLocalDesignReviewInput, {
 })
 
 rejects(P.parseCreateTaskRequest, { start: 'yes' }, 'start must be true or false')
-rejects(P.parseTaskLead, { agent: 'other' }, 'agent must be claude or codex')
+rejects(P.parseTaskLead, { agent: 'other' }, 'agent must be claude, codex or antigravity')
 rejects(
   P.parseReportOutcomeRequest,
   { outcome: 'back', to: 'work', findings: 'Fix this', cause: 'tired' },

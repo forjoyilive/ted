@@ -296,6 +296,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   linearSync: onOff('linearSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
+  antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
   maxChecksAtOnce(value) {
     const { min, max } = checkLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
@@ -338,7 +339,11 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       if (!billing) throw new HttpError(400, `billing.${agent} must be ${billings.join(', ')}`)
       return billing
     }
-    return { claude: choose('claude'), codex: choose('codex') }
+    return {
+      claude: choose('claude'),
+      codex: choose('codex'),
+      antigravity: given.antigravity === undefined ? 'subscription' : choose('antigravity'),
+    }
   },
   editor(value) {
     if (value === null || value === 'custom') return value

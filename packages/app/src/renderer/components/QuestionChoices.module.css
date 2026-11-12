@@ -1,0 +1,58 @@
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.choiceLegend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 7px 12px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-14);
+  text-align: left;
+}
+
+.selected {
+  border-color: var(--accent-default);
+  background: var(--accent-subtle);
+}
+
+.radio {
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--accent-default);
+}
+
+.choice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.choices:not(:disabled) .choice:hover {
+  border-color: var(--accent-default);
+  background: var(--accent-subtle);
+}
+
+.radio:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
