@@ -775,4 +775,8 @@ test('Factory settings search finds both kinds of setting and marks one on this 
   })
   const row = document.querySelector('[data-setting="factory.repos.worktree.teardown"]')
   await waitFor(() => expect(row?.hasAttribute('data-found')).toBe(true))
+
+  field.focus()
+  await user().keyboard('{Escape}')
+  expect(document.activeElement).not.toBe(field)
 })

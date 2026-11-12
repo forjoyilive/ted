@@ -63,7 +63,7 @@ export function ExportGroup() {
           <SettingRow title="Add a Factory to export its work." />
         ) : (
           <>
-            <SettingRow title="Factory" labelFor={`${id}-factory`}>
+            <SettingRow setting="app.storage.export.factory" labelFor={`${id}-factory`}>
               <Select
                 id={`${id}-factory`}
                 value={selected}
@@ -76,7 +76,7 @@ export function ExportGroup() {
               />
             </SettingRow>
             <SettingRow
-              title="Format"
+              setting="app.storage.export.format"
               labelFor={`${id}-format`}
               detail={
                 format === 'json'
@@ -98,10 +98,7 @@ export function ExportGroup() {
                 }}
               />
             </SettingRow>
-            <SettingRow
-              title="Tasks, Comments, briefs and Run metadata"
-              detail="Includes Done and archived Tasks, answers and saved versions."
-            >
+            <SettingRow setting="app.storage.export.save">
               <Button disabled={busy || !selected} onClick={() => save()}>
                 {busy ? 'Exporting…' : 'Export…'}
               </Button>

@@ -183,13 +183,14 @@ function DiagnosticsView({
   return (
     <section className={styles.group} aria-label="Diagnostics">
       <div className={styles.groupHeader}>
-        <h2 className={styles.groupLabel}>Diagnostics</h2>
+        <h2 className={styles.groupLabel} data-setting="app.developer.diagnostics">
+          Diagnostics
+        </h2>
         <Button onClick={onCopyReport}>Copy report</Button>
       </div>
       <div className={styles.box}>
         <SettingRow
-          title="System memory usage"
-          help="Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below."
+          setting="app.developer.diagnostics.memory"
           detail={
             memory
               ? `${usedPercent}% in use · ${gigabytes(memory.availableBytes)} available of ${gigabytes(memory.totalBytes)}`
@@ -301,7 +302,7 @@ function LogViewer({ runs }: { runs: string[] }) {
   return (
     <section className={styles.group} aria-label="Logs">
       <div className={styles.groupHeader}>
-        <h2 className={styles.groupLabel}>
+        <h2 className={styles.groupLabel} data-setting="app.developer.logs">
           <label htmlFor="log-source">Log</label>
         </h2>
         <Select id="log-source" value={source} options={options} onChange={setSource} width={260} />

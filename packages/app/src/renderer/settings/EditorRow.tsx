@@ -58,7 +58,11 @@ export function EditorRow({ settings }: { settings: MachineSettings }) {
         />
       </SettingRow>
       {current === 'custom' && (
-        <SettingRow title="Custom command" labelFor="editor-command" detail={customCommandHelp}>
+        <SettingRow
+          setting="app.general.editor.custom-command"
+          labelFor="editor-command"
+          detail={customCommandHelp}
+        >
           <input
             id="editor-command"
             className={styles.field}

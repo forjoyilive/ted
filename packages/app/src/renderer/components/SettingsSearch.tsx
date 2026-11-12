@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useId, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useState } from 'react'
 import type { NavigationAction } from '../navigation.ts'
 import { openSetting } from '../setting-focus.ts'
 import { findSettings, matchedParts, platformOf, type SettingHit } from '../settings-search.ts'
@@ -23,10 +23,12 @@ export function MatchedName({ name, query }: { name: string; query: string }) {
 export function SettingsSearch({
   factory,
   dispatch,
+  onLeave,
   children,
 }: {
   factory: { id: string; name: string } | undefined
   dispatch: (action: NavigationAction) => void
+  onLeave?: () => void
   children: ReactNode
 }) {
   const listId = useId()
@@ -39,6 +41,10 @@ export function SettingsSearch({
   const active = Math.min(selected, Math.max(0, hits.length - 1))
   const optionId = (index: number) => `${listId}-${index}`
 
+  useEffect(() => {
+    document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: 'nearest' })
+  }, [active, listId])
+
   function clear() {
     setQuery('')
     setSelected(0)
@@ -50,7 +56,7 @@ export function SettingsSearch({
     openSetting(hit, dispatch)
   }
 
-  function onKeyDown(event: KeyboardEvent) {
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       setSelected((active + 1) % Math.max(1, hits.length))
@@ -60,9 +66,11 @@ export function SettingsSearch({
     } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault()
       choose(hits[active])
-    } else if (event.key === 'Escape' && query !== '') {
+    } else if (event.key === 'Escape') {
       event.preventDefault()
-      clear()
+      if (query !== '') clear()
+      else if (onLeave) onLeave()
+      else event.currentTarget.blur()
     }
   }
 

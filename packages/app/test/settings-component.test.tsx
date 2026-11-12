@@ -422,16 +422,25 @@ test('Settings search lists a setting with its page, opens that page and marks t
   expect(field.value).toBe('')
   expect(nav.getByRole('button', { name: 'Limits' }).getAttribute('aria-current')).toBe('page')
 
+  fireEvent.change(field, { target: { value: 'teardown' } })
+  expect(nav.getAllByRole('option')[0]?.textContent).toBe(
+    'Teardown commandwidgets › Settings › Repos',
+  )
+
+  fireEvent.change(field, { target: { value: 'run' } })
+  await user().keyboard('{ArrowUp}')
+  const last = nav.getAllByRole('option').at(-1)
+  expect(last?.getAttribute('aria-selected')).toBe('true')
+  expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts).toContain(last)
+
   fireEvent.change(field, { target: { value: 'zzz' } })
   expect(nav.getByText('No settings match ‘zzz’')).toBeTruthy()
   await user().keyboard('{Escape}')
   expect(field.value).toBe('')
   expect(nav.getByRole('button', { name: 'General' })).toBeTruthy()
-
-  fireEvent.change(field, { target: { value: 'teardown' } })
-  expect(nav.getAllByRole('option')[0]?.textContent).toBe(
-    'Teardown commandwidgets › Settings › Repos',
-  )
+  expect(document.activeElement).toBe(field)
+  await user().keyboard('{Escape}')
+  expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
 })
 
 test('⌘K lists a matching setting with its page and opens it', async () => {

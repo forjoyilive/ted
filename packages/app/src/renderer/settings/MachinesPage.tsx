@@ -112,7 +112,9 @@ export function MachinesPage() {
       )}
       <SettingsGroup setting="app.machines.connect">
         <div className={styles.panel}>
-          <label htmlFor="execution-address">This Mac’s local address</label>
+          <label htmlFor="execution-address" data-setting="app.machines.connect.address">
+            This Mac’s local address
+          </label>
           <Select
             id="execution-address"
             value={chosen}
@@ -122,7 +124,9 @@ export function MachinesPage() {
             }))}
             onChange={setAddress}
           />
-          <label htmlFor="execution-port">Port</label>
+          <label htmlFor="execution-port" data-setting="app.machines.connect.port">
+            Port
+          </label>
           <input
             className={styles.input}
             id="execution-port"

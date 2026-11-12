@@ -31,6 +31,14 @@ test('a setting is found by its name, group, page and description, with its page
   expect(find('notifications inbox')).toMatchObject([
     { name: 'Inbox items', where: 'Settings › Notifications' },
   ])
+  expect(find('linear api key')[0]).toMatchObject({
+    id: 'app.integrations.linear.key',
+    where: 'Settings › Integrations',
+  })
+  expect(find('devtools').map((hit) => hit.id)).toEqual(['app.developer.profile'])
+  expect(find('diagnostics')[0]?.id).toBe('app.developer.diagnostics')
+  expect(find('export format').map((hit) => hit.id)).toEqual(['app.storage.export.format'])
+  expect(find('custom command')[0]?.id).toBe('app.general.editor.custom-command')
   expect(find('STAY  awake')).toHaveLength(1)
   expect(find('   ')).toEqual([])
   expect(find('zzz')).toEqual([])
@@ -49,6 +57,7 @@ test('a name match comes first, a setting before a heading with the same words',
     'app.integrations.linear.sync',
     'app.integrations.linear',
     'factory.linear-intake',
+    'app.integrations.linear.key',
     'factory.linear-intake.scope',
   ])
   expect(find('run', { limit: 3 })).toHaveLength(3)
@@ -66,6 +75,9 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
     id: 'factory.permissions.working-run-limit',
     where: 'widgets › Settings › Permissions',
   })
+  expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions'])
+  expect(find('deletes its tasks').map((hit) => hit.id)).toEqual(['factory.danger-zone.remove'])
+  expect(find('fewer rounds').map((hit) => hit.id)).toEqual(['factory.workflow.p1-only'])
   expect(find('teardown', { factory: undefined }).map((hit) => hit.id)).toEqual([
     'app.limits.low-priority',
   ])

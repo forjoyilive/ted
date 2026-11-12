@@ -58,7 +58,11 @@ export function SettingsShell({
             )}
           </button>
 
-          <SettingsSearch factory={searchFactory} dispatch={dispatch}>
+          <SettingsSearch
+            factory={searchFactory}
+            dispatch={dispatch}
+            onLeave={() => dispatch({ type: 'close-settings' })}
+          >
             <h2 className={styles.sidebarHeading}>Settings</h2>
             {settingsSections.map(({ id, label }) => (
               <button

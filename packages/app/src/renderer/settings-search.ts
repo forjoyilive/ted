@@ -61,6 +61,7 @@ const entries = {
     name: 'Time zone',
     detail: 'Used for displayed times and all Automation schedules.',
   },
+  'app.general.date-and-time.current-time': { name: 'Current time' },
   'app.general.autopilot': { name: 'Autopilot', keywords: 'overnight mode', heading: true },
   'app.general.autopilot.mode': {
     name: 'Autopilot across all Factories',
@@ -92,7 +93,11 @@ const entries = {
     name: 'Editor',
     help: 'Open in editor opens the Task’s worktree, or a file at a line from a diff, in this editor. TED lists the editors it finds on your login shell’s PATH.',
   },
-  'app.general.editor.ted-command': { name: 'The ted command' },
+  'app.general.editor.custom-command': { name: 'Custom command' },
+  'app.general.editor.ted-command': {
+    name: 'The ted command',
+    help: 'Lets you use ted in any terminal. Agents always have it in their Runs.',
+  },
   'app.general.about': { name: 'About and updates', heading: true },
   'app.general.about.licenses': {
     name: 'Third-party licenses',
@@ -119,6 +124,8 @@ const entries = {
   },
 
   'app.machines.connect': { name: 'Connect another Mac', heading: true },
+  'app.machines.connect.address': { name: 'This Mac’s local address' },
+  'app.machines.connect.port': { name: 'Port' },
   'app.machines.execution': { name: 'Execution Macs', heading: true },
 
   'app.agents.defaults': {
@@ -166,6 +173,10 @@ const entries = {
     help: 'TED uses the key to fill in a Task from a pasted Linear issue URL and to keep that issue’s status in step with the Task. It never gives the key to an agent.',
     heading: true,
   },
+  'app.integrations.linear.key': {
+    name: 'API key',
+    help: 'A personal API key from Linear’s Settings → Security & access.',
+  },
   'app.integrations.linear.sync': {
     name: 'Sync status with Linear',
     help: 'When a Task comes from a Linear issue, TED moves the issue to In Progress when the Task starts, to In Review at the Review sign-off and to Done when it merges, and links the pull requests. If someone closes the issue in Linear, TED archives a Task that hasn’t started, or asks you.',
@@ -194,6 +205,12 @@ const entries = {
     help: 'A Run’s chat is kept for as long as its Task is open. TED deletes it this long after the Task is done or archived. A Run without a Task, such as a planning chat or an Automation Run, is deleted this long after it finishes.',
   },
   'app.storage.export': { name: 'Export a Factory', heading: true },
+  'app.storage.export.factory': { name: 'Factory' },
+  'app.storage.export.format': { name: 'Format' },
+  'app.storage.export.save': {
+    name: 'Tasks, Comments, briefs and Run metadata',
+    detail: 'Includes Done and archived Tasks, answers and saved versions.',
+  },
   'app.storage.backups': { name: 'Backups', heading: true },
 
   'app.developer.mode': {
@@ -205,7 +222,17 @@ const entries = {
     name: 'Copy report',
     help: 'Copies TED’s version, your Runs and the end of the daemon’s log to the clipboard, for you to paste into a bug report. Nothing is uploaded. TED sends no telemetry.',
   },
-  'app.developer.profile': { name: 'Record a CPU profile' },
+  'app.developer.profile': {
+    name: 'Record a CPU profile',
+    keywords:
+      'Records where TED’s background process spends its time and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. Nothing is uploaded.',
+  },
+  'app.developer.diagnostics': { name: 'Diagnostics', heading: true },
+  'app.developer.diagnostics.memory': {
+    name: 'System memory usage',
+    help: 'Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below.',
+  },
+  'app.developer.logs': { name: 'Log', keywords: 'logs daemon log raw output', heading: true },
 
   'factory.general': { name: 'General', heading: true },
   'factory.general.name': {
@@ -222,7 +249,10 @@ const entries = {
     detail: 'Choose which Linear issues Automations can bring into this Factory.',
     heading: true,
   },
-  'factory.linear-intake.scope': { name: 'Scope' },
+  'factory.linear-intake.scope': {
+    name: 'Scope',
+    help: 'The built-in Linear Automation brings in issues assigned to you that haven’t started yet, from the Team or Project you choose.',
+  },
   'factory.repos': { name: 'Repos', heading: true },
   'factory.repos.base-branch': { name: 'Base branch' },
   'factory.repos.merge-method': { name: 'Merge method' },
@@ -249,9 +279,18 @@ const entries = {
     help: 'The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort.',
     heading: true,
   },
-  'factory.workflow.p1-only': { name: 'Send back only for P1 Findings' },
-  'factory.workflow.validate-sub-agents': { name: 'Other sub-agents in Validate' },
-  'factory.workflow.lead-closes-failures': { name: 'Task Lead closes its own fixed failures' },
+  'factory.workflow.p1-only': {
+    name: 'Send back only for P1 Findings',
+    help: 'Off: every blocking Finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new Finding sends it back only if it is P1. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
+  },
+  'factory.workflow.validate-sub-agents': {
+    name: 'Other sub-agents in Validate',
+    help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests.',
+  },
+  'factory.workflow.lead-closes-failures': {
+    name: 'Task Lead closes its own fixed failures',
+    help: 'On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question.',
+  },
   'factory.checks': {
     name: 'Checks',
     help: 'Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
@@ -262,7 +301,12 @@ const entries = {
     help: 'Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here.',
     heading: true,
   },
-  'factory.permissions': { name: 'Permission mode', heading: true },
+  'factory.permissions': {
+    name: 'Permission mode',
+    keywords: 'auto bypass',
+    help: 'Permission mode is saved only on this computer, separately for each Factory.',
+    heading: true,
+  },
   'factory.permissions.working-run-limit': {
     name: 'Working Run limit',
     help: 'This Factory’s limit follows its Workflow.',
@@ -274,7 +318,10 @@ const entries = {
     heading: true,
   },
   'factory.danger-zone': { name: 'Danger zone', heading: true },
-  'factory.danger-zone.remove': { name: 'Remove Factory' },
+  'factory.danger-zone.remove': {
+    name: 'Remove Factory',
+    help: 'Stops its Runs and deletes its Tasks and worktrees from this computer. Its .ted/ folder stays in the repo.',
+  },
 } as const satisfies Record<string, Entry>
 
 export type SettingId = keyof typeof entries

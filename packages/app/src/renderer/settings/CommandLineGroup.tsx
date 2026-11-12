@@ -9,8 +9,6 @@ import styles from './command-line.module.css'
 import { Button, SettingRow, SettingsGroup } from './controls.tsx'
 import settingsStyles from './settings.module.css'
 
-const commandHelp = 'Lets you use ted in any terminal. Agents always have it in their Runs.'
-
 function errorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
@@ -60,7 +58,6 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
       {children}
       <SettingRow
         setting="app.general.editor.ted-command"
-        help={commandHelp}
         {...(detail !== undefined && { detail })}
       >
         {status?.state === 'not-installed' && (

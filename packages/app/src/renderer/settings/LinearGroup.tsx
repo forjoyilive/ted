@@ -82,7 +82,7 @@ export function LinearGroup({
 
   return (
     <SettingsGroup setting="app.integrations.linear">
-      <div className={styles.row}>
+      <div className={styles.row} data-setting="app.integrations.linear.key">
         <div className={settingsStyles.titleLine}>
           <label className={settingsStyles.rowTitle} htmlFor={fieldId}>
             API key

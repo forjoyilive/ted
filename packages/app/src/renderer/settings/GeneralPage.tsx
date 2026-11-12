@@ -173,7 +173,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
         <SettingRow
-          title="Current time"
+          setting="app.general.date-and-time.current-time"
           detail={`${settings.timeZone === 'system' ? 'Following system' : 'Fixed zone'} · ${settings.timeZone === 'system' ? systemZone : settings.timeZone}`}
         >
           <output>{formatTime(new Date(now))}</output>
