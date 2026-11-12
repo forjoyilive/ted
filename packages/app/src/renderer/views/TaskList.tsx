@@ -193,7 +193,7 @@ function Submenu({
   )
 }
 
-function CheckItem({
+export function CheckItem({
   label,
   checked,
   disabled,
@@ -431,7 +431,7 @@ export function FilterIcon() {
   )
 }
 
-function DisplayIcon() {
+export function DisplayIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <rect x="1.75" y="2.75" width="10.5" height="8.5" rx="1.5" stroke="currentColor" />

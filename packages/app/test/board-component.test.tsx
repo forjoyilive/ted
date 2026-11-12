@@ -91,6 +91,75 @@ test('Backlog cards show blocked explanations and only start available Tasks', a
   expect(document.querySelector('[data-task="NB-1"]')?.hasAttribute('data-nav-item')).toBe(true)
 })
 
+test('Display sets card size, card fields and columns, and saves them for the Factory', async () => {
+  const a = api()
+  a.handle('updateSettings', () => ({}))
+  render(
+    <Board
+      {...props()}
+      tasks={[
+        task({
+          markers: [{ kind: 'blocked-by', by: 'NB-9' }],
+          activity: 'Starts when NB-9 merges',
+        }),
+        task({
+          id: 'NB-2',
+          displayId: 'NB-2',
+          title: 'Export notes',
+          stage: 'work',
+          statuses: ['waiting-on-you'],
+          status: { kind: 'waiting-on-you' },
+          activity: 'Asked a question',
+        }),
+      ]}
+    />,
+  )
+  await screen.findByRole('region', { name: 'Review' })
+  expect(screen.queryByRole('button', { name: 'Plan' })).toBeNull()
+  const stagesShown = () =>
+    [...document.querySelectorAll('[data-stage]')].map((e) => e.getAttribute('aria-label'))
+  const card = (id: string) => {
+    const found = document.querySelector<HTMLElement>(`[data-task="${id}"]`)
+    if (!found) throw new Error(`Missing card ${id}`)
+    return within(found)
+  }
+  const u = user()
+  await u.click(screen.getByRole('button', { name: 'Display' }))
+  const item = (name: string) => screen.getByRole('menuitemcheckbox', { name: new RegExp(name) })
+
+  await u.click(item('Activity line'))
+  expect(screen.queryByText('Asked a question')).toBeNull()
+  expect(card('NB-1').getByText('Blocked by')).toBeTruthy()
+  await u.click(item('Blockers'))
+  expect(card('NB-1').queryByText('Blocked by')).toBeNull()
+
+  await u.click(screen.getByRole('menuitemradio', { name: 'Compact' }))
+  expect(card('NB-1').getByText('Blocked by')).toBeTruthy()
+  expect(screen.queryByText('Starts when NB-9 merges')).toBeNull()
+  expect(item('Activity line')).toHaveProperty('disabled', true)
+
+  await u.click(item('Work'))
+  expect(stagesShown()).toEqual(['Backlog', 'Intake', 'Review', 'Done'])
+  const hidden = within(screen.getByRole('complementary', { name: 'Hidden columns' }))
+  expect(hidden.getByTitle('Show Work').textContent).toBe('Work11 needs you')
+  await u.click(item('Hide empty columns'))
+  expect(stagesShown()).toEqual(['Backlog'])
+
+  await u.click(hidden.getByTitle('Show Work'))
+  expect(stagesShown()).toEqual(['Backlog', 'Work'])
+  expect(screen.queryByRole('complementary', { name: 'Hidden columns' })).toBeNull()
+  expect(a.request).toHaveBeenLastCalledWith('updateSettings', {
+    boardViews: {
+      f1: {
+        cardSize: 'compact',
+        fields: ['priority', 'sub-agents'],
+        hiddenStages: [],
+        hideEmpty: true,
+      },
+    },
+  })
+})
+
 test('Board filters matching nothing offer Clear filters', async () => {
   api()
   const p = props()

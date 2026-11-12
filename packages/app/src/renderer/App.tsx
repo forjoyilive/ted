@@ -849,6 +849,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               factory={factory}
               queue={slots?.queue ?? []}
               filters={boardFilters[screen.factoryId] ?? {}}
+              settings={settings}
               onFilters={(filters) =>
                 setBoardFilters((all) => ({ ...all, [screen.factoryId]: filters }))
               }

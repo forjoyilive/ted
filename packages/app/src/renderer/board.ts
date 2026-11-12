@@ -1,4 +1,5 @@
-import type { BoardStage, QueuedForSlot, StageId, Task } from '@ted/protocol'
+import type { BoardStage, BoardView, QueuedForSlot, StageId, Task } from '@ted/protocol'
+import { defaultBoardView } from '@ted/protocol/board-view'
 import { priorities } from '@ted/protocol/task'
 import { createdByLabels, manualOrder, stageOrder } from './list-view.ts'
 import { ago } from './requests.ts'
@@ -75,6 +76,55 @@ export function boardColumns(
     if (!enabled && inStage.length === 0) return []
     return [{ stage: id, gate, turnedOff: !enabled, tasks: inStage }]
   })
+}
+
+export interface HiddenColumn {
+  stage: StageId
+  count: number
+  needsYou: number
+}
+
+export interface BoardLayout {
+  columns: BoardColumn[]
+  hidden: HiddenColumn[]
+}
+
+export function boardViewFor(
+  views: Readonly<Record<string, BoardView>> | undefined,
+  factoryId: string,
+): BoardView {
+  return views?.[factoryId] ?? defaultBoardView
+}
+
+const needsYou = (task: Task) =>
+  task.statuses.includes('waiting-on-you') || task.statuses.includes('failed')
+
+const isEmpty = (column: BoardColumn) => column.tasks.length === 0 && (column.allDone ?? 0) === 0
+
+export function boardLayout(
+  columns: readonly BoardColumn[],
+  view: BoardView,
+  takesDrop: (stage: StageId) => boolean = () => false,
+): BoardLayout {
+  const hidden = columns.filter((c) => view.hiddenStages.includes(c.stage))
+  return {
+    columns: columns.filter(
+      (c) => !hidden.includes(c) && !(view.hideEmpty && isEmpty(c) && !takesDrop(c.stage)),
+    ),
+    hidden: hidden.map((c) => ({
+      stage: c.stage,
+      count: c.tasks.length,
+      needsYou: c.tasks.filter(needsYou).length,
+    })),
+  }
+}
+
+export function withoutBlockers(task: Task): Task {
+  const { status, ...rest } = task
+  return {
+    ...(status?.kind === 'blocked' ? rest : task),
+    markers: task.markers.filter((m) => m.kind !== 'blocked-by'),
+  }
 }
 
 export function boardDrop(

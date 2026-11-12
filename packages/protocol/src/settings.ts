@@ -1,3 +1,4 @@
+import type { BoardView } from './board-view.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
@@ -50,6 +51,7 @@ export interface MachineSettings {
   notifyTaskMerged: boolean
   notifySound: boolean
   listViews: Readonly<Record<string, ListView>>
+  boardViews: Readonly<Record<string, BoardView>>
   firstLaunchDone: boolean
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
@@ -89,6 +91,7 @@ export const defaultMachineSettings: MachineSettings = {
   notifyTaskMerged: false,
   notifySound: false,
   listViews: {},
+  boardViews: {},
   firstLaunchDone: false,
   billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },
   editor: null,

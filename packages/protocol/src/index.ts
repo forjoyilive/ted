@@ -89,6 +89,14 @@ export {
 } from './banner.ts'
 export { parseBannerActionInput } from './banner-parsers.ts'
 export {
+  type BoardCardSize,
+  type BoardField,
+  type BoardView,
+  boardCardSizes,
+  boardFields,
+  defaultBoardView,
+} from './board-view.ts'
+export {
   type BrowserAction,
   type BrowserCommand,
   type BrowserPollRequest,

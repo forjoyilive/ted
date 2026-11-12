@@ -100,7 +100,7 @@ describe('Planning chats', () => {
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
     const window = await loadedWindow(app)
     await openFirstFactory(window)
-    await sidebar(window).getByRole('button', { name: 'Board', exact: true }).click()
+    await sidebar(window).getByRole('button', { name: 'List', exact: true }).click()
     await window.getByRole('button', { name: 'Plan', exact: true }).first().click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
