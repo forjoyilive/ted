@@ -236,6 +236,7 @@ test('Dashboard history keeps archived completions and reads first Intake and la
   vi.setSystemTime(initial + 180_000)
   const setup = await store.createTask({ title: 'Setup', setup: true })
   store.changeStage(setup.id, 'done', entry)
+  vi.setSystemTime(initial + 240_000)
   const result = store.factoryDashboard(created.factoryId, '7d', initial + 240_000)
   expect(result.current.taskIds).toEqual([id])
   expect(result.current.created.value).toBe(120_000)

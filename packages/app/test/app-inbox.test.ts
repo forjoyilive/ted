@@ -93,7 +93,10 @@ describe('Inbox and Gates', () => {
 
     const answered = thread.getByRole('region', { name: 'Design review, answered' }).first()
     await answered.getByText('You requested changes').waitFor()
-    await answered.getByText('“Split the sync step in two.”').waitFor()
+    await answered
+      .locator('blockquote')
+      .getByText('Split the sync step in two.', { exact: true })
+      .waitFor()
     await card.getByRole('button', { name: 'Approve' }).click()
 
     const details = window.getByRole('complementary', { name: 'Task details' })
@@ -352,12 +355,12 @@ describe('Full Inbox', () => {
     await expect.poll(headlines).toHaveLength(3)
 
     await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
-    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
+    await window.getByRole('heading', { name: /notebook.*Dashboard/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
-    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
+    await window.getByRole('heading', { name: /notebook.*Dashboard/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window)
@@ -431,7 +434,10 @@ describe('Permission requests', () => {
 
     const denied = thread.getByRole('region', { name: 'Permission, answered' }).first()
     await denied.getByText('You denied').waitFor()
-    await denied.getByText('“Use npm, not an install script.”').waitFor()
+    await denied
+      .locator('blockquote')
+      .getByText('Use npm, not an install script.', { exact: true })
+      .waitFor()
     await denied
       .getByText(/\$ curl -s https:\/\/registry\.example\.dev\/install\.sh \| sh$/)
       .waitFor()
