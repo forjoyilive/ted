@@ -19,7 +19,7 @@ test('chooses Factory/format, prevents duplicate saves, and reports success and 
   await u.selectOptions(screen.getByRole('combobox', { name: 'Format' }), 'markdown')
   await u.click(screen.getByRole('button', { name: 'Export…' }))
   expect(api.request).toHaveBeenCalledWith('exportFactory', 'f2', 'markdown')
-  expect(screen.getByRole('button', { name: 'Exporting…' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.getByRole('button', { name: 'Export…' }).hasAttribute('disabled')).toBe(true)
   expect(screen.getByRole('combobox', { name: 'Factory' }).hasAttribute('disabled')).toBe(true)
   await act(async () => result.resolve({ canceled: false, path: '/chosen/export.md', tasks: 2 }))
   expect(screen.getByRole('status').textContent).toContain('Exported 2 Tasks to /chosen/export.md')

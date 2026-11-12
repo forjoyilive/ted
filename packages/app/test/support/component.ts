@@ -17,6 +17,7 @@ export function bridge(given: Record<string, Handler>) {
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     getSideChat: () => null,
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
+    getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()

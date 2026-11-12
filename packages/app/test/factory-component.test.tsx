@@ -213,7 +213,9 @@ test('repo settings explain saving and let the user retry merging without losing
   await u.click(screen.getByRole('button', { name: 'Open on GitHub' }))
   expect(api.request).toHaveBeenCalledWith('openOnGitHub', result.pullRequest.url)
   await u.click(button)
-  expect(screen.getByRole('button', { name: 'Merging…' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.getByRole('button', { name: 'Merge pull request' }).hasAttribute('disabled')).toBe(
+    true,
+  )
   expect(gate.closest('fieldset')?.disabled).toBe(true)
   drag()
   expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])

@@ -233,7 +233,10 @@ export function TaskActionsMenu({
     setError(undefined)
     return activity.run(work)?.then(
       () => close(),
-      (failure: unknown) => setError(readableError(failure)),
+      (failure: unknown) => {
+        close()
+        setError(readableError(failure))
+      },
     )
   }
 
