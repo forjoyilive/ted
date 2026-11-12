@@ -326,6 +326,12 @@ printf '%s\\n' 'Claude Code 1.2.3'
       { detected: false, version: null, versionReason: 'Executable not detected' },
       { detected: false, version: null, versionReason: 'Executable not detected' },
     ])
+    await observe('pairing-shell-readiness', {
+      shellPath: 'agent detected outside the app-like minimal PATH',
+      credentials: 'filtered before version probes',
+      versions: observed.agents.map(({ name, version }) => ({ name, version })),
+      missing: 'explicitly unavailable',
+    })
   } finally {
     await fixture.close()
   }

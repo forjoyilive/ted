@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
+import { observe } from '../packages/daemon/test/support/execution-observations.ts'
 import { publishReport } from '../packages/daemon/test/support/execution-report.ts'
 import { parseConfig, plainPath, quote, readConfig, sshArgs } from './execution-lab/config.ts'
 import {
@@ -91,6 +92,10 @@ describe('lab configuration and SSH control', () => {
       }),
     ).rejects.toThrow('Real two-Mac pairing requires a non-loopback local address')
     await expect(access(path.join(run, 'ted-execution-pairing'))).rejects.toThrow()
+    await observe('pairing-lab-cleanup', {
+      originalFailure: 'non-loopback route required',
+      controllerFixture: 'removed through owned fixture cleanup',
+    })
   }, 60_000)
   it('can recover both hosts when report allocation or publication is unavailable', async () => {
     for (const phase of ['allocation', 'publication']) {

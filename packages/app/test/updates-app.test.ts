@@ -20,6 +20,7 @@ import {
   stopDaemonIn,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
+import { observe } from '../../daemon/test/support/execution-observations.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
@@ -177,6 +178,10 @@ describe('in-app updates', () => {
     app = undefined
     expect(isAlive(workerControl.pid)).toBe(false)
     await expect(workerRequest(await executionHome(), 'status')).rejects.toThrow()
+    await observe('worker-update-handover', {
+      appOwnedWorker: 'exited before update installation completed',
+      localControl: 'unavailable after shutdown',
+    })
 
     expect(await readFile(updateLog(), 'utf8')).toBe('install 99.0.0\n')
     await waitUntil(() => !isAlive(info.pid) || undefined, 'the old daemon to stop')
@@ -224,6 +229,10 @@ describe('in-app updates', () => {
     expect(isAlive(next.pid)).toBe(true)
     expect(isAlive(workerControl.pid)).toBe(true)
     expect((await workerRequest(await executionHome(), 'status')).state).toBe('unpaired')
+    await observe('worker-update-cli-owned', {
+      cliOwnedWorker: 'same process remains available',
+      failedInstall: 'daemon recovered',
+    })
     await expect
       .poll(() =>
         window.evaluate(() =>
