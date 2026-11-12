@@ -1,5 +1,6 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AsanaStatus,
   AutomationDetail,
   ExportFormat,
   MachineSettings,
@@ -12,6 +13,9 @@ import type { LoginItemState } from './login-item.ts'
 import type { UpdateStatus } from './updates.ts'
 
 export interface CustomRequests {
+  importAsanaConfiguration: (inFile?: boolean) => Promise<AsanaStatus>
+  authorizeAsana: () => Promise<AsanaStatus>
+  openAsanaSetup: () => Promise<void>
   getAutomation: (id: string) => Promise<AutomationDetail | null>
   exportFactory: (factoryId: string, format: ExportFormat) => Promise<SaveExportResult>
   taskBrief: (taskId: string) => Promise<TaskBrief | null>

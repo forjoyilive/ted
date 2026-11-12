@@ -17,6 +17,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_CLAUDE_BIN`, `TED_CODEX_BIN`, `TED_GH_BIN` | Select agent and GitHub stubs or alternate development binaries. Release discovers the normal commands on the daemon’s login-shell `PATH`. |
 | `TED_XCRUN_BIN`, `TED_OPEN_BIN`, `TED_SANDBOX_BIN` | Substitute simulator, launcher and sandbox programs. |
 | `TED_KEYRING_MODULE` | Import a keyring implementation for tests. |
+| `TED_ASANA_API`, `TED_ASANA_CALLBACK_PORT` | Redirect Asana token/API requests to a loopback stub and isolate its temporary callback port. Ignored in release. |
 | `TED_LINEAR_API` | Redirect Linear requests to a stub. |
 | `TED_UPDATE_FEED`, `TED_UPDATE_LOG` | Use a loopback update server and record update installation. |
 | `TED_APP_TOKEN` | Supply a known app key in tests. Release generates its app key in memory and passes it to the daemon on stdin. |

@@ -22,6 +22,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_INHERITED_FDS: 'Linux app-to-daemon descriptor cleanup with descriptor identity checks.',
   TED_KEYRING_MODULE: false,
   TED_LINEAR_API: false,
+  TED_ASANA_API: false,
+  TED_ASANA_CALLBACK_PORT: false,
   TED_LOGIN_ITEM_LOG: false,
   TED_LOGIN_ITEM_STATUS: false,
   TED_LOGIN_SHELL: false,

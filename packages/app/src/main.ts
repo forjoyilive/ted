@@ -46,6 +46,7 @@ import {
   Tray,
 } from 'electron'
 import { appIconPng } from './app-icon.ts'
+import { authorizeAsana, importAsanaConfiguration } from './asana.ts'
 import {
   appMenu,
   appName,
@@ -243,6 +244,9 @@ const requests = {
     if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
     return result
   },
+  importAsanaConfiguration: (client, inFile) => importAsanaConfiguration(client, dialog, inFile),
+  authorizeAsana: (client) => authorizeAsana(client, shell.openExternal),
+  openAsanaSetup: () => shell.openExternal('https://developers.asana.com/docs/oauth'),
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   getAutomation,
 } satisfies CustomHandlers<
@@ -272,6 +276,9 @@ const requests = {
   | 'showTedFolder'
   | 'chooseProfilePicture'
   | 'runFix'
+  | 'importAsanaConfiguration'
+  | 'authorizeAsana'
+  | 'openAsanaSetup'
   | 'openLinearKeyPage'
   | 'getAutomation'
 >

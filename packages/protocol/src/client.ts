@@ -18,6 +18,7 @@ import {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
+import type { AsanaConfiguration, AsanaStatus } from './asana.ts'
 import type {
   AnswerAutomationRequest,
   Automation,
@@ -1102,6 +1103,28 @@ export class DaemonClient {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/linear-intake`, {
       scope,
     })
+  }
+
+  getAsana(): Promise<AsanaStatus> {
+    return this.#request('GET', '/integrations/asana')
+  }
+  configureAsana(input: AsanaConfiguration): Promise<AsanaStatus> {
+    return this.#request('PUT', '/integrations/asana/configuration', input)
+  }
+  connectAsana(): Promise<{ url: string }> {
+    return this.#request('POST', '/integrations/asana/connect')
+  }
+  cancelAsana(): Promise<AsanaStatus> {
+    return this.#request('POST', '/integrations/asana/cancel')
+  }
+  testAsana(): Promise<AsanaStatus> {
+    return this.#request('POST', '/integrations/asana/test')
+  }
+  disconnectAsana(): Promise<AsanaStatus> {
+    return this.#request('POST', '/integrations/asana/disconnect')
+  }
+  removeAsana(): Promise<AsanaStatus> {
+    return this.#request('DELETE', '/integrations/asana/configuration')
   }
 
   getLinear(): Promise<LinearStatus> {

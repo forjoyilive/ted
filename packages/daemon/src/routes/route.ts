@@ -1,5 +1,6 @@
 import type http from 'node:http'
 import type { Agents } from '../agents/index.ts'
+import type { Asana } from '../asana/asana.ts'
 import type { Attachments } from '../attachments.ts'
 import type { CommandLine } from '../command-line.ts'
 import type { CpuProfiler } from '../cpu-profile.ts'
@@ -22,6 +23,7 @@ export interface BaseOptions {
   agents: Agents
   runTokens: RunTokens
   attachments: Attachments
+  asana: Asana
   linear: Linear
   reposDir: string
   appStreams: Set<http.ServerResponse>
