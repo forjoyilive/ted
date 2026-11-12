@@ -12,7 +12,7 @@ import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
 import { createCpuProfiler, type StallProfiles } from './cpu-profile.ts'
-import { createData, type DataOptions } from './data.ts'
+import { createData, type DataCloseStep, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
 import { RequestError } from './errors.ts'
@@ -146,8 +146,10 @@ export interface DaemonIntegrationsOptions {
 export interface RunningDaemon {
   port: number
   appToken: string
-  stop(): Promise<void>
+  stop(onStep?: (step: DaemonCloseStep) => void): Promise<void>
 }
+
+export type DaemonCloseStep = 'connections' | DataCloseStep
 
 const pruneEveryMs = 6 * 60 * 60 * 1000
 
@@ -675,16 +677,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   return {
     port,
     appToken,
-    async stop() {
+    async stop(onStep) {
       idle?.cancel()
       slow.close()
       profiler.close()
       await rm(paths.daemonInfo, { force: true })
+      onStep?.('connections')
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
         server.closeAllConnections()
       })
-      await data.close()
+      await data.close(onStep)
       lock.release()
     },
   }

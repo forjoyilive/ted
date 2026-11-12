@@ -1,6 +1,6 @@
 import type { Comment, RepairSelection, Task } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useFailures, useTasks } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import { BlockerPicker } from './BlockerPicker.tsx'
@@ -8,13 +8,19 @@ import { Button } from './Button.tsx'
 import styles from './FailureRepairForm.module.css'
 
 export function FailureRepairForm({
+  id,
+  active,
   task,
   request,
   onCancel,
   reason,
+  onSendingChange,
 }: {
+  id: string
+  active: boolean
   task: Task
   request: Comment
+  onSendingChange(sending: boolean): void
   onCancel(): void
   reason?: string | undefined
 }) {
@@ -30,6 +36,7 @@ export function FailureRepairForm({
   const [description, setDescription] = useState<string>()
   const [start, setStart] = useState(true)
   const [sending, setSending] = useState(false)
+  const inFlight = useRef(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string>()
   const group = useId()
@@ -55,13 +62,16 @@ export function FailureRepairForm({
       .join('\n\n')
       .slice(0, 16000)
   const repair = tasks.find((t) => t.id === selected)
+  const valid = kind === 'existing' ? !!repair : !!draftTitle.trim() && !!draftDescription.trim()
   async function approve() {
-    if (!failure || sending || done) return
+    if (!failure || !active || !valid || inFlight.current || done) return
+    inFlight.current = true
     const selection: RepairSelection =
       kind === 'existing'
         ? { kind, taskId: selected ?? '' }
         : { kind, title: draftTitle, description: draftDescription, start }
     setSending(true)
+    onSendingChange(true)
     setError(undefined)
     try {
       await ted.resolveFailure(task.id, failure.id, {
@@ -74,7 +84,9 @@ export function FailureRepairForm({
     } catch (error) {
       setError(readableError(error))
     } finally {
+      inFlight.current = false
       setSending(false)
+      onSendingChange(false)
     }
   }
   if (done)
@@ -85,99 +97,101 @@ export function FailureRepairForm({
       </p>
     )
   return (
-    <section className={styles.form} aria-label="Wait for a repair Task">
-      <h3 className={styles.heading}>Wait for a repair Task</h3>
-      <fieldset disabled={sending} className={styles.fields}>
-        <legend>Choose work in this Factory</legend>
-        <label className={styles.choice}>
-          <input
-            type="radio"
-            name={group}
-            checked={kind === 'existing'}
-            onChange={() => setKind('existing')}
-          />
-          Use an existing Task
-        </label>
-        <label className={styles.choice}>
-          <input
-            type="radio"
-            name={group}
-            checked={kind === 'new'}
-            onChange={() => setKind('new')}
-          />
-          Create a repair Task
-        </label>
-        {kind === 'existing' ? (
-          <>
-            <BlockerPicker
-              addLabel={repair ? 'Change repair' : 'Choose repair'}
-              tasks={tasks}
-              blockers={repair ? [repair] : []}
-              onAdd={setSelected}
-              onRemove={() => setSelected(undefined)}
+    <section aria-label="Wait for a repair Task">
+      <form
+        id={id}
+        className={styles.form}
+        onSubmit={(event) => {
+          event.preventDefault()
+          void approve()
+        }}
+      >
+        <h3 className={styles.heading}>Wait for a repair Task</h3>
+        <fieldset disabled={sending || !active} className={styles.fields}>
+          <legend>Choose work in this Factory</legend>
+          <label className={styles.choice}>
+            <input
+              type="radio"
+              name={group}
+              checked={kind === 'existing'}
+              onChange={() => setKind('existing')}
             />
-            <p className={styles.caption}>
-              {repair ? `${repair.displayId} · ${repair.stage}. ` : ''}The selected Task keeps its
-              current running or Backlog state.
-            </p>
-          </>
-        ) : (
-          <>
-            <label className={styles.label}>
-              Repair title
-              <input
-                className={styles.input}
-                value={draftTitle}
-                maxLength={200}
-                onChange={(e) => setTitle(e.target.value)}
+            Use an existing Task
+          </label>
+          <label className={styles.choice}>
+            <input
+              type="radio"
+              name={group}
+              checked={kind === 'new'}
+              onChange={() => setKind('new')}
+            />
+            Create a repair Task
+          </label>
+          {kind === 'existing' ? (
+            <>
+              <BlockerPicker
+                addLabel={repair ? 'Change repair' : 'Choose repair'}
+                tasks={tasks}
+                blockers={repair ? [repair] : []}
+                onAdd={setSelected}
+                onRemove={() => setSelected(undefined)}
               />
-            </label>
-            <label className={styles.label}>
-              Repair description
-              <textarea
-                className={styles.description}
-                value={draftDescription}
-                maxLength={16000}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </label>
-            <label className={styles.choice}>
-              <input type="checkbox" checked={start} onChange={(e) => setStart(e.target.checked)} />
-              Queue the repair to start after approval
-            </label>
-          </>
-        )}
-      </fieldset>
-      {reason?.trim() && <p className={styles.caption}>Your comment: {reason.trim()}</p>}
-      <p className={styles.notice}>
-        {task.displayId} will keep its Stage and worktree. Its Task Lead will stop, freeing its
-        working-Run slot. When the repair merges, TED will queue continuation, incorporate the
-        repair and run fresh validation.
-      </p>
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
+              <p className={styles.caption}>
+                {repair ? `${repair.displayId} · ${repair.stage}. ` : ''}The selected Task keeps its
+                current running or Backlog state.
+              </p>
+            </>
+          ) : (
+            <>
+              <label className={styles.label}>
+                Repair title
+                <input
+                  className={styles.input}
+                  value={draftTitle}
+                  maxLength={200}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+              </label>
+              <label className={styles.label}>
+                Repair description
+                <textarea
+                  className={styles.description}
+                  value={draftDescription}
+                  maxLength={16000}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </label>
+              <label className={styles.choice}>
+                <input
+                  type="checkbox"
+                  checked={start}
+                  onChange={(e) => setStart(e.target.checked)}
+                />
+                Queue the repair to start after approval
+              </label>
+            </>
+          )}
+        </fieldset>
+        {reason?.trim() && <p className={styles.caption}>Your comment: {reason.trim()}</p>}
+        <p className={styles.notice}>
+          {task.displayId} will keep its Stage and worktree. Its Task Lead will stop, freeing its
+          working-Run slot. When the repair merges, TED will queue continuation, incorporate the
+          repair and run fresh validation.
         </p>
-      )}
-      <div className={styles.buttons}>
-        <Button disabled={sending} onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          disabled={
-            sending ||
-            (kind === 'existing' ? !repair : !draftTitle.trim() || !draftDescription.trim())
-          }
-          onClick={() => void approve()}
-        >
-          {kind === 'existing'
-            ? `Wait for ${repair?.displayId ?? 'repair'}`
-            : start
-              ? 'Approve, create and queue repair'
-              : 'Approve and create repair'}
-        </Button>
-      </div>
+        {error && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
+        <div className={styles.buttons}>
+          <Button disabled={sending || !active} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={sending || !active || !valid}>
+            Send
+          </Button>
+        </div>
+      </form>
     </section>
   )
 }

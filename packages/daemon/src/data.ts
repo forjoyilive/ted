@@ -98,8 +98,10 @@ export interface Data {
   restore(request: RestoreBackupRequest): Promise<RestoreBackupResult>
   subscribe(listener: (event: DaemonEvent) => void): () => void
   open(): Promise<void>
-  close(): Promise<void>
+  close(onStep?: (step: DataCloseStep) => void): Promise<void>
 }
+
+export type DataCloseStep = 'opening' | 'services' | 'store'
 
 const dailyBackupProblem = 'daily-backup-failed'
 
@@ -380,12 +382,14 @@ export function createData(options: DataOptions): Data {
     }
   }
 
-  async function closeServices(): Promise<void> {
+  async function closeServices(onStep?: (step: DataCloseStep) => void): Promise<void> {
     const open = services
     services = undefined
     if (!open) return
     open.unsubscribe()
+    onStep?.('services')
     await open.close()
+    onStep?.('store')
     await open.store.close()
   }
 
@@ -481,10 +485,11 @@ export function createData(options: DataOptions): Data {
       dailyTimer = setInterval(() => void takeDaily(), options.dailyCheckMs ?? 60 * 60_000)
       dailyTimer.unref()
     },
-    async close() {
+    async close(onStep) {
       clearInterval(dailyTimer)
+      onStep?.('opening')
       await opening
-      await closeServices()
+      await closeServices(onStep)
     },
   }
 }

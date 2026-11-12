@@ -209,9 +209,10 @@ test.each(['Full brief', 'All changes'])(
     const nav = await screen.findByRole('navigation', { name: 'Sidebar' })
     await user().click(within(nav).getByRole('button', { name: 'All Tasks' }))
     await user().click(await screen.findByRole('row', { name: /NB-1/ }))
-    if (previous === 'Full brief')
-      await user().click(await screen.findByRole('button', { name: 'Full brief' }))
-    else await user().click(await screen.findByRole('button', { name: 'All changes' }))
+    if (previous === 'Full brief') {
+      await user().click(screen.getByRole('button', { name: 'Task actions' }))
+      await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
+    } else await user().click(await screen.findByRole('button', { name: 'All changes' }))
     await screen.findByRole('region', { name: previous })
     await user().keyboard('{Control>}p{/Control}')
     const quick = await screen.findByRole('dialog', { name: 'Quick open' })
