@@ -369,6 +369,7 @@ describe('Steering a working Run', () => {
 async function questionDuringWork(
   client: Client,
   beforeReply?: (task: Task, runId: string) => Promise<void>,
+  continuation: unknown[] = [],
 ) {
   const origin = await makeOriginRepo(scratch)
   await commitToOrigin(scratch, {
@@ -378,6 +379,7 @@ async function questionDuringWork(
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
       steps: [
+        { everyMessage: continuation },
         { say: 'ready for a question' },
         { waitFor: file('answer-boundary') },
         { tool: 'Bash' },
@@ -532,6 +534,7 @@ test('an idle question reply stays queued past the nudge deadline until a workin
       blockerRunId = blockerRun
       await said(client, blockerRun, 'slot occupied')
     },
+    [{ say: 'admitted reply received' }, { endTurn: true }],
   )
   expect(saved.answerDelivery?.sent).toBeUndefined()
   await waitUntil(async () => {
@@ -557,10 +560,16 @@ test('an idle question reply stays queued past the nudge deadline until a workin
     'admitted reply',
   )
   expect(sent.runId).toBe(runId)
+  await said(client, runId, 'admitted reply received')
   await waitForState(client, runId, 'idle')
   expect(
-    assistantTexts((await client.getRun(runId)).conversation).filter(
-      (text) => text.includes('Read: The user replied') && text.includes(reply),
-    ),
+    (await client.getRun(runId)).conversation.filter(({ line }) => {
+      const entry = JSON.parse(line) as { type?: string; message?: { content?: unknown } }
+      return (
+        entry.type === 'user' &&
+        typeof entry.message?.content === 'string' &&
+        entry.message.content.includes(reply)
+      )
+    }),
   ).toHaveLength(1)
 })
