@@ -100,11 +100,13 @@ function AgentDefault({
       ? [
           ['claude', 'Claude'],
           ['codex', 'Codex'],
+          ['antigravity', 'Antigravity'],
           ['same', 'Same as Task Lead'],
         ]
       : [
           ['claude', 'Claude'],
           ['codex', 'Codex'],
+          ['antigravity', 'Antigravity'],
         ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...shown, ...fields }

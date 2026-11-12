@@ -17,7 +17,7 @@ export function parseStartSubAgentRequest(body: unknown): StartSubAgentRequest {
   if (prompt.trim() === '') throw new HttpError(400, 'the prompt file is empty')
   const { agent, model, effort, name, ownWorktree, reviewer } = input
   if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-    throw new HttpError(400, 'agent must be claude or codex')
+    throw new HttpError(400, 'agent must be claude, codex or antigravity')
   }
   if (model !== undefined && !isModelName(model)) {
     throw new HttpError(400, 'model must be a model name, such as opus or gpt-5.5')
@@ -72,6 +72,6 @@ export function parseStartDevRunRequest(value: unknown): StartDevRunRequest {
   if (prompt === '') throw new HttpError(400, 'prompt is required')
   if (!path.isAbsolute(cwd)) throw new HttpError(400, 'cwd must be an absolute path')
   if (agent !== undefined && !agentKinds.includes(agent as AgentKind))
-    throw new HttpError(400, 'agent must be claude or codex')
+    throw new HttpError(400, 'agent must be claude, codex or antigravity')
   return { prompt, cwd, ...(agent !== undefined && { agent }) }
 }

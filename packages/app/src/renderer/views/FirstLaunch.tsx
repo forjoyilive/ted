@@ -561,12 +561,12 @@ export function FirstLaunch({
         <h1 className={styles.title}>
           Set up TED
           <Help>
-            TED runs Claude Code and Codex with your own logins. It never sees your passwords or
-            tokens.
+            TED runs Claude Code, Codex and Antigravity with your own logins. It never sees your
+            passwords or tokens.
           </Help>
         </h1>
         <div className={styles.rows}>
-          {(['claude', 'codex'] as const).map((agent) => {
+          {(['claude', 'codex', 'antigravity'] as const).map((agent) => {
             const health = agentFor(agent)
             const good = health?.state === 'ready'
             return (

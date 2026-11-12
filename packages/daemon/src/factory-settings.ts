@@ -365,6 +365,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const library = base.inherited.find((l) => l.kind === 'library')?.settings
     const resolved = resolveAgentChoices(inherited, {
       claude: options.installed('claude'),
+      antigravity: options.installed('antigravity'),
       codex: options.installed('codex'),
     })
     return agentRoles.map((role) => {

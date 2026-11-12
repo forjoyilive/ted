@@ -810,6 +810,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ?.workflow.settings
     return resolveAgentChoices(settings, {
       claude: agents.installed('claude'),
+      antigravity: agents.installed('antigravity'),
       codex: agents.installed('codex'),
     }).lead
   }

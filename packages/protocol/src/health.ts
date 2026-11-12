@@ -11,6 +11,7 @@ export const offlineProblem = 'offline'
 export const agentHealthStates = [
   'ready',
   'not-installed',
+  'unavailable',
   'signed-out',
   'too-old',
   'wrong-credential',
@@ -66,11 +67,13 @@ export interface AgentHealth {
 export const agentDisplayNames: Record<AgentKind, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 }
 
 export const agentShortNames: Record<AgentKind, string> = {
   claude: 'Claude',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 }
 
 export function resetTime(
@@ -119,6 +122,8 @@ export function pausedReason(
   switch (state) {
     case 'ready':
       return undefined
+    case 'unavailable':
+      return `${name} can’t run`
     case 'not-installed':
       return `${name} isn’t installed`
     case 'signed-out':
