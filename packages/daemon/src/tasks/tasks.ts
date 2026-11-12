@@ -1281,7 +1281,10 @@ export function createTasks(options: {
         const run = liveLeadOf(store, task)
         if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
         const nextAgent = task.lead?.agent ?? run.agent
-        if (agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined))
+        if (
+          !includeFailures &&
+          agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
+        )
           return []
         return [
           {

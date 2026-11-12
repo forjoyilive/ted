@@ -377,7 +377,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   ): Promise<AgentHealth[]> {
     if (reloadEnv) {
       await environment.reload()
-      for (const kind of kinds) if (enabled(kind)) wrongKeys.delete(kind)
+      for (const kind of kinds) if (enabled(kind) || retained(kind)) wrongKeys.delete(kind)
     }
     return Promise.all(
       kinds.map((kind) =>

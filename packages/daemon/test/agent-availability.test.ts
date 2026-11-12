@@ -7,7 +7,7 @@ import {
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { resolveAgentChoices } from '../src/workflow/agent-choices.ts'
@@ -23,6 +23,18 @@ import {
   waitUntil,
 } from './helpers.ts'
 
+const pauses = vi.hoisted(() => ({ folder: undefined as (() => Promise<void>) | undefined }))
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>()
+  return {
+    ...fs,
+    mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
+      if (/\/coordinators\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.folder?.()
+      return fs.mkdir(...args)
+    },
+  }
+})
+
 let home: string
 let cleanup: () => Promise<void>
 let scratch: string
@@ -34,10 +46,18 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await daemon?.stop()
-  await killRunHosts(home)
-  await cleanup()
-  await rm(scratch, { recursive: true, force: true })
+  const current = daemon
+  daemon = undefined
+  try {
+    await current?.stop()
+  } finally {
+    try {
+      await killRunHosts(home)
+    } finally {
+      await cleanup()
+      await rm(scratch, { recursive: true, force: true })
+    }
+  }
 })
 
 async function start() {
@@ -127,7 +147,9 @@ test('confirmation refreshes when another Run starts; keep-going and availabilit
   expect(kept.confirmationRequired).toBe(false)
   expect(kept.availability.runs).toHaveLength(2)
   await hostsStarted(home)
-  await daemon?.stop()
+  const previous = daemon
+  daemon = undefined
+  await previous?.stop()
   ;({ client } = await start())
   expect((await client.getSettings()).enabledAgents).not.toContain('claude')
   expect((await client.getRun(first.id)).run.state).not.toBe('finished')
@@ -376,4 +398,57 @@ test('an answered idle Task waits for an off replacement agent instead of stoppi
     return current.leadRunId && current.leadRunId !== leadId ? current.leadRunId : undefined
   }, 'enabled replacement Task Lead')
   expect((await client.getRun(replacement)).run.agent).toBe('codex')
+})
+
+test('a Coordinator refused after queue admission releases its slot and retries after re-enable', async () => {
+  const { client } = await start()
+  const origin = await makeOriginRepo(scratch)
+  const factory = await client.addFactory({ repo: origin, key: 'NB' })
+  await client.updateSettings({ maxWorkingRuns: 1 })
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  pauses.folder = async () => {
+    entered.resolve()
+    await release.promise
+  }
+  try {
+    const coordinator = await client.messageCoordinator(factory.id, {
+      agent: 'claude',
+      text: 'Keep this request for after re-enable',
+    })
+    await entered.promise
+    await client.changeAgentAvailability({ agent: 'claude', enabled: false })
+    release.resolve()
+    await waitUntil(async () => {
+      const current = await client.coordinator(factory.id)
+      return current?.status === 'queued' && current.error?.includes('off')
+    }, 'Coordinator to return to the queue')
+    expect((await client.coordinator(factory.id))?.started).toBe(false)
+    const task = await client.createTask({
+      factory: 'NB',
+      title: JSON.stringify({ steps: [{ endTurn: true }] }),
+      lead: { agent: 'codex' },
+      start: true,
+    })
+    const lead = await waitUntil(
+      async () => (await taskOf(client, task.id)).leadRunId,
+      'enabled work to take the released slot',
+    )
+    await waitUntil(
+      async () => (await client.getRun(lead)).run.state === 'idle',
+      'enabled work to finish its turn',
+    )
+    pauses.folder = undefined
+    await client.changeAgentAvailability({ agent: 'claude', enabled: true })
+    await waitUntil(
+      async () => (await client.coordinator(factory.id))?.started,
+      'Coordinator to retry',
+    )
+    expect((await client.getRun(coordinator.runId)).run.prompt).toContain(
+      'Keep this request for after re-enable',
+    )
+  } finally {
+    pauses.folder = undefined
+    release.resolve()
+  }
 })

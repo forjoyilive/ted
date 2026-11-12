@@ -259,7 +259,11 @@ export function createCoordinators(options: {
       launching.add(id)
       const work = launch(id)
         .catch((error) => {
-          if (!(error instanceof AgentDisabledError)) fail(id, error)
+          if (error instanceof AgentDisabledError) {
+            const current = saved.get(id)
+            if (current?.phase === 'working' && !store.getRun(current.runId))
+              save({ ...current, phase: 'queued' })
+          } else fail(id, error)
         })
         .finally(() => {
           launching.delete(id)

@@ -48,7 +48,7 @@ afterEach(async () => {
 
 const setStub = (
   agent: 'claude' | 'codex',
-  state: { version?: string; signedIn?: boolean; authMethod?: string },
+  state: { version?: string; signedIn?: boolean; authMethod?: string; apiKeySource?: string },
 ) => writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
 async function start(options: { codex?: boolean; antigravity?: boolean } = {}) {
@@ -400,4 +400,47 @@ test('Runs kept going still receive runtime authentication safeguards while the 
     async () => (await healthOf(client, 'claude'))?.state === 'ready',
     'retained Run authentication recovery',
   )
+})
+
+test('a retained off-kind Run clears a runtime credential warning and continues with the same ID', async () => {
+  const client = await start()
+  const run = await client.ok<{ id: string }>('POST', '/dev/runs', {
+    agent: 'claude',
+    cwd: scratch,
+    prompt: steps({ endTurn: true }),
+  })
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.state === 'idle',
+    'idle retained Run',
+  )
+  await client.ok('POST', '/agents/availability', {
+    agent: 'claude',
+    enabled: false,
+    existing: 'keep',
+    confirmedRunIds: [run.id],
+  })
+  await setStub('claude', { apiKeySource: 'ANTHROPIC_API_KEY' })
+  await client.ok('POST', `/runs/${run.id}/messages`, {
+    text: steps({ waitFor: path.join(scratch, 'credential-turn') }),
+  })
+  await waitUntil(
+    async () => (await healthOf(client, 'claude'))?.state === 'wrong-credential',
+    'runtime credential warning',
+  )
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.state === 'idle',
+    'credential interruption to settle',
+  )
+  await setStub('claude', { apiKeySource: 'none', signedIn: true })
+  const checked = await client.ok<AgentHealth[]>('POST', '/agents/health/check')
+  expect(checked.find((health) => health.agent === 'claude')?.state).toBe('ready')
+  await waitUntil(async () => {
+    const current = await client.getRun(run.id)
+    return current.conversation.some((entry) => entry.line.includes('Carry on where you left off.'))
+  }, 'same-ID credential recovery')
+  expect((await healthOf(client, 'claude'))?.pausedRuns).toBe(0)
+  expect((await client.getRun(run.id)).run.state).not.toBe('finished')
+  expect(
+    (await client.ok<{ enabledAgents: string[] }>('GET', '/settings')).enabledAgents,
+  ).not.toContain('claude')
 })
