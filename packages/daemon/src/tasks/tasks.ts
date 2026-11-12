@@ -220,7 +220,12 @@ import {
   unseen,
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
-import { answered as answeredItems, answeredSince, waiting as waitingItems } from './inbox.ts'
+import {
+  answered as answeredItems,
+  answeredSince,
+  byHuman,
+  waiting as waitingItems,
+} from './inbox.ts'
 import {
   atIdlePoint,
   continueMessage,
@@ -5584,9 +5589,10 @@ export function createTasks(options: {
   const creatingSetup = new Set<string>()
 
   function openSetupTask(factoryId: string): Task | undefined {
-    return store
-      .listTasks()
+    const open = store
+      .taskOutlines()
       .find((t) => t.factoryId === factoryId && t.setup && !t.archived && t.stage !== 'done')
+    return open && store.tasksIn(new Set([open.id])).at(0)
   }
 
   async function makeSetupTask(factory: StoredFactory, byHand: boolean): Promise<Task> {
@@ -5636,8 +5642,7 @@ export function createTasks(options: {
     const factory = store.getFactory(factoryId)
     if (!factory) return
     const ref = { problem: setupProblem, factoryId }
-    const setupTasks = store.listTasks().filter((t) => t.factoryId === factoryId && t.setup)
-    const open = openSetupTask(factoryId)
+    const setupTasks = store.taskOutlines().filter((t) => t.factoryId === factoryId && t.setup)
     const done =
       factoryHasSettings(factoryId) ||
       setupTasks.length === 0 ||
@@ -5646,6 +5651,7 @@ export function createTasks(options: {
       if (store.getBanner(bannerId(ref))) banners.clear(ref)
       return
     }
+    const open = openSetupTask(factoryId)
     banners.raise({
       ...ref,
       severity: 'warning',
@@ -7934,7 +7940,7 @@ export function createTasks(options: {
 
     answered() {
       const now = new Date()
-      const requests = store.listAnsweredRequests(answeredSince(now))
+      const requests = store.listAnsweredRequests(answeredSince(now), byHuman)
       return answeredItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))), now)
     },
 
@@ -8513,10 +8519,14 @@ export function createTasks(options: {
       continuationFailures.clear()
       if (factoryId !== undefined) caps.delete(factoryId)
       void pump()
-      for (const task of store.listTasks()) {
-        if (task.runs.length > 0) {
-          applyLead(task.id).catch((error: unknown) =>
-            console.error(`couldn’t apply ${task.displayId}’s Task Lead:`, error),
+      const live = new Set(store.liveRuns().flatMap((run) => run.taskId ?? []))
+      for (const { id } of store.taskOutlines()) {
+        if (live.has(id)) {
+          applyLead(id).catch((error: unknown) =>
+            console.error(
+              `couldn’t apply ${store.getTask(id)?.displayId ?? id}’s Task Lead:`,
+              error,
+            ),
           )
         }
       }

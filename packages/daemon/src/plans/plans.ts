@@ -472,9 +472,18 @@ export function createPlans(options: PlansOptions): Plans {
   })
 
   function createdTasks(planId: string): PlanTask[] {
-    const tasks = store.listTasks()
-    return saved.createdTasks(planId).flatMap((link): PlanTask[] => {
-      const task = tasks.find((t) => t.id === link.taskId)
+    const links = saved.createdTasks(planId)
+    const created = store.tasksIn(new Set(links.map((link) => link.taskId)))
+    const tasks = [
+      ...created,
+      ...store.tasksIn(
+        new Set(
+          created.flatMap((t) => t.blockedBy).filter((id) => !created.some((t) => t.id === id)),
+        ),
+      ),
+    ]
+    return links.flatMap((link): PlanTask[] => {
+      const task = created.find((t) => t.id === link.taskId)
       if (!task) return []
       return [
         {
