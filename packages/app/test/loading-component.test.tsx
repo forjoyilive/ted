@@ -502,7 +502,11 @@ test('the request shows images while collapsed, expands formatting and files, an
   const current = task({ attachments: [image, file], description: 'Latest edited scope.' })
   const api = bridge({
     taskDescriptions: () => [
-      { version: 1, at: createdAt, text: '**Original scope**\n\nMore details below the preview.' },
+      {
+        version: 1,
+        at: createdAt,
+        text: '**Original scope**\n\nRead the [guide](https://example.com/guide).\n\n```ts\nconst value = 1\n```',
+      },
       { version: 2, at: createdAt, text: current.description },
     ],
     readAttachment: () => ({ data: 'aW1hZ2U=' }),
@@ -514,11 +518,19 @@ test('the request shows images while collapsed, expands formatting and files, an
   expect(within(request).queryByText(current.description)).toBeNull()
   expect(within(request).queryByText(file.name)).toBeNull()
   expect(within(request).getByText(/Original scope/).textContent).not.toContain('**')
+  expect(within(request).getByText('Original scope').closest('[inert]')).toBeNull()
+  expect(within(request).getByText('guide')).toBeTruthy()
+  expect(within(request).queryByRole('link')).toBeNull()
+  expect(within(request).queryByRole('button', { name: 'Copy code' })).toBeNull()
   await user().click(within(request).getByRole('button', { name: `View ${image.name}` }))
   const viewer = screen.getByRole('dialog', { name: image.name })
   await user().click(within(viewer).getByRole('button', { name: 'Close' }))
   await user().click(within(request).getByRole('button', { name: 'See more' }))
   expect(within(request).getByText('Original scope').tagName).toBe('STRONG')
+  expect(within(request).getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
+    'https://example.com/guide',
+  )
+  expect(within(request).getByRole('button', { name: 'Copy code' })).toBeTruthy()
   expect(within(request).getByText(file.name)).toBeTruthy()
   expect(within(request).getAllByRole('img', { name: image.name })).toHaveLength(1)
   await user().click(within(request).getByRole('button', { name: 'See less' }))
@@ -555,4 +567,20 @@ test('short, image-only and empty requests need no expansion control', async () 
   await screen.findByText('No description.')
   expect(screen.queryByRole('img')).toBeNull()
   expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
+})
+
+test('a short linked request can reveal its interactive content without hiding the preview', async () => {
+  bridge({
+    taskDescriptions: () => [
+      { version: 1, at: createdAt, text: 'Read the [guide](https://example.com/guide).' },
+    ],
+  })
+  render(<TaskDescription task={task()} />)
+  const guide = await screen.findByText('guide')
+  expect(guide.closest('[inert]')).toBeNull()
+  expect(screen.queryByRole('link')).toBeNull()
+  await user().click(await screen.findByRole('button', { name: 'See more' }))
+  expect(screen.getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
+    'https://example.com/guide',
+  )
 })

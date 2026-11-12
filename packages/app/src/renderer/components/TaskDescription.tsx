@@ -1,12 +1,20 @@
 import type { DescriptionVersion, Task } from '@ted/protocol'
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useDescriptionsState } from '../data.ts'
 import { formatDate } from '../time.ts'
 import { CommentFiles, showsInline } from './CommentFiles.tsx'
 import { CloseIcon } from './icons.tsx'
 import { LoadingError, Skeleton } from './Loading.tsx'
+import markdownStyles from './Markdown.module.css'
 import { Markdown } from './Markdown.tsx'
 import styles from './TaskDescription.module.css'
+
+const previewComponents: Components = {
+  a: ({ children }) => <span data-preview-link>{children}</span>,
+  img: ({ alt }) => <>{alt}</>,
+}
 
 export function TaskDescription({ task }: { task: Task }) {
   return <Description key={task.id} task={task} />
@@ -16,6 +24,7 @@ function Description({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
   const [history, setHistory] = useState(false)
   const [overflow, setOverflow] = useState(false)
+  const [links, setLinks] = useState(false)
   const preview = useRef<HTMLDivElement>(null)
   const contentId = useId()
   const descriptions = useDescriptionsState(task.id)
@@ -29,9 +38,13 @@ function Description({ task }: { task: Task }) {
     if (open) return
     if (!element || original.trim() === '') {
       setOverflow(false)
+      setLinks(false)
       return
     }
-    const measure = () => setOverflow(element.scrollHeight > element.clientHeight)
+    const measure = () => {
+      setOverflow(element.scrollHeight > element.clientHeight)
+      setLinks(element.querySelector('[data-preview-link]') !== null)
+    }
     measure()
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
     observer?.observe(element)
@@ -47,8 +60,12 @@ function Description({ task }: { task: Task }) {
           {open ? (
             original.trim() && <Markdown text={original} className={styles.text} />
           ) : original.trim() ? (
-            <div ref={preview} className={styles.preview} inert={overflow}>
-              <Markdown text={original} className={styles.text} />
+            <div ref={preview} className={styles.preview}>
+              <div className={`${markdownStyles.markdown} ${styles.text}`}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={previewComponents}>
+                  {original}
+                </ReactMarkdown>
+              </div>
             </div>
           ) : images.length === 0 ? (
             <p className={styles.empty}>No description.</p>
@@ -62,7 +79,7 @@ function Description({ task }: { task: Task }) {
         </div>
       )}
       <div className={styles.controls}>
-        {(open || overflow || files.length > 0) && versions !== undefined && (
+        {(open || overflow || links || files.length > 0) && versions !== undefined && (
           <button
             type="button"
             className={styles.link}

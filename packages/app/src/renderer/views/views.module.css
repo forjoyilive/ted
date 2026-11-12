@@ -614,7 +614,11 @@
   overflow-y: auto;
 }
 
-.taskPane .threadBody {
+.taskContent {
+  display: flex;
+  flex: 1;
   flex-shrink: 0;
+  flex-direction: column;
+  min-width: 0;
   min-height: min(50vh, 320px);
 }

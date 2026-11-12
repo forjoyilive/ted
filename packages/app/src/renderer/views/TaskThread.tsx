@@ -874,145 +874,147 @@ export function TaskThread({
           onOpen={openConversation}
           onClose={onCloseRun}
         />
-        {shownApp?.browser ? (
-          <TaskBrowserView
-            task={task}
-            shown={shownApp}
-            onBack={() => onCloseApp?.()}
-            onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
-          />
-        ) : shownApp !== undefined ? (
-          <AppLogView
-            key={`${shownApp.repo}/${shownApp.name}`}
-            task={task}
-            shown={shownApp}
-            onBack={() => onCloseApp?.()}
-          />
-        ) : showingSubAgent && shownRun !== undefined && !talking ? (
-          <>
-            {open.length > 0 && (
-              <div className={styles.filterNote}>
-                A Task request needs your answer ·{' '}
+        <div className={styles.taskContent}>
+          {shownApp?.browser ? (
+            <TaskBrowserView
+              task={task}
+              shown={shownApp}
+              onBack={() => onCloseApp?.()}
+              onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
+            />
+          ) : shownApp !== undefined ? (
+            <AppLogView
+              key={`${shownApp.repo}/${shownApp.name}`}
+              task={task}
+              shown={shownApp}
+              onBack={() => onCloseApp?.()}
+            />
+          ) : showingSubAgent && shownRun !== undefined && !talking ? (
+            <>
+              {open.length > 0 && (
+                <div className={styles.filterNote}>
+                  A Task request needs your answer ·{' '}
+                  <button
+                    type="button"
+                    className={styles.linkButton}
+                    onClick={() => {
+                      onShowRun(undefined)
+                      if (open[0]) jumpToRequest(open[0].id)
+                    }}
+                  >
+                    View in Task Lead
+                  </button>
+                </div>
+              )}
+              <RunWithSideChat
+                key={shownRun}
+                runId={shownRun}
+                bar={shownRun !== task.leadRunId}
+                endedNote={
+                  task.canResume
+                    ? 'This Run has ended and is read-only. Resume the Task to carry on.'
+                    : undefined
+                }
+                onStopTask={() =>
+                  void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
+                }
+              />
+            </>
+          ) : null}
+          <div className={styles.threadBody} hidden={showingSubAgent || shownApp !== undefined}>
+            {stage !== undefined && (
+              <p className={styles.filterNote}>
+                Showing {stageName(stage)} only ·{' '}
                 <button
                   type="button"
                   className={styles.linkButton}
-                  onClick={() => {
-                    onShowRun(undefined)
-                    if (open[0]) jumpToRequest(open[0].id)
-                  }}
+                  onClick={() => setFilter(undefined)}
                 >
-                  View in Task Lead
+                  Show all
                 </button>
-              </div>
+              </p>
             )}
-            <RunWithSideChat
-              key={shownRun}
-              runId={shownRun}
-              bar={shownRun !== task.leadRunId}
-              endedNote={
-                task.canResume
-                  ? 'This Run has ended and is read-only. Resume the Task to carry on.'
-                  : undefined
-              }
-              onStopTask={() =>
-                void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
-              }
+            <RequestJumpBar
+              requests={open.map((request) => ({
+                id: request.id,
+                label: requestLabel(request),
+                title: headline(request),
+              }))}
+              onJump={jumpToRequest}
             />
-          </>
-        ) : null}
-        <div className={styles.threadBody} hidden={showingSubAgent || shownApp !== undefined}>
-          {stage !== undefined && (
-            <p className={styles.filterNote}>
-              Showing {stageName(stage)} only ·{' '}
-              <button
-                type="button"
-                className={styles.linkButton}
-                onClick={() => setFilter(undefined)}
-              >
-                Show all
-              </button>
-            </p>
+            <TaskDiscussion
+              taskId={task.id}
+              leadRunId={task.leadRunId}
+              earlier={earlier}
+              revealRun={
+                conversationReveal?.runId === shownRun
+                  ? conversationReveal?.target
+                  : shownRun !== task.leadRunId
+                    ? shownRun
+                    : undefined
+              }
+              revealRequest={reveal}
+              comments={commentList.items}
+              entries={entries}
+              stage={stage}
+              active={!hidden && !talking && !showingSubAgent && shownApp === undefined}
+              loading={historyLoading}
+              extra={[
+                ...rendered.map((item) => ({
+                  id:
+                    item.kind === 'comment'
+                      ? `comment:${item.comment.id}`
+                      : item.kind === 'event'
+                        ? `event:${item.event.id}`
+                        : `check:${item.checkRun.id}`,
+                  at: item.createdAt,
+                  hidden: !shownItems.has(item),
+                  node: <ul className={styles.discussionExtra}>{renderItem(item)}</ul>,
+                })),
+                ...(historyError
+                  ? [
+                      {
+                        id: 'history-error',
+                        at: task.createdAt,
+                        node: <LoadingError error={historyError} retry={retryHistory} />,
+                      },
+                    ]
+                  : []),
+                ...(historyLoading
+                  ? [
+                      {
+                        id: 'history-loading',
+                        at: task.createdAt,
+                        node: <Skeleton shape="history" label="Loading Task history…" />,
+                      },
+                    ]
+                  : []),
+              ]}
+              footer={(chat) => (
+                <div className={styles.threadComposer}>
+                  <UnsentChip
+                    drafts={(lines?.current ?? []).filter(isDraft)}
+                    onOpen={(c) => lines?.onOpen(c)}
+                  />
+                  <CommentBox
+                    key={task.id}
+                    task={task}
+                    run={chat?.run}
+                    hasLineComments={(lines?.current ?? []).some(isDraft)}
+                    onFollowedUp={onFollowedUp}
+                  />
+                </div>
+              )}
+            />
+          </div>
+          {output && (
+            <CheckOutputDialog
+              checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
+              position={output.position}
+              onClose={() => setOutput(undefined)}
+            />
           )}
-          <RequestJumpBar
-            requests={open.map((request) => ({
-              id: request.id,
-              label: requestLabel(request),
-              title: headline(request),
-            }))}
-            onJump={jumpToRequest}
-          />
-          <TaskDiscussion
-            taskId={task.id}
-            leadRunId={task.leadRunId}
-            earlier={earlier}
-            revealRun={
-              conversationReveal?.runId === shownRun
-                ? conversationReveal?.target
-                : shownRun !== task.leadRunId
-                  ? shownRun
-                  : undefined
-            }
-            revealRequest={reveal}
-            comments={commentList.items}
-            entries={entries}
-            stage={stage}
-            active={!hidden && !talking && !showingSubAgent && shownApp === undefined}
-            loading={historyLoading}
-            extra={[
-              ...rendered.map((item) => ({
-                id:
-                  item.kind === 'comment'
-                    ? `comment:${item.comment.id}`
-                    : item.kind === 'event'
-                      ? `event:${item.event.id}`
-                      : `check:${item.checkRun.id}`,
-                at: item.createdAt,
-                hidden: !shownItems.has(item),
-                node: <ul className={styles.discussionExtra}>{renderItem(item)}</ul>,
-              })),
-              ...(historyError
-                ? [
-                    {
-                      id: 'history-error',
-                      at: task.createdAt,
-                      node: <LoadingError error={historyError} retry={retryHistory} />,
-                    },
-                  ]
-                : []),
-              ...(historyLoading
-                ? [
-                    {
-                      id: 'history-loading',
-                      at: task.createdAt,
-                      node: <Skeleton shape="history" label="Loading Task history…" />,
-                    },
-                  ]
-                : []),
-            ]}
-            footer={(chat) => (
-              <div className={styles.threadComposer}>
-                <UnsentChip
-                  drafts={(lines?.current ?? []).filter(isDraft)}
-                  onOpen={(c) => lines?.onOpen(c)}
-                />
-                <CommentBox
-                  key={task.id}
-                  task={task}
-                  run={chat?.run}
-                  hasLineComments={(lines?.current ?? []).some(isDraft)}
-                  onFollowedUp={onFollowedUp}
-                />
-              </div>
-            )}
-          />
         </div>
-        {output && (
-          <CheckOutputDialog
-            checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
-            position={output.position}
-            onClose={() => setOutput(undefined)}
-          />
-        )}
       </section>
     </>
   )
