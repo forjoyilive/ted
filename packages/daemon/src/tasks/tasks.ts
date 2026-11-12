@@ -5805,7 +5805,12 @@ export function createTasks(options: {
       if (gh && (repo.pushed || repo.pullRequest)) {
         await deleteBranch(gh, repo).catch((error: unknown) => {
           const status = error instanceof GhError ? error.status : undefined
-          if (status !== 404 && status !== 422) throw refuse(`on ${repo.repo}`, repo.branch, error)
+          const gone =
+            status === 404 ||
+            (status === 422 &&
+              error instanceof Error &&
+              /reference does not exist/i.test(error.message))
+          if (!gone) throw refuse(`on ${repo.repo}`, repo.branch, error)
         })
       }
       await git.deleteBranch(clonePath(reposDir, repo), repo.branch).catch((error: unknown) => {

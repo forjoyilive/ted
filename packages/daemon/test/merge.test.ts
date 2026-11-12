@@ -121,7 +121,10 @@ describe('Approve and merge', () => {
     const state = JSON.parse(await readFile(ctx.ghState, 'utf8')) as Record<string, unknown>
     await writeFile(
       ctx.ghState,
-      JSON.stringify({ ...state, paths: { [route]: { status: 403, message: 'Forbidden' } } }),
+      JSON.stringify({
+        ...state,
+        paths: { [route]: { status: 422, message: 'Cannot delete a protected branch' } },
+      }),
     )
 
     const refused = await client.call('POST', `/tasks/${task.id}/reset`)
