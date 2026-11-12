@@ -38,7 +38,7 @@ import {
   useActionMenu,
 } from '../components/ContextMenu.tsx'
 import { DotIcon } from '../components/icons.tsx'
-import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { LoadingError, Skeleton, SkeletonBar } from '../components/Loading.tsx'
 import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
@@ -155,6 +155,101 @@ function Breadcrumb({
   )
 }
 
+function AutomationColumns() {
+  return (
+    <thead>
+      <tr>
+        <th className={styles.toggleCell}>
+          <span className={styles.hidden}>On</span>
+        </th>
+        <th>Name and schedule</th>
+        <th>Next firing</th>
+        <th>Last result</th>
+        <th>Now</th>
+        <th>Agent · model</th>
+      </tr>
+    </thead>
+  )
+}
+
+function HistoryColumns() {
+  return (
+    <thead>
+      <tr>
+        <th>Started</th>
+        <th>Trigger</th>
+        <th>Duration</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+  )
+}
+
+function AutomationTableSkeleton() {
+  return (
+    <div role="status" aria-label="Loading Automations…">
+      <table className={styles.table} aria-hidden>
+        <AutomationColumns />
+        <tbody>
+          {['first', 'second', 'third'].map((row) => (
+            <tr key={row}>
+              <td className={styles.toggleCell}>
+                <SkeletonBar width={28} height={16} />
+              </td>
+              <td>
+                <div className={styles.loadingName}>
+                  <SkeletonBar width="80%" height={14} />
+                  <SkeletonBar width="60%" />
+                </div>
+              </td>
+              <td>
+                <SkeletonBar width="75%" />
+              </td>
+              <td>
+                <SkeletonBar width="70%" />
+              </td>
+              <td>
+                <SkeletonBar width="60%" />
+              </td>
+              <td>
+                <SkeletonBar width="80%" />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function HistorySkeleton() {
+  return (
+    <div role="status" aria-label="Loading Automation…">
+      <table className={`${styles.table} ${styles.history}`} aria-hidden>
+        <HistoryColumns />
+        <tbody>
+          {['first', 'second', 'third'].map((row) => (
+            <tr key={row}>
+              <td>
+                <SkeletonBar width="75%" />
+              </td>
+              <td>
+                <SkeletonBar width="60%" />
+              </td>
+              <td>
+                <SkeletonBar width="55%" />
+              </td>
+              <td>
+                <SkeletonBar width="70%" />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function AutomationsPage({
   onEdit,
   factory,
@@ -191,24 +286,13 @@ export function AutomationsPage({
           resource.error ? (
             <LoadingError error={resource.error} retry={resource.retry} />
           ) : (
-            <Skeleton shape="settings" label="Loading Automations…" />
+            <AutomationTableSkeleton />
           )
         ) : automations.length === 0 ? (
           <AutomationsEmpty templates={templates} onNew={onNew} />
         ) : (
           <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.toggleCell}>
-                  <span className={styles.hidden}>On</span>
-                </th>
-                <th>Name and schedule</th>
-                <th>Next firing</th>
-                <th>Last result</th>
-                <th>Now</th>
-                <th>Agent · model</th>
-              </tr>
-            </thead>
+            <AutomationColumns />
             <tbody>
               {automations.map((automation) => {
                 const last = lastResult(automation.last, now)
@@ -498,21 +582,59 @@ export function AutomationView({
   const [promptOpen, setPromptOpen] = useState(false)
   if (detail === undefined)
     return (
-      <section className={views.pane} aria-label="Automation">
-        <header className={styles.viewHeader}>
-          <button type="button" className={styles.backLink} onClick={onBack}>
-            ← Automations
-          </button>
-          <h1 className={styles.title}>Automation</h1>
-        </header>
-        <div className={views.body}>
-          {resource.error ? (
-            <LoadingError error={resource.error} retry={resource.retry} />
-          ) : (
-            <Skeleton shape="history" label="Loading Automation…" />
-          )}
-        </div>
-      </section>
+      <>
+        <section className={views.pane} aria-label="Automation">
+          <header className={styles.viewHeader}>
+            <button type="button" className={styles.backLink} onClick={onBack}>
+              ← Automations
+            </button>
+            {resource.error ? (
+              <h1 className={styles.title}>Automation</h1>
+            ) : (
+              <>
+                <div className={styles.titleRow}>
+                  <SkeletonBar width={28} height={16} />
+                  <h1 className={styles.title} aria-label="Automation">
+                    <SkeletonBar width="min(220px, 25vw)" height={20} />
+                  </h1>
+                  <span className={views.headerSpacer} />
+                  <SkeletonBar width={76} height={28} />
+                  <SkeletonBar width={44} height={28} />
+                  <SkeletonBar width={32} height={28} />
+                </div>
+                <p className={`${styles.line} ${styles.loadingLine}`}>
+                  <SkeletonBar width="min(420px, 70%)" />
+                </p>
+              </>
+            )}
+          </header>
+          <div className={views.body}>
+            {resource.error ? (
+              <LoadingError error={resource.error} retry={resource.retry} />
+            ) : (
+              <>
+                <h2 className={styles.sectionTitle}>History</h2>
+                <HistorySkeleton />
+              </>
+            )}
+          </div>
+        </section>
+        {!resource.error && (
+          <DetailsPane className={views.detailsPane} aria-label="Automation details">
+            <div aria-hidden>
+              {['first', 'second', 'third', 'fourth', 'fifth', 'sixth'].map((row) => (
+                <div className={styles.detail} key={row}>
+                  <div className={styles.loadingName}>
+                    <SkeletonBar width="40%" />
+                    <SkeletonBar width="80%" />
+                    <SkeletonBar width="60%" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DetailsPane>
+        )}
+      </>
     )
   if (detail === null) {
     return (
@@ -590,14 +712,7 @@ export function AutomationView({
             <p className={styles.none}>No Runs yet. Run now starts one.</p>
           ) : (
             <table className={`${styles.table} ${styles.history}`}>
-              <thead>
-                <tr>
-                  <th>Started</th>
-                  <th>Trigger</th>
-                  <th>Duration</th>
-                  <th>Result</th>
-                </tr>
-              </thead>
+              <HistoryColumns />
               <tbody>
                 {history.map((run) => {
                   const why = trigger(run, history)
