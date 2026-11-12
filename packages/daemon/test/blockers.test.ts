@@ -833,6 +833,8 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
     'archive',
     'delete',
     'delete-with-manual-blocker',
+    'archive-keep-then-unblock',
+    'unlink-then-unblock',
   ]) {
     const parent = await create(client, steps({ endTurn: true }))
     await client.ok('POST', `/tasks/${parent.id}/start`, { prepare: true })
@@ -858,7 +860,11 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
     const child = await create(client, `${operation} child`)
     await client.ok('PUT', `/tasks/${child.id}/autopilot`, { choice: 'off' })
     await parentOf(app, child, parent)
-    if (operation === 'delete-with-manual-blocker') {
+    if (
+      operation === 'delete-with-manual-blocker' ||
+      operation === 'archive-keep-then-unblock' ||
+      operation === 'unlink-then-unblock'
+    ) {
       await block(client, parent, child)
       expect(await getTask(client, parent.id)).toMatchObject({
         blockedBy: [child.id],
@@ -876,7 +882,29 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
     if (operation === 'unlink') await parentOf(app, child, null)
     else if (operation === 'reparent') await parentOf(app, child, destination)
     else if (operation === 'archive') await app.archiveTask(child.id)
-    else await app.deleteTask(child.id)
+    else if (operation === 'unlink-then-unblock') {
+      await parentOf(app, child, null)
+      expect(await getTask(client, parent.id)).toMatchObject({
+        blockedBy: [child.id],
+        childIds: [],
+        status: { kind: 'stopped' },
+      })
+      expect((await getTask(client, parent.id)).preparation).toBeUndefined()
+      await client.ok('DELETE', `/tasks/${parent.id}/blockers/${child.id}`)
+    } else if (operation === 'archive-keep-then-unblock') {
+      await app.archiveTask(child.id, { blocked: 'keep' })
+      expect(await getTask(client, parent.id)).toMatchObject({
+        blockedBy: [child.id],
+        childIds: [child.id],
+        preparation: 'ready',
+        runs: [],
+      })
+      await client.ok('DELETE', `/tasks/${parent.id}/blockers/${child.id}`)
+      expect(await getTask(client, parent.id)).toMatchObject({
+        blockedBy: [],
+        childIds: [child.id],
+      })
+    } else await app.deleteTask(child.id)
     expect(await getTask(client, parent.id)).toMatchObject({
       stage: 'work',
       runs: [],
@@ -897,6 +925,7 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
   for (const entry of [
     cases[0],
     cases.find((entry) => entry.operation === 'delete-with-manual-blocker'),
+    cases.find((entry) => entry.operation === 'archive-keep-then-unblock'),
   ]) {
     if (!entry) throw new Error('no prepared parent')
     await client.ok('POST', `/tasks/${entry.parent.id}/resume`, {})

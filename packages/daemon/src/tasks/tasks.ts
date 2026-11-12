@@ -5306,7 +5306,12 @@ export function createTasks(options: {
 
   function releaseParent(taskId: string, wasBlocked: boolean): void {
     const task = find(taskId)
-    if (!wasBlocked || unmergedBlockers(taskId).length > 0) return
+    if (!wasBlocked) return
+    if (
+      unmergedBlockers(taskId).length > 0 &&
+      (task.preparation !== 'ready' || store.childrenOf(taskId).length > 0)
+    )
+      return
     if (task.stage === 'backlog') {
       if (task.startRequested) store.setStartRequested(taskId, false)
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
@@ -5417,7 +5422,12 @@ export function createTasks(options: {
     if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(taskId).length === 0) {
       if (current.stage === 'backlog' && current.startRequested) {
         store.setStartRequested(taskId, false)
-      } else if (current.waitsForBlockers && !liveLead(current) && !current.archived) {
+      } else if (
+        (current.waitsForBlockers ||
+          (current.preparation === 'ready' && store.childrenOf(taskId).length > 0)) &&
+        !liveLead(current) &&
+        !current.archived
+      ) {
         store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
       }
     }

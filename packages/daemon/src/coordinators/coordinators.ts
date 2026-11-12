@@ -922,8 +922,7 @@ export function createCoordinators(options: {
                 input.after,
                 input.before,
                 input.neighbours,
-                input.parentId,
-                input.hierarchyRevision,
+                ...(kind === 'parent' ? [input.parentId, input.hierarchyRevision] : []),
                 ...(kind === 'tell' || kind === 'answer' || kind === 'resume'
                   ? [
                       createHash('sha256')
