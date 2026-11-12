@@ -457,3 +457,42 @@ test('a dropped copy that fails verification is thrown away: the event log stays
   expect((await readdir(storeDir())).filter((f) => f.includes('dropping'))).toEqual([])
   expect(await runRows()).toEqual(runsBefore)
 })
+
+test('a store that needs no rebuild drops its replaced Run output events once, at the next open', async () => {
+  const { runIds, before, runsBefore } = await homeFromAnOlderTed()
+  let client = await start('1.1.0')
+  const backupsBefore = (await preUpdateBackups(client)).length
+  await stop()
+  const eventsBefore = await loggedEvents()
+  const dropMark = async () =>
+    (JSON.parse(await readFile(metaFile(), 'utf8')) as { outputDrop?: Record<string, unknown> })
+      .outputDrop
+  expect(await dropMark()).toMatchObject({ state: 'done', dropped: 0 })
+  const meta = JSON.parse(await readFile(metaFile(), 'utf8')) as Record<string, unknown>
+  delete meta.outputDrop
+  await writeFile(metaFile(), JSON.stringify(meta))
+
+  const statuses: DataStatus[] = []
+  client = await start('1.1.0', statuses, undefined, { atLeast: 1 })
+
+  expect(statuses.at(-1)).toEqual({ state: 'ready' })
+  expect(statuses.some((s) => s.state === 'updating')).toBe(true)
+  expect(await snapshot(client, runIds)).toEqual(before)
+  const backups = await preUpdateBackups(client)
+  expect(backups).toHaveLength(backupsBefore + 1)
+  expect(
+    await loggedEvents(path.join(home, 'backups', backups[0]?.name ?? '', 'store', 'ted')),
+  ).toEqual(eventsBefore)
+  await stop()
+  const kept = await loggedEvents()
+  const gone = eventsBefore.filter(isOutput).length - kept.filter(isOutput).length
+  expect(gone).toBeGreaterThan(0)
+  expect(await dropMark()).toMatchObject({ state: 'done', by: '1.1.0', dropped: gone })
+  expect(await runRows()).toEqual(runsBefore)
+
+  const again: DataStatus[] = []
+  client = await start('1.1.0', again, undefined, { atLeast: 1 })
+  expect(again.some((s) => s.state === 'updating')).toBe(false)
+  expect(await preUpdateBackups(client)).toHaveLength(backups.length)
+  await stop()
+})

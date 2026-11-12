@@ -190,6 +190,12 @@ async function flush(file: string): Promise<void> {
   }
 }
 
+export async function supersededOutputCount(directory: string): Promise<number> {
+  const eventlog = await eventlogFile(directory)
+  if (!eventlog) return 0
+  return withDb(eventlog, true, (db) => (isPlainChain(db) ? superseded(db).length : 0))
+}
+
 // ADR 0122: run only with the store closed, when the state is about to be rebuilt from the
 // event log. Every state file, of any schema, goes before the renumbered log is in place.
 export async function dropSupersededOutput(

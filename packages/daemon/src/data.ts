@@ -30,12 +30,18 @@ import type { Shells } from './shells.ts'
 import type { SideChats } from './side-chats/side-chats.ts'
 import type { Storage } from './storage.ts'
 import { type CompactOptions, compactOutputEvents, hasOutputToCompact } from './store/compact.ts'
-import { type DropOptions, dropSupersededOutput } from './store/drop-output.ts'
+import {
+  type DropOptions,
+  dropSupersededOutput,
+  supersededOutputCount,
+} from './store/drop-output.ts'
 import {
   checkStore,
   eventCount,
   markOutputCompaction,
+  markOutputDrop,
   readOutputCompaction,
+  readOutputDrop,
   readStoreMeta,
   removeStaleStateFiles,
   writeStoreMeta,
@@ -200,16 +206,31 @@ export function createData(options: DataOptions): Data {
     }
     const startedAt = Date.now()
     if (rebuilding) setStatus(updating(progress, startedAt))
-    if (rebuilding && backUp) {
+    const dropOnce = backUp && check.kind === 'current' && (await owesOutputDrop())
+    if (dropOnce) setStatus(updating({ done: 0, total: await eventCount(paths.store) }, startedAt))
+    let rebuilds = rebuilding
+    if ((rebuilding || dropOnce) && backUp) {
       const dropped = await dropSupersededOutput(paths.store, {
         ...options.outputDrop,
         ...(!backedUp && { backUp: () => backups.takePreUpdate(meta?.lastOpenedBy) }),
       })
+      const at = now().toISOString()
       if (dropped.kind === 'failed') {
+        const reason = redactSecrets(dropped.reason)
         console.error(
-          `dropping replaced Run output events failed, so the event log stays as it is: ${redactSecrets(dropped.reason)}`,
+          `dropping replaced Run output events failed, so the event log stays as it is: ${reason}`,
         )
-      } else if (dropped.kind === 'dropped') {
+        await markOutputDrop(paths.store, { state: 'failed', by: version, at, reason })
+      } else {
+        await markOutputDrop(paths.store, {
+          state: 'done',
+          by: version,
+          at,
+          dropped: dropped.kind === 'dropped' ? dropped.dropped : 0,
+        })
+      }
+      if (dropped.kind === 'dropped') {
+        rebuilds = true
         console.log(
           `dropped ${plural(dropped.dropped, 'replaced Run output event')} from the event log: ${plural(dropped.events, 'event')} left, ${dropped.bytesBefore} bytes before, ${dropped.bytesAfter} after`,
         )
@@ -236,7 +257,7 @@ export function createData(options: DataOptions): Data {
       setStatus(
         await failedStatus(
           error instanceof Error ? error.message : String(error),
-          rebuilding ? progress : undefined,
+          rebuilds ? progress : undefined,
         ),
       )
       return
@@ -247,9 +268,10 @@ export function createData(options: DataOptions): Data {
       lastOpenedAt: now().toISOString(),
       ...(check.kind === 'empty' && {
         outputCompaction: { state: 'done', by: version, at: now().toISOString(), rewritten: 0 },
+        outputDrop: { state: 'done', by: version, at: now().toISOString(), dropped: 0 },
       }),
     })
-    if (rebuilding) await removeStaleStateFiles(paths.store)
+    if (rebuilds) await removeStaleStateFiles(paths.store)
     const started = await options.startServices(store, emit)
     const unsubscribeStore = store.subscribe(emit)
     const unsubscribeTasks = started.tasks.subscribe(emit)
@@ -263,6 +285,22 @@ export function createData(options: DataOptions): Data {
     }
     setStatus({ state: 'ready' })
     await takeDaily()
+  }
+
+  // ADR 0122: once per home, a store that needs no rebuild still gets its replaced Run output
+  // events dropped, which makes it rebuild.
+  async function owesOutputDrop(): Promise<boolean> {
+    const mark = await readOutputDrop(paths.store)
+    if (mark && (mark.state === 'done' || mark.by === version)) return false
+    const count = await supersededOutputCount(paths.store).catch(() => 0)
+    if (count >= (options.outputDrop?.atLeast ?? 1000)) return true
+    await markOutputDrop(paths.store, {
+      state: 'done',
+      by: version,
+      at: now().toISOString(),
+      dropped: 0,
+    })
+    return false
   }
 
   async function compactOutput(dataFrom: string | undefined, backedUp: boolean): Promise<void> {
