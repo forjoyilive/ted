@@ -1580,7 +1580,9 @@ export function createTasks(options: {
           if (store.getTask(taskId)?.repos.some((r) => !r.removed)) store.waitForBlockers(taskId)
           else store.moveToBacklog(taskId)
           const message = error instanceof Error ? error.message : String(error)
-          store.setActivity(taskId, oneLine(`Couldn’t start: ${message}`))
+          const why = redactSecrets(`Couldn’t start: ${message}`)
+          store.setActivity(taskId, oneLine(why))
+          tedNote(taskId, oneLine(why, 600))
         }
         throw error
       })
@@ -1591,6 +1593,12 @@ export function createTasks(options: {
     beginning.set(taskId, work)
     inBackground(`start ${store.getTask(taskId)?.displayId ?? taskId}`, () => work)
     return work
+  }
+
+  function tedNote(taskId: string, body: string): void {
+    const last = store.listComments(taskId).at(-1)
+    if (last?.author.kind === 'ted' && last.kind === 'note' && last.body === body) return
+    store.postComment({ taskId, kind: 'note', author: { kind: 'ted' }, body })
   }
 
   function inBackground(what: string, work: () => Promise<void>): void {
@@ -3315,6 +3323,33 @@ export function createTasks(options: {
     const clone = await lifecycle.prepare(ref, factory, entry)
     const { handle, ...made } = await lifecycle.create(clone, entry, branch, fresh)
     return { ...made, worktree: lifecycle.localPath(handle) }
+  }
+
+  async function clearLeftover(
+    task: StoredTask,
+    factory: StoredFactory,
+    entry: FactoryRepoEntry,
+    keep?: string,
+  ): Promise<void> {
+    const ref = await execution.local(task.id)
+    const clone = await lifecycle.prepare(ref, factory, entry)
+    const cleared = await lifecycle.clear(clone, entry, keep)
+    if (!cleared) return
+    const branch =
+      cleared.branch === undefined
+        ? ''
+        : cleared.branchDeleted
+          ? ` and its branch ${cleared.branch}`
+          : ` (its branch ${cleared.branch} is kept)`
+    tedNote(
+      task.id,
+      redactSecrets(
+        oneLine(
+          `TED found a ${entry.name} worktree left by an earlier start that didn’t finish. It had nothing uncommitted, so TED removed it${branch} and started again.`,
+          600,
+        ),
+      ),
+    )
   }
 
   const interruptedSetups = (task: StoredTask) => leadLifecycle.interruptedSetups(task)
@@ -5436,13 +5471,34 @@ export function createTasks(options: {
       factoryRepos(resolution.workflow, factory),
     )
     const clones = await Promise.all(chosen.map((entry) => cloneFor(task, factory, entry)))
+    for (const entry of chosen) await clearLeftover(task, factory, entry)
     const branch = await branchFor(clones, task)
     const opened: (NewWorktree & { branch: string; worktree: string })[] = []
+    const unrecorded = new Set<(typeof opened)[number]>()
     try {
-      for (const entry of chosen)
-        opened.push(await openWorktree(task, factory, entry, branch, true))
+      for (const entry of chosen) {
+        const made = await openWorktree(task, factory, entry, branch, true)
+        opened.push(made)
+        unrecorded.add(made)
+      }
+      const [first, ...rest] = opened
+      if (!first) throw new Error(`${task.displayId}’s Factory has no repo`)
+      const { branch: _, worktree, ...repo } = first
+      store.startTask({
+        taskId: task.id,
+        stage,
+        branch,
+        worktree,
+        entry: entryFor(resolution, stage),
+        repo,
+      })
+      unrecorded.delete(first)
+      for (const made of rest) {
+        store.worktreeCreated(task.id, made)
+        unrecorded.delete(made)
+      }
     } catch (error) {
-      for (const made of opened) {
+      for (const made of unrecorded) {
         const ref = await execution.local(task.id)
         await lifecycle
           .rollback({ ...made, handle: lifecycle.worktree(ref, made) })
@@ -5450,18 +5506,6 @@ export function createTasks(options: {
       }
       throw error
     }
-    const [first, ...rest] = opened
-    if (!first) throw new Error(`${task.displayId}’s Factory has no repo`)
-    const { branch: _, worktree, ...repo } = first
-    store.startTask({
-      taskId: task.id,
-      stage,
-      branch,
-      worktree,
-      entry: entryFor(resolution, stage),
-      repo,
-    })
-    for (const made of rest) store.worktreeCreated(task.id, made)
     const started = find(task.id)
     if (chosen.some((entry) => entry.setup !== undefined)) {
       inBackground(`set up ${task.displayId}’s worktree`, () =>
@@ -5480,10 +5524,9 @@ export function createTasks(options: {
     if (fallback === undefined) return
     for (const entry of chosen) {
       const old = task.repos.findLast((r) => sameRepo(r.repo, entry.repo))
-      store.worktreeCreated(
-        task.id,
-        await openWorktree(task, factory, entry, old?.branch ?? fallback, false),
-      )
+      const branch = old?.branch ?? fallback
+      await clearLeftover(task, factory, entry, branch)
+      store.worktreeCreated(task.id, await openWorktree(task, factory, entry, branch, false))
     }
     store.dequeue(task.id)
     const started = find(task.id)
