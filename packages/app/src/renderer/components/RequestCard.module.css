@@ -84,8 +84,91 @@
   text-align: left;
 }
 
-.needsReason {
-  color: var(--text-muted);
+.failureForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.formHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.formLabel {
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+
+.formHint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+}
+
+.messageRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.messageRow .caption {
+  flex: none;
+}
+
+.messageLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.messageLink:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.messageLink:focus-visible,
+.history > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.failedWhat {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+
+.history > summary {
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.history[open] > summary {
+  margin-bottom: 6px;
+}
+
+.history > p + p {
+  margin-top: 6px;
+}
+
+.historyId {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
 }
 
 .choice:hover:not(:disabled) {

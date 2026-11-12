@@ -107,7 +107,9 @@ export function armable(scope: ParentNode, action: ArmAction): HTMLButtonElement
 export function replyBox(scope: ParentNode): HTMLElement | undefined {
   const target = requestScope(scope)
   return target
-    ? (all(target, 'textarea[data-answer-box]')[0] ?? all(target, 'textarea[data-comment-box]')[0])
+    ? (all(target, 'textarea[data-answer-box]')[0] ??
+        all(target, 'button[data-reply]')[0] ??
+        all(target, 'textarea[data-comment-box]')[0])
     : undefined
 }
 

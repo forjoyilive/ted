@@ -38,6 +38,7 @@ import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { DesignReviewContent } from './DesignReview.tsx'
+import { FailureActions } from './FailureActions.tsx'
 import {
   FailureRequestDetails,
   RecordedValidationSummary,
@@ -465,9 +466,17 @@ export function RequestCard({
     request.choices.includes(failureChoices['no-longer-applicable'])
       ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
       : []
-  const needsReason = (choice: string) => !readOnly && !typed && reasonChoices.includes(choice)
   const actionChoice =
     request.author.kind === 'ted' && request.choices?.length === 1 ? request.choices[0] : undefined
+  const failure =
+    request.purpose?.kind === 'failure' ||
+    reasonChoices.length > 0 ||
+    (request.choices?.includes(validateFailureChoices.retry) === true &&
+      request.choices.includes(validateFailureChoices.fix))
+  const failureActions =
+    failure && actionChoice === undefined && request.choices !== undefined
+      ? request.choices
+      : undefined
 
   return (
     <section
@@ -513,10 +522,7 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
-      ) : request.purpose?.kind === 'failure' ||
-        reasonChoices.length > 0 ||
-        (request.choices?.includes(validateFailureChoices.retry) &&
-          request.choices.includes(validateFailureChoices.fix)) ? (
+      ) : failure ? (
         <FailureRequestDetails
           taskId={task.id}
           requestId={request.id}
@@ -601,25 +607,33 @@ export function RequestCard({
           onChoose={setPicked}
         />
       )}
-      {actionChoice === undefined && request.choices && request.choices.length > 0 && (
-        <div className={styles.choices}>
-          {request.choices.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              className={
-                needsReason(choice) ? `${styles.choice} ${styles.needsReason}` : styles.choice
-              }
-              disabled={sending || readOnly || needsReason(choice)}
-              {...(needsReason(choice) && { title: 'Write your reason below first' })}
-              onClick={() => void send({ action: 'answer', choice, ...withText })}
-            >
-              {choice}
-            </button>
-          ))}
-        </div>
+      {failureActions ? (
+        <FailureActions
+          choices={failureActions}
+          reasonChoices={reasonChoices}
+          readOnly={readOnly}
+          answer={(answer) => ted.answerRequest(request.id, answer)}
+        />
+      ) : (
+        actionChoice === undefined &&
+        request.choices &&
+        request.choices.length > 0 && (
+          <div className={styles.choices}>
+            {request.choices.map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                className={styles.choice}
+                disabled={sending || readOnly}
+                onClick={() => void send({ action: 'answer', choice, ...withText })}
+              >
+                {choice}
+              </button>
+            ))}
+          </div>
+        )
       )}
-      {!readOnly && !request.round && !request.proposal && (
+      {!readOnly && !request.round && !request.proposal && !failureActions && (
         <>
           {!request.linearTeam && (
             <textarea
@@ -629,19 +643,17 @@ export function RequestCard({
               placeholder={
                 request.simulator
                   ? 'Comment…'
-                  : reasonChoices.length > 0
-                    ? 'Your reason. Fixed and No longer applicable need one…'
-                    : request.permission
-                      ? 'Comment, or say why you’re denying…'
-                      : request.design
-                        ? 'Comment, or say what to change…'
-                        : request.failed
-                          ? 'Or tell the Task Lead what to change, then Retry…'
-                          : actionChoice !== undefined
-                            ? 'Comment, or tell the Task Lead what to do next…'
-                            : request.kind === 'question' && request.choices
-                              ? 'Or write your own answer…'
-                              : 'Comment to the Task Lead…'
+                  : request.permission
+                    ? 'Comment, or say why you’re denying…'
+                    : request.design
+                      ? 'Comment, or say what to change…'
+                      : request.failed
+                        ? 'Or tell the Task Lead what to change, then Retry…'
+                        : actionChoice !== undefined
+                          ? 'Comment, or tell the Task Lead what to do next…'
+                          : request.kind === 'question' && request.choices
+                            ? 'Or write your own answer…'
+                            : 'Comment to the Task Lead…'
               }
               value={text}
               onChange={(event) => setText(event.target.value)}

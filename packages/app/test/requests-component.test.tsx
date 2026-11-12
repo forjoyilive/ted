@@ -311,48 +311,93 @@ test('pending answers disable actions and rejected answers preserve text with an
   )
 })
 
-test('a failure decision asks for a reason before Fixed or No longer applicable and shows only the daemon’s refusal', async () => {
+test('a failure decision is chosen first and then asks for its reason, and a message leaves it open', async () => {
   const refusal =
     'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
+  const pending = deferred<ReturnType<typeof comment>>()
   const answer = vi.fn((_id: unknown, request: unknown) => {
-    if ((request as { choice?: string }).choice === 'Accept this failure')
+    const { choice } = request as { choice?: string }
+    if (choice === 'Accept this failure')
       throw new Error(`Error invoking remote method 'ted:request': Error: ${refusal}`)
-    return comment()
+    return choice === 'No longer applicable' ? pending.promise : comment()
   })
   bridge({
     simulators: () => ({ supported: false }),
     answerRequest: answer,
     listFailures: () => [],
   })
-  render(
-    <RequestCard
-      task={task()}
-      request={comment({
-        kind: 'question',
-        author: { kind: 'ted' },
-        choices: ['Accept this failure', 'Fixed', 'No longer applicable'],
-      })}
-    />,
-  )
+  const request = comment({
+    kind: 'question',
+    author: { kind: 'ted' },
+    choices: ['Accept this failure', 'Fixed', 'No longer applicable'],
+  })
+  render(<RequestCard task={task()} request={request} />)
   const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
-  expect(button('Accept this failure').disabled).toBe(false)
-  expect(button('Fixed').disabled).toBe(true)
-  expect(button('No longer applicable').disabled).toBe(true)
-  expect(button('Fixed').title).toBe('Write your reason below first')
-  expect(
-    screen.getByPlaceholderText('Your reason. Fixed and No longer applicable need one…'),
-  ).toBeTruthy()
+  const box = (label: string) => screen.getByLabelText(label) as HTMLTextAreaElement
+  expect(screen.queryByRole('textbox')).toBeNull()
+  expect(button('Fixed').disabled).toBe(false)
+  expect(button('No longer applicable').disabled).toBe(false)
   const u = user()
   await u.click(button('Accept this failure'))
   expect((await screen.findByRole('alert')).textContent).toBe(refusal)
-  await u.type(screen.getByLabelText('Your answer'), 'A rerun passed.')
-  expect(button('No longer applicable').disabled).toBe(false)
+
   await u.click(button('Fixed'))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(document.activeElement).toBe(box('Why is this failure fixed?'))
+  expect(screen.getByText('A reason is required. Confirming closes this failure.')).toBeTruthy()
+  expect(button('Confirm Fixed').disabled).toBe(true)
+  await u.type(box('Why is this failure fixed?'), '   {Enter}')
+  expect(button('Confirm Fixed').disabled).toBe(true)
+  expect(answer).toHaveBeenCalledTimes(1)
+  await u.clear(box('Why is this failure fixed?'))
+  await u.type(box('Why is this failure fixed?'), 'A rerun passed.{Shift>}{Enter}{/Shift}Twice.')
+  expect(box('Why is this failure fixed?').value).toBe('A rerun passed.\nTwice.')
+  expect(answer).toHaveBeenCalledTimes(1)
+
+  await u.click(button('Cancel'))
+  await u.click(button('No longer applicable'))
+  expect(box('Why does this failure no longer apply?').value).toBe('')
+  await u.click(button('Cancel'))
+
+  await u.click(button('Send a message to the Task Lead…'))
+  expect(box('Message to the Task Lead').value).toBe('')
+  expect(
+    screen.getByText(
+      'Sending a message leaves this failure open. Choose a decision to resolve it.',
+    ),
+  ).toBeTruthy()
+  await u.type(box('Message to the Task Lead'), 'Is this the TED-128 timeout?{Enter}')
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    text: 'Is this the TED-128 timeout?',
+  })
+  await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+
+  await u.click(button('Fixed'))
+  expect(box('Why is this failure fixed?').value).toBe('A rerun passed.\nTwice.')
+  await u.click(button('Confirm Fixed'))
   expect(answer).toHaveBeenLastCalledWith('c1', {
     action: 'answer',
     choice: 'Fixed',
-    text: 'A rerun passed.',
+    text: 'A rerun passed.\nTwice.',
   })
+  await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+
+  await u.click(button('No longer applicable'))
+  await u.type(box('Why does this failure no longer apply?'), 'The Check was removed.')
+  await u.click(button('Confirm No longer applicable'))
+  expect(button('Confirm No longer applicable').disabled).toBe(true)
+  expect(button('Cancel').disabled).toBe(true)
+  await act(async () => pending.reject(new Error('Couldn’t answer')))
+  expect(screen.getByRole('alert').textContent).toBe('Couldn’t answer')
+  expect(box('Why does this failure no longer apply?').value).toBe('The Check was removed.')
+  expect(button('Confirm No longer applicable').disabled).toBe(false)
+
+  cleanup()
+  render(<RequestCard task={task()} request={request} readOnly />)
+  expect(button('Fixed').disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Send a message to the Task Lead…' })).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
 })
 
 function inboxProps() {
@@ -625,6 +670,11 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.getByText('The cause isn’t known')).toBeTruthy()
   expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
   expect(screen.getByText(/Accepting covers only this failure/)).toBeTruthy()
+  expect(screen.getByText('What failed')).toBeTruthy()
+  expect(screen.getByText('Show history · 1 evidence entry')).toBeTruthy()
+  expect(screen.getByText('contex').title).toBe('context-1')
+  expect(screen.queryByRole('textbox')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Send a message to the Task Lead…' })).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
   expect(answer).toHaveBeenCalledWith(
     expect.anything(),
