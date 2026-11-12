@@ -1,7 +1,7 @@
 import type { AgentKind } from '@ted/protocol'
 import { chatToolPolicy } from '@ted/protocol/run'
-import { Help } from './Help.tsx'
 import styles from './AntigravityChatWarning.module.css'
+import { Help } from './Help.tsx'
 
 export function AntigravityChatWarning({ agent }: { agent: AgentKind }) {
   if (chatToolPolicy(agent) !== 'isolated') return null
