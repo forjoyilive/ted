@@ -391,9 +391,14 @@ test('a Workflow without earlier Work refuses Fix and retains the decision', asy
   await waitUntil(async () => (await s.obligations()).satisfied, 'custom Workflow continuation')
 })
 
-async function restart() {
+async function restart(mergePollMs?: number) {
   await ctx.daemon?.stop()
-  ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+  ctx.daemon = await startDaemon({
+    home: ctx.home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    ...(mergePollMs !== undefined && { mergePollMs }),
+  })
   const client = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
   return {
     ...client,
@@ -593,7 +598,7 @@ test.each(
       path.join(ctx.home, 'stub-claude.json'),
       JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
     )
-  const client = await restart()
+  const client = await restart(stage === 'merge' ? 60_000 : undefined)
   if (continuation) {
     const fresh = await waitUntil(async () => {
       const cases = await client.read<FailureCase[]>(`${s.root}/failures`)

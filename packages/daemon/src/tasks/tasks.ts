@@ -682,11 +682,16 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
+  const mergeWaits = new Map<string, AbortController>()
   const checkWaits = new Map<string, AbortController>()
   options.checkSlots.watch((places) => store.setChecksWaiting(places))
   function setChecking(taskId: string, on: boolean): void {
     if (on) checking.add(taskId)
-    else checking.delete(taskId)
+    else {
+      checking.delete(taskId)
+      mergeWaits.get(taskId)?.abort()
+      if (merging.has(taskId)) watch?.kick()
+    }
     store.setTaskChecking(taskId, on)
   }
   const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
@@ -2536,7 +2541,13 @@ export function createTasks(options: {
           if (next === 'busy' || read === undefined) {
             const wait =
               next === 'busy' ? Math.min(100 * 2 ** (busy - 1), mergePollMs) : mergePollMs
-            await clockWait(clock, wait, stopping.signal)
+            const wake = new AbortController()
+            mergeWaits.set(taskId, wake)
+            try {
+              await clockWait(clock, wait, AbortSignal.any([stopping.signal, wake.signal]))
+            } finally {
+              mergeWaits.delete(taskId)
+            }
           }
         }
       } finally {

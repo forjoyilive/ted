@@ -625,12 +625,15 @@ test.each(['pure', 'extra commit', 'file mode', 'local commit'] as const)(
       data: { updatePullRequestBranch: { pullRequest: { headRefOid: rebased } } },
     })
     await watcher.cycle(id, read(remote({ headRefOid: signed, mergeStateStatus: 'BEHIND' })))
+    vi.mocked(port.checks).mockResolvedValue(false)
+    vi.mocked(port.requireObligations).mockRejectedValue(new Error('old consent is stale'))
     const result = await watcher.cycle(id, read(remote({ headRefOid: rebased })))
     if (variant === 'pure') {
       expect(result).toBe('busy')
       expect(await git(work, 'rev-parse', 'HEAD')).toBe(rebased)
       expect(store.latestRebase(id, '')).toBeDefined()
       expect(pr()?.signedOff).toBe(rebased)
+      expect(await watcher.cycle(id, read(remote({ headRefOid: rebased })))).toBe('wait')
     } else {
       expect(result).toBe('done')
       expect(current().stage).toBe('validate')

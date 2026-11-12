@@ -368,6 +368,20 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
     if (mode !== 'off') {
       if (read) recordPullRequests(task, read)
+      // Adopt our verified rebase before checking consent: the new remote head can
+      // invalidate consent for the old revision before its local worktree moves.
+      if (read && task.repos.some((repo) => rebaseAsked.has(`${taskId}:${repo.name}`))) {
+        const targets = await mergeTargets(task, resolution)
+        const remote = remoteOf(taskId, targets, read)
+        for (const target of targets) {
+          const asked = rebaseAsked.get(`${taskId}:${target.name}`)
+          const pr = remote.get(target.name)
+          if (!asked || asked.from !== target.expectedHead || !pr) continue
+          const step = nextStep(target, pr, { mergeAnyway: mergeAnyway(task) })
+          if (step.kind === 'changed' && asked.to === step.head)
+            return adoptRebase(task, target, step.head)
+        }
+      }
       if (!(await mergeChecks(taskId, resolution))) return 'wait'
       const current = find(taskId)
       if (mergeMode(store, current, (await port.resolve(current)).workflow) !== mode) return 'busy'
