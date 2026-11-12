@@ -75,9 +75,13 @@ async function failed(client: Client, task: Task, count = 1) {
   return waitUntil(async () => {
     const values = await cases(client, task)
     const t = await getTask(client, task.id)
+    const execution = (await runs(client, task)).at(-1)
     return values.length === count &&
       !t.markers.some((m) => m.kind === 'test-activity' && m.source === 'checks')
-      ? values.at(-1)
+      ? values.find(
+          (value) =>
+            value.source.kind === 'post-rebase-check' && value.source.checkRunId === execution?.id,
+        )
       : undefined
   }, 'post-rebase failure ready for diagnosis')
 }
@@ -211,8 +215,9 @@ test(
       ['Prefix', 'First', 'Later'],
       ['First', 'Later'],
     ])
-    expect((await cases(client, task))[0]?.verifications).toHaveLength(1)
-    expect((await cases(client, task))[0]?.resolutions.at(-1)?.resolution).toBe('retry')
+    const original = (await cases(client, task)).find((value) => value.id === failure.id)
+    expect(original?.verifications).toHaveLength(1)
+    expect(original?.resolutions.at(-1)?.resolution).toBe('retry')
     expect((await runs(client, task))[0]?.outcome).toBe('failed')
   },
   long,
@@ -283,7 +288,9 @@ test(
       async () => (await obligations(client, task)).satisfied,
       'repaired Checks to pass in Validate',
     )
-    expect((await cases(client, task))[0]?.verifications).toHaveLength(1)
+    expect(
+      (await cases(client, task)).find((value) => value.id === failure.id)?.verifications,
+    ).toHaveLength(1)
     const validating = await lead(client, task)
     expect(
       (await validating.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })).status,
@@ -323,13 +330,18 @@ test(
     await setGh({ mergeState: 'BEHIND' })
     await approve(client, signoff)
     const fresh = await failed(client, task, 2)
+    const execution = (await runs(client, task)).at(-1)
+    expect(fresh.id).not.toBe(failure.id)
+    expect(fresh.source).toMatchObject({
+      kind: 'post-rebase-check',
+      checkRunId: execution?.id,
+    })
+    expect(fresh.source).not.toEqual(failure.source)
     expect(fresh.contextId).not.toBe(failure.contextId)
-    expect((await cases(client, task))[0]?.invalidations).toHaveLength(1)
-    expect((await runs(client, task)).at(-1)?.checks.map((c) => c.name)).toEqual([
-      'Prefix',
-      'First',
-      'Later',
-    ])
+    expect(
+      (await cases(client, task)).find((value) => value.id === failure.id)?.invalidations,
+    ).toHaveLength(1)
+    expect(execution?.checks.map((c) => c.name)).toEqual(['Prefix', 'First', 'Later'])
     expect((await resolve(client, task, failure, request, 'accepted')).status).toBe(409)
     expect(await merges()).toEqual([])
     expect((await readGh()).merge.merged).not.toBe(true)
@@ -345,7 +357,15 @@ test(
     expect((await resolve(client, task, failure, request, 'retry')).status).toBe(200)
     const replacement = await failed(client, task, 2)
     expect(replacement.id).not.toBe(failure.id)
-    expect((await cases(client, task))[0]?.verifications?.at(-1)?.replacedBy).toBe(replacement.id)
+    expect(replacement.source).toMatchObject({
+      kind: 'post-rebase-check',
+      checkRunId: (await runs(client, task)).at(-1)?.id,
+    })
+    expect(replacement.source).not.toEqual(failure.source)
+    expect(
+      (await cases(client, task)).find((value) => value.id === failure.id)?.verifications?.at(-1)
+        ?.replacedBy,
+    ).toBe(replacement.id)
     const next = await ask(client, task, replacement)
     expect((await resolve(client, task, replacement, next, 'fix')).status).toBe(200)
     await waitForStage(client, task, 'work')
@@ -513,7 +533,9 @@ test(
     const client = await restart(initial.client)
     await polls(client)
     expect(await runs(client, task)).toHaveLength(1)
-    expect((await cases(client, task))[0]?.resolutions.at(-1)).toMatchObject({
+    expect(
+      (await cases(client, task)).find((value) => value.id === failure.id)?.resolutions.at(-1),
+    ).toMatchObject({
       resolution: 'repair',
       repairTask: { id: repair.id },
     })
