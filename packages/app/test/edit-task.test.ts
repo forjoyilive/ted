@@ -82,7 +82,6 @@ describe('Editing a Task', () => {
   test('E edits the description; the thread shows the change and the Original request stays', async () => {
     const window = await openTask()
     const thread = window.getByRole('region', { name: 'Task thread' })
-    const details = window.getByRole('complementary', { name: 'Task details' })
 
     await window.keyboard.press('e')
     const dialog = window.getByRole('dialog', { name: 'Edit NB-1' })
@@ -97,10 +96,9 @@ describe('Editing a Task', () => {
     await thread.getByText('Only in titles.').waitFor()
     await thread.getByText('In titles and bodies.').first().waitFor()
 
-    const brief = details.getByRole('region', { name: 'Task brief' })
-    await brief.getByRole('button', { name: 'Original request' }).click()
-    await brief.getByText(/Only in titles\./).waitFor()
-    await brief.getByRole('button', { name: 'Description history · 1 edit' }).click()
+    const request = thread.getByRole('region', { name: 'Original request' })
+    await request.getByText(/Only in titles\./).waitFor()
+    await request.getByRole('button', { name: 'Description history · 1 edit' }).click()
     const history = window.getByRole('dialog', { name: 'NB-1 description history' })
     await history.getByText(/^Version 2 · edited by you .* · current$/).waitFor()
     await history.getByText(/^Original request · /).waitFor()
