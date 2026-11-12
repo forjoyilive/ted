@@ -33,7 +33,6 @@ function TalkHeader({
       <div className={styles.titleRow}>
         <h1 className={styles.title}>{`Talking through Round ${request.round?.number ?? ''}`}</h1>
         <Button
-          size="small"
           disabled={busy || done}
           title={done ? 'The Task Lead is writing its summary' : undefined}
           onClick={() => {

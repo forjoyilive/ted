@@ -156,12 +156,7 @@ export function MenuButton({
   const ref = usePopover(open, close)
   return (
     <div ref={ref} className={styles.menuAnchor}>
-      <Button
-        size="small"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
+      <Button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {icon}
         {label}
         {badge !== undefined && badge > 0 && <span className={styles.badge}>{badge}</span>}
@@ -868,14 +863,10 @@ export function TaskList({
     if (inScope.length === 0) {
       return (
         <EmptyState title="No Tasks yet">
-          <Button variant="primary" size="small" onClick={onNewTask}>
+          <Button variant="primary" onClick={onNewTask}>
             New Task
           </Button>
-          {onPlan && (
-            <Button size="small" onClick={onPlan}>
-              Plan
-            </Button>
-          )}
+          {onPlan && <Button onClick={onPlan}>Plan</Button>}
         </EmptyState>
       )
     }
@@ -885,7 +876,6 @@ export function TaskList({
     return (
       <EmptyState title="No Tasks match these filters">
         <Button
-          size="small"
           onClick={() => {
             setText('')
             return changeFilters({})
@@ -939,12 +929,8 @@ export function TaskList({
         <MenuButton label="Display" icon={<DisplayIcon />}>
           {() => <DisplayMenu view={view} onChange={change} />}
         </MenuButton>
-        {onPlan && (
-          <Button size="small" onClick={onPlan}>
-            Plan
-          </Button>
-        )}
-        <Button size="small" variant="primary" onClick={onNewTask}>
+        {onPlan && <Button onClick={onPlan}>Plan</Button>}
+        <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
           New Task
         </Button>
@@ -1128,7 +1114,6 @@ export function TaskList({
               Turning on also handles waiting routine requests. Start and Resume stay separate.
             </small>
             <Button
-              size="small"
               disabled={startable.length === 0}
               onClick={() => bulk((t) => ted.startTask(t.id), startable).catch(report)}
             >
@@ -1137,7 +1122,6 @@ export function TaskList({
                 : `Start ${startable.length}`}
             </Button>
             <Button
-              size="small"
               disabled={preparable.length === 0 || preparing}
               title="Runs through Design, then waits before Work. Resume or Autopilot lets it continue."
               onClick={() => {
@@ -1157,7 +1141,6 @@ export function TaskList({
             </Button>
             {resumable.length > 0 && (
               <Button
-                size="small"
                 onClick={() => bulk((task) => ted.resumeTask(task.id), resumable).catch(report)}
               >
                 {resumable.length === chosen.length ? 'Resume' : `Resume ${resumable.length}`}
@@ -1165,7 +1148,6 @@ export function TaskList({
             )}
             <div className={styles.menuAnchor}>
               <Button
-                size="small"
                 aria-haspopup="menu"
                 aria-expanded={priorityOpen}
                 onClick={() => setPriorityOpen((o) => !o)}
@@ -1211,7 +1193,6 @@ export function TaskList({
             )}
             {confirmArchive ? (
               <Button
-                size="small"
                 variant="primary"
                 onClick={() => {
                   const close = closePullRequests && openPullRequests.length > 0
@@ -1229,11 +1210,7 @@ export function TaskList({
                 {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
               </Button>
             ) : (
-              <Button
-                size="small"
-                disabled={archivable.length === 0}
-                onClick={() => setConfirmArchive(true)}
-              >
+              <Button disabled={archivable.length === 0} onClick={() => setConfirmArchive(true)}>
                 Archive
               </Button>
             )}

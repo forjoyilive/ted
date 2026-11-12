@@ -328,13 +328,13 @@ test('List and Board keep the user request beside purple running and neutral wai
   await screen.findByRole('region', { name: 'Work' })
   const verify = () => {
     expect(screen.getByText('Waiting on you')).toBeTruthy()
-    for (const label of ['Running Checks', 'Running tests']) {
+    for (const label of ['Running checks', 'Running tests']) {
       const chip = screen.getByText(label)
       expect(chip.className).toContain('testing')
       expect(chip.querySelector('svg')?.className.baseVal).toContain('spinning')
     }
     expect(screen.getByText('Waiting for tests').className).toContain('neutral')
-    expect(screen.getByText('Running Checks').title).toBe('Typecheck · 1 of 2 Checks')
+    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 Checks')
     expect(screen.getByText('Running tests').title).toBe('2 supported test commands running')
     expect(
       screen.getByText('Waiting for tests').querySelector('svg')?.className.baseVal,
@@ -380,7 +380,7 @@ test('List and Board keep the user request beside purple running and neutral wai
   const labels = (markers: TaskMarker[]) =>
     markers.filter((m) => m.kind === 'test-activity').map((m) => m.label)
   expect(labels(taskMarkers({ ...facts, checksWaiting: { place: 2 } }, current.status))).toEqual([
-    'Waiting for Checks',
+    'Waiting for checks',
     'Running tests',
     'Waiting for tests',
   ])
@@ -391,7 +391,7 @@ test('List and Board keep the user request beside purple running and neutral wai
         current.status,
       ),
     ),
-  ).toEqual(['Waiting for Checks'])
+  ).toEqual(['Waiting for checks'])
   expect(
     taskActivity({ ...facts, testActivity: { running: 0, waiting: 0, checksWaiting: true } }),
   ).toContain('shared test slot')

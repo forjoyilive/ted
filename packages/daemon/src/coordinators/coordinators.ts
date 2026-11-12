@@ -171,6 +171,13 @@ export function createCoordinators(options: {
       : store.agentPauses()[c.lead.agent] !== undefined && c.phase !== 'ready'
         ? 'paused'
         : c.phase
+  const chatTasks = (c: StoredCoordinator): Task[] => {
+    const built = new Map(store.tasksIn(new Set(c.taskIds)).map((t) => [t.id, t]))
+    return c.taskIds.flatMap((id) => {
+      const t = built.get(id)
+      return t?.factoryId === c.factoryId ? [t] : []
+    })
+  }
   const publicChat = (c: StoredCoordinator): Coordinator => {
     const reason = agentStartHold(store, c.lead.agent, c.runId) ?? c.error
     return {
@@ -184,10 +191,7 @@ export function createCoordinators(options: {
       ...(reason !== undefined && { error: reason }),
       unsentMessages: c.unsentMessages ?? [],
       receipts: c.receipts,
-      tasks: c.taskIds.flatMap((id) => {
-        const t = store.getTask(id)
-        return t?.factoryId === c.factoryId ? [t] : []
-      }),
+      tasks: chatTasks(c),
     }
   }
   const fail = (id: string, error: unknown) => {
@@ -852,10 +856,11 @@ export function createCoordinators(options: {
     },
     list(caller, offset) {
       const c = actor(caller)
-      const all = store.listTasks().filter((t) => t.factoryId === c.factoryId)
+      const all = store.taskOutlines().filter((t) => t.factoryId === c.factoryId)
+      const shown = store.tasksIn(new Set(all.slice(offset, offset + 30).map((t) => t.id)))
       touch(
         c,
-        all.slice(offset, offset + 30).map((t) => t.id),
+        shown.map((t) => t.id),
       )
       const open = Map.groupBy(
         store.listOpenRequests().filter((r) => r.kind !== 'note'),
@@ -863,9 +868,8 @@ export function createCoordinators(options: {
       )
       return {
         now: new Date().toISOString(),
-        tasks: all
-          .slice(offset, offset + 30)
-          .map(({ id, displayId, title, stage, priority, rank, status, blockedBy, archived }) => ({
+        tasks: shown.map(
+          ({ id, displayId, title, stage, priority, rank, status, blockedBy, archived }) => ({
             id,
             displayId,
             title,
@@ -876,7 +880,8 @@ export function createCoordinators(options: {
             blockedBy,
             ...(archived && { archived }),
             ...(open.has(id) && openRequests(open.get(id) ?? [], 5)),
-          })),
+          }),
+        ),
         ...(offset + 30 < all.length && { nextOffset: offset + 30 }),
       }
     },

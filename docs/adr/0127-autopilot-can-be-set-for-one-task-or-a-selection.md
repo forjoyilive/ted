@@ -1,5 +1,7 @@
 # 0127: Autopilot can be set for one Task or a selection
 
+**Updated by KRI-376:** Autopilot no longer starts Backlog Tasks; only the Factory’s automatic-start setting does (ADR 0129). The sentence below about the global switch’s automatic starts is superseded.
+
 ## Decision
 
 Rename Overnight mode to Autopilot in the app. Keep `overnightMode` as the persisted machine-setting key. Each Task inherits the global switch by default or explicitly chooses on or off, stored through `v1.TaskAutopilotChanged`. Explicit choices take precedence. Per-Task setting changes do not Start or Resume work. The global switch retains its eligible automatic starts; an explicit off excludes a Task from those starts without disabling the Factory’s own automatic-start setting.

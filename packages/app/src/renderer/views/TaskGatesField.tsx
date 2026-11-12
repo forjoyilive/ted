@@ -86,7 +86,7 @@ export function TaskGatesField({
   const count = Object.keys(data?.overrides ?? {}).length
   return (
     <div className={styles.field}>
-      <Button size="small" disabled={busy || (!data && !error)} onClick={() => edit()}>
+      <Button disabled={busy || (!data && !error)} onClick={() => edit()}>
         {busy ? (
           <Loading compact label="Loading sign-offs…" />
         ) : data ? (
@@ -164,12 +164,11 @@ export function TaskGatesField({
           )}
           <div className={styles.actions}>
             {changed ? (
-              <Button size="small" disabled={busy} onClick={() => edit()}>
+              <Button disabled={busy} onClick={() => edit()}>
                 Reload sign-offs
               </Button>
             ) : (
               <Button
-                size="small"
                 disabled={busy || !editable}
                 onClick={() =>
                   setDraft((before) => {
@@ -183,7 +182,6 @@ export function TaskGatesField({
               </Button>
             )}
             <Button
-              size="small"
               disabled={busy}
               onClick={() => {
                 original.current = undefined
@@ -192,7 +190,7 @@ export function TaskGatesField({
             >
               Cancel
             </Button>
-            <Button size="small" disabled={busy || changed || !editable} onClick={() => save()}>
+            <Button disabled={busy || changed || !editable} onClick={() => save()}>
               {busy ? 'Saving…' : 'Save'}
             </Button>
           </div>

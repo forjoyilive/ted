@@ -17,6 +17,7 @@ export interface TaskFacts {
   stage: StageId
   runs: readonly RunState[]
   openRequests?: number
+  requestsSnoozedUntil?: string
   failed?: boolean
   partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
@@ -80,7 +81,10 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.failed) return { kind: 'failed' }
   if (facts.partlyMerged) return { kind: 'partly-merged' }
   if ((facts.openRequests ?? 0) > 0 || facts.runs.includes('waiting')) {
-    return { kind: 'waiting-on-you' }
+    return {
+      kind: 'waiting-on-you',
+      ...(facts.requestsSnoozedUntil !== undefined && { snoozedUntil: facts.requestsSnoozedUntil }),
+    }
   }
   if (facts.paused !== undefined) return { kind: 'paused', reason: facts.paused }
   if (facts.tedWorking || facts.settingUp || facts.runs.includes('working')) {
@@ -145,7 +149,7 @@ function testMarkers(facts: TaskFacts): TaskMarker[] {
       kind: 'test-activity',
       source,
       phase,
-      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'Checks' : 'tests'}`,
+      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'checks' : 'tests'}`,
       detail,
     })
   }

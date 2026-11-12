@@ -2,6 +2,7 @@ import type { BlockedChoice, Task } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTaskRuns, useTasks } from '../data.ts'
 import { stageName } from '../list-view.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import styles from './ArchiveDialogs.module.css'
@@ -305,7 +306,8 @@ export function FollowUpDialog({
   onClose: () => void
   onCreated?: (created: Task) => void
 }) {
-  const [text, setText] = useState('')
+  const draft = useMessageDraft({ kind: 'follow-up', id: task.id })
+  const { text, setText } = draft
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
   const [error, setError] = useState<string>()
@@ -317,6 +319,7 @@ export function FollowUpDialog({
     setError(undefined)
     try {
       const created = await ted.followUpTask(task.id, text.trim() === '' ? undefined : text)
+      draft.clear()
       onClose()
       onCreated?.(created)
     } catch (failure) {

@@ -18,3 +18,5 @@ export type WaitingRequest =
     })
   | (WaitingBase & { source: 'automation'; automationId: string; automationName: string })
   | (WaitingBase & { source: 'plan'; kind: CommentKind; planId: string; planTitle: string })
+
+export type SnoozedRequest = WaitingRequest & { snoozedUntil: string }
