@@ -5607,6 +5607,7 @@ export function createTasks(options: {
       if (parent) releaseParent(parent.id, wasBlocked)
       for (const id of [...ids].reverse()) await removeOne(id, input)
     } finally {
+      if (parent) releaseParent(parent.id, wasBlocked)
       for (const id of affected) hierarchyBusy.delete(id)
     }
     wake()

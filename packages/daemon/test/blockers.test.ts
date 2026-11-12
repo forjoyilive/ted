@@ -827,7 +827,7 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
   let client = await startTed()
   const app = await hierarchyApp()
   const cases: { parent: Task; child: Task; operation: string }[] = []
-  for (const operation of ['unlink', 'reparent', 'archive', 'delete']) {
+  for (const operation of ['unlink', 'reparent', 'archive', 'delete', 'delete-with-manual-blocker']) {
     const parent = await create(client, steps({ endTurn: true }))
     await client.ok('POST', `/tasks/${parent.id}/start`, { prepare: true })
     const preparing = await waitFor(
@@ -852,6 +852,14 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
     const child = await create(client, `${operation} child`)
     await client.ok('PUT', `/tasks/${child.id}/autopilot`, { choice: 'off' })
     await parentOf(app, child, parent)
+    if (operation === 'delete-with-manual-blocker') {
+      await block(client, parent, child)
+      expect(await getTask(client, parent.id)).toMatchObject({
+        blockedBy: [child.id],
+        childIds: [child.id],
+        preparation: 'ready',
+      })
+    }
     cases.push({ parent, child, operation })
   }
   const destination = await create(client, 'Reparent destination')
@@ -869,6 +877,8 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
       status: { kind: 'stopped' },
     })
     expect((await getTask(client, parent.id)).preparation).toBeUndefined()
+    if (operation === 'delete-with-manual-blocker')
+      expect(await getTask(client, parent.id)).toMatchObject({ blockedBy: [], childIds: [] })
   }
   await daemon?.stop()
   client = await openTed()
@@ -878,15 +888,19 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
     expect((await getTask(client, parent.id)).runs).toEqual([])
     expect((await getTask(client, parent.id)).status?.kind).toBe('stopped')
   }
-  const parent = cases[0]?.parent
-  if (!parent) throw new Error('no prepared parent')
-  await client.ok('POST', `/tasks/${parent.id}/resume`, {})
-  await waitFor(
-    client,
-    parent,
-    (task) => task.runs[0]?.state === 'idle',
-    'to continue Work only after explicit Resume',
-  )
+  for (const entry of [
+    cases[0],
+    cases.find((entry) => entry.operation === 'delete-with-manual-blocker'),
+  ]) {
+    if (!entry) throw new Error('no prepared parent')
+    await client.ok('POST', `/tasks/${entry.parent.id}/resume`, {})
+    await waitFor(
+      client,
+      entry.parent,
+      (task) => task.runs[0]?.state === 'idle',
+      'to continue Work only after explicit Resume',
+    )
+  }
 }, 90_000)
 
 test('nested parents wait for children to merge while independent Tasks run, and Done parents only permit explicit unlink and restore', async () => {
