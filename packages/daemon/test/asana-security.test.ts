@@ -278,6 +278,11 @@ test('fallback rejects symlink folders and public files; production ignores test
 test('authorization holds idle shutdown through browser waiting and exchange, and releases on settlement', async () => {
   const time = new ManualClock()
   const onIdle = vi.fn()
+  async function idleAfterCleanup(count: number) {
+    await waitUntil(() => time.pending.includes(100), 'idle countdown after asynchronous cleanup')
+    time.advance(100)
+    expect(onIdle).toHaveBeenCalledTimes(count)
+  }
   const { client } = await start({ clock: time, idleExit: { afterMs: 100, onIdle } })
   await client.configureAsana(config)
   const attempt = await connect(client)
@@ -298,21 +303,18 @@ test('authorization holds idle shutdown through browser waiting and exchange, an
     stub.hold(undefined)
   }
   await connected(client)
-  time.advance(100)
-  expect(onIdle).toHaveBeenCalledTimes(1)
+  await idleAfterCleanup(1)
   await client.connectAsana()
   time.advance(1000)
   expect(onIdle).toHaveBeenCalledTimes(1)
   await client.cancelAsana()
-  time.advance(100)
-  expect(onIdle).toHaveBeenCalledTimes(2)
+  await idleAfterCleanup(2)
   const denied = new URL((await connect(client)).callback)
   denied.searchParams.delete('code')
   denied.searchParams.set('error', 'access_denied')
   await fetch(denied)
   await client.getAsana()
-  time.advance(100)
-  expect(onIdle).toHaveBeenCalledTimes(3)
+  await idleAfterCleanup(3)
   const occupied = http.createServer()
   await new Promise<void>((resolve) => occupied.listen(callbackPort, '127.0.0.1', resolve))
   try {
@@ -320,16 +322,13 @@ test('authorization holds idle shutdown through browser waiting and exchange, an
   } finally {
     await new Promise<void>((resolve) => occupied.close(() => resolve()))
   }
-  time.advance(100)
-  expect(onIdle).toHaveBeenCalledTimes(4)
+  await idleAfterCleanup(4)
   await client.connectAsana()
   time.advance(5 * 60_000)
-  time.advance(100)
-  expect(onIdle).toHaveBeenCalledTimes(5)
+  await idleAfterCleanup(5)
   await client.connectAsana()
   await client.configureAsana(config)
-  time.advance(100)
-  expect(onIdle).toHaveBeenCalledTimes(6)
+  await idleAfterCleanup(6)
   await client.connectAsana()
   await daemon?.stop()
   daemon = undefined
