@@ -10,6 +10,7 @@ import {
   makeOriginRepo,
   removeHome,
   stopDaemonIn,
+  stubCodexPath,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
@@ -50,6 +51,8 @@ const env = () => ({
   TED_IDLE_EXIT_MS: '30000',
   TED_HIDDEN_WINDOW: '1',
   TED_CLAUDE_BIN: stubClaudePath,
+  TED_CODEX_BIN: stubCodexPath,
+  TED_ANTIGRAVITY_BIN: path.join(home, 'no-antigravity-here'),
 })
 
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })

@@ -11,6 +11,7 @@ import {
   removeHome,
   stopDaemonIn,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
@@ -46,6 +47,8 @@ const env = () => ({
   TED_HOME: home,
   TED_IDLE_EXIT_MS: '30000',
   TED_CLAUDE_BIN: stubClaudePath,
+  TED_CODEX_BIN: stubCodexPath,
+  TED_ANTIGRAVITY_BIN: path.join(home, 'no-antigravity-here'),
   TED_HIDDEN_WINDOW: '1',
 })
 

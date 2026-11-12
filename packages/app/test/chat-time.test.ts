@@ -75,9 +75,7 @@ test('chat timestamps keep advancing while idle and after a tool finishes', asyn
     .getByRole('button', { name: /Task Lead/ })
     .click()
   const chat = window.getByRole('region', { name: 'Run chat' })
-  const message = chat
-    .locator('[data-chat-item]')
-    .filter({ hasText: 'Ready for the next step.' })
+  const message = chat.locator('[data-chat-item]').filter({ hasText: 'Ready for the next step.' })
   await message.getByText('just now', { exact: true }).waitFor()
   await window.clock.runFor(60_000)
   await message.getByText('1m ago', { exact: true }).waitFor({ timeout: 2000 })
