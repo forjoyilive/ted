@@ -3344,11 +3344,7 @@ export async function openStore({
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),
     openBlockedTasks: () =>
-      [
-        ...new Set(
-          store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId),
-        ),
-      ]
+      [...new Set(store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId))]
         .flatMap((id) => taskRow(id) ?? [])
         .filter((row) => row.stage !== 'done' && row.archivedAt === null)
         .sort((a, b) => a.number - b.number)
