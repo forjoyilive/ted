@@ -103,6 +103,7 @@ import {
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { agentStartHold } from '../agent-eligibility.ts'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
@@ -1284,6 +1285,12 @@ export function createTasks(options: {
           return []
         const run = liveLeadOf(store, task)
         if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
+        const nextAgent = task.lead?.agent ?? run.agent
+        if (
+          !includeFailures &&
+          agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
+        )
+          return []
         return [
           {
             id,
@@ -1322,10 +1329,12 @@ export function createTasks(options: {
             false,
             (id) => {
               const now = find(taskId)
+              const nextAgent = now.lead?.agent ?? run.agent
               return (
                 !now.stopped &&
                 !now.archived &&
                 !now.waitsForBlockers &&
+                !agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined) &&
                 store.newWorkHold() === undefined &&
                 now.leadRunId === run.id &&
                 store.getRun(run.id)?.state !== 'finished' &&
@@ -1356,7 +1365,11 @@ export function createTasks(options: {
 
   function subAgentRunnable(id: string): boolean {
     const request = store.subAgentRequests().find((r) => r.id === id)
-    return request !== undefined && store.agentPauses()[request.agent] === undefined
+    return (
+      request !== undefined &&
+      !agentStartHold(store, request.agent) &&
+      store.agentPauses()[request.agent] === undefined
+    )
   }
 
   function heldReady(): QueueEntry[] {
@@ -1364,7 +1377,13 @@ export function createTasks(options: {
     return store.heldRuns().flatMap((held) => {
       const task = store.getTask(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
-      if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
+      if (
+        !task ||
+        agentStartHold(store, agent) ||
+        paused[agent] !== undefined ||
+        holds.has(task.id)
+      )
+        return []
       if (task.waitsForBlockers || task.stopped) return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
@@ -1375,7 +1394,9 @@ export function createTasks(options: {
     return leadLifecycle
       .reviveCandidates()
       .flatMap(({ taskId, factoryId, agent }) =>
-        paused[agent] !== undefined || holds.has(taskId)
+        agentStartHold(store, agent, store.getTask(taskId)?.leadRunId) ||
+        paused[agent] !== undefined ||
+        holds.has(taskId)
           ? []
           : [{ id: taskId, kind: 'task' as const, rank: -1, factoryId }],
       )
@@ -1524,7 +1545,7 @@ export function createTasks(options: {
     const paused = store.agentPauses()
     return entries.filter((entry) => {
       const agent = store.getTask(entry.id)?.lead?.agent
-      return agent === undefined || paused[agent] === undefined
+      return agent === undefined || (!agentStartHold(store, agent) && paused[agent] === undefined)
     })
   }
 
@@ -2833,11 +2854,15 @@ export function createTasks(options: {
   }
 
   const leadFrom = (settings?: WorkflowSettings) =>
-    resolveAgentChoices(settings, {
-      claude: agents.installed('claude'),
-      antigravity: agents.installed('antigravity'),
-      codex: agents.installed('codex'),
-    }).lead
+    resolveAgentChoices(
+      settings,
+      {
+        claude: agents.installed('claude'),
+        antigravity: agents.installed('antigravity'),
+        codex: agents.installed('codex'),
+      },
+      store.settings().enabledAgents,
+    ).lead
 
   const subAgents = createSubAgents({
     store,
@@ -2886,12 +2911,23 @@ export function createTasks(options: {
       await health.ready(agent).catch(() => false)
       return { lead: { agent, ...tuned } }
     }
-    const other: AgentKind = lead.agent === 'claude' ? 'codex' : 'claude'
+    const enabled = store.settings().enabledAgents
+    const other = enabled.find((kind) => kind !== lead.agent) ?? enabled[0] ?? lead.agent
     const canRun = async (kind: AgentKind) =>
+      enabled.includes(kind) &&
       agents.installed(kind) &&
       store.agentPauses()[kind] === undefined &&
       (await health.ready(kind))
-    const agent = (await canRun(other)) ? other : (await canRun(lead.agent)) ? lead.agent : other
+    let agent = other
+    for (const kind of [
+      ...enabled.filter((kind) => kind !== lead.agent),
+      ...enabled.filter((kind) => kind === lead.agent),
+    ]) {
+      if (await canRun(kind)) {
+        agent = kind
+        break
+      }
+    }
     return { lead: { agent, ...tuned }, ...(agent !== other && { unavailable: other }) }
   }
 
@@ -7359,11 +7395,15 @@ export function createTasks(options: {
       if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
       const resolution = await resolveWorkflow(factory, { fetch: false })
       const depth = resolution.workflow.settings.stages.clarify?.depth
-      const choices = resolveAgentChoices(resolution.workflow.settings, {
-        claude: agents.installed('claude'),
-        antigravity: agents.installed('antigravity'),
-        codex: agents.installed('codex'),
-      })
+      const choices = resolveAgentChoices(
+        resolution.workflow.settings,
+        {
+          claude: agents.installed('claude'),
+          antigravity: agents.installed('antigravity'),
+          codex: agents.installed('codex'),
+        },
+        store.settings().enabledAgents,
+      )
       return {
         lead: { ...choices.lead, effortMode: 'stage' },
         planner: choices.planner,

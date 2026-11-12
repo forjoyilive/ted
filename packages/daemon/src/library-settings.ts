@@ -203,6 +203,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       const resolved = resolveAgentChoices(
         { ...merged, [role]: defaults[role] } as typeof merged,
         installed,
+        options.store.settings().enabledAgents,
       )
       return {
         role,

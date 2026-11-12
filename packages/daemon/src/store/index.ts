@@ -1665,18 +1665,31 @@ export async function openStore({
         !recovering &&
         !waitsForBlockers &&
         repos.some((r) => !r.removed) && { interrupted: true }),
-      ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
+      ...((place > 0 || held) && {
+        queue:
+          (leadAgent ?? held?.agent) &&
+          !reads.settings().enabledAgents.includes((leadAgent ?? held?.agent) as AgentKind) &&
+          (!leadLive || lead?.agent !== (leadAgent ?? held?.agent))
+            ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Agents.` }
+            : place > 0
+              ? newWorkHeld === undefined
+                ? { place }
+                : { hold: newWorkHeld }
+              : { hold: 'Waiting for the agent' },
+      }),
       ...(place > 0 && heldForLoad && { heldForLoad }),
       queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({
         id: r.id,
         ...(paused[r.agent as AgentKind] !== undefined && {
           paused: paused[r.agent as AgentKind],
         }),
-        ...(newWorkHeld !== undefined
-          ? { hold: newWorkHeld }
-          : heldForLoad
-            ? { hold: busyHold }
-            : {}),
+        ...(!reads.settings().enabledAgents.includes(r.agent as AgentKind)
+          ? { hold: `${r.agent} is off. Enable it in Settings → Agents.` }
+          : newWorkHeld !== undefined
+            ? { hold: newWorkHeld }
+            : heldForLoad
+              ? { hold: busyHold }
+              : {}),
       })),
       pausedRuns,
       runs: live.map((r) => r.state as RunState),
@@ -5221,6 +5234,10 @@ export async function openStore({
           }),
         )
         emit({ type: 'settings-changed', settings: settings() })
+        if (changes.enabledAgents) {
+          updatedQueue()
+          for (const held of store.query(queryDb(heldRuns))) updatedTask(held.taskId)
+        }
         if ('overnightMode' in changed) for (const row of store.query(allTasks)) updatedTask(row.id)
       }
       return settings()

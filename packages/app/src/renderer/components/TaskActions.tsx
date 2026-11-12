@@ -9,6 +9,7 @@ import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '..
 import { readableError, ted } from '../ted.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
 import { ActionButton } from './ActionButton.tsx'
+import { useEnabledAgents } from './AgentOptions.tsx'
 import {
   ArchiveDialog,
   archiveTaskEvent,
@@ -87,9 +88,11 @@ function Choice({
   label,
   checked,
   onChoose,
+  disabled,
 }: {
   label: string
   checked: boolean
+  disabled?: boolean
   onChoose: () => void
 }) {
   return (
@@ -97,6 +100,7 @@ function Choice({
       type="button"
       role="menuitemradio"
       aria-checked={checked}
+      disabled={disabled}
       className={styles.item}
       onClick={onChoose}
     >
@@ -154,6 +158,7 @@ export function TaskActionsMenu({
   onFollowedUp?: (followUp: Task) => void
   onOpenBrief?: (() => void) | undefined
 }) {
+  const enabledAgents = useEnabledAgents()
   const [position, setPosition] = useState<MenuPosition>()
   const open = position !== undefined
   const close = () => {
@@ -434,20 +439,23 @@ export function TaskActionsMenu({
           </Submenu>
           {task.stage !== 'done' && (
             <Submenu label="Task Lead" hint={task.lead ? leadSummary(task.lead) : 'Default'}>
-              {agentKinds.map((agent) => (
-                <Choice
-                  key={agent}
-                  label={agentLabels[agent]}
-                  checked={task.lead?.agent === agent}
-                  onChoose={() =>
-                    act(() =>
-                      task.lead?.agent === agent
-                        ? Promise.resolve()
-                        : ted.setTaskLead(task.id, { agent }),
-                    )
-                  }
-                />
-              ))}
+              {agentKinds
+                .filter((agent) => enabledAgents.includes(agent) || task.lead?.agent === agent)
+                .map((agent) => (
+                  <Choice
+                    key={agent}
+                    label={`${agentLabels[agent]}${enabledAgents.includes(agent) ? '' : ' · Off — new Runs wait'}`}
+                    disabled={!enabledAgents.includes(agent)}
+                    checked={task.lead?.agent === agent}
+                    onChoose={() =>
+                      act(() =>
+                        task.lead?.agent === agent
+                          ? Promise.resolve()
+                          : ted.setTaskLead(task.id, { agent }),
+                      )
+                    }
+                  />
+                ))}
             </Submenu>
           )}
           {task.stage !== 'done' &&

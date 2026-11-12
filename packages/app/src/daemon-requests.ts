@@ -152,6 +152,8 @@ export const forwardedRequests = [
   'checkTryOutput',
   'setRepoLocalFolder',
   'clearRepoLocalFolder',
+  'agentAvailability',
+  'changeAgentAvailability',
   'getSettings',
   'updateSettings',
   'getDataStatus',
