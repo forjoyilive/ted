@@ -1855,6 +1855,17 @@ export function createTasks(options: {
       store.sendBackAsks(task.id).some((ask) => !store.getComment(ask.commentId)?.answer)
     )
       return
+    if (task.stage === 'merge') {
+      const current = find(task.id)
+      const mode = mergeMode(current, (await taskWorkflow(current, { fetch: false })).workflow)
+      if (current.stopped || mode === undefined || mode === 'off' || mode === 'canceled') return
+      await mergeSendBack(
+        task.id,
+        failureCaseFindings(value),
+        value.source.kind === 'post-rebase-check' ? value.source.checkRunId : undefined,
+      )
+      return
+    }
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const sent = store.listSendBacks(task.id).find(matches)
     if (sent) {
@@ -2560,25 +2571,7 @@ export function createTasks(options: {
   }
 
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
-    setChecking(taskId, true)
-    try {
-      const started = await validation.begin(find(taskId), resolution, 'merge')
-      if (!started) return true
-      const result = await started.done
-      if (result.outcome === 'passed') return true
-      if (result.outcome === 'interrupted') return false
-      const checkRun = store.getCheckRun(started.checkRun.id) ?? started.checkRun
-      const current = find(taskId)
-      const findings = (await failedFindings(current, checkRun)) ?? summary(checkRun.checks)
-      await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
-        mode: 0o600,
-      })
-      setChecking(taskId, false)
-      await mergeSendBack(taskId, findings, checkRun.id)
-      return false
-    } finally {
-      setChecking(taskId, false)
-    }
+    return validation.merge(taskId, resolution)
   }
 
   async function mergeSendBack(
@@ -3529,9 +3522,8 @@ export function createTasks(options: {
         if (!(await incorporateRepairs(find(taskId)))) return
         const current = find(taskId)
         if (current.archived || current.stopped || current.waitsForBlockers) return
-        const resolution = await taskWorkflow(current, { fetch: false })
         if (current.stage === 'validate') await validation.enter(taskId)
-        else if (current.stage === 'merge') await mergeChecks(taskId, resolution)
+        else if (current.stage === 'merge') watchMerge(taskId)
       } finally {
         setChecking(taskId, false)
       }
@@ -6362,6 +6354,7 @@ export function createTasks(options: {
     setChecking,
     isChecking: (id) => checking.has(id),
     deliver: (task, text) => deliver(task, text, true),
+    notify: (task) => sendWaiting(task.id),
     instructions: async (task, resolution, message) => {
       const round = await validateRound(task, resolution.workflow)
       return [
@@ -6371,7 +6364,8 @@ export function createTasks(options: {
     },
     apps: startSetupApps,
     fix: applyValidationFix,
-    checkFix: (resolution) => checkBack(resolution.workflow, 'validate', 'work'),
+    checkFix: (resolution, task) =>
+      checkBack(resolution.workflow, task.stage as AgentStageId, 'work'),
     holding,
     background: inBackground,
   })
@@ -7051,7 +7045,7 @@ export function createTasks(options: {
         } else if (
           !repairedMergeFailure &&
           (!value.validation ||
-            !['finding', 'factory-check'].includes(value.source.kind) ||
+            !['finding', 'factory-check', 'post-rebase-check'].includes(value.source.kind) ||
             task.stage !== 'validate')
         )
           throw new RequestError(
@@ -7919,7 +7913,11 @@ export function createTasks(options: {
                   409,
                   'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
                 )
-              if (value.source.kind === 'factory-check') failedCheck = value.source.checkRunId
+              if (
+                value.source.kind === 'factory-check' ||
+                value.source.kind === 'post-rebase-check'
+              )
+                failedCheck = value.source.checkRunId
             }
             checkBack(workflow, stage, outcome.to)
             if (

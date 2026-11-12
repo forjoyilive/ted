@@ -457,6 +457,7 @@ test('a requested rebase is remembered and a previously recorded rebase reruns C
   expect(gh.graphql).toHaveBeenCalledTimes(1)
   expect(pr()?.waiting).toBe('ci')
   store.branchRebased(id, 'widgets', { commit: 'rebased', onto: 'main' })
+  vi.mocked(port.checks).mockClear()
   vi.mocked(port.checks).mockResolvedValue(false)
   expect(await watcher.cycle(id, read(remote({ headRefOid: 'rebased' })))).toBe('wait')
   expect(port.checks).toHaveBeenCalledTimes(1)
@@ -639,3 +640,58 @@ test.each(['pure', 'extra commit', 'file mode', 'local commit'] as const)(
     expect(gh.run).not.toHaveBeenCalled()
   },
 )
+
+test('a historical passing post-rebase run cannot bypass the current Check determination', async () => {
+  store.branchRebased(id, 'widgets', { commit: head, onto: 'main' })
+  const previous = store.startChecks({ taskId: id, trigger: 'merge', stage: 'merge', checks: [] })
+  store.finishChecks(previous.id, 'passed')
+  vi.mocked(port.checks).mockResolvedValue(false)
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.checks).toHaveBeenCalledTimes(1)
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(port.postGate).not.toHaveBeenCalled()
+})
+
+test('all repos wait for current local Check obligations before the first merge', async () => {
+  secondRepo()
+  store.branchRebased(id, 'widgets', { commit: head, onto: 'main' })
+  vi.mocked(port.checks).mockResolvedValue(false)
+  await watcher.cycle(id, both())
+  await watcher.cycle(id, both())
+  expect(gh.run).not.toHaveBeenCalled()
+  vi.mocked(port.checks).mockResolvedValue(true)
+  expect(await watcher.cycle(id, both())).toBe('done')
+  expect(vi.mocked(gh.run).mock.calls.map(([args]) => args[2])).toEqual(['7', '8'])
+})
+
+test('post-rebase Check decisions hold the Merge Gate and cannot override cancellation or Merge off', async () => {
+  gate()
+  store.branchRebased(id, 'widgets', { commit: head, onto: 'main' })
+  vi.mocked(port.checks).mockResolvedValue(false)
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.postGate).not.toHaveBeenCalled()
+  vi.mocked(port.checks).mockResolvedValue(true)
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.postGate).toHaveBeenCalledTimes(1)
+  expect(gh.run).not.toHaveBeenCalled()
+  vi.mocked(port.checks).mockClear()
+  store.mergeCanceled(id, 'human-cancellation')
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(port.checks).not.toHaveBeenCalled()
+  resolution.workflow.stages = ['work', 'validate', 'review']
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.checks).not.toHaveBeenCalled()
+  expect(gh.run).not.toHaveBeenCalled()
+})
+
+test('cancelling while local Check coverage settles prevents posting a Merge sign-off', async () => {
+  gate()
+  vi.mocked(port.checks).mockImplementation(async () => {
+    store.mergeCanceled(id, 'human-cancellation')
+    return true
+  })
+  expect(await watcher.cycle(id, read())).toBe('busy')
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(port.postGate).not.toHaveBeenCalled()
+  expect(gh.run).not.toHaveBeenCalled()
+})

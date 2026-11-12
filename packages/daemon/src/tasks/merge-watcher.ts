@@ -97,21 +97,6 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     }
   }
 
-  function mergeChecksPending(task: StoredTask): boolean {
-    const since = visitStart(task)
-    const rebasedAt = store.latestRebase(task.id, since)
-    if (rebasedAt === undefined) return false
-    return !store
-      .listCheckRuns()
-      .some(
-        (r) =>
-          r.taskId === task.id &&
-          r.trigger === 'merge' &&
-          r.outcome === 'passed' &&
-          r.startedAt >= rebasedAt,
-      )
-  }
-
   async function adoptRebase(
     task: StoredTask,
     target: MergeWork,
@@ -380,6 +365,12 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (mode === undefined) return 'done'
     if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
     if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
+    if (mode !== 'off') {
+      if (read) recordPullRequests(task, read)
+      if (!(await mergeChecks(taskId, resolution))) return 'wait'
+      const current = find(taskId)
+      if (mergeMode(store, current, (await port.resolve(current)).workflow) !== mode) return 'busy'
+    }
     if (store.failures.list(task.id).length > 0) {
       if (read) recordPullRequests(task, read)
       try {
@@ -393,7 +384,6 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     }
     if (mode === 'off') return watchOnlyCycle(taskId, read)
     if (mode === 'merge') startMerging(store, task, resolution.workflow)
-    if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
     const targets = await mergeTargets(find(taskId), resolution)
     if (targets.length === 0) return finishMerge(taskId)
     const unsigned = targets.find((t) => t.expectedHead === '')
