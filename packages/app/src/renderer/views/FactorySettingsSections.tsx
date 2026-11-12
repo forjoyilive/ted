@@ -21,6 +21,7 @@ import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
 import { useEventValue } from '../data.ts'
@@ -932,17 +933,20 @@ function AgentRow({
         controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.agent ?? 'claude'}
-        onChange={(event) => update({ agent: event.target.value })}
+        onChange={(event) => update({ agent: event.target.value, model: '' })}
       >
         <AgentOptions current={shown.agent} same={row.role === 'reviewer'} />
       </Select>
-      <input
+      <ModelSelect
+        fullWidth
         aria-label={`${name} model`}
-        className={`${styles.cellInput} ${base.mono}`}
-        placeholder="default model"
+        controlClassName={styles.cellSelect}
+        inputClassName={`${styles.cellInput} ${base.mono}`}
+        defaultLabel="default model"
         disabled={locked}
+        agent={shown.agent ?? 'claude'}
         value={shown.model ?? ''}
-        onChange={(event) => update({ model: event.target.value })}
+        onChange={(model) => update({ model })}
       />
       <Select
         fullWidth

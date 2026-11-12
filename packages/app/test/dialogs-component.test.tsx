@@ -132,8 +132,29 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
   const api = bridge({ setTaskLead: save })
   const view = render(<TaskLeadField task={task()} />)
   const u = user()
+  const model = () => screen.getByLabelText('Model') as HTMLSelectElement
+  const listed = () => [...model().options].map((option) => option.text)
+  expect(listed()).toEqual(['Default model', 'fable', 'opus', 'sonnet', 'haiku', 'Other…'])
+  await u.selectOptions(model(), 'opus')
   await u.selectOptions(screen.getByLabelText('Agent'), 'codex')
-  await u.type(screen.getByLabelText('Model'), 'gpt-6-mini')
+  expect(model().value).toBe('')
+  expect(listed()).toEqual([
+    'Default model',
+    'gpt-6-astra',
+    'gpt-6.1-sol',
+    'gpt-6.1-terra',
+    'gpt-6-luna',
+    'Other…',
+  ])
+  await u.selectOptions(model(), 'gpt-6.1-sol')
+  await u.selectOptions(model(), 'Other…')
+  await u.type(screen.getByLabelText('Model'), 'not-kept{Escape}')
+  expect(model().value).toBe('gpt-6.1-sol')
+  await u.selectOptions(model(), 'Other…')
+  await u.type(screen.getByLabelText('Model'), ' gpt-6-mini {Enter}')
+  expect(save).not.toHaveBeenCalled()
+  expect(model().value).toBe('gpt-6-mini')
+  expect(listed().slice(-2)).toEqual(['gpt-6-mini', 'Other…'])
   await u.selectOptions(screen.getByLabelText('Effort'), 'low')
   await u.click(screen.getByRole('button', { name: 'Save' }))
   expect(api.request).toHaveBeenCalledWith('setTaskLead', 'NB-1', {
@@ -146,7 +167,7 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
   )
   expect(screen.getByText('Codex · gpt-6-mini · low')).toBeTruthy()
   view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', model: 'opus' } })} />)
-  expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('opus')
+  expect(model().value).toBe('opus')
   expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude')
   expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('')
 })
@@ -238,8 +259,7 @@ test('following Stage effort survives a model edit and can be replaced with expl
   )
   expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
   const u = user()
-  await u.clear(screen.getByLabelText('Model'))
-  await u.type(screen.getByLabelText('Model'), 'sonnet')
+  await u.selectOptions(screen.getByLabelText('Model'), 'sonnet')
   await u.click(screen.getByRole('button', { name: 'Save' }))
   expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
     agent: 'claude',
