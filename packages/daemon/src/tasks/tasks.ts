@@ -2188,7 +2188,18 @@ export function createTasks(options: {
 
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
     if (closed) return
-    const unarchived = store.unarchivedTaskRepos()
+    // Only a Task with a pull request or a failure case can be affected by what GitHub
+    // reported; building every other Task after every read held the daemon for a long time.
+    const unarchived = store
+      .unarchivedTaskRepos()
+      .filter(
+        ({ id, repos }) =>
+          repos.some((repo) => !repo.removed && repo.pullRequest) ||
+          store.failures.list(id).length > 0,
+      )
+    const breathe = () => new Promise<void>((resolve) => setImmediate(resolve))
+    // No pause in this loop: a caller waiting for this read must find the CI it reported
+    // already noted, or its tested context counts as superseded.
     for (const { id, stage } of unarchived) {
       if (stage === 'done') continue
       const task = store.getTask(id)
@@ -2205,6 +2216,8 @@ export function createTasks(options: {
     for (const { id, stage, repos } of unarchived) {
       if (closed) return
       if (stage === 'done' && !repos.some((repo) => read.pulls.has(`${id}:${repo.name}`))) continue
+      await breathe()
+      if (closed) return
       const task = store.getTask(id)
       if (!task || task.archived) continue
       try {
@@ -2217,7 +2230,11 @@ export function createTasks(options: {
         ) {
           inBackground(`verify ${task.displayId}’s failure context`, () =>
             holding(task, async () => {
-              const context = await failures.snapshot(find(task.id)).catch(() => null)
+              // With the read just made: asking for a fresh one here made every read cause
+              // the next, without end, while any open Task had a failure case.
+              const context = await failures
+                .snapshot(find(task.id), (bindCi) => failureSnapshot(find(task.id), read, bindCi))
+                .catch(() => null)
               if (!closed) await failures.obligations(find(task.id), context)
             }),
           )
