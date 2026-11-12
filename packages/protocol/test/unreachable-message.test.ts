@@ -42,13 +42,19 @@ test('an unreachable daemon says why, in the app’s words, without the port', a
   const closed = await listen(() => undefined)
   servers.pop()?.close()
   expect(await failure(client(closed).listTasks())).toBe(
-    'TED in the background isn’t running. Try again in a moment; TED starts it again on its own.',
+    'TED in the background isn’t running. Try again in a moment.',
   )
 
   const resets = await listen((socket) => socket.resetAndDestroy())
   expect(await failure(client(resets).listTasks())).toBe(
-    'TED in the background stopped before it answered. Try again in a moment; TED starts it again on its own.',
+    'TED in the background closed the connection before it answered. Try again in a moment.',
   )
+
+  const stalls = await listen((socket) => {
+    socket.resume()
+    socket.write('HTTP/1.1 200 OK\r\ncontent-length: 10\r\n\r\n[')
+  })
+  expect(await failure(client(stalls, 1000).listTasks())).toContain('hasn’t answered for 1 second')
 
   const silent = await listen((socket) => socket.resume())
   expect(await failure(client(silent, 1000).listTasks())).toBe(

@@ -1651,12 +1651,15 @@ export class DaemonClient {
         },
         ...(signal && { signal }),
       })
+      let timedOut: IdleTimeout | undefined
       req.on('response', (res) => {
         sentNonces.set(res, sent)
+        timeouts.set(res, () => timedOut)
         resolve(res)
       })
       req.on('timeout', () => {
-        req.destroy(new IdleTimeout(this.#idleTimeoutMs))
+        timedOut = new IdleTimeout(this.#idleTimeoutMs)
+        req.destroy(timedOut)
       })
       req.on('error', (error) => reject(unreachable(error)))
       req.end(payload)
@@ -1672,7 +1675,7 @@ class IdleTimeout extends Error {
   }
 }
 
-const again = 'Try again in a moment; TED starts it again on its own.'
+const again = 'Try again in a moment.'
 
 function unreachableMessage(cause: unknown): string {
   if (cause instanceof IdleTimeout) {
@@ -1681,7 +1684,7 @@ function unreachableMessage(cause: unknown): string {
   const code = (cause as { code?: unknown } | null | undefined)?.code
   if (code === 'ECONNREFUSED') return `TED in the background isn’t running. ${again}`
   if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED') {
-    return `TED in the background stopped before it answered. ${again}`
+    return `TED in the background closed the connection before it answered. ${again}`
   }
   const detail = typeof code === 'string' ? code : cause instanceof Error ? cause.message : ''
   return `Couldn’t reach TED in the background${detail ? ` (${detail})` : ''}. ${again}`
@@ -1711,7 +1714,7 @@ async function readText(res: IncomingMessage): Promise<string> {
   try {
     for await (const chunk of res) text += chunk
   } catch (error) {
-    throw unreachable(error)
+    throw unreachable(timeouts.get(res)?.() ?? error)
   }
   return text
 }
@@ -1725,6 +1728,7 @@ function errorFrom(status: number, text: string): DaemonRequestError {
 }
 
 const sentNonces = new WeakMap<IncomingMessage, string>()
+const timeouts = new WeakMap<IncomingMessage, () => IdleTimeout | undefined>()
 
 async function requestError(res: IncomingMessage): Promise<DaemonRequestError> {
   const status = res.statusCode ?? 0
