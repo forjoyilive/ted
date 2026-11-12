@@ -120,6 +120,14 @@ export const globalCommands: readonly Command[] = [
     run: goToView('list'),
   },
   {
+    id: 'go-to-map',
+    label: 'Go to Map',
+    scope: 'global',
+    keywords: 'blockers blocked by dependencies',
+    shortcuts: keysFor('go-to-map'),
+    run: goToView('map'),
+  },
+  {
     id: 'go-to-plans',
     label: 'Go to Plans',
     scope: 'global',

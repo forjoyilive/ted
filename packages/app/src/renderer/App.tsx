@@ -125,6 +125,7 @@ import { Stub } from './views/OtherViews.tsx'
 import { PlanChatView } from './views/PlanChat.tsx'
 import { PlansList } from './views/PlansList.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
+import { TaskMap } from './views/TaskMap.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
@@ -197,6 +198,7 @@ const allowedInSettings = new Set([
   'go-to-all-tasks',
   'go-to-board',
   'go-to-list',
+  'go-to-map',
   'go-to-plans',
 ])
 
@@ -876,6 +878,21 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               breadcrumb="List"
               settings={settings}
               onOpenTask={openTaskByRef}
+              onPlan={openPlans}
+            />
+          )
+        }
+        if (screen.view === 'map') {
+          return (
+            <TaskMap
+              title={name}
+              factoryId={screen.factoryId}
+              tasks={tasks}
+              factories={factories}
+              banners={view.banners}
+              onOpen={openTask}
+              onOpenTask={openTaskByRef}
+              onNewTask={() => openNewTask()}
               onPlan={openPlans}
             />
           )
