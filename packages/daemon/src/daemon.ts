@@ -89,6 +89,7 @@ export interface DaemonOptions {
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
+  outputDrop?: DataOptions['outputDrop']
   slow?: { requestMs?: number; stallMs?: number }
 }
 
@@ -190,6 +191,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
     ...(options.compaction && { compaction: options.compaction }),
+    ...(options.outputDrop && { outputDrop: options.outputDrop }),
     async startServices(store, emit) {
       await environmentRead
       const runs = await startRunManager({
