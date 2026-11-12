@@ -145,7 +145,7 @@ function testMarkers(facts: TaskFacts): TaskMarker[] {
       kind: 'test-activity',
       source,
       phase,
-      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'Checks' : 'tests'}`,
+      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'checks' : 'tests'}`,
       detail,
     })
   }
