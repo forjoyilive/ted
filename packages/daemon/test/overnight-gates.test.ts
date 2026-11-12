@@ -733,12 +733,22 @@ test.each(['global', 'Task'] as const)(
   '%s Autopilot keeps setup questions, rounds and forced sign-offs manual',
   async (source) => {
     const client = await start(gated)
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const release = path.join(ctx.scratch, 'release-setup-slot')
+    const busy = await begin(client, {
+      title: JSON.stringify({ steps: [{ waitFor: release }, { endTurn: true }] }),
+    })
+    await waitUntil(
+      async () => (await getTask(client, busy.id)).runs.some((r) => r.state === 'working'),
+      'the occupied slot',
+    )
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
     const task = await client.ok<Task>('POST', `/factories/${factory?.id}/setup-task`)
     await client.ok('PUT', `/tasks/${task.id}`, {
       title: JSON.stringify({ steps: [{ everyMessage: [{ endTurn: true }] }, { endTurn: true }] }),
     })
-    await client.ok('POST', `/tasks/${task.id}/start`)
+    await writeFile(release, '')
+    await lead(client, task)
     await advanceTo(client, task, 'clarify')
     const token = await lead(client, task)
     const round = await token.call('POST', `/tasks/${task.id}/comments`, {
