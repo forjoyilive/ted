@@ -764,11 +764,12 @@ describe('Talk it through', () => {
     )
     await checkHeld()
     await writeFile(gate, '')
-    await waitUntil(
-      async () =>
-        (await comments(client, task)).find((c) => c.id === item.request.id)?.talk?.notifiedAt,
-      'agent acknowledgement',
-    )
+    await waitUntil(async () => {
+      const competing = await getTask(client, blocker.id)
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      if (!round?.talk?.notifiedAt) expect(competing.runs).toHaveLength(0)
+      return round?.talk?.notifiedAt
+    }, 'agent acknowledgement before releasing the admitted slot')
     expect(
       (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1')),
     ).toHaveLength(1)

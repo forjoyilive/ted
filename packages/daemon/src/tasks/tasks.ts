@@ -1359,23 +1359,54 @@ export function createTasks(options: {
           const pending = store.pendingRoundTalks(talking.id)
           if (pending.length > 0) {
             await store.persisted()
-            const accepted = await runs.dispatch(
-              talking.id,
-              pending.map(({ messageId, round }) => ({ id: messageId, text: talkLine(round) })),
-              false,
-              (id) => {
-                const current = find(taskId)
-                return (
-                  store.newWorkHold() === undefined &&
-                  !current.waitsForBlockers &&
-                  availableTalkLead(current, true)?.id === talking.id &&
-                  store
-                    .pendingRoundTalks(talking.id)
-                    .some(({ messageId }) => id === undefined || id === messageId)
+            let accepted = false
+            while (!closed && !stopping.signal.aborted) {
+              const current = store.getTask(taskId)
+              const live = store.getRun(talking.id)
+              if (
+                !current ||
+                current.stopped ||
+                current.archived ||
+                current.stage === 'done' ||
+                current.stage === 'backlog' ||
+                current.waitsForBlockers ||
+                current.leadRunId !== talking.id ||
+                !live ||
+                live.state === 'finished' ||
+                live.problem ||
+                store.agentPauses()[live.agent] !== undefined ||
+                !store
+                  .pendingRoundTalks(talking.id)
+                  .some(({ messageId }) =>
+                    pending.some((message) => message.messageId === messageId),
+                  )
+              )
+                break
+              if (
+                store.newWorkHold() === undefined &&
+                availableTalkLead(current, true)?.id === talking.id
+              ) {
+                accepted = await runs.dispatch(
+                  talking.id,
+                  pending.map(({ messageId, round }) => ({ id: messageId, text: talkLine(round) })),
+                  false,
+                  (id) => {
+                    const current = find(taskId)
+                    return (
+                      store.newWorkHold() === undefined &&
+                      !current.waitsForBlockers &&
+                      availableTalkLead(current, true)?.id === talking.id &&
+                      store
+                        .pendingRoundTalks(talking.id)
+                        .some(({ messageId }) => id === undefined || id === messageId)
+                    )
+                  },
+                  { revocable: true, signal: stopping.signal },
                 )
-              },
-              { revocable: true, signal: stopping.signal },
-            )
+                if (accepted) break
+              }
+              await clockWait(clock, 150, stopping.signal)
+            }
             if (accepted) {
               for (const { messageId, round } of store.pendingRoundTalks(talking.id)) {
                 if (pending.some((message) => message.messageId === messageId))
