@@ -39,6 +39,7 @@ async function start(
   version: string,
   statuses: DataStatus[] = [],
   compaction?: DaemonOptions['compaction'],
+  outputDrop?: DaemonOptions['outputDrop'],
 ): Promise<Client> {
   daemon = await startDaemon({
     home,
@@ -46,6 +47,7 @@ async function start(
     claudeBin: stubClaudePath,
     onDataStatus: (status) => statuses.push(status),
     ...(compaction && { compaction }),
+    ...(outputDrop && { outputDrop }),
   })
   return api(daemon.port, { appKey: daemon.appToken })
 }
@@ -379,4 +381,79 @@ test('without a backup the event log isn’t compacted, and the store opens', as
   await stop()
   expect((await loggedEvents()).slice(0, eventsBefore.length)).toEqual(eventsBefore)
   expect(await compactionMarker()).toBeUndefined()
+})
+
+const isOutput = (row: LogRow) => row.name.endsWith('.RunOutputRead')
+const content = (rows: LogRow[]) => rows.map(({ name, argsJson }) => ({ name, argsJson }))
+
+test('a state rebuild first drops the Run output events a later one replaces, renumbers the rest and rebuilds the same state', async () => {
+  const { runIds, before, runsBefore } = await homeFromAnOlderTed()
+  let client = await start('1.1.0')
+  await stop()
+  const eventsBefore = await loggedEvents()
+  await writeFile(`${await eventlogPath()}.dropping`, 'left by a killed TED')
+  await pretendStateSchemaChanged(home)
+
+  const statuses: DataStatus[] = []
+  client = await start('1.2.0', statuses, undefined, { atLeast: 1 })
+
+  expect(statuses.at(-1)).toEqual({ state: 'ready' })
+  expect(await snapshot(client, runIds)).toEqual(before)
+  const backups = await preUpdateBackups(client)
+  expect(backups[0]).toMatchObject({ takenBy: '1.2.0' })
+  expect(
+    await loggedEvents(path.join(home, 'backups', backups[0]?.name ?? '', 'store', 'ted')),
+  ).toEqual(eventsBefore)
+  await stop()
+
+  const kept = (await loggedEvents()) as (LogRow & { parentSeqNumGlobal: number })[]
+  const outputBefore = eventsBefore.filter(isOutput)
+  const outputAfter = kept.filter(isOutput)
+  expect(outputAfter.length).toBeLessThan(outputBefore.length)
+  expect(outputAfter.length).toBeGreaterThanOrEqual(runIds.length)
+  const others = eventsBefore.filter((e) => !isOutput(e))
+  expect(content(kept.filter((e) => !isOutput(e))).slice(0, others.length)).toEqual(content(others))
+  for (const event of outputAfter) expect(content(outputBefore)).toContainEqual(content([event])[0])
+  expect(kept.map((e) => e.seqNumGlobal)).toEqual(kept.map((_, i) => i + 1))
+  expect(kept.map((e) => e.parentSeqNumGlobal)).toEqual(kept.map((_, i) => i))
+  const updates = statuses.filter((s) => s.state === 'updating')
+  expect(updates.at(-1)).toMatchObject({ done: updates.at(-1)?.total })
+  expect(updates.at(-1)?.total).toBeLessThan(eventsBefore.length)
+  expect(await runRows()).toEqual(runsBefore)
+  expect((await readdir(storeDir())).filter((f) => f.includes('dropping'))).toEqual([])
+
+  client = await start('1.2.0')
+  const later = await finishedRun(client, [{ say: 'after the drop' }, { endTurn: true }])
+  await stop()
+  await pretendStateSchemaChanged(home)
+  client = await start('1.3.0')
+  expect(await snapshot(client, runIds)).toEqual(before)
+  expect((await client.getRun(later)).run.state).toBe('finished')
+  expect((await client.getRun(later)).conversation.length).toBeGreaterThan(0)
+  await stop()
+  const final = await loggedEvents()
+  expect(final.map((e) => e.seqNumGlobal)).toEqual(final.map((_, i) => i + 1))
+})
+
+test('a dropped copy that fails verification is thrown away: the event log stays as it was and the state rebuilds from it', async () => {
+  const { runIds, before, runsBefore } = await homeFromAnOlderTed()
+  let client = await start('1.1.0')
+  await stop()
+  const original = await loggedEvents()
+  await pretendStateSchemaChanged(home)
+
+  client = await start('1.2.0', [], undefined, {
+    atLeast: 1,
+    beforeVerify(copy) {
+      const db = new DatabaseSync(copy)
+      db.exec(`UPDATE eventlog SET argsJson = replace(argsJson, 'Fix login', 'Fix logins')`)
+      db.close()
+    },
+  })
+
+  expect(await snapshot(client, runIds)).toEqual(before)
+  await stop()
+  expect((await loggedEvents()).slice(0, original.length)).toEqual(original)
+  expect((await readdir(storeDir())).filter((f) => f.includes('dropping'))).toEqual([])
+  expect(await runRows()).toEqual(runsBefore)
 })
