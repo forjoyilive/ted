@@ -43,6 +43,23 @@ describe('event lines', () => {
     ])
   })
 
+  test('a push record TED brought up to date names both commits', () => {
+    expect(
+      lines([
+        entry('v1.TaskPushRecordReconciled', 1, {
+          name: 'app',
+          recorded: '9eaef80d0000000000000000000000000000aaaa',
+          remote: '2ac276ea0000000000000000000000000000bbbb',
+        }),
+      ]),
+    ).toEqual([
+      {
+        tone: 'quiet',
+        text: 'The app branch on GitHub was at 2ac276ea, ahead of TED’s recorded push 9eaef80d · the commit being pushed includes it, so TED updated its record',
+      },
+    ])
+  })
+
   test('a held Run shows Paused, and Continued only after it was held', () => {
     expect(
       lines([

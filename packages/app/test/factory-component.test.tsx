@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { defaultMachineSettings } from '@ted/protocol'
+import { defaultMachineSettings, type FactorySettingsView } from '@ted/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDialog.tsx'
@@ -31,6 +31,26 @@ function open(extra: Record<string, (...args: unknown[]) => unknown> = {}) {
   render(<FactorySettings {...props()} />)
   return api
 }
+
+test('pending repo settings follow available General and Linear intake sections', async () => {
+  const pending = deferred<FactorySettingsView>()
+  const api = open({ factorySettings: () => pending.promise })
+  const loading = screen.getByRole('status', { name: 'Loading Factory settings…' })
+  for (const name of ['General', 'Linear intake']) {
+    const section = screen.getByRole('region', { name })
+    expect(section.compareDocumentPosition(loading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  }
+  expect(screen.queryByRole('region', { name: 'Repos' })).toBeNull()
+  await act(async () => pending.resolve(settingsView()))
+  expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
+  expect(screen.getByRole('region', { name: 'Repos' })).toBeTruthy()
+  const refresh = deferred<FactorySettingsView>()
+  api.handle('factorySettings', () => refresh.promise)
+  act(() => api.emit({ type: 'factory-settings-changed', factoryId: 'f1' }))
+  expect(screen.getByRole('region', { name: 'Repos' })).toBeTruthy()
+  expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
+  await act(async () => refresh.resolve(settingsView()))
+})
 
 test('automatic Backlog starting saves immediately without the repository Save dialog', async () => {
   const save = vi.fn(() => factory({ autoStartBacklog: true }))
@@ -193,7 +213,9 @@ test('repo settings explain saving and let the user retry merging without losing
   await u.click(screen.getByRole('button', { name: 'Open on GitHub' }))
   expect(api.request).toHaveBeenCalledWith('openOnGitHub', result.pullRequest.url)
   await u.click(button)
-  expect(screen.getByRole('button', { name: 'Merging…' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.getByRole('button', { name: 'Merge pull request' }).hasAttribute('disabled')).toBe(
+    true,
+  )
   expect(gate.closest('fieldset')?.disabled).toBe(true)
   drag()
   expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type ElectronApplication, _electron as electron } from 'playwright'
-import { afterEach, beforeAll, beforeEach, describe, test, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   commitToOrigin,
   daemonAsApp,
@@ -105,12 +105,18 @@ describe('Plan in chat from a Task', () => {
     const ask = window
       .getByRole('region', { name: 'Task thread' })
       .getByRole('region', { name: 'Question', exact: true })
-    await ask.getByRole('textbox', { name: 'Your answer' }).fill(
+    const answer = window
+      .getByRole('region', { name: 'Task thread' })
+      .getByRole('region', { name: 'Answer', exact: true })
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill(
       JSON.stringify({
         steps: [{ run: ['ted', 'task', 'propose', '--file', proposal] }, { endTurn: true }],
       }),
     )
-    await ask.getByRole('button', { name: 'Plan in chat' }).click()
+    const send = answer.getByRole('button', { name: 'Send', exact: true })
+    expect(await send.isEnabled()).toBe(false)
+    await answer.getByRole('radio', { name: 'Plan in chat' }).check()
+    await send.click()
 
     const chat = window.getByRole('region', { name: 'Planning chat' })
     await chat.getByText('Planning chat · started from').waitFor({ timeout: 20_000 })

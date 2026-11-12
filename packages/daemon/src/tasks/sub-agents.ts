@@ -13,6 +13,7 @@ import type {
   TaskRepo,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { AgentDisabledError } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
@@ -265,19 +266,25 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       }
       return
     }
-    await runs.start({
-      id: request.id,
-      agent: request.agent,
-      prompt,
-      cwd,
-      taskId: task.id,
-      parentRunId: request.parentRunId,
-      name: request.name,
-      env,
-      permissions,
-      ...(request.model !== undefined && { model: request.model }),
-      ...(request.effort !== undefined && { effort: request.effort }),
-    })
+    try {
+      await runs.start({
+        id: request.id,
+        agent: request.agent,
+        prompt,
+        cwd,
+        taskId: task.id,
+        parentRunId: request.parentRunId,
+        name: request.name,
+        env,
+        permissions,
+        ...(request.model !== undefined && { model: request.model }),
+        ...(request.effort !== undefined && { effort: request.effort }),
+      })
+    } catch (error) {
+      if (error instanceof AgentDisabledError && cwd !== shared)
+        await git.removeWorktree(deps.clonePathFor(repo), cwd)
+      throw error
+    }
     if (cancelled.has(request.id)) await runs.stop(request.id)
   }
 
@@ -541,6 +548,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         try {
           await launch(request)
         } catch (error) {
+          if (error instanceof AgentDisabledError) return
           store.dropSubAgentRequest(id)
           throw error
         } finally {

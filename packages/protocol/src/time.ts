@@ -71,3 +71,36 @@ export function dateTimeInZone(date: string, time: string, timeZone: string): st
     throw new Error('That time does not exist in this time zone. Choose another time.')
   return new Date(Math.min(...matches)).toISOString()
 }
+
+export interface SnoozePreset {
+  id: 'hour' | 'tomorrow' | 'next-week' | 'month'
+  label: string
+  until: string
+}
+
+export function requestSnoozePresets(now: Date, timeZone: string): SnoozePreset[] {
+  const [year = 0, month = 1, day = 1] = dateTimeFields(now, timeZone).date.split('-').map(Number)
+  const at9 = (y: number, monthIndex: number, d: number) =>
+    dateTimeInZone(
+      new Date(Date.UTC(y, monthIndex, d)).toISOString().slice(0, 10),
+      '09:00',
+      timeZone,
+    )
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  const toMonday = (8 - weekday) % 7 || 7
+  const lastDayNextMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+  return [
+    {
+      id: 'hour',
+      label: 'An hour from now',
+      until: new Date(now.getTime() + 3_600_000).toISOString(),
+    },
+    { id: 'tomorrow', label: 'Tomorrow', until: at9(year, month - 1, day + 1) },
+    { id: 'next-week', label: 'Next week', until: at9(year, month - 1, day + toMonday) },
+    {
+      id: 'month',
+      label: 'A month from now',
+      until: at9(year, month, Math.min(day, lastDayNextMonth)),
+    },
+  ]
+}

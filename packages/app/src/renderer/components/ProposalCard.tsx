@@ -1,7 +1,7 @@
-import type { AnswerRequest, Proposal, ProposalCreated } from '@ted/protocol'
+import type { AnswerRequest, MessageBox, Proposal, ProposalCreated } from '@ted/protocol'
 import { planProposal } from '@ted/protocol/proposal'
-import { useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
+import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { blockedByText, createLabel, droppedWarning, wouldStart } from '../proposal.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { Button } from './Button.tsx'
@@ -126,20 +126,34 @@ export function ProposalAnswer({
   sending,
   onSend,
   onOpenTask,
+  box,
 }: {
   proposal: Proposal
+  box?: MessageBox | undefined
   readOnly: boolean
   sending: boolean
   onSend: (answer: AnswerRequest) => void
   onOpenTask?: ((id: string) => void) | undefined
 }) {
-  const [skip, setSkip] = useState<number[]>([])
-  const [startUnblocked, setStartUnblocked] = useState(false)
-  const [text, setText] = useState('')
+  const kept = useMessageDraft(box)
+  const { text, setText } = kept
+  const [skip, setSkip] = draftField(
+    kept,
+    'skip',
+    [],
+    (value): value is number[] =>
+      Array.isArray(value) && value.every((row) => typeof row === 'number'),
+  )
+  const [startUnblocked, setStartUnblocked] = draftField(
+    kept,
+    'startUnblocked',
+    false,
+    (value): value is boolean => typeof value === 'boolean',
+  )
   const plan = planProposal(proposal, skip)
   const typed = text.trim() !== ''
   const toggle = (row: number) =>
-    setSkip((all) => (all.includes(row) ? all.filter((r) => r !== row) : [...all, row]))
+    setSkip(skip.includes(row) ? skip.filter((r) => r !== row) : [...skip, row])
   return (
     <>
       <ProposalRows

@@ -27,6 +27,7 @@ export interface KeyActions {
   forward: () => void
   close: () => boolean
   move: (direction: Direction) => boolean
+  snoozeRequest: () => boolean
   arm: (action: ArmAction) => boolean
   reply: () => boolean
   requestChanges: () => boolean
@@ -394,6 +395,9 @@ export const keyCommands: readonly Command[] = [
   keyCommand('previous', 'Previous', (k) => k.move('previous')),
   keyCommand('column-left', 'Column to the left', (k) => k.move('left')),
   keyCommand('column-right', 'Column to the right', (k) => k.move('right')),
+  keyCommand('snooze-request', 'Snooze the selected request', (k) =>
+    k.snoozeRequest() ? true : k.move('left'),
+  ),
   keyCommand('reply', 'Reply', (k) => k.reply()),
   keyCommand('approve', 'Approve', (k) => k.arm('approve')),
   keyCommand('request-changes', 'Request changes', (k) => k.requestChanges()),

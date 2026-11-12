@@ -81,6 +81,7 @@ const testOptions = {
     TED_TIME_MACHINE: 'off',
     TED_APP_TOKEN: 'test-app-token',
     TED_EDITOR_APP_DIRS: '',
+    TED_TEST_FAILURES_FILE: 'off',
   },
 }
 

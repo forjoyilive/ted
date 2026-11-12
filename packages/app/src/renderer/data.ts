@@ -26,11 +26,13 @@ import type {
   RunSlots,
   RunSummary,
   SimulatorSlots,
+  SnoozedRequest,
   StageEntry,
   StageId,
   Task,
   TaskApp,
   TaskBrief,
+  TedStoppedTask,
   ThreadEvent,
   ValidationObligations,
 } from '@ted/protocol'
@@ -48,6 +50,7 @@ import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
 import { type EventChange, eventValue, type ValueUpdate } from './event-value.ts'
 import { inboxChange } from './inbox-events.ts'
+import { useRefreshAction } from './refresh-action.ts'
 import { sharedValues } from './shared-value.ts'
 import { readableError, type TedEvent, ted } from './ted.ts'
 
@@ -161,7 +164,7 @@ export function useEventValue<T>(options: {
     return controller.current?.refresh(load) ?? Promise.resolve(undefined)
   }, [])
   const update = useCallback((change: ValueUpdate<T>) => controller.current?.update(change), [])
-  const retry = useCallback(() => void refresh(), [refresh])
+  const retry = useCallback(() => refresh(), [refresh])
   return {
     value: state.key === key ? state.value : options.initial,
     loaded: state.key === key && state.loaded,
@@ -194,7 +197,7 @@ function useShared<T>(
   )
   const snapshot = useSyncExternalStore(subscribe, () => shared.read<T>(key))
   useEffect(() => shared.renew(key, epoch), [key, epoch])
-  const retry = useCallback(() => void shared.refresh(key), [key])
+  const retry = useCallback(() => shared.refresh(key), [key])
   return { ...snapshot, retry }
 }
 
@@ -264,7 +267,7 @@ function useLiveList<T extends { id: string }>(
   const [items, setItems] = useState<T[]>([])
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string>()
-  const [attempt, setAttempt] = useState(0)
+  const { revision: attempt, refresh: retry, settled } = useRefreshAction()
   const { epoch } = useConnection()
 
   const loaded = useRef(load)
@@ -285,7 +288,7 @@ function useLiveList<T extends { id: string }>(
     const unsubscribe = ted.onEvent((event) => {
       if (reloadOn?.(event)) {
         setItems([])
-        setAttempt((n) => n + 1)
+        void retry()
         return
       }
       const gone = drop(event)
@@ -299,37 +302,42 @@ function useLiveList<T extends { id: string }>(
       fresh?.push(item)
       setItems((current) => mergeById(current, [item]).sort(order))
     })
-    void load().then(
-      (loaded) => {
-        if (!active) return
-        setItems(
-          mergeById(loaded, fresh ?? [])
-            .filter((item) => !dropped.has(item.id))
-            .sort(order),
-        )
-        setDone(true)
-        fresh = undefined
-      },
-      (failure: unknown) => {
-        if (!active) return
-        setError(readableError(failure))
-        if (retryEveryMs !== undefined)
-          again = setTimeout(() => setAttempt((n) => n + 1), retryEveryMs)
-      },
-    )
+    void load()
+      .then(
+        (loaded) => {
+          if (!active) return
+          setItems(
+            mergeById(loaded, fresh ?? [])
+              .filter((item) => !dropped.has(item.id))
+              .sort(order),
+          )
+          setDone(true)
+          fresh = undefined
+        },
+        (failure: unknown) => {
+          if (!active) return
+          setError(readableError(failure))
+          if (retryEveryMs !== undefined)
+            again = setTimeout(() => {
+              void retry()
+            }, retryEveryMs)
+        },
+      )
+      .finally(() => settled(attempt))
     return () => {
+      settled(attempt)
       active = false
       clearTimeout(again)
       unsubscribe()
     }
-  }, [load, pick, order, drop, epoch, attempt, retryEveryMs, reloadOn])
+  }, [load, pick, order, drop, epoch, attempt, retryEveryMs, retry, settled, reloadOn])
 
   const current = loaded.current === load
   return {
     items: current ? items : [],
     loaded: current && done,
     error: current ? error : undefined,
-    retry: () => setAttempt((n) => n + 1),
+    retry,
   }
 }
 
@@ -474,6 +482,21 @@ export function useSlots(): RunSlots | undefined {
   }).value
 }
 
+export function useTedStops(): TedStoppedTask[] {
+  const listed = useRef<ReadonlySet<string>>(new Set())
+  const stops =
+    useReloading(
+      () => ted.tedStops(),
+      (event) =>
+        event.type === 'ted-stops-changed' ||
+        (event.type === 'task-updated' && listed.current.has(event.task.id)) ||
+        (event.type === 'task-deleted' && listed.current.has(event.taskId)),
+      'ted-stops',
+    ) ?? []
+  listed.current = new Set(stops.map((task) => task.id))
+  return stops
+}
+
 export function useDrift(): DriftCounts | undefined {
   return useEventValue<DriftCounts | undefined>({
     initial: undefined,
@@ -606,7 +629,7 @@ function useReloadingState<T>(
   paced: (event: TedEvent) => boolean = () => false,
 ) {
   const [state, setState] = useState<{ key: string; value?: T; error?: string }>()
-  const [attempt, setAttempt] = useState(0)
+  const { revision: attempt, refresh: retry, settled } = useRefreshAction()
   const { epoch } = useConnection()
   const loadRef = useRef(load)
   const affectsRef = useRef(affects)
@@ -634,7 +657,7 @@ function useReloadingState<T>(
         return
       }
       running = true
-      loadRef
+      return loadRef
         .current()
         .then(
           (value) => {
@@ -666,18 +689,19 @@ function useReloadingState<T>(
       if (wait <= 0) now()
       else timer ??= setTimeout(now, wait)
     })
-    run()
+    void run()?.finally(() => settled(attempt))
     return () => {
+      settled(attempt)
       active = false
       clearTimeout(timer)
       unsubscribe()
     }
-  }, [key, epoch, attempt])
+  }, [key, epoch, attempt, settled])
 
   return {
     value: state?.key === key ? state.value : undefined,
     error: state?.key === key ? state.error : undefined,
-    retry: () => setAttempt((n) => n + 1),
+    retry,
   }
 }
 
@@ -997,6 +1021,14 @@ export function useWaitingCount(): number {
   )
 }
 
+export function useSnoozedRequests(): SnoozedRequest[] {
+  return useEventValue<SnoozedRequest[]>({
+    initial: [],
+    load: ted.listSnoozed,
+    event: (event) => (event.type === 'inbox-changed' ? () => event.snoozed : undefined),
+  }).value
+}
+
 export function useAutomationRequests(): AutomationRequest[] {
   return (
     useReloadingState(
@@ -1059,4 +1091,43 @@ export function useFactoryDashboard(
     }
   }, [])
   return resource
+}
+
+export function usePolledResource<T>(load: () => Promise<T>, everyMs = 1500) {
+  const { epoch } = useConnection()
+  const [value, setValue] = useState<T>()
+  const [error, setError] = useState<string>()
+  const [generation, setGeneration] = useState(0)
+  useEffect(() => {
+    void epoch
+    void generation
+    let active = true,
+      running = false
+    const refresh = () => {
+      if (running) return
+      running = true
+      void load()
+        .then(
+          (next) => {
+            if (active) {
+              setValue(next)
+              setError(undefined)
+            }
+          },
+          (failure: unknown) => {
+            if (active) setError(failure instanceof Error ? failure.message : String(failure))
+          },
+        )
+        .finally(() => {
+          running = false
+        })
+    }
+    refresh()
+    const timer = setInterval(refresh, everyMs)
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [load, everyMs, epoch, generation])
+  return { value, error, reload: () => setGeneration((n) => n + 1) }
 }

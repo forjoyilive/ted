@@ -10,6 +10,7 @@ import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
 import type { Coordinators } from './coordinators/coordinators.ts'
 import { RequestError } from './errors.ts'
+import type { ExecutionController } from './execution/controller.ts'
 import type { FactorySettings } from './factory-settings.ts'
 import type { Factories } from './factory-setup.ts'
 import type { Plans } from './plans/plans.ts'
@@ -27,6 +28,7 @@ export interface FactoryRemovals {
 
 export function createFactoryRemovals(options: {
   store: TedStore
+  execution?: Pick<ExecutionController, 'forgetFactory'>
   banners: Banners
   tasks: Pick<Tasks, 'removeFactoryTasks'>
   automations: Pick<Automations, 'removeFactory'>
@@ -88,6 +90,7 @@ export function createFactoryRemovals(options: {
       removing.add(factory.id)
       const releaseCoordinator = options.coordinators?.holdFactoryRemoval(factory.id)
       try {
+        await options.execution?.forgetFactory(factory.id)
         await options.factories.forget(factory.id)
         await options.sideChats?.removeFactory(factory.id)
         await options.automations.removeFactory(factory.id)

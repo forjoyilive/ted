@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { useBytes } from '../attachment-bytes.ts'
 import { stageName } from '../list-view.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import styles from './DesignReview.module.css'
 import { Loading } from './Loading.tsx'
@@ -31,7 +32,7 @@ function ScreenshotTile({
   const src =
     data === undefined ? undefined : `data:${mediaTypeOf(file, files, 'image/png')};base64,${data}`
   return (
-    <button
+    <ActionButton
       type="button"
       className={styles.tile}
       aria-label={`View ${label(file)}`}
@@ -46,7 +47,7 @@ function ScreenshotTile({
         </span>
       )}
       <span className={styles.tileCaption}>{label(file)}</span>
-    </button>
+    </ActionButton>
   )
 }
 
@@ -80,7 +81,7 @@ function VideoTile({ file, files }: { file: DesignFile; files: readonly Attachme
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button
+      <ActionButton
         type="button"
         className={`${styles.tile} ${styles.videoTile}`}
         aria-label={`Play ${label(file)}`}
@@ -92,7 +93,7 @@ function VideoTile({ file, files }: { file: DesignFile; files: readonly Attachme
           </svg>
         </span>
         <span className={`${styles.tileCaption} ${styles.videoCaption}`}>{label(file)}</span>
-      </button>
+      </ActionButton>
       {open && (
         <Viewer title={label(file)} wide onClose={() => setOpen(false)}>
           <VideoPlayer file={file} files={files} />
@@ -111,12 +112,12 @@ function Prototype({ file }: { file: DesignFile }) {
         <span className={styles.prototypeLabel}>Prototype</span>
         <span className={styles.meta}>{`${file.name} · interactive · sandboxed`}</span>
         <span className={styles.spacer} />
-        <button type="button" className={styles.link} onClick={() => setLoads(loads + 1)}>
+        <ActionButton type="button" className={styles.link} onClick={() => setLoads(loads + 1)}>
           Restart
-        </button>
-        <button type="button" className={styles.link} onClick={() => setFull(true)}>
+        </ActionButton>
+        <ActionButton type="button" className={styles.link} onClick={() => setFull(true)}>
           Open full size ↗
-        </button>
+        </ActionButton>
       </header>
       <iframe
         key={loads}
@@ -169,7 +170,6 @@ function FigmaRow({
         )}
       </span>
       <Button
-        size="small"
         onClick={() =>
           ted.openFigmaLink(taskId, commentId).then(
             () => setError(undefined),

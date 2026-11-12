@@ -1,5 +1,10 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import type {
+  AgentAvailability,
+  ChangeAgentAvailabilityRequest,
+  ChangeAgentAvailabilityResult,
+} from './agent-availability.ts'
 import type { ApiCostReport } from './api-cost.ts'
 import type {
   AppCapture,
@@ -72,6 +77,13 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type {
+  ApproveExecution,
+  ExecutionEndpoint,
+  ExecutionGrant,
+  ExecutionMachines,
+  ExecutionOffer,
+} from './execution-pairing.ts'
 import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
@@ -118,6 +130,7 @@ import type {
   LinearStatus,
   SaveLinearKeyRequest,
 } from './linear.ts'
+import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
   Plan,
@@ -156,6 +169,7 @@ import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AgentStageId,
   AnswerRequest,
+  AnswerTedStopsRequest,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
@@ -187,6 +201,7 @@ import type {
   TaskDefaults,
   TaskDraftState,
   TaskReposResult,
+  TedStoppedTask,
   ThreadEvent,
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
@@ -198,7 +213,7 @@ import type {
   TestInvocationUpdate,
 } from './test-invocations.ts'
 import type { UpdateWork } from './update.ts'
-import type { WaitingRequest } from './waiting.ts'
+import type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -236,6 +251,28 @@ export class DaemonClient {
     this.#token = token
     this.#appKey = appKey
     this.#idleTimeoutMs = idleTimeoutMs
+  }
+
+  executionMachines(): Promise<ExecutionMachines> {
+    return this.#request('GET', '/execution/machines')
+  }
+  configureExecution(input: ExecutionEndpoint): Promise<ExecutionMachines> {
+    return this.#request('POST', '/execution/configure', input)
+  }
+  cancelExecutionEnrollment(): Promise<unknown> {
+    return this.#request('POST', '/execution/cancel-enrollment')
+  }
+  createExecutionEnrollment(): Promise<ExecutionOffer> {
+    return this.#request('POST', '/execution/enrollment')
+  }
+  approveExecution(input: ApproveExecution): Promise<ExecutionGrant> {
+    return this.#request('POST', '/execution/approve', input)
+  }
+  rejectExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/reject', input)
+  }
+  revokeExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/revoke', input)
   }
 
   async provesAppKey(): Promise<boolean> {
@@ -455,6 +492,14 @@ export class DaemonClient {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/task-draft`, draft)
   }
 
+  messageDraft(box: MessageBox): Promise<MessageDraftState> {
+    return this.#request('GET', messageDraftPath(box))
+  }
+
+  saveMessageDraft(box: MessageBox, draft: SaveMessageDraftRequest): Promise<MessageDraftState> {
+    return this.#request('PUT', messageDraftPath(box), draft)
+  }
+
   createTask(input: CreateTaskRequest): Promise<Task> {
     return this.#request('POST', '/tasks', input)
   }
@@ -522,6 +567,14 @@ export class DaemonClient {
       ...(attachments !== undefined && attachments.length > 0 && { attachments }),
     }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
+  }
+
+  tedStops(): Promise<TedStoppedTask[]> {
+    return this.#request('GET', '/ted-stops')
+  }
+
+  answerTedStops(request: AnswerTedStopsRequest): Promise<TedStoppedTask[]> {
+    return this.#request('POST', '/ted-stops/answer', request)
   }
 
   cancelMerge(ref: string, comment: string, attachments?: AttachmentRef[]): Promise<Comment> {
@@ -747,6 +800,14 @@ export class DaemonClient {
 
   listWaiting(): Promise<WaitingRequest[]> {
     return this.#request('GET', '/inbox/waiting')
+  }
+
+  listSnoozed(): Promise<SnoozedRequest[]> {
+    return this.#request('GET', '/inbox/snoozed')
+  }
+
+  snoozeRequest(requestId: string, until: string | null): Promise<WaitingRequest | SnoozedRequest> {
+    return this.#request('PUT', `/requests/${encodeURIComponent(requestId)}/snooze`, { until })
   }
 
   answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {
@@ -1044,6 +1105,16 @@ export class DaemonClient {
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup-log`,
     )
     return text
+  }
+
+  agentAvailability(): Promise<AgentAvailability[]> {
+    return this.#request('GET', '/agents/availability')
+  }
+
+  changeAgentAvailability(
+    input: ChangeAgentAvailabilityRequest,
+  ): Promise<ChangeAgentAvailabilityResult> {
+    return this.#request('POST', '/agents/availability', input)
   }
 
   getSettings(): Promise<MachineSettings> {
@@ -1662,4 +1733,8 @@ function factoryQuery(factory: string | undefined): string {
 
 function shellRoute(ref: string, repo: string, rest = '', id?: string): string {
   return `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/shell${id === undefined ? '' : `/panes/${encodeURIComponent(id)}`}${rest}`
+}
+
+function messageDraftPath(box: MessageBox): string {
+  return `/message-drafts/${box.kind}/${encodeURIComponent(box.id)}`
 }

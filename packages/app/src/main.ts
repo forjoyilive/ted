@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { executionHome } from '@ted/daemon/execution'
 import {
   crashReport,
   type DaemonConnection,
@@ -106,6 +107,7 @@ import {
   updateMenuVersion,
 } from './updates.ts'
 import { openMarkdownLink } from './web-link.ts'
+import { createWorkerWindow } from './worker-window.ts'
 
 const githubLink =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
@@ -251,8 +253,10 @@ const requests = {
   authorizeAsana: (client) => authorizeAsana(client, shell.openExternal),
   openAsanaSetup: () => shell.openExternal('https://developers.asana.com/docs/oauth'),
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
+  openWorker: async () => workerWindow.open(),
   getAutomation,
 } satisfies CustomHandlers<
+  | 'openWorker'
   | 'showAttachmentInFolder'
   | 'taskBrief'
   | 'openTaskSource'
@@ -314,12 +318,14 @@ async function choosePicture(): Promise<string | undefined> {
   return square.resize({ width: size, height: size, quality: 'best' }).toDataURL()
 }
 
+const workerOnly = process.argv.includes('--worker')
 const platform = process.platform as Platform
 const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1'
 
 const testLaunch = hiddenWindow || tedEnv('TED_EXIT_WITH_PID') !== undefined
-const logUncaught = fileLog(path.join(tedPaths(tedHome()).logs, 'app.log'))
-const traceStartup = startupLog(path.join(tedPaths(tedHome()).logs, 'app-startup.log'), testLaunch)
+const appLogFolder = workerOnly ? executionHome() : tedPaths(tedHome()).logs
+const logUncaught = fileLog(path.join(appLogFolder, 'app.log'))
+const traceStartup = startupLog(path.join(appLogFolder, 'app-startup.log'), testLaunch)
 traceStartup('main-evaluated')
 
 watchExitWith(() => app.exit(0))
@@ -352,6 +358,22 @@ const restartDelaysMs = tedEnv('TED_RESTART_DELAYS_MS')?.split(',').map(Number) 
   ...daemonRestartDelaysMs,
 ]
 const keepsStopping = 'TED’s background process keeps stopping'
+
+const workerWindow = createWorkerWindow(hiddenWindow)
+const workerRequests = {
+  workerStatus: () => workerWindow.status(),
+  workerPair: (input: unknown) => workerWindow.pair(input),
+  workerStart: () => workerWindow.start(),
+  workerStop: () => workerWindow.stop(),
+  quit: async () => app.quit(),
+}
+function workerRequest(name: unknown, args: unknown[]) {
+  if (typeof name !== 'string' || !Object.hasOwn(workerRequests, name))
+    throw new Error('Unknown worker request')
+  return (
+    workerRequests[name as keyof typeof workerRequests] as (...args: unknown[]) => Promise<unknown>
+  )(...args)
+}
 
 let supervisor: DaemonSupervisor | undefined
 let client: DaemonClient | undefined
@@ -435,6 +457,9 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'banner-raised') notifications.problem(event.banner)
   if (event.type === 'task-updated') notifications.merged(event.task)
+  if (event.type === 'ted-stops-changed') {
+    noteTedStops().catch((error: unknown) => console.error('reading stopped Tasks failed:', error))
+  }
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   if (state !== drawn || event.type === 'settings-changed') refresh()
@@ -698,12 +723,16 @@ async function startUpdates(supervised: DaemonSupervisor): Promise<void> {
     asksPassword,
     ...(failed !== undefined && { failed }),
     onStatus: showUpdate,
-    handOver: (onWork) => supervised.handOver({ onWork }),
+    handOver: async (onWork) => {
+      await workerWindow.prepareUpdate()
+      await supervised.handOver({ onWork })
+    },
     markPending: (version) => writeFile(pendingUpdateFile(), version),
     installFailed: async () => {
       quitting = false
       await rm(pendingUpdateFile(), { force: true })
       await supervised.resume()
+      workerWindow.resume()
     },
   })
   showUpdate(updates.status)
@@ -721,6 +750,18 @@ const quitExitMs = 5_000
 
 async function quitCompletely(): Promise<void> {
   quitting = true
+  try {
+    await workerWindow.close()
+  } catch (error) {
+    quitting = false
+    logUncaught('Worker shutdown unresolved:', error)
+    if (!testLaunch)
+      dialog.showErrorBox(
+        'Worker could not stop',
+        'The execution service has not confirmed shutdown. Use Stop worker or inspect its isolated service log before quitting.',
+      )
+    return
+  }
   window?.hide()
   if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
@@ -815,6 +856,23 @@ async function loadState(): Promise<void> {
   state = { ...state, activity, banners, waiting: waiting.length }
   notifications.waiting(waiting)
   refresh()
+  await noteTedStops().catch((error: unknown) =>
+    console.error('reading stopped Tasks failed:', error),
+  )
+}
+
+let startedInBackground = false
+
+function windowHidden(): boolean {
+  if (hiddenWindow) return true
+  if (!window || window.isDestroyed()) return startedInBackground
+  return !window.isVisible()
+}
+
+async function noteTedStops(): Promise<void> {
+  if (!client) return
+  const stops = await client.tedStops()
+  notifications.tedStops(stops.length, windowHidden())
 }
 
 async function loadStateWhenReady(): Promise<void> {
@@ -836,12 +894,53 @@ function onConnection(connection: DaemonConnection): void {
 
 async function start(): Promise<void> {
   traceStartup('app-ready')
+  if (workerOnly) {
+    ipcMain.handle('ted:request', (event, name: unknown, ...args: unknown[]) => {
+      if (!workerWindow.sender(event)) throw new Error('Untrusted worker request sender')
+      return workerRequest(name, args)
+    })
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate([
+        {
+          label: appName,
+          submenu: [
+            { label: 'Open worker', click: () => void workerWindow.open() },
+            { label: 'Quit TED completely', click: () => app.quit() },
+          ],
+        },
+        { role: 'editMenu' },
+      ]),
+    )
+    app.on('window-all-closed', () => undefined)
+    app.on('activate', () => void workerWindow.open())
+    app.on('second-instance', () => void workerWindow.open())
+    app.on('before-quit', (event) => {
+      if (quitting) return
+      event.preventDefault()
+      quitting = true
+      void workerWindow.close().then(
+        () => app.quit(),
+        (error: unknown) => {
+          quitting = false
+          logUncaught('Worker shutdown unresolved:', error)
+          if (!testLaunch)
+            dialog.showErrorBox(
+              'Worker could not stop',
+              'The execution service has not confirmed shutdown. Use Stop worker or inspect its isolated service log before quitting.',
+            )
+        },
+      )
+    })
+    await workerWindow.open()
+    return
+  }
   if (platform === 'darwin' && edition === 'dev' && !hiddenWindow) {
     app.dock?.setIcon(nativeImage.createFromBuffer(appIconPng({ size: 512, edition })))
   }
   loginItem = makeLoginItem()
   const background =
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
+  startedInBackground = background
   traceStartup(background ? 'background-mode' : 'window-mode')
   if (background) app.dock?.hide()
   if (tedEnv('TED_DEMO') === '1' && edition === 'dev') {
@@ -920,6 +1019,7 @@ async function start(): Promise<void> {
   >
 
   ipcMain.handle('ted:request', (event, name: unknown, ...args: unknown[]) => {
+    if (workerWindow.sender(event)) return workerRequest(name, args)
     if (event.sender !== window?.webContents || event.senderFrame !== window?.webContents.mainFrame)
       throw new Error('Untrusted request sender')
     if (typeof name !== 'string') throw new Error('unknown request')
@@ -954,7 +1054,10 @@ async function start(): Promise<void> {
   })
   app.on('window-all-closed', () => undefined)
   app.on('activate', showWindow)
-  app.on('second-instance', showWindow)
+  app.on('second-instance', (_event, argv) => {
+    if (argv.includes('--worker')) void workerWindow.open()
+    else showWindow()
+  })
   refresh()
   traceStartup('updates-start')
   await startUpdates(supervised)
@@ -971,7 +1074,10 @@ async function start(): Promise<void> {
 app.setName(appName)
 registerPrototypeScheme()
 if (app.isPackaged) process.env.TED_APP_EXECUTABLE = process.env.APPIMAGE || process.execPath
-if (tedEnv('TED_HOME') || edition !== 'release') {
+if (workerOnly) {
+  await workerWindow.status()
+  app.setPath('userData', path.join(executionHome(), 'electron'))
+} else if (tedEnv('TED_HOME') || edition !== 'release') {
   app.setPath('userData', path.join(tedHome(), 'electron'))
 }
 

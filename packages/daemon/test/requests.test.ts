@@ -148,6 +148,38 @@ describe('ted ask --supersedes', () => {
       `Replaced request ${first?.id} with request ${second?.id}. TED sends you their answer.\n`,
     )
     expect((await inbox(client)).map((item) => item.request.id)).toEqual([second?.id])
+
+    const later = '2099-11-11T09:00:00.000Z'
+    const snooze = `/requests/${second?.id}/snooze`
+    const past = await client.call('PUT', snooze, { until: '2000-01-01T00:00:00.000Z' })
+    expect(past.status).toBe(400)
+    expect((await client.call('PUT', '/requests/missing/snooze', { until: later })).status).toBe(
+      404,
+    )
+    expect((await (await asRun(runId)).call('PUT', snooze, { until: later })).status).toBe(403)
+    expect(await client.ok('PUT', snooze, { until: later })).toMatchObject({
+      id: second?.id,
+      snoozedUntil: later,
+    })
+    expect(await client.ok('GET', '/inbox/waiting')).toEqual([])
+    expect(await client.ok('GET', '/inbox/snoozed')).toMatchObject([
+      { id: second?.id, snoozedUntil: later },
+    ])
+    expect((await getTask(client, task.id)).status).toMatchObject({
+      kind: 'waiting-on-you',
+      snoozedUntil: later,
+    })
+
+    await daemon?.stop()
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      snoozes: { now: () => new Date('2099-11-12T00:00:00Z') },
+    })
+    const restarted = api(daemon.port, { appKey: daemon.appToken })
+    expect((await restarted.call('GET', '/inbox/snoozed')).body).toEqual([])
+    expect((await restarted.call('GET', '/inbox/waiting')).body).toMatchObject([{ id: second?.id }])
   })
 
   test('only a Run’s own unanswered request on its own Task can be superseded', async () => {
