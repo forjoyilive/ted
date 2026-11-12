@@ -304,6 +304,11 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/unarchive$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.unarchive(ref)],
   },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/reset$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.reset(ref)],
+  },
   jsonRoute(parseDeleteTaskRequest, {
     optionalBody: true,
     method: 'POST',

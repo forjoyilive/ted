@@ -291,7 +291,10 @@ export async function rebasePullRequest(
   return typeof head === 'string' && head !== pr.headRefOid ? head : undefined
 }
 
-export async function deleteBranch(gh: Pick<Gh, 'api'>, target: MergeTarget): Promise<void> {
+export async function deleteBranch(
+  gh: Pick<Gh, 'api'>,
+  target: Pick<MergeTarget, 'repo' | 'branch'>,
+): Promise<void> {
   const ref = target.branch.split('/').map(encodeURIComponent).join('/')
   const [owner = '', name = ''] = target.repo.split('/').map(encodeURIComponent)
   await gh.api(`repos/${owner}/${name}/git/refs/heads/${ref}`, { method: 'DELETE' })

@@ -1,10 +1,11 @@
 import type { Factory, Task } from '@ted/protocol'
-import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
+import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import type { ArmAction } from './armed.ts'
 import {
   archiveTaskEvent,
   deleteTaskEvent,
   followUpTaskEvent,
+  resetTaskEvent,
 } from './components/ArchiveDialogs.tsx'
 import { snoozeTaskEvent } from './components/SnoozeTaskDialog.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
@@ -320,6 +321,16 @@ export function taskCommands(task: Task): Command[] {
       shortcuts: keysFor('edit'),
       run: () => taskEvent(editTaskEvent, task),
     },
+    ...(resetRefusal(task) === undefined
+      ? [
+          {
+            id: 'reset',
+            label: 'Reset…',
+            scope: 'task' as const,
+            run: () => taskEvent(resetTaskEvent, task),
+          },
+        ]
+      : []),
     {
       id: 'archive',
       label: 'Archive…',

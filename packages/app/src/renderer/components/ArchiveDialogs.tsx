@@ -9,6 +9,7 @@ import { Help } from './Help.tsx'
 
 export const archiveTaskEvent = 'ted:archive-task'
 export const deleteTaskEvent = 'ted:delete-task'
+export const resetTaskEvent = 'ted:reset-task'
 export const followUpTaskEvent = 'ted:follow-up-task'
 
 function joinAnd(items: readonly string[]): string {
@@ -275,6 +276,95 @@ export function DeleteDialog({
             <Button onClick={onClose}>Cancel</Button>
             <Button variant="danger" disabled={busy} onClick={() => void remove()}>
               {busy ? 'Deleting…' : `Delete ${task.displayId}`}
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const runs = useTaskRuns(task.id).length
+  const narrowed = useTasks().some((t) => t.splitFrom?.id === task.id)
+  const prs = openPullRequests(task)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const worktrees = task.repos.filter((r) => !r.removed)
+  const branches = [...new Set(task.repos.map((r) => r.branch))]
+  const conversations =
+    runs === 0
+      ? ''
+      : ` and ${runs === 1 ? 'the Run with its Conversation' : `its ${runs} Runs with their Conversations`}`
+  const lost = [
+    ...(worktrees.length > 0
+      ? [
+          `The ${worktrees.length === 1 ? 'worktree' : 'worktrees'} and any uncommitted work in ${worktrees.length === 1 ? 'it' : 'them'}`,
+        ]
+      : []),
+    ...(branches.length > 0
+      ? [
+          `The ${branches.length === 1 ? 'branch' : 'branches'} ${joinAnd(branches)} and ${branches.length === 1 ? 'its' : 'their'} commits, here and on GitHub`,
+        ]
+      : []),
+    ...(prs.length > 0
+      ? [
+          `${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ repo, pr }) => `${repo.name} #${pr.number}`))}, which TED closes on GitHub`,
+        ]
+      : []),
+    `The thread: Comments, questions and answers, the Task brief and Findings${conversations}`,
+    'Edits to the description, and files attached in Comments',
+  ]
+  const files =
+    task.attachments.length === 0
+      ? ''
+      : ` and its ${task.attachments.length === 1 ? 'attachment' : `${task.attachments.length} attachments`}`
+
+  async function reset() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ted.resetTask(task.id)
+      onClose()
+    } catch (failure) {
+      setError(readableError(failure))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog onClose={onClose}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={styles.heading}>{`Reset ${task.displayId}?`}</h2>
+          <p className={styles.body}>
+            {`${task.title}. TED throws away what this Task has done and starts it again from the first Stage with its original request. This can’t be undone.`}
+          </p>
+          <section className={styles.lost} aria-label="What is lost">
+            <h3 className={styles.lostHeading}>What is lost</h3>
+            <ul className={styles.lostList}>
+              {lost.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </section>
+          {narrowed && (
+            <p className={styles.warning}>
+              {`Split it narrowed this Task. A reset goes back to the request from before the split, so the new attempt covers the whole request again. The Tasks the split created stay as they are, and the title stays “${task.title}”.`}
+            </p>
+          )}
+          <p className={styles.kept}>
+            {`Kept: the Task ID, title, source link, priority, place in the list, blockers, and the original description${files}.`}
+          </p>
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="danger" disabled={busy} onClick={() => void reset()}>
+              {busy ? 'Resetting…' : 'Reset Task'}
             </Button>
           </div>
         </>

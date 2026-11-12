@@ -84,6 +84,7 @@ export const forwardedRequests = [
   'followUpTask',
   'archiveDone',
   'deleteTask',
+  'resetTask',
   'blockTask',
   'unblockTask',
   'getSlots',

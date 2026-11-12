@@ -239,6 +239,26 @@ export interface Task {
   archived?: TaskArchive
 }
 
+export type ResetRefusal = 'archived' | 'done' | 'merged' | 'not-started'
+
+export function resetRefusal(
+  task: Pick<Task, 'archived' | 'stage' | 'statuses' | 'merged' | 'repos' | 'runs'>,
+): ResetRefusal | undefined {
+  if (task.archived) return 'archived'
+  if (task.stage === 'done') return 'done'
+  if (
+    task.merged ||
+    task.statuses.includes('partly-merged') ||
+    task.repos.some((r) => r.pullRequest?.state === 'merged')
+  ) {
+    return 'merged'
+  }
+  if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) {
+    return 'not-started'
+  }
+  return undefined
+}
+
 export interface TaskLink {
   id: string
   displayId: string

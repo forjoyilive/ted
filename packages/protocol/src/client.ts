@@ -579,6 +579,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/unarchive`, {})
   }
 
+  resetTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/reset`, {})
+  }
+
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {
     await this.#request('POST', `/tasks/${encodeURIComponent(ref)}/delete`, options)
   }

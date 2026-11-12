@@ -100,6 +100,8 @@ import {
   clarifyDepths,
   clarifyIsOver,
   parseLinearUrl,
+  type ResetRefusal,
+  resetRefusal,
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -235,6 +237,7 @@ import { createLocalLifecycle } from './local-lifecycle.ts'
 import {
   chooseMethod,
   defaultHost,
+  deleteBranch,
   type PullRequestRead,
   type PullRequestRef,
   type RemotePullRequest,
@@ -335,7 +338,7 @@ export interface TaskPlanning {
     id: string
     title: string
   }>
-  taskGone(taskId: string, reason: 'archived' | 'deleted'): void
+  taskGone(taskId: string, reason: 'archived' | 'deleted' | 'reset'): void
 }
 
 export interface PlanApproval {
@@ -445,6 +448,7 @@ export interface Tasks {
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   unarchive(ref: string): Promise<Task>
+  reset(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
@@ -5353,6 +5357,93 @@ export function createTasks(options: {
     wake()
   }
 
+  const resetRefusals: Record<ResetRefusal, string> = {
+    archived: 'is archived',
+    done: 'is Done',
+    merged: 'has a merged pull request',
+    'not-started': 'hasn’t started',
+  }
+
+  async function reset(ref: string): Promise<Task> {
+    const { id } = find(ref)
+    await untilFree(id)
+    const task = find(id)
+    const refused = resetRefusal(publicTask(id))
+    if (refused) {
+      throw new RequestError(
+        409,
+        `${task.displayId} ${resetRefusals[refused]}, so it can’t be reset`,
+      )
+    }
+    if (merging.has(id)) {
+      throw new RequestError(409, `${task.displayId} is merging; try again in a moment`)
+    }
+    if (deleting.has(id)) {
+      throw new RequestError(409, `${task.displayId} is being deleted or reset`)
+    }
+    deleting.add(id)
+    try {
+      await holding(task, async () => {
+        options.planning?.()?.taskGone(id, 'reset')
+        browser.cancel(id)
+        browserApps.delete(id)
+        if (!task.stopped) store.stopTask(id, { runs: task.runs.length, why: 'human' })
+        const open = task.repos.some(
+          (r) =>
+            r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged',
+        )
+        if (open) pullRequestWork(id, 'close')
+        await clearing(id)
+        await pullRequestQueue.get(id)
+        const last = find(id)
+        if (resetRefusal(publicTask(id)) === 'merged') {
+          throw new RequestError(409, `${task.displayId} has a merged pull request`)
+        }
+        await removeBranches(last)
+        await lifecycle.cleanFolders(await execution.local(id))
+        const runIds = store.taskRunList(id).map((r) => r.id)
+        const files = store.taskFiles(id)
+        failures.forget(id)
+        autoStartFailures.delete(id)
+        continuationFailures.delete(id)
+        for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
+        for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
+        store.resetTask(id)
+        await store.persisted()
+        await removeFiles(last, runIds, files)
+      })
+    } finally {
+      deleting.delete(id)
+    }
+    if (task.setup) reportSetup(task.factoryId)
+    if (await queueStart(id, undefined, false, true)) {
+      await pump()
+      await beginning.get(id)
+    }
+    return publicTask(id)
+  }
+
+  async function removeBranches(task: StoredTask): Promise<void> {
+    const gh = options.gh
+    for (const repo of task.repos) {
+      await git
+        .deleteBranch(clonePath(reposDir, repo), repo.branch)
+        .catch((error: unknown) =>
+          console.error(
+            `couldn’t delete the branch ${repo.branch} of reset ${task.displayId}:`,
+            redactSecrets(error instanceof Error ? error.message : String(error)),
+          ),
+        )
+      if (!gh || (!repo.pushed && !repo.pullRequest)) continue
+      await deleteBranch(gh, repo).catch((error: unknown) =>
+        console.error(
+          `couldn’t delete the branch ${repo.branch} on ${repo.repo}:`,
+          redactSecrets(error instanceof Error ? error.message : String(error)),
+        ),
+      )
+    }
+  }
+
   async function removeFactoryTasks(
     factoryId: string,
     { closePullRequests }: { closePullRequests: boolean },
@@ -5523,7 +5614,12 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  async function queueStart(ref: string, version?: number, prepare = false): Promise<boolean> {
+  async function queueStart(
+    ref: string,
+    version?: number,
+    prepare = false,
+    keepRank = false,
+  ): Promise<boolean> {
     const automatic = version !== undefined
     const task = live(ref)
     const factory = factoryOf(task)
@@ -5593,7 +5689,7 @@ export function createTasks(options: {
           prepare,
         })
       } else {
-        store.queueTask(task.id, stage, { prepare })
+        store.queueTask(task.id, stage, { prepare, keepRank })
       }
     } finally {
       starting.delete(task.id)
@@ -7324,6 +7420,7 @@ export function createTasks(options: {
 
     unarchive,
     delete: remove,
+    reset,
     removeFactoryTasks,
 
     archiveDone(key) {
