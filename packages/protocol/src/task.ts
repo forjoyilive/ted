@@ -237,6 +237,7 @@ export interface Task {
   leadRunId?: string
   rank: number
   status?: TaskStatus
+  statusWithoutBlocker?: TaskStatus
   preparation?: 'preparing' | 'ready'
   statuses: TaskStatusKind[]
   markers: TaskMarker[]

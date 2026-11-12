@@ -415,5 +415,11 @@ describe('the Board’s Display choices', () => {
     expect(plain.status).toBeUndefined()
     expect(plain.markers).toEqual([{ kind: 'needs-planning' }])
     expect(withoutBlockers(working).status).toEqual({ kind: 'working' })
+    const queuedToo = withoutBlockers({
+      ...blocked,
+      statuses: ['blocked', 'queued'],
+      statusWithoutBlocker: { kind: 'queued', place: 2 },
+    })
+    expect(queuedToo.status).toEqual({ kind: 'queued', place: 2 })
   })
 })

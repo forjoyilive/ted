@@ -120,9 +120,11 @@ export function boardLayout(
 }
 
 export function withoutBlockers(task: Task): Task {
-  const { status, ...rest } = task
+  const { status, statusWithoutBlocker, ...rest } = task
   return {
-    ...(status?.kind === 'blocked' ? rest : task),
+    ...(status?.kind === 'blocked'
+      ? { ...rest, ...(statusWithoutBlocker && { status: statusWithoutBlocker }) }
+      : task),
     markers: task.markers.filter((m) => m.kind !== 'blocked-by'),
   }
 }
