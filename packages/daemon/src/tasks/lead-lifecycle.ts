@@ -305,7 +305,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     )
     const pending = current.pendingLeadMessages
     let run: Run
-    protectComments(waiting.comments, true)
+    protectComments([...waiting.comments, ...waiting.answers], true)
     try {
       run = await runs.start({
         agent,
@@ -325,13 +325,14 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
         waiting.comments.map((c) => c.id),
         run.id,
       )
+      store.answersDelivered(
+        waiting.answers.map((c) => c.id),
+        run.id,
+      )
+      await store.persisted()
     } finally {
-      protectComments(waiting.comments, false)
+      protectComments([...waiting.comments, ...waiting.answers], false)
     }
-    store.answersDelivered(
-      waiting.answers.map((c) => c.id),
-      run.id,
-    )
     store.releaseTaskRun(task.id)
     await deliver(task.id)
     afterLeadStart(task.id)
