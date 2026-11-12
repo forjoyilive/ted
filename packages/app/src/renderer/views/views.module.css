@@ -226,6 +226,9 @@
   font-size: var(--text-19);
   font-weight: var(--weight-semibold);
   line-height: 1.45;
+  max-height: calc(1.45em * 6);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
 .stageName {
