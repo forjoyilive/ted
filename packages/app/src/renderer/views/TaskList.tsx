@@ -25,11 +25,13 @@ import {
 import dialogStyles from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
+import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
+import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
 import { useListCollapsed } from '../list-collapse.ts'
 import {
@@ -682,6 +684,12 @@ export function TaskList({
         }}
         tabIndex={0}
         aria-selected={isSelected}
+        {...contextMenu((at) =>
+          openTaskActions(
+            at,
+            isSelected && chosen.length > 1 ? chosen.map((t) => t.id) : [task.id],
+          ),
+        )}
         data-task={task.displayId}
         data-nav-item
         className={[

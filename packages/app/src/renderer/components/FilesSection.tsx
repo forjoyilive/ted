@@ -1,6 +1,7 @@
 import type { Task, TaskFileRef, TaskFiles } from '@ted/protocol'
 import { useEffect, useMemo } from 'react'
 import { Button } from './Button.tsx'
+import { contextMenu, useActionMenu } from './ContextMenu.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
 import styles from './FilesSection.module.css'
 import { Skeleton } from './Loading.tsx'
@@ -45,42 +46,60 @@ function Tree({
   selected: TaskFileRef | undefined
   onOpen: (file: TaskFileRef) => void
 }) {
+  const actions = useActionMenu(`${repo}:${prefix}:${tree.files.join('\0')}`)
   return (
-    <ul className={styles.tree}>
-      {[...tree.folders]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([name, child]) => {
-          const path = `${prefix}${name}/`
+    <>
+      {actions.menu}
+      <ul className={styles.tree}>
+        {[...tree.folders]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, child]) => {
+            const path = `${prefix}${name}/`
+            return (
+              <li key={path}>
+                <details
+                  open={
+                    selected?.repo === repo && selected.path.startsWith(path) ? true : undefined
+                  }
+                >
+                  <summary data-nav-item>{name}</summary>
+                  <Tree
+                    tree={child}
+                    repo={repo}
+                    prefix={path}
+                    selected={selected}
+                    onOpen={onOpen}
+                  />
+                </details>
+              </li>
+            )
+          })}
+        {tree.files.map((name) => {
+          const path = `${prefix}${name}`
+          const current = selected?.repo === repo && selected.path === path
           return (
             <li key={path}>
-              <details
-                open={selected?.repo === repo && selected.path.startsWith(path) ? true : undefined}
+              <button
+                type="button"
+                data-nav-item
+                {...contextMenu((at) =>
+                  actions.open(at, `${repo} / ${path}`, [
+                    { label: 'View file', action: () => onOpen({ repo, path }) },
+                    { label: 'Copy path', action: () => navigator.clipboard.writeText(path) },
+                  ]),
+                )}
+                className={styles.file}
+                aria-current={current || undefined}
+                title={path}
+                onClick={() => onOpen({ repo, path })}
               >
-                <summary data-nav-item>{name}</summary>
-                <Tree tree={child} repo={repo} prefix={path} selected={selected} onOpen={onOpen} />
-              </details>
+                {name}
+              </button>
             </li>
           )
         })}
-      {tree.files.map((name) => {
-        const path = `${prefix}${name}`
-        const current = selected?.repo === repo && selected.path === path
-        return (
-          <li key={path}>
-            <button
-              type="button"
-              data-nav-item
-              className={styles.file}
-              aria-current={current || undefined}
-              title={path}
-              onClick={() => onOpen({ repo, path })}
-            >
-              {name}
-            </button>
-          </li>
-        )
-      })}
-    </ul>
+      </ul>
+    </>
   )
 }
 

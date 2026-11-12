@@ -4,7 +4,7 @@ import type { PullRequestRef } from '../src/tasks/merge.ts'
 import { eventWait } from './support/event-wait.ts'
 import { ManualClock } from './support/manual-clock.ts'
 
-function harness() {
+function harness(urgentBurst?: number) {
   const clock = new ManualClock()
   let reads = 0
   let acted = 0
@@ -17,6 +17,7 @@ function harness() {
   const watch = createPullRequestWatch({
     clock,
     everyMs: 30_000,
+    ...(urgentBurst !== undefined && { urgentBurst }),
     gh: {
       async graphql() {
         reads++
@@ -112,4 +113,34 @@ test('GitHub polling stops when no refs remain', async () => {
   expect(h.reads()).toBe(1)
   expect(h.clock.pending).toEqual([])
   h.watch.close()
+})
+
+test('after a burst of forced reads, GitHub is read at most once every 5 seconds however often it is asked', async () => {
+  const h = harness(2)
+  try {
+    await h.watch.next({ now: true })
+    await h.parked()
+    await h.watch.next({ now: true })
+    await h.parked()
+    expect(h.reads()).toBe(2)
+    const asked = [h.watch.next({ now: true }), h.watch.next({ now: true })]
+    h.clock.advance(4_999)
+    expect(h.reads()).toBe(2)
+    h.clock.advance(1)
+    await Promise.all(asked)
+    await h.parked()
+    expect(h.reads()).toBe(3)
+    const again = h.watch.next({ now: true })
+    h.clock.advance(5_000)
+    await again
+    await h.parked()
+    expect(h.reads()).toBe(4)
+    h.clock.advance(30_000)
+    await h.parked()
+    expect(h.reads()).toBe(5)
+  } finally {
+    h.watch.close()
+    await Promise.all(h.jobs)
+  }
+  expect(h.clock.pending).toEqual([])
 })

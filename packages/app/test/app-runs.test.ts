@@ -76,8 +76,12 @@ describe('Archive, Unarchive and Delete', () => {
     }, 'NB-2 to read “Blocked by archived NB-1”')
 
     await header.getByRole('button', { name: 'Task actions' }).click()
-    const menu = header.getByRole('menu', { name: 'Task actions' })
-    expect(await menu.getByRole('menuitem').allTextContents()).toEqual(['Unarchive', 'Delete…'])
+    const menu = header.page().getByRole('menu', { name: /Task actions/ })
+    expect(await menu.getByRole('menuitem').allTextContents()).toEqual([
+      'Unarchive',
+      'Copy Task ID',
+      'Delete…',
+    ])
     await window.keyboard.press('Escape')
 
     await thread.getByRole('button', { name: 'Unarchive' }).click()
@@ -106,7 +110,7 @@ describe('Stop and Resume', () => {
     await header.getByText('Working', { exact: true }).waitFor()
 
     await header.getByRole('button', { name: 'Task actions' }).click()
-    const menu = header.getByRole('menu', { name: 'Task actions' })
+    const menu = header.page().getByRole('menu', { name: /Task actions/ })
     const first = menu.getByRole('menuitem').first()
     expect(await first.textContent()).toContain('Stop Task')
     expect(await first.getAttribute('aria-describedby')).toBeTruthy()

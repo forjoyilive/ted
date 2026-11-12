@@ -11,7 +11,15 @@ import styles from './SnoozeTaskDialog.module.css'
 
 export const snoozeTaskEvent = 'ted:snooze-task'
 
-export function SnoozeTaskDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+export function SnoozeTaskDialog({
+  task,
+  tasks = [task],
+  onClose,
+}: {
+  task: Task
+  tasks?: readonly Task[]
+  onClose: () => void
+}) {
   const settings = useSettings()
   const zone = effectiveTimeZone(settings ?? timePreferences())
   const [initial] = useState(() => {
@@ -41,7 +49,17 @@ export function SnoozeTaskDialog({ task, onClose }: { task: Task; onClose: () =>
     setBusy(true)
     setError(undefined)
     try {
-      await ted.setTaskSnooze(task.id, instant)
+      for (const target of tasks) {
+        try {
+          await ted.setTaskSnooze(target.id, instant)
+        } catch (failure) {
+          if (tasks.length > 1)
+            throw new Error(
+              `${target.displayId}: ${readableError(failure)} Some selected Tasks may already be snoozed.`,
+            )
+          throw failure
+        }
+      }
       onClose()
     } catch (failure) {
       setError(readableError(failure))
@@ -53,9 +71,17 @@ export function SnoozeTaskDialog({ task, onClose }: { task: Task; onClose: () =>
       {(heading) => (
         <>
           <h2 id={heading} className={styles.heading}>
-            {task.snoozedUntil ? 'Change snooze' : 'Snooze Task'}
+            {tasks.length > 1
+              ? `Snooze ${tasks.length} Tasks`
+              : task.snoozedUntil
+                ? 'Change snooze'
+                : 'Snooze Task'}
           </h2>
-          <p className={styles.note}>Keep this Task in Backlog until:</p>
+          <p className={styles.note}>
+            {tasks.length > 1
+              ? `Keep ${tasks.length} Tasks in Backlog until:`
+              : 'Keep this Task in Backlog until:'}
+          </p>
           <label className={styles.label} htmlFor={id}>
             Date
           </label>
@@ -108,7 +134,13 @@ export function SnoozeTaskDialog({ task, onClose }: { task: Task; onClose: () =>
               Cancel
             </Button>
             <Button variant="primary" onClick={() => void save()} disabled={busy || !instant}>
-              {busy ? 'Saving…' : task.snoozedUntil ? 'Save snooze' : 'Snooze Task'}
+              {busy
+                ? 'Saving…'
+                : tasks.length > 1
+                  ? `Snooze ${tasks.length} Tasks`
+                  : task.snoozedUntil
+                    ? 'Save snooze'
+                    : 'Snooze Task'}
             </Button>
           </div>
         </>

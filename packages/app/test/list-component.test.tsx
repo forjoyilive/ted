@@ -246,6 +246,82 @@ test('List groups remember closed and open choices through Inbox and remounting'
   expect(done().getAttribute('aria-expanded')).toBe('true')
 })
 
+test('right-click uses all selected Tasks, while an unselected row has its own actions', async () => {
+  const a = await list()
+  a.handle('setPriority', vi.fn())
+  a.handle('setTaskLead', vi.fn())
+  await a.emitTask(
+    task({ title: 'Export notes', priority: 'low', lead: { agent: 'codex', model: 'custom' } }),
+  )
+  const u = user()
+  for (const id of ['NB-1', 'MS-1'])
+    fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')), {
+    clientX: 50,
+    clientY: 80,
+  })
+  let menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await u.click(within(menu).getByRole('menuitem', { name: 'Priority' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Priority' })).getByRole('menuitem', {
+      name: 'Urgent',
+    }),
+  )
+  await vi.waitFor(() => {
+    expect(a.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
+    expect(a.request).toHaveBeenCalledWith('setPriority', 'MS-1', 'urgent')
+  })
+  expect(a.request).not.toHaveBeenCalledWith('setPriority', 'NB-2', 'urgent')
+  expect(screen.getByRole('toolbar', { name: 'Selected Tasks' }).textContent).toContain(
+    '2 selected',
+  )
+  expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+  menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await u.click(within(menu).getByRole('menuitem', { name: 'Task Lead' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Task Lead' })).getByRole('menuitem', {
+      name: 'Codex',
+    }),
+  )
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('setTaskLead', 'MS-1', { agent: 'codex' }),
+  )
+  expect(a.request).not.toHaveBeenCalledWith('setTaskLead', 'NB-1', expect.anything())
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-2"]')))
+  menu = await screen.findByRole('menu', { name: 'Task actions · NB-2' })
+  expect(within(menu).getByRole('menuitem', { name: /^Edit title/ })).toBeTruthy()
+  expect(screen.queryByRole('menu', { name: '2 selected Tasks' })).toBeNull()
+  fireEvent.keyDown(menu, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: 'Task actions · NB-2' })).toBeNull()
+})
+
+test('bulk context-menu Archive confirms the group and preserves blocker choices', async () => {
+  const a = await list()
+  a.handle('archiveTask', vi.fn())
+  await a.emitTask(
+    task({ id: 'NB-2', displayId: 'NB-2', title: 'Sync notes', blockedBy: ['NB-1'] }),
+  )
+  for (const id of ['NB-1', 'MS-1'])
+    fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+  const row = required(document.querySelector<HTMLElement>('[data-task="NB-1"]'))
+  row.focus()
+  fireEvent.keyDown(row, { key: 'F10', shiftKey: true })
+  const menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await user().click(within(menu).getByRole('menuitem', { name: 'Archive…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Archive 2 Tasks?' })
+  expect(a.request.mock.calls.some(([name]) => name === 'archiveTask')).toBe(false)
+  await user().click(within(dialog).getByRole('radio', { name: 'Keep them blocked' }))
+  await user().click(within(dialog).getByRole('button', { name: 'Archive 2 Tasks' }))
+  for (const id of ['NB-1', 'MS-1'])
+    await vi.waitFor(() =>
+      expect(a.request).toHaveBeenCalledWith('archiveTask', id, {
+        closePullRequests: false,
+        blocked: 'keep',
+      }),
+    )
+})
+
 test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume and Archive', async () => {
   const a = await list()
   const u = user()
@@ -312,4 +388,100 @@ test('the preparation explanation is shown only once, even when canceled', async
   await u.click(prepare())
   expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toHaveLength(4)
   expect(a.request).toHaveBeenLastCalledWith('startTask', 'NB-1', { prepare: true })
+})
+
+test('selected Ready for Work Tasks offer both Resume and Stop in their context menu', async () => {
+  const a = await list()
+  a.handle('stopTask', vi.fn())
+  for (const id of ['NB-1', 'NB-2']) {
+    await a.emitTask(
+      task({
+        id,
+        displayId: id,
+        stage: 'work',
+        preparation: 'ready',
+        statuses: ['stopped'],
+        status: { kind: 'stopped', at: '2026-11-11T00:00:00Z', prepared: true },
+      }),
+    )
+    fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+  }
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+  const menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  expect(within(menu).getByRole('menuitem', { name: 'Resume' })).toBeTruthy()
+  await user().click(within(menu).getByRole('menuitem', { name: 'Stop Task' }))
+  await vi.waitFor(() => {
+    expect(a.request).toHaveBeenCalledWith('stopTask', 'NB-1')
+    expect(a.request).toHaveBeenCalledWith('stopTask', 'NB-2')
+  })
+})
+
+test.each(['Archive', 'Delete'])(
+  'bulk %s keeps a later Task failure visible inside its confirmation',
+  async (label) => {
+    const a = await list()
+    const method = label === 'Archive' ? 'archiveTask' : 'deleteTask'
+    a.handle(
+      method,
+      vi.fn(async (id: unknown) => {
+        if (id === 'MS-1') throw new Error('Request refused')
+      }),
+    )
+    for (const id of ['NB-1', 'MS-1'])
+      fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+    fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+    await user().click(
+      within(await screen.findByRole('menu', { name: '2 selected Tasks' })).getByRole('menuitem', {
+        name: `${label}…`,
+      }),
+    )
+    const dialog = await screen.findByRole('dialog', { name: `${label} 2 Tasks?` })
+    await user().click(within(dialog).getByRole('button', { name: `${label} 2 Tasks` }))
+    const error = await within(dialog).findByRole('alert')
+    expect(error.textContent).toContain('MS-1: Request refused')
+    expect(error.textContent).toContain('Some selected Tasks may already have changed.')
+    expect(a.request).toHaveBeenCalledWith(method, 'NB-1', expect.anything())
+    expect(a.request).toHaveBeenCalledWith(method, 'MS-1', expect.anything())
+  },
+)
+
+test('bulk Restart identifies a later Task failure and stops before the next Task', async () => {
+  const a = await list()
+  a.handle(
+    'restartRun',
+    vi.fn(async (id: unknown) => {
+      if (id === 'lead-NB-2') throw new Error('Restart refused')
+    }),
+  )
+  for (const current of [...a.state.tasks]) {
+    await a.emitTask({
+      ...current,
+      stage: 'work',
+      leadRunId: `lead-${current.id}`,
+      runs: [
+        {
+          id: `lead-${current.id}`,
+          agent: 'codex',
+          role: 'lead',
+          name: 'Task Lead',
+          state: 'idle',
+        },
+      ],
+    })
+    fireEvent.click(required(document.querySelector(`[data-task="${current.id}"]`)), {
+      metaKey: true,
+    })
+  }
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+  await user().click(
+    within(await screen.findByRole('menu', { name: '3 selected Tasks' })).getByRole('menuitem', {
+      name: 'Restart',
+    }),
+  )
+  const error = await screen.findByRole('alert')
+  expect(error.textContent).toContain('NB-2: Restart refused')
+  expect(error.textContent).toContain('Some selected Tasks may already have changed.')
+  expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-1')
+  expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-2')
+  expect(a.request).not.toHaveBeenCalledWith('restartRun', 'lead-MS-1')
 })
