@@ -264,6 +264,13 @@ describe('the queue', () => {
     )
     await waitForRunState(client, high, 'idle')
     await client.ok('PUT', `/tasks/${low.id}/lead`, { agent: 'claude', model: 'unavailable' })
+    const lowWithLead = await waitForLead(client, low)
+    if (!lowWithLead.leadRunId) throw new Error('missing low Task Lead')
+    const lowRunId = lowWithLead.leadRunId
+    await expect
+      .poll(async () => (await client.getRun(lowRunId)).run)
+      .toMatchObject({ model: 'unavailable', state: 'idle' })
+    await client.ok('POST', `/runs/${lowRunId}/messages`, { text: 'Try the selected model.' })
     await waitForRunState(client, low, 'waiting')
     const blocker = await startTask(client, workingUntil(never))
     await waitForRunState(client, blocker, 'working')
