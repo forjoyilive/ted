@@ -156,7 +156,8 @@ test.each(['antigravity', 'claude', 'codex'] as const)(
 )
 
 test('Automation drafting shows native tool activity with the shared conversation renderer', async () => {
-  bridge({
+  const api = bridge({
+    cancelAutomationPromptDraft: () => ({ id: 'draft', factoryId: 'factory', state: 'canceled' }),
     draftAutomationPrompt: () => ({ id: 'draft', factoryId: 'factory', state: 'queued' }),
     getAutomationPromptDraft: () => ({
       id: 'draft',
@@ -177,7 +178,7 @@ test('Automation drafting shows native tool activity with the shared conversatio
       },
     }),
   })
-  render(
+  const view = render(
     <AutomationPromptDraft
       factory="factory"
       name="Daily triage"
@@ -196,4 +197,8 @@ test('Automation drafting shows native tool activity with the shared conversatio
   expect(
     (screen.getByRole('textbox', { name: 'Suggested Prompt' }) as HTMLTextAreaElement).value,
   ).toBe('Suggested instructions.')
+  view.unmount()
+  await vi.waitFor(() =>
+    expect(api.request).toHaveBeenCalledWith('cancelAutomationPromptDraft', 'draft'),
+  )
 })

@@ -962,34 +962,78 @@ test.each([undefined, 'session'])(
 const realAntigravity = process.env.TED_REAL_ANTIGRAVITY_BIN
 
 test.skipIf(!realAntigravity).each([false, true])(
-  'native Antigravity isolated chat exposes only task management and completes tool use (recovered: %s)',
+  'native Antigravity isolated chat limits declared tools and completes tool use or refusal (recovered: %s)',
   async (recover) => {
     if (!realAntigravity) throw new Error('Missing native CLI path')
     const root = await mkdtemp(path.join(tmpdir(), 'ted-agy-text-only-'))
     const marker = path.join(root, 'hook-ran')
-    const requests: Record<string, unknown>[] = []
+    const requests: { url: string; body: Record<string, unknown>; generation: boolean }[] = []
+    const generations = () => requests.filter((request) => request.generation)
+    function declaredTools(request: (typeof requests)[number]) {
+      const groups = request.body.tools ?? []
+      expect(Array.isArray(groups), JSON.stringify(request)).toBe(true)
+      const tools = groups as {
+        functionDeclarations: {
+          name: string
+          parametersJsonSchema: { properties: { Action: { enum: string[] } } }
+        }[]
+      }[]
+      for (const group of tools) {
+        expect(Object.keys(group), JSON.stringify(request)).toEqual(['functionDeclarations'])
+        expect(Array.isArray(group.functionDeclarations), JSON.stringify(request)).toBe(true)
+      }
+      const functions = tools.flatMap((group) => group.functionDeclarations)
+      expect(functions.length, JSON.stringify(request)).toBeLessThanOrEqual(1)
+      for (const fn of functions) {
+        expect(fn.name, JSON.stringify(request)).toBe('manage_task')
+        expect(fn.parametersJsonSchema.properties.Action.enum.toSorted()).toEqual([
+          'kill',
+          'list',
+          'send_input',
+          'status',
+        ])
+      }
+      return functions
+    }
     let injectTool = false
-    let injected = false
+    let injected: (typeof requests)[number] | undefined
     const server = createServer(async (request, response) => {
       let body = ''
       for await (const chunk of request) body += chunk
-      if (body) requests.push(JSON.parse(body))
+      const url = request.url ?? ''
+      const generation = /:(?:streamGenerateContent|generateContent)(?:\?|$)/.test(url)
+      const captured: (typeof requests)[number] = {
+        url,
+        body: body ? (JSON.parse(body) as Record<string, unknown>) : {},
+        generation,
+      }
+      requests.push(captured)
+      if (!generation) {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify(url.includes('countTokens') ? { totalTokens: 1 } : {}))
+        return
+      }
+      const inject =
+        injectTool &&
+        !injected &&
+        (JSON.stringify(captured.body.contents) ?? '').includes(
+          'Reply using supplied context only.',
+        )
       const result = {
         candidates: [
           {
             content: {
               role: 'model',
-              parts:
-                injectTool && !injected
-                  ? [{ functionCall: { name: 'manage_task', args: { Action: 'list' } } }]
-                  : [{ text: 'Supplied context only.' }],
+              parts: inject
+                ? [{ functionCall: { name: 'manage_task', args: { Action: 'list' } } }]
+                : [{ text: 'Supplied context only.' }],
             },
             finishReason: 'STOP',
           },
         ],
         usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
       }
-      if (injectTool) injected = true
+      if (inject) injected = captured
       const streaming = request.url?.includes('streamGenerateContent')
       response.writeHead(200, {
         'content-type': streaming ? 'text/event-stream' : 'application/json',
@@ -1087,21 +1131,8 @@ test.skipIf(!realAntigravity).each([false, true])(
         },
         { timeout: 30_000, interval: 50 },
       )
-      expect(requests.length).toBeGreaterThan(0)
-      for (const request of requests) {
-        const tools = request.tools as {
-          functionDeclarations?: {
-            name: string
-            parametersJsonSchema: { properties: { Action: { enum: string[] } } }
-          }[]
-        }[]
-        expect(
-          tools.flatMap((tool) => tool.functionDeclarations?.map((fn) => fn.name) ?? []),
-        ).toEqual(['manage_task'])
-        expect(
-          tools[0]?.functionDeclarations?.[0]?.parametersJsonSchema.properties.Action.enum.toSorted(),
-        ).toEqual(['kill', 'list', 'send_input', 'status'])
-      }
+      expect(generations().length, JSON.stringify(requests)).toBeGreaterThan(0)
+      for (const request of generations()) declaredTools(request)
       expect(events.some((line) => JSON.parse(line).update?.sessionUpdate === 'tool_call')).toBe(
         false,
       )
@@ -1131,36 +1162,44 @@ test.skipIf(!realAntigravity).each([false, true])(
         },
         { timeout: 30_000, interval: 50 },
       )
-      expect(injected).toBe(true)
+      expect(injected, JSON.stringify(requests)).toBeDefined()
+      if (!injected) throw new Error('The supplied prompt never reached the native model fixture')
       const afterInjection = JSON.stringify(requests.slice(beforeInjection))
       expect(afterInjection).toContain('functionResponse')
       expect(afterInjection).toContain('manage_task')
-      expect(afterInjection).not.toMatch(/unknown tool/i)
-      expect(
-        events
-          .slice(beforeEvents)
-          .some((line) => JSON.parse(line).update?.sessionUpdate === 'tool_call'),
-      ).toBe(true)
+      const turn = events.slice(beforeEvents)
+      declaredTools(injected)
+      if (!/unknown tool.*manage_task/is.test(afterInjection)) {
+        expect(afterInjection).not.toMatch(/unknown tool/i)
+        expect(turn.some((line) => JSON.parse(line).update?.sessionUpdate === 'tool_call')).toBe(
+          true,
+        )
+        expect(
+          agent.chat(
+            turn.map((line, offset) => ({ line, offset })),
+            launch.cwd ?? runDir,
+          ),
+        ).toEqual(
+          expect.arrayContaining([expect.objectContaining({ kind: 'tool', status: 'done' })]),
+        )
+      } else {
+        expect(afterInjection).toMatch(/unknown tool.*manage_task/is)
+      }
       expect(
         agent.chat(
-          events.map((line, offset) => ({ line, offset })),
+          turn.map((line, offset) => ({ line, offset })),
           launch.cwd ?? runDir,
         ),
-      ).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool', status: 'done' })]))
-      for (const request of requests) {
-        const tools = request.tools as {
-          functionDeclarations?: {
-            name: string
-            parametersJsonSchema: { properties: { Action: { enum: string[] } } }
-          }[]
-        }[]
-        expect(
-          tools.flatMap((tool) => tool.functionDeclarations?.map((fn) => fn.name) ?? []),
-        ).toEqual(['manage_task'])
-        expect(
-          tools[0]?.functionDeclarations?.[0]?.parametersJsonSchema.properties.Action.enum.toSorted(),
-        ).toEqual(['kill', 'list', 'send_input', 'status'])
-      }
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'agent',
+            done: true,
+            text: expect.stringContaining('Supplied context only.'),
+          }),
+        ]),
+      )
+      for (const request of generations()) declaredTools(request)
       await expect(access(marker)).rejects.toThrow()
       lines.close()
     } finally {
