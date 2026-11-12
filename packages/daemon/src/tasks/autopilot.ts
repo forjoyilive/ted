@@ -3,6 +3,7 @@ import type { Comment, Task } from '@ted/protocol'
 export function ordinaryAutopilotRequest(comment: Comment): boolean {
   if (
     comment.answer ||
+    comment.talk ||
     comment.permission ||
     comment.simulator ||
     comment.linearTeam ||

@@ -90,7 +90,11 @@ describe('Autopilot', () => {
     const { client } = await start({ nudgeAfterMs: 50 })
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const a = await create(client, {
-      title: steps({ run: ['ted', 'outcome', 'ask', 'Which search fields?'] }, { endTurn: true }),
+      title: steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['ted', 'outcome', 'ask', 'Which search fields?'] },
+        { endTurn: true },
+      ),
     })
     const b = await create(client)
     await client.ok('PATCH', '/settings', { overnightMode: true })
@@ -153,8 +157,21 @@ describe('Autopilot', () => {
       `/tasks/${a.id}/comments`,
     )
     expect(comments.find((c) => c.gate)?.autopilotAnswered).toBe(true)
+    const answered = comments.find((c) => c.gate)
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    const recovered = clientNow()
+    for (const choice of ['on', 'off', 'on'] as const)
+      await recovered.ok('PUT', `/tasks/${a.id}/autopilot`, { choice })
+    const afterRecovery = await recovered.ok<import('@ted/protocol').Comment[]>(
+      'GET',
+      `/tasks/${a.id}/comments`,
+    )
+    expect(afterRecovery.filter((c) => c.id === answered?.id)).toEqual([answered])
+    expect((await get(recovered, a)).stage).not.toBe('intake')
+
     expect(
-      (await client.ok<InboxItem[]>('GET', '/inbox')).some(
+      (await recovered.ok<InboxItem[]>('GET', '/inbox')).some(
         ({ request }) => request.taskId === a.id && request.gate,
       ),
     ).toBe(false)

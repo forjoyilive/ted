@@ -3367,7 +3367,7 @@ export function createTasks(options: {
         ? await validateRound(current, resolution.workflow)
         : undefined
     const prompt = [
-      overnightGuidance(overnightMode),
+      overnightGuidance(overnightMode, task.setup),
       ...pending.map((message) => message.text),
       ...(resumeSession === undefined
         ? [
@@ -3878,6 +3878,7 @@ export function createTasks(options: {
       throw new RequestError(403, 'only the current Task Lead may answer')
     if (
       !taskAutopilot(task) ||
+      task.setup ||
       task.archived ||
       task.stopped ||
       task.waitsForBlockers ||
@@ -3912,7 +3913,14 @@ export function createTasks(options: {
     automaticProcessing.add(id)
     try {
       const task = store.getTask(id)
-      if (!task || !taskAutopilot(task) || task.stopped || task.archived || task.waitsForBlockers) {
+      if (
+        !task ||
+        !taskAutopilot(task) ||
+        task.setup ||
+        task.stopped ||
+        task.archived ||
+        task.waitsForBlockers
+      ) {
         for (const key of automaticNotified)
           if (key.startsWith(`${id}:`)) automaticNotified.delete(key)
         return
@@ -4136,7 +4144,7 @@ export function createTasks(options: {
     const mode = taskAutopilot(find(task.id))
     const current = find(task.id)
     const lead = effectiveLead(current)
-    const message = `${text}\n\n${overnightGuidance(mode)}`
+    const message = `${text}\n\n${overnightGuidance(mode, current.setup)}`
     if (
       lead &&
       (!sameChoice(lead, run) ||
@@ -6044,7 +6052,7 @@ export function createTasks(options: {
       return [
         {
           id: `overnight:${mode}`,
-          text: overnightGuidance(mode),
+          text: overnightGuidance(mode, task.setup),
           at: task?.updatedAt ?? overnightChangedAt,
         },
       ]

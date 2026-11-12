@@ -1,5 +1,6 @@
 import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   type CheckRun,
   type Factory,
@@ -606,6 +607,30 @@ test('Task Autopilot answers recommended rounds and lets only its current Lead a
       questions: [{ question: 'Which fields?', recommended: 'Title and description' }],
     },
   }
+  const talking = await token.call('POST', `/tasks/${task.id}/comments`, input)
+  const talkRound = talking.body as import('@ted/protocol').Comment
+  await client.ok('POST', `/comments/${talkRound.id}/talk`)
+  await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'on' })
+  const talked = () =>
+    client.ok<import('@ted/protocol').Comment[]>('GET', `/tasks/${task.id}/comments`)
+  expect((await talked()).find((c) => c.id === talkRound.id)?.answer).toBeUndefined()
+  await client.ok('POST', `/comments/${talkRound.id}/done-talking`)
+  await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'on' })
+  expect((await talked()).find((c) => c.id === talkRound.id)?.answer).toBeUndefined()
+  expect(
+    (
+      await token.call('POST', `/tasks/${task.id}/rounds/close`, {
+        summary: 'We agreed on title and description.',
+      })
+    ).status,
+  ).toBe(200)
+  expect((await talked()).find((c) => c.id === talkRound.id)).toMatchObject({
+    answer: {
+      kind: 'answered',
+      talkedThrough: { runId: task.leadRunId ?? (await getTask(client, task.id)).leadRunId },
+    },
+  })
+  await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'off' })
   const posted = await token.call('POST', `/tasks/${task.id}/comments`, input)
   expect(posted.status).toBe(201)
   const round = posted.body as import('@ted/protocol').Comment
@@ -654,9 +679,40 @@ test('Task Autopilot answers recommended rounds and lets only its current Lead a
     text: 'Newest first matches the existing list.',
   }
   await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'off' })
-  expect((await token.call('POST', answerPath, answer)).status).toBe(409)
+  const current = await getTask(client, task.id)
+  const capability = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(
+    current.leadRunId ?? '',
+  )
+  const cli = () =>
+    run(
+      process.execPath,
+      [
+        fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url)),
+        'autopilot',
+        'answer',
+        question.id,
+        '--choice',
+        answer.choice,
+        answer.text,
+      ],
+      {
+        env: {
+          ...process.env,
+          TED_HOME: ctx.home,
+          TED_RUN: current.leadRunId,
+          TED_TASK: task.id,
+          TED_PLAN: '',
+          TED_RUN_TOKEN: '',
+          TED_RUN_CAPABILITY: capability,
+        },
+      },
+    )
+  await expect(cli()).rejects.toMatchObject({
+    code: 1,
+    stderr: expect.stringContaining('Autopilot cannot answer'),
+  })
   await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'on' })
-  expect((await token.call('POST', answerPath, answer)).status).toBe(200)
+  await cli()
   expect((await token.call('POST', answerPath, answer)).status).toBe(403)
   expect((await comments()).find((c) => c.id === question.id)).toMatchObject({
     autopilotAnswered: true,
@@ -672,3 +728,90 @@ test('Task Autopilot answers recommended rounds and lets only its current Lead a
   await advanceTo(client, task, 'design')
   expect(await gateRequests(client, task)).toEqual([])
 })
+
+test.each(['global', 'Task'] as const)(
+  '%s Autopilot keeps setup questions, rounds and forced sign-offs manual',
+  async (source) => {
+    const client = await start(gated)
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const task = await client.ok<Task>('POST', `/factories/${factory?.id}/setup-task`)
+    await client.ok('PUT', `/tasks/${task.id}`, {
+      title: JSON.stringify({ steps: [{ everyMessage: [{ endTurn: true }] }, { endTurn: true }] }),
+    })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await advanceTo(client, task, 'clarify')
+    const token = await lead(client, task)
+    const round = await token.call('POST', `/tasks/${task.id}/comments`, {
+      body: '',
+      round: {
+        title: 'Setup scope',
+        questions: [{ question: 'Which Checks?', recommended: 'Typecheck' }],
+      },
+    })
+    expect(round.status).toBe(201)
+    const question = await token.call('POST', `/tasks/${task.id}/comments`, {
+      body: 'Which repository?',
+    })
+    expect(question.status).toBe(201)
+    const activate = async () => {
+      if (source === 'global') await overnight(client, true)
+      await client.ok('PUT', `/tasks/${task.id}/autopilot`, {
+        choice: source === 'global' ? 'inherit' : 'on',
+      })
+    }
+    await activate()
+    const requests = () =>
+      client.ok<import('@ted/protocol').Comment[]>('GET', `/tasks/${task.id}/comments`)
+    for (const response of [round, question])
+      expect(
+        (await requests()).find(
+          (c) => c.id === (response.body as import('@ted/protocol').Comment).id,
+        )?.answer,
+      ).toBeUndefined()
+    expect(
+      (
+        await token.call(
+          'POST',
+          `/tasks/${task.id}/autopilot/${(question.body as import('@ted/protocol').Comment).id}`,
+          {
+            action: 'answer',
+            text: 'Guessing a repo',
+          },
+        )
+      ).status,
+    ).toBe(409)
+    await client.ok(
+      'POST',
+      `/comments/${(round.body as import('@ted/protocol').Comment).id}/answer`,
+      { action: 'accept-recommended' },
+    )
+    await client.ok(
+      'POST',
+      `/comments/${(question.body as import('@ted/protocol').Comment).id}/answer`,
+      { action: 'answer', text: 'The primary repo' },
+    )
+    await advanceTo(client, task, 'design')
+    const designLead = await lead(client, task)
+    await designLead.call('POST', `/tasks/${task.id}/brief`, { text: brief })
+    const proposed = await designLead.call('POST', `/tasks/${task.id}/outcome`, {
+      outcome: 'advance',
+      design: {
+        title: 'Setup',
+        setup: {
+          workflow: [{ stage: 'design', setting: 'Sign-off on' }],
+          checks: [],
+          apps: [],
+          files: [{ path: '.ted/workflow.yaml', about: 'Workflow' }],
+        },
+      },
+    })
+    expect(proposed.status).toBe(200)
+    await activate()
+    expect((await getTask(client, task.id)).stage).toBe('design')
+    expect(await gateRequests(client, task)).toHaveLength(1)
+    const current = await getTask(client, task.id)
+    expect(JSON.stringify(await client.getRun(current.leadRunId ?? ''))).toContain(
+      'Setup questions, rounds and sign-offs wait for the user',
+    )
+  },
+)

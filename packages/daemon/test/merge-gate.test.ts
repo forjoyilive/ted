@@ -53,7 +53,7 @@ const mergeSignoff = (client: Client, task: Task) =>
   )
 
 describe('Merge sign-off', () => {
-  test('TED posts the Merge sign-off only once CI passes, it still waits for the human when Autopilot turns on, and Merge merges at once', async () => {
+  test('TED posts the Merge sign-off only once CI passes, Autopilot approves the waiting request when turned on, and Merge merges at once', async () => {
     const client = await start({
       files: ci,
       workflow: ['stages:', '  merge: { gate: true }'],

@@ -516,7 +516,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       const messages = current.pendingLeadMessages
       await runs.revive(run.id, {
         prompt: [
-          overnightGuidance(current.autopilot?.enabled === true),
+          overnightGuidance(current.autopilot?.enabled === true, current.setup),
           revivedMessage(reason),
           ...editedSince(task),
           ...messages.map((message) => message.text),
