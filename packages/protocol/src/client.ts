@@ -67,7 +67,7 @@ import type {
   RestoreBackupResult,
   ShutdownRequest,
 } from './data.ts'
-import type { Diagnostics, LogText } from './diagnostics.ts'
+import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { FactoryExport } from './export.ts'
 import type {
@@ -1043,6 +1043,10 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics')
   }
 
+  getProcessUsage(): Promise<ProcessUsage> {
+    return this.#request('GET', '/diagnostics/usage')
+  }
+
   getReport(): Promise<{ text: string }> {
     return this.#request('GET', '/diagnostics/report')
   }
@@ -1183,8 +1187,13 @@ export class DaemonClient {
     })
   }
 
-  factorySettings(factoryId: string): Promise<FactorySettingsView> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
+  factorySettings(
+    factoryId: string,
+    options: { refresh?: 'background' | 'first' | 'never' } = {},
+  ): Promise<FactorySettingsView> {
+    const { refresh = 'background' } = options
+    const query = refresh === 'background' ? '' : `?refresh=${refresh}`
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings${query}`)
   }
 
   previewFactorySettings(

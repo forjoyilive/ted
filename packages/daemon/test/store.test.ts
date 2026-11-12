@@ -505,6 +505,116 @@ describe('TedStore', () => {
     }
   })
 
+  test('a list of Tasks holds what reading each Task one by one gives', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }
+      const file = { hash: 'a'.repeat(64), name: 'shot.png', size: 3, mediaType: 'image/png' }
+      const blocker = await store.createTask({ title: 'Blocker' })
+      const merged = await store.createTask({ title: 'Merged blocker' })
+      const gone = await store.createTask({ title: 'Deleted blocker' })
+      const blocked = await store.createTask({
+        title: 'Blocked',
+        blockedBy: [blocker.id, merged.id, gone.id],
+        attachments: [file],
+      })
+      store.changeStage(merged.id, 'done', entry)
+      store.deleteTask(gone.id)
+
+      const working = await store.createTask({
+        title: 'Working',
+        source: { url: 'https://linear.app/acme/issue/ENG-7/fix-login' },
+      })
+      store.startTask({
+        taskId: working.id,
+        stage: 'work',
+        branch: 'b',
+        worktree: '/w',
+        entry,
+        repo,
+      })
+      store.pullRequestOpened(working.id, repo.name, {
+        number: 7,
+        url: 'https://github.com/acme/widgets/pull/7',
+        base: 'main',
+      })
+      store.startRun({ id: 'lead', agent: 'claude', prompt: 'Hi', cwd: '/w', taskId: working.id })
+      store.startRun({
+        id: 'sub',
+        agent: 'codex',
+        prompt: 'Hi',
+        cwd: '/w',
+        taskId: working.id,
+        parentRunId: 'lead',
+        name: 'Reviewer',
+      })
+      store.openTab(working.id, 'sub')
+      store.requestSubAgent({
+        id: 'asked',
+        taskId: working.id,
+        parentRunId: 'lead',
+        name: 'Second',
+        agent: 'codex',
+        prompt: 'Hi',
+        ownWorktree: false,
+      })
+      store.pauseAgent('codex', 'Usage limit')
+      store.writeBrief({ taskId: working.id, text: '## Goal\n\nFix it.\n' })
+      store.postComment({
+        taskId: working.id,
+        body: 'Which one?',
+        kind: 'question',
+        author: { kind: 'run', runId: 'lead' },
+      })
+      const answered = store.postComment({
+        taskId: working.id,
+        body: 'And this?',
+        kind: 'question',
+        author: { kind: 'run', runId: 'lead' },
+      })
+      store.answerComment(answered.id, {
+        kind: 'answered',
+        text: 'Yes',
+        at: '2026-11-08T12:00:00.000Z',
+      })
+
+      const queued = await store.createTask({ title: 'Queued', lead: { agent: 'codex' } })
+      store.queueTask(queued.id, 'intake')
+      const followUp = await store.createTask({ title: 'Follow-up', followUpOf: working.id })
+      const archived = await store.createTask({ title: 'Archived' })
+      store.archiveTask(archived.id)
+      const stopped = await store.createTask({ title: 'Stopped' })
+      store.startRun({ id: 'ended', agent: 'claude', prompt: 'Hi', cwd: '/w', taskId: stopped.id })
+      store.recordRunOutput('ended', { toOffset: 1, state: 'finished' })
+      for (const title of ['Nine', 'Ten', 'Eleven', 'Twelve']) await store.createTask({ title })
+
+      const list = store.listTasks()
+      const ids = list.map((t) => t.id)
+      expect(ids).toHaveLength(12)
+      const byId = (id: string) => list.find((t) => t.id === id)
+      expect(byId(blocked.id)).toMatchObject({
+        blockedBy: [blocker.id, merged.id, gone.id],
+        markers: [{ kind: 'blocked-by', by: 'DEV-1' }],
+        attachments: [file],
+      })
+      expect(byId(working.id)).toMatchObject({
+        leadRunId: 'lead',
+        runs: [{ id: 'lead' }, { id: 'sub', name: 'Reviewer', paused: 'Usage limit' }],
+        tabs: [{ runId: 'sub' }],
+        repos: [{ name: 'widgets', pullRequest: { number: 7 } }],
+        source: { url: 'https://linear.app/acme/issue/ENG-7/fix-login' },
+        linearSync: 'ask',
+      })
+      expect(byId(followUp.id)?.followUpOf).toEqual({ id: working.id, displayId: 'DEV-5' })
+      for (const task of list) expect(store.getTask(task.id), task.title).toMatchObject(task)
+      expect(store.tasksIn(new Set(ids))).toEqual(list)
+      const few = new Set([blocked.id, working.id, queued.id])
+      expect(store.tasksIn(few)).toEqual(list.filter((t) => few.has(t.id)))
+    } finally {
+      await store.close()
+    }
+  })
+
   test('every event has a versioned name', () => {
     for (const event of Object.values(events)) {
       expect(event.name).toMatch(/^v[1-9][0-9]*\.[A-Z][A-Za-z]+$/)

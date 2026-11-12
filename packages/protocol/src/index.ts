@@ -217,6 +217,7 @@ export type {
   Diagnostics,
   LogText,
   ProcessInfo,
+  ProcessUsage,
   RunDiagnostics,
   TokenUse,
 } from './diagnostics.ts'

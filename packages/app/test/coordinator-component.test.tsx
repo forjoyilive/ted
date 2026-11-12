@@ -322,7 +322,7 @@ test('the Library page shows the overnight notice only while overnight mode is o
 test('a Task’s sign-offs editor shows the overnight notice only while overnight mode is on', async () => {
   bridge({})
   await checkNotice(
-    () => <TaskGatesField taskId="NB-1" />,
+    () => <TaskGatesField taskId="NB-1" factoryId="factory-1" />,
     async () => {
       await user().click(await screen.findByRole('button', { name: /Use Workflow/ }))
       await screen.findByRole('region', { name: 'Sign-offs for this Task' })

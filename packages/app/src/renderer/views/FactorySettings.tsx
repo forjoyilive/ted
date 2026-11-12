@@ -15,11 +15,13 @@ import type {
 } from '@ted/protocol'
 import { appKinds } from '@ted/protocol/factory-settings'
 import {
+  memo,
   type ReactNode,
   type RefObject,
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -119,10 +121,31 @@ export function FactorySettings({
   }, [])
 
   const driftRef = useRef(0)
-  const { value: view, refresh: load } = useEventValue<FactorySettingsView | undefined>({
+  const loading = useRef(0)
+  const driftWhileLoading = useRef<number | undefined>(undefined)
+  const shown = useRef<{ clean: boolean; version: string | undefined }>({
+    clean: true,
+    version: undefined,
+  })
+  const read = useCallback(
+    (refresh: 'background' | 'never') => async () => {
+      loading.current++
+      try {
+        return await ted.factorySettings(factory.id, { refresh })
+      } finally {
+        loading.current--
+      }
+    },
+    [factory.id],
+  )
+  const {
+    value: view,
+    refresh,
+    update,
+  } = useEventValue<FactorySettingsView | undefined>({
     initial: undefined,
     key: factory.id,
-    load: () => ted.factorySettings(factory.id),
+    load: read('background'),
     event: (event) => {
       if (event.type === 'check-try-updated' && event.checkTry.factoryId === factory.id) {
         return (current) =>
@@ -131,23 +154,36 @@ export function FactorySettings({
             tries: [...current.tries.filter((t) => t.name !== event.checkTry.name), event.checkTry],
           }
       }
-      if (
-        event.type === 'drift-changed' &&
-        (event.drift.factories[factory.id] ?? 0) !== driftRef.current
-      )
+      if (event.type === 'factory-settings-changed' && event.factoryId === factory.id) {
         return 'reload'
+      }
+      if (event.type === 'drift-changed') {
+        const count = event.drift.factories[factory.id] ?? 0
+        if (loading.current > 0) driftWhileLoading.current = count
+        else if (count !== driftRef.current) return 'reload'
+      }
       return undefined
     },
     changed: (loaded) => {
       setLoadError(undefined)
-      if (!loaded || started.current) return
+      if (!loaded) return
+      if (started.current && (!shown.current.clean || loaded.version === shown.current.version)) {
+        return
+      }
       started.current = true
       restart(loaded)
     },
     error: (failure) => setLoadError(readableError(failure)),
   })
+  const load = useCallback(() => refresh(read('never')), [refresh, read])
   driftRef.current = view?.stages.filter((s) => s.drift !== undefined).length ?? 0
   const drifted = driftRef.current
+  useEffect(() => {
+    const seen = driftWhileLoading.current
+    if (!view || loading.current > 0) return
+    driftWhileLoading.current = undefined
+    if (seen !== undefined && seen !== drifted) void refresh()
+  }, [view, drifted, refresh])
   const tries = view?.tries ?? []
   const { value: home } = useEventValue<string | undefined>({
     initial: undefined,
@@ -155,38 +191,70 @@ export function FactorySettings({
     event: () => undefined,
   })
 
-  const loaded = base?.draft.repos ?? []
-  const unsaved = base && draft ? unsavedChanges(draft, base.draft) : { count: 0, files: [] }
+  const loaded = useMemo(() => base?.draft.repos ?? [], [base])
+  const unsaved = useMemo(
+    () => (base && draft ? unsavedChanges(draft, base.draft) : { count: 0, files: [] }),
+    [draft, base],
+  )
   const count = unsaved.count
-  const onDraft = (change: (current: SettingsDraft) => SettingsDraft) => {
+  shown.current = { clean: count === 0, version: base?.version }
+  const onDraft = useCallback((change: (current: SettingsDraft) => SettingsDraft) => {
     if (mergeBusy.current) return
     setDraft((current) => (current ? change(current) : current))
-  }
-  const setRepos = (change: (repos: RepoSettingsInput[]) => RepoSettingsInput[]) =>
-    onDraft((current) => ({ ...current, repos: change(current.repos) }))
-  const updateRepo = (index: number, change: (repo: RepoSettingsInput) => RepoSettingsInput) =>
-    setRepos((current) => current.map((repo, i) => (i === index ? change(repo) : repo)))
-  const removeRepo = (was: string) =>
-    onDraft((current) => ({
-      ...current,
-      repos: current.repos.filter((r) => r.was !== was),
-      checks: current.checks.filter((c) => c.repo !== was),
-    }))
-  const undoRemove = (was: string) =>
-    onDraft((current) => {
-      const index = loaded.findIndex((r) => r.was === was)
-      const repo = loaded[index]
-      if (!repo) return current
-      const repos = [...current.repos]
-      repos.splice(Math.min(Math.max(index, 1), repos.length), 0, repo)
-      const checks: CheckInput[] = [
-        ...current.checks,
-        ...(base?.draft.checks ?? []).filter(
-          (c) => c.repo === was && !current.checks.some((d) => d.was === c.was),
-        ),
-      ]
-      return { ...current, repos, checks }
-    })
+  }, [])
+  const onMode = useCallback(
+    (permissions: FactorySettingsView['permissions']) =>
+      update((current) => current && { ...current, permissions }),
+    [update],
+  )
+  const setRepos = useCallback(
+    (change: (repos: RepoSettingsInput[]) => RepoSettingsInput[]) =>
+      onDraft((current) => ({ ...current, repos: change(current.repos) })),
+    [onDraft],
+  )
+  const updateRepo = useCallback(
+    (index: number, change: (repo: RepoSettingsInput) => RepoSettingsInput) =>
+      setRepos((current) => current.map((repo, i) => (i === index ? change(repo) : repo))),
+    [setRepos],
+  )
+  const removeRepo = useCallback(
+    (was: string) =>
+      onDraft((current) => ({
+        ...current,
+        repos: current.repos.filter((r) => r.was !== was),
+        checks: current.checks.filter((c) => c.repo !== was),
+      })),
+    [onDraft],
+  )
+  const undoRemove = useCallback(
+    (was: string) =>
+      onDraft((current) => {
+        const index = loaded.findIndex((r) => r.was === was)
+        const repo = loaded[index]
+        if (!repo) return current
+        const repos = [...current.repos]
+        repos.splice(Math.min(Math.max(index, 1), repos.length), 0, repo)
+        const checks: CheckInput[] = [
+          ...current.checks,
+          ...(base?.draft.checks ?? []).filter(
+            (c) => c.repo === was && !current.checks.some((d) => d.was === c.was),
+          ),
+        ]
+        return { ...current, repos, checks }
+      }),
+    [onDraft, loaded, base],
+  )
+  const setFolder = useCallback(
+    async (repo: RepoSettingsView, folder: string | undefined) => {
+      if (folder === undefined) await ted.clearRepoLocalFolder(factory.id, repo.was)
+      else await ted.setRepoLocalFolder(factory.id, repo.was, folder)
+      await load()
+    },
+    [factory.id, load],
+  )
+  const newRepoFolder = useCallback((name: string, folder: string) => {
+    pendingFolders.current.set(name, folder)
+  }, [])
 
   async function afterSave(result: SaveSettingsResult) {
     const next = await load()
@@ -199,13 +267,15 @@ export function FactorySettings({
       setSaved(result)
       return
     }
+    let foldersSet = false
     for (const [name, folder] of pendingFolders.current) {
       if (next.repos.some((r) => r.name === name)) {
         await ted.setRepoLocalFolder(factory.id, name, folder).catch(() => undefined)
+        foldersSet = true
       }
     }
     pendingFolders.current.clear()
-    restart((await load()) ?? next)
+    restart(foldersSet ? ((await load()) ?? next) : next)
     setSaved(result)
   }
 
@@ -320,12 +390,8 @@ export function FactorySettings({
                   home={home}
                   onRepo={updateRepo}
                   onDraft={setRepos}
-                  onFolder={async (repo, folder) => {
-                    if (folder === undefined) await ted.clearRepoLocalFolder(factory.id, repo.was)
-                    else await ted.setRepoLocalFolder(factory.id, repo.was, folder)
-                    await load()
-                  }}
-                  onNewRepoFolder={(name, folder) => pendingFolders.current.set(name, folder)}
+                  onFolder={setFolder}
+                  onNewRepoFolder={newRepoFolder}
                   onRemoveRepo={removeRepo}
                   onUndoRemove={undoRemove}
                   factoryId={factory.id}
@@ -348,6 +414,7 @@ export function FactorySettings({
                     draft={draft}
                     loaded={base.draft}
                     onDraft={onDraft}
+                    onMode={onMode}
                   />
                   <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
                 </>
@@ -487,7 +554,7 @@ function SectionHeading({
   )
 }
 
-function GeneralSection({ factory }: { factory: Factory }) {
+const GeneralSection = memo(function GeneralSection({ factory }: { factory: Factory }) {
   const nameId = useId()
   const keyId = useId()
   const [autoStartBacklog, setAutoStartBacklog] = useState(factory.autoStartBacklog)
@@ -581,9 +648,9 @@ function GeneralSection({ factory }: { factory: Factory }) {
       </div>
     </section>
   )
-}
+})
 
-function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
+const DangerZoneSection = memo(function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
   return (
     <section className={styles.section} aria-labelledby="danger-zone">
       <SectionHeading id="danger-zone" title="Danger zone" where="machine" />
@@ -602,7 +669,7 @@ function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
       </div>
     </section>
   )
-}
+})
 
 interface ReposSectionProps {
   disabled: boolean
@@ -621,7 +688,7 @@ interface ReposSectionProps {
   onOpenGitHubSettings: () => void
 }
 
-function ReposSection({
+const ReposSection = memo(function ReposSection({
   disabled,
   view,
   draft,
@@ -642,6 +709,17 @@ function ReposSection({
   const [refused, setRefused] = useState<RepoRemoval>()
   const [removeError, setRemoveError] = useState<string>()
   const removed = loaded.filter((r) => r.was !== undefined && !draft.some((d) => d.was === r.was))
+  const edits = useMemo(() => {
+    const known = new WeakMap<RepoSettingsInput, Set<RepoField>>()
+    return (repo: RepoSettingsInput) => {
+      let edited = known.get(repo)
+      if (!edited) {
+        edited = editedFields(repo, loaded)
+        known.set(repo, edited)
+      }
+      return edited
+    }
+  }, [loaded])
   async function askToRemove(repo: RepoSettingsInput) {
     const was = repo.was
     if (was === undefined) return
@@ -670,7 +748,7 @@ function ReposSection({
             repo={repo}
             index={index}
             shown={shown}
-            edited={editedFields(repo, loaded)}
+            edited={edits(repo)}
             home={home}
             disabled={disabled}
             dragging={dragging}
@@ -735,7 +813,7 @@ function ReposSection({
       )}
     </section>
   )
-}
+})
 
 interface RepoCardProps {
   disabled: boolean

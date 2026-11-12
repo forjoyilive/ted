@@ -653,8 +653,9 @@ test('a drift reload during save completion still resets the saved draft', async
   await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
   await waitFor(() => expect(reads).toBe(2))
   act(() => api.emit({ type: 'drift-changed', drift: { factories: { f1: 1 }, library: 0 } }))
-  await waitFor(() => expect(reads).toBe(3))
+  expect(reads).toBe(2)
   await act(async () => afterSave.resolve(saved))
+  await waitFor(() => expect(reads).toBe(3))
   await act(async () => drift.resolve(saved))
   await screen.findByText('Pull request #42 merged. Settings saved to the repo.')
   await waitFor(() =>
@@ -664,4 +665,59 @@ test('a drift reload during save completion still resets the saved draft', async
   expect(screen.getByRole('switch', { name: 'Design sign-off' }).getAttribute('aria-checked')).toBe(
     'false',
   )
+})
+
+test('the page loads once on open, shows a remote change when it has no edits and keeps a draft that has', async () => {
+  const first = deferred<ReturnType<typeof settingsView>>()
+  const remote = settingsView()
+  remote.version = 'v2'
+  remote.notes = 'From GitHub'
+  const merged = settingsView()
+  merged.version = 'v3'
+  merged.notes = 'Mine'
+  let reads = 0
+  const save = vi.fn((..._args: unknown[]) => ({
+    merged: true,
+    pullRequest: { number: 7, url: 'https://github.com/acme/widgets/pull/7' },
+  }))
+  const api = open({
+    factorySettings: () => {
+      reads++
+      if (reads === 1) return first.promise
+      return reads < 4 ? remote : merged
+    },
+    previewFactorySettings: () => ({ valid: true, sideEffects: [], problems: [], files: [] }),
+    saveFactorySettings: save,
+  })
+  act(() => api.emit({ type: 'drift-changed', drift: { factories: { f1: 0 }, library: 0 } }))
+  await act(async () => first.resolve(settingsView()))
+  const notes = (await screen.findByRole('textbox', {
+    name: 'Factory notes',
+  })) as HTMLTextAreaElement
+  expect(reads).toBe(1)
+  expect(api.request).toHaveBeenCalledWith('factorySettings', 'f1', { refresh: 'background' })
+
+  act(() => api.emit({ type: 'factory-settings-changed', factoryId: 'other' }))
+  expect(reads).toBe(1)
+  act(() => api.emit({ type: 'factory-settings-changed', factoryId: 'f1' }))
+  await waitFor(() => expect(notes.value).toBe('From GitHub'))
+  expect(reads).toBe(2)
+  expect(screen.queryByText(/unsaved change/)).toBeNull()
+
+  const u = user()
+  await u.clear(notes)
+  await u.type(notes, 'Mine')
+  act(() => api.emit({ type: 'factory-settings-changed', factoryId: 'f1' }))
+  await waitFor(() => expect(reads).toBe(3))
+  expect(notes.value).toBe('Mine')
+  expect(screen.getByText('1 unsaved change to .ted/notes.md')).toBeTruthy()
+
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
+  await screen.findByText('Pull request #7 merged. Settings saved to the repo.')
+  expect(save.mock.calls[0]?.[1]).toMatchObject({ version: 'v2', changes: { notes: 'Mine' } })
+  expect(reads).toBe(4)
+  expect(api.request).toHaveBeenLastCalledWith('factorySettings', 'f1', { refresh: 'never' })
+  expect(screen.queryByText(/unsaved change/)).toBeNull()
 })

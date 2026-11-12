@@ -340,18 +340,20 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           if (!started) throw new RequestError(503, 'TED is still starting')
           return started.create(input)
         },
+        emit,
         ...(options.settingsMergeWaitMs !== undefined && {
           mergeWaitMs: options.settingsMergeWaitMs,
         }),
       })
+      const libraryWatch = await watchLibrary({ libraryDir: paths.library, workflows, emit })
       const library = createLibrarySettings({
         store,
         workflows,
         libraryDir: paths.library,
         installed: (kind) => agents.installed(kind),
         emit,
+        saved: (version) => libraryWatch.saw(version),
       })
-      const libraryWatch = await watchLibrary({ libraryDir: paths.library, workflows, emit })
       banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
         if (!factory) return
@@ -613,6 +615,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           libraryWatch.close()
           versionRestarts.close()
           await checkTries.close()
+          workflows.close()
+          await factorySettings.close()
           stayAwake?.close()
           disk.close()
           clearInterval(pruneTimer)

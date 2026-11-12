@@ -5,7 +5,13 @@ import {
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from '@ted/protocol'
-import { collectDiagnostics, readDaemonLog, readRunOutput, report } from '../diagnostics.ts'
+import {
+  collectDiagnostics,
+  processUsage,
+  readDaemonLog,
+  readRunOutput,
+  report,
+} from '../diagnostics.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { jsonRoute, type Route } from './route.ts'
 
@@ -80,6 +86,11 @@ export const runRoutes: Route[] = [
     method: 'GET',
     path: /^\/diagnostics$/,
     handle: async (_, options) => [200, await collectDiagnostics(options)],
+  },
+  {
+    method: 'GET',
+    path: /^\/diagnostics\/usage$/,
+    handle: async (_, options) => [200, await processUsage(options)],
   },
   {
     method: 'GET',

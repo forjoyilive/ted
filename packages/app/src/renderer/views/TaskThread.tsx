@@ -357,7 +357,7 @@ export function TaskPanes({
   }, [task.id, task.repos])
   const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file, source })
   const openLocalFile = (file: ChangedFile) => showChanges({ kind: 'diff', file, source: 'local' })
-  const lineComments = useLineComments(task.id)
+  const lineComments = useLineComments(task)
   const drafts = lineComments.filter(isDraft)
   const seams: DiffSeams = {
     ...useDiffComments(
@@ -1159,7 +1159,7 @@ export function TaskDetails({
         </dd>
         <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
-          <TaskGatesField key={task.id} taskId={task.id} />
+          <TaskGatesField key={task.id} taskId={task.id} factoryId={task.factoryId} />
         </dd>
         {factory && showsRepos(factory) && (
           <>

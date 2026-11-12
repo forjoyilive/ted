@@ -763,7 +763,7 @@ export interface TedStore extends TaskHistory {
   taskLog(taskId: string): LoggedEvent[]
   supersedeComment(id: string, input: NewComment): Comment
   listOpenRequests(): Comment[]
-  listAnsweredRequests(): Comment[]
+  listAnsweredRequests(since: string): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
   listBriefs(taskId: string): TaskBrief[]
   latestBrief(taskId: string): TaskBrief | undefined
@@ -1069,10 +1069,11 @@ export async function openStore({
     if (!found) throw new Error(`no Factory ${id}`)
     return found
   }
-  const factoryKey = (factoryId: string) =>
+  const keyAmong = (list: readonly StoredFactory[], factoryId: string) =>
     factoryId === placeholderFactory.id
       ? placeholderFactory.key
-      : (listFactories().find((f) => f.id === factoryId)?.key ?? '?')
+      : (list.find((f) => f.id === factoryId)?.key ?? '?')
+  const factoryKey = (factoryId: string) => keyAmong(listFactories(), factoryId)
 
   const runName = (run: typeof runs.Type) =>
     run.name ?? (run.taskId !== null && run.parentRunId === null ? 'Task Lead' : 'Run')
@@ -1125,8 +1126,7 @@ export async function openStore({
   const taskRuns = (taskId: string) =>
     store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
 
-  const pullRequestFields = (id: string): Partial<TaskRepo> => {
-    const row = store.query(queryDb(pullRequests.where({ id }))).at(0)
+  const pullRequestFields = (row: typeof pullRequests.Type | undefined): Partial<TaskRepo> => {
     if (!row) return {}
     return {
       ...(row.pushedCommit !== null &&
@@ -1174,8 +1174,11 @@ export async function openStore({
     }
   }
 
-  const toTaskRepo = (row: typeof taskRepos.Type): TaskRepo => ({
-    ...pullRequestFields(row.id),
+  const toTaskRepo = (
+    row: typeof taskRepos.Type,
+    pullRequest: typeof pullRequests.Type | undefined,
+  ): TaskRepo => ({
+    ...pullRequestFields(pullRequest),
     name: row.name,
     repo: row.repo,
     branch: row.branch,
@@ -1224,8 +1227,13 @@ export async function openStore({
     )
   }
 
+  const repoRows = (taskId: string) =>
+    store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc')))
+
+  const pullRequestRows = (id: string) => store.query(queryDb(pullRequests.where({ id })))
+
   const reposOf = (taskId: string) =>
-    store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
+    repoRows(taskId).map((row) => toTaskRepo(row, pullRequestRows(row.id).at(0)))
 
   const readTaskLog = (taskId: string): LoggedEvent[] =>
     store
@@ -1247,31 +1255,28 @@ export async function openStore({
     repos.some((r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged') &&
     history.mergeHistory(taskId).latest === 'started'
 
+  const taskPullRequests = (taskId: string) => store.query(queryDb(pullRequests.where({ taskId })))
+
   const isMerged = (taskId: string): boolean =>
-    taskIsMerged(
-      taskRow(taskId)?.stage as StageId,
-      store.query(queryDb(pullRequests.where({ taskId }))),
-    )
+    taskIsMerged(taskRow(taskId)?.stage as StageId, taskPullRequests(taskId))
 
   const blockerRows = (taskId: string) =>
     store.query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
 
-  const blockersOf = (taskId: string) => blockerRows(taskId).map((row) => row.blockerId)
+  const deletedRows = (id: string) => store.query(queryDb(deletedTasks.where({ id })))
 
-  const deletedRow = (id: string) => store.query(queryDb(deletedTasks.where({ id }))).at(0)
-
-  const blockerOf = (id: string) => {
-    const blocker = taskRow(id)
+  const blockerOf = (id: string, reads: TaskReads = perTask) => {
+    const blocker = reads.task(id).at(0)
     if (blocker) {
       return {
-        displayId: `${factoryKey(blocker.factoryId)}-${blocker.number}`,
-        merged: isMerged(id),
+        displayId: `${reads.factoryKey(blocker.factoryId)}-${blocker.number}`,
+        merged: taskIsMerged(blocker.stage as StageId, reads.pullRequests(id)),
         ...(blocker.archivedAt !== null && { ended: 'archived' as const }),
       }
     }
-    const deleted = deletedRow(id)
+    const deleted = reads.deleted(id).at(0)
     return {
-      displayId: deleted ? `${factoryKey(deleted.factoryId)}-${deleted.number}` : id,
+      displayId: deleted ? `${reads.factoryKey(deleted.factoryId)}-${deleted.number}` : id,
       merged: false,
       ended: 'deleted' as const,
     }
@@ -1295,18 +1300,24 @@ export async function openStore({
       .query(queryDb(commentAttachments.where({ commentId }).orderBy('position', 'asc')))
       .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
 
-  const attachmentsOf = (taskId: string): Attachment[] =>
-    store
-      .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
-      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+  const attachmentRows = (taskId: string) =>
+    store.query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
+
+  const toAttachment = ({
+    hash,
+    name,
+    size,
+    mediaType,
+  }: typeof taskAttachments.Type): Attachment => ({ hash, name, size, mediaType })
+
+  const attachmentsOf = (taskId: string): Attachment[] => attachmentRows(taskId).map(toAttachment)
 
   const browserCapturesOf = (taskId: string): Attachment[] =>
     store
       .query(queryDb(taskBrowserCaptures.where({ taskId })))
       .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
 
-  const sourceOf = (taskId: string): TaskSource | undefined => {
-    const [row] = store.query(queryDb(taskSources.where({ taskId })))
+  const toSource = (row: typeof taskSources.Type | undefined): TaskSource | undefined => {
     if (!row) return undefined
     return {
       url: row.url,
@@ -1329,15 +1340,152 @@ export async function openStore({
   const pauses = (): Partial<Record<AgentKind, string>> =>
     Object.fromEntries(store.query(queryDb(agentPauses)).map((row) => [row.agent, row.reason]))
 
-  const heldRow = (taskId: string) => store.query(queryDb(heldRuns.where({ taskId }))).at(0)
+  const heldRows = (taskId: string) => store.query(queryDb(heldRuns.where({ taskId })))
 
-  const planTitleOf = (planId: string) =>
-    store.query(queryDb(plans.where({ id: planId }))).at(0)?.title
+  const heldRow = (taskId: string) => heldRows(taskId).at(0)
 
   const planningFrom = (taskId: string) =>
     store
       .query(queryDb(plans.where({ fromTaskId: taskId })))
       .some((p) => p.state !== 'ended' && p.fromTaskGone === null)
+
+  const taskReads = (everyTask: boolean) => {
+    const rows = <Row>(
+      one: (id: string) => readonly Row[],
+      all: () => readonly Row[],
+      key: (row: Row) => string | null,
+    ): ((id: string) => readonly Row[]) => {
+      if (!everyTask) return one
+      let groups: Map<string | null, Row[]> | undefined
+      return (id) => {
+        groups ??= Map.groupBy(all(), key)
+        return groups.get(id) ?? []
+      }
+    }
+    const once = <Value>(read: () => Value): (() => Value) => {
+      if (!everyTask) return read
+      let held: { value: Value } | undefined
+      return () => {
+        held ??= { value: read() }
+        return held.value
+      }
+    }
+    const everyPullRequest = once(() => store.query(queryDb(pullRequests)))
+    const factories = once(listFactories)
+    return {
+      factories,
+      factoryKey: (factoryId: string) => keyAmong(factories(), factoryId),
+      runs: rows(
+        taskRuns,
+        () => store.query(queryDb(runs.orderBy('startedAt', 'desc'))),
+        (r) => r.taskId,
+      ),
+      entries: rows(
+        entryRows,
+        () => store.query(queryDb(stageEntries.orderBy('at', 'asc'))),
+        (r) => r.taskId,
+      ),
+      blockers: rows(
+        blockerRows,
+        () => store.query(queryDb(taskBlockers.orderBy('at', 'asc'))),
+        (r) => r.taskId,
+      ),
+      repos: rows(
+        repoRows,
+        () => store.query(queryDb(taskRepos.orderBy('createdAt', 'asc'))),
+        (r) => r.taskId,
+      ),
+      pullRequest: rows(pullRequestRows, everyPullRequest, (r) => r.id),
+      pullRequests: rows(taskPullRequests, everyPullRequest, (r) => r.taskId),
+      task: rows(
+        (id) => store.query(queryDb(tasks.where({ id }))),
+        () => store.query(allTasks),
+        (r) => r.id,
+      ),
+      deleted: rows(
+        deletedRows,
+        () => store.query(queryDb(deletedTasks)),
+        (r) => r.id,
+      ),
+      unfinishedChecks: rows(
+        (taskId) =>
+          store.query(
+            queryDb(checkRuns.where({ taskId, finishedAt: null }).orderBy('startedAt', 'asc')),
+          ),
+        () =>
+          store.query(queryDb(checkRuns.where({ finishedAt: null }).orderBy('startedAt', 'asc'))),
+        (r) => r.taskId,
+      ),
+      queued: rows(
+        (taskId) => store.query(queryDb(taskQueue.where({ taskId }))),
+        () => store.query(queryDb(taskQueue)),
+        (r) => r.taskId,
+      ),
+      held: rows(
+        heldRows,
+        () => store.query(queryDb(heldRuns)),
+        (r) => r.taskId,
+      ),
+      log: rows(
+        (taskId) => logRows(taskId),
+        () => store.query(queryDb(taskLog.orderBy('at', 'asc'))),
+        (r) => r.taskId,
+      ),
+      subAgentRequests: rows(
+        (taskId) => store.query(queryDb(subAgentRequests.where({ taskId }))),
+        () => store.query(queryDb(subAgentRequests)),
+        (r) => r.taskId,
+      ),
+      comments: rows(
+        (taskId) => commentRows(taskId),
+        () => commentRows(),
+        (r) => r.taskId,
+      ),
+      tabs: rows(
+        (taskId) =>
+          store.query(queryDb(conversationTabs.where({ taskId }).orderBy('openedAt', 'asc'))),
+        () => store.query(queryDb(conversationTabs.orderBy('openedAt', 'asc'))),
+        (r) => r.taskId,
+      ),
+      briefs: rows(
+        (taskId) => briefRows(taskId),
+        () => store.query(queryDb(taskBriefs.orderBy('version', 'asc'))),
+        (r) => r.taskId,
+      ),
+      sources: rows(
+        (taskId) => store.query(queryDb(taskSources.where({ taskId }))),
+        () => store.query(queryDb(taskSources)),
+        (r) => r.taskId,
+      ),
+      planLinks: rows(
+        (taskId) => store.query(queryDb(planTasks.where({ taskId }))),
+        () => store.query(queryDb(planTasks)),
+        (r) => r.taskId,
+      ),
+      plan: rows(
+        (id) => store.query(queryDb(plans.where({ id }))),
+        () => store.query(queryDb(plans)),
+        (r) => r.id,
+      ),
+      automationLinks: rows(
+        (taskId) => store.query(queryDb(automationTasks.where({ taskId }))),
+        () => store.query(queryDb(automationTasks)),
+        (r) => r.taskId,
+      ),
+      attachments: rows(
+        attachmentRows,
+        () => store.query(queryDb(taskAttachments.orderBy('at', 'asc'))),
+        (r) => r.taskId,
+      ),
+      pauses: once(() => pauses()),
+      queue: once(() => queue()),
+      settings: once(() => settings()),
+    }
+  }
+  type TaskReads = ReturnType<typeof taskReads>
+  const perTask = taskReads(false)
+  // Reading every table once costs about as much as reading 10 Tasks one by one.
+  const readEveryTaskFrom = 10
 
   let noteTaskWait = (_taskId: string, _facts: TaskFacts) => {}
   const toTask = (
@@ -1376,15 +1524,18 @@ export async function openStore({
       ...row
     }: typeof tasks.Type,
     observe = false,
+    reads: TaskReads = perTask,
   ): StoredTask => {
     const stage = row.stage as StageId
-    const all = taskRuns(row.id)
+    const all = reads.runs(row.id)
     const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
-    const entries = entryRows(row.id)
-    const blockedBy = blockersOf(row.id)
-    const repos = reposOf(row.id)
-    const unmerged = blockedBy.map(blockerOf).filter((b) => !b.merged)
+    const entries = reads.entries(row.id)
+    const blockedBy = reads.blockers(row.id).map((b) => b.blockerId)
+    const repos = reads
+      .repos(row.id)
+      .map((repo) => toTaskRepo(repo, reads.pullRequest(repo.id).at(0)))
+    const unmerged = blockedBy.map((id) => blockerOf(id, reads)).filter((b) => !b.merged)
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
     const github =
@@ -1401,12 +1552,12 @@ export async function openStore({
           !r.removed && r.pullRequest?.autoMerge !== undefined && r.pullRequest.state !== 'merged',
       ) &&
       history.mergeHistory(row.id).canceledAt !== undefined
-    const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
+    const checking = reads.unfinishedChecks(row.id).at(0)
     const checkingNow = checking && checkProgress(checking.id)
-    const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
-    const paused = pauses()
-    const held = heldRow(row.id)
-    const place = queued ? queue().findIndex((q) => q.id === row.id) + 1 : 0
+    const queued = reads.queued(row.id).at(0)
+    const paused = reads.pauses()
+    const held = reads.held(row.id).at(0)
+    const place = queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0
     const pausedRuns = taskPauses({
       taskId: row.id,
       heldAgent: held?.agent,
@@ -1422,8 +1573,9 @@ export async function openStore({
       lead.ended !== null &&
       (JSON.parse(lead.ended) as RunEnding).how === 'stopped'
     const lastFailure = leadStopped
-      ? store
-          .query(queryDb(taskLog.where({ taskId: row.id, name: 'v1.TaskLeadFailed' })))
+      ? reads
+          .log(row.id)
+          .filter((entry) => entry.name === 'v1.TaskLeadFailed')
           .toSorted((a, b) => sequence(a.id) - sequence(b.id))
           .at(-1)
       : undefined
@@ -1440,6 +1592,8 @@ export async function openStore({
       partlyMergedAt !== null && mergedRepos.length > 0 && openRepos.length > 0
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
+    const taskComments = reads.comments(row.id)
+    const requests = taskComments.filter(isOpenRequest)
     const facts: TaskFacts = {
       ...(preparation === 'preparing' && { preparing: true }),
       ...(snoozedUntil !== null && { snoozedUntil }),
@@ -1467,23 +1621,21 @@ export async function openStore({
         repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       ...(place > 0 && heldForLoad && { heldForLoad }),
-      queuedSubAgents: store
-        .query(queryDb(subAgentRequests.where({ taskId: row.id })))
-        .map((r) => ({
-          id: r.id,
-          ...(paused[r.agent as AgentKind] !== undefined && {
-            paused: paused[r.agent as AgentKind],
-          }),
-          ...(newWorkHeld !== undefined
-            ? { hold: newWorkHeld }
-            : heldForLoad
-              ? { hold: busyHold }
-              : {}),
-        })),
+      queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({
+        id: r.id,
+        ...(paused[r.agent as AgentKind] !== undefined && {
+          paused: paused[r.agent as AgentKind],
+        }),
+        ...(newWorkHeld !== undefined
+          ? { hold: newWorkHeld }
+          : heldForLoad
+            ? { hold: busyHold }
+            : {}),
+      })),
       pausedRuns,
       runs: live.map((r) => r.state as RunState),
-      openRequests: openRequestRows(row.id).filter((r) => r.linearTeam === null).length,
-      ...permissionWait(row.id, lead?.id),
+      openRequests: requests.filter((r) => r.linearTeam === null).length,
+      ...permissionWait(requests, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(firstEnded !== undefined && { blockerEnded: firstEnded }),
@@ -1507,29 +1659,27 @@ export async function openStore({
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
-    const tabs: ConversationTab[] = store
-      .query(queryDb(conversationTabs.where({ taskId: row.id }).orderBy('openedAt', 'asc')))
-      .flatMap((tab) => {
-        const run = all.find((r) => r.id === tab.runId)
-        return run
-          ? [
-              {
-                runId: run.id,
-                name: runName(run),
-                agent: run.agent as AgentKind,
-                state: run.state as RunState,
-              },
-            ]
-          : []
-      })
+    const tabs: ConversationTab[] = reads.tabs(row.id).flatMap((tab) => {
+      const run = all.find((r) => r.id === tab.runId)
+      return run
+        ? [
+            {
+              runId: run.id,
+              name: runName(run),
+              agent: run.agent as AgentKind,
+              state: run.state as RunState,
+            },
+          ]
+        : []
+    })
     const updatedAt = [
       row.createdAt,
       changedAt,
       queued?.queuedAt,
       entries.at(-1)?.at,
       ...all.map((r) => r.startedAt),
-      lastCommentAt(row.id),
-      briefRows(row.id).at(-1)?.createdAt,
+      lastCommentAt(taskComments),
+      reads.briefs(row.id).at(-1)?.createdAt,
     ].reduce<string>((a, b) => (b && b > a ? b : a), row.createdAt)
     const ended = (): TaskEnding => {
       if (all.length === 0 && repos.length === 0) return { kind: 'never-started' }
@@ -1550,12 +1700,12 @@ export async function openStore({
       if (closedOnGitHub !== undefined) return { kind: 'pull-request-closed', at: closedOnGitHub }
       return { kind: 'stopped', stage }
     }
-    const source = sourceOf(row.id)
-    const original =
-      followUpOf === null ? undefined : (taskRow(followUpOf) ?? deletedRow(followUpOf))
-    const splitOriginal =
-      splitFrom === null ? undefined : (taskRow(splitFrom) ?? deletedRow(splitFrom))
-    const planLink = store.query(queryDb(planTasks.where({ taskId: row.id }))).at(0)
+    const source = toSource(reads.sources(row.id).at(0))
+    const taskOrDeleted = (id: string) => reads.task(id).at(0) ?? reads.deleted(id).at(0)
+    const original = followUpOf === null ? undefined : taskOrDeleted(followUpOf)
+    const splitOriginal = splitFrom === null ? undefined : taskOrDeleted(splitFrom)
+    const planLink = reads.planLinks(row.id).at(0)
+    const planTitle = planLink && reads.plan(planLink.planId).at(0)?.title
     const merged =
       stage === 'done'
         ? {
@@ -1571,12 +1721,12 @@ export async function openStore({
         ? 'follow-up'
         : splitFrom !== null
           ? 'split'
-          : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
+          : reads.automationLinks(row.id).length > 0
             ? 'automation'
             : planLink
               ? 'planning'
               : 'human'
-    const linearSync = linearSyncOf(row, source)
+    const linearSync = linearSyncOf(row, source, reads)
     return {
       ...row,
       ...(entries[0] && { startedAt: entries[0].at }),
@@ -1612,14 +1762,15 @@ export async function openStore({
       chosenRepos:
         chosenRepos !== null
           ? (JSON.parse(chosenRepos) as string[])
-          : listFactories()
+          : reads
+              .factories()
               .filter((f) => f.id === row.factoryId)
               .map((f) => f.repo),
-      attachments: attachmentsOf(row.id),
+      attachments: reads.attachments(row.id).map(toAttachment),
       ...(source && { source }),
       stage,
       rank: rank ?? row.number,
-      displayId: `${factoryKey(row.factoryId)}-${row.number}`,
+      displayId: `${reads.factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
       ...(worktree !== null && { worktree }),
       ...(lead !== undefined && { leadRunId: lead.id }),
@@ -1655,21 +1806,23 @@ export async function openStore({
       ...(planLink && {
         fromPlan: {
           id: planLink.planId,
-          title: planTitleOf(planLink.planId) ?? '',
-          ...(planTitleOf(planLink.planId) === undefined && { deleted: true }),
+          title: planTitle ?? '',
+          ...(planTitle === undefined && { deleted: true }),
         },
       }),
       ...(followUpOf !== null && {
         followUpOf: {
           id: followUpOf,
-          displayId: original ? `${factoryKey(original.factoryId)}-${original.number}` : followUpOf,
+          displayId: original
+            ? `${reads.factoryKey(original.factoryId)}-${original.number}`
+            : followUpOf,
         },
       }),
       ...(splitFrom !== null && {
         splitFrom: {
           id: splitFrom,
           displayId: splitOriginal
-            ? `${factoryKey(splitOriginal.factoryId)}-${splitOriginal.number}`
+            ? `${reads.factoryKey(splitOriginal.factoryId)}-${splitOriginal.number}`
             : splitFrom,
         },
       }),
@@ -1874,8 +2027,11 @@ export async function openStore({
             : row.permission !== null && storedPermission(row.permission).requestId === requestId),
       )
 
-  const permissionWait = (taskId: string, leadId: string | undefined) => {
-    const asking = openRequestRows(taskId).filter((r) => r.kind === 'permission')
+  const permissionWait = (
+    requests: readonly (typeof comments.Type)[],
+    leadId: string | undefined,
+  ) => {
+    const asking = requests.filter((r) => r.kind === 'permission')
     if (asking.length === 0) return {}
     return {
       ...(asking.some((r) => r.simulator !== null) && { waitingOnSimulator: true }),
@@ -1885,17 +2041,16 @@ export async function openStore({
     }
   }
 
-  const openRequestRows = (taskId?: string) =>
-    store
-      .query(
-        queryDb(
-          (taskId === undefined ? comments : comments.where({ taskId })).orderBy(
-            'createdAt',
-            'asc',
-          ),
-        ),
-      )
-      .filter((row) => row.kind !== 'note' && row.answer === null)
+  const commentRows = (taskId?: string) =>
+    store.query(
+      queryDb(
+        (taskId === undefined ? comments : comments.where({ taskId })).orderBy('createdAt', 'asc'),
+      ),
+    )
+
+  const isOpenRequest = (row: typeof comments.Type) => row.kind !== 'note' && row.answer === null
+
+  const openRequestRows = (taskId?: string) => commentRows(taskId).filter(isOpenRequest)
 
   const toBrief = ({ runId, stage, id: _, ...row }: typeof taskBriefs.Type): TaskBrief => ({
     ...row,
@@ -2048,9 +2203,8 @@ export async function openStore({
       .query(queryDb(tasks.where({ number: Number(digits) })))
       .find((row) => factoryKey(row.factoryId) === key)
   }
-  const lastCommentAt = (taskId: string) =>
-    store
-      .query(queryDb(comments.where({ taskId })))
+  const lastCommentAt = (rows: readonly (typeof comments.Type)[]) =>
+    rows
       .flatMap((c) => [
         c.createdAt,
         ...(c.answer === null ? [] : [(JSON.parse(c.answer) as CommentAnswer).at]),
@@ -2089,7 +2243,10 @@ export async function openStore({
   const nextRank = () => Math.max(0, ...store.query(allTasks).map((t) => t.rank ?? t.number)) + 1
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const heldOutput = new Map<string, { toOffset: number; lastOutputAt?: string }>()
-  const listTasks = () => store.query(allTasks).map((row) => toTask(row))
+  const listTasks = () => {
+    const reads = taskReads(true)
+    return store.query(allTasks).map((row) => toTask(row, false, reads))
+  }
   const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
@@ -2254,12 +2411,14 @@ export async function openStore({
     }
   }
 
-  const linearRecord = (taskId: string): LinearSyncRecord => {
+  const logRows = (taskId: string) =>
+    store.query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
+
+  const linearRecord = (taskId: string): LinearSyncRecord => linearRecordFrom(logRows(taskId))
+
+  const linearRecordFrom = (log: readonly (typeof taskLog.Type)[]): LinearSyncRecord => {
     const record: LinearSyncRecord = { linked: new Set(), allowed: false, allowedTeams: new Set() }
-    const rows = store
-      .query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
-      .filter((row) => row.name.startsWith('v1.Linear'))
-    for (const row of rows) {
+    for (const row of log.filter((entry) => entry.name.startsWith('v1.Linear'))) {
       const data = JSON.parse(row.data) as Record<string, unknown>
       if (row.name === 'v1.LinearIssueSeen') {
         record.seen = {
@@ -2285,11 +2444,12 @@ export async function openStore({
   const linearSyncOf = (
     row: { id: string; factoryId: string },
     source: TaskSource | undefined,
+    reads: TaskReads,
   ): 'on' | 'ask' | undefined => {
     if (!source || !parseLinearUrl(source.url)) return undefined
-    const record = linearRecord(row.id)
+    const record = linearRecordFrom(reads.log(row.id))
     if (record.allowed) return 'on'
-    const teams = settings().linearSyncTeams[row.factoryId] ?? []
+    const teams = reads.settings().linearSyncTeams[row.factoryId] ?? []
     const team = record.seen?.team
     return team !== undefined && (teams.includes(team) || record.allowedTeams.has(team))
       ? 'on'
@@ -2499,6 +2659,7 @@ export async function openStore({
     commit,
     emit,
     changed: () => noteActivity(),
+    factoryKey,
   })
 
   const testInvocationStore = createTestInvocationStore({
@@ -4105,10 +4266,14 @@ export async function openStore({
     },
     taskLog: readTaskLog,
     listOpenRequests: () => openRequestRows().map(toComment),
-    listAnsweredRequests: () =>
-      store
-        .query(queryDb(comments.orderBy('createdAt', 'asc')))
-        .filter((row) => row.kind !== 'note' && row.answer !== null)
+    listAnsweredRequests: (since) =>
+      commentRows()
+        .filter(
+          (row) =>
+            row.kind !== 'note' &&
+            row.answer !== null &&
+            (JSON.parse(row.answer) as CommentAnswer).at >= since,
+        )
         .map(toComment),
     writeBrief({ taskId, text, runId }) {
       const row = taskRow(taskId)
@@ -4759,11 +4924,13 @@ export async function openStore({
       ...store.query(queryDb(runs.where({ state: 'working' }))).flatMap((r) => r.taskId ?? []),
       ...store.query(queryDb(taskRepos.where({ setupState: 'running' }))).map((r) => r.taskId),
     ],
-    tasksIn: (ids) =>
-      store
+    tasksIn: (ids) => {
+      const reads = ids.size > readEveryTaskFrom ? taskReads(true) : perTask
+      return store
         .query(allTasks)
         .filter((row) => ids.has(row.id))
-        .map((row) => toPublicTask(toTask(row))),
+        .map((row) => toPublicTask(toTask(row, false, reads)))
+    },
     preparedTasks: () =>
       store
         .query(allTasks)

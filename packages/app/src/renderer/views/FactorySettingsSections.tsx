@@ -15,7 +15,7 @@ import type {
   StageId,
   StageRowView,
 } from '@ted/protocol'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
@@ -252,7 +252,7 @@ function SectionHeading({
   )
 }
 
-export function WorkflowSection({
+function WorkflowSectionView({
   view,
   draft,
   loaded,
@@ -623,7 +623,7 @@ export function DriftNotice({
   )
 }
 
-export function ChecksSection({
+function ChecksSectionView({
   view,
   draft,
   tries,
@@ -863,7 +863,7 @@ function OutputDialog({ text, onClose }: { text: string; onClose: () => void }) 
   )
 }
 
-export function AgentsSection({
+function AgentsSectionView({
   view,
   draft,
   loaded,
@@ -1001,16 +1001,18 @@ function AgentRow({
   )
 }
 
-export function PermissionsSection({
+function PermissionsSectionView({
   view,
   draft,
   loaded,
   onDraft,
+  onMode,
 }: {
   view: FactorySettingsView
   draft: SettingsDraft
   loaded: SettingsDraft
   onDraft: Update
+  onMode?: (mode: FactorySettingsView['permissions']) => void
 }) {
   const id = useId()
   const { value: mode, update } = useEventValue({
@@ -1040,6 +1042,7 @@ export function PermissionsSection({
     try {
       const saved = await ted.setFactoryPermissions(view.factoryId, next, confirmed)
       setMode(saved.mode)
+      onMode?.(saved.mode)
       setConfirming(false)
     } catch (failure) {
       setError(readableError(failure))
@@ -1183,7 +1186,7 @@ export function PermissionsSection({
   )
 }
 
-export function NotesSection({
+function NotesSectionView({
   draft,
   loaded,
   onDraft,
@@ -1325,3 +1328,21 @@ function keyed<T>(items: readonly T[], name: (item: T) => string): { key: string
     return { key: `${base}#${n}`, item }
   })
 }
+
+function sameDraft<P extends { draft: SettingsDraft }>(...fields: (keyof SettingsDraft)[]) {
+  return (before: P, after: P) =>
+    (Object.keys(after) as (keyof P)[]).every((name) =>
+      name === 'draft'
+        ? fields.every((field) => before.draft[field] === after.draft[field])
+        : before[name] === after[name],
+    )
+}
+
+export const WorkflowSection = memo(
+  WorkflowSectionView,
+  sameDraft('stages', 'stageFiles', 'keepStageFiles'),
+)
+export const ChecksSection = memo(ChecksSectionView, sameDraft('checks', 'repos'))
+export const AgentsSection = memo(AgentsSectionView, sameDraft('agents'))
+export const PermissionsSection = memo(PermissionsSectionView, sameDraft('maxWorkingRuns'))
+export const NotesSection = memo(NotesSectionView, sameDraft('notes'))

@@ -400,6 +400,7 @@ function makeLoginItem(): LoginItem {
 }
 
 function forward(event: DaemonEvent): void {
+  const drawn = state
   if (event.type === 'run-updated' && event.run.state === 'finished')
     taskBrowsers?.ended(event.run.id)
   if (event.type === 'apps-changed' || event.type === 'task-deleted')
@@ -427,7 +428,7 @@ function forward(event: DaemonEvent): void {
   if (event.type === 'task-updated') notifications.merged(event.task)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
-  refresh()
+  if (state !== drawn || event.type === 'settings-changed') refresh()
 }
 
 interface NotificationState {
