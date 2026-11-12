@@ -68,6 +68,7 @@ export interface LeadLifecycleOptions {
   setUp(task: StoredTask, steps: readonly SetupStep[]): Promise<string[] | undefined>
   setUpAdded(taskId: string, step: SetupStep): Promise<{ report?: string } | undefined>
   hold(taskId: string): () => void
+  mayContinue?(taskId: string): boolean
   stopRequested(taskId: string): boolean
   wake(): void
   background(what: string, work: () => Promise<void>): void
@@ -183,6 +184,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const task = store.getTask(taskId)
     const lead = task && effectiveLead(task)
     if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
+    if (options.mayContinue?.(taskId) === false) return
     applying.add(taskId)
     try {
       if (!sameChoice(lead, run) || task.leadRestartPending) {
@@ -210,6 +212,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
           .dispatch(live.id, current.pendingLeadMessages, false, () => {
             const now = find(taskId)
             return (
+              options.mayContinue?.(taskId) !== false &&
               now.leadRunId === live.id &&
               !now.stopped &&
               !now.archived &&

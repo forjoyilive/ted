@@ -499,6 +499,25 @@ test('idle-point changes wait for restart before delivering held messages', asyn
   lifecycle.close()
 })
 
+test('an answered Task keeps its durable message until the queue admits it', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  store.holdLeadMessage(taskId, 'The user answered the question', true)
+  let admitted = false
+  const { lifecycle, sent } = harness({ mayContinue: () => admitted })
+  await lifecycle.applyLead(taskId)
+  expect(sent).toEqual([])
+  expect(store.tasksWithQueuedContinuations()).toEqual([taskId])
+  expect(store.getTask(taskId)?.pendingLeadMessages).toMatchObject([
+    { text: 'The user answered the question', waitForSlot: true },
+  ])
+  admitted = true
+  await lifecycle.applyLead(taskId)
+  expect(sent.map(({ text }) => text)).toEqual(['The user answered the question'])
+  expect(store.tasksWithQueuedContinuations()).toEqual([])
+  lifecycle.close()
+})
+
 test('normal stops are not crash recovery during startup', async () => {
   startLead()
   store.recordRunOutput('lead', {

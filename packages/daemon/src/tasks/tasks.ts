@@ -619,6 +619,8 @@ export function createTasks(options: {
   const starting = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
+  const continuing = new Set<string>()
+  const continuationFailures = new Set<string>()
   const pullRequestChangeReads = new Map<string, Promise<PullRequestChanges>>()
   const advancing = new Set<string>()
   const released = new Map<string, Promise<void>>()
@@ -1253,6 +1255,7 @@ export function createTasks(options: {
   const ready = (): QueueEntry[] =>
     queueOrder<QueueEntry>([
       ...subAgents.queued(),
+      ...continuationsReady(),
       ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
       ...sources.flatMap((source) =>
         source
@@ -1262,6 +1265,45 @@ export function createTasks(options: {
           ),
       ),
     ]).filter((q) => q.kind !== 'sub-agent' || subAgentRunnable(q.id))
+
+  function continuationsReady(includeFailures = false): QueueEntry[] {
+    return queueOrder<QueueEntry>(
+      store.tasksWithQueuedContinuations().flatMap((id) => {
+        const task = store.getTask(id)
+        if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
+        if (holds.has(id) || advancing.has(id)) return []
+        if (!includeFailures && continuationFailures.has(id)) return []
+        if (!task.pendingLeadMessages.some((message) => message.waitForSlot)) return []
+        const run = liveLeadOf(store, task)
+        if (run?.state !== 'idle' || store.agentPauses()[run.agent] !== undefined) return []
+        return [
+          {
+            id,
+            kind: 'continuation',
+            rank: task.rank,
+            priority: task.priority,
+            factoryId: task.factoryId,
+          },
+        ]
+      }),
+    )
+  }
+
+  function beginContinuation(taskId: string): void {
+    continuing.add(taskId)
+    const release = hold(taskId)
+    inBackground('continue an answered Task', async () => {
+      try {
+        await applyLead(taskId)
+      } catch (error) {
+        continuationFailures.add(taskId)
+        throw error
+      } finally {
+        continuing.delete(taskId)
+        release()
+      }
+    })
+  }
 
   function subAgentRunnable(id: string): boolean {
     const request = store.subAgentRequests().find((r) => r.id === id)
@@ -1390,6 +1432,7 @@ export function createTasks(options: {
       if (reviveIds.has(entry.id)) {
         inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
       } else if (heldIds.has(entry.id)) relaunch(entry.id)
+      else if (entry.kind === 'continuation') beginContinuation(entry.id)
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
@@ -1447,7 +1490,23 @@ export function createTasks(options: {
     for (const request of store.subAgentRequests()) {
       if (!queuedRuns.has(request.id)) startingRuns.add(request.id)
     }
+    const ordered = queueOrder<QueueEntry>([
+      ...subAgents.queued(),
+      ...continuationsReady(true),
+      ...store.queue(),
+      ...sources.flatMap((source) => source.queued()),
+    ])
+    for (const entry of ordered) {
+      if (entry.kind !== 'continuation') continue
+      const runId = store.getTask(entry.id)?.leadRunId
+      if (runId) queuedRuns.add(runId)
+    }
     store.setQueueActivity({
+      taskPlaces: ordered.flatMap((entry, index) =>
+        entry.kind === 'task' || entry.kind === 'setup-task' || entry.kind === 'continuation'
+          ? [{ id: entry.id, place: index + 1 }]
+          : [],
+      ),
       queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
       queuedRuns: [...queuedRuns],
       startingRuns: [...startingRuns],
@@ -1483,6 +1542,7 @@ export function createTasks(options: {
     )
     const ordered = queueOrder<QueueEntry>([
       ...subAgents.queued(),
+      ...continuationsReady(true),
       ...store.queue(),
       ...sources.flatMap((source) => source.queued()),
     ])
@@ -3028,6 +3088,17 @@ export function createTasks(options: {
     setUp: runSetups,
     setUpAdded: performAddedSetup,
     hold,
+    mayContinue: (id) => {
+      const task = store.getTask(id)
+      if (!task?.pendingLeadMessages.some((message) => message.waitForSlot)) return true
+      const run = liveLeadOf(store, task)
+      return (
+        continuing.has(id) &&
+        store.newWorkHold() === undefined &&
+        run !== undefined &&
+        store.agentPauses()[run.agent] === undefined
+      )
+    },
     stopRequested: (id) => stoppingByHand.has(id) || stoppingForBlockers.has(id),
     wake: () => {
       void pump()
@@ -3840,9 +3911,10 @@ export function createTasks(options: {
       liveLead,
       startMerging,
       watchMerge,
-      deliver,
+      deliver: (task, text) => deliver(task, text, true),
       pullRequestWork,
-      move,
+      move: (task, resolution, next, message, options) =>
+        move(task, resolution, next, message, { ...options, waitForSlot: true }),
       backMessage,
       leaveWorkToDiagnose,
       settleDependents,
@@ -4004,6 +4076,7 @@ export function createTasks(options: {
       advancing.delete(task.id)
       released.delete(task.id)
       release()
+      void pump()
     }
   }
 
@@ -4035,7 +4108,7 @@ export function createTasks(options: {
     }
   }
 
-  async function deliver(task: Task, text: string): Promise<boolean> {
+  async function deliver(task: Task, text: string, waitForSlot = false): Promise<boolean> {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
@@ -4043,7 +4116,11 @@ export function createTasks(options: {
     const current = find(task.id)
     const lead = effectiveLead(current)
     const message = `${text}\n\n${overnightGuidance(mode)}`
-    if (
+    if (waitForSlot && run.state !== 'working' && !continuing.has(task.id)) {
+      store.holdLeadMessage(task.id, message, true)
+      await store.persisted()
+      void pump()
+    } else if (
       lead &&
       (!sameChoice(lead, run) ||
         leadLifecycle.applying(task.id) ||
@@ -4059,7 +4136,7 @@ export function createTasks(options: {
   }
 
   async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
-    if (!(await deliver(task, text))) store.holdAnswer(comment.id)
+    if (!(await deliver(task, text, true))) store.holdAnswer(comment.id)
   }
 
   function openTalkRound(commentId: string): { task: StoredTask; round: Comment } {
@@ -4193,7 +4270,11 @@ export function createTasks(options: {
     resolution: WorkflowResolution,
     to: AgentStageId | 'done',
     given: string | undefined,
-    { signedOff = false, checked }: { signedOff?: boolean; checked?: HandOffChecks } = {},
+    {
+      signedOff = false,
+      checked,
+      waitForSlot = false,
+    }: { signedOff?: boolean; checked?: HandOffChecks; waitForSlot?: boolean } = {},
   ): Promise<Task> {
     if (
       to === 'done' ||
@@ -4235,7 +4316,7 @@ export function createTasks(options: {
         validation.enter(task.id, message, checked),
       )
     } else if (message !== undefined) {
-      await deliver(task, message)
+      await deliver(task, message, waitForSlot)
     }
     if (next === 'merge') {
       const { workflow } = await gateWorkflow(find(task.id), { fetch: false })
@@ -5885,7 +5966,7 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
     if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
-    if (merging.has(task.id)) return
+    if (merging.has(task.id) || task.pendingLeadMessages.length > 0) return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
@@ -6126,7 +6207,7 @@ export function createTasks(options: {
     reportNotFound: (task, result) => reportNotFound(factoryOf(task).id, result),
     setChecking,
     isChecking: (id) => checking.has(id),
-    deliver,
+    deliver: (task, text) => deliver(task, text, true),
     instructions: async (task, resolution, message) => {
       const round = await validateRound(task, resolution.workflow)
       return [
@@ -6243,7 +6324,9 @@ export function createTasks(options: {
         if (run.state === 'working') options.steering.syncQueuedFlag(run.id)
       }
     }
+    if (event.type === 'settings-changed') continuationFailures.clear()
     if (event.type === 'run-updated') {
+      if (event.run.taskId) continuationFailures.delete(event.run.taskId)
       if (event.run.state === 'finished') overnightSeen.delete(event.run.id)
       else if (event.run.state === 'working') options.steering.syncQueuedFlag(event.run.id)
     }
@@ -8036,6 +8119,7 @@ export function createTasks(options: {
 
     wake(factoryId) {
       if (closed) return
+      continuationFailures.clear()
       if (factoryId !== undefined) caps.delete(factoryId)
       void pump()
       for (const task of store.listTasks()) {

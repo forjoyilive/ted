@@ -231,7 +231,14 @@ export interface LeadFailure {
   ask?: { title: string; body: string }
 }
 
+export interface LeadMessage {
+  id: string
+  text: string
+  waitForSlot?: true
+}
+
 export interface QueueActivity {
+  taskPlaces?: readonly { id: string; place: number }[]
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
@@ -292,7 +299,7 @@ export interface NewFactory {
 }
 
 export interface StoredTask extends Task {
-  pendingLeadMessages: { id: string; text: string }[]
+  pendingLeadMessages: LeadMessage[]
   leadRestartPending: boolean
   forcedGates: AgentStageId[]
   changesSettings: boolean
@@ -726,7 +733,8 @@ export interface TedStore extends TaskHistory {
   seenStageFileText(hash: string): SeenStageFile | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
   setLeadRestartPending(taskId: string, pending: boolean): void
-  holdLeadMessage(taskId: string, text: string): void
+  tasksWithQueuedContinuations(): string[]
+  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean): void
   deliveredLeadMessages(taskId: string, ids: readonly string[]): void
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
@@ -1557,7 +1565,9 @@ export async function openStore({
     const queued = reads.queued(row.id).at(0)
     const paused = reads.pauses()
     const held = reads.held(row.id).at(0)
-    const place = queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0
+    const place =
+      queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
+      (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0)
     const pausedRuns = taskPauses({
       taskId: row.id,
       heldAgent: held?.agent,
@@ -1747,7 +1757,7 @@ export async function openStore({
       ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
       pendingLeadMessages:
         pendingLeadDeliveries !== null
-          ? (JSON.parse(pendingLeadDeliveries) as { id: string; text: string }[])
+          ? (JSON.parse(pendingLeadDeliveries) as LeadMessage[])
           : pendingLeadMessage !== null
             ? [{ id: `stage-legacy-${row.id}`, text: pendingLeadMessage }]
             : [],
@@ -3985,12 +3995,24 @@ export async function openStore({
     setLeadRestartPending(taskId, pending) {
       commit(events.taskLeadRestartPendingSet({ taskId, pending, at: new Date().toISOString() }))
     },
-    holdLeadMessage(taskId, text) {
+    tasksWithQueuedContinuations: () =>
+      store
+        .query(queryDb(tasks.where({ pendingLeadDeliveries: { op: '!=', value: null } })))
+        .filter((row) =>
+          (JSON.parse(row.pendingLeadDeliveries ?? '[]') as LeadMessage[]).some(
+            (message) => message.waitForSlot,
+          ),
+        )
+        .map((row) => row.id),
+    holdLeadMessage(taskId, text, waitForSlot = false) {
       const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
       commit(
         events.taskLeadMessagesHeld({
           taskId,
-          messages: JSON.stringify([...pending, { id: randomUUID(), text }]),
+          messages: JSON.stringify([
+            ...pending,
+            { id: randomUUID(), text, ...(waitForSlot && { waitForSlot: true }) },
+          ]),
           at: new Date().toISOString(),
         }),
       )
@@ -5032,7 +5054,12 @@ export async function openStore({
     activity,
     waiting,
     setQueueActivity(value) {
+      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, entry.place]))
+      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, entry.place]))
       queueActivity = value
+      for (const id of new Set([...before.keys(), ...after.keys()])) {
+        if (before.get(id) !== after.get(id) && taskRow(id)) updatedTask(id)
+      }
       noteActivity()
     },
     setShellsRunning(count) {
