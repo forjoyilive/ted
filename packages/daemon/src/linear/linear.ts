@@ -25,7 +25,7 @@ import {
 import { type Keyring, KeyringUnavailableError } from './keyring.ts'
 
 export interface Linear {
-  intakeChoices(): Promise<LinearIntakeChoices>
+  intakeChoices(options?: { fresh?: boolean }): Promise<LinearIntakeChoices>
   intakeMembership(link: LinearUrl): Promise<LinearIntakeMembership>
   status(): Promise<LinearStatus>
   save(request: SaveLinearKeyRequest): Promise<LinearStatus>
@@ -122,6 +122,7 @@ export function createLinear(options: LinearOptions): Linear {
   const issues = new Map<string, { at: number; lookup: LinearLookup }>()
   const teams = new Map<string, { at: number; states: LinearWorkflowState[] }>()
   let syncKey: { at: number; key: string | undefined } | undefined
+  let choices: { key: string; at: number; read: Promise<LinearIntakeChoices> } | undefined
 
   async function intakeRead<T>(work: (key: string) => Promise<T>): Promise<T> {
     try {
@@ -136,59 +137,72 @@ export function createLinear(options: LinearOptions): Linear {
     }
   }
 
-  async function intakeChoices(): Promise<LinearIntakeChoices> {
+  async function intakeChoices({ fresh = false } = {}): Promise<LinearIntakeChoices> {
     return intakeRead(async (key) => {
-      const data = await query<{ organization: { id: string; urlKey: string } }>(
-        key,
-        'query TedIntakeWorkspace { organization { id urlKey } }',
-        undefined,
-        { strict: true },
-      )
-      if (!data.organization?.id || !data.organization.urlKey)
-        throw new Error('Linear workspace is missing')
-      async function pages(collection: 'teams' | 'projects') {
-        const nodes: { id: string; name: string; key: string }[] = []
-        let after: string | undefined
-        const cursors = new Set<string>()
-        for (let page = 0; page < 200; page++) {
-          const result = await query<{
-            targets: {
-              nodes: { id: string; name: string; key: string }[]
-              pageInfo: { hasNextPage: boolean; endCursor: string | null }
-            }
-          }>(
-            key,
-            `query TedIntakeChoices($after: String) { targets: ${collection}(first: 100, after: $after) { nodes { id name ${collection === 'teams' ? 'key' : ''} } pageInfo { hasNextPage endCursor } } }`,
-            { after: after ?? null },
-            { strict: true },
-          )
-          const connection = result.targets
-          if (
-            !Array.isArray(connection?.nodes) ||
-            typeof connection.pageInfo?.hasNextPage !== 'boolean' ||
-            connection.nodes.some(
-              (node) => !node.id || !node.name || (collection === 'teams' && !node.key),
-            )
-          ) {
-            throw new Error('Linear returned incomplete choices')
-          }
-          nodes.push(...connection.nodes)
-          if (!connection.pageInfo.hasNextPage)
-            return nodes.sort((a, b) => a.name.localeCompare(b.name))
-          const cursor = connection.pageInfo.endCursor
-          if (!cursor || cursors.has(cursor)) throw new Error('Linear returned an incomplete page')
-          cursors.add(cursor)
-          after = cursor
-        }
-        throw new Error('Linear returned too many pages')
-      }
-      return {
-        workspaceId: data.organization.id,
-        workspace: data.organization.urlKey.toLowerCase(),
-        teams: await pages('teams'),
-        projects: await pages('projects'),
-      }
+      const cached = choices
+      if (!fresh && cached && cached.key === key && now() - cached.at < cacheMs) return cached.read
+      const read = readIntakeChoices(key)
+      const entry = { key, at: now(), read }
+      choices = entry
+      read.catch(() => {
+        if (choices === entry) choices = undefined
+      })
+      return read
     })
+  }
+
+  async function readIntakeChoices(key: string): Promise<LinearIntakeChoices> {
+    const data = await query<{ organization: { id: string; urlKey: string } }>(
+      key,
+      'query TedIntakeWorkspace { organization { id urlKey } }',
+      undefined,
+      { strict: true },
+    )
+    if (!data.organization?.id || !data.organization.urlKey)
+      throw new Error('Linear workspace is missing')
+    async function pages(collection: 'teams' | 'projects') {
+      const nodes: { id: string; name: string; key: string }[] = []
+      let after: string | undefined
+      const cursors = new Set<string>()
+      for (let page = 0; page < 200; page++) {
+        const result = await query<{
+          targets: {
+            nodes: { id: string; name: string; key: string }[]
+            pageInfo: { hasNextPage: boolean; endCursor: string | null }
+          }
+        }>(
+          key,
+          `query TedIntakeChoices($after: String) { targets: ${collection}(first: 100, after: $after) { nodes { id name ${collection === 'teams' ? 'key' : ''} } pageInfo { hasNextPage endCursor } } }`,
+          { after: after ?? null },
+          { strict: true },
+        )
+        const connection = result.targets
+        if (
+          !Array.isArray(connection?.nodes) ||
+          typeof connection.pageInfo?.hasNextPage !== 'boolean' ||
+          connection.nodes.some(
+            (node) => !node.id || !node.name || (collection === 'teams' && !node.key),
+          )
+        ) {
+          throw new Error('Linear returned incomplete choices')
+        }
+        nodes.push(...connection.nodes)
+        if (!connection.pageInfo.hasNextPage)
+          return nodes.sort((a, b) => a.name.localeCompare(b.name))
+        const cursor = connection.pageInfo.endCursor
+        if (!cursor || cursors.has(cursor)) throw new Error('Linear returned an incomplete page')
+        cursors.add(cursor)
+        after = cursor
+      }
+      throw new Error('Linear returned too many pages')
+    }
+    const [teams, projects] = await Promise.all([pages('teams'), pages('projects')])
+    return {
+      workspaceId: data.organization.id,
+      workspace: data.organization.urlKey.toLowerCase(),
+      teams,
+      projects,
+    }
   }
 
   async function intakeMembership(link: LinearUrl): Promise<LinearIntakeMembership> {
@@ -229,6 +243,7 @@ export function createLinear(options: LinearOptions): Linear {
 
   function forgetKey(): void {
     syncKey = undefined
+    choices = undefined
     teams.clear()
   }
 
