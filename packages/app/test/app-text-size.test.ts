@@ -9,10 +9,10 @@ import {
   daemonClient,
   launchApp,
   openAllTasks,
+  openFactoryView,
   openSettings,
   settingsNav,
   setUpAppTests,
-  sidebar,
   taskRow,
   ted,
 } from './app-harness.ts'
@@ -88,7 +88,7 @@ test('large app text fits settings controls, Task lists, details and a new Task 
   await taskRow(window, 'NB-1').waitFor()
   await mkdir(captures, { recursive: true })
   await window.screenshot({ path: path.join(captures, 'list-200.png') })
-  await sidebar(window).getByRole('button', { name: 'widgets', exact: true }).click()
+  await openFactoryView(window, 'widgets', 'Board')
   await window.getByRole('region', { name: 'Backlog', exact: true }).waitFor()
   await window.screenshot({ path: path.join(captures, 'board-200.png') })
   await openAllTasks(window)
