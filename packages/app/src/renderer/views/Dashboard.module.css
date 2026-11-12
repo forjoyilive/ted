@@ -369,3 +369,114 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.flow {
+  margin-top: 32px;
+}
+
+.flow > h2 {
+  margin: 0 0 6px;
+  font-size: var(--text-17);
+}
+
+.flowCard {
+  min-width: 0;
+  margin-top: 18px;
+  padding: 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-card);
+}
+
+.flowCard h3 {
+  margin: 0 0 10px;
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+
+.flowHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.flowGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.flowValue {
+  font-size: var(--text-28);
+  font-weight: var(--weight-medium);
+}
+
+.flowTable {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.flowTable table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-12);
+}
+
+.flowTable th,
+.flowTable td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-weight: var(--weight-regular);
+  text-align: left;
+  vertical-align: top;
+}
+
+.flowTable th {
+  color: var(--text-caption);
+}
+
+.flowTable caption {
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.flowBar {
+  display: inline-block;
+  width: 50px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 4px;
+  background: var(--surface-inset);
+}
+
+.flowBar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-default);
+}
+
+.flowFoot {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  line-height: var(--leading-relaxed);
+}
+
+.flowSampleItem {
+  padding-bottom: 12px;
+}
+
+.flowSampleItem .caption {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+@container dashboard (width < 780px) {
+  .flowGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
