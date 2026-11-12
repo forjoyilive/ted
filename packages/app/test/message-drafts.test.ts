@@ -295,6 +295,51 @@ describe('unsent message text', () => {
     await vi.waitFor(() => expect(sessions.find(box)).toBeUndefined())
   })
 
+  test('a session stays while a second pass retries a failed save', async () => {
+    const setup = options()
+    setup.storage.setItem(key, JSON.stringify({ text: 'Left by a quit', attachments: [] }))
+    const first = Promise.withResolvers<MessageDraftState>()
+    const second = Promise.withResolvers<MessageDraftState>()
+    const save = vi
+      .fn(async (_box: MessageBox, draft: MessageDraft): Promise<MessageDraftState> => ({ draft }))
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+    const sessions = messageDraftSessions({
+      storage: setup.storage,
+      read: setup.read,
+      save,
+      failed: setup.failed,
+      delayMs: 60_000,
+    })
+    const firstPass = sessions.recover()
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    const session = sessions.find(box)
+    const secondPass = sessions.recover()
+    first.reject(new Error('offline'))
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    await new Promise((done) => setTimeout(done, 0))
+    expect(sessions.find(box)).toBe(session)
+
+    const seen = vi.fn()
+    const leave = sessions.join(box, seen)
+    expect(sessions.find(box)).toBe(session)
+    expect(seen).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'Left by a quit' }))
+    const cleared = session?.clear()
+    second.resolve({ draft: null })
+    await cleared
+    await firstPass
+    await secondPass
+    expect(save.mock.calls.map(([, draft]) => draft.text)).toEqual([
+      'Left by a quit',
+      'Left by a quit',
+      '',
+    ])
+    expect(setup.storage.getItem(key)).toBeNull()
+    expect(sessions.find(box)).toBe(session)
+    leave()
+    await vi.waitFor(() => expect(sessions.find(box)).toBeUndefined())
+  })
+
   test('a box opened while the start-up pass saves its text shares that queue', async () => {
     const setup = options()
     setup.storage.setItem(key, JSON.stringify({ text: 'Left by a quit', attachments: [] }))

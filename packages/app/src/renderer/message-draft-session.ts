@@ -83,6 +83,8 @@ export function messageDraftSession(
   let timer: ReturnType<typeof setTimeout> | undefined
   let saving: Promise<void> | undefined
   let loading: Promise<DraftContent> | undefined
+  let reading = false
+  let retrying = 0
 
   const guarded = (action: () => void) => {
     try {
@@ -160,7 +162,12 @@ export function messageDraftSession(
   }
 
   const load = (): Promise<DraftContent> => {
-    loading ??= read()
+    if (!loading) {
+      reading = true
+      loading = read().finally(() => {
+        reading = false
+      })
+    }
     return loading
   }
 
@@ -171,10 +178,16 @@ export function messageDraftSession(
       await flush()
     },
     async retry() {
-      await load()
-      if (saving) await saving
-      if (dirty) await persist()
+      retrying += 1
+      try {
+        await load()
+        if (saving) await saving
+        if (dirty) await persist()
+      } finally {
+        retrying -= 1
+      }
     },
+    busy: () => reading || saving !== undefined || retrying > 0,
     get: () => current,
     update(next: (content: DraftContent) => DraftContent) {
       change(next(current))
@@ -228,7 +241,9 @@ export function messageDraftSessions(options: {
   }
 
   async function release(box: MessageBox, entry: Shared): Promise<void> {
-    await entry.session.settled()
+    do {
+      await entry.session.settled()
+    } while (entry.session.busy())
     const key = messageDraftStorageKey(box)
     if (entry.users === 0 && shared.get(key) === entry) shared.delete(key)
   }
