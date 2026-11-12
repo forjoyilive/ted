@@ -454,7 +454,13 @@ test('bulk Stop Task identifies a later Task failure and stops before the next T
     }),
   )
   for (const current of [...a.state.tasks]) {
-    await a.emitTask({ ...current, stage: 'work', preparation: 'ready' })
+    await a.emitTask({
+      ...current,
+      stage: 'work',
+      preparation: 'ready',
+      statuses: ['stopped'],
+      status: { kind: 'stopped', at: '2026-11-11T00:00:00Z', prepared: true },
+    })
     fireEvent.click(required(document.querySelector(`[data-task="${current.id}"]`)), {
       metaKey: true,
     })
