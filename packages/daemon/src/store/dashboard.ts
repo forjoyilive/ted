@@ -30,6 +30,7 @@ const historyNames = [
   'v2.ValidateJudged',
   'v1.TaskMovedToBacklog',
   'v1.TaskNeedsPlanning',
+  'v1.TaskQueued',
   'v1.TaskSentBack',
   'v2.TaskSentBack',
 ]
@@ -105,6 +106,9 @@ export function readFactoryDashboard(
       const data = JSON.parse(row.data) as Record<string, unknown>
       if (row.name.endsWith('TaskStageEntered')) {
         task.entries.push({ stage: String(data.stage), at: row.at, sequence: sequence(row.id) })
+      } else if (row.name === 'v1.TaskQueued') {
+        if (data.stage === 'intake')
+          task.transitions.push({ stage: 'intake', at: row.at, sequence: sequence(row.id) })
       } else if (row.name.endsWith('TaskMovedToBacklog') || row.name === 'v1.TaskNeedsPlanning') {
         task.transitions.push({ stage: 'backlog', at: row.at, sequence: sequence(row.id) })
       } else if (row.name.endsWith('TaskSentBack')) {
@@ -199,7 +203,7 @@ export function readFactoryDashboard(
   const selected = rows.filter((row) => {
     const task = facts.get(row.id)
     if (!task) return false
-    const start = task.entries.find((e) => e.stage === 'intake')
+    const start = task.transitions.find((e) => e.stage === 'intake')
     if (!start || !(Date.parse(start.at) < asOf)) return false
     const ends = [
       ...task.entries.filter((e) => e.stage === 'done').map((e) => e.at),

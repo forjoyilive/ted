@@ -101,7 +101,7 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
   let restartedId = ''
   try {
     vi.useFakeTimers({ toFake: ['Date'] })
-    setAgo(100)
+    setAgo(180)
     const factory = store.createFactory({
       key: 'FL',
       name: 'Flow',
@@ -110,6 +110,24 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
       showTutorial: false,
     })
     factoryId = factory.id
+    setAgo(170)
+    const queued = await store.createTask({ factoryId, title: 'Waiting for the first Run' })
+    store.queueTask(queued.id, 'intake')
+    setAgo(6)
+    const admitted = await store.createTask({ factoryId, title: 'Admitted after a Run-slot wait' })
+    store.queueTask(admitted.id, 'intake')
+    setAgo(4)
+    store.startTask({
+      taskId: admitted.id,
+      stage: 'intake',
+      branch: 'task',
+      worktree: home,
+      entry,
+      repo: { name: 'one', repo: 'acme/one', copied: [], skipped: [] },
+    })
+    setAgo(2)
+    store.changeStage(admitted.id, 'done', entry)
+    setAgo(100)
     const accepted = await store.createTask({ factoryId, title: 'Accepted Check failure' })
     acceptedId = accepted.id
     store.changeStage(accepted.id, 'intake', entry)
@@ -322,6 +340,42 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     await store.close()
     store = await openStore({ directory: tedPaths(home).store })
     const data = store.factoryDashboard(factoryId, '7d', asOf)
+    expect(data.flow.current.taskIds).toEqual(expect.arrayContaining([queued.id, admitted.id]))
+    const currentQueue = required(data.flow.current.reasons.find((r) => r.reason === 'run-slot'))
+    const previousQueue = required(data.flow.previous?.reasons.find((r) => r.reason === 'run-slot'))
+    expect(currentQueue.samples.find((s) => s.taskId === queued.id)).toMatchObject({
+      elapsedMs: 168 * hour,
+      coverage: 'full',
+      intervals: [
+        { from: new Date(asOf - 168 * hour).toISOString(), to: new Date(asOf).toISOString() },
+      ],
+    })
+    expect(currentQueue.samples.find((s) => s.taskId === admitted.id)).toMatchObject({
+      elapsedMs: 2 * hour,
+      intervals: [
+        {
+          from: new Date(asOf - 6 * hour).toISOString(),
+          to: new Date(asOf - 4 * hour).toISOString(),
+        },
+      ],
+    })
+    expect(previousQueue.samples.find((s) => s.taskId === queued.id)?.elapsedMs).toBe(2 * hour)
+    for (const id of [queued.id, admitted.id]) {
+      const recorded = store
+        .taskIntervalHistory(id, new Date(asOf).toISOString())
+        .intervals.filter((i) => i.reason === 'run-slot')
+        .reduce((sum, i) => sum + Date.parse(i.end) - Date.parse(i.start), 0)
+      expect(
+        (currentQueue.samples.find((s) => s.taskId === id)?.elapsedMs ?? 0) +
+          (previousQueue.samples.find((s) => s.taskId === id)?.elapsedMs ?? 0),
+      ).toBe(recorded)
+    }
+    expect(
+      data.flow.current.stages
+        .find((s) => s.stage === 'intake')
+        ?.samples.find((s) => s.taskId === admitted.id)?.elapsedMs,
+    ).toBe(4 * hour)
+    expect(data.tasks.find((t) => t.id === admitted.id)?.intakeMs).toBe(2 * hour)
     const clarify = data.flow.current.stages.find((s) => s.stage === 'clarify')
     expect(clarify?.samples.find((s) => s.taskId === planningId)).toMatchObject({
       elapsedMs: 2 * hour,
