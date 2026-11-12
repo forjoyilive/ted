@@ -1,0 +1,353 @@
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  height: 108px;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.shot {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+.loading {
+  margin: auto;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.tileCaption {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+  padding: 6px 8px;
+  background: var(--surface-card);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-12-5);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.videoTile {
+  border-color: var(--surface-inverse);
+  background: var(--surface-inverse);
+}
+
+.videoCaption {
+  border-top: none;
+  background: none;
+  color: var(--text-on-inverse);
+}
+
+.play {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding-left: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--text-on-inverse);
+  color: var(--surface-inverse);
+}
+
+.prototype {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+
+.prototypeHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-raised);
+}
+
+.prototypeLabel {
+  color: var(--text-primary);
+  font-size: var(--text-12-5);
+  font-weight: var(--weight-medium);
+}
+
+.meta {
+  overflow: hidden;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-size: var(--text-12);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.frame {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: clamp(360px, 65vh, 720px);
+  border: none;
+  background: var(--surface-inset);
+}
+
+.figma {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+
+.figmaMark {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: var(--glyph-12);
+  font-weight: var(--weight-semibold);
+}
+
+.figmaText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.figmaName {
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+
+.error {
+  color: var(--status-failed-fg);
+  font-size: var(--text-12);
+}
+
+.worth {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--surface-inset);
+}
+
+.worthHeading {
+  margin: 0 0 2px;
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.worthList {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+}
+
+.video {
+  min-height: 0;
+  flex: 1;
+  object-fit: contain;
+}
+
+.fullFrame {
+  min-height: 0;
+  flex: 1;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--surface-card);
+}
+
+.setupSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setupHeading {
+  margin: 4px 0 2px;
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.setupStages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--text-13);
+}
+
+.setupStage {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 12px;
+}
+
+.setupStage dt {
+  color: var(--text-primary);
+}
+
+.setupStage dd {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.setupStage dd.asDefault {
+  color: var(--text-caption);
+}
+
+.setupRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-13);
+}
+
+.checkRow,
+.appRow,
+.fileRow {
+  display: grid;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.checkRow {
+  grid-template-columns: 14px minmax(90px, 140px) minmax(0, 160px) minmax(0, 120px) 1fr;
+}
+
+.appRow {
+  grid-template-columns: 14px minmax(90px, 140px) minmax(0, 160px) minmax(0, 120px) 1fr;
+}
+
+.fileRow {
+  grid-template-columns: minmax(150px, 190px) 1fr;
+}
+
+.passed {
+  color: var(--status-success-fg);
+}
+
+.failedMark {
+  color: var(--status-failed-fg);
+}
+
+.setupName {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command,
+.filePath {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filePath {
+  color: var(--text-primary);
+}
+
+.leftOff {
+  color: var(--status-failed-fg);
+  font-size: var(--text-12-5);
+}
+
+.appReady,
+.fileAbout {
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+}
+
+.defaults {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+  line-height: var(--leading-body);
+}

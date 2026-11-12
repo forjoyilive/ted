@@ -1,0 +1,129 @@
+.error {
+  margin: 0;
+  color: var(--status-failed-fg);
+  font-size: var(--text-12-5);
+}
+
+.usageRow,
+.worktreeRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 7px 16px;
+  font-size: var(--text-13);
+  line-height: 1.45;
+}
+
+.usageRow + .usageRow,
+.worktreeRow + .worktreeRow {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.worktreeRow {
+  gap: 8px;
+  min-height: 39px;
+}
+
+.usageLabel {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.track {
+  display: block;
+  flex-shrink: 0;
+  width: 220px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-inset);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-default);
+}
+
+.size {
+  flex-shrink: 0;
+  min-width: 56px;
+  color: var(--text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.taskId {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.taskTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factory {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12-5);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.link {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.backups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.backupsLabel {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-11-5);
+  font-weight: var(--weight-medium);
+  line-height: 1.45;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.backupsNote {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}

@@ -1,0 +1,11 @@
+{"t": 6.05, "driver": "type prompt"}
+{"hook_event_name": "UserPromptSubmit", "prompt": "Run these three shell commands one at a time, each as its own Bash tool call: `sleep 4; echo one`, `sleep 4; echo two`, `sleep 4; echo three`. Then reply with one short line.", "unix": 1794182827.17}
+{"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo one", "description": "Sleep 4 seconds, then print one"}, "unix": 1794182828.54}
+{"t": 9.34, "driver": "type message into the TUI mid-turn"}
+{"hook_event_name": "UserPromptSubmit", "prompt": "New instruction from the human: after the commands, reply with the single word PINEAPPLE.", "unix": 1794182830.33}
+{"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo one", "description": "Sleep 4 seconds, then print one"}, "unix": 1794182833.73}
+{"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo two", "description": "Sleep 4 seconds, then print two"}, "unix": 1794182834.6}
+{"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo two", "description": "Sleep 4 seconds, then print two"}, "unix": 1794182839.12}
+{"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo three", "description": "Sleep 4 seconds, then print three"}, "unix": 1794182840.03}
+{"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo three", "description": "Sleep 4 seconds, then print three"}, "unix": 1794182844.52}
+{"hook_event_name": "Stop", "last_assistant_message": "PINEAPPLE", "unix": 1794182845.19}

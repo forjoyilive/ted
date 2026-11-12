@@ -1,0 +1,189 @@
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { closeSync, openSync, readFileSync, readSync, writeFileSync, writeSync } from 'node:fs'
+import { createInterface } from 'node:readline'
+import { pathToFileURL } from 'node:url'
+import { watchExitWith } from '../../exit-with.ts'
+import { waitForLock } from '../../lock.ts'
+import {
+  type DriveAgent,
+  type HostDriver,
+  type HostRecord,
+  hostProtocol,
+  type LaunchFile,
+  readGenerationLine,
+  runFiles,
+} from '../host-files.ts'
+
+import { checkLaunchAuthority } from '../launch-authority.ts'
+
+const runDir = process.argv[2]
+if (!runDir) throw new Error('usage: host/main.ts <run-dir>')
+delete process.env.ELECTRON_RUN_AS_NODE
+const files = runFiles(runDir)
+
+const lock = await waitForLock(files.lock, 2_000)
+if (!lock) throw new Error(`another host already runs ${runDir}`)
+
+const earlierStarts = (() => {
+  try {
+    return readFileSync(files.log, 'utf8')
+      .split('\n')
+      .filter((line) => line.startsWith('{"t":"start"')).length
+  } catch {
+    return 0
+  }
+})()
+writeFileSync(files.pid, String(process.pid), { mode: 0o600 })
+const log = openSync(files.log, 'a')
+const write = (record: HostRecord) => writeSync(log, `${JSON.stringify(record)}\n`)
+
+interface Started {
+  agent: ChildProcessWithoutNullStreams
+  driver: HostDriver | undefined
+  send: (line: string) => void
+  closed: Promise<[number | null, NodeJS.Signals | null]>
+  spawnError: () => string | undefined
+}
+
+let current: Started | undefined
+let generation = earlierStarts
+let restarting = false
+let restartWanted = false
+let lastLaunchId: string | undefined
+const asked = { stop: false }
+
+async function startAgent(): Promise<Started> {
+  const launch = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  lastLaunchId = launch.launchId
+  const drive =
+    launch.driver === undefined
+      ? undefined
+      : ((await import(pathToFileURL(launch.driver).href)) as { drive: DriveAgent }).drive
+  if (asked.stop) throw new Error('The Run was stopped before its agent started')
+  checkLaunchAuthority(launch.authority)
+  const agent = spawn(launch.command, launch.args, {
+    cwd: launch.cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  write({
+    t: 'start',
+    v: hostProtocol,
+    hostPid: process.pid,
+    agentPid: agent.pid ?? null,
+    ...(launch.permissions !== undefined && { permissions: launch.permissions }),
+  })
+  generation += 1
+
+  let spawnError: string | undefined
+  agent.on('error', (error) => {
+    spawnError = error.message
+  })
+  agent.stdin.on('error', () => {})
+  const send = (line: string) => {
+    if (agent.stdin.writable) agent.stdin.write(`${line}\n`)
+  }
+  const driver = drive?.({
+    input: launch.input,
+    cwd: launch.cwd,
+    send,
+    emit: (line) => write({ t: 'out', line, at: new Date().toISOString() }),
+    stop: () => agent.kill('SIGTERM'),
+  })
+  if (!driver && launch.input !== '') send(launch.input)
+
+  const stdout = createInterface({ input: agent.stdout, crlfDelay: Number.POSITIVE_INFINITY })
+  const stderr = createInterface({ input: agent.stderr, crlfDelay: Number.POSITIVE_INFINITY })
+  stdout.on('line', (line) => {
+    write({ t: 'out', line, at: new Date().toISOString() })
+    driver?.onLine(line)
+  })
+  stderr.on('line', (line) => write({ t: 'err', line }))
+
+  const closed = Promise.all([
+    once(agent, 'close'),
+    once(stdout, 'close'),
+    once(stderr, 'close'),
+  ]).then(([result]) => result as [number | null, NodeJS.Signals | null])
+  return { agent, driver, send, closed, spawnError: () => spawnError }
+}
+
+let inputOffset = (() => {
+  const launch = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  return launch.inputFrom ?? 0
+})()
+const forwardInput = () => {
+  if (restarting || !current) return
+  const { driver, send } = current
+  let fd: number
+  try {
+    fd = openSync(files.input, 'r')
+  } catch {
+    return
+  }
+  try {
+    let buffer = Buffer.alloc(64 * 1024)
+    for (;;) {
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, inputOffset)
+      if (bytesRead === 0) return
+      const end = buffer.lastIndexOf(10, bytesRead - 1)
+      if (end === -1) {
+        if (bytesRead < buffer.length) return
+        buffer = Buffer.alloc(buffer.length * 2)
+        continue
+      }
+      const lines = buffer.toString('utf8', 0, end).split('\n')
+      inputOffset += end + 1
+      for (const raw of lines) {
+        const tagged = readGenerationLine(raw)
+        if (tagged && tagged.forGeneration !== generation) continue
+        const line = tagged ? tagged.line : raw
+        if (driver?.onInput) driver.onInput(line)
+        else send(line)
+      }
+    }
+  } finally {
+    closeSync(fd)
+  }
+}
+const inputTimer = setInterval(forwardInput, 150)
+
+const stop = () => {
+  asked.stop = true
+  restartWanted = false
+  current?.agent.kill('SIGTERM')
+}
+process.on('SIGTERM', stop)
+watchExitWith(stop)
+process.on('SIGHUP', () => {
+  if (asked.stop) return
+  restartWanted = true
+  restarting = true
+  current?.agent.kill('SIGTERM')
+})
+
+let code: number | null
+let signal: NodeJS.Signals | null
+let spawnError: string | undefined
+for (;;) {
+  current = await startAgent()
+  restartWanted = false
+  restarting = false
+  ;[code, signal] = await current.closed
+  spawnError = current.spawnError()
+  if (asked.stop || !restartWanted) break
+  // Only the daemon prepares a new launch after checking this computer’s permission mode.
+  const next = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  if (next.launchId === undefined || next.launchId === lastLaunchId) break
+}
+
+clearInterval(inputTimer)
+write({
+  t: 'exit',
+  code,
+  signal,
+  ...(spawnError !== undefined && { error: spawnError }),
+  ...(asked.stop && { stopped: true }),
+})
+lock.release()
+process.exit(0)

@@ -1,0 +1,189 @@
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { integrationInstallPages } from '@ted/protocol/integrations'
+import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import {
+  removeHome,
+  stopDaemonIn,
+  stubClaudePath,
+  stubCodexPath,
+} from '../../daemon/test/helpers.ts'
+import { buildRenderer } from './build-renderer.ts'
+import { closeApp } from './close-app.ts'
+import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
+
+const appDir = fileURLToPath(new URL('..', import.meta.url))
+const electronPath = resolveElectron()
+
+const signedIn = {
+  state: 'success',
+  active: true,
+  host: 'github.com',
+  login: 'forjoyilive',
+  tokenSource: 'keyring',
+  scopes: 'gist, read:org, repo, workflow',
+  gitProtocol: 'https',
+}
+
+let home: string
+let ghState: string
+let fixLog: string
+let app: ElectronApplication | undefined
+
+beforeAll(async () => {
+  await buildRenderer()
+})
+
+beforeEach(async () => {
+  home = await mkdtemp(path.join(tmpdir(), 'ted-app-integrations-'))
+  ghState = path.join(home, 'gh-state.json')
+  fixLog = path.join(home, 'fix.log')
+})
+
+afterEach(async () => {
+  await closeApp(app)
+  app = undefined
+  await stopDaemonIn(home)
+  await removeHome(home)
+}, 30_000)
+
+async function setGh(hosts: Record<string, unknown[]>): Promise<void> {
+  await writeFile(ghState, JSON.stringify({ hosts }))
+}
+
+async function launchApp(): Promise<Page> {
+  app = await electron.launch({
+    executablePath: electronPath,
+    args: [appDir],
+    env: {
+      ...process.env,
+      TED_HOME: home,
+      TED_IDLE_EXIT_MS: '30000',
+      TED_HIDDEN_WINDOW: '1',
+      TED_CLAUDE_BIN: stubClaudePath,
+      TED_CODEX_BIN: stubCodexPath,
+      TED_ANTIGRAVITY_BIN: path.join(home, 'no-antigravity-here'),
+      TED_STUB_GH: ghState,
+      TED_FIX_LOG: fixLog,
+    },
+  })
+  const window = await loadedWindow(app)
+  await window.emulateMedia({ colorScheme: null })
+  return window
+}
+
+const settingsNav = (window: Page) => window.getByRole('navigation', { name: 'Settings' })
+
+async function openIntegrations(window: Page): Promise<void> {
+  await window
+    .getByRole('navigation', { name: 'Sidebar' })
+    .getByRole('button', { name: /^Settings/ })
+    .last()
+    .click()
+  await settingsNav(window).getByRole('button', { name: 'Integrations', exact: true }).click()
+  await window.getByRole('heading', { name: 'Integrations', level: 1 }).waitFor()
+}
+
+const fixesRun = () => readFile(fixLog, 'utf8').catch(() => '')
+
+describe('Settings → Integrations', () => {
+  test('shows each GitHub host and Git, and Check again reads them afresh', async () => {
+    await setGh({ 'github.com': [signedIn] })
+    const window = await launchApp()
+    await openIntegrations(window)
+
+    const github = window.getByRole('group', { name: 'GitHub' })
+    await github.getByText('github.com', { exact: true }).waitFor()
+    await github.getByText('Ready').waitFor()
+    await github
+      .getByText('Signed in as forjoyilive · token in the keyring · git over HTTPS')
+      .waitFor()
+    await github.getByText(/^Scopes: gist, read:org, repo, workflow · gh 2\.89\.0 · /).waitFor()
+    await window
+      .getByRole('group', { name: 'Git' })
+      .getByText(/^Git \d+\.\d+$/)
+      .waitFor()
+
+    await setGh({ 'github.com': [{ ...signedIn, scopes: 'repo, read:org' }] })
+    await github.getByRole('button', { name: 'Check again' }).click()
+    await github.getByText('Missing workflow scope').waitFor()
+    await github.getByText(/^Can’t push changes to GitHub Actions workflows/).waitFor()
+    expect(await window.getByRole('alert').count()).toBe(0)
+
+    await github.getByRole('button', { name: 'Add permission' }).click()
+    await github.getByText(/^Opened gh auth refresh --hostname github\.com -s workflow/).waitFor()
+    expect(await fixesRun()).toBe('gh auth refresh --hostname github.com -s workflow\n')
+  })
+})
+
+describe('the GitHub banner', () => {
+  test('signing out raises it, Fix opens gh auth login, and signing in clears it', async () => {
+    await setGh({})
+    const window = await launchApp()
+
+    const banner = window.getByRole('alert').filter({ hasText: 'GitHub CLI is signed out' })
+    await banner.getByText('GitHub CLI is signed out · needed to add a Factory').waitFor()
+    await openIntegrations(window)
+    await settingsNav(window)
+      .getByRole('button', { name: 'Integrations', exact: true })
+      .locator('svg')
+      .waitFor()
+    await window.getByRole('group', { name: 'GitHub' }).getByText('Signed out').waitFor()
+
+    await setGh({ 'github.com': [signedIn] })
+    await banner.getByRole('button', { name: 'Fix' }).click()
+    await expect.poll(fixesRun).toBe('gh auth login --web --hostname github.com -s workflow\n')
+    await banner.waitFor({ state: 'detached', timeout: 15_000 })
+    await window.getByRole('group', { name: 'GitHub' }).getByText('Ready').waitFor()
+  })
+})
+
+test('page remedies cross the renderer IPC bridge and open only official instructions', async () => {
+  await setGh({ 'github.com': [signedIn] })
+  const window = await launchApp()
+  if (!app) throw new Error('Expected launched app')
+  await app.evaluate(
+    async ({ shell }, { moduleUrl, pages }) => {
+      const { DaemonClient } = process.getBuiltinModule('module').createRequire(moduleUrl)(
+        './client.ts',
+      )
+      const opened: string[] = []
+      Object.assign(globalThis, { instructionPages: opened })
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+      DaemonClient.prototype.runFix = async ({ fix }: { fix: string }) => ({
+        url: fix === 'git-install' ? pages.git : pages.gh,
+      })
+    },
+    {
+      moduleUrl: new URL('../../protocol/src/client.ts', import.meta.url).href,
+      pages: integrationInstallPages,
+    },
+  )
+  for (const fix of ['gh-install', 'gh-update', 'git-install']) {
+    await window.evaluate(async (fix) => globalThis.window.ted.request('runFix', { fix }), fix)
+  }
+  expect(await app.evaluate(() => Reflect.get(globalThis, 'instructionPages'))).toEqual([
+    integrationInstallPages.gh,
+    integrationInstallPages.gh,
+    integrationInstallPages.git,
+  ])
+  await app.evaluate(
+    async (_, moduleUrl) => {
+      const { DaemonClient } = process.getBuiltinModule('module').createRequire(moduleUrl)(
+        './client.ts',
+      )
+      DaemonClient.prototype.runFix = async () => ({ url: 'https://example.com/install' })
+    },
+    new URL('../../protocol/src/client.ts', import.meta.url).href,
+  )
+  await expect(
+    window.evaluate(async () => globalThis.window.ted.request('runFix', { fix: 'gh-install' })),
+  ).rejects.toThrow('Unknown integration instructions page')
+  expect(await app.evaluate(() => Reflect.get(globalThis, 'instructionPages'))).toHaveLength(3)
+})

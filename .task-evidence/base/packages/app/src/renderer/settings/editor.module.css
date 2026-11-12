@@ -1,0 +1,22 @@
+.field {
+  box-sizing: border-box;
+  width: 280px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+}
+
+.field::placeholder {
+  color: var(--text-muted);
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}

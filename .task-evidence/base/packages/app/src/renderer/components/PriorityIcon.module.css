@@ -1,0 +1,23 @@
+.icon {
+  flex-shrink: 0;
+}
+
+.urgent {
+  fill: var(--priority-urgent);
+}
+
+.urgentGlyph {
+  fill: var(--priority-urgent-glyph);
+}
+
+.bar {
+  fill: var(--priority-bar);
+}
+
+.barDim {
+  fill: var(--priority-bar-dim);
+}
+
+.none {
+  fill: var(--priority-none);
+}

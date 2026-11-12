@@ -1,0 +1,583 @@
+.listPane {
+  position: relative;
+}
+
+.capLine {
+  color: var(--text-caption);
+  font-size: var(--text-13);
+}
+
+.crumbSlash {
+  margin: 0 8px;
+  color: var(--text-faint);
+  font-weight: var(--weight-regular);
+}
+
+.crumb {
+  color: var(--text-caption);
+  font-weight: var(--weight-regular);
+}
+
+.menuAnchor {
+  position: relative;
+}
+
+.badge {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: var(--text-11);
+  text-align: center;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 236px;
+  padding: 6px 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px var(--shadow-popover);
+}
+
+.upward {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  min-width: 180px;
+}
+
+.submenuAnchor {
+  position: relative;
+}
+
+.submenu {
+  position: absolute;
+  top: -6px;
+  right: calc(100% + 4px);
+  z-index: 21;
+  display: none;
+  flex-direction: column;
+  min-width: 256px;
+  padding: 6px 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px var(--shadow-popover);
+}
+
+.submenuAnchor:hover > .submenu,
+.submenuAnchor:focus-within > .submenu {
+  display: flex;
+}
+
+.submenuAnchor:hover > .menuItem,
+.submenuAnchor:focus-within > .menuItem {
+  background: var(--surface-selected);
+}
+
+.menuItem {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 31px;
+  padding: 0 12px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13-5);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menuItem:hover:not(:disabled),
+.menuItem:focus-visible {
+  outline: none;
+  background: var(--surface-selected);
+}
+
+.menuItem:disabled {
+  color: var(--text-muted);
+}
+
+.menuLabel {
+  flex: 1;
+}
+
+.menuHint {
+  color: var(--text-caption);
+  font-size: var(--text-12-5);
+}
+
+.menuChevron {
+  color: var(--text-caption);
+}
+
+.menuCount {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.menuTick {
+  color: var(--accent-text);
+}
+
+.menuHeading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 4px;
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.menuDivider {
+  margin: 6px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.check {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-control);
+  border-radius: 3px;
+  background: var(--surface-card);
+  color: var(--text-on-accent);
+  font-size: var(--glyph-10);
+}
+
+.checked {
+  border-color: var(--accent-default);
+  background: var(--accent-default);
+}
+
+.menuItem:disabled .checked {
+  opacity: 0.45;
+}
+
+.segments {
+  display: flex;
+  min-width: 0;
+  margin: 2px 12px 6px;
+  border: none;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+}
+
+.segment {
+  flex: 1;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-caption);
+  font: inherit;
+  font-size: var(--text-13);
+}
+
+.segment[aria-checked='true'] {
+  background: var(--control-segment-selected);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px var(--shadow-popover);
+}
+
+.toolbar {
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 7px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.search {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 280px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+}
+
+.search:focus-within {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+}
+
+.search input::placeholder {
+  color: var(--text-muted);
+}
+
+.hiddenSearch {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.slash {
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--text-12);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-control);
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: var(--text-13);
+}
+
+.chipClear {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+.plainChip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-size: var(--text-13);
+}
+
+.summary {
+  color: var(--text-caption);
+  font-size: var(--text-13);
+}
+
+.body {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.table {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table thead,
+.table tbody {
+  display: block;
+}
+
+.table th {
+  font-weight: var(--weight-regular);
+  text-align: left;
+}
+
+.groupRow {
+  display: block;
+}
+
+.groupRow th {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-column);
+}
+
+.row {
+  box-sizing: border-box;
+  display: grid;
+  align-items: center;
+  column-gap: 16px;
+  min-height: 38px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  cursor: default;
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--surface-hover);
+}
+
+.row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.selected,
+.selected:hover {
+  background: var(--accent-subtle);
+}
+
+.dragged {
+  opacity: 0.4;
+}
+
+.heads {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 32px;
+  background: var(--surface-pane);
+  color: var(--text-caption);
+  font-size: var(--text-12-5);
+}
+
+.heads:hover {
+  background: var(--surface-pane);
+}
+
+.cell {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  color: var(--text-primary);
+}
+
+.meta {
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+.right {
+  text-align: right;
+}
+
+.id {
+  color: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.none {
+  color: var(--text-faint);
+}
+
+.titleCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.titleText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.archived .titleText,
+.archived .id {
+  color: var(--text-muted);
+}
+
+.archivedChip {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-fg);
+  font-size: var(--text-11-5);
+  line-height: 1.6;
+}
+
+.queueCell {
+  position: relative;
+  padding: 0;
+  color: var(--accent-text);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+
+.grip {
+  position: absolute;
+  top: 50%;
+  left: -16px;
+  display: inline-flex;
+  color: var(--text-faint);
+  transform: translateY(-50%);
+  cursor: grab;
+}
+
+.groupHead {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 20px;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-column);
+  color: var(--text-caption);
+  font: inherit;
+  font-size: var(--text-13);
+  text-align: left;
+}
+
+.groupHead:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.groupLabel {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.groupCount {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dropLine {
+  position: relative;
+  display: block;
+  height: 0;
+  border-top: 2px solid var(--accent-default);
+}
+
+.dropLine td {
+  display: block;
+  padding: 0;
+}
+
+.dropHint {
+  position: absolute;
+  top: 4px;
+  right: 120px;
+  z-index: 3;
+  padding: 3px 8px;
+  border-radius: var(--radius-tooltip);
+  background: var(--surface-inverse);
+  color: var(--text-on-inverse);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+
+
+
+
+.selectionBar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px var(--shadow-popover);
+  transform: translateX(-50%);
+}
+
+.closePullRequests {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  white-space: nowrap;
+}
+
+.selectionCount {
+  margin-right: 4px;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+.selectionCheckbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent-default);
+  opacity: 0;
+}
+
+.row:hover .selectionCheckbox,
+.row:focus-within .selectionCheckbox,
+.groupRow:hover .selectionCheckbox,
+.groupRow:focus-within .selectionCheckbox,
+.selecting .selectionCheckbox {
+  opacity: 1;
+}
+
+.groupRow .groupHead {
+  padding-inline: 0;
+  border-bottom: none;
+}
+
+.selectionCell {
+  padding-inline: 0;
+}
+
+@media (hover: none) {
+  .selectionCheckbox {
+    opacity: 1;
+  }
+}

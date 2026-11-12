@@ -1,0 +1,452 @@
+.sidebar {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+  width: 100%;
+  height: 100%;
+  padding: 14px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-sidebar);
+}
+
+.top {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.search {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  font: inherit;
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+  gap: 7px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+
+.searchIcon {
+  flex-shrink: 0;
+}
+
+.searchLabel {
+  flex: 1;
+  text-align: left;
+}
+
+.row {
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-14);
+  line-height: 1.45;
+  text-align: left;
+}
+
+.row:hover {
+  background: var(--surface-hover);
+}
+
+.row[aria-current='page'] {
+  background: var(--surface-selected);
+}
+
+.search:focus-visible,
+.row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.strong {
+  font-weight: var(--weight-medium);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--status-waiting-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.subCount {
+  margin-left: auto;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.section {
+  margin: 0;
+  padding: 18px 10px 6px;
+  color: var(--text-muted);
+  font-size: var(--text-11-5);
+  font-weight: var(--weight-medium);
+  line-height: 1.45;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.factory {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.factoryRow {
+  position: relative;
+}
+
+.withMore {
+  padding-right: 34px;
+}
+
+.counted {
+  padding-right: 60px;
+}
+
+.rowEnd {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transform: translateY(-50%);
+}
+
+.more {
+  width: 24px;
+  min-height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-13);
+  opacity: 0;
+}
+
+.factoryRow:hover .more,
+.more:focus-visible,
+.moreOpen {
+  opacity: 1;
+}
+
+.more:hover,
+.moreOpen {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.dragging {
+  opacity: 0.5;
+}
+
+.dropAbove {
+  box-shadow: 0 -2px 0 var(--accent-default);
+}
+
+.dropBelow {
+  box-shadow: 0 2px 0 var(--accent-default);
+}
+
+.rename {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+
+.renameInput {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1.5px solid var(--accent-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-14);
+  outline: none;
+}
+
+.renameHint,
+.renameError,
+.orderError {
+  padding: 0 10px;
+  font-size: var(--text-11-5);
+}
+
+.renameHint {
+  color: var(--text-muted);
+}
+
+.renameError,
+.orderError {
+  margin: 0;
+  color: var(--status-failed-fg);
+}
+
+.countButton {
+  min-width: 22px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--status-waiting-fg);
+  font: inherit;
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.countButton:hover {
+  background: var(--surface-hover);
+}
+
+.countButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.factoryName {
+  padding-left: 26px;
+}
+
+.caret {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  transform: translateY(-50%);
+}
+
+.caret:hover {
+  background: var(--surface-hover);
+}
+
+.caret:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+
+.chevronClosed {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}
+
+.failedDot {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--status-failed-fg);
+}
+
+.warning {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--status-failed-fg);
+}
+
+.sub {
+  padding-left: 28px;
+  font-size: var(--text-13);
+}
+
+.addFactory {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+
+.plus {
+  font-size: var(--text-10);
+}
+
+.spacer {
+  flex: 1;
+  min-height: 16px;
+}
+
+.appSettings {
+  height: auto;
+}
+
+.shortcut {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--text-11-5);
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 0 10px;
+  font-size: var(--text-11-5);
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer p {
+  margin: 0;
+}
+
+.runs {
+  color: var(--text-tertiary);
+}
+
+.runsButton {
+  align-self: flex-start;
+  margin: 0 -4px;
+  padding: 1px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-tertiary);
+  font: inherit;
+  text-align: left;
+}
+
+.runsButton:hover,
+.runsButton[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.runsButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
+}
+
+.failed {
+  color: var(--status-failed-fg);
+  font-weight: var(--weight-medium);
+}
+
+.failedButton {
+  align-self: flex-start;
+  margin: 0 -4px;
+  padding: 1px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--status-failed-fg);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  text-align: left;
+}
+
+.failedButton:hover {
+  background: var(--surface-hover);
+}
+
+.failedButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
+}
+
+.simulators {
+  color: var(--text-muted);
+}
+
+.subDot {
+  display: inline-flex;
+  margin-left: 6px;
+}
+
+.updateChip,
+.updateBusy {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-weight: var(--weight-medium);
+  text-align: left;
+}
+
+.updateChip {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.updateChip:hover {
+  background: var(--accent-border);
+}
+
+.updateBusy {
+  background: var(--surface-neutral);
+  color: var(--text-secondary);
+}
+
+.updateChip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.subStatus {
+  display: inline-flex;
+  margin-left: auto;
+}

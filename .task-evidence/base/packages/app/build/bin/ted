@@ -1,0 +1,19 @@
+#!/bin/sh
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+resources=$(cd "$(dirname "$self")/.." && pwd -P)
+outer=$(cd "$resources/.." && pwd -P)
+if [ -x "$outer/MacOS/TED" ]; then
+  app=$outer/MacOS/TED
+else
+  app=$outer/ted-app
+fi
+export TED_APP_EXECUTABLE="$app"
+export ELECTRON_RUN_AS_NODE=1
+exec "$app" "$resources/app/packages/cli/src/main.js" "$@"

@@ -1,0 +1,119 @@
+.dialog {
+  box-sizing: border-box;
+  width: 760px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  margin: auto;
+  padding: 18px 22px;
+  border: none;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: 0 12px 32px var(--shadow-dialog);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+}
+
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dialog::backdrop {
+  background: var(--surface-scrim);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.heading {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.close {
+  display: inline-flex;
+  padding: 4px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-caption);
+}
+
+.close:hover {
+  background: var(--surface-selected);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tab {
+  padding: 3px 9px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12-5);
+}
+
+.tab[aria-selected='true'] {
+  border-color: var(--control-selected-bg);
+  background: var(--control-selected-bg);
+  color: var(--control-selected-fg);
+}
+
+.command {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.output {
+  flex: 1;
+  min-height: 160px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--surface-inset);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+
+.error {
+  margin: 0;
+  color: var(--status-failed-fg);
+}
+
+.close:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.pending {
+  display: grid;
+  place-items: center;
+}
