@@ -99,6 +99,7 @@ export const tasks = State.SQLite.table({
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
     gateOverrides: State.SQLite.text({ nullable: true }),
+    autopilotChoice: State.SQLite.text({ nullable: true }),
     changesSettings: State.SQLite.boolean({ default: false }),
     splitFrom: State.SQLite.text({ nullable: true }),
     needsPlanningAt: State.SQLite.text({ nullable: true }),
@@ -418,6 +419,7 @@ export const comments = State.SQLite.table({
     taskId: State.SQLite.text(),
     kind: State.SQLite.text(),
     body: State.SQLite.text(),
+    autopilotAnswered: State.SQLite.boolean({ default: false }),
     authorKind: State.SQLite.text({ default: 'run' }),
     authorRunId: State.SQLite.text({ nullable: true }),
     stage: State.SQLite.text({ nullable: true }),
@@ -1328,6 +1330,14 @@ export const events = {
   taskFollowsUp: Events.synced({
     name: 'v1.TaskFollowsUp',
     schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskAutopilotChanged: Events.synced({
+    name: 'v1.TaskAutopilotChanged',
+    schema: Schema.Struct({ taskId: Schema.String, choice: Schema.String, at: Schema.String }),
+  }),
+  commentAnsweredByAutopilot: Events.synced({
+    name: 'v1.CommentAnsweredByAutopilot',
+    schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
   }),
   taskGatesChanged: Events.synced({
     name: 'v1.TaskGatesChanged',
@@ -2989,6 +2999,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   }),
   'v1.TaskSnoozed': (args) => task(args, { until: args.until }),
   'v1.TaskSnoozeCleared': (args) => task(args),
+  'v1.TaskAutopilotChanged': (args) => task(args, { choice: args.choice }),
+  'v1.CommentAnsweredByAutopilot': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskGatesChanged': (args) => task(args, { overrides: args.overrides }),
   'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
@@ -3357,6 +3369,10 @@ const materializers = counted(
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
+      'v1.TaskAutopilotChanged': ({ taskId, choice, at }) =>
+        tasks.update({ autopilotChoice: choice, changedAt: at }).where({ id: taskId }),
+      'v1.CommentAnsweredByAutopilot': ({ commentId }) =>
+        comments.update({ autopilotAnswered: true }).where({ id: commentId }),
       'v1.TaskGatesChanged': ({ taskId, overrides, at }) =>
         tasks.update({ gateOverrides: overrides, changedAt: at }).where({ id: taskId }),
       'v1.TaskGatesForced': ({ taskId, stages }) =>

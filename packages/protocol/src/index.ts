@@ -72,6 +72,13 @@ export {
   parseSchedulePreviewRequest,
 } from './automation-parsers.ts'
 export {
+  type AutopilotChoice,
+  autopilotEnabled,
+  parseSetTaskAutopilotRequest,
+  type SetTaskAutopilotRequest,
+  type TaskAutopilot,
+} from './autopilot.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerActionInput,

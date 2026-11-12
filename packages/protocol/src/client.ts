@@ -31,6 +31,7 @@ import type {
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
+import type { SetTaskAutopilotRequest } from './autopilot.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type {
@@ -475,6 +476,18 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  setTaskAutopilot(ref: string, request: SetTaskAutopilotRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/autopilot`, request)
+  }
+
+  answerAutopilot(ref: string, id: string, request: AnswerRequest): Promise<Comment> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/autopilot/${encodeURIComponent(id)}`,
+      request,
+    )
   }
 
   taskGates(ref: string): Promise<TaskGates> {

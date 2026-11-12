@@ -196,17 +196,17 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </p>
       </SettingsGroup>
 
-      <SettingsGroup label="Overnight mode">
+      <SettingsGroup label="Autopilot">
         <SettingRow
-          title="Overnight mode across all Factories"
-          help="Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Sign-offs set in the Workflow or on a Task are off, so Tasks move through their Stages and merge without your sign-off. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you, and so do questions and permission prompts."
+          title="Autopilot across all Factories"
+          help="Start eligible Backlog Tasks and carry work through Merge without routine questions or sign-offs. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed Checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you."
           detail={
             overnight.problem ??
             'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.'
           }
         >
           <Switch
-            label="Overnight mode across all Factories"
+            label="Autopilot across all Factories"
             checked={settings.overnightMode}
             disabled={overnight.saving}
             onChange={(enabled) => void overnight.change(enabled)}

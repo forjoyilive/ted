@@ -886,6 +886,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           : 'Posted',
       )
     },
+    autopilotAnswer: async () => {
+      const [id = '', ...words] = args
+      const text = words.join(' ') || (await readStdin())
+      if (!text.trim()) throw new UsageError('give a decision and explanation')
+      if ((options.choice?.length ?? 0) > 1) throw new UsageError('choose at most one answer')
+      await withDaemon(home, (client) =>
+        client.answerAutopilot(taskRef(), id, {
+          action: 'answer',
+          text,
+          ...(options.choice?.[0] !== undefined && { choice: options.choice[0] }),
+        }),
+      )
+      console.log('Autopilot answered the question')
+    },
     comment: async () => {
       const ref = taskRef()
       const files = options.attach ?? []

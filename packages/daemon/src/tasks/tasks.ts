@@ -62,6 +62,7 @@ import type {
   SendBack,
   SendBackCause,
   SetClarifyDepthRequest,
+  SetTaskAutopilotRequest,
   SetTaskGatesRequest,
   SetTaskReposRequest,
   SetupProposal,
@@ -164,6 +165,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
 import {
   type BaseConflict,
   baseCheckTimeoutMs,
@@ -463,6 +465,8 @@ export interface Tasks {
   ): Promise<Comment>
   upload(ref: string, caller: Caller, save: () => Promise<Attachment>): Promise<Attachment>
   taskGates(ref: string): Promise<TaskGates>
+  setTaskAutopilot(ref: string, caller: Caller, request: SetTaskAutopilotRequest): Promise<Task>
+  answerAutopilot(ref: string, id: string, caller: Caller, request: AnswerRequest): Promise<Comment>
   setTaskGates(ref: string, caller: Caller, request: SetTaskGatesRequest): Promise<TaskGates>
   setClarifyDepth(ref: string, caller: Caller, request: SetClarifyDepthRequest): Promise<Task>
   markRead(ref: string): number
@@ -930,9 +934,9 @@ export function createTasks(options: {
       resolution.workflow,
       options?.inheritedGates ? {} : task.gateOverrides,
     )
-    const kept = store.settings().overnightMode ? options?.keepGates : undefined
+    const kept = taskAutopilot(task) ? options?.keepGates : undefined
     const night =
-      store.settings().overnightMode && !options?.inheritedGates && kept === undefined
+      taskAutopilot(task) && !options?.inheritedGates && kept === undefined
         ? withoutGates(chosen)
         : { workflow: chosen, off: [] }
     const forced = withForcedGates(
@@ -948,7 +952,7 @@ export function createTasks(options: {
     const overnightGates = night.off.filter(
       (id) =>
         workflow.settings.stages[id]?.gate !== true &&
-        !(id === 'clarify' && task.clarifyDepth === 'grilling'),
+        !(id === 'clarify' && task.clarifyDepth === 'grilling' && !taskAutopilot(task)),
     )
     if (kept !== undefined) {
       const stages = agentStageIds.filter(
@@ -1022,7 +1026,7 @@ export function createTasks(options: {
     options?: { fetch?: boolean },
   ): Promise<WorkflowResolution> {
     const plain = await taskWorkflow(task, options)
-    if (!store.settings().overnightMode) return plain
+    if (!taskAutopilot(task)) return plain
     const guard = await settingsGuard(task, plain.workflow)
     if (guard === undefined) return plain
     const kept = await taskWorkflow(task, { fetch: false, keepGates: guard })
@@ -1102,7 +1106,12 @@ export function createTasks(options: {
 
   function gateOn(task: Task, workflow: ResolvedWorkflow, stage: AgentStageId): boolean {
     if (workflow.settings.stages[stage]?.gate === true) return true
-    if (stage === 'clarify' && task.clarifyDepth === 'grilling') return true
+    if (
+      stage === 'clarify' &&
+      task.clarifyDepth === 'grilling' &&
+      (!taskAutopilot(task) || task.setup || workflow.overnightKept)
+    )
+      return true
     return (
       workflow.overnightGates?.includes(stage) === true &&
       stage === task.stage &&
@@ -1118,7 +1127,7 @@ export function createTasks(options: {
     const plain = await taskWorkflow(find(taskId), { fetch: false, inheritedGates: true })
     const task = find(taskId)
     const finished = task.archived || task.stage === 'done'
-    const overnightMode = store.settings().overnightMode
+    const overnightMode = taskAutopilot(task)
     const guard = overnightMode && !finished ? await settingsGuard(task, plain.workflow) : undefined
     const { workflow } =
       guard === undefined
@@ -1133,12 +1142,14 @@ export function createTasks(options: {
           ? 'Required by TED for this Task'
           : task.setup && ['clarify', 'design', 'review'].includes(stage)
             ? 'Required for Factory setup'
-            : stage === 'clarify' && task.clarifyDepth === 'grilling'
+            : stage === 'clarify' &&
+                task.clarifyDepth === 'grilling' &&
+                (!taskAutopilot(task) || guard !== undefined)
               ? 'Required at grilling depth'
               : stage === 'review' && guard === 'settings'
-                ? 'Required while overnight mode is on: this Task changes .ted/'
+                ? 'Required while Autopilot is on: this Task changes .ted/'
                 : stage === 'review' && guard === 'unreadable'
-                  ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
+                  ? 'Required while Autopilot is on: TED couldn’t read this Task’s changes'
                   : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
@@ -1305,7 +1316,7 @@ export function createTasks(options: {
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (task.snoozedUntil !== undefined ||
-        store.settings().overnightMode ||
+        (store.settings().overnightMode && task.autopilot?.choice !== 'off') ||
         store.getFactory(task.factoryId)?.autoStartBacklog === true) &&
       unmergedBlockers(task.id).length === 0
     )
@@ -1315,6 +1326,7 @@ export function createTasks(options: {
     const agent = task.lead?.agent ?? store.getRun(task.leadRunId ?? '')?.agent
     return (
       store.settings().overnightMode &&
+      task.autopilot?.choice !== 'off' &&
       task.preparation === 'ready' &&
       !task.archived &&
       task.runs.length === 0 &&
@@ -3359,7 +3371,7 @@ export function createTasks(options: {
     const entries = factoryRepos(resolution.workflow, factoryOf(current))
     const cwd = runFolderOf(current, entries)
     if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
-    const overnightMode = store.settings().overnightMode
+    const overnightMode = taskAutopilot(task)
     const pending = current.pendingLeadMessages
     const round =
       resumeSession === undefined && current.stage === 'validate'
@@ -3495,7 +3507,7 @@ export function createTasks(options: {
               {
                 at: c.answer?.at ?? c.createdAt,
                 line: withLines(
-                  `- ${c.answer?.at ?? c.createdAt}: the human answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
+                  `- ${c.answer?.at ?? c.createdAt}: ${c.autopilotAnswered ? 'Autopilot' : 'the human'} answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
                   c,
                 ),
               },
@@ -3820,46 +3832,139 @@ export function createTasks(options: {
     request: AnswerRequest,
     sendDrafts: boolean,
     mark?: string,
+    automatic = false,
+    expectedLead?: string,
   ): Promise<Comment> {
-    return createRequestAnswers({
-      store,
-      untilFree,
-      find,
-      holding,
-      failures: { findDecision: failures.findDecision, resolve: validation.resolve },
-      holdingSignoff,
-      humanComment,
-      answerRunPermission: (runId, generation, reply) =>
-        runs.answerPermission(runId, generation, reply),
-      resumeByHand,
-      drafts,
-      deliverAnswer,
-      gateWorkflow,
-      requireObligations: (task, target) => requireObligations(task, undefined, target),
-      bindApproval,
-      liveLead,
-      startMerging,
-      watchMerge,
-      deliver,
-      pullRequestWork,
-      move,
-      backMessage,
-      leaveWorkToDiagnose,
-      settleDependents,
-      archiveNow,
-      wake,
-      sendNudge,
-      useDefaultModel,
-      linesText,
-      gateName,
-      firstLine,
-      withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),
-      mergeSendBack: (id, findings) =>
-        mergeSendBack(id, findings, undefined, false, { counted: false }),
-      startTask: (id) => start(id),
-      planOutside,
-      ...(options.planning && { planning: options.planning }),
-    })(id, request, sendDrafts, mark)
+    return createRequestAnswers(
+      {
+        store,
+        untilFree,
+        find,
+        holding,
+        failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+        holdingSignoff,
+        humanComment,
+        answerRunPermission: (runId, generation, reply) =>
+          runs.answerPermission(runId, generation, reply),
+        resumeByHand,
+        drafts,
+        deliverAnswer,
+        gateWorkflow,
+        requireObligations: (task, target) => requireObligations(task, undefined, target),
+        bindApproval,
+        liveLead,
+        startMerging,
+        watchMerge,
+        deliver,
+        pullRequestWork,
+        move,
+        backMessage,
+        leaveWorkToDiagnose,
+        settleDependents,
+        archiveNow,
+        wake,
+        sendNudge,
+        useDefaultModel,
+        linesText,
+        gateName,
+        firstLine,
+        withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),
+        mergeSendBack: (id, findings) =>
+          mergeSendBack(id, findings, undefined, false, { counted: false }),
+        startTask: (id) => start(id),
+        planOutside,
+        ...(options.planning && { planning: options.planning }),
+      },
+      automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
+    )(id, request, sendDrafts, mark)
+  }
+
+  async function guardAutopilotAnswer(comment: Comment, expectedLead?: string): Promise<void> {
+    const task = find(comment.taskId)
+    const current = store.getComment(comment.id)
+    if (
+      expectedLead &&
+      (task.leadRunId !== expectedLead || store.getRun(expectedLead)?.state === 'finished')
+    )
+      throw new RequestError(403, 'only the current Task Lead may answer')
+    if (
+      !taskAutopilot(task) ||
+      task.archived ||
+      task.stopped ||
+      task.waitsForBlockers ||
+      task.stage === 'done' ||
+      !current ||
+      !ordinaryAutopilotRequest(current)
+    )
+      throw new RequestError(409, 'Autopilot cannot answer this request')
+    if (comment.gate) {
+      if (
+        comment.stage !== task.stage ||
+        task.setup ||
+        task.forcedGates.includes(task.stage as AgentStageId)
+      )
+        throw new RequestError(403, 'this sign-off needs the user')
+      const plain = await taskWorkflow(task, { fetch: false, inheritedGates: true })
+      if (await settingsGuard(task, plain.workflow))
+        throw new RequestError(403, 'Workflow changes need the user’s sign-off')
+    }
+    if (
+      !taskAutopilot(find(task.id)) ||
+      (expectedLead && find(task.id).leadRunId !== expectedLead) ||
+      store.getComment(comment.id)?.answer
+    )
+      throw new RequestError(409, 'Autopilot or this request changed')
+  }
+
+  const automaticProcessing = new Set<string>()
+  const automaticNotified = new Set<string>()
+  async function processAutopilot(id: string): Promise<void> {
+    if (closed || automaticProcessing.has(id)) return
+    automaticProcessing.add(id)
+    try {
+      const task = store.getTask(id)
+      if (!task || !taskAutopilot(task) || task.stopped || task.archived || task.waitsForBlockers) {
+        for (const key of automaticNotified)
+          if (key.startsWith(`${id}:`)) automaticNotified.delete(key)
+        return
+      }
+      for (const comment of openRequests(id)) {
+        if (!ordinaryAutopilotRequest(comment)) continue
+        if (comment.kind !== 'round' && !comment.gate) {
+          const key = `${id}:${comment.id}:${find(id).leadRunId ?? ''}`
+          if (!automaticNotified.has(key)) {
+            automaticNotified.add(key)
+            const message = `Autopilot is on. Resolve your waiting ordinary question ${comment.id} from the Task context with \`ted autopilot answer ${comment.id} [--choice "<choice>"] "<decision and explanation>"\`. If information cannot be obtained, leave it open and explain what is missing. Question data: ${JSON.stringify({ question: comment.body, choices: comment.choices })}`
+            const current = find(id)
+            const run = liveLead(current)
+            if (run) {
+              store.queueRunMessage({ runId: run.id, text: message, from: 'ted' })
+              await options.steering.changed(run.id)
+            } else {
+              store.holdLeadMessage(id, message)
+              if (canStartFresh(current)) store.queueTask(id, current.stage)
+            }
+          }
+          continue
+        }
+        try {
+          await answerAs(
+            comment.id,
+            comment.gate
+              ? { action: 'approve', text: 'Autopilot approved this sign-off.' }
+              : { action: 'accept-recommended' },
+            false,
+            'Autopilot used the recommended answers.',
+            true,
+          )
+        } catch (error) {
+          if (!(error instanceof RequestError) || (error.status !== 403 && error.status !== 409))
+            throw error
+        }
+      }
+    } finally {
+      automaticProcessing.delete(id)
+    }
   }
 
   function requireCommentable(task: StoredTask): void {
@@ -4039,7 +4144,7 @@ export function createTasks(options: {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
-    const mode = store.settings().overnightMode
+    const mode = taskAutopilot(find(task.id))
     const current = find(task.id)
     const lead = effectiveLead(current)
     const message = `${text}\n\n${overnightGuidance(mode)}`
@@ -5530,7 +5635,7 @@ export function createTasks(options: {
     if (last?.kind === 'overnight') {
       return fromTheBrief(task, {
         heading: 'Picking up after preparation',
-        why: 'Preparation finished. Overnight mode resumed this Task before Work. Continue from the brief and the approved design.',
+        why: 'Preparation finished. Autopilot resumed this Task before Work. Continue from the brief and the approved design.',
       })
     }
     if (last?.kind === 'resumed') {
@@ -5945,13 +6050,13 @@ export function createTasks(options: {
     pending(run) {
       if (run.state !== 'working' || run.taskId === undefined) return []
       const task = store.getTask(run.taskId)
-      const mode = store.settings().overnightMode
+      const mode = task?.autopilot?.enabled === true
       if (task?.leadRunId !== run.id || overnightSeen.get(run.id) === mode) return []
       return [
         {
           id: `overnight:${mode}`,
           text: overnightGuidance(mode),
-          at: overnightChangedAt,
+          at: task?.updatedAt ?? overnightChangedAt,
         },
       ]
     },
@@ -6229,6 +6334,24 @@ export function createTasks(options: {
   refreshSnoozes()
   const stopPumping = store.subscribe((event) => {
     if (
+      event.type === 'settings-changed' ||
+      event.type === 'task-updated' ||
+      event.type === 'comment-posted'
+    ) {
+      const ids =
+        event.type === 'settings-changed'
+          ? store.listTasks().map((t) => t.id)
+          : [event.type === 'task-updated' ? event.task.id : event.comment.taskId]
+      for (const id of ids)
+        setImmediate(() => {
+          if (!closed) inBackground('handle Autopilot requests', () => processAutopilot(id))
+        })
+      if (event.type === 'task-updated') {
+        const runId = event.task.leadRunId
+        if (runId) options.steering.syncQueuedFlag(runId)
+      }
+    }
+    if (
       event.type === 'task-created' ||
       event.type === 'task-updated' ||
       event.type === 'task-deleted' ||
@@ -6244,6 +6367,13 @@ export function createTasks(options: {
       }
     }
     if (event.type === 'run-updated') {
+      if (event.run.taskId)
+        setImmediate(() => {
+          if (!closed)
+            inBackground('handle Autopilot questions', () =>
+              processAutopilot(event.run.taskId as string),
+            )
+        })
       if (event.run.state === 'finished') overnightSeen.delete(event.run.id)
       else if (event.run.state === 'working') options.steering.syncQueuedFlag(event.run.id)
     }
@@ -6311,6 +6441,9 @@ export function createTasks(options: {
   wake()
   watch?.poke()
   for (const task of store.listTasks()) {
+    setImmediate(() => {
+      if (!closed) inBackground('recover Autopilot requests', () => processAutopilot(task.id))
+    })
     inBackground('stop a blocked Task Lead', async () => {
       const current = find(task.id)
       const repair = store.failures
@@ -7315,6 +7448,39 @@ export function createTasks(options: {
           ...(choices.length > 0 && { choices }),
         })
       })
+    },
+
+    async setTaskAutopilot(ref, caller, request) {
+      if (caller.kind !== 'app')
+        throw new RequestError(403, 'only the TED app can change Autopilot')
+      const id = find(ref).id
+      await untilFree(id)
+      const task = await holding(find(id), async () => {
+        const current = find(id)
+        if (current.archived || current.stage === 'done')
+          throw new RequestError(409, 'This Task has finished')
+        return store.setTaskAutopilot(id, request.choice)
+      })
+      await processAutopilot(id)
+      return publicTask(task.id)
+    },
+
+    async answerAutopilot(ref, id, caller, request) {
+      const { task, runId } = taskLead(ref, caller, 'answers an Autopilot question')
+      const comment = store.getComment(id)
+      if (
+        !comment ||
+        comment.taskId !== task.id ||
+        comment.kind !== 'question' ||
+        !ordinaryAutopilotRequest(comment) ||
+        request.action !== 'answer'
+      )
+        throw new RequestError(403, 'only an ordinary question on this Task may be answered')
+      await guardAutopilotAnswer(comment)
+      const text = redactSecrets(request.text?.trim() ?? '')
+      if (!text || text.length > 10000)
+        throw new RequestError(400, 'give a decision and explanation of at most 10000 characters')
+      return answerAs(id, { ...request, text }, false, undefined, true, runId)
     },
 
     async taskGates(ref) {

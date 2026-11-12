@@ -342,7 +342,7 @@ test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume
   expect(bar().queryByRole('button', { name: 'Clear selection' })).toBeNull()
   await u.click(bar().getByRole('button', { name: 'Prepare through Design' }))
   const dialog = within(screen.getByRole('dialog'))
-  expect(dialog.getByText(/Overnight mode/)).toBeTruthy()
+  expect(dialog.getByText(/Autopilot/)).toBeTruthy()
   await u.click(dialog.getByRole('button', { name: 'Prepare 3 Tasks' }))
   for (const id of ['NB-1', 'NB-2', 'MS-1'])
     expect(a.request).toHaveBeenCalledWith('startTask', id, { prepare: true })

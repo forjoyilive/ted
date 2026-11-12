@@ -56,6 +56,7 @@ export const forwardedRequests = [
   'search',
   'taskGates',
   'setTaskGates',
+  'setTaskAutopilot',
   'setClarifyDepth',
   'listStageEntries',
   'listFailures',

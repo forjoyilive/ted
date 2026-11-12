@@ -1,5 +1,6 @@
 import type {
   ArchivedFilter,
+  AutopilotChoice,
   Factory,
   ListColumn,
   ListFilters,
@@ -24,12 +25,14 @@ import {
 } from 'react'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
+import { AutopilotLabel } from '../components/Autopilot.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { Select } from '../components/Select.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
@@ -495,6 +498,8 @@ export function TaskList({
   const [text, setText] = useState('')
   const collapse = useListCollapsed(scope, view.group)
   const [selected, setSelected] = useState<string[]>([])
+  const [autopilotBusy, setAutopilotBusy] = useState(false)
+  const [autopilotResult, setAutopilotResult] = useState<string>()
   const [anchor, setAnchor] = useState<string>()
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
   const [spot, setSpot] = useState<DropSpot>()
@@ -638,6 +643,7 @@ export function TaskList({
         return (
           <span className={styles.titleCell}>
             <span className={styles.titleText}>{task.title}</span>
+            <AutopilotLabel task={task} />
             {task.archived && <span className={styles.archivedChip}>Archived</span>}
           </span>
         )
@@ -798,6 +804,30 @@ export function TaskList({
         : [],
     ),
   )
+
+  async function setAutopilot(choice: AutopilotChoice) {
+    const eligible = chosen.filter((t) => !t.archived && t.stage !== 'done')
+    setAutopilotBusy(true)
+    setAutopilotResult(undefined)
+    const failed: string[] = []
+    const errors: string[] = []
+    try {
+      for (const task of eligible) {
+        try {
+          await ted.setTaskAutopilot(task.id, { choice })
+        } catch (error) {
+          failed.push(task.id)
+          errors.push(`${task.displayId}: ${readableError(error)}`)
+        }
+      }
+      setAutopilotResult(
+        `Updated ${eligible.length - failed.length} Tasks. ${chosen.length - eligible.length} finished or archived Tasks skipped.${errors.length ? ` ${errors.join(' · ')}` : ''}`,
+      )
+      if (failed.length) setSelected(failed)
+    } finally {
+      setAutopilotBusy(false)
+    }
+  }
 
   async function bulk(action: (task: Task) => Promise<unknown>, on: readonly Task[]) {
     await Promise.all(on.map((task) => action(task).catch(report)))
@@ -1072,6 +1102,24 @@ export function TaskList({
       {chosen.length > 0 && (
         <div className={styles.selectionBar} role="toolbar" aria-label="Selected Tasks">
           <span className={styles.selectionCount}>{chosen.length} selected</span>
+          <Select
+            aria-label="Autopilot for selected Tasks"
+            value=""
+            disabled={autopilotBusy || !chosen.some((t) => !t.archived && t.stage !== 'done')}
+            onChange={(event) => {
+              if (event.target.value) void setAutopilot(event.target.value as AutopilotChoice)
+            }}
+          >
+            <option value="" disabled>
+              {autopilotBusy ? 'Updating Autopilot…' : 'Autopilot…'}
+            </option>
+            <option value="on">Autopilot on</option>
+            <option value="off">Autopilot off</option>
+            <option value="inherit">Use global setting</option>
+          </Select>
+          <small>
+            Turning on also handles waiting routine requests. Start and Resume stay separate.
+          </small>
           <Button
             size="small"
             disabled={startable.length === 0}
@@ -1084,7 +1132,7 @@ export function TaskList({
           <Button
             size="small"
             disabled={preparable.length === 0 || preparing}
-            title="Runs through Design, then waits before Work. Resume or Overnight mode lets it continue."
+            title="Runs through Design, then waits before Work. Resume or Autopilot lets it continue."
             onClick={() => {
               if (settings?.preparationNoticeSeen || noticeSeen) void prepareTasks()
               else {
@@ -1174,6 +1222,7 @@ export function TaskList({
           )}
         </div>
       )}
+      {autopilotResult && <p role="status">{autopilotResult}</p>}
       {prepareError && (
         <p role="alert" className={dialogStyles.error}>
           {prepareError}
@@ -1192,12 +1241,11 @@ export function TaskList({
               </p>
               <p className={dialogStyles.body}>
                 Answer questions and approve sign-offs as usual. Resume prepared Tasks individually
-                or in bulk, or turn on Overnight mode to let them continue.
+                or in bulk, or turn on Autopilot to let them continue.
               </p>
               {settings?.overnightMode && (
                 <p className={dialogStyles.body}>
-                  Overnight mode is on, so these Tasks can continue into Work as soon as Design
-                  finishes.
+                  Autopilot is on, so these Tasks can continue into Work as soon as Design finishes.
                 </p>
               )}
               <div className={dialogStyles.buttons}>

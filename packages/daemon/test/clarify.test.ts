@@ -339,7 +339,7 @@ describe('Clarify rounds', () => {
     expect(changes).toContain('ted ask --round')
   })
 
-  test('overnight mode leaves the grilling sign-off on', async () => {
+  test('Autopilot skips the ordinary grilling sign-off', async () => {
     const client = await start()
     const task = await startTask(
       client,
@@ -353,13 +353,12 @@ describe('Clarify rounds', () => {
     await client.ok('PATCH', '/settings', { overnightMode: true })
     await client.go('overnight')
 
-    const signoff = await openRequest(client, 'signoff')
-    expect(signoff.request).toMatchObject({ stage: 'clarify', gate: { approveLabel: 'Approve' } })
-    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    await waitUntil(
+      async () => (await getTask(client, task.id)).stage !== 'clarify',
+      'automatic Clarify to advance',
+    )
     const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
-    const row = rows.find((r) => r.stage === 'clarify')
-    expect(row).toMatchObject({ effective: true, required: true })
-    expect(row?.overnight).toBeUndefined()
+    expect(rows.find((r) => r.stage === 'clarify')?.required).toBe(false)
   })
 
   test('the Task Lead can switch from Few to grilling, and says why', async () => {

@@ -98,6 +98,16 @@ function options(...names: (keyof Options)[]): ParseArgsOptionsConfig {
 
 export const commands = [
   {
+    name: 'autopilot answer',
+    handler: 'autopilotAnswer',
+    min: 1,
+    max: null,
+    help: '  ted autopilot answer <request-id> [--choice "<choice>"] "<decision and explanation>"\n                                             Answer an ordinary question on your own Task while Autopilot is on',
+    callers: 'Task Lead',
+    scope: 'task',
+    options: options('task', 'choice'),
+  },
+  {
     name: 'failure list',
     handler: 'failureList',
     min: 0,
