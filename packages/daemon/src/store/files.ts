@@ -19,10 +19,19 @@ export interface OutputCompaction {
   reason?: string
 }
 
+export interface OutputDropMark {
+  state: 'done' | 'failed'
+  by: string
+  at: string
+  dropped?: number
+  reason?: string
+}
+
 export interface StoreMeta {
   lastOpenedBy: string
   lastOpenedAt: string
   outputCompaction?: OutputCompaction
+  outputDrop?: OutputDropMark
 }
 
 export type StoreCheck =
@@ -163,6 +172,17 @@ export async function readOutputCompaction(
   directory: string,
 ): Promise<OutputCompaction | undefined> {
   return compactionIn(await readMetaFile(directory))
+}
+
+export async function readOutputDrop(directory: string): Promise<OutputDropMark | undefined> {
+  const mark = (await readMetaFile(directory)).outputDrop as Partial<OutputDropMark> | undefined
+  return (mark?.state === 'done' || mark?.state === 'failed') && typeof mark.by === 'string'
+    ? (mark as OutputDropMark)
+    : undefined
+}
+
+export async function markOutputDrop(directory: string, outputDrop: OutputDropMark): Promise<void> {
+  await writeMetaFile(directory, { ...(await readMetaFile(directory)), outputDrop })
 }
 
 export async function markOutputCompaction(

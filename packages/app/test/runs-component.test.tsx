@@ -39,10 +39,10 @@ function working(a: ReturnType<typeof appState>) {
 test('live slot updates populate Working Runs and Open in List opens the queue', async () => {
   const a = appState()
   a.mount()
-  await screen.findByRole('button', { name: 'Nothing running' })
+  await screen.findByRole('button', { name: '0 slots in use · limit 3' })
   working(a)
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
-  await user().click(screen.getByRole('button', { name: '1 of 1 Runs working · 1 queued' }))
+  await user().click(screen.getByRole('button', { name: '1 slot in use · limit 1 · 1 queued' }))
   const dialog = screen.getByRole('dialog', { name: 'Working Runs' })
   const d = within(dialog)
   expect(d.getByText(/1 of 1 slots on this/)).toBeTruthy()
@@ -61,7 +61,7 @@ test('live slot updates populate Working Runs and Open in List opens the queue',
 test('empty Working Runs explains no work and Escape closes it', async () => {
   const a = appState()
   a.mount()
-  await user().click(await screen.findByRole('button', { name: 'Nothing running' }))
+  await user().click(await screen.findByRole('button', { name: '0 slots in use · limit 3' }))
   const dialog = screen.getByRole('dialog', { name: 'Working Runs' })
   expect(within(dialog).getByText('No Runs working. Nothing queued.')).toBeTruthy()
   fireEvent.keyDown(window, { key: 'Escape' })
@@ -72,6 +72,11 @@ test('Factory caps appear in Board and List headers only when working', async ()
   const a = appState()
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   expect(screen.queryByText('1 of 1 working')).toBeNull()
   working(a)
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
@@ -91,12 +96,12 @@ test('Limits updates the machine cap and follows live slot changes', async () =>
   a.mount()
   await a.settings()
   await user().click(screen.getByRole('button', { name: 'Limits' }))
-  await screen.findByText('Now: 1 of 1 Runs working · 1 queued')
+  await screen.findByText('Now: 1 slot in use · limit 1 · 1 queued')
   await user().click(screen.getByRole('button', { name: 'More working Runs' }))
   expect(a.request).toHaveBeenCalledWith('updateSettings', { maxWorkingRuns: 2 })
   a.state.slots = { ...a.state.slots, limit: 2, working: 2, queued: 0, queue: [] }
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
-  expect(screen.getByText('Now: 2 of 2 Runs working')).toBeTruthy()
+  expect(screen.getByText('Now: 2 slots in use · limit 2')).toBeTruthy()
 })
 
 test('Limits turns on starting fewer Runs when busy and says when starts are held', async () => {
@@ -120,6 +125,6 @@ test('Limits turns on starting fewer Runs when busy and says when starts are hel
   a.state.slots = { ...a.state.slots, heldForLoad: true, loadRatio: 1.4 }
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
   expect(
-    screen.getByText(/^Now: 1 of \d+ Runs working · 1 queued · this computer is busy$/),
+    screen.getByText(/^Now: 1 slot in use · limit \d+ · 1 queued · this computer is busy$/),
   ).toBeTruthy()
 })

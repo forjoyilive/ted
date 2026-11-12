@@ -5,6 +5,8 @@ import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
 import type {
+  DashboardRange,
+  FactoryDashboard,
   NewTaskDraft,
   PeerMessage,
   TaskDraftState,
@@ -109,6 +111,7 @@ import { type AutomationDraftStore, createAutomationDraftStore } from './automat
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
@@ -129,7 +132,6 @@ import {
   commentAttachments,
   comments,
   conversationTabs,
-  coordinators,
   deletedTasks,
   events,
   factories,
@@ -157,7 +159,6 @@ import {
   sendBackResets,
   sendBacks,
   severityDeclarations,
-  sideChats,
   stageEntries,
   stageFileTexts,
   subAgentRequests,
@@ -228,6 +229,13 @@ export interface LeadFailure {
   recovery: 'resume' | 'fresh' | 'failed'
   resumeFailed: boolean
   ask?: { title: string; body: string }
+}
+
+export interface QueueActivity {
+  queuedTasks: readonly string[]
+  queuedRuns: readonly string[]
+  startingRuns: readonly string[]
+  startingTasks: readonly string[]
 }
 
 export interface NewPermissionPrompt {
@@ -701,6 +709,7 @@ export interface TedStore extends TaskHistory {
     entry?: NewStageEntry,
     options?: { prepare?: boolean },
   ): Task
+  factoryDashboard(factoryId: string, range: DashboardRange, asOf?: number): FactoryDashboard
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
@@ -837,7 +846,12 @@ export interface TedStore extends TaskHistory {
   setOnSubAgents(runId: string, on: boolean): void
   onSubAgents(runId: string): boolean
   reconcileRunState(runId: string): void
-  recordRunOutput(runId: string, output: RunOutput): void
+  recordRunOutput(runId: string, output: RunOutput): boolean
+  holdRunOutput(
+    runId: string,
+    read: { from: number; toOffset: number; lastOutputAt?: string },
+  ): void
+  savedReadOffset(id: string): number
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
@@ -852,6 +866,7 @@ export interface TedStore extends TaskHistory {
   tasksIn(ids: ReadonlySet<string>): Task[]
   preparedTasks(): string[]
   backlogTasks(): { id: string; snoozed: boolean }[]
+  unarchivedTaskRepos(): { id: string; stage: StageId; repos: TaskRepo[] }[]
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
@@ -868,6 +883,7 @@ export interface TedStore extends TaskHistory {
   settings(): MachineSettings
   activity(): Activity
   waiting(): WaitingRequest[]
+  setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
@@ -1466,6 +1482,7 @@ export async function openStore({
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
+      testActivity: testInvocationStore.active(row.id),
       ...(checksWaiting.has(row.id) && {
         checksWaiting: { place: checksWaiting.get(row.id) ?? 1 },
       }),
@@ -2058,6 +2075,7 @@ export async function openStore({
 
   const nextRank = () => Math.max(0, ...store.query(allTasks).map((t) => t.rank ?? t.number)) + 1
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
+  const heldOutput = new Map<string, { toOffset: number; lastOutputAt?: string }>()
   const listTasks = () => store.query(allTasks).map((row) => toTask(row))
   const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
@@ -2214,6 +2232,7 @@ export async function openStore({
 
   const updatedQueue = (except?: string) => {
     for (const { id } of queue()) if (id !== except) updatedTask(id)
+    noteActivity()
   }
 
   const updatedDependents = (blockerId: string) => {
@@ -2278,26 +2297,46 @@ export async function openStore({
     }
   }
 
+  let queueActivity: QueueActivity = {
+    queuedTasks: [],
+    queuedRuns: [],
+    startingRuns: [],
+    startingTasks: [],
+  }
   let shellsRunning = 0
   const activity = (): Activity => {
     const active = store.query(liveRuns)
-    const held = store.query(queryDb(heldRuns)).length
+    const runIds = new Set(active.map((run) => run.id))
+    const taskIds = new Set(
+      active.filter((run) => run.parentRunId === null).flatMap((run) => run.taskId ?? []),
+    )
+    const startingTasks = new Set(queueActivity.startingTasks.filter((id) => !taskIds.has(id)))
+    const startingRuns = new Set(queueActivity.startingRuns.filter((id) => !runIds.has(id)))
+    const queuedTasks = new Set(
+      [
+        ...queueActivity.queuedTasks,
+        ...queue().map((entry) => entry.id),
+        ...store.query(queryDb(heldRuns)).map((held) => held.taskId),
+      ].filter((id) => !taskIds.has(id) && !startingTasks.has(id)),
+    )
+    const queuedRuns = new Set(queueActivity.queuedRuns.filter((id) => !startingRuns.has(id)))
+    const startingWork = startingTasks.size + startingRuns.size
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveAutomations = store
       .query(queryDb(automations.select()))
       .filter((a) => factoryIds.has(a.factoryId))
     return {
       runs: {
-        working: active.filter((run) => run.state === 'working').length,
-        active: active.length + held,
-        queued:
-          store.query(queryDb(sideChats)).filter((row) => JSON.parse(row.data).state === 'queued')
-            .length +
-          store.query(queryDb(coordinators)).filter((row) => {
-            const value = JSON.parse(row.data) as { phase: string }
-            return value.phase === 'queued'
-          }).length,
+        working: active.filter(
+          (run) =>
+            run.state === 'working' &&
+            pauses()[run.agent as AgentKind] === undefined &&
+            !waitingOnSubAgents.has(run.id),
+        ).length,
+        active: active.length,
+        queued: queuedTasks.size + queuedRuns.size,
       },
+      ...(startingWork > 0 && { startingWork }),
       scheduledTasks: store
         .query(allTasks)
         .filter(
@@ -2447,6 +2486,9 @@ export async function openStore({
 
   const testInvocationStore = createTestInvocationStore({
     store,
+    changed: (id) => {
+      if (taskRow(id)) updatedTask(id)
+    },
     commit,
     checks: (taskId) =>
       checkRunRows(taskId).map((row) => {
@@ -3607,6 +3649,9 @@ export async function openStore({
       }
       return task
     },
+    factoryDashboard(factoryId, range, asOf = Date.now()) {
+      return readFactoryDashboard(store, factoryId, range, asOf)
+    },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
     acceptWorkflowLayer(layer, { files, version }) {
@@ -4429,40 +4474,45 @@ export async function openStore({
       const stateChanged = target !== undefined && target !== current.state
       const nowRetrying = state === 'finished' ? false : (retrying ?? current.retrying)
       const retryChanged = nowRetrying !== current.retrying
+      const held = heldOutput.get(runId)
+      const lastOutputAt = output ? (output.lastAt ?? at) : held?.lastOutputAt
+      const changes = [
+        ...(sessionId !== undefined && sessionId !== current.sessionId
+          ? [events.runSessionIdentified({ runId, sessionId })]
+          : []),
+        ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+        ...(retryChanged ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })] : []),
+        ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
+        ...(stateChanged && target !== undefined
+          ? [events.runStateChanged({ runId, state: target, at })]
+          : []),
+        ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
+        ...asked.flatMap(({ id, event }) => [
+          event,
+          events.commentPurposeRecorded({
+            commentId: id,
+            purpose: JSON.stringify({ kind: 'permission' }),
+          }),
+        ]),
+        ...withdrawnOnce.map(({ id, answer }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
+      ]
+      if (changes.length === 0) {
+        heldOutput.set(runId, { toOffset, ...(lastOutputAt !== undefined && { lastOutputAt }) })
+        if (output) emit({ type: 'run-output', runId, lines: true })
+        return false
+      }
       waitingUnchanged = asked.length === 0 && withdrawnOnce.length === 0
       try {
         commit(
-          events.runOutputReadV3({
-            runId,
-            toOffset,
-            lastOutputAt: output ? (output.lastAt ?? at) : null,
-          }),
-          ...(sessionId !== undefined && sessionId !== current.sessionId
-            ? [events.runSessionIdentified({ runId, sessionId })]
-            : []),
-          ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
-          ...(retryChanged
-            ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })]
-            : []),
-          ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
-          ...(stateChanged && target !== undefined
-            ? [events.runStateChanged({ runId, state: target, at })]
-            : []),
-          ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
-          ...asked.flatMap(({ id, event }) => [
-            event,
-            events.commentPurposeRecorded({
-              commentId: id,
-              purpose: JSON.stringify({ kind: 'permission' }),
-            }),
-          ]),
-          ...withdrawnOnce.map(({ id, answer }) =>
-            events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
-          ),
+          events.runOutputReadV3({ runId, toOffset, lastOutputAt: lastOutputAt ?? null }),
+          ...changes,
         )
       } finally {
         waitingUnchanged = false
       }
+      heldOutput.delete(runId)
       if (output) emit({ type: 'run-output', runId, lines: true })
       for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const { id } of withdrawnOnce) emitComment(id)
@@ -4479,7 +4529,13 @@ export async function openStore({
         observedRuns.add(runId)
         noteActivity()
       }
+      return true
     },
+    holdRunOutput(runId, { from, toOffset, lastOutputAt }) {
+      if (runRow(runId)?.readOffset !== from || toOffset <= from) return
+      heldOutput.set(runId, { toOffset, ...(lastOutputAt !== undefined && { lastOutputAt }) })
+    },
+    savedReadOffset: (id) => runRow(id)?.readOffset ?? 0,
     setRunPermissions(runId, permissions) {
       const row = runRow(runId)
       if (!row || row.permissions === permissions) return
@@ -4539,7 +4595,8 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
-    lastOutputAt: (runId) => runRow(runId)?.lastOutputAt ?? undefined,
+    lastOutputAt: (runId) =>
+      heldOutput.get(runId)?.lastOutputAt ?? runRow(runId)?.lastOutputAt ?? undefined,
     getRun(id) {
       const row = runRow(id)
       return row && toRun(row)
@@ -4603,7 +4660,12 @@ export async function openStore({
         .query(allTasks)
         .filter((row) => row.stage === 'backlog' && row.archivedAt === null)
         .map((row) => ({ id: row.id, snoozed: Boolean(row.snoozedUntil) })),
-    runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
+    unarchivedTaskRepos: () =>
+      store
+        .query(allTasks)
+        .filter((row) => row.archivedAt === null)
+        .map((row) => ({ id: row.id, stage: row.stage as StageId, repos: reposOf(row.id) })),
+    runReadOffset: (id) => Math.max(runRow(id)?.readOffset ?? 0, heldOutput.get(id)?.toOffset ?? 0),
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {
       const taskId = taskIdOfRun(runId) ?? null
@@ -4688,6 +4750,10 @@ export async function openStore({
     settings,
     activity,
     waiting,
+    setQueueActivity(value) {
+      queueActivity = value
+      noteActivity()
+    },
     setShellsRunning(count) {
       shellsRunning = count
       noteActivity()
@@ -4771,6 +4837,7 @@ export async function openStore({
           .map((q) => q.id),
       ])
       for (const taskId of affected) updatedTask(taskId)
+      noteActivity()
     },
     agentPauses: pauses,
     holdTaskRun({ taskId, agent, sessionId }) {
@@ -4856,6 +4923,7 @@ export async function openStore({
         await persisted()
       } finally {
         shutDown = true
+        testInvocationStore.close()
         await store.shutdownPromise()
       }
     },

@@ -119,7 +119,7 @@ test('outside click and navigation dismiss usage; sidebar pop-ups never overlap'
   await u.click(screen.getByRole('button', { name: 'All Tasks' }))
   expect(screen.queryByRole('dialog', { name: 'Usage' })).toBeNull()
   await u.click(tracker())
-  await u.click(screen.getByRole('button', { name: 'Nothing running' }))
+  await u.click(screen.getByRole('button', { name: '0 slots in use · limit 3' }))
   expect(screen.queryByRole('dialog', { name: 'Usage' })).toBeNull()
   expect(screen.getByRole('dialog', { name: 'Working Runs' })).toBeTruthy()
   await u.click(tracker())

@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
-import type { ListFilters } from '@ted/protocol'
+import type { ListFilters, TaskMarker } from '@ted/protocol'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import {
+  type TaskFacts,
+  taskActivity,
+  taskMarkers,
+  taskStatus,
+} from '../../daemon/src/tasks/status.ts'
 import { Help } from '../src/renderer/components/Help.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
+import { TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
@@ -197,6 +204,11 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   await u.click(await screen.findByRole('button', { name: 'Show all 1 →' }))
   await screen.findByRole('heading', { name: /widgets.*List/ })
   await screen.findByText('Stage is Done')
@@ -209,8 +221,9 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
       f1: {
         sort: 'updated',
         group: 'none',
-        columns: ['id', 'title', 'stage'],
+        columns: ['id', 'title', 'stage', 'started'],
         filters: { stages: ['done'] },
+        columnsVersion: 2,
       },
     },
   })
@@ -291,3 +304,100 @@ test.each([
     }
   },
 )
+
+test('List and Board keep the user request beside purple running and neutral waiting indicators', async () => {
+  api()
+  const facts: TaskFacts = {
+    stage: 'work',
+    runs: ['working'],
+    openRequests: 1,
+    checking: { name: 'Typecheck', index: 1, total: 2 },
+    testActivity: { running: 2, waiting: 1, checksWaiting: false },
+  }
+  const status = taskStatus(facts)
+  const activity = taskActivity(facts)
+  if (!status || !activity) throw new Error('Expected active Task facts')
+  const current = task({
+    stage: 'work',
+    status,
+    markers: taskMarkers(facts, taskStatus(facts)),
+    activity,
+  })
+  const p = props()
+  const board = render(<Board {...p} tasks={[current]} />)
+  await screen.findByRole('region', { name: 'Work' })
+  const verify = () => {
+    expect(screen.getByText('Waiting on you')).toBeTruthy()
+    for (const label of ['Running Checks', 'Running tests']) {
+      const chip = screen.getByText(label)
+      expect(chip.className).toContain('testing')
+      expect(chip.querySelector('svg')?.className.baseVal).toContain('spinning')
+    }
+    expect(screen.getByText('Waiting for tests').className).toContain('neutral')
+    expect(screen.getByText('Running Checks').title).toBe('Typecheck · 1 of 2 Checks')
+    expect(screen.getByText('Running tests').title).toBe('2 supported test commands running')
+    expect(
+      screen.getByText('Waiting for tests').querySelector('svg')?.className.baseVal,
+    ).not.toContain('spinning')
+  }
+  verify()
+  expect(
+    screen.getByText('Waiting on you').compareDocumentPosition(screen.getByText('Running tests')) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  board.unmount()
+  for (const scope of ['all', 'f1']) {
+    const list = render(
+      <TaskList
+        scope={scope}
+        title="Tasks"
+        tasks={[current]}
+        factories={[factory()]}
+        settings={undefined}
+        onOpen={p.onOpen}
+        onOpenTask={p.onOpenTask}
+        onNewTask={p.onNewTask}
+      />,
+    )
+    verify()
+    list.rerender(
+      <TaskList
+        scope={scope}
+        title="Tasks"
+        tasks={[{ ...current, markers: [] }]}
+        factories={[factory()]}
+        settings={undefined}
+        onOpen={p.onOpen}
+        onOpenTask={p.onOpenTask}
+        onNewTask={p.onNewTask}
+      />,
+    )
+    expect(screen.queryByText('Running tests')).toBeNull()
+    expect(screen.queryByText('Waiting for tests')).toBeNull()
+    expect(screen.getByText('Waiting on you')).toBeTruthy()
+    list.unmount()
+  }
+  const labels = (markers: TaskMarker[]) =>
+    markers.filter((m) => m.kind === 'test-activity').map((m) => m.label)
+  expect(labels(taskMarkers({ ...facts, checksWaiting: { place: 2 } }, current.status))).toEqual([
+    'Waiting for Checks',
+    'Running tests',
+    'Waiting for tests',
+  ])
+  expect(
+    labels(
+      taskMarkers(
+        { ...facts, testActivity: { running: 0, waiting: 0, checksWaiting: true } },
+        current.status,
+      ),
+    ),
+  ).toEqual(['Waiting for Checks'])
+  expect(
+    taskActivity({ ...facts, testActivity: { running: 0, waiting: 0, checksWaiting: true } }),
+  ).toContain('shared test slot')
+  expect(
+    labels(taskMarkers({ ...facts, stopped: { at: '', runs: 1, why: 'human' } }, current.status)),
+  ).toEqual([])
+  expect(labels(taskMarkers({ ...facts, stage: 'done' }, undefined))).toEqual([])
+  expect(taskMarkers({ ...facts, archived: true }, undefined)).toEqual([])
+})

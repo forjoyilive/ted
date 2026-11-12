@@ -1,6 +1,7 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AsanaStatus,
+  Attachment,
   AutomationDetail,
   ExportFormat,
   MachineSettings,
@@ -16,6 +17,7 @@ export interface CustomRequests {
   importAsanaConfiguration: (inFile?: boolean) => Promise<AsanaStatus>
   authorizeAsana: () => Promise<AsanaStatus>
   openAsanaSetup: () => Promise<void>
+  showAttachmentInFolder: (attachment: Pick<Attachment, 'hash' | 'name'>) => Promise<void>
   getAutomation: (id: string) => Promise<AutomationDetail | null>
   exportFactory: (factoryId: string, format: ExportFormat) => Promise<SaveExportResult>
   taskBrief: (taskId: string) => Promise<TaskBrief | null>

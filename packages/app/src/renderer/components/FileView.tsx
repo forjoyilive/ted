@@ -11,7 +11,7 @@ export function FileView({
   taskId,
   file,
   onBack,
-  backLabel = '← Thread',
+  backLabel = '← Task Lead',
 }: {
   taskId: string
   file: TaskFileRef

@@ -47,6 +47,7 @@ import {
 } from 'electron'
 import { appIconPng } from './app-icon.ts'
 import { authorizeAsana, importAsanaConfiguration } from './asana.ts'
+import { showAttachmentInFolder } from './attachment-preview.ts'
 import {
   appMenu,
   appName,
@@ -111,6 +112,8 @@ const githubLink =
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests = {
+  showAttachmentInFolder: (client, attachment) =>
+    showAttachmentInFolder(client, attachment, app.getPath('userData'), shell.showItemInFolder),
   taskBrief,
   openMarkdownLink: (_client, url) => openMarkdownLink(url, shell.openExternal),
   openTaskSource: async (client, taskId) => {
@@ -250,6 +253,7 @@ const requests = {
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   getAutomation,
 } satisfies CustomHandlers<
+  | 'showAttachmentInFolder'
   | 'taskBrief'
   | 'openTaskSource'
   | 'openPullRequest'
@@ -709,14 +713,22 @@ async function restartToUpdate(): Promise<void> {
   await updates?.restart().catch((error: unknown) => console.error('restart to update:', error))
 }
 
+const quitWaitMs = 10_000
+const quitExitMs = 5_000
+
 async function quitCompletely(): Promise<void> {
   quitting = true
+  window?.hide()
   if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
   } else {
     supervisor?.close()
-    await client?.shutdown().catch((error: unknown) => console.error(error))
+    await Promise.race([
+      client?.shutdown().catch((error: unknown) => console.error(error)),
+      new Promise((resolve) => setTimeout(resolve, quitWaitMs)),
+    ])
   }
+  setTimeout(() => app.exit(0), quitExitMs)
   app.quit()
 }
 

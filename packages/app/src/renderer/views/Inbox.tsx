@@ -114,11 +114,33 @@ export function Inbox({
     ? []
     : pendingPlans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
 
-  const rows = [
-    ...planRows.map((item) => ({ request: item.request, open: () => onOpenPlan?.(item) })),
-    ...waiting.map((item) => ({ request: item.request, open: () => onOpen(item) })),
-    ...asked.map((question) => ({ request: question, open: () => onOpenQuestion?.(question) })),
-  ]
+  const taskRows = shown.map((item) => ({
+    kind: 'task' as const,
+    item,
+    request: item.request,
+    open: () => onOpen(item),
+  }))
+  const rows = showAnswered
+    ? taskRows
+    : [
+        ...planRows.map((item) => ({
+          kind: 'plan' as const,
+          item,
+          request: item.request,
+          open: () => onOpenPlan?.(item),
+        })),
+        ...taskRows,
+        ...asked.map((item) => ({
+          kind: 'automation' as const,
+          item,
+          request: item,
+          open: () => onOpenQuestion?.(item),
+        })),
+      ].sort(
+        (a, b) =>
+          b.request.createdAt.localeCompare(a.request.createdAt) ||
+          a.request.id.localeCompare(b.request.id),
+      )
   const before = useRef(rows)
   const next = showAnswered ? undefined : nextSelection(before.current, rows, selected)
   useLayoutEffect(() => {
@@ -189,76 +211,80 @@ export function Inbox({
           />
         ) : (
           <ul className={styles.rows}>
-            {planRows.map((item) => {
-              const { request, plan } = item
-              const where = [
-                plan.title,
-                ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
-              ].join(' · ')
-              return (
-                <li key={request.id}>
-                  <button
-                    type="button"
-                    className={styles.row}
-                    data-plan-request={request.id}
-                    aria-current={request.id === selected ? 'true' : undefined}
-                    onClick={() => onOpenPlan?.(item)}
-                  >
-                    <span className={styles.top}>
-                      <span className={styles.kind}>{inboxLabel(request)}</span>
-                      <span className={styles.age}>{age(request.createdAt, now)}</span>
-                    </span>
-                    <span data-headline className={`${styles.headline} ${styles.unread}`}>
-                      {request.title ?? ''}
-                    </span>
-                    <span className={styles.where}>{where}</span>
-                  </button>
-                </li>
-              )
-            })}
-            {shown.map((item) => {
-              const { request, task } = item
-              const where = [
-                task.displayId,
-                task.title,
-                stageName(request.stage ?? task.stage),
-                ...(manyFactories ? [factoryName(factories, task.factoryId)] : []),
-              ].join(' · ')
-              const unread = !showAnswered && request.readAt === undefined
-              return (
-                <li key={request.id}>
-                  <button
-                    type="button"
-                    className={styles.row}
-                    data-nav-item
-                    aria-current={request.id === selected ? 'true' : undefined}
-                    onClick={() => onOpen(item)}
-                  >
-                    <span className={styles.top}>
-                      <PriorityIcon priority={task.priority} />
-                      <span
-                        className={
-                          request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind
-                        }
-                      >
-                        {requestLabel(request)}
-                      </span>
-                      <span className={styles.age}>
-                        {age(request.answer?.at ?? request.createdAt, now)}
-                      </span>
-                    </span>
-                    <span
-                      data-headline
-                      className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
+            {rows.map((row) => {
+              if (row.kind === 'plan') {
+                const item = row.item
+                const { request, plan } = item
+                const where = [
+                  plan.title,
+                  ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
+                ].join(' · ')
+                return (
+                  <li key={request.id}>
+                    <button
+                      type="button"
+                      className={styles.row}
+                      data-nav-item
+                      data-plan-request={request.id}
+                      aria-current={request.id === selected ? 'true' : undefined}
+                      onClick={() => onOpenPlan?.(item)}
                     >
-                      {headline(request)}
-                    </span>
-                    <span className={styles.where}>{where}</span>
-                  </button>
-                </li>
-              )
-            })}
-            {asked.map((question) => {
+                      <span className={styles.top}>
+                        <span className={styles.kind}>{inboxLabel(request)}</span>
+                        <span className={styles.age}>{age(request.createdAt, now)}</span>
+                      </span>
+                      <span data-headline className={`${styles.headline} ${styles.unread}`}>
+                        {request.title ?? ''}
+                      </span>
+                      <span className={styles.where}>{where}</span>
+                    </button>
+                  </li>
+                )
+              }
+              if (row.kind === 'task') {
+                const item = row.item
+                const { request, task } = item
+                const where = [
+                  task.displayId,
+                  task.title,
+                  stageName(request.stage ?? task.stage),
+                  ...(manyFactories ? [factoryName(factories, task.factoryId)] : []),
+                ].join(' · ')
+                const unread = !showAnswered && request.readAt === undefined
+                return (
+                  <li key={request.id}>
+                    <button
+                      type="button"
+                      className={styles.row}
+                      data-nav-item
+                      aria-current={request.id === selected ? 'true' : undefined}
+                      onClick={() => onOpen(item)}
+                    >
+                      <span className={styles.top}>
+                        <PriorityIcon priority={task.priority} />
+                        <span
+                          className={
+                            request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind
+                          }
+                        >
+                          {requestLabel(request)}
+                        </span>
+                        <span className={styles.age}>
+                          {age(request.answer?.at ?? request.createdAt, now)}
+                        </span>
+                      </span>
+                      <span
+                        data-headline
+                        className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
+                      >
+                        {headline(request)}
+                      </span>
+                      <span className={styles.where}>{where}</span>
+                    </button>
+                  </li>
+                )
+              }
+              const question = row.item
               const where = [
                 question.automationName,
                 'Automation',
@@ -270,6 +296,7 @@ export function Inbox({
                     type="button"
                     className={styles.row}
                     aria-current={question.id === selected ? 'true' : undefined}
+                    data-nav-item
                     onClick={() => onOpenQuestion?.(question)}
                   >
                     <span className={styles.top}>

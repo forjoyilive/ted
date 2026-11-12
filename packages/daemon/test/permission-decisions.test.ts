@@ -58,8 +58,28 @@ describe('permission decisions', () => {
     { command: 'ls', kind: 'writeStdin' },
     { command: 'ls', networkApprovalContext: { protocol: 'https' } },
     { command: '' },
+    { command: 'ls', availableDecisions: ['cancel'] },
+    { command: 'ls', availableDecisions: 'accept' },
   ])('modern commands with unshowable access are refused: %j', (params) => {
     expect(askCodex('item/commandExecution/requestApproval', params)?.refuse).toBe(true)
+  })
+
+  test('a modern command that lists the decisions Codex takes is asked, not refused', () => {
+    const prompt = askCodex('item/commandExecution/requestApproval', {
+      kind: 'command',
+      command: "/bin/zsh -lc 'git add a.ts && git commit -m x'",
+      cwd: '/work',
+      startedAtMs: 1,
+      environmentId: 'local',
+      proposedExecpolicyAmendment: ['git', 'add', 'a.ts'],
+      availableDecisions: [
+        'accept',
+        { acceptWithExecpolicyAmendment: { execpolicy_amendment: ['git', 'add', 'a.ts'] } },
+        'cancel',
+      ],
+    })
+    expect(prompt?.refuse).not.toBe(true)
+    expect(prompt?.command).toBe("/bin/zsh -lc 'git add a.ts && git commit -m x'")
   })
 
   test('access grants carry only the access shown, and unknown access is refused', () => {

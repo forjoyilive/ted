@@ -28,7 +28,7 @@ Checked on codex-cli 0.160.0 on 2026-11-08 with a real Run: `ted task list` from
 
 ## Consequences
 
-- With Codex’s sandbox, `.git` is read-only, so `git commit` asks for approval and is declined until spec 7.8 routes requests to TED. A user’s own `approvals_reviewer = "auto_review"` in `~/.codex/config.toml` still applies.
+- With Codex’s sandbox, `.git` is read-only, so `git commit` asks for approval and is declined until spec 7.8 routes requests to TED. A user’s own `approvals_reviewer = "auto_review"` in `~/.codex/config.toml` still applies. (Since 0.1.11 it doesn’t, and TED passes the setting itself under `auto`: ADR 0121-codex-reviews-its-own-approvals-under-auto.)
 - The app-server protocol is marked experimental. A Codex update that renames these methods breaks Codex Runs, and the stub in the tests won’t catch it.
 - Every variable in the daemon’s environment that isn’t a credential reaches the shells Codex runs, as it does Claude Code’s Bash tool. An allowlist (`include_only`) would break builds that need the user’s own variables. The credential check also drops `SSH_AUTH_SOCK`, so commands Codex runs can’t use the user’s SSH agent, the same as Claude Runs.
 - Codex’s Conversation lines are raw JSON-RPC messages, including responses to the driver’s requests.

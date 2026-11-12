@@ -7,11 +7,6 @@ import { RunChat } from './RunChat.tsx'
 import { agentNames } from './RunIcon.tsx'
 import styles from './TalkThrough.module.css'
 
-function questionCount(request: Comment): string {
-  const count = request.round?.questions.length ?? 0
-  return `${count} ${count === 1 ? 'question' : 'questions'}`
-}
-
 function TalkHeader({
   run,
   request,
@@ -30,7 +25,7 @@ function TalkHeader({
     <header className={styles.header}>
       <div className={styles.crumbs}>
         <button type="button" className={styles.back} onClick={onBack}>
-          ← Thread
+          ← Task Lead
         </button>
         <span className={styles.task}>{`${task.displayId} · ${task.title}`}</span>
       </div>
@@ -66,33 +61,6 @@ function TalkHeader({
   )
 }
 
-function RoundStrip({ request, task }: { request: Comment; task: Task }) {
-  const [showing, setShowing] = useState(false)
-  return (
-    <div className={styles.stripWrap}>
-      <div className={styles.strip}>
-        <span className={styles.kind}>Clarify round</span>
-        <span className={styles.stripText}>
-          {` · Round ${request.round?.number ?? ''} · ${questionCount(request)} · open while you talk`}
-        </span>
-        <button
-          type="button"
-          className={styles.show}
-          aria-expanded={showing}
-          onClick={() => setShowing(!showing)}
-        >
-          {showing ? 'Hide' : 'Show'}
-        </button>
-      </div>
-      {showing && (
-        <div className={styles.card}>
-          <RequestCard request={request} task={task} />
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function TalkThrough({
   request,
   task,
@@ -108,7 +76,14 @@ export function TalkThrough({
       key={runId}
       runId={runId}
       header={(run) => <TalkHeader run={run} request={request} task={task} onBack={onBack} />}
-      pinned={<RoundStrip request={request} task={task} />}
+      extra={[
+        {
+          id: request.id,
+          at: request.createdAt,
+          node: <RequestCard request={request} task={task} />,
+        },
+      ]}
+      requests={[{ id: request.id, label: 'Clarify round', title: request.title ?? request.body }]}
       placeholder="Message the Task Lead…"
     />
   )

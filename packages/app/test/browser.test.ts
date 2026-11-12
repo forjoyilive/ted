@@ -200,7 +200,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   for (const control of [
     postCapture,
     panel.getByRole('status'),
-    panel.getByRole('button', { name: '← Thread' }),
+    panel.getByRole('button', { name: '← Task Lead' }),
   ]) {
     const bounds = await control.boundingBox()
     if (!bounds) throw new Error('Missing browser control')
@@ -236,7 +236,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   expect((await readFile(path.join(home, saved))).subarray(0, 4)).toEqual(
     Buffer.from([137, 80, 78, 71]),
   )
-  await panel.getByRole('button', { name: '← Thread' }).click()
+  await panel.getByRole('button', { name: '← Task Lead' }).click()
   await window.getByRole('button', { name: 'Preview Web', exact: true }).click()
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   expect((await command({ action: 'snapshot' })).text).toContain('Clicked')

@@ -112,7 +112,8 @@ const dataRoutes: Route<BaseOptions>[] = [
       if (!keepRuns && data.status().state === 'ready') {
         await (await data.services()).runs.stopAll()
       }
-      res.once('finish', () => setImmediate(onShutdown))
+      if (res.destroyed) setImmediate(onShutdown)
+      else res.once('close', () => setImmediate(onShutdown))
       return [200, {}]
     },
   }),

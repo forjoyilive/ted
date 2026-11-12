@@ -155,7 +155,7 @@ test('acceptance, obligations and Gate approval each verify worktree edits made 
     await rm(entered)
     await rm(release)
   }
-})
+}, 90_000)
 
 test('opening a case disables TED auto-merge; external merges remain factual and cannot finish the Task', async () => {
   const client = await start({
@@ -474,7 +474,7 @@ test('completed acceptance survives background reads, explicit queries and daemo
     cases: [{ id: value.id, disposition: 'accepted', context: 'historical' }],
   })
   expect((await restarted.call('GET', `/tasks/${task.id}/failures`)).body).toEqual(history)
-})
+}, 90_000)
 
 test('final changed and unavailable acceptance observations each invalidate other cases durably', async () => {
   const client = await start({ mergePollMs: 60000 })

@@ -112,6 +112,83 @@ describe('TedStore', () => {
     }
   })
 
+  test('activity counts actual unfinished Runs, not held Task launches', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Waiting for an agent' })
+      store.holdTaskRun({ taskId: task.id, agent: 'claude' })
+      expect(store.activity().runs.active).toBe(0)
+      store.startRun({
+        id: 'run-1',
+        taskId: task.id,
+        agent: 'claude',
+        prompt: 'Hello',
+        cwd: '/tmp',
+      })
+      expect(store.activity().runs.active).toBe(1)
+      store.pauseAgent('claude', 'Usage limit')
+      expect(store.activity().runs).toMatchObject({ working: 0, active: 1 })
+      store.pauseAgent('claude', undefined)
+      store.recordRunOutput('run-1', { toOffset: 1, state: 'idle' })
+      expect(store.activity().runs).toMatchObject({ working: 0, active: 1 })
+      store.recordRunOutput('run-1', { toOffset: 2, state: 'finished' })
+      expect(store.activity().runs.active).toBe(0)
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('queued work and start holds count once and disappear as real Runs start', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Queued' })
+      store.queueTask(task.id, 'intake')
+      store.holdTaskRun({ taskId: task.id, agent: 'claude' })
+      expect(store.activity().runs).toMatchObject({ active: 0, queued: 1 })
+      const seen: DaemonEvent[] = []
+      const unsubscribe = store.subscribe((event) => seen.push(event))
+      store.setQueueActivity({
+        queuedTasks: [task.id, task.id],
+        queuedRuns: ['plan', 'plan', 'sub'],
+        startingRuns: ['draft'],
+        startingTasks: [task.id],
+      })
+      expect(store.activity()).toMatchObject({ runs: { active: 0, queued: 2 }, startingWork: 2 })
+      store.startRun({ id: 'draft', agent: 'claude', prompt: 'Draft', cwd: '/tmp' })
+      store.startRun({ id: 'plan', agent: 'claude', prompt: 'Plan', cwd: '/tmp' })
+      store.startRun({ id: 'lead', taskId: task.id, agent: 'claude', prompt: 'Lead', cwd: '/tmp' })
+      store.setQueueActivity({
+        queuedTasks: [],
+        queuedRuns: ['sub'],
+        startingRuns: [],
+        startingTasks: [],
+      })
+      expect(store.activity().runs).toMatchObject({ active: 3, queued: 1 })
+      expect(store.activity().startingWork).toBeUndefined()
+      store.setQueueActivity({
+        queuedTasks: [],
+        queuedRuns: [],
+        startingRuns: [],
+        startingTasks: [],
+      })
+      expect(store.activity().runs.queued).toBe(0)
+      expect(seen.filter((event) => event.type === 'activity-changed').at(-1)).toMatchObject({
+        activity: { runs: { active: 3, queued: 0 } },
+      })
+      unsubscribe()
+      store.recordRunOutput('draft', { toOffset: 1, state: 'finished' })
+      store.setQueueActivity({
+        queuedTasks: [],
+        queuedRuns: [],
+        startingRuns: ['draft'],
+        startingTasks: [],
+      })
+      expect(store.activity().startingWork).toBe(1)
+    } finally {
+      await store.close()
+    }
+  })
+
   test('records a Run with its session ID, read offset, last output time and state', async () => {
     const first = await openStore({ directory: dir })
     const run = first.startRun({
@@ -167,7 +244,10 @@ describe('TedStore', () => {
   test('an event log that holds v2.RunOutputRead lines loads, and its lines stay out of the state database', async () => {
     const first = await openStore({ directory: dir })
     first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })
-    first.recordRunOutput('run-1', { toOffset: 40, output: {} })
+    expect(first.recordRunOutput('run-1', { toOffset: 20, output: {} })).toBe(false)
+    expect(first.runReadOffset('run-1')).toBe(20)
+    expect(first.recordRunOutput('run-1', { toOffset: 40, state: 'idle' })).toBe(true)
+    expect(first.lastOutputAt('run-1')).toBeDefined()
     await first.persisted()
     await first.close()
     const old = {
@@ -195,6 +275,11 @@ describe('TedStore', () => {
     try {
       expect(second.runReadOffset('run-1')).toBe(60)
       expect(second.lastOutputAt('run-1')).toBe('2026-01-02T03:04:06.000Z')
+      second.holdRunOutput('run-1', { from: 40, toOffset: 90 })
+      expect(second.runReadOffset('run-1')).toBe(60)
+      second.holdRunOutput('run-1', { from: 60, toOffset: 90 })
+      expect(second.runReadOffset('run-1')).toBe(90)
+      expect(second.savedReadOffset('run-1')).toBe(60)
     } finally {
       await second.close()
     }

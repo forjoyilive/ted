@@ -68,11 +68,16 @@ export interface MiddlePane {
 
 export function middlePane(
   state: MiddlePaneState,
-  task: Pick<Task, 'id' | 'tabs' | 'repos'>,
+  task: Pick<Task, 'id' | 'tabs' | 'repos'> & Partial<Pick<Task, 'runs' | 'leadRunId'>>,
   changesLoaded: boolean,
 ): MiddlePane {
   const shownRun = state.run?.taskId === task.id ? state.run.runId : undefined
-  const run = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
+  const run =
+    task.tabs.some((t) => t.runId === shownRun) ||
+    task.runs?.some((run) => run.id === shownRun) ||
+    (shownRun !== undefined && shownRun === task.leadRunId)
+      ? shownRun
+      : undefined
   const changes = state.changes?.taskId === task.id ? state.changes.view : undefined
   const app = state.app?.taskId === task.id ? state.app.app : undefined
   const brief = state.brief === task.id

@@ -110,7 +110,7 @@ describe('Inbox and Gates', () => {
       .waitFor()
   })
 
-  test('Talk it through opens the Task Lead’s chat with the round below it; Done talking closes the round with the summary', async () => {
+  test('Talk it through opens the Task Lead’s chat with the round in the conversation; Done talking closes the round with the summary', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     const roundFile = path.join(ctx.home, 'round.json')
     const summaryFile = path.join(ctx.home, 'summary.md')
@@ -157,13 +157,11 @@ describe('Inbox and Gates', () => {
     await card.getByRole('button', { name: 'Talk it through' }).click()
 
     await thread.getByRole('heading', { name: 'Talking through Round 1' }).waitFor()
-    await thread.getByText('Round 1 · 1 question · open while you talk').waitFor()
     await thread.getByText('Happy to talk it through.').first().waitFor()
-    await thread.getByRole('button', { name: 'Show', exact: true }).click()
     const shown = thread.getByRole('region', { name: 'Clarify round', exact: true })
     await shown.getByRole('button', { name: 'Submit answers' }).waitFor()
+    expect(await shown.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
     expect(await shown.getByRole('button', { name: 'Talk it through' }).count()).toBe(0)
-    await thread.getByRole('button', { name: 'Hide', exact: true }).click()
 
     const box = thread.getByRole('textbox', { name: 'Message to this Run' })
     await box.fill(
@@ -186,7 +184,7 @@ describe('Inbox and Gates', () => {
     await thread
       .getByRole('heading', { name: 'Talking through Round 1' })
       .waitFor({ state: 'detached' })
-    await thread.getByRole('tab', { name: 'Thread' }).click()
+    await thread.getByRole('tab', { name: 'Task Lead' }).click()
     const answered = thread.getByRole('region', { name: 'Clarify round, answered' })
     await answered.getByText(/^Answered in Talk it through · \d+ messages$/).waitFor()
     await thread.getByText('Summary of Talk it through, Round 1: keep both copies.').waitFor()
@@ -316,7 +314,7 @@ describe('Full Inbox', () => {
       steps: [{ run: ['ted', 'outcome', 'ask', '--choice', 'Yes', question] }, { endTurn: true }],
     })
 
-  test('rows from every Factory sort by Priority, chips filter, rows stay bold until opened, answering moves on, and Answered looks back', async () => {
+  test('rows from every Factory sort newest first, chips filter, rows stay bold until opened, answering moves on, and Answered looks back', async () => {
     await twoFactories()
     const window = await launchApp()
     const client = await daemonClient()
@@ -327,6 +325,9 @@ describe('Full Inbox', () => {
     ] as const) {
       const task = await client.createTask({ factory, priority, title: asking(question) })
       await client.startTask(task.id)
+      await expect
+        .poll(async () => (await client.listInbox()).some((i) => i.task.id === task.id))
+        .toBe(true)
     }
 
     const inbox = window.getByRole('region', { name: 'Inbox' })
@@ -336,7 +337,7 @@ describe('Full Inbox', () => {
         .evaluateAll((rows) => rows.map((row) => row.querySelector('[data-headline]')?.textContent))
     await expect
       .poll(headlines, { timeout: 30_000 })
-      .toEqual(['Urgent question?', 'Low question?', 'Site question?'])
+      .toEqual(['Site question?', 'Urgent question?', 'Low question?'])
     const weight = (text: string) =>
       inbox.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).fontWeight)
     expect(await weight('Low question?')).toBe('600')
@@ -441,11 +442,11 @@ describe('Permission requests', () => {
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details.getByRole('button', { name: /Task Lead/ }).click()
     const chat = window.getByRole('region', { name: 'Run chat' })
-    await chat.getByText(/You denied · /).waitFor()
+    await chat.getByText('You denied', { exact: true }).waitFor()
     await chat.getByRole('button', { name: 'Approve' }).click()
     await chat.getByText(/You approved · /).waitFor()
 
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     await thread.getByText('You approved · this request only').waitFor()
     await expect.poll(() => card.count()).toBe(0)
   })

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import type { FailureCase, Round } from '@ted/protocol'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import type { AutomationRequest, FailureCase, PlanInboxItem, Round } from '@ted/protocol'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
@@ -319,7 +319,11 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
       throw new Error(`Error invoking remote method 'ted:request': Error: ${refusal}`)
     return comment()
   })
-  bridge({ simulators: () => ({ supported: false }), answerRequest: answer })
+  bridge({
+    simulators: () => ({ supported: false }),
+    answerRequest: answer,
+    listFailures: () => [],
+  })
   render(
     <RequestCard
       task={task()}
@@ -352,6 +356,7 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
 })
 
 function inboxProps() {
+  bridge({})
   return {
     items: [],
     answered: [],
@@ -369,6 +374,7 @@ function inboxProps() {
 }
 
 test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', async () => {
+  requestApi()
   const props = inboxProps()
   const view = render(<Inbox {...props} />)
   await user().click(screen.getByRole('button', { name: 'New Task' }))
@@ -383,6 +389,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
 })
 
 test('resolving a selected request opens the next request and clears when none remain', () => {
+  requestApi()
   const props = inboxProps()
   const first = { task: task(), request: comment({ id: 'c1' }) }
   const second = { task: task(), request: comment({ id: 'c2', body: 'Second question?' }) }
@@ -391,6 +398,133 @@ test('resolving a selected request opens the next request and clears when none r
   expect(props.onOpen).toHaveBeenCalledWith(second)
   view.rerender(<Inbox {...props} items={[]} selected="c2" />)
   expect(props.onClear).toHaveBeenCalledOnce()
+})
+
+test('Inbox interleaves request types newest first, filters without reordering, and selects the next visible row', async () => {
+  const props = inboxProps()
+  const onOpenPlan = vi.fn()
+  const onOpenQuestion = vi.fn()
+  const old = {
+    task: task({ priority: 'urgent' }),
+    request: comment({ id: 'old', body: 'Old urgent request', createdAt: '2026-11-09T10:00:00Z' }),
+  }
+  const recent = {
+    task: task({ priority: 'low' }),
+    request: comment({ id: 'recent', body: 'Recent request', createdAt: '2026-11-09T13:00:00Z' }),
+  }
+  const plan: PlanInboxItem = {
+    plan: {
+      id: 'p1',
+      factoryId: 'f1',
+      factoryKey: 'NB',
+      title: 'Planning chat',
+      message: '',
+      agent: 'codex',
+      status: 'working',
+      createdTasks: 0,
+      createdAt,
+    },
+    request: {
+      id: 'plan',
+      planId: 'p1',
+      runId: 'r1',
+      kind: 'round',
+      author: 'run',
+      title: 'Plan request',
+      body: '',
+      createdAt: '2026-11-09T12:00:00Z',
+    },
+  }
+  const question: AutomationRequest = {
+    id: 'auto',
+    automationId: 'a1',
+    automationName: 'Automation',
+    factoryId: 'f2',
+    runId: 'r2',
+    kind: 'question',
+    body: 'Automation request',
+    createdAt: '2026-11-09T11:00:00Z',
+  }
+  const all = {
+    ...props,
+    items: [old, recent],
+    plans: [plan],
+    questions: [question],
+    factories: [factory(), factory({ id: 'f2', name: 'Other' })],
+    onOpenPlan,
+    onOpenQuestion,
+  }
+  const view = render(<Inbox {...all} selected="recent" />)
+  const headlines = () =>
+    [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
+  expect(headlines()).toEqual([
+    'Recent request',
+    'Plan request',
+    'Automation request',
+    'Old urgent request',
+  ])
+  await user().click(screen.getByText('Plan request', { exact: true }))
+  expect(onOpenPlan).toHaveBeenCalledWith(plan)
+  await user().click(screen.getByText('Automation request', { exact: true }))
+  expect(onOpenQuestion).toHaveBeenCalledWith(question)
+
+  view.rerender(<Inbox {...all} factoryId="f1" selected="recent" />)
+  expect(headlines()).toEqual(['Recent request', 'Plan request', 'Old urgent request'])
+  onOpenPlan.mockClear()
+  view.rerender(<Inbox {...all} factoryId="f1" items={[old]} selected="recent" />)
+  expect(onOpenPlan).toHaveBeenCalledWith(plan)
+
+  const newest = {
+    ...recent,
+    request: comment({ id: 'new', body: 'New request', createdAt: '2026-11-09T14:00:00Z' }),
+  }
+  props.onOpen.mockClear()
+  onOpenPlan.mockClear()
+  view.rerender(<Inbox {...all} items={[old, newest]} selected="plan" />)
+  expect(headlines()).toEqual([
+    'New request',
+    'Plan request',
+    'Automation request',
+    'Old urgent request',
+  ])
+  expect(props.onOpen).not.toHaveBeenCalled()
+  expect(onOpenPlan).not.toHaveBeenCalled()
+  expect(screen.getByText('Plan request').closest('button')?.getAttribute('aria-current')).toBe(
+    'true',
+  )
+})
+
+test('Inbox equal timestamps keep a consistent order and Answered keeps answer-time order', () => {
+  const props = inboxProps()
+  const a = { task: task(), request: comment({ id: 'a', body: 'First', createdAt }) }
+  const b = { task: task(), request: comment({ id: 'b', body: 'Second', createdAt }) }
+  const view = render(<Inbox {...props} items={[b, a]} />)
+  const headlines = () =>
+    [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
+  expect(headlines()).toEqual(['First', 'Second'])
+  view.rerender(<Inbox {...props} items={[a, b]} />)
+  expect(headlines()).toEqual(['First', 'Second'])
+  view.rerender(
+    <Inbox
+      {...props}
+      showAnswered
+      answered={[
+        {
+          ...a,
+          request: { ...a.request, answer: { kind: 'answered', at: '2026-11-09T14:00:00Z' } },
+        },
+        {
+          ...b,
+          request: {
+            ...b.request,
+            createdAt: '2026-11-09T13:00:00Z',
+            answer: { kind: 'answered', at: '2026-11-09T13:30:00Z' },
+          },
+        },
+      ]}
+    />,
+  )
+  expect(headlines()).toEqual(['First', 'Second'])
 })
 
 test('answered rounds distinguish recommended and changed responses', () => {
@@ -488,13 +622,27 @@ test('Validate failure decisions display evidence and send the selected action',
   )
   await screen.findByText('Reproduced before the changed code executes.')
   expect(screen.getByText('Visual failure')).toBeTruthy()
-  expect(screen.getByText('uncertain')).toBeTruthy()
+  expect(screen.getByText('The cause isn’t known')).toBeTruthy()
   expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
+  expect(screen.getByText(/Accepting covers only this failure/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
   expect(answer).toHaveBeenCalledWith(
     expect.anything(),
     expect.objectContaining({ action: 'answer', choice: 'Accept this failure' }),
   )
+  cleanup()
+  render(
+    <RequestCard
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task'],
+      })}
+      task={task()}
+    />,
+  )
+  expect(await screen.findByText(/This failure can’t be accepted/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Accept this failure' })).toBeNull()
 })
 
 test('historical failure request keeps its own assessment and decision', async () => {
@@ -564,7 +712,7 @@ test('historical failure request keeps its own assessment and decision', async (
   await screen.findByText('Original Finding')
   expect(screen.queryByText(/Human decision: accepted/)).toBeNull()
   expect(screen.getByText(/Human decision: retry/)).toBeTruthy()
-  expect(screen.getByText('uncertain')).toBeTruthy()
+  expect(screen.getByText('The cause isn’t known')).toBeTruthy()
 })
 
 test('a Review confirmation shows completed Checks once when progress is available', async () => {

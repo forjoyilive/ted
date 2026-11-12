@@ -90,5 +90,6 @@ export function runFiles(runDir: string) {
     queued: path.join(runDir, 'queued'),
     pid: path.join(runDir, 'host.pid'),
     env: path.join(runDir, 'env.json'),
+    readTo: path.join(runDir, 'read-offset.json'),
   }
 }

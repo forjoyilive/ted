@@ -264,7 +264,7 @@ describe('TED app', () => {
         path: path.resolve(`node_modules/.cache/ted-100/app/design-review-${textSize}.png`),
       })
     }
-    await client.updateSettings({ textSize: 100 })
+    await client.updateSettings({ textSize: 100, appearance: 'light' })
     await screenshot.click()
     const imageViewer = window.getByRole('dialog', { name: 'Step 1 · Welcome', exact: true })
     await imageViewer.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
@@ -280,6 +280,41 @@ describe('TED app', () => {
     const prototype = card.getByRole('region', { name: 'Prototype' })
     await prototype.getByText('onboarding.html · interactive · sandboxed').waitFor()
     const frame = prototype.locator('iframe[title="onboarding.html"]')
+    expect(await card.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
+    expect(
+      await card.evaluate(
+        (el) =>
+          [...el.querySelectorAll('*')].filter(
+            (child) =>
+              child.tagName !== 'TEXTAREA' &&
+              /auto|scroll/.test(getComputedStyle(child).overflowY) &&
+              child.scrollHeight > child.clientHeight,
+          ).length,
+      ),
+    ).toBe(0)
+    await ctx.app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setMinimumSize(900, 400),
+    )
+    for (const [height, expected] of [
+      [500, 360],
+      [1000, 650],
+      [1400, 720],
+    ] as const) {
+      await window.setViewportSize({ width: 1440, height })
+      await expect
+        .poll(() => frame.evaluate((el) => el.getBoundingClientRect().height))
+        .toBe(expected)
+    }
+    await window.setViewportSize({ width: 1440, height: 1000 })
+    await thread.getByRole('button', { name: /Jump to Design review/ }).click()
+    const captures = path.resolve('node_modules/.cache/ted-152-design')
+    await mkdir(captures, { recursive: true })
+    await window.screenshot({ path: path.join(captures, 'native-review.png') })
+    await card.getByRole('button', { name: 'Approve', exact: true }).scrollIntoViewIfNeeded()
+    await window.screenshot({ path: path.join(captures, 'native-review-controls.png') })
+    await window.setViewportSize({ width: 1000, height: 900 })
+    await thread.getByRole('button', { name: /Jump to Design review/ }).click()
+    await window.screenshot({ path: path.join(captures, 'native-review-narrow.png') })
     expect(await frame.getAttribute('sandbox')).toBe('allow-scripts')
     const inside = frame.contentFrame()
     await inside.getByRole('button', { name: 'Next' }).click()
@@ -421,14 +456,14 @@ describe('TED app', () => {
       .toBe(true)
     await window.keyboard.press('Escape')
 
-    const box = chat.getByRole('textbox', { name: 'Message to this Run' })
+    const box = chat.getByRole('textbox', { name: 'Message the Task Lead' })
     await box.fill('Keep pinned notes in the order they were pinned.')
     await box.press('Enter')
-    await chat.getByText(/to this Run only/).waitFor()
+    await chat.getByText(/to the Task Lead/).waitFor()
     await chat.getByText('Noted.').waitFor()
     expect(await client.listComments('NB-1')).toEqual([])
 
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
     await thread.getByRole('button', { name: 'View message' }).click()
@@ -444,8 +479,8 @@ describe('TED app', () => {
       .getByRole('region', { name: 'Run chat' })
       .getByText('Pinned notes now sort first.')
       .waitFor()
-    await window.getByRole('button', { name: 'Close Task Lead' }).click()
-    await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
+    expect(await window.getByRole('tab', { name: 'Task Lead', exact: true }).count()).toBe(1)
+    expect(await window.getByRole('tab', { name: 'Thread', exact: true }).count()).toBe(0)
   }, 90_000)
 
   test('the thread opens at its newest messages, keeps its place across tabs, and never yanks a scrolled-up reader', async () => {
@@ -486,7 +521,7 @@ describe('TED app', () => {
       .getByRole('button', { name: /Task Lead/ })
       .click()
     await window.getByRole('region', { name: 'Run chat' }).waitFor()
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     await scroller.getByText(/Detail 12\.5 of/).waitFor()
     await expect.poll(top).toBe(150)
 
@@ -499,7 +534,7 @@ describe('TED app', () => {
     await jump.waitFor({ state: 'detached' })
 
     await window.getByRole('tab', { name: /Task Lead/ }).click()
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     await scroller.getByText('The newest note').waitFor()
     await expect.poll(gap).toBeLessThan(2)
   }, 90_000)

@@ -1,5 +1,6 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  Attachment,
   AutomationRequest,
   Comment,
   DaemonEvent,
@@ -78,6 +79,8 @@ const daemon = daemonRequests(invoke)
 
 export const ted = {
   ...daemon,
+  showAttachmentInFolder: (attachment: Pick<Attachment, 'hash' | 'name'>) =>
+    request('showAttachmentInFolder', attachment),
   answerRequest: async (...args: Parameters<typeof daemon.answerRequest>) => {
     const order = ++answerOrder
     const request = await daemon.answerRequest(...args)

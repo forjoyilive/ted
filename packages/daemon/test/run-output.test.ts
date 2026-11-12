@@ -133,6 +133,7 @@ test('thousands of output lines reach the Conversation from host.log and never e
   expect(logBytes).toBeGreaterThan(lines * 200)
   const saved = await outputEvents()
   expect(saved.map((e) => e.name)).toEqual(['v3.RunOutputRead'])
+  expect(saved[0]?.count).toBeLessThan(10)
   expect(saved[0]?.bytes).toBeLessThan(logBytes / 20)
   const total = await eventlog(
     (db) =>
@@ -248,6 +249,10 @@ test('killing the daemon mid-Run neither loses a line nor repeats one', async ()
   const killed = child
   killed?.kill('SIGKILL')
   if (killed) await once(killed, 'exit')
+  const held = JSON.parse(
+    await readFile(path.join(home, 'runs', run.id, 'read-offset.json'), 'utf8'),
+  ) as { toOffset: number }
+  expect(held.toOffset).toBeGreaterThan(0)
   await sleep(500)
   client = await startProcess()
 
@@ -256,5 +261,7 @@ test('killing the daemon mid-Run neither loses a line nor repeats one', async ()
     Array.from({ length: lines }, (_, i) => `line ${i + 1}`),
   )
   expect(done.conversation).toEqual(await entriesInLog(run.id))
-  expect((await outputEvents()).map((e) => e.name)).toEqual(['v3.RunOutputRead'])
+  const saved = await outputEvents()
+  expect(saved.map((e) => e.name)).toEqual(['v3.RunOutputRead'])
+  expect(saved[0]?.count).toBeLessThan(10)
 })
