@@ -8,10 +8,10 @@ import type {
   PlanRequest,
   TaskLead,
 } from '@ted/protocol'
-import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
@@ -134,11 +134,7 @@ export function LeadSelects({
         value={lead.agent}
         onChange={(event) => set(event.target.value as AgentKind, '', lead.effort ?? '')}
       >
-        {agentKinds.map((agent) => (
-          <option key={agent} value={agent}>
-            {agentLabels[agent]}
-          </option>
-        ))}
+        <AgentOptions current={lead.agent} />
       </Select>
       <Select
         aria-label="Model"
@@ -884,7 +880,8 @@ function QueuedChat({ plan }: { plan: Plan }) {
         </div>
         <p className={styles.waitNote}>
           {plan.status === 'queued'
-            ? 'Your message is kept. The planner starts when a working slot frees up.'
+            ? (plan.paused ??
+              'Your message is kept. The planner starts when a working slot frees up.')
             : plan.status === 'paused'
               ? `The planner is paused: ${plan.paused ?? 'usage limit'}.`
               : 'The planner didn’t start.'}

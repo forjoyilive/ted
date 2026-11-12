@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export * from './agent-availability.ts'
 export type * from './api-cost.ts'
 export {
   type AppCapture,

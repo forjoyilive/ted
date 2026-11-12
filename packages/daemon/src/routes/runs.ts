@@ -115,9 +115,19 @@ const routes: Route[] = [
   jsonRoute(parseStartDevRunRequest, {
     method: 'POST',
     path: /^\/dev\/runs$/,
-    async handle({ body }, { runs, agents, disk }) {
+    async handle({ body }, { runs, agents, disk, store }) {
       if (disk.held()) throw new HttpError(507, 'The disk is full, so TED isn’t starting new Runs')
-      return [201, await runs.start({ ...body, agent: body.agent ?? agents.defaultLead() })]
+      return [
+        201,
+        await runs.start({
+          ...body,
+          agent:
+            body.agent ??
+            store.settings().enabledAgents.find((kind) => agents.installed(kind)) ??
+            store.settings().enabledAgents[0] ??
+            agents.defaultLead(),
+        }),
+      ]
     },
   }),
   {

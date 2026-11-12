@@ -29,6 +29,7 @@ export type MergeWork = MergeTarget & { url: string; worktree: string }
 export interface MergePort {
   find(id: string): StoredTask
   busy(id: string): boolean
+  held?(id: string): boolean
   untilFree(id: string): Promise<void>
   holding<T>(task: StoredTask, work: () => Promise<T>): Promise<T>
   resolve(task: StoredTask): Promise<WorkflowResolution>
@@ -123,21 +124,6 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       }
       throw error
     }
-  }
-
-  function mergeChecksPending(task: StoredTask): boolean {
-    const since = visitStart(task)
-    const rebasedAt = store.latestRebase(task.id, since)
-    if (rebasedAt === undefined) return false
-    return !store
-      .listCheckRuns()
-      .some(
-        (r) =>
-          r.taskId === task.id &&
-          r.trigger === 'merge' &&
-          r.outcome === 'passed' &&
-          r.startedAt >= rebasedAt,
-      )
   }
 
   async function adoptRebase(
@@ -409,6 +395,27 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (mode === undefined) return 'done'
     if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
     if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
+    if (mode !== 'off') {
+      if (read) recordPullRequests(task, read)
+      // Adopt our verified rebase before checking consent: the new remote head can
+      // invalidate consent for the old revision before its local worktree moves.
+      if (read && task.repos.some((repo) => rebaseAsked.has(`${taskId}:${repo.name}`))) {
+        const targets = await mergeTargets(task, resolution)
+        const remote = remoteOf(taskId, targets, read)
+        for (const target of targets) {
+          const asked = rebaseAsked.get(`${taskId}:${target.name}`)
+          const pr = remote.get(target.name)
+          if (!asked || asked.from !== target.expectedHead || !pr) continue
+          const step = nextStep(target, pr, { mergeAnyway: mergeAnyway(task) })
+          if (step.kind === 'changed' && asked.to === step.head)
+            return adoptRebase(task, target, step.head)
+        }
+      }
+      if (!(await mergeChecks(taskId, resolution))) return 'wait'
+      const current = find(taskId)
+      if (mergeMode(store, current, (await port.resolve(current)).workflow) !== mode) return 'busy'
+    }
+    if (port.held?.(taskId)) return 'wait'
     if (store.failures.list(task.id).length > 0) {
       if (read) recordPullRequests(task, read)
       try {
@@ -422,7 +429,6 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     }
     if (mode === 'off') return watchOnlyCycle(taskId, read)
     if (mode === 'merge') startMerging(store, task, resolution.workflow)
-    if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
     const targets = await mergeTargets(find(taskId), resolution)
     if (targets.length === 0) return finishMerge(taskId)
     const unsigned = targets.find((t) => t.expectedHead === '')

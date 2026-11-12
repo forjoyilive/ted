@@ -103,6 +103,7 @@ import {
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { agentStartHold } from '../agent-eligibility.ts'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
@@ -167,6 +168,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { answerMessage } from './answer-message.ts'
 import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
 import {
   type BaseConflict,
@@ -683,11 +685,16 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
+  const mergeWaits = new Map<string, AbortController>()
   const checkWaits = new Map<string, AbortController>()
   options.checkSlots.watch((places) => store.setChecksWaiting(places))
   function setChecking(taskId: string, on: boolean): void {
     if (on) checking.add(taskId)
-    else checking.delete(taskId)
+    else {
+      checking.delete(taskId)
+      mergeWaits.get(taskId)?.abort()
+      if (merging.has(taskId)) watch?.kick()
+    }
     store.setTaskChecking(taskId, on)
   }
   const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
@@ -1277,9 +1284,19 @@ export function createTasks(options: {
         if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
         if (holds.has(id) || advancing.has(id) || leadLifecycle.applying(id)) return []
         if (!includeFailures && continuationFailures.has(id)) return []
-        if (!task.pendingLeadMessages.some((message) => message.waitForSlot)) return []
+        if (
+          !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
+          !queuedAnswers(id).length
+        )
+          return []
         const run = liveLeadOf(store, task)
         if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
+        const nextAgent = task.lead?.agent ?? run.agent
+        if (
+          !includeFailures &&
+          agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
+        )
+          return []
         return [
           {
             id,
@@ -1293,25 +1310,72 @@ export function createTasks(options: {
     )
   }
 
+  function queuedAnswers(taskId: string): Comment[] {
+    return store
+      .heldAnswers(taskId)
+      .filter((comment) => comment.answerDelivery && !promptComments.has(comment.id))
+  }
+
   function beginContinuation(taskId: string): void {
     continuing.add(taskId)
     const release = hold(taskId)
     inBackground('continue an answered Task', async () => {
       try {
         await applyLead(taskId)
+        const current = find(taskId)
+        const run = liveLeadOf(store, current)
+        const answers = queuedAnswers(taskId)
+        if (run && atIdlePoint(run) && answers.length > 0) {
+          const accepted = await runs.dispatch(
+            run.id,
+            answers.map((comment) => ({
+              id: comment.id,
+              text: `${answerMessage(comment, linesText(comment))}\n\n${overnightGuidance(taskAutopilot(current), current.setup)}`,
+            })),
+            false,
+            (id) => {
+              const now = find(taskId)
+              const nextAgent = now.lead?.agent ?? run.agent
+              return (
+                !now.stopped &&
+                !now.archived &&
+                !now.waitsForBlockers &&
+                !agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined) &&
+                store.newWorkHold() === undefined &&
+                now.leadRunId === run.id &&
+                store.getRun(run.id)?.state !== 'finished' &&
+                store.agentPauses()[run.agent] === undefined &&
+                (id === undefined || queuedAnswers(taskId).some((comment) => comment.id === id))
+              )
+            },
+          )
+          if (accepted) {
+            store.answersDelivered(
+              answers.map((comment) => comment.id),
+              run.id,
+            )
+            await store.persisted()
+          }
+        }
       } catch (error) {
         continuationFailures.add(taskId)
         throw error
       } finally {
         continuing.delete(taskId)
         release()
+        const run = liveLeadOf(store, find(taskId))
+        if (run) await options.steering.refresh(run.id)
       }
     })
   }
 
   function subAgentRunnable(id: string): boolean {
     const request = store.subAgentRequests().find((r) => r.id === id)
-    return request !== undefined && store.agentPauses()[request.agent] === undefined
+    return (
+      request !== undefined &&
+      !agentStartHold(store, request.agent) &&
+      store.agentPauses()[request.agent] === undefined
+    )
   }
 
   function heldReady(): QueueEntry[] {
@@ -1319,7 +1383,13 @@ export function createTasks(options: {
     return store.heldRuns().flatMap((held) => {
       const task = store.getTask(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
-      if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
+      if (
+        !task ||
+        agentStartHold(store, agent) ||
+        paused[agent] !== undefined ||
+        holds.has(task.id)
+      )
+        return []
       if (task.waitsForBlockers || task.stopped) return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
@@ -1330,7 +1400,9 @@ export function createTasks(options: {
     return leadLifecycle
       .reviveCandidates()
       .flatMap(({ taskId, factoryId, agent }) =>
-        paused[agent] !== undefined || holds.has(taskId)
+        agentStartHold(store, agent, store.getTask(taskId)?.leadRunId) ||
+        paused[agent] !== undefined ||
+        holds.has(taskId)
           ? []
           : [{ id: taskId, kind: 'task' as const, rank: -1, factoryId }],
       )
@@ -1479,7 +1551,7 @@ export function createTasks(options: {
     const paused = store.agentPauses()
     return entries.filter((entry) => {
       const agent = store.getTask(entry.id)?.lead?.agent
-      return agent === undefined || paused[agent] === undefined
+      return agent === undefined || (!agentStartHold(store, agent) && paused[agent] === undefined)
     })
   }
 
@@ -1856,6 +1928,17 @@ export function createTasks(options: {
       store.sendBackAsks(task.id).some((ask) => !store.getComment(ask.commentId)?.answer)
     )
       return
+    if (task.stage === 'merge') {
+      const current = find(task.id)
+      const mode = mergeMode(current, (await taskWorkflow(current, { fetch: false })).workflow)
+      if (current.stopped || mode === undefined || mode === 'off' || mode === 'canceled') return
+      await mergeSendBack(
+        task.id,
+        failureCaseFindings(value),
+        value.source.kind === 'post-rebase-check' ? value.source.checkRunId : undefined,
+      )
+      return
+    }
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const sent = store.listSendBacks(task.id).find(matches)
     if (sent) {
@@ -2468,6 +2551,7 @@ export function createTasks(options: {
     port: {
       find,
       busy: (id) => advancing.has(id),
+      held: holdsMerge,
       untilFree,
       holding,
       resolve: (task) => gateWorkflow(task, { fetch: false }),
@@ -2504,7 +2588,13 @@ export function createTasks(options: {
             read = await watch.next({ now: urgent })
             if (closed || !watched(store.getTask(taskId))) return
           }
-          if (canAct()) {
+          const current = store.getTask(taskId)
+          const repair =
+            current &&
+            !current.stopped &&
+            !checking.has(taskId) &&
+            validation.pendingRepair(current)
+          if (canAct() || repair) {
             next = await mergeWatcher.cycle(taskId, read).catch((error: unknown) => {
               if (error instanceof RequestError && error.status === 409) return 'busy' as const
               console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))
@@ -2519,7 +2609,13 @@ export function createTasks(options: {
           if (next === 'busy' || read === undefined) {
             const wait =
               next === 'busy' ? Math.min(100 * 2 ** (busy - 1), mergePollMs) : mergePollMs
-            await clockWait(clock, wait, stopping.signal)
+            const wake = new AbortController()
+            mergeWaits.set(taskId, wake)
+            try {
+              await clockWait(clock, wait, AbortSignal.any([stopping.signal, wake.signal]))
+            } finally {
+              mergeWaits.delete(taskId)
+            }
           }
         }
       } finally {
@@ -2561,25 +2657,7 @@ export function createTasks(options: {
   }
 
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
-    setChecking(taskId, true)
-    try {
-      const started = await validation.begin(find(taskId), resolution, 'merge')
-      if (!started) return true
-      const result = await started.done
-      if (result.outcome === 'passed') return true
-      if (result.outcome === 'interrupted') return false
-      const checkRun = store.getCheckRun(started.checkRun.id) ?? started.checkRun
-      const current = find(taskId)
-      const findings = (await failedFindings(current, checkRun)) ?? summary(checkRun.checks)
-      await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
-        mode: 0o600,
-      })
-      setChecking(taskId, false)
-      await mergeSendBack(taskId, findings, checkRun.id)
-      return false
-    } finally {
-      setChecking(taskId, false)
-    }
+    return validation.merge(taskId, resolution)
   }
 
   async function mergeSendBack(
@@ -2788,11 +2866,15 @@ export function createTasks(options: {
   }
 
   const leadFrom = (settings?: WorkflowSettings) =>
-    resolveAgentChoices(settings, {
-      claude: agents.installed('claude'),
-      antigravity: agents.installed('antigravity'),
-      codex: agents.installed('codex'),
-    }).lead
+    resolveAgentChoices(
+      settings,
+      {
+        claude: agents.installed('claude'),
+        antigravity: agents.installed('antigravity'),
+        codex: agents.installed('codex'),
+      },
+      store.settings().enabledAgents,
+    ).lead
 
   const subAgents = createSubAgents({
     store,
@@ -2841,12 +2923,23 @@ export function createTasks(options: {
       await health.ready(agent).catch(() => false)
       return { lead: { agent, ...tuned } }
     }
-    const other: AgentKind = lead.agent === 'claude' ? 'codex' : 'claude'
+    const enabled = store.settings().enabledAgents
+    const other = enabled.find((kind) => kind !== lead.agent) ?? enabled[0] ?? lead.agent
     const canRun = async (kind: AgentKind) =>
+      enabled.includes(kind) &&
       agents.installed(kind) &&
       store.agentPauses()[kind] === undefined &&
       (await health.ready(kind))
-    const agent = (await canRun(other)) ? other : (await canRun(lead.agent)) ? lead.agent : other
+    let agent = other
+    for (const kind of [
+      ...enabled.filter((kind) => kind !== lead.agent),
+      ...enabled.filter((kind) => kind === lead.agent),
+    ]) {
+      if (await canRun(kind)) {
+        agent = kind
+        break
+      }
+    }
     return { lead: { agent, ...tuned }, ...(agent !== other && { unavailable: other }) }
   }
 
@@ -3107,7 +3200,12 @@ export function createTasks(options: {
     hold,
     mayContinue: (id) => {
       const task = store.getTask(id)
-      if (!task?.pendingLeadMessages.some((message) => message.waitForSlot)) return true
+      if (!task) return true
+      if (
+        !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
+        !queuedAnswers(id).length
+      )
+        return true
       const run = liveLeadOf(store, task)
       return (
         continuing.has(id) &&
@@ -3530,9 +3628,8 @@ export function createTasks(options: {
         if (!(await incorporateRepairs(find(taskId)))) return
         const current = find(taskId)
         if (current.archived || current.stopped || current.waitsForBlockers) return
-        const resolution = await taskWorkflow(current, { fetch: false })
         if (current.stage === 'validate') await validation.enter(taskId)
-        else if (current.stage === 'merge') await mergeChecks(taskId, resolution)
+        else if (current.stage === 'merge') watchMerge(taskId)
       } finally {
         setChecking(taskId, false)
       }
@@ -3603,6 +3700,13 @@ export function createTasks(options: {
             },
           ]
         }
+        if (
+          c.kind === 'question' &&
+          c.purpose?.kind === 'question' &&
+          c.answer?.kind === 'answered'
+        ) {
+          return [{ at: c.answer.at, line: answerMessage(c, linesText(c)) }]
+        }
         const answer = answerText(c)
         return answer === undefined
           ? []
@@ -3631,7 +3735,9 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
-    if (waitingForRun(taskId).comments.length > 0) await sendComment(run.id)
+    const waiting = waitingForRun(taskId)
+    if (waiting.comments.length > 0 || waiting.answers.some((c) => c.answerDelivery))
+      await sendComment(run.id)
   }
 
   async function sendComment(runId: string): Promise<void> {
@@ -4283,6 +4389,12 @@ export function createTasks(options: {
   }
 
   async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
+    if (store.getComment(comment.id)?.answerDelivery) {
+      await store.persisted()
+      await sendWaiting(task.id)
+      void pump()
+      return
+    }
     if (!(await deliver(task, text, true))) store.holdAnswer(comment.id)
   }
 
@@ -6121,7 +6233,12 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
     if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
-    if (merging.has(task.id) || task.pendingLeadMessages.length > 0) return
+    if (
+      merging.has(task.id) ||
+      task.pendingLeadMessages.length > 0 ||
+      queuedAnswers(task.id).length > 0
+    )
+      return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
@@ -6268,10 +6385,50 @@ export function createTasks(options: {
     finished: leadLifecycle.finished,
   })
 
-  health.onReady(leadLifecycle.ready)
+  health.onReady((agent) => {
+    leadLifecycle.ready(agent)
+    for (const run of store.liveRuns()) {
+      if (
+        run.agent === agent &&
+        run.taskId !== undefined &&
+        store.getTask(run.taskId)?.leadRunId === run.id
+      ) {
+        inBackground('refresh reply delivery after agent recovery', () =>
+          options.steering.refresh(run.id),
+        )
+      }
+    }
+  })
   health.onPaused((agent, state) => {
     if (state === 'offline') leadLifecycle.offline(agent)
   })
+  options.steering.addSource({
+    pending(run) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (
+        !task ||
+        liveLead(task)?.id !== run.id ||
+        task.stopped ||
+        task.archived ||
+        run.state !== 'working' ||
+        continuing.has(task.id) ||
+        store.agentPauses()[run.agent] !== undefined
+      )
+        return []
+      return store
+        .heldAnswers(task.id)
+        .filter((comment) => comment.answerDelivery && !promptComments.has(comment.id))
+        .map((comment) => ({
+          id: comment.id,
+          text: answerMessage(comment, linesText(comment)),
+          at: comment.answerDelivery?.queuedAt ?? comment.createdAt,
+        }))
+    },
+    delivered(run, ids) {
+      store.answersDelivered(ids, run.id)
+    },
+  })
+
   health.onProbe(leadLifecycle.probe)
 
   const failures = createFailureCases({
@@ -6363,6 +6520,7 @@ export function createTasks(options: {
     setChecking,
     isChecking: (id) => checking.has(id),
     deliver: (task, text) => deliver(task, text, true),
+    notify: (task) => sendWaiting(task.id),
     instructions: async (task, resolution, message) => {
       const round = await validateRound(task, resolution.workflow)
       return [
@@ -6372,7 +6530,8 @@ export function createTasks(options: {
     },
     apps: startSetupApps,
     fix: applyValidationFix,
-    checkFix: (resolution) => checkBack(resolution.workflow, 'validate', 'work'),
+    checkFix: (resolution, task) =>
+      checkBack(resolution.workflow, task.stage as AgentStageId, 'work'),
     holding,
     background: inBackground,
   })
@@ -7051,7 +7210,7 @@ export function createTasks(options: {
         } else if (
           !repairedMergeFailure &&
           (!value.validation ||
-            !['finding', 'factory-check'].includes(value.source.kind) ||
+            !['finding', 'factory-check', 'post-rebase-check'].includes(value.source.kind) ||
             task.stage !== 'validate')
         )
           throw new RequestError(
@@ -7248,11 +7407,15 @@ export function createTasks(options: {
       if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
       const resolution = await resolveWorkflow(factory, { fetch: false })
       const depth = resolution.workflow.settings.stages.clarify?.depth
-      const choices = resolveAgentChoices(resolution.workflow.settings, {
-        claude: agents.installed('claude'),
-        antigravity: agents.installed('antigravity'),
-        codex: agents.installed('codex'),
-      })
+      const choices = resolveAgentChoices(
+        resolution.workflow.settings,
+        {
+          claude: agents.installed('claude'),
+          antigravity: agents.installed('antigravity'),
+          codex: agents.installed('codex'),
+        },
+        store.settings().enabledAgents,
+      )
       return {
         lead: { ...choices.lead, effortMode: 'stage' },
         planner: choices.planner,
@@ -7919,7 +8082,11 @@ export function createTasks(options: {
                   409,
                   'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
                 )
-              if (value.source.kind === 'factory-check') failedCheck = value.source.checkRunId
+              if (
+                value.source.kind === 'factory-check' ||
+                value.source.kind === 'post-rebase-check'
+              )
+                failedCheck = value.source.checkRunId
             }
             checkBack(workflow, stage, outcome.to)
             if (

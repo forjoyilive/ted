@@ -17,6 +17,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { priorities } from '@ted/protocol'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
@@ -170,22 +171,25 @@ export function createCoordinators(options: {
       : store.agentPauses()[c.lead.agent] !== undefined && c.phase !== 'ready'
         ? 'paused'
         : c.phase
-  const publicChat = (c: StoredCoordinator): Coordinator => ({
-    factoryId: c.factoryId,
-    runId: c.runId,
-    runIds: c.runIds,
-    started: store.getRun(c.runId) !== undefined,
-    opening: c.opening,
-    lead: c.lead,
-    status: status(c),
-    ...(c.error !== undefined && { error: c.error }),
-    unsentMessages: c.unsentMessages ?? [],
-    receipts: c.receipts,
-    tasks: c.taskIds.flatMap((id) => {
-      const t = store.getTask(id)
-      return t?.factoryId === c.factoryId ? [t] : []
-    }),
-  })
+  const publicChat = (c: StoredCoordinator): Coordinator => {
+    const reason = agentStartHold(store, c.lead.agent, c.runId) ?? c.error
+    return {
+      factoryId: c.factoryId,
+      runId: c.runId,
+      runIds: c.runIds,
+      started: store.getRun(c.runId) !== undefined,
+      opening: c.opening,
+      lead: c.lead,
+      status: status(c),
+      ...(reason !== undefined && { error: reason }),
+      unsentMessages: c.unsentMessages ?? [],
+      receipts: c.receipts,
+      tasks: c.taskIds.flatMap((id) => {
+        const t = store.getTask(id)
+        return t?.factoryId === c.factoryId ? [t] : []
+      }),
+    }
+  }
   const fail = (id: string, error: unknown) => {
     if (closed) return
     const c = saved.get(id)
@@ -243,13 +247,24 @@ export function createCoordinators(options: {
         .map((c) => ({ id: c.factoryId, factoryId: c.factoryId, kind: 'coordinator', rank: 0 })),
     runnable: (id) => {
       const c = saved.get(id)
-      return c !== undefined && !stopping.has(id) && store.agentPauses()[c.lead.agent] === undefined
+      return (
+        c !== undefined &&
+        !agentStartHold(store, c.lead.agent, c.runId) &&
+        !stopping.has(id) &&
+        store.agentPauses()[c.lead.agent] === undefined
+      )
     },
     begin(id) {
       if (closed || launching.has(id)) return
       launching.add(id)
       const work = launch(id)
-        .catch((error) => fail(id, error))
+        .catch((error) => {
+          if (error instanceof AgentDisabledError) {
+            const current = saved.get(id)
+            if (current?.phase === 'working' && !store.getRun(current.runId))
+              save({ ...current, phase: 'queued' })
+          } else fail(id, error)
+        })
         .finally(() => {
           launching.delete(id)
           launches.delete(id)

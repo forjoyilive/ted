@@ -26,9 +26,11 @@ export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' 
 
 export const failureNoticeTitle = 'Failure acceptance invalidated'
 export const failureRefusedTitle = 'Failure acceptance refused'
+export const mergeFailureNoticeTitle = 'Merge Check failed'
 export const failureNoticeTitles: readonly (string | undefined)[] = [
   failureNoticeTitle,
   failureRefusedTitle,
+  mergeFailureNoticeTitle,
 ]
 
 const testedInputs = (context: FailureContext) =>
@@ -465,7 +467,8 @@ export function createFailureCases(options: {
       ...(originalCheck && { originalCheck }),
       ...(context && { contextId: context.id }),
       createdAt: new Date().toISOString(),
-      ...(task.stage === 'validate' && { validation: true }),
+      ...((task.stage === 'validate' ||
+        (task.stage === 'merge' && source.kind === 'post-rebase-check')) && { validation: true }),
       assessments: [],
       additions: [],
       decisions: [],
@@ -477,8 +480,8 @@ export function createFailureCases(options: {
       store.postComment({
         taskId: task.id,
         author: { kind: 'ted' },
-        title: 'Validate failure recorded',
-        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in Validate for investigation. No send-back was recorded.`,
+        title: task.stage === 'merge' ? mergeFailureNoticeTitle : 'Validate failure recorded',
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in ${task.stage === 'merge' ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.${task.stage === 'merge' ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
       })
     await store.persisted()
     await options.onHold(task)
@@ -542,7 +545,7 @@ export function createFailureCases(options: {
     },
     record,
     recordCheck(task: Task, runId: string, request: RecordFailureRequest) {
-      if (request.source.kind !== 'factory-check')
+      if (request.source.kind !== 'factory-check' && request.source.kind !== 'post-rebase-check')
         throw new RequestError(400, 'automatic evidence requires a stored Factory Check')
       return record(task, runId, request, true)
     },
