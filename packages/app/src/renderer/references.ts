@@ -17,7 +17,7 @@ const pattern = new RegExp(
     String.raw`(?<url>[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+)`,
     String.raw`(?<task>${start}[A-Z][A-Z0-9]{1,9}-\d{1,6}${end})`,
     `(?<commit>${start}[0-9a-f]{7,40}${end})`,
-    String.raw`(?<path>${start}(?:\.{1,2}\/)?[\w@+-][\w@.+-]*(?:\/[\w@.+-]+)*(?::(?<line>\d{1,7})(?!\w))?)`,
+    String.raw`(?<path>${start}(?:\.{1,2}\/)?\.?[\w@+-][\w@.+-]*(?:\/[\w@.+-]+)*(?::(?<line>\d{1,7})(?!\w))?)`,
   ].join('|'),
   'g',
 )

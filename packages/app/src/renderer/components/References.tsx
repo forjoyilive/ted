@@ -49,13 +49,15 @@ function useCommits(taskId: string): (id: string) => TaskCommit | undefined {
         for (let at = 0; at < ids.length; at += lookupBatch) {
           const part = ids.slice(at, at + lookupBatch)
           void ted.taskCommits(taskId, part).then(
-            (result) =>
+            (result) => {
+              if (asked.current !== batch) return
               setKnown((before) => {
                 const next = new Map(before.scope === scope ? before.commits : [])
                 for (const one of part) next.set(one, null)
                 for (const commit of result) next.set(commit.id, commit)
                 return { scope, commits: next }
-              }),
+              })
+            },
             () => {
               for (const one of part) batch.ids.delete(one)
             },

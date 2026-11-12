@@ -28,6 +28,12 @@ test('leaves short references, plain words, numbers, times and web links alone',
     ),
   ).toEqual([])
   expect(found('abcdef1/notes.md')).toEqual([{ kind: 'file', path: 'abcdef1/notes.md' }])
+  expect(found('See .github/workflows/ci.yml:1, .ted/workflow.yaml and .gitignore.')).toEqual([
+    { kind: 'file', path: '.github/workflows/ci.yml', line: 1 },
+    { kind: 'file', path: '.ted/workflow.yaml' },
+    { kind: 'file', path: '.gitignore' },
+  ])
+  expect(found('../.ted/workflow.yaml')).toEqual([{ kind: 'file', path: '../.ted/workflow.yaml' }])
   expect(found(`A full hash: ${'a1'.repeat(20)}`)).toEqual([
     { kind: 'commit', id: 'a1'.repeat(20) },
   ])
@@ -53,6 +59,7 @@ test('a path matches a worktree file exactly, by repo, or by an unambiguous endi
   expect(file('index.ts')).toBeUndefined()
   expect(file('node_modules/.cache/out.txt')).toBeUndefined()
   expect(file('../src/a.ts')).toBeUndefined()
+  expect(file('../README.md')).toBeUndefined()
   expect(fileIndex(undefined)('README.md')).toBeUndefined()
 
   const two = fileIndex({

@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import type { PullRequestChanges, TaskChanges, TaskFiles, TaskRepo } from '@ted/protocol'
+import type {
+  PullRequestChanges,
+  TaskChanges,
+  TaskCommit,
+  TaskFiles,
+  TaskRepo,
+} from '@ted/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { usePullRequestChanges } from '../src/renderer/changes.ts'
@@ -8,6 +14,7 @@ import { DesignReviewContent } from '../src/renderer/components/DesignReview.tsx
 import { FilesSection } from '../src/renderer/components/FilesSection.tsx'
 import { FileView } from '../src/renderer/components/FileView.tsx'
 import { QuickOpen } from '../src/renderer/components/QuickOpen.tsx'
+import { ReferenceText, TaskReferences } from '../src/renderer/components/References.tsx'
 import { Viewer } from '../src/renderer/components/Viewer.tsx'
 import { ConnectionContext } from '../src/renderer/data.ts'
 import { useTaskFiles } from '../src/renderer/files.ts'
@@ -697,6 +704,7 @@ test('a commit, a Task ID and a worktree path in a Task’s messages are links, 
     taskId: 'NB-1',
     repos: [{ repo: 'web', paths: ['src/hello.ts', 'README.md'], partial: false }],
   }))
+  a.handle('markCommentsRead', () => ({ read: 2 }))
   a.handle('taskFile', () => ({ kind: 'text', text: 'first\nsecond\nthird' }))
   a.handle('taskCommits', (_task, ids) =>
     (ids as string[]).includes('195e5ce2') ? [{ id: '195e5ce2', repo: 'web', commit: head }] : [],
@@ -754,4 +762,32 @@ test('a commit, a Task ID and a worktree path in a Task’s messages are links, 
 
   await user().click(within(thread()).getByRole('button', { name: 'NB-2' }))
   expect(await screen.findByRole('heading', { name: 'Other Task' })).toBeTruthy()
+})
+
+test('a commit lookup answered after a reconnect does not undo the links found since', async () => {
+  const old = deferred<TaskCommit[]>()
+  const commit = { id: '195e5ce2', repo: 'web', commit: `195e5ce2${'0'.repeat(32)}` }
+  let calls = 0
+  bridge({ taskCommits: () => (calls++ === 0 ? old.promise : [commit]) })
+  const wrap = (epoch: number) => (
+    <ConnectionContext value={{ connection: { state: 'connected' }, epoch }}>
+      <TaskReferences
+        taskId="NB-1"
+        files={undefined}
+        onWantFiles={vi.fn()}
+        hasTask={() => false}
+        onOpenTask={vi.fn()}
+        onOpenFile={vi.fn()}
+        onOpenCommit={vi.fn()}
+      >
+        <ReferenceText text="Fixed in 195e5ce2." />
+      </TaskReferences>
+    </ConnectionContext>
+  )
+  const view = render(wrap(0))
+  await waitFor(() => expect(calls).toBe(1))
+  view.rerender(wrap(1))
+  await screen.findByRole('button', { name: '195e5ce2' })
+  await act(async () => old.resolve([]))
+  expect(screen.getByRole('button', { name: '195e5ce2' })).toBeTruthy()
 })
