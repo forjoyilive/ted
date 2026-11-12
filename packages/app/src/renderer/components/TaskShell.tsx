@@ -162,7 +162,7 @@ export function TaskShell({
   return (
     <section className={styles.pane} aria-label="Shell">
       <button type="button" className={styles.back} onClick={onBack}>
-        ← Thread
+        ← Task Lead
       </button>
       <header className={styles.header}>
         <span className={styles.repo}>{repo}</span>

@@ -143,7 +143,7 @@ export function DiffView({
   focus,
   footer,
   onBack,
-  backLabel = '← Thread',
+  backLabel = '← Task Lead',
   onOpen,
   remote,
 }: {

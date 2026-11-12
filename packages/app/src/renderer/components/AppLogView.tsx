@@ -23,7 +23,7 @@ export function AppLogView({
   return (
     <section className={styles.logPane} aria-label={`${shown.name} log`}>
       <button type="button" className={styles.back} onClick={onBack}>
-        ← Thread
+        ← Task Lead
       </button>
       {app ? (
         <LogHeader task={task} app={app} />

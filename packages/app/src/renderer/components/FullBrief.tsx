@@ -25,7 +25,7 @@ export function FullBrief({
     <section className={styles.pane} aria-label="Full brief">
       <header className={styles.header}>
         <button type="button" className={styles.back} onClick={onBack}>
-          ← Thread
+          ← Task Lead
         </button>
         <div className={styles.titleRow}>
           <h2 className={styles.title}>Task brief</h2>
