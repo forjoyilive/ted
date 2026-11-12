@@ -431,9 +431,9 @@ describe('TED app', () => {
     expect(await chat.getByRole('button', { name: 'Restart' }).count()).toBe(0)
     const taskHeader = window.getByRole('region', { name: 'Task thread' }).locator('header')
     await taskHeader.getByRole('button', { name: 'Task actions' }).click()
-    expect(
-      await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled(),
-    ).toBe(true)
+    expect(await window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled()).toBe(
+      true,
+    )
     const runId = (await client.listTasks())[0]?.leadRunId
     if (runId === undefined) throw new Error('Task has no Lead Run')
     const { run } = await client.getRun(runId)
@@ -441,7 +441,7 @@ describe('TED app', () => {
       path.join(ctx.home, 'stub-claude.json'),
       JSON.stringify({ resumeSteps: [{ say: 'Noted.' }, { endTurn: true }] }),
     )
-    await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).click()
+    await window.getByRole('menuitem', { name: 'Restart', exact: true }).click()
     await expect
       .poll(
         async () =>
@@ -452,7 +452,7 @@ describe('TED app', () => {
     expect((await client.listTasks())[0]?.leadRunId).toBe(runId)
     await taskHeader.getByRole('button', { name: 'Task actions' }).click()
     await expect
-      .poll(() => taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())
+      .poll(() => window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())
       .toBe(true)
     await window.keyboard.press('Escape')
 

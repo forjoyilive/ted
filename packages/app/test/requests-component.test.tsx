@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { AutomationRequest, FailureCase, PlanInboxItem, Round } from '@ted/protocol'
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
@@ -1287,6 +1287,81 @@ test('previous Review retains its recorded Check plan and acceptance after later
   await user().click(within(history).getByTitle('Open Old remaining Check’s output'))
   await screen.findByRole('dialog', { name: 'Old remaining Check output' })
   expect(api.request).toHaveBeenCalledWith('checkOutput', 'old-tail', 0)
+})
+
+test('Inbox right-click opens the clicked request and copies its full message without answering', async () => {
+  requestApi()
+  const props = inboxProps()
+  const request = comment({ body: 'First line\nSecond line' })
+  const item = { task: task(), request }
+  const question = {
+    id: 'aq',
+    kind: 'question' as const,
+    automationId: 'a',
+    runId: 'r',
+    factoryId: 'f1',
+    automationName: 'Weekly triage',
+    body: 'Automation question\nFull details',
+    choices: [],
+    createdAt,
+  }
+  const onOpenQuestion = vi.fn()
+  const onOpenPlan = vi.fn()
+  const plan = {
+    plan: {
+      id: 'p1',
+      factoryId: 'f1',
+      factoryKey: 'NB',
+      title: 'Planning menus',
+      message: 'Plan menus',
+      agent: 'claude' as const,
+      status: 'waiting' as const,
+      createdAt,
+      createdTasks: 0,
+    },
+    request: {
+      id: 'pr1',
+      planId: 'p1',
+      runId: 'p1',
+      kind: 'round' as const,
+      author: 'run' as const,
+      title: 'Planning question',
+      body: 'Planning details\nSecond line',
+      createdAt,
+    },
+  }
+  render(
+    <Inbox
+      {...props}
+      items={[item]}
+      questions={[question]}
+      plans={[plan]}
+      onOpenQuestion={onOpenQuestion}
+      onOpenPlan={onOpenPlan}
+    />,
+  )
+  const u = user()
+  const copy = vi.spyOn(navigator.clipboard, 'writeText')
+  fireEvent.contextMenu(screen.getByText('First line'))
+  await u.click(screen.getByRole('menuitem', { name: 'Copy message text' }))
+  expect(copy).toHaveBeenCalledWith('First line\nSecond line')
+  expect(props.onOpen).not.toHaveBeenCalled()
+  fireEvent.contextMenu(screen.getByText('First line'))
+  await u.click(screen.getByRole('menuitem', { name: 'Open request' }))
+  expect(props.onOpen).toHaveBeenCalledWith(item)
+  fireEvent.contextMenu(screen.getByText('Automation question'))
+  expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual([
+    'Open request',
+    'Copy message text',
+  ])
+  await u.click(screen.getByRole('menuitem', { name: 'Open request' }))
+  expect(onOpenQuestion).toHaveBeenCalledWith(question)
+  fireEvent.contextMenu(screen.getByText('Planning question'))
+  await u.click(screen.getByRole('menuitem', { name: 'Copy message text' }))
+  expect(copy).toHaveBeenCalledWith('Planning details\nSecond line')
+  fireEvent.contextMenu(screen.getByText('Planning question'))
+  await u.click(screen.getByRole('menuitem', { name: 'Open request' }))
+  expect(onOpenPlan).toHaveBeenCalledWith(plan)
 })
 
 test('request bodies and expanded answered history share nested Markdown formatting', async () => {

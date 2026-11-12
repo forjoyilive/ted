@@ -2,6 +2,7 @@ import type { ChangesSource, SignOffChanges, TaskChanges } from '@ted/protocol'
 import { type ChangedFile, splitPath } from '../changes.ts'
 import { Button } from './Button.tsx'
 import styles from './ChangesSection.module.css'
+import { contextMenu, useActionMenu } from './ContextMenu.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
 import { Loading } from './Loading.tsx'
 
@@ -123,10 +124,14 @@ export function ChangeList({
   onOpen: (file: ChangedFile) => void
   drafts?: DraftCount | undefined
 }) {
+  const actions = useActionMenu(
+    JSON.stringify(changes.repos.map((repo) => [repo.name, repo.files.map((file) => file.path)])),
+  )
   const named = changes.repos.length > 1
   const dots = changes.repos.some((r) => r.files.some((f) => f.uncommitted))
   return (
     <div className={styles.repos}>
+      {actions.menu}
       {changes.repos.map((repo) => (
         <div key={repo.name} className={styles.repo}>
           {(named || repo.unavailable !== undefined || repo.files.length > 0) && (
@@ -148,6 +153,15 @@ export function ChangeList({
                   <button
                     type="button"
                     data-nav-item
+                    {...contextMenu((at) =>
+                      actions.open(at, `${repo.name} / ${file.path}`, [
+                        { label: 'View changes', action: () => onOpen(entry) },
+                        {
+                          label: 'Copy path',
+                          action: () => navigator.clipboard.writeText(file.path),
+                        },
+                      ]),
+                    )}
                     className={`${styles.file} ${current ? styles.current : ''}`}
                     aria-current={current || undefined}
                     title={file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}

@@ -307,7 +307,7 @@ test('S starts the open Task and its menu moves a queued Task back to Backlog', 
     }),
   )
   await user().click(screen.getByRole('button', { name: 'Task actions' }))
-  const menu = screen.getByRole('menu', { name: 'Task actions' })
+  const menu = screen.getByRole('menu', { name: /Task actions/ })
   expect(within(menu).getAllByRole('menuitem')[0]?.textContent).toContain('Move to Backlog')
   await user().click(within(menu).getByRole('menuitem', { name: /^Move to Backlog/ }))
   expect(a.request).toHaveBeenCalledWith('moveToBacklog', 'NB-1')

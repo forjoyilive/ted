@@ -11,7 +11,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { billingNames } from '@ted/protocol/health'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import {
   agentModel,
   clockOf,
@@ -30,6 +30,13 @@ import {
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
+import {
+  buttonPosition,
+  contextMenu,
+  type MenuAction,
+  type MenuPosition,
+  useActionMenu,
+} from '../components/ContextMenu.tsx'
 import { DotIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
@@ -148,12 +155,14 @@ function Breadcrumb({
 }
 
 export function AutomationsPage({
+  onEdit,
   factory,
   banners,
   onOpen,
   onNew,
   onOpenTask,
 }: {
+  onEdit?: (automation: Automation) => void
   factory: Factory | undefined
   banners: ReactNode
   onOpen: (automation: Automation) => void
@@ -162,11 +171,13 @@ export function AutomationsPage({
 }) {
   const resource = useAutomationsState(factory?.id)
   const automations = resource.value
+  const menu = useAutomationMenu(onOpen, onEdit, undefined, automations)
   const templates = useAutomationTemplates()
   const now = useNow()
   const [error, setError] = useState<string>()
   return (
     <section className={views.pane} aria-label="Automations">
+      {menu.menu}
       <Breadcrumb factory={factory} count={automations?.length} onNew={() => onNew('blank')} />
       {banners}
       {error !== undefined && (
@@ -207,8 +218,17 @@ export function AutomationsPage({
                   <tr
                     key={automation.id}
                     className={styles.row}
+                    data-nav-item
+                    tabIndex={0}
+                    {...contextMenu((at) => menu.open(at, automation))}
                     data-off={!automation.on}
                     onClick={() => onOpen(automation)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && event.target === event.currentTarget) {
+                        event.preventDefault()
+                        onOpen(automation)
+                      }
+                    }}
                   >
                     <td className={styles.toggleCell}>
                       <Toggle automation={automation} onError={setError} />
@@ -315,76 +335,63 @@ export function AutomationsEmpty({
   )
 }
 
-function MoreMenu({
-  automation,
-  onDuplicated,
-  onDelete,
-  onError,
-}: {
-  automation: Automation
-  onDuplicated: (copy: Automation) => void
-  onDelete: () => void
-  onError: (message: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('mousedown', close)
-    window.addEventListener('keydown', onEscape)
-    return () => {
-      window.removeEventListener('mousedown', close)
-      window.removeEventListener('keydown', onEscape)
-    }
-  }, [open])
-  return (
-    <div ref={ref} className={styles.anchor}>
-      <Button
-        size="small"
-        aria-label="Automation actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        ⋯
-      </Button>
-      {open && (
-        <div className={styles.menu} role="menu" aria-label="Automation actions">
-          <button
-            type="button"
-            role="menuitem"
-            className={styles.menuItem}
-            onClick={() => {
-              setOpen(false)
-              ted
-                .createAutomation(duplicateOf(automation))
-                .then(onDuplicated, (e: unknown) => onError(readableError(e)))
-            }}
-          >
-            Duplicate
-            <span className={styles.menuNote}>The copy starts turned off</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={`${styles.menuItem} ${styles.danger}`}
-            onClick={() => {
-              setOpen(false)
-              onDelete()
-            }}
-          >
-            Delete…
-          </button>
-        </div>
-      )}
-    </div>
+function useAutomationMenu(
+  onOpen: (automation: Automation) => void,
+  onEdit: ((automation: Automation) => void) | undefined,
+  onDeleted?: () => void,
+  available?: readonly Automation[],
+) {
+  const actions = useActionMenu(
+    JSON.stringify(
+      available?.map((a) => [
+        a.id,
+        a.name,
+        a.on,
+        a.factoryKey,
+        a.prompt,
+        a.schedule,
+        a.agent,
+        a.model,
+        a.effort,
+      ]),
+    ),
   )
+  const [deleting, setDeleting] = useState<Automation>()
+  return {
+    isOpen: actions.isOpen,
+    open: (at: MenuPosition, automation: Automation) => {
+      const items: MenuAction[] = [
+        { label: 'Open Automation', action: () => onOpen(automation) },
+        { label: 'Edit…', disabled: !onEdit, action: () => onEdit?.(automation) },
+        { label: 'Run now', action: () => ted.runAutomation(automation.id) },
+        {
+          label: automation.on ? 'Turn off' : 'Turn on',
+          action: () => ted.setAutomationOn(automation.id, !automation.on),
+        },
+        {
+          label: 'Duplicate',
+          action: async () => onOpen(await ted.createAutomation(duplicateOf(automation))),
+        },
+        { label: 'Delete…', danger: true, action: () => setDeleting(automation) },
+      ]
+      actions.open(at, automation.name, items)
+    },
+    menu: (
+      <>
+        {actions.menu}
+        {deleting && (
+          <DeleteAutomationDialog
+            automation={deleting}
+            onClose={() => setDeleting(undefined)}
+            onDeleted={() => {
+              setDeleting(undefined)
+              onDeleted?.()
+            }}
+          />
+        )}
+      </>
+    ),
+  }
 }
 
 function DeleteAutomationDialog({
@@ -481,7 +488,12 @@ export function AutomationView({
   const detail = resource.value
   const now = useNow()
   const [error, setError] = useState<string>()
-  const [deleting, setDeleting] = useState(false)
+  const menu = useAutomationMenu(
+    onOpenAutomation,
+    onEdit,
+    onBack,
+    detail?.automation ? [detail.automation] : [],
+  )
   const [promptOpen, setPromptOpen] = useState(false)
   if (detail === undefined)
     return (
@@ -533,7 +545,7 @@ export function AutomationView({
           <button type="button" className={styles.backLink} onClick={onBack}>
             ← Automations
           </button>
-          <div className={styles.titleRow}>
+          <div className={styles.titleRow} {...contextMenu((at) => menu.open(at, automation))}>
             <Toggle automation={automation} onError={setError} />
             <h1 className={styles.title} data-off={!automation.on}>
               {automation.name}
@@ -548,12 +560,18 @@ export function AutomationView({
             <Button size="small" onClick={() => onEdit(automation)}>
               Edit
             </Button>
-            <MoreMenu
-              automation={automation}
-              onDuplicated={onOpenAutomation}
-              onDelete={() => setDeleting(true)}
-              onError={setError}
-            />
+            <Button
+              size="small"
+              aria-label="Automation actions"
+              aria-expanded={menu.isOpen}
+              aria-haspopup="menu"
+              onClick={(event) => {
+                event.stopPropagation()
+                menu.open(buttonPosition(event.currentTarget), automation)
+              }}
+            >
+              ⋯
+            </Button>
           </div>
           <p className={styles.line}>{line}</p>
         </header>
@@ -645,16 +663,7 @@ export function AutomationView({
             </table>
           )}
         </div>
-        {deleting && (
-          <DeleteAutomationDialog
-            automation={automation}
-            onClose={() => setDeleting(false)}
-            onDeleted={() => {
-              setDeleting(false)
-              onBack()
-            }}
-          />
-        )}
+        {menu.menu}
       </section>
       <DetailsPane className={views.detailsPane} aria-label="Automation details">
         <Details title="Schedule">

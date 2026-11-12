@@ -35,6 +35,7 @@ import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
+import { contextMenu } from '../components/ContextMenu.tsx'
 import { DetailsSection } from '../components/DetailsSection.tsx'
 import { AllChanges, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
@@ -65,6 +66,7 @@ import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
 import { TaskBrowserView } from '../components/TaskBrowserView.tsx'
+import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { TaskConversationTabs } from '../components/TaskConversationTabs.tsx'
 import { TaskDiscussion } from '../components/TaskDiscussion.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
@@ -775,7 +777,10 @@ export function TaskThread({
           </button>
         )}
         {task.archived && <ArchivedBar task={task} />}
-        <header className={styles.taskHeader}>
+        <header
+          className={styles.taskHeader}
+          {...contextMenu((at) => openTaskActions(at, [task.id]))}
+        >
           <div className={styles.headerRow}>
             <span className={styles.taskMeta}>
               {`${task.displayId}  ·  `}
