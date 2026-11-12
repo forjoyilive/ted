@@ -46,6 +46,7 @@ import {
   Tray,
 } from 'electron'
 import { appIconPng } from './app-icon.ts'
+import { showAttachmentInFolder } from './attachment-preview.ts'
 import {
   appMenu,
   appName,
@@ -110,6 +111,8 @@ const githubLink =
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests = {
+  showAttachmentInFolder: (client, attachment) =>
+    showAttachmentInFolder(client, attachment, app.getPath('userData'), shell.showItemInFolder),
   taskBrief,
   openMarkdownLink: (_client, url) => openMarkdownLink(url, shell.openExternal),
   openTaskSource: async (client, taskId) => {
@@ -246,6 +249,7 @@ const requests = {
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   getAutomation,
 } satisfies CustomHandlers<
+  | 'showAttachmentInFolder'
   | 'taskBrief'
   | 'openTaskSource'
   | 'openPullRequest'

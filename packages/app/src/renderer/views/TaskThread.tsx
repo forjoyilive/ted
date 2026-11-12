@@ -56,16 +56,12 @@ import {
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
-import {
-  AnsweredCard,
-  OpenRequestLine,
-  RequestCard,
-  WaitingRow,
-} from '../components/RequestCard.tsx'
+import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
+import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
-import { ScrollMemory } from '../components/ScrollMemory.tsx'
+import { ScrollMemory, type ScrollReveal } from '../components/ScrollMemory.tsx'
 import { RunWithSideChat } from '../components/SideChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
@@ -97,7 +93,7 @@ import {
   middlePaneStep,
 } from '../middle-pane.ts'
 import { useProfile } from '../profile.tsx'
-import { ago, useNow } from '../requests.ts'
+import { ago, headline, requestLabel, useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
@@ -322,7 +318,7 @@ export function TaskPanes({
   tasks,
   factories,
   backLink,
-  requestId,
+  revealRequest,
   answeredId,
   onBack,
   onOpenTask,
@@ -333,7 +329,7 @@ export function TaskPanes({
   tasks: readonly Task[]
   factories: readonly Factory[]
   backLink: string | undefined
-  requestId?: string | undefined
+  revealRequest?: ScrollReveal | undefined
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
@@ -341,6 +337,12 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [state, setState] = useState<MiddlePaneState>({})
+  useEffect(() => {
+    if (revealRequest !== undefined) {
+      setState({})
+      setQuickTask(undefined)
+    }
+  }, [revealRequest])
   useBrowserOpen(task.id, (app) => {
     setState((s) => middlePaneStep(s, task.id, { kind: 'app', app }))
   })
@@ -524,30 +526,29 @@ export function TaskPanes({
           repo={shellRepo}
           onBack={() => go({ kind: 'shell', repo: undefined })}
         />
-      ) : (
-        <TaskThread
-          task={task}
-          backLink={backLink}
-          requestId={requestId}
-          answeredId={answeredId}
-          onBack={onBack}
-          onOpenTask={onOpenTask}
-          onOpenPlan={onOpenPlan}
-          onFollowedUp={onFollowedUp}
-          taskChanges={changes}
-          onOpenFile={openLocalFile}
-          onAllChanges={() => showChanges({ kind: 'all' })}
-          shownRun={visibleRun}
-          onShowRun={show}
-          onOpenRun={openRun}
-          onCloseRun={closeRun}
-          hidden={covered}
-          lines={{ current: lineComments, onOpen: openLine }}
-          shownApp={shownApp}
-          onOpenApp={openApp}
-          onCloseApp={closeApp}
-        />
-      )}
+      ) : null}
+      <TaskThread
+        task={task}
+        backLink={backLink}
+        revealRequest={revealRequest}
+        answeredId={answeredId}
+        onBack={onBack}
+        onOpenTask={onOpenTask}
+        onOpenPlan={onOpenPlan}
+        onFollowedUp={onFollowedUp}
+        taskChanges={changes}
+        onOpenFile={openLocalFile}
+        onAllChanges={() => showChanges({ kind: 'all' })}
+        shownRun={visibleRun}
+        onShowRun={show}
+        onOpenRun={openRun}
+        onCloseRun={closeRun}
+        hidden={covered || shellRepo !== undefined}
+        lines={{ current: lineComments, onOpen: openLine }}
+        shownApp={shownApp}
+        onOpenApp={openApp}
+        onCloseApp={closeApp}
+      />
       <TaskDetails
         task={task}
         tasks={tasks}
@@ -598,7 +599,7 @@ export function TaskThread({
   onOpenFile,
   onAllChanges,
   backLink,
-  requestId,
+  revealRequest,
   answeredId,
   onBack,
   onOpenTask,
@@ -619,7 +620,7 @@ export function TaskThread({
   onAllChanges?: (() => void) | undefined
   task: Task
   backLink: string | undefined
-  requestId?: string | undefined
+  revealRequest?: ScrollReveal | undefined
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
@@ -656,10 +657,11 @@ export function TaskThread({
   const sentBackRuns = new Set(events.flatMap((e) => (e.checkRunId ? [e.checkRunId] : [])))
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
+  const [reveal, setReveal] = useState<ScrollReveal>()
   useEffect(() => {
-    if (answeredId !== undefined) setFilter(undefined)
-  }, [answeredId])
-  const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
+    setFilter(undefined)
+    setReveal(revealRequest ?? (answeredId === undefined ? undefined : { id: answeredId }))
+  }, [revealRequest, answeredId])
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
     ...comments.map((comment) => ({
@@ -673,6 +675,14 @@ export function TaskThread({
       .map((checkRun) => ({ kind: 'check-run' as const, checkRun, createdAt: checkRun.startedAt })),
   ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const shown = inStage(items, entries, stage)
+  const shownItems = new Set(shown)
+  const rendered = items.filter(
+    (item) =>
+      shownItems.has(item) ||
+      (item.kind === 'comment' &&
+        item.comment.kind !== 'note' &&
+        item.comment.answer === undefined),
+  )
   const unread = comments.some((c) => c.author.kind !== 'human' && c.readAt === undefined)
   useEffect(() => {
     if (unread && shownRun === undefined) {
@@ -680,153 +690,160 @@ export function TaskThread({
     }
   }, [unread, task.id, shownRun])
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
-  const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
-  const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
   const headerAction = statusAction(task)
   const now = useNow()
   const activity = mergedLine(task, now) ?? task.activity
-  const pin = (id: string) => {
-    setChosen({ from: requestId, id })
+  const jumpToRequest = (id: string) => {
+    setFilter(undefined)
+    setReveal({ id })
     inbox?.select(id)
   }
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
 
-  if (talk && shownRun !== undefined && shownApp === undefined) {
-    return (
+  const talking = talk !== undefined && shownRun !== undefined && shownApp === undefined
+
+  return (
+    <>
+      {talking && (
+        <section
+          className={styles.pane}
+          aria-label="Task thread"
+          style={hidden ? { display: 'none' } : undefined}
+        >
+          <TalkThrough request={talk} task={task} onBack={() => onShowRun(undefined)} />
+        </section>
+      )}
       <section
         className={styles.pane}
         aria-label="Task thread"
-        style={hidden ? { display: 'none' } : undefined}
+        style={hidden || talking ? { display: 'none' } : undefined}
       >
-        <TalkThrough request={talk} task={task} onBack={() => onShowRun(undefined)} />
-      </section>
-    )
-  }
-
-  return (
-    <section
-      className={styles.pane}
-      aria-label="Task thread"
-      style={hidden ? { display: 'none' } : undefined}
-    >
-      {backLink !== undefined && (
-        <button type="button" className={styles.back} onClick={onBack}>
-          {backLink}
-        </button>
-      )}
-      {task.archived && <ArchivedBar task={task} />}
-      <header className={styles.taskHeader}>
-        <div className={styles.headerRow}>
-          <span className={styles.taskMeta}>
-            {`${task.displayId}  ·  `}
-            {task.followUpOf ? (
-              <>
-                {'Follow-up to '}
-                <button
-                  type="button"
-                  className={styles.metaLink}
-                  onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
-                >
-                  {task.followUpOf.displayId}
-                </button>
-              </>
-            ) : task.setup ? (
-              'Created by TED'
-            ) : task.splitFrom ? (
-              <>
-                {'Split from '}
-                <button
-                  type="button"
-                  className={styles.metaLink}
-                  onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
-                >
-                  {task.splitFrom.displayId}
-                </button>
-              </>
-            ) : task.fromPlan?.deleted ? (
-              'From a deleted planning chat'
-            ) : task.fromPlan ? (
-              <>
-                {'From planning chat '}
-                <button
-                  type="button"
-                  className={styles.metaLink}
-                  onClick={() => task.fromPlan && onOpenPlan(task.fromPlan.id)}
-                >
-                  {task.fromPlan.title}
-                </button>
-              </>
-            ) : (
-              'Created by you'
+        {backLink !== undefined && (
+          <button type="button" className={styles.back} onClick={onBack}>
+            {backLink}
+          </button>
+        )}
+        {task.archived && <ArchivedBar task={task} />}
+        <header className={styles.taskHeader}>
+          <div className={styles.headerRow}>
+            <span className={styles.taskMeta}>
+              {`${task.displayId}  ·  `}
+              {task.followUpOf ? (
+                <>
+                  {'Follow-up to '}
+                  <button
+                    type="button"
+                    className={styles.metaLink}
+                    onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
+                  >
+                    {task.followUpOf.displayId}
+                  </button>
+                </>
+              ) : task.setup ? (
+                'Created by TED'
+              ) : task.splitFrom ? (
+                <>
+                  {'Split from '}
+                  <button
+                    type="button"
+                    className={styles.metaLink}
+                    onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
+                  >
+                    {task.splitFrom.displayId}
+                  </button>
+                </>
+              ) : task.fromPlan?.deleted ? (
+                'From a deleted planning chat'
+              ) : task.fromPlan ? (
+                <>
+                  {'From planning chat '}
+                  <button
+                    type="button"
+                    className={styles.metaLink}
+                    onClick={() => task.fromPlan && onOpenPlan(task.fromPlan.id)}
+                  >
+                    {task.fromPlan.title}
+                  </button>
+                </>
+              ) : (
+                'Created by you'
+              )}
+            </span>
+            {task.setup && <span className={styles.setupTag}>Setup</span>}
+            <RunIcons runs={task.runs} />
+          </div>
+          <div className={styles.headerRow}>
+            <h1 className={styles.taskTitle}>{task.title}</h1>
+            <TaskStatusChips task={task} onOpenTask={onOpenTask} detailed />
+            {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
+              <Button
+                size="small"
+                variant="primary"
+                onClick={() =>
+                  void runStatusAction(headerAction.kind, task).catch((error: unknown) =>
+                    console.error(error),
+                  )
+                }
+              >
+                {headerAction.label}
+              </Button>
             )}
-          </span>
-          {task.setup && <span className={styles.setupTag}>Setup</span>}
-          <RunIcons runs={task.runs} />
-        </div>
-        <div className={styles.headerRow}>
-          <h1 className={styles.taskTitle}>{task.title}</h1>
-          <TaskStatusChips task={task} onOpenTask={onOpenTask} detailed />
-          {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
-            <Button
-              size="small"
-              variant="primary"
-              onClick={() =>
-                void runStatusAction(headerAction.kind, task).catch((error: unknown) =>
-                  console.error(error),
-                )
-              }
-            >
-              {headerAction.label}
-            </Button>
-          )}
-          <TaskActionsMenu task={task} onFollowedUp={onFollowedUp} />
-        </div>
-        <div className={styles.headerRow}>
-          <StageTrack
-            track={task.track}
-            selected={stage}
-            onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
+            <TaskActionsMenu task={task} onFollowedUp={onFollowedUp} />
+          </div>
+          <div className={styles.headerRow}>
+            <StageTrack
+              track={task.track}
+              selected={stage}
+              onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
+            />
+            <span className={styles.stageName}>{stageName(task.stage)}</span>
+            {task.archived ? (
+              <span className={styles.activity}>· {archivedFrom(task.archived.ended)}</span>
+            ) : (
+              activity !== undefined && <span className={styles.activity}>· {activity}</span>
+            )}
+          </div>
+          {task.description !== '' && <p className={styles.description}>{task.description}</p>}
+        </header>
+        <ConversationTabs
+          tabs={task.tabs}
+          shown={shownRun}
+          onShow={onShowRun}
+          onClose={onCloseRun}
+        />
+        {shownApp?.browser ? (
+          <TaskBrowserView
+            task={task}
+            shown={shownApp}
+            onBack={() => onCloseApp?.()}
+            onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
           />
-          <span className={styles.stageName}>{stageName(task.stage)}</span>
-          {task.archived ? (
-            <span className={styles.activity}>· {archivedFrom(task.archived.ended)}</span>
-          ) : (
-            activity !== undefined && <span className={styles.activity}>· {activity}</span>
-          )}
-        </div>
-        {task.description !== '' && <p className={styles.description}>{task.description}</p>}
-      </header>
-      <ConversationTabs tabs={task.tabs} shown={shownRun} onShow={onShowRun} onClose={onCloseRun} />
-      {shownApp?.browser ? (
-        <TaskBrowserView
-          task={task}
-          shown={shownApp}
-          onBack={() => onCloseApp?.()}
-          onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
-        />
-      ) : shownApp !== undefined ? (
-        <AppLogView
-          key={`${shownApp.repo}/${shownApp.name}`}
-          task={task}
-          shown={shownApp}
-          onBack={() => onCloseApp?.()}
-        />
-      ) : shownRun !== undefined ? (
-        <RunWithSideChat
-          key={shownRun}
-          runId={shownRun}
-          bar={shownRun !== task.leadRunId}
-          endedNote={
-            task.canResume
-              ? 'This Run has ended and is read-only. Resume the Task to carry on.'
-              : undefined
-          }
-          onStopTask={() =>
-            void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
-          }
-        />
-      ) : (
-        <>
+        ) : shownApp !== undefined ? (
+          <AppLogView
+            key={`${shownApp.repo}/${shownApp.name}`}
+            task={task}
+            shown={shownApp}
+            onBack={() => onCloseApp?.()}
+          />
+        ) : shownRun !== undefined && !talking ? (
+          <RunWithSideChat
+            key={shownRun}
+            runId={shownRun}
+            bar={shownRun !== task.leadRunId}
+            endedNote={
+              task.canResume
+                ? 'This Run has ended and is read-only. Resume the Task to carry on.'
+                : undefined
+            }
+            onStopTask={() =>
+              void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
+            }
+          />
+        ) : null}
+        <div
+          className={styles.threadBody}
+          hidden={shownRun !== undefined || shownApp !== undefined}
+        >
           {stage !== undefined && (
             <p className={styles.filterNote}>
               Showing {stageName(stage)} only ·{' '}
@@ -839,11 +856,20 @@ export function TaskThread({
               </button>
             </p>
           )}
+          <RequestJumpBar
+            requests={open.map((request) => ({
+              id: request.id,
+              label: requestLabel(request),
+              title: headline(request),
+            }))}
+            onJump={jumpToRequest}
+          />
           <ScrollMemory
             list
+            reveal={reveal}
             spot={`thread:${task.id}`}
-            count={shown.length}
-            active={!hidden}
+            count={historyLoading ? 0 : shown.length}
+            active={!hidden && shownRun === undefined && shownApp === undefined}
             className={styles.thread}
           >
             {historyError && (
@@ -857,7 +883,7 @@ export function TaskThread({
               </li>
             )}
             {!historyLoading &&
-              shown.map((item) => {
+              rendered.map((item) => {
                 if (item.kind === 'event') {
                   const { event } = item
                   return (
@@ -910,7 +936,13 @@ export function TaskThread({
                       ? comments.find((c) => c.id === answer.by)
                       : undefined
                   return (
-                    <li key={comment.id} className={styles.requestItem}>
+                    <li
+                      key={comment.id}
+                      className={styles.requestItem}
+                      data-chat-item={comment.id}
+                      tabIndex={-1}
+                      data-nav-item
+                    >
                       <AnsweredCard
                         key={comment.id === answeredId ? 'shown' : 'collapsed'}
                         request={comment}
@@ -932,57 +964,46 @@ export function TaskThread({
                   )
                 }
                 return (
-                  <li key={comment.id} className={styles.requestItem}>
-                    <OpenRequestLine
+                  <li
+                    key={comment.id}
+                    className={styles.requestItem}
+                    data-chat-item={comment.id}
+                    tabIndex={-1}
+                    data-nav-item
+                    hidden={!shownItems.has(item)}
+                  >
+                    <RequestCard
+                      taskChanges={taskChanges}
+                      onOpenFile={onOpenFile}
+                      onAllChanges={onAllChanges}
                       request={comment}
+                      onOpenTask={onOpenTask}
                       task={task}
-                      pinned={comment.id === pinned?.id}
-                      others={open.length - 1}
-                      onPin={() => pin(comment.id)}
+                      onOpenRun={onOpenRun}
+                      onOpenApp={onOpenApp}
+                      onOpenPlan={onOpenPlan}
                     />
                   </li>
                 )
               })}
           </ScrollMemory>
-          {pinned ? (
-            <div className={styles.pinned}>
-              <UnsentChip
-                drafts={(lines?.current ?? []).filter(isDraft)}
-                onOpen={(c) => lines?.onOpen(c)}
-              />
-              {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
-              <RequestCard
-                key={pinned.id}
-                taskChanges={taskChanges}
-                onOpenFile={onOpenFile}
-                onAllChanges={onAllChanges}
-                request={pinned}
-                onOpenTask={onOpenTask}
-                task={task}
-                onOpenRun={onOpenRun}
-                onOpenApp={onOpenApp}
-                onOpenPlan={onOpenPlan}
-              />
-            </div>
-          ) : (
-            <div className={styles.pinned}>
-              <UnsentChip
-                drafts={(lines?.current ?? []).filter(isDraft)}
-                onOpen={(c) => lines?.onOpen(c)}
-              />
-              <CommentBox key={task.id} task={task} onFollowedUp={onFollowedUp} />
-            </div>
-          )}
-        </>
-      )}
-      {output && (
-        <CheckOutputDialog
-          checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
-          position={output.position}
-          onClose={() => setOutput(undefined)}
-        />
-      )}
-    </section>
+          <div className={styles.threadComposer}>
+            <UnsentChip
+              drafts={(lines?.current ?? []).filter(isDraft)}
+              onOpen={(c) => lines?.onOpen(c)}
+            />
+            <CommentBox key={task.id} task={task} onFollowedUp={onFollowedUp} />
+          </div>
+        </div>
+        {output && (
+          <CheckOutputDialog
+            checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
+            position={output.position}
+            onClose={() => setOutput(undefined)}
+          />
+        )}
+      </section>
+    </>
   )
 }
 

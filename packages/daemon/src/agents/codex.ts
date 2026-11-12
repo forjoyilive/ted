@@ -4,6 +4,7 @@ import {
   isModelName,
   type PermissionMode,
   type RunState,
+  tedHome,
   tedVersion,
 } from '@ted/protocol'
 import { shellQuote } from '../node-entry.ts'
@@ -18,6 +19,7 @@ import {
 } from './agent.ts'
 import { codexChat, codexChatFrom } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
+import { codexHome, isolatedCodexSession } from './codex-home.ts'
 import { codexPlanWindows, readCodexPlanUsage } from './codex-usage.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
@@ -440,15 +442,22 @@ function parse(line: string): CodexLine | undefined {
   }
 }
 
-export function codexAgent(binary: string): Agent {
+export function codexAgent(binary: string, home?: string): Agent {
+  const environment = (env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv => {
+    const folder = codexHome(home ?? tedHome(env))
+    return { ...codexEnvironment(env, billing), CODEX_HOME: folder, CODEX_SQLITE_HOME: folder }
+  }
   return {
     kind: 'codex',
     binary,
-    launch({ prompt, env, resume, model, effort, permissions, billing, tools }) {
+    launch({ prompt, runDir, env, resume, model, effort, permissions, billing, tools }) {
       if (model !== undefined && !isModelName(model)) {
         throw new Error(`“${model}” isn’t a model name`)
       }
+      const folder = codexHome(home ?? tedHome(env))
+      const isolated = resume === undefined || isolatedCodexSession(folder, resume, runDir)
       const plan: CodexPlan = {
+        ...(isolated && { sessionHome: folder }),
         thread:
           resume === undefined
             ? { method: 'thread/start', params: {} }
@@ -464,13 +473,16 @@ export function codexAgent(binary: string): Agent {
         args: [
           'app-server',
           ...[
+            ...(isolated ? [`sqlite_home=${JSON.stringify(folder)}`] : []),
             ...(tools === 'none' ? textOnly : sandbox[permissions]),
             ...environmentPolicy,
           ].flatMap((c) => ['-c', c]),
         ],
-        env: codexEnvironment(env, billing ?? 'subscription'),
+        env: isolated
+          ? environment(env, billing ?? 'subscription')
+          : codexEnvironment(env, billing ?? 'subscription'),
         input: JSON.stringify(plan),
-        files: {},
+        files: isolated ? { 'codex-home': 'isolated\n' } : {},
         driver,
         ...(resume !== undefined && { sessionId: resume }),
       }
@@ -560,7 +572,7 @@ export function codexAgent(binary: string): Agent {
       if (message?.method === 'turn/completed') return isUnauthorized(message.params?.turn?.error)
       return false
     },
-    environment: codexEnvironment,
+    environment,
     usageFrom(line) {
       const message = parse(line)
       if (message?.method === 'error') return usageLimitIn(message.params?.error)
@@ -629,7 +641,10 @@ export function codexAgent(binary: string): Agent {
       versionArgs: ['--version'],
       authArgs: ['login', 'status'],
       auth: codexAuth,
-      signIn: 'codex login',
+      signIn: (env) => {
+        const folder = codexHome(home ?? tedHome(env))
+        return `env CODEX_HOME=${shellQuote(folder)} CODEX_SQLITE_HOME=${shellQuote(folder)} codex login`
+      },
       update: 'codex update',
       install: 'npm install -g @openai/codex',
     },

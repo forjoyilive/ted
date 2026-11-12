@@ -15,46 +15,89 @@ import { tedPaths } from '../packages/protocol/src/paths.ts'
 import { runTokenFrom } from '../packages/protocol/src/run.ts'
 import {
   type TestInvocationReport,
+  type TestInvocationUpdate,
+  testActivityPulseMs,
   testInvocationId,
 } from '../packages/protocol/src/test-invocations.ts'
 
-export type ReportSink = (report: TestInvocationReport) => Promise<boolean>
+export type ReportSink = (report: TestInvocationUpdate) => Promise<boolean>
 
 export function testReporter(send: ReportSink) {
   let sequence = 0
   let pending = Promise.resolve(true)
   let waiting = false
   let ended = false
+  let liveAvailable = true
+  let phase: 'running' | 'waiting' | undefined
+  let timer: ReturnType<typeof setInterval> | undefined
+  const stopPulse = () => {
+    if (timer) clearInterval(timer)
+    timer = undefined
+    phase = undefined
+  }
+  const deliver = (report: TestInvocationUpdate) => {
+    const transient =
+      report.kind === 'running' || report.kind === 'waiting' || report.kind === 'inactive'
+    pending = pending.then(async (ok) => {
+      if (!ok) {
+        stopPulse()
+        return false
+      }
+      try {
+        if (await send(report)) return true
+      } catch {}
+      stopPulse()
+      if (transient) liveAvailable = false
+      return transient
+    })
+  }
+  const pulse = () => {
+    if (phase && !ended) deliver({ sequence, kind: phase, at: Date.now() })
+  }
+  const live = (next: 'running' | 'waiting') => {
+    if (!liveAvailable) return
+    phase = next
+    pulse()
+    timer ??= setInterval(pulse, testActivityPulseMs)
+    timer.unref()
+  }
   const emit = (kind: TestInvocationReport['kind'], at: number) => {
     if (ended) return
     const terminal = kind === 'finished' || kind === 'canceled' || kind === 'interrupted'
     if (sequence >= 63 && !terminal) {
+      deliver({ sequence, kind: 'inactive', at: Date.now() })
       ended = true
+      stopPulse()
       return
     }
     ended = terminal
-    const report = { sequence: sequence++, kind, at }
-    pending = pending.then(async (ok) => {
-      if (!ok) return false
-      try {
-        return await send(report)
-      } catch {
-        return false
-      }
-    })
+    if (terminal) stopPulse()
+    deliver({ sequence: sequence++, kind, at })
   }
   return {
     contention(next: boolean, at: number) {
-      if (waiting === next) return
+      if (ended || waiting === next) return
       waiting = next
       emit(next ? 'wait-start' : 'wait-end', at)
+      if (next && !ended) live('waiting')
+      else stopPulse()
+    },
+    async running() {
+      if (!ended && !waiting) live('running')
+      await pending
     },
     async finish() {
-      if (!waiting) emit('finished', Date.now())
+      if (waiting && !ended) {
+        deliver({ sequence, kind: 'inactive', at: Date.now() })
+        ended = true
+      } else emit('finished', Date.now())
+      stopPulse()
       await pending
     },
     async incomplete() {
+      if (!ended) deliver({ sequence, kind: 'inactive', at: Date.now() })
       ended = true
+      stopPulse()
       await pending
     },
   }
@@ -121,6 +164,7 @@ export async function reportedTestLock(
       await reporting?.incomplete()
       return undefined
     }
+    await reporting?.running()
     let released = false
     return async () => {
       if (released) return

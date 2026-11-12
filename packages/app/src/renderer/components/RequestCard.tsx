@@ -20,7 +20,6 @@ import {
   useValidationObligations,
 } from '../data.ts'
 import {
-  age,
   ago,
   briefSections,
   headline,
@@ -232,7 +231,7 @@ function ReviewChanges({
           {changes.files === 0 && changes.repos.every((r) => !r.unavailable) && (
             <p className={styles.summary}>No current Task changes.</p>
           )}
-          <div className={styles.reviewFiles}>
+          <div>
             <ChangeList changes={changes} onOpen={onOpen} since={since} />
           </div>
         </>
@@ -482,6 +481,7 @@ export function RequestCard({
         ...(readOnly ? [styles.readOnly] : []),
       ].join(' ')}
       aria-label={readOnly ? `${requestLabel(request)}, read-only` : requestLabel(request)}
+      data-request={!readOnly && request.answer === undefined ? request.id : undefined}
     >
       <div className={styles.headRow}>
         <CardHead request={request} task={task} now={now} />
@@ -517,7 +517,9 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
-      ) : request.choices?.includes('Wait for a repair Task') ||
+      ) : request.purpose?.kind === 'failure' ||
+        reasonChoices.length > 0 ||
+        request.choices?.includes('Wait for a repair Task') ||
         (request.choices?.includes(validateFailureChoices.retry) &&
           request.choices.includes(validateFailureChoices.fix)) ? (
         <FailureRequestDetails
@@ -525,6 +527,11 @@ export function RequestCard({
           requestId={request.id}
           fallback={request.body}
           onOpenTask={onOpenTask}
+          noAccept={
+            !request.answer &&
+            request.choices !== undefined &&
+            !request.choices.includes(failureChoices.accepted)
+          }
         />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
@@ -1033,64 +1040,5 @@ export function AnsweredCard({
         <RequestCard request={request} task={task} onOpenTask={onOpenTask} readOnly />
       )}
     </section>
-  )
-}
-
-export function OpenRequestLine({
-  request,
-  task,
-  pinned,
-  others,
-  onPin,
-}: {
-  request: Comment
-  task: Task
-  pinned: boolean
-  others: number
-  onPin: () => void
-}) {
-  const now = useNow()
-  return (
-    <button type="button" className={styles.openLine} onClick={onPin}>
-      <span className={styles.openDot} aria-hidden />
-      <span className={styles.openTitle}>
-        {`${requestLabel(request)} from ${poster(request, task)} · waiting · ${
-          pinned ? 'shown below' : `${others} more below`
-        }`}
-      </span>
-      <span className={styles.openAge}>{ago(request.createdAt, now)}</span>
-    </button>
-  )
-}
-
-export function WaitingRow({
-  requests,
-  pinnedId,
-  onPin,
-}: {
-  requests: readonly Comment[]
-  pinnedId: string | undefined
-  onPin: (id: string) => void
-}) {
-  const now = useNow()
-  const label = `${requests.length} waiting on you`
-  return (
-    <fieldset className={styles.waitingRow} aria-label={label}>
-      <span className={styles.waitingCount}>{label}</span>
-      <div className={styles.chips}>
-        {requests.map((request) => (
-          <button
-            key={request.id}
-            type="button"
-            className={styles.chip}
-            aria-pressed={request.id === pinnedId}
-            title={headline(request)}
-            onClick={() => onPin(request.id)}
-          >
-            {`${requestLabel(request)} · ${age(request.createdAt, now)}`}
-          </button>
-        ))}
-      </div>
-    </fieldset>
   )
 }

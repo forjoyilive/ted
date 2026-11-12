@@ -1,3 +1,4 @@
+import type { DashboardViewState } from './dashboard.ts'
 export const settingsSectionIds = [
   'general',
   'notifications',
@@ -11,12 +12,19 @@ export const settingsSectionIds = [
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number]
 
-export type FactoryView = 'coordinator' | 'board' | 'list' | 'plans' | 'automations' | 'settings'
+export type FactoryView =
+  | 'dashboard'
+  | 'coordinator'
+  | 'board'
+  | 'list'
+  | 'plans'
+  | 'automations'
+  | 'settings'
 
 export type Screen =
   | { kind: 'inbox'; factoryId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
-  | { kind: 'factory'; factoryId: string; view: FactoryView }
+  | { kind: 'factory'; factoryId: string; view: FactoryView; dashboard?: DashboardViewState }
 
 export interface Navigation {
   screen: Screen
@@ -79,7 +87,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       }
     }
     case 'open-factory': {
-      const view = state.lastViews[action.factoryId] ?? 'board'
+      const view = state.lastViews[action.factoryId] ?? 'dashboard'
       return navigate(state, {
         type: 'open',
         screen: { kind: 'factory', factoryId: action.factoryId, view },
@@ -105,6 +113,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       return {
         ...opened,
         planId: action.planId ?? newPlan,
+        ...(action.requestId !== undefined && { requestId: action.requestId }),
         ...(action.planId === undefined && action.from !== undefined && { planFrom: action.from }),
       }
     }
@@ -256,6 +265,7 @@ export function backLink(state: Navigation): string | undefined {
   if (state.taskId === undefined) return undefined
   const { screen } = state
   if (screen.kind === 'all-tasks') return '← All Tasks'
+  if (screen.kind === 'factory' && screen.view === 'dashboard') return '← Dashboard'
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'
   if (screen.kind === 'factory' && screen.view === 'list') return '← List'
   if (screen.kind === 'factory' && screen.view === 'coordinator') return '← Coordinator'

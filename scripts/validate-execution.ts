@@ -135,6 +135,7 @@ export interface ValidationDependencies {
   candidate?: (root: string) => Promise<Candidate>
   versions?: () => Promise<Record<string, string>>
   cleanup?: (scratch: string) => Promise<void>
+  reportDirectory?: typeof reportDirectory
 }
 
 export async function runValidation(
@@ -147,7 +148,11 @@ export async function runValidation(
   const started = Date.now()
   let directory: string
   try {
-    directory = await reportDirectory(options.reportDir, options.root, scratch)
+    directory = await (dependencies.reportDirectory ?? reportDirectory)(
+      options.reportDir,
+      options.root,
+      scratch,
+    )
   } catch (error) {
     await rm(scratch, { recursive: true, force: true })
     throw error

@@ -73,7 +73,7 @@ async function openFirstFactory(window: Page) {
 }
 
 describe('Planning chats', () => {
-  test('Plan opens a new chat; a round and a proposal pin above the box, show in the Inbox, and Create Tasks finishes it', async () => {
+  test('Plan opens a new chat; a round and a proposal appear in the conversation, show in the Inbox, and Create Tasks finishes it', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await (await daemonAsApp(home, env())).addFactory({ repo: origin, key: 'NB' })
     const round = await json('round.json', {
@@ -123,7 +123,8 @@ describe('Planning chats', () => {
     await chat.getByRole('heading', { name: 'Plan notebook sharing' }).waitFor()
     const roundCard = window.getByRole('region', { name: 'Round 1 from the planner' })
     await roundCard.waitFor({ timeout: 30_000 })
-    await chat.getByText('pinned below').waitFor()
+    expect(await roundCard.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
+    await chat.getByRole('navigation', { name: 'Requests waiting for you' }).waitFor()
 
     await sidebar(window)
       .getByRole('button', { name: /^Inbox/ })
@@ -143,6 +144,7 @@ describe('Planning chats', () => {
 
     const proposalCard = window.getByRole('region', { name: 'Proposal from the planner' })
     await proposalCard.waitFor({ timeout: 30_000 })
+    expect(await proposalCard.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
     await proposalCard.getByRole('button', { name: 'Create 2 Tasks' }).click()
     await chat.getByText('Planning Run finished').waitFor({ timeout: 30_000 })
     await chat.getByText('TED created 2 Tasks in Backlog: NB-1, NB-2').waitFor()

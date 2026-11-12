@@ -1,0 +1,46 @@
+# Factory validation and TED’s own test rules
+
+Each Factory chooses its Check commands and its Validate instructions. The test-file limit, test-slot queue and `pnpm check` implementation in this repo are rules for developing TED. Other Factories do not inherit those helpers merely by using TED.
+
+## The five examples from KRI-341
+
+| Example | Where it lives | Effect on other Factories |
+| --- | --- | --- |
+| Test waits are logged and reported per Task | [suite-lock.ts](../../packages/daemon/test/support/suite-lock.ts), [test-waits.ts](../../scripts/test-waits.ts) and [test-reporting.ts](../../scripts/test-reporting.ts) | This repo’s helpers write a local JSONL log. `pnpm test-waits [days]` summarizes it by run kind, day and folder. Task-attributed reports use TED’s general reporting API, but require an instrumented runner; arbitrary test commands do not gain measurements automatically. |
+| A Run can run at most three test files, only in Validate | [suite-lock.ts](../../packages/daemon/test/support/suite-lock.ts), [check.ts](../../scripts/check.ts), this Factory’s [Work](../../.ted/stages/work.md) and [Validate](../../.ted/stages/validate.md) files | The repo helpers refuse Vitest runs above three files and `pnpm check` when `TED_RUN` is set. Validate-only testing is a Factory instruction; the helper’s refusal checks the environment and file count, not the Stage. TED has no general three-file cap for other Factories. |
+| Small runs no longer wait behind a waiting full run | [suite-lock.ts](../../packages/daemon/test/support/suite-lock.ts) | This repo coordinates its test processes across checkouts. Small runs can pass a waiting full run, but once the full run’s turn comes, it yields only to small runs already waiting, for at most five minutes. This is separate from TED’s queue for Factory Checks. |
+| `pnpm check` no longer stalls on pnpm’s reinstall question while holding the lock | [check.ts](../../scripts/check.ts), `runChecks` | This repo’s full-check script disables pnpm’s modules-purge confirmation and closes stdin during dependency refresh. Other Factories choose their own commands and how those commands install dependencies. |
+| Duplicate daemon tests were removed and slow files restructured | This repo’s `packages/daemon/test/` suite; commits `efd666f0` and `aac0c46f` | Duplicate failure tests were reduced, and `overnight-gates.test.ts` and `validate-diagnosis.test.ts` were restructured to share daemons between Tasks. These changes reduce this repo’s test cost; they add no validation policy to another Factory. |
+
+The [test-lock reporting contract](../contracts/test-lock-reporting.md) explains the distinction between the local log and Task-attributed reports, including unsupported and incomplete measurements. Reporting measures waits; it does not choose tests, impose the repo’s locks, or change pass/fail results.
+
+## Choose a Factory’s validation
+
+Use the Factory settings’ Checks section for commands TED must run. Each Check has a name, command, optional repo and timeout (default ten minutes). The corresponding configuration is `stages.validate.checks` in the primary repo’s `.ted/workflow.yaml`. For example, this fragment declares a project’s test command:
+
+```yaml
+stages:
+  validate:
+    checks:
+      - name: Tests
+        run: npm test
+        timeout: 20m
+```
+
+Choose the command that fits the project: a full suite, a focused suite or a script that selects tests. A Check runs in its selected repo’s Task worktree; omitting `repo` selects the primary repo. Checks for repos absent from the Task or unchanged from the base branch are skipped. Check configuration chooses commands, not a universal test-file budget.
+
+Use the Factory settings’ Workflow section to edit Validate’s Stage file, stored as `.ted/stages/validate.md`. Put project-specific instructions there: which extra tests the Task Lead should run, when to run them, how to try the change and what evidence to report. Instructions for Work belong in its Stage file. Repo rules in `AGENTS.md` still apply; changing a Stage file does not reconfigure a test runner’s own limits.
+
+TED resolves built-in defaults, then the user’s Library, then the Factory. A more specific Stage file replaces the inherited file in full; Workflow settings merge by key. The Factory layer comes from `.ted/` on the primary repo’s remote default branch and is resolved at Stage entry, so editing a Task’s working copy does not immediately change its active instructions. Validate a proposed layer with `ted workflow check` before committing it.
+
+Other existing controls include `reviewer` (agent, model and effort), `stages.validate.max_back`, `loop_check`, `p1_only_from` and `sub_agents`. See the [Workflow settings table](../spec/ted-v1-spec.md#45-workflowyaml) for their meanings and allowed layers. Checks are Factory-specific; the Library can supply shared Stage instructions and other Workflow settings.
+
+## What TED itself enforces
+
+The general [Check runner](../../packages/daemon/src/tasks/checks.ts) runs configured commands sequentially and stops at the first failure. When Validate follows Work without a Work sign-off, TED runs them before leaving Work. Tasks entering Validate another way run Checks at entry. A Check passes on a clean exit; its timeout and failure remain recorded. TED also adds its built-in settings Check when the primary repo’s changes touch `.ted/`.
+
+The built-in [Validate Stage](../../packages/daemon/src/workflow/defaults/stages/validate.md) asks for relevant extra tests following the repo’s rules, independent code and security review, and applicable visual verification. It specifies no three-file limit, pnpm requirement or repo test-lock policy.
+
+Some validation behavior is enforced by TED regardless of Stage wording: unresolved failure cases and remaining Checks hold advancement; only the user can accept a failure; one reviewer is allowed per Validate visit; and reviewed commits must still match when advancing. Stage customization does not bypass these safeguards. The [validation spec](../spec/ted-v1-spec.md#8-validation) and [failure-case policy](../spec/failure-cases.md) describe the general behavior.
+
+This Factory currently chooses Typecheck and Lint as Checks in [.ted/workflow.yaml](../../.ted/workflow.yaml). Its focused Vitest run is instructed separately by its custom Validate file. That combination is a choice for developing TED, and another Factory can choose a different test strategy using the existing controls.

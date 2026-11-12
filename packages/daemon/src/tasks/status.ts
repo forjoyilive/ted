@@ -1,4 +1,5 @@
 import {
+  type ActiveTestInvocations,
   type BlockerEnded,
   busyHold,
   type CommentBox,
@@ -24,6 +25,7 @@ export interface TaskFacts {
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
   checksWaiting?: { place: number }
+  testActivity?: ActiveTestInvocations
   stopped?: {
     at: string
     runs: number
@@ -135,6 +137,42 @@ export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): Co
   return facts.leadLive ? 'live' : 'no-run'
 }
 
+function testMarkers(facts: TaskFacts): TaskMarker[] {
+  if (facts.stage === 'done' || facts.stopped) return []
+  const markers: TaskMarker[] = []
+  const add = (source: 'tests' | 'checks', phase: 'running' | 'waiting', detail: string) => {
+    markers.push({
+      kind: 'test-activity',
+      source,
+      phase,
+      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'Checks' : 'tests'}`,
+      detail,
+    })
+  }
+  if (facts.checksWaiting) {
+    add(
+      'checks',
+      'waiting',
+      `Waiting for a Check slot · ${ordinal(facts.checksWaiting.place)} in line`,
+    )
+  } else if (facts.checking) {
+    const { name, index, total } = facts.checking
+    if (facts.testActivity?.checksWaiting)
+      add('checks', 'waiting', `${name} · Waiting for a shared test slot`)
+    else add('checks', 'running', `${name} · ${index} of ${total} Checks`)
+  }
+  for (const phase of ['running', 'waiting'] as const) {
+    const count = facts.testActivity?.[phase] ?? 0
+    if (count > 0)
+      add(
+        'tests',
+        phase,
+        `${count} supported test ${count === 1 ? 'command' : 'commands'} ${phase === 'running' ? 'running' : 'waiting for a shared test slot'}`,
+      )
+  }
+  return markers
+}
+
 export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): TaskMarker[] {
   if (facts.archived) return []
   const blocker = facts.blockedBy?.[0]
@@ -153,6 +191,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
           },
         ]
       : []),
+    ...testMarkers(facts),
   ]
 }
 
@@ -169,9 +208,18 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   }
   if (facts.checking) {
     const { name, index, total } = facts.checking
+    if (facts.testActivity?.checksWaiting) return `Waiting for a shared test slot · ${name}`
     return `Running Checks · ${name} (${index} of ${total})`
   }
   if (facts.checksWaiting) return `Waiting to run Checks · ${ordinal(facts.checksWaiting.place)}`
+  if (facts.stage !== 'done' && facts.testActivity) {
+    const { running, waiting } = facts.testActivity
+    if (running > 0 && waiting > 0)
+      return `${running} test ${running === 1 ? 'command' : 'commands'} running · ${waiting} waiting`
+    if (running > 0) return `Running tests · ${running} ${running === 1 ? 'command' : 'commands'}`
+    if (waiting > 0)
+      return `Waiting for a shared test slot · ${waiting} test ${waiting === 1 ? 'command' : 'commands'}`
+  }
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.planningInChat) return 'Planning in chat'
   if (facts.agentActivity !== undefined) return facts.agentActivity

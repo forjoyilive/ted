@@ -91,11 +91,30 @@
 .chip {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   gap: 6px;
   padding: 2px 8px;
   border-radius: 6px;
   background: var(--surface-inset);
   font-size: var(--text-12-5);
+}
+
+.document {
+  min-height: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  max-height: 70vh;
+  padding: 4px;
+}
+
+.text {
+  margin: 0;
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .thumbnail {
