@@ -16,6 +16,8 @@ export function bridge(given: Record<string, Handler>) {
     agentAvailability: () => [],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     getSideChat: () => null,
+    messageDraft: () => ({ draft: null }),
+    saveMessageDraft: (_box, draft) => ({ draft }),
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
     getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     ...given,

@@ -48,6 +48,17 @@ export const taskDraftConsumptions = State.SQLite.table({
   },
 })
 
+export const messageDrafts = State.SQLite.table({
+  name: 'messageDrafts',
+  columns: {
+    key: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text({ nullable: true }),
+    taskId: State.SQLite.text({ nullable: true }),
+    planId: State.SQLite.text({ nullable: true }),
+    draft: State.SQLite.text(),
+  },
+})
+
 export const factoryOrder = State.SQLite.table({
   name: 'factoryOrder',
   columns: {
@@ -1276,6 +1287,19 @@ export const events = {
     name: 'v1.TaskResumed',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
+  taskStoppedByTed: Events.synced({
+    name: 'v1.TaskStoppedByTed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runId: Schema.String,
+      cause: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  tedStopAnswered: Events.synced({
+    name: 'v1.TedStopAnswered',
+    schema: Schema.Struct({ taskId: Schema.String, choice: Schema.String, at: Schema.String }),
+  }),
   taskLeadNudged: Events.synced({
     name: 'v1.TaskLeadNudged',
     schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
@@ -2279,6 +2303,21 @@ export const events = {
     name: 'v1.TaskDraftRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
   }),
+  messageDraftSaved: Events.synced({
+    name: 'v1.MessageDraftSaved',
+    schema: Schema.Struct({
+      key: Schema.String,
+      factoryId: Schema.NullOr(Schema.String),
+      taskId: Schema.NullOr(Schema.String),
+      planId: Schema.NullOr(Schema.String),
+      draft: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  messageDraftCleared: Events.synced({
+    name: 'v1.MessageDraftCleared',
+    schema: Schema.Struct({ key: Schema.String, at: Schema.String }),
+  }),
   factoryRemoved: Events.synced({
     name: 'v1.FactoryRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
@@ -3105,6 +3144,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
   'v1.TaskResumedOvernight': (args) => task(args),
+  'v1.TaskStoppedByTed': (args) => task(args, { runId: args.runId, cause: args.cause }),
+  'v1.TedStopAnswered': (args) => task(args, { choice: args.choice }),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
   'v1.TaskLeadFailed': (args) =>
     task(args, {
@@ -3281,6 +3322,9 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   }),
 }
 
+export const messageDraftKey = (kind: string, id: string): string => `${kind}:${id}`
+const runDraftKey = (id: string): string => messageDraftKey('run', id)
+
 function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
   return Object.fromEntries(
     Object.entries(withIntervalBoundaries(handlers)).map(([name, handler]) => {
@@ -3442,6 +3486,10 @@ const materializers = counted(
           .update({ stoppedAt: null, stoppedRuns: null, stoppedWhy: null, changedAt: at })
           .where({ id: taskId }),
       ],
+      'v1.TaskStoppedByTed': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.TedStopAnswered': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
@@ -3554,14 +3602,17 @@ const materializers = counted(
         tasks.update({ priority, changedAt: at }).where({ id: taskId }),
       'v1.TaskArchived': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v2.TaskArchived': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v3.TaskArchived': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v1.TaskUnarchived': ({ taskId, rank, at }) => [
@@ -3614,9 +3665,11 @@ const materializers = counted(
         taskRepos.delete().where({ taskId }),
         pullRequests.delete().where({ taskId }),
         heldRuns.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
         ...(runIds.length === 0
           ? []
           : [
+              messageDrafts.delete().where({ key: { op: 'IN', value: runIds.map(runDraftKey) } }),
               runs.delete().where({ id: { op: 'IN', value: runIds } }),
               runMessages.delete().where({ runId: { op: 'IN', value: runIds } }),
               runInterrupts.delete().where({ runId: { op: 'IN', value: runIds } }),
@@ -3682,6 +3735,7 @@ const materializers = counted(
       'v1.CommentAnswered': ({ id, answer }) => [
         comments.update({ answer }).where({ id }),
         requestSnoozes.delete().where({ requestId: id }),
+        messageDrafts.delete().where({ key: messageDraftKey('request', id) }),
       ],
       'v1.RoundTalkStarted': ({ id, runId, at }) =>
         comments.update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null }).where({ id }),
@@ -4097,6 +4151,9 @@ const materializers = counted(
           .insert({ id: `${factoryId}:${revision}`, factoryId, revision })
           .onConflict('id', 'ignore'),
       ],
+      'v1.MessageDraftSaved': ({ at: _at, ...row }) =>
+        messageDrafts.insert(row).onConflict('key', 'replace'),
+      'v1.MessageDraftCleared': ({ key }) => messageDrafts.delete().where({ key }),
       'v1.TaskDraftRemoved': ({ factoryId }) => [
         taskDrafts.delete().where({ factoryId }),
         taskDraftConsumptions.delete().where({ factoryId }),
@@ -4110,6 +4167,7 @@ const materializers = counted(
         banners.delete().where({ factoryId }),
         workflowLayers.delete().where({ layer: `factory:${factoryId}` }),
         requestSnoozes.delete().where({ factoryId }),
+        messageDrafts.delete().where({ factoryId }),
       ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
@@ -4225,6 +4283,7 @@ const materializers = counted(
         automationPromptDrafts.update({ ...fields, updatedAt: at }).where({ id }),
       'v1.AutomationPromptDraftRemoved': ({ id }) => [
         automationPromptDrafts.delete().where({ id }),
+        messageDrafts.delete().where({ key: runDraftKey(id) }),
         runs.delete().where({ id }),
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
@@ -4232,6 +4291,7 @@ const materializers = counted(
       'v1.SideChatChanged': (row) => sideChats.insert(row).onConflict('sourceRunId', 'replace'),
       'v1.SideChatRemoved': ({ sourceRunId, runId }) => [
         sideChats.delete().where({ sourceRunId }),
+        messageDrafts.delete().where({ key: runDraftKey(runId) }),
         runs.delete().where({ id: runId }),
         runMessages.delete().where({ runId }),
         runInterrupts.delete().where({ runId }),
@@ -4240,6 +4300,7 @@ const materializers = counted(
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
         coordinators.delete().where({ factoryId }),
         ...runIds.flatMap((id) => [
+          messageDrafts.delete().where({ key: runDraftKey(id) }),
           runs.delete().where({ id }),
           runMessages.delete().where({ runId: id }),
           runInterrupts.delete().where({ runId: id }),
@@ -4249,6 +4310,7 @@ const materializers = counted(
         plans.insert({ ...plan, state: 'queued', createdAt: at }),
       'v1.PlanRenamed': ({ id, title }) => plans.update({ title }).where({ id }),
       'v1.PlanDeleted': ({ id }) => [
+        messageDrafts.delete().where({ planId: id }),
         plans.delete().where({ id }),
         planRequests.delete().where({ planId: id }),
         requestSnoozes.delete().where({ ownerId: id }),
@@ -4268,6 +4330,7 @@ const materializers = counted(
       'v1.PlanRequestAnswered': ({ id, answer }) => [
         planRequests.update({ answer }).where({ id }),
         requestSnoozes.delete().where({ requestId: id }),
+        messageDrafts.delete().where({ key: messageDraftKey('plan-request', id) }),
       ],
       'v1.PlanTaskCreated': (link) => planTasks.insert(link).onConflict('taskId', 'ignore'),
       'v1.PlanContinued': ({ id, fromPlanId, fromTitle, context }) =>
@@ -4304,6 +4367,7 @@ const state = State.SQLite.makeState({
     intervalBoundaries,
     taskDrafts,
     taskDraftConsumptions,
+    messageDrafts,
     factories,
     factoryRepos,
     factoryOrder,

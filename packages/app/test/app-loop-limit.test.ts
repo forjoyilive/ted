@@ -58,9 +58,10 @@ test('a concise limit question keeps the complete Findings in history', async ()
   expect(await card.textContent()).not.toContain(evidence)
   expect(await card.textContent()).toContain('Recommended: Try again')
   expect(await card.textContent()).toContain('leaves the Findings open')
-  await card.getByRole('radio', { name: 'Try again', exact: true }).waitFor()
-  await card.getByRole('radio', { name: 'Move to Review anyway', exact: true }).waitFor()
-  expect(await card.getByRole('button', { name: 'Send', exact: true }).isDisabled()).toBe(true)
+  const answer = thread.getByRole('region', { name: 'Answer', exact: true })
+  await answer.getByRole('radio', { name: 'Try again', exact: true }).waitFor()
+  await answer.getByRole('radio', { name: 'Move to Review anyway', exact: true }).waitFor()
+  expect(await answer.getByRole('button', { name: 'Send', exact: true }).isDisabled()).toBe(true)
   await thread.getByText('Validate wants to send this Task back to Work', { exact: true }).waitFor()
   expect(await thread.getByRole('region', { name: 'Blocking findings' }).allTextContents()).toEqual(
     expect.arrayContaining([expect.stringContaining(evidence)]),

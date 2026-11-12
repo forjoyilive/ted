@@ -72,10 +72,10 @@ export function createPeers(store: TedStore, notify: (runId: string) => void): P
   function page(caller: Caller, offset = 0): PeerPage {
     validOffset(offset)
     const sender = actor(caller)
-    const tasks = store
-      .listTasks()
+    const peers = store
+      .taskOutlines()
       .filter((t) => t.factoryId === sender.factoryId && t.id !== sender.id && !t.archived)
-      .map(summary)
+    const tasks = store.tasksIn(new Set(peers.map((t) => t.id))).map(summary)
     const cursor = createHash('sha256')
       .update(JSON.stringify([sender.factoryId, tasks]))
       .digest('hex')
@@ -93,14 +93,12 @@ export function createPeers(store: TedStore, notify: (runId: string) => void): P
       case 'task-updated':
         return event.task.factoryId === factoryId
       case 'run-updated':
-        return (
-          event.run.taskId !== undefined && store.getTask(event.run.taskId)?.factoryId === factoryId
-        )
+        return event.run.taskId !== undefined && store.factoryOfTask(event.run.taskId) === factoryId
       case 'comment-posted':
       case 'comment-updated':
-        return store.getTask(event.comment.taskId)?.factoryId === factoryId
+        return store.factoryOfTask(event.comment.taskId) === factoryId
       case 'check-run-updated':
-        return store.getTask(event.checkRun.taskId)?.factoryId === factoryId
+        return store.factoryOfTask(event.checkRun.taskId) === factoryId
       case 'factory-updated':
         return event.factory.id === factoryId
       case 'factory-removed':

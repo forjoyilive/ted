@@ -450,6 +450,18 @@ export function threadEvents(
       case 'v1.TaskResumed':
         add(entry, 'run', 'You resumed the Task')
         break
+      case 'v1.TaskStoppedByTed':
+        add(
+          entry,
+          'quiet',
+          data.cause === 'quit'
+            ? 'TED stopped the Task Lead when it quit'
+            : 'The Task Lead was stopped when TED went down',
+        )
+        break
+      case 'v1.TedStopAnswered':
+        if (data.choice === 'leave') add(entry, 'quiet', 'You left the Task stopped')
+        break
       case 'v1.TaskRetried':
         add(entry, 'run', 'You retried the Task')
         break
