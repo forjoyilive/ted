@@ -87,7 +87,7 @@ function discussion(started = true) {
       await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
       await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
       if (started) await screen.findAllByText('Current exchange.')
-      else await screen.findByRole('textbox', { name: 'Comment' })
+      else await screen.findByRole('textbox', { name: /^(Comment|Your answer)$/ })
       return screen.getByRole('region', { name: 'Task thread' })
     },
     async startLead() {
