@@ -3469,7 +3469,8 @@ export async function openStore({
       const at = new Date().toISOString()
       commit(
         events.taskStopped({ taskId, runs, why, at }),
-        ...(why === 'human' && taskRow(taskId)?.preparation === 'ready'
+        ...((why === 'human' || why === 'blockers-removed') &&
+        taskRow(taskId)?.preparation === 'ready'
           ? [events.taskPreparationChanged({ taskId, state: null, at })]
           : []),
       )

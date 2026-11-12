@@ -800,6 +800,72 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   expect(restarted.status?.kind).not.toBe('stopped')
 })
 
+test('prepared parents require explicit Resume after unlink, reparent, archive or delete, including after restart', async () => {
+  let client = await startTed()
+  const app = await hierarchyApp()
+  const cases: { parent: Task; child: Task; operation: string }[] = []
+  for (const operation of ['unlink', 'reparent', 'archive', 'delete']) {
+    const parent = await create(client, steps({ endTurn: true }))
+    await client.ok('POST', `/tasks/${parent.id}/start`, { prepare: true })
+    const preparing = await waitFor(
+      client,
+      parent,
+      (task) => task.runs[0]?.state === 'idle',
+      'to finish its preparation turn',
+    )
+    const run = api(
+      daemon?.port ?? 0,
+      (await loadRunTokens(tedPaths(home).runTokenKey)).issue(preparing.leadRunId ?? ''),
+    )
+    expect(
+      (await run.call('POST', `/tasks/${parent.id}/outcome`, { outcome: 'advance' })).status,
+    ).toBe(200)
+    await waitFor(
+      client,
+      parent,
+      (task) => task.preparation === 'ready' && task.runs.length === 0,
+      'to wait ready for Work',
+    )
+    const child = await create(client, `${operation} child`)
+    await client.ok('PUT', `/tasks/${child.id}/autopilot`, { choice: 'off' })
+    await parentOf(app, child, parent)
+    cases.push({ parent, child, operation })
+  }
+  const destination = await create(client, 'Reparent destination')
+  await client.ok('PUT', `/tasks/${destination.id}/autopilot`, { choice: 'off' })
+  await client.ok('PATCH', '/settings', { overnightMode: true })
+  for (const { parent, child, operation } of cases) {
+    expect((await getTask(client, parent.id)).runs).toEqual([])
+    if (operation === 'unlink') await parentOf(app, child, null)
+    else if (operation === 'reparent') await parentOf(app, child, destination)
+    else if (operation === 'archive') await app.archiveTask(child.id)
+    else await app.deleteTask(child.id)
+    expect(await getTask(client, parent.id)).toMatchObject({
+      stage: 'work',
+      runs: [],
+      status: { kind: 'stopped' },
+    })
+    expect((await getTask(client, parent.id)).preparation).toBeUndefined()
+  }
+  await daemon?.stop()
+  client = await openTed()
+  await client.ok('PATCH', '/settings', { overnightMode: false })
+  await client.ok('PATCH', '/settings', { overnightMode: true })
+  for (const { parent } of cases) {
+    expect((await getTask(client, parent.id)).runs).toEqual([])
+    expect((await getTask(client, parent.id)).status?.kind).toBe('stopped')
+  }
+  const parent = cases[0]?.parent
+  if (!parent) throw new Error('no prepared parent')
+  await client.ok('POST', `/tasks/${parent.id}/resume`, {})
+  await waitFor(
+    client,
+    parent,
+    (task) => task.runs[0]?.state === 'idle',
+    'to continue Work only after explicit Resume',
+  )
+}, 90_000)
+
 test('nested parents wait for children to merge while independent Tasks run, and Done parents only permit explicit unlink and restore', async () => {
   const client = await startTed()
   const app = await hierarchyApp()
@@ -881,7 +947,7 @@ test('nested parents wait for children to merge while independent Tasks run, and
   expect((await getTask(client, waived.id)).parentId).toBeUndefined()
   expect((await getTask(client, waived.id)).archived).toBeUndefined()
   expect((await getTask(client, parent.id)).stage).toBe('done')
-})
+}, 60_000)
 
 test('a queued parent is held before launch; Coordinator edits share app safety and scope while Task Leads keep manual-blocker authority', async () => {
   const client = await startTed()
@@ -905,7 +971,7 @@ test('a queued parent is held before launch; Coordinator edits share app safety 
   await app.archiveTask(child.id)
   expect((await getTask(client, parent.id)).status?.kind).toBe('stopped')
   await app.unarchiveTask(child.id)
-  await client.ok('POST', `/tasks/${parent.id}/resume`)
+  await client.ok('POST', `/tasks/${parent.id}/resume`, {})
   expect((await getTask(client, parent.id)).runs).toEqual([])
   const newParent = await create(client, 'New parent')
   await expect(parentOf(app, newParent, holder)).rejects.toThrow('Stop the parent')
@@ -1030,7 +1096,7 @@ test('a queued parent is held before launch; Coordinator edits share app safety 
   const queuedChildGate = path.join(scratch, 'queued-child-finish')
   const queuedChild = await create(client, doneWhen(queuedChildGate))
   await parentOf(app, queuedChild, parent)
-  await client.ok('POST', `/tasks/${parent.id}/resume`)
+  await client.ok('POST', `/tasks/${parent.id}/resume`, {})
   await client.ok('POST', `/tasks/${queuedChild.id}/start`)
   await waitFor(
     client,

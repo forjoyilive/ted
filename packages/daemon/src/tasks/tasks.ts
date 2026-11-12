@@ -5311,7 +5311,9 @@ export function createTasks(options: {
       if (task.startRequested) store.setStartRequested(taskId, false)
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
     } else if (
-      (task.waitsForBlockers || store.queue().some((entry) => entry.id === taskId)) &&
+      (task.preparation === 'ready' ||
+        task.waitsForBlockers ||
+        store.queue().some((entry) => entry.id === taskId)) &&
       !liveLead(task) &&
       !task.archived
     )
