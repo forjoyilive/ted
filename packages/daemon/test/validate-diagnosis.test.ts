@@ -50,10 +50,19 @@ function boot(checks = usual, order = usualOrder, loopCheck: false | number = fa
   })
 }
 
-async function walk(client: Client, order = usualOrder, loopCheck: false | number = false) {
+async function walk(
+  client: Client,
+  order = usualOrder,
+  loopCheck: false | number = false,
+  endMessages = false,
+) {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
-      steps: [...(loopCheck === false ? [] : [{ say: 'Verdict: converging' }]), { endTurn: true }],
+      steps: [
+        ...(endMessages ? [{ everyMessage: [{ endTurn: true }] }] : []),
+        ...(loopCheck === false ? [] : [{ say: 'Verdict: converging' }]),
+        { endTurn: true },
+      ],
     }),
     factory: 'NB',
     start: true,
@@ -129,8 +138,12 @@ async function walk(client: Client, order = usualOrder, loopCheck: false | numbe
 
 type Scene = Awaited<ReturnType<typeof walk>>
 
-const setup = async (checks = usual, order = usualOrder, loopCheck: false | number = false) =>
-  walk(await boot(checks, order, loopCheck), order, loopCheck)
+const setup = async (
+  checks = usual,
+  order = usualOrder,
+  loopCheck: false | number = false,
+  endMessages = false,
+) => walk(await boot(checks, order, loopCheck), order, loopCheck, endMessages)
 
 function together(title: string, scenes: Record<string, (s: Scene) => Promise<void>>) {
   test(
@@ -408,6 +421,8 @@ test.each(
       '      - { name: Tests, run: "test -f timezone.txt" }',
     ],
     'intake, work, validate, review, merge',
+    false,
+    state === 'replaced',
   )
   const decision = state === 'replaced' ? undefined : await s.ask(s.one)
   const task = await getTask(s.client, s.task.id)
@@ -595,10 +610,30 @@ test.each(
   if (state === 'replaced') {
     const resumed = await waitUntil(async () => {
       const task = (await client.read<Task[]>('/tasks')).find((value) => value.id === s.task.id)
-      return task?.runs.find((run) => run.id === task.leadRunId)?.state === 'idle'
+      return task?.stage === 'merge' &&
+        task.runs.find((run) => run.id === task.leadRunId)?.state === 'idle'
         ? task
         : undefined
-    }, 'replacement Merge Lead')
+    }, 'replacement Merge Lead').catch(async (error: unknown) => {
+      const current = (await client.read<Task[]>('/tasks')).find((value) => value.id === s.task.id)
+      const checks = await client.read<CheckRun[]>(`${s.root}/check-runs`)
+      throw new Error(
+        `${String(error)}; last recovery state: ${JSON.stringify({
+          stage: current?.stage,
+          leadRunId: current?.leadRunId,
+          runs: current?.runs,
+          statuses: current?.statuses,
+          blockedBy: current?.blockedBy,
+          checks: checks.map((run) => ({
+            id: run.id,
+            stage: run.stage,
+            outcome: run.outcome,
+            checks: run.checks.map(({ name, state }) => ({ name, state })),
+          })),
+        })}`,
+      )
+    })
+    expect(resumed.leadRunId).toBe(task.leadRunId)
     const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
     const lead = api(client.port, tokens.issue(resumed.leadRunId ?? ''))
     try {
