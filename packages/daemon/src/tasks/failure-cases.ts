@@ -11,8 +11,10 @@ import type {
   ValidationObligations,
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
+import { resolveReference } from '../references.ts'
 import type { TedStore } from '../store/index.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
@@ -78,7 +80,7 @@ function whatFailed(value: FailureCase): string {
 }
 
 const freshContextSteps = (id: string) =>
-  `Capture a fresh context with \`ted failure context\`, add evidence that names it with \`ted failure evidence ${id} --file <json>\` (\`{"evidence":"…","contextId":"<new context ID>"}\`), then run \`ted failure assess ${id} --file <json>\` and \`ted failure ask ${id}\`. Evidence without the new contextId leaves the decision bound to the old context.`
+  `Capture a fresh context with \`ted failure context\`, add evidence that names it with \`ted failure evidence ${shortReference(id)} --file <json>\` (\`{"evidence":"…","contextId":"<new context ID>"}\`), then run \`ted failure assess ${shortReference(id)} --file <json>\` and \`ted failure ask ${shortReference(id)}\`. Evidence without the new contextId leaves the decision bound to the old context.`
 
 const newCaseSteps =
   'A newly captured context can’t be attached to this failure, because TED can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory Check); a failure that happens again is a new case to record, assess and ask about.'
@@ -176,14 +178,31 @@ export function createFailureCases(options: {
       : context
   }
   const get = (task: Task, id: string) => {
-    const value = store.failures.get(id)
+    const value =
+      store.failures.get(id) ??
+      store.failures.get(
+        resolveReference(
+          id,
+          store.failures.list(task.id).map((value) => value.id),
+          'failure case on this Task',
+        ),
+      )
     if (!value || value.taskId !== task.id)
       throw new RequestError(404, 'no failure case on this Task')
     return value
   }
   const tested = (task: Task, id?: string) => {
     if (!id) return undefined
-    const found = store.failures.context(id)
+    const found =
+      store.failures.context(id) ??
+      store.failures.context(
+        resolveReference(
+          id,
+          store.failures.contexts(task.id).map((value) => value.id),
+          'tested context on this Task',
+          400,
+        ),
+      )
     if (!found || found.taskId !== task.id)
       throw new RequestError(400, 'tested context must belong to this Task')
     return found
@@ -223,7 +242,7 @@ export function createFailureCases(options: {
     why: string,
     current?: FailureContext | null,
   ) {
-    const body = `The human chose Accept this failure for failure case ${value.id} (decision ${requestId}) and TED refused it: ${why} The question stays open and the Task stays held. ${nextSteps(task, value, current)}`
+    const body = `The human chose Accept this failure for failure case ${shortReference(value.id)} (decision ${requestId}) and TED refused it: ${why} The question stays open and the Task stays held. ${nextSteps(task, value, current)}`
     if (
       store
         .listComments(task.id)
@@ -315,7 +334,7 @@ export function createFailureCases(options: {
           }
           store.invalidateFailure(value, {
             title: failureNoticeTitle,
-            body: `Acceptance is no longer current for failure case ${value.id} (decision ${resolution.requestId}). Its tested context changed or could not be verified. Advancement remains held until the human decides again. ${nextSteps(task, value, current)}`,
+            body: `Acceptance is no longer current for failure case ${shortReference(value.id)} (decision ${resolution.requestId}). Its tested context changed or could not be verified. Advancement remains held until the human decides again. ${nextSteps(task, value, current)}`,
           })
           invalidated.push(value.id)
           withdraw(value)
@@ -378,7 +397,20 @@ export function createFailureCases(options: {
   ): Promise<FailureCase> {
     const context = tested(task, request.contextId)
     let originalCheck: FailureCase['originalCheck']
-    const source = request.source
+    const source =
+      request.source.kind === 'finding'
+        ? {
+            ...request.source,
+            runId:
+              store.getRun(request.source.runId)?.id ??
+              resolveReference(
+                request.source.runId,
+                store.taskRunList(task.id).map((run) => run.id),
+                'Run on this Task',
+                400,
+              ),
+          }
+        : request.source
     if (source.kind === 'factory-check' || source.kind === 'post-rebase-check') {
       const run = store.getCheckRun(source.checkRunId)
       const check = run?.checks[source.position]
@@ -446,7 +478,7 @@ export function createFailureCases(options: {
         taskId: task.id,
         author: { kind: 'ted' },
         title: 'Validate failure recorded',
-        body: `Failure ${value.id}\n\n${value.evidence}\n\nThe Task stays in Validate for investigation. No send-back was recorded.`,
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in Validate for investigation. No send-back was recorded.`,
       })
     await store.persisted()
     await options.onHold(task)
@@ -516,7 +548,7 @@ export function createFailureCases(options: {
     },
     evidence(task: Task, id: string, runId: string, evidence: string, contextId?: string) {
       const value = get(task, id)
-      tested(task, contextId)
+      const context = tested(task, contextId)
       if (closed(value)) throw new RequestError(409, 'this case is closed; record a new failure')
       const safeEvidence = failureText(evidence)
       withdraw(value)
@@ -528,7 +560,7 @@ export function createFailureCases(options: {
             evidence: safeEvidence,
             runId,
             at: new Date().toISOString(),
-            ...(contextId && { contextId }),
+            ...(context && { contextId: context.id }),
           },
         ],
       }
@@ -549,7 +581,7 @@ export function createFailureCases(options: {
           taskId: task.id,
           author: { kind: 'run', runId },
           title: 'Failure assessment',
-          body: `Failure ${value.id}\n\nAssessment: ${request.assessment}\n\nRecommendation: ${recommendation}`,
+          body: `Failure ${shortReference(value.id)}\n\nAssessment: ${request.assessment}\n\nRecommendation: ${recommendation}`,
         })
       return store.failures.save(
         {
@@ -594,7 +626,7 @@ export function createFailureCases(options: {
       if (stale && attachable(task, value, current))
         throw new RequestError(
           409,
-          `The Task’s code, Checks or CI changed since tested context ${bound.id}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
+          `The Task’s code, Checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
       const unknown =
         !bound ||
@@ -614,7 +646,7 @@ export function createFailureCases(options: {
             : value.validation
               ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
               : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
-          `Failure ${value.id}`,
+          `Failure ${shortReference(value.id)}`,
           'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
         ].join('\n\n'),
         !why,

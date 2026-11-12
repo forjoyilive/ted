@@ -10,6 +10,8 @@ When requesting permission to run a command, include a short, plain-language exp
 
 The Task brief is also a handoff to the next Run. Keep its five headings, with the current result, remaining concerns and any human decision first under Current state. Follow with short trial steps and evidence pointers. Record the branch and essential recovery context compactly; keep the detailed investigation in evidence the next Run can read. A human sign-off should make what they are approving and any remaining risk clear without requiring them to read a technical report.
 
+When writing Comments, Task briefs or Findings, use six-character references for Failure cases, Runs and tested contexts. Failure command output provides `reference`, `runReference`, `recordedByReference` and `contextReference` alongside full IDs. Commands accept these short references; if one is ambiguous, use more characters or the full ID. Keep full IDs in stored links and file paths.
+
 The Stage instructions use plain words. Do them with these `ted` commands, which act on your own Task:
 
 - To tell the human something or post a note on the Task: `ted comment "<text>"`. For a long note, pipe it in: `ted comment <<'EOF' … EOF`. To show the human a file, such as a screenshot or an HTML report, add `--attach <path>` (repeat it for more files); images and HTML show in the thread.

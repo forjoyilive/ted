@@ -86,7 +86,10 @@ test.each(['new', 'existing'] as const)(
     if (kind === 'new') {
       await form.getByRole('radio', { name: 'Create a repair Task' }).check()
       expect(await form.getByRole('checkbox').isChecked()).toBe(true)
-      expect(await form.getByLabel('Repair description').inputValue()).toContain(failure.id)
+      const description = await form.getByLabel('Repair description').inputValue()
+      expect(description).toContain(`Failure ${failure.id.slice(0, 6)}\n`)
+      if (!failure.contextId) throw new Error('missing tested context')
+      expect(description).toContain(`Original tested context: ${failure.contextId.slice(0, 6)}\n`)
       await form.getByRole('button', { name: 'Cancel', exact: true }).click()
       expect(await client.listTasks()).toHaveLength(before)
       expect((await client.listInbox()).some((i) => i.request.id === requestId)).toBe(true)
