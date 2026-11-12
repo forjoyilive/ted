@@ -142,6 +142,7 @@ test('Display sets card size, card fields and columns, and saves them for the Fa
   expect(stagesShown()).toEqual(['Backlog', 'Intake', 'Review', 'Done'])
   const hidden = within(screen.getByRole('complementary', { name: 'Hidden columns' }))
   expect(hidden.getByTitle('Show Work').textContent).toBe('Work11 needs you')
+  expect(hidden.getByTitle('Show Work').hasAttribute('data-nav-item')).toBe(true)
   await u.click(item('Hide empty columns'))
   expect(stagesShown()).toEqual(['Backlog'])
 

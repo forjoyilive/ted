@@ -689,6 +689,7 @@ export function Board({
                   key={stage}
                   type="button"
                   className={styles.hiddenRow}
+                  data-nav-item
                   title={`Show ${stageName(stage)}`}
                   onClick={() =>
                     changeView({ ...view, hiddenStages: without(view.hiddenStages, stage) })
