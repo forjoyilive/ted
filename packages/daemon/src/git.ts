@@ -179,7 +179,7 @@ export async function hasLocalBranch(repo: string, branch: string): Promise<bool
 }
 
 export async function deleteBranchAt(repo: string, branch: string, tip: string): Promise<void> {
-  await git(repo, 'update-ref', '-d', `refs/heads/${branch}`, tip)
+  await git(repo, '-c', 'core.hooksPath=/dev/null', 'update-ref', '-d', `refs/heads/${branch}`, tip)
 }
 
 export async function restoreWorktree(
