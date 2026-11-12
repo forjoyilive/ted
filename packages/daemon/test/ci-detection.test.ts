@@ -90,6 +90,8 @@ describe('CI detection at push', () => {
     expect((await detect(silentGh(), broken)).ci).toBe(true)
     const none = await commit({ '.github/workflows/ci.yml': 'jobs: {}\n' })
     expect((await detect(silentGh(), none)).ci).toBe(true)
+    const odd = await commit({ '.github/workflows/ci.yml': 'on: [{toString: null}]\n' })
+    expect((await detect(silentGh(), odd)).ci).toBe(true)
   })
 
   test('a non-YAML file in .github/workflows doesn’t count', async () => {

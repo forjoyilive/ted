@@ -280,8 +280,8 @@ export async function detectCi(input: {
           await git.listFiles(input.worktree, input.commit, '.github/workflows')
         ).filter((file) => /\.ya?ml$/.test(file))
         const runs = await Promise.all(
-          files.map(async (file) =>
-            runsOnChanges(await git.showFile(input.worktree, input.commit, file)),
+          files.map((file) =>
+            git.showFile(input.worktree, input.commit, file).then(runsOnChanges, () => true),
           ),
         )
         return runs.includes(true)
@@ -341,7 +341,7 @@ export function runsOnChanges(workflow: string): boolean {
           ? Object.keys(on)
           : undefined
   if (triggers === undefined) return true
-  return triggers.some((trigger) => changeTriggers.includes(String(trigger)))
+  return triggers.some((trigger) => typeof trigger !== 'string' || changeTriggers.includes(trigger))
 }
 
 interface BranchBody {
