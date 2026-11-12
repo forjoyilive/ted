@@ -5980,11 +5980,11 @@ export function createTasks(options: {
 
   function wake(): void {
     const queued = new Set(store.queue().map((q) => q.id))
-    for (const { id } of store.listTasks()) {
-      const task = store.getTask(id)
-      if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
-      if (task.archived || task.stopped) continue
+    for (const id of store.openBlockedTasks()) {
+      if (queued.has(id) || starting.has(id)) continue
       if (unmergedBlockers(id).length > 0) continue
+      const task = store.getTask(id)
+      if (!task || task.archived || task.stopped) continue
       if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
         inBackground(`start ${task.displayId}`, async () => {
           await start(id)
