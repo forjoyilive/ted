@@ -827,7 +827,13 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
   let client = await startTed()
   const app = await hierarchyApp()
   const cases: { parent: Task; child: Task; operation: string }[] = []
-  for (const operation of ['unlink', 'reparent', 'archive', 'delete', 'delete-with-manual-blocker']) {
+  for (const operation of [
+    'unlink',
+    'reparent',
+    'archive',
+    'delete',
+    'delete-with-manual-blocker',
+  ]) {
     const parent = await create(client, steps({ endTurn: true }))
     await client.ok('POST', `/tasks/${parent.id}/start`, { prepare: true })
     const preparing = await waitFor(
