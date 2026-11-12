@@ -17,6 +17,7 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { eventWait } from './support/event-wait.ts'
+import { createGhFixture } from './support/execution-gh.ts'
 import type { ManualClock } from './support/manual-clock.ts'
 
 export const run = promisify(execFile)
@@ -38,8 +39,9 @@ export function useMergeHarness(): void {
     ctx.cleanup = temp.cleanup
     ctx.scratch = await mkdtemp(path.join(tmpdir(), 'ted-merge-'))
     ctx.origin = await makeOriginRepo(ctx.scratch)
-    ctx.ghLog = path.join(ctx.scratch, 'gh.jsonl')
-    ctx.ghState = path.join(ctx.scratch, 'gh.json')
+    const gh = await createGhFixture(ctx.scratch)
+    ctx.ghLog = gh.log
+    ctx.ghState = gh.state
     process.env.TED_STUB_GH = ctx.ghState
     process.env.TED_STUB_GH_LOG = ctx.ghLog
   })
@@ -194,11 +196,11 @@ export const commitStep = {
   ],
 }
 
-export function leadSteps(client: Client) {
+export function leadSteps(client: Client, commit = commitStep.run[2]) {
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [
     `[ -e '${client.mergingFile}' ] && exit 0`,
-    commitStep.run[2],
+    commit,
     `ted brief write --file '${client.briefFile}'`,
     outcome,
   ].join('\n')

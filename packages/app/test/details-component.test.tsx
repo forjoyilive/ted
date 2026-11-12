@@ -2,6 +2,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { CodeSection } from '../src/renderer/CodeSection.tsx'
+import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { ReposField } from '../src/renderer/views/ReposField.tsx'
 import { TaskDetails } from '../src/renderer/views/TaskThread.tsx'
 import { appState } from './support/app.tsx'
@@ -14,9 +15,9 @@ function handlers() {
     simulators: () => ({ supported: false }),
     listTaskRuns: () => [],
     taskDescriptions: () => [],
+    taskGates: () => ({ rows: [], overrides: {}, revision: 'v1' }),
     listComments: () => [],
     taskBrief: () => null,
-    taskGates: () => ({ overrides: {}, rows: [], revision: 'test' }),
   }
 }
 
@@ -62,7 +63,7 @@ test('Task details sends Priority and human Clarify depth changes', async () => 
   await u.selectOptions(screen.getByLabelText('Priority'), 'high')
   await u.selectOptions(screen.getByLabelText('Clarify depth'), 'few')
   expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'high')
-  expect(api.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', 'few')
+  expect(api.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', { depth: 'few' })
   expect(screen.queryByRole('list', { name: 'Repos' })).toBeNull()
 })
 
@@ -122,6 +123,45 @@ test('Blocked by sends add/remove requests and displays a rejected cycle', async
   expect(api.request).toHaveBeenCalledWith('unblockTask', 'NB-1', 'NB-2')
 })
 
+test('Blocked by dismisses on outside clicks while keeping search and selection usable', async () => {
+  const api = bridge({ ...handlers(), blockTask: () => task(), unblockTask: vi.fn() })
+  const t = task()
+  const other = task({ id: 'NB-2', displayId: 'NB-2', title: 'Offline editing' })
+  render(
+    <>
+      <TaskActionsMenu task={t} />
+      <TaskDetails
+        task={t}
+        tasks={[t, other]}
+        factories={[factory()]}
+        onOpenRun={vi.fn()}
+        onOpenShell={vi.fn()}
+      />
+    </>,
+  )
+  const u = user()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: /^Blocked by/ }))
+  await u.click(screen.getByLabelText('Find a Task'))
+  await u.type(screen.getByLabelText('Find a Task'), 'offline')
+  expect(screen.getByRole('option', { name: /NB-2/ })).toBeTruthy()
+  await u.click(screen.getByLabelText('Priority'))
+  expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
+  expect(screen.queryByLabelText('Find a Task')).toBeNull()
+  expect(
+    api.request.mock.calls.filter(([name]) => name === 'blockTask' || name === 'unblockTask'),
+  ).toEqual([])
+
+  await u.click(screen.getByRole('button', { name: 'Add blocker' }))
+  await u.keyboard('{Escape}')
+  expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: /^Blocked by/ }))
+  await u.click(screen.getByRole('option', { name: /NB-2/ }))
+  expect(api.request).toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-2')
+  expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
+})
+
 test('Task details keeps a saved additional repo selected after the Task update', async () => {
   const a = appState()
   a.state.factories = [
@@ -170,7 +210,7 @@ test('Task details displays saved Priority, menu depth attribution and a success
     return current
   })
   a.handle('setClarifyDepth', async (_id, depth) => {
-    expect(depth).toBe('few')
+    expect(depth).toEqual({ depth: 'few' })
     current = { ...current, clarifyDepth: 'few', clarifyDepthBy: 'human' }
     a.state.tasks = [current, other]
     a.emit({ type: 'task-updated', task: current })
@@ -206,6 +246,6 @@ test('Task details displays saved Priority, menu depth attribution and a success
   await u.click(screen.getByRole('option', { name: /NB-2/ }))
   expect(within(details).getByText('Offline editing')).toBeTruthy()
   expect(screen.getAllByText(/Starts when NB-2 merges/)[0]).toBeTruthy()
-  expect(a.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', 'few')
+  expect(a.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', { depth: 'few' })
   expect(a.request).toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-2')
 })

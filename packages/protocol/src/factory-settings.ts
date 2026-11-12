@@ -58,10 +58,15 @@ export interface CheckInput {
 }
 
 export interface StageSettingsInput {
+  effort?: Effort | null
+
   enabled?: boolean
   gate?: boolean
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
+  leadClosesFailures?: boolean
 }
 
 export interface FactorySettingsChanges {
@@ -77,6 +82,10 @@ export interface FactorySettingsChanges {
 }
 
 export interface StageRowView {
+  effort?: Effort | null
+  inheritedEffort?: Effort
+  inheritedEffortFrom?: LayerKind
+
   id: StageId
   inOrder: boolean
   enabled: boolean
@@ -84,6 +93,9 @@ export interface StageRowView {
   overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
+  leadClosesFailures?: boolean
   from: LayerKind
   factoryFile?: string
   inherited?: { layer: LayerKind; text: string }
@@ -187,6 +199,7 @@ export interface FactorySettingsView {
   tries: CheckTry[]
   agents: AgentRowView[]
   permissions: PermissionMode
+  repoPermissions?: PermissionMode
   maxWorkingRuns?: number
   machineMaxWorkingRuns: number
   notes: string
@@ -224,7 +237,12 @@ export interface SaveSettingsRequest {
   confirmBypass?: boolean
 }
 
+export interface MergeSettingsRequest {
+  receipt: string
+}
+
 export interface SaveSettingsResult {
+  receipt?: string
   pullRequest: { number: number; url: string }
   merged: boolean
   reason?: string
@@ -272,6 +290,10 @@ export interface LibraryChanges {
 }
 
 export interface LibraryStageRow {
+  effort?: Effort | null
+  inheritedEffort?: Effort
+  inheritedEffortFrom?: LayerKind
+
   id: StageId
   inOrder: boolean
   enabled: boolean
@@ -279,6 +301,9 @@ export interface LibraryStageRow {
   overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
+  leadClosesFailures?: boolean
   from: LayerKind
   libraryFile?: string
   defaultText?: string

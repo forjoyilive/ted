@@ -9,16 +9,15 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import {
-  type AnswerRequest,
   type AppLog,
   type AppRef,
   type AppStarter,
   appEnvName,
-  type Comment,
   type DaemonEvent,
   isSimulatorApp,
   type SimulatorSlots,
   type TaskApp,
+  tedEnv,
 } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -26,8 +25,10 @@ import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry } from '../node-entry.ts'
+import { withRunPermissions } from '../permissions.ts'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
+import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.ts'
 import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
@@ -45,6 +46,7 @@ import {
   createSimulators,
   createSimulatorTools,
   type SimulatorApp,
+  type Simulators,
   type SimulatorTools,
 } from './simulators.ts'
 
@@ -118,7 +120,7 @@ export interface Apps {
     ref: AppRef,
     action: 'start' | 'stop',
   ): Promise<{ file?: string; app: TaskApp }>
-  answerSimulator(comment: Comment, request: AnswerRequest, text: string): Promise<Comment>
+  withSimulatorRequest: Simulators['withRequest']
   close(): Promise<void>
 }
 
@@ -152,26 +154,43 @@ interface Runner {
     cwd: string
     env: NodeJS.ProcessEnv
     logBytes: number
+    authority: LaunchAuthority
     shell?: string[]
     lowPriority: boolean
   }): Promise<void>
 }
 
 const processRunner: Runner = {
-  async launch({ dir, run, cwd, env, logBytes, shell, lowPriority }) {
+  async launch({ dir, run, cwd, env, logBytes, shell, authority, lowPriority }) {
     const files = appFiles(dir)
-    const launch: AppLaunchFile = { run, cwd, logBytes, ...(shell !== undefined && { shell }) }
+    const launch: AppLaunchFile = {
+      run,
+      cwd,
+      logBytes,
+      authority,
+      ...(shell !== undefined && { shell }),
+    }
     await writeFile(files.launch, JSON.stringify(launch), { mode: 0o600 })
     await rm(files.records, { force: true })
     await appendFile(files.log, `$ ${run}\n`, { mode: 0o600 })
     const entry = nodeEntry(hostMain, [dir])
     const host = workCommand(entry.command, entry.args, lowPriority)
-    spawn(host.command, host.args, {
+    const child = spawn(host.command, host.args, {
       detached: true,
       stdio: 'ignore',
       cwd: dir,
       env: { ...env, ...markers(), ELECTRON_RUN_AS_NODE: '1' },
-    }).unref()
+    })
+    child.unref()
+    for (let waited = 0; ; waited += 25) {
+      const records = parseAppRecords(await readFile(files.records, 'utf8').catch(() => ''))
+      if (records.some((record) => record.t === 'start')) break
+      if (waited >= 10_000) {
+        child.kill('SIGKILL')
+        throw new RequestError(409, 'The App did not start; TED stopped its host')
+      }
+      await sleep(25)
+    }
   },
 }
 
@@ -184,7 +203,7 @@ const runners: Record<TaskApp['kind'], Runner> = {
 function markers(): Record<string, string> {
   return Object.fromEntries(
     testMarkers.flatMap((name) => {
-      const value = process.env[name]
+      const value = tedEnv(name)
       return value === undefined ? [] : [[name, value]]
     }),
   )
@@ -556,62 +575,66 @@ export function createApps(options: AppsOptions): Apps {
     port: number | undefined,
     extra: Record<string, string>,
   ): Promise<TaskApp> {
-    const dir = dirOf(taskId, repo.name, app.name)
-    const key = keyOf(taskId, repo.name, app.name)
-    const vars = appVars(task, await allocate(taskId, task))
-    const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
-    const values = { ...vars, ...portVars, ...extra }
-    const ownEnv = Object.fromEntries(
-      Object.entries(app.env)
-        .filter(([name]) => name.toUpperCase() !== 'PORT' && !isReservedEnvName(name))
-        .map(([name, value]) => [name, interpolate(value, values)]),
-    )
-    const env = worktreeCommandEnv(
-      repo.env,
-      { ...ownEnv, ...vars, ...portVars, ...extra, TED_TASK: task.displayId },
-      options.env?.() ?? process.env,
-    )
-    const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
-    const sandboxed = await sandboxFor(by === 'human' ? undefined : task.sandbox, task, dir)
-    if ('problem' in sandboxed) {
-      await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
-      throw new RequestError(409, `TED couldn’t start ${app.name}: ${sandboxed.problem}`)
-    }
-    const instance: Instance = {
-      repo: repo.name,
-      name: app.name,
-      kind: app.kind,
-      ...(port !== undefined && { port }),
-      ...(url !== undefined && { url }),
-      ready: app.ready,
-      startedAt: new Date().toISOString(),
-      startedBy: by,
-      ...(sandboxed.shell !== undefined && { sandboxed: true }),
-    }
-    await mkdir(dir, { recursive: true, mode: 0o700 })
-    await writeInstance(dir, instance)
-    await runners[app.kind].launch({
-      dir,
-      run: app.run,
-      cwd: repo.worktree,
-      env: { ...env, ...sandboxed.env },
-      logBytes: options.logBytes ?? appLogBytes,
-      ...(sandboxed.shell !== undefined && { shell: sandboxed.shell }),
-      lowPriority: by !== 'human' && store.settings().lowPriorityWork,
+    return withRunPermissions(store, { taskId }, async () => {
+      task = await options.task(taskId)
+      const dir = dirOf(taskId, repo.name, app.name)
+      const key = keyOf(taskId, repo.name, app.name)
+      const vars = appVars(task, await allocate(taskId, task))
+      const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
+      const values = { ...vars, ...portVars, ...extra }
+      const ownEnv = Object.fromEntries(
+        Object.entries(app.env)
+          .filter(([name]) => name.toUpperCase() !== 'PORT' && !isReservedEnvName(name))
+          .map(([name, value]) => [name, interpolate(value, values)]),
+      )
+      const env = worktreeCommandEnv(
+        repo.env,
+        { ...ownEnv, ...vars, ...portVars, ...extra, TED_TASK: task.displayId },
+        options.env?.() ?? process.env,
+      )
+      const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
+      const sandboxed = await sandboxFor(by === 'human' ? undefined : task.sandbox, task, dir)
+      if ('problem' in sandboxed) {
+        await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
+        throw new RequestError(409, `TED couldn’t start ${app.name}: ${sandboxed.problem}`)
+      }
+      const instance: Instance = {
+        repo: repo.name,
+        name: app.name,
+        kind: app.kind,
+        ...(port !== undefined && { port }),
+        ...(url !== undefined && { url }),
+        ready: app.ready,
+        startedAt: new Date().toISOString(),
+        startedBy: by,
+        ...(sandboxed.shell !== undefined && { sandboxed: true }),
+      }
+      await mkdir(dir, { recursive: true, mode: 0o700 })
+      await writeInstance(dir, instance)
+      await runners[app.kind].launch({
+        dir,
+        run: app.run,
+        cwd: repo.worktree,
+        env: { ...env, ...sandboxed.env },
+        logBytes: options.logBytes ?? appLogBytes,
+        authority: launchAuthority(store),
+        lowPriority: by !== 'human' && store.settings().lowPriorityWork,
+        ...(sandboxed.shell !== undefined && { shell: sandboxed.shell }),
+      })
+      store.appStarted({
+        taskId,
+        repo: repo.name,
+        name: app.name,
+        ...(port !== undefined && { port }),
+        ...(url !== undefined && { url }),
+        by,
+        ...(runId !== undefined && { runId }),
+        restart,
+      })
+      changed(taskId)
+      watch(taskId, key, dir)
+      return toApp(taskId, repo.name, app, instance)
     })
-    store.appStarted({
-      taskId,
-      repo: repo.name,
-      name: app.name,
-      ...(port !== undefined && { port }),
-      ...(url !== undefined && { url }),
-      by,
-      ...(runId !== undefined && { runId }),
-      restart,
-    })
-    changed(taskId)
-    watch(taskId, key, dir)
-    return toApp(taskId, repo.name, app, instance)
   }
 
   async function sandboxFor(
@@ -1027,7 +1050,7 @@ export function createApps(options: AppsOptions): Apps {
         app: toApp(taskId, repo.name, app, instance),
       }
     },
-    answerSimulator: (comment, request, text) => sims.answer(comment, request, text),
+    withSimulatorRequest: (comment, work) => sims.withRequest(comment, work),
     async log(taskId, ref) {
       const { repo, app } = await findListed(taskId, ref)
       const files = appFiles(dirOf(taskId, repo.name, app.name))

@@ -3,7 +3,6 @@ import {
   billingNames,
   type ChatItem,
   type Comment,
-  type ConversationEntry,
   type Run,
   type RunChat,
   type RunMessage,
@@ -25,6 +24,7 @@ import type { PromptPart } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
+import { parsedOutput } from './parsed-output.ts'
 import type { RunManager } from './run-manager.ts'
 import type { OutputKept } from './run-output.ts'
 import type { Steering } from './steering.ts'
@@ -53,18 +53,17 @@ function credentialFrom(account: string | undefined): Billing | undefined {
   return undefined
 }
 
-function reportedCredential(
-  agents: Agents,
-  run: Run,
-  entries: readonly ConversationEntry[],
-): Billing | undefined {
-  const agent = agents.get(run.agent)
-  for (const { line } of entries) {
-    const report = agent.credentialFrom(line)
-    if (report) return report.billing
-  }
-  return undefined
+interface Usage {
+  tokens: number | undefined
+  credential: Billing | undefined
+  cost(model: string | undefined): number | undefined
 }
+
+interface FinishedUsage extends Usage {
+  stamp: string
+}
+
+const finishedUsageKept = 2000
 
 function splitPrompt(prompt: string, preamble: string): { instructions?: string; rest: string } {
   const at = preamble === '' ? -1 : prompt.indexOf(preamble)
@@ -152,7 +151,7 @@ function takeDelivered(
 
 export function chatItems(input: {
   run: Run
-  entries: AgentChatEntry[]
+  entries: readonly AgentChatEntry[]
   messages: readonly RunMessage[]
   interrupts?: readonly { id: string; at: string }[]
   preamble: string
@@ -290,20 +289,6 @@ export function chatItems(input: {
   return merged
 }
 
-function tokensOf(agents: Agents, run: Run, entries: readonly ConversationEntry[]) {
-  const agent = agents.get(run.agent)
-  let added = 0
-  let latestTotal: number | undefined
-  for (const { line } of entries) {
-    const count = agent.tokensFrom(line)
-    if (!count) continue
-    if (count.total) latestTotal = count.input + count.output
-    else added += count.input + count.output
-  }
-  const tokens = latestTotal ?? added
-  return tokens > 0 ? tokens : undefined
-}
-
 export function createConversations(options: {
   store: TedStore
   runs: RunManager
@@ -318,9 +303,14 @@ export function createConversations(options: {
   let subPreamble: Promise<string> | undefined
   const restarting = new Set<string>()
 
+  const finishedUsage = new Map<string, FinishedUsage>()
+
   const requireRun = (runId: string): Run => {
     const run = store.getRun(runId)
-    if (!run) throw new RequestError(404, 'no such Run')
+    if (!run) {
+      finishedUsage.delete(runId)
+      throw new RequestError(404, 'no such Run')
+    }
     return run
   }
 
@@ -335,20 +325,43 @@ export function createConversations(options: {
 
   const steering = options.steering
 
-  const summary = (run: Run, given?: readonly ConversationEntry[]): RunSummary => {
-    const entries = given ?? runs.output.entries(run.id)
-    const tokens = tokensOf(agents, run, entries)
+  const usageOf = (run: Run): Usage => {
+    const read = () => parsedOutput(runs.output, agents, run)
+    if (run.state !== 'finished') {
+      finishedUsage.delete(run.id)
+      const parsed = read()
+      return { tokens: parsed.tokens(), credential: parsed.credential(), cost: parsed.cost }
+    }
+    const stamp = runs.output.stamp(run.id)
+    const kept = finishedUsage.get(run.id)
+    if (kept?.stamp === stamp) return kept
+    const parsed = read()
+    const costs = new Map<string | undefined, number | undefined>()
+    const usage: FinishedUsage = {
+      stamp,
+      tokens: parsed.tokens(),
+      credential: parsed.credential(),
+      cost(model) {
+        if (!costs.has(model)) costs.set(model, read().cost(model))
+        return costs.get(model)
+      },
+    }
+    finishedUsage.delete(run.id)
+    finishedUsage.set(run.id, usage)
+    for (const id of finishedUsage.keys()) {
+      if (finishedUsage.size <= finishedUsageKept) break
+      finishedUsage.delete(id)
+    }
+    return usage
+  }
+
+  const summary = (run: Run): RunSummary => {
+    const usage = usageOf(run)
+    const tokens = usage.tokens
     const billing =
-      reportedCredential(agents, run, entries) ??
-      credentialFrom(health.list().find((h) => h.agent === run.agent)?.account)
+      usage.credential ?? credentialFrom(health.list().find((h) => h.agent === run.agent)?.account)
     const credential = billing === undefined ? undefined : billingNames[billing]
-    const cost =
-      billing === 'api-key'
-        ? agents.get(run.agent).costOf(
-            entries.map((e) => e.line),
-            run.model,
-          )
-        : undefined
+    const cost = billing === 'api-key' ? usage.cost(run.model) : undefined
     const subAgent = run.parentRunId !== undefined
     const paused = run.state === 'finished' ? undefined : store.agentPauses()[run.agent]
     return {
@@ -356,7 +369,13 @@ export function createConversations(options: {
       ...(run.taskId !== undefined && { taskId: run.taskId }),
       ...(subAgent && { parentRunId: run.parentRunId }),
       name: run.name ?? (run.taskId !== undefined ? 'Task Lead' : 'Run'),
-      role: subAgent ? 'sub-agent' : run.taskId !== undefined ? 'lead' : 'run',
+      role: store.sideChats.forRun(run.id)
+        ? 'side-chat'
+        : subAgent
+          ? 'sub-agent'
+          : run.taskId !== undefined
+            ? 'lead'
+            : 'run',
       agent: run.agent,
       ...(run.model !== undefined && { model: run.model }),
       ...(run.effort !== undefined && { effort: run.effort }),
@@ -376,7 +395,7 @@ export function createConversations(options: {
   return {
     async chat(runId) {
       const run = requireRun(runId)
-      const entries = runs.output.entries(runId)
+      const entries = parsedOutput(runs.output, agents, run).chat.entries()
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
       const coordinated = store.coordinators.forRun(runId) !== undefined
@@ -395,13 +414,13 @@ export function createConversations(options: {
           : undefined
       const kept = runs.output.kept(runId)
       return {
-        run: summary(run, entries),
+        run: summary(run),
         items: withPermissions(
           withOutputNote(
             kept,
             chatItems({
               run,
-              entries: agents.get(run.agent).chat(entries, run.cwd),
+              entries,
               messages: store.runMessages(runId),
               interrupts: store.runInterrupts(runId),
               preamble:
@@ -415,14 +434,7 @@ export function createConversations(options: {
               }),
             }),
           ),
-          run.taskId === undefined
-            ? []
-            : store
-                .listComments(run.taskId)
-                .filter(
-                  (c) =>
-                    c.kind === 'permission' && c.author.kind === 'run' && c.author.runId === run.id,
-                ),
+          store.permissionComments(run.id),
         ),
       }
     },
@@ -490,6 +502,8 @@ export function createConversations(options: {
       return store.taskRunList(task.id).map((run) => summary(run))
     },
     async send(runId, text, { interrupt = false } = {}) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId) && options.coordinators)
         return options.coordinators.send(runId, text)
       const run = requireRun(runId)
@@ -502,6 +516,8 @@ export function createConversations(options: {
       return steering.send(runId, text, { interrupt })
     },
     async stopTurn(runId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const c = store.coordinators.forRun(runId)
       if (c && options.coordinators) {
         await options.coordinators.stop(c.factoryId)
@@ -512,12 +528,16 @@ export function createConversations(options: {
       return summary(requireRun(runId))
     },
     sendNow: (runId, messageId) => {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId))
         throw new RequestError(409, 'Coordinator messages wait for their queued turn')
       requireRun(runId)
       return steering.sendNow(runId, messageId)
     },
     deleteMessage(runId, messageId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const coordinator = store.coordinators.forRun(runId)
       if (coordinator && coordinator.runId !== runId)
         throw new RequestError(
@@ -535,6 +555,8 @@ export function createConversations(options: {
       return steering.boundary(runId)
     },
     async restart(runId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId))
         throw new RequestError(409, 'Use Retry in Coordinator to continue through the Run queue')
       const run = requireRun(runId)
@@ -560,6 +582,8 @@ export function createConversations(options: {
       }
     },
     async stop(runId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const c = store.coordinators.forRun(runId)
       if (c && options.coordinators) {
         await options.coordinators.stop(c.factoryId)

@@ -2,13 +2,10 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
-import {
-  acquireFullRun,
-  heldLockEnv,
-  waitingMessage,
-} from '../packages/daemon/test/support/suite-lock.ts'
+import { heldLockEnv, waitingMessage } from '../packages/daemon/test/support/suite-lock.ts'
 import { recordFailureRun } from './check-history.ts'
 import { type CheckMeasurement, measureCheck } from './check-measurement.ts'
+import { reportedTestLock } from './test-reporting.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cacheDir = path.join(root, 'node_modules', '.cache')
@@ -35,6 +32,31 @@ export function checkedCommits(text: string): Set<string> {
 export function hasPassed(commit: string): boolean {
   const file = checkedFile()
   return existsSync(file) && checkedCommits(readFileSync(file, 'utf8')).has(commit)
+}
+
+const appTests = 'packages/app/test'
+
+export function onlyAppChanged(files: readonly string[]): boolean {
+  return (
+    files.some((file) => file.startsWith('packages/app/')) &&
+    files.every(
+      (file) => /^packages\/app\/(src|test)\//.test(file) || /^(docs\/|[^/]+\.md$)/.test(file),
+    )
+  )
+}
+
+function changedSinceMain(): string[] {
+  try {
+    if (git('branch', '--show-current') === 'main') return []
+    const lines = (text: string) => text.split('\n').filter((line) => line !== '')
+    return [
+      ...lines(git('diff', '--name-only', git('merge-base', 'HEAD', 'origin/main'), 'HEAD')),
+      ...lines(git('diff', '--name-only', 'HEAD')),
+      ...lines(git('ls-files', '--others', '--exclude-standard')),
+    ]
+  } catch {
+    return []
+  }
 }
 
 type Step = { title: string; ok: boolean; output: string }
@@ -284,42 +306,49 @@ function readReport(project: string, exitedOk: boolean): ProjectReport {
   return parseReport(text, project, exitedOk)
 }
 
-function recordTimes(reports: JsonReport[]): void {
+function recordTimes(reports: JsonReport[], save: boolean): void {
   const times = fileTimes(reports)
   const files = Object.entries(times).sort(([, a], [, b]) => b - a)
   if (files.length === 0) return
-  writeFileSync(
-    timesFile,
-    `${JSON.stringify({ at: new Date().toISOString(), files: Object.fromEntries(files) }, null, 2)}\n`,
+  if (save)
+    writeFileSync(
+      timesFile,
+      `${JSON.stringify({ at: new Date().toISOString(), files: Object.fromEntries(files) }, null, 2)}\n`,
+    )
+  console.log(
+    save
+      ? `\n== Slowest test files (all times in ${path.relative(root, timesFile)})`
+      : '\n== Slowest test files',
   )
-  console.log(`\n== Slowest test files (all times in ${path.relative(root, timesFile)})`)
   for (const [file, ms] of files.slice(0, 10)) {
     console.log(`${(ms / 1000).toFixed(1).padStart(7)} s  ${file}`)
   }
 }
 
-export async function runChecks(): Promise<boolean> {
+export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
   const measurement = measureCheck(process.env.TED_CHECK_EVIDENCE_DIR, cacheDir)
   let unlock: (() => Promise<void>) | undefined
   let ok = false
   try {
+    measurement?.start('lock')
+    unlock = await reportedTestLock('check', {
+      onWait: (pid) => console.log(waitingMessage(pid)),
+    })
+    measurement?.end('lock')
     console.log('\n== Install')
     measurement?.start('install')
-    const installed =
-      spawnSync('pnpm', ['install', '--frozen-lockfile'], {
-        cwd: root,
-        stdio: 'inherit',
-      }).status === 0
+    // pnpm asks before reinstalling node_modules from scratch, and the run holds the test lock
+    // until someone answers; the setting and the closed stdin stop any question.
+    const install = ['install', '--frozen-lockfile', '--config.confirm-modules-purge=false']
+    const stdio = ['ignore', 'inherit', 'inherit'] as const
+    const installed = spawnSync('pnpm', install, { cwd: root, stdio: [...stdio] }).status === 0
     measurement?.end('install')
     if (!installed) {
       console.error('check: Install failed')
       return false
     }
     mkdirSync(cacheDir, { recursive: true })
-    measurement?.start('lock')
-    unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
-    measurement?.end('lock')
-    ok = await checkInParallel(measurement)
+    ok = await checkInParallel(appOnly, measurement)
     return ok
   } finally {
     try {
@@ -330,7 +359,7 @@ export async function runChecks(): Promise<boolean> {
   }
 }
 
-async function checkInParallel(measurement?: CheckMeasurement): Promise<boolean> {
+async function checkInParallel(appOnly: boolean, measurement?: CheckMeasurement): Promise<boolean> {
   for (const group of testGroups) {
     rmSync(reportFile(group.project), { force: true })
     rmSync(retryFile(group.project), { force: true })
@@ -363,6 +392,7 @@ async function checkInParallel(measurement?: CheckMeasurement): Promise<boolean>
         path.join(root, 'scripts', 'retry-reporter.ts'),
         '--outputFile.json',
         reportFile(group.project),
+        ...(appOnly ? [appTests] : []),
       ],
       (line) => console.log(`${tag} ${line}`),
       { TED_RETRY_REPORT: retryFile(group.project) },
@@ -395,7 +425,10 @@ async function checkInParallel(measurement?: CheckMeasurement): Promise<boolean>
     .filter((step, index) => !step.ok || (index >= 2 && !reports[index - 2]?.ok))
     .map((step) => step.title)
   try {
-    recordTimes(reports.map((result) => result.report))
+    recordTimes(
+      reports.map((result) => result.report),
+      !appOnly,
+    )
   } catch (error) {
     console.error(`check: Could not save test timings: ${String(error)}`)
     failed.push('Timing reporting')
@@ -422,11 +455,30 @@ async function checkInParallel(measurement?: CheckMeasurement): Promise<boolean>
   return failed.length === 0
 }
 
-export async function checkAndRecord(): Promise<boolean> {
+export function runRefusal(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!env.TED_RUN) return undefined
+  return 'A Run can’t run pnpm check. It runs every test, takes the whole machine and makes every other Run wait; only the human or a merge runs it. Run pnpm typecheck, pnpm lint and the test files your change touches: pnpm vitest run <files>.'
+}
+
+export async function checkAndRecord({ all = false } = {}): Promise<boolean> {
+  const refusal = runRefusal()
+  if (refusal) {
+    console.error(`check: ${refusal}`)
+    return false
+  }
   const clean = git('status', '--porcelain') === ''
   const commit = git('rev-parse', 'HEAD')
-  if (!(await runChecks())) return false
-  if (clean && git('status', '--porcelain') === '' && git('rev-parse', 'HEAD') === commit) {
+  const appOnly = !all && onlyAppChanged(changedSinceMain())
+  if (appOnly)
+    console.log(
+      `\n== Only packages/app/src and packages/app/test changed since origin/main: running the tests in ${appTests} alone. pnpm check --all runs every test.`,
+    )
+  if (!(await runChecks({ appOnly }))) return false
+  if (appOnly) {
+    console.log(
+      '\nThe app’s checks passed. The daemon, CLI, protocol and script tests did not run, so nothing was recorded.',
+    )
+  } else if (clean && git('status', '--porcelain') === '' && git('rev-parse', 'HEAD') === commit) {
     appendFileSync(checkedFile(), `${commit}\n`)
     console.log(
       `\nAll checks passed on ${commit.slice(0, 7)}. A release of this commit can skip them.`,
@@ -439,4 +491,5 @@ export async function checkAndRecord(): Promise<boolean> {
   return true
 }
 
-if (import.meta.main) process.exit((await checkAndRecord()) ? 0 : 1)
+if (import.meta.main)
+  process.exit((await checkAndRecord({ all: process.argv.includes('--all') })) ? 0 : 1)

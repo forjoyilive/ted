@@ -30,10 +30,26 @@ describe('TedStore', () => {
       expect(first.displayId).toBe('DEV-1')
       expect(second.displayId).toBe('DEV-2')
       expect(first.id).not.toBe(second.id)
+      expect(store.getTask(first.displayId)).toEqual(store.getTask(first.id))
+      expect(store.getTask(second.displayId)).toEqual(store.getTask(second.id))
+      expect(store.getTask('DEV-01')).toBeUndefined()
+      expect(store.getTask('dev-1')).toBeUndefined()
+      expect(store.getTask('DEV-999')).toBeUndefined()
       expect(store.listTasks().map((t) => [t.displayId, t.title])).toEqual([
         ['DEV-1', 'Fix login'],
         ['DEV-2', 'Add dark mode'],
       ])
+      const factory = store.addFactory({
+        key: 'NB',
+        name: 'Notebooks',
+        repo: 'acme/notes',
+        cloneUrl: path.join(dir, 'notes.git'),
+        defaultBranch: 'main',
+      })
+      const other = await store.createTask({ title: 'Add export', factoryId: factory.id })
+      expect(other.displayId).toBe('NB-1')
+      expect(store.getTask('NB-1')).toEqual(store.getTask(other.id))
+      expect(store.getTask('DEV-1')).toEqual(store.getTask(first.id))
     } finally {
       await store.close()
     }
@@ -127,10 +143,34 @@ describe('TedStore', () => {
     }
   })
 
+  test('persists steering release intent without exposing it in the public Run', async () => {
+    let store = await openStore({ directory: dir })
+    try {
+      store.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hi', cwd: '/tmp' })
+      const message = store.queueRunMessage({ runId: 'run-1', text: 'Held note' })
+      const hold = store.recordTurnInterrupted('run-1', true)
+      const release = { messageIds: [message.id], first: message.id, holdId: hold.id }
+      store.releaseRunSteering('run-1', release)
+      await store.persisted()
+      await store.close()
+      store = await openStore({ directory: dir })
+      expect(store.runSteeringRelease('run-1')).toEqual(release)
+      expect(store.getRun('run-1')).not.toHaveProperty('steeringRelease')
+      expect(store.listRuns()[0]).not.toHaveProperty('steeringRelease')
+      const nextHold = store.recordTurnInterrupted('run-1', true)
+      expect(store.runSteeringRelease('run-1')?.holdId).not.toBe(nextHold.id)
+    } finally {
+      await store.close()
+    }
+  })
+
   test('an event log that holds v2.RunOutputRead lines loads, and its lines stay out of the state database', async () => {
     const first = await openStore({ directory: dir })
     first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })
-    first.recordRunOutput('run-1', { toOffset: 40, output: {} })
+    expect(first.recordRunOutput('run-1', { toOffset: 20, output: {} })).toBe(false)
+    expect(first.runReadOffset('run-1')).toBe(20)
+    expect(first.recordRunOutput('run-1', { toOffset: 40, state: 'idle' })).toBe(true)
+    expect(first.lastOutputAt('run-1')).toBeDefined()
     await first.persisted()
     await first.close()
     const old = {
@@ -158,6 +198,11 @@ describe('TedStore', () => {
     try {
       expect(second.runReadOffset('run-1')).toBe(60)
       expect(second.lastOutputAt('run-1')).toBe('2026-01-02T03:04:06.000Z')
+      second.holdRunOutput('run-1', { from: 40, toOffset: 90 })
+      expect(second.runReadOffset('run-1')).toBe(60)
+      second.holdRunOutput('run-1', { from: 60, toOffset: 90 })
+      expect(second.runReadOffset('run-1')).toBe(90)
+      expect(second.savedReadOffset('run-1')).toBe(60)
     } finally {
       await second.close()
     }
@@ -319,6 +364,65 @@ describe('TedStore', () => {
       const statuses = seen.flatMap((e) => (e.type === 'task-updated' ? [e.task.status?.kind] : []))
       expect(statuses).toEqual(['working', 'waiting-on-you', undefined])
       expect(store.getTask(task.id)?.runs).toEqual([])
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('getTask finds a Task by its display ID, per Factory, and nothing for an unknown ref', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const factory = (key: string) =>
+        store.createFactory({
+          key,
+          name: key,
+          repos: [],
+          defaultBranch: 'main',
+          showTutorial: false,
+        })
+      const other = factory('OTHER')
+      const dashed = factory('MY-APP')
+      const devOne = await store.createTask({ title: 'Dev one' })
+      const devTwo = await store.createTask({ title: 'Dev two' })
+      const otherOne = await store.createTask({ factoryId: other.id, title: 'Other one' })
+      const otherTwo = await store.createTask({ factoryId: other.id, title: 'Other two' })
+      const dashedOne = await store.createTask({ factoryId: dashed.id, title: 'Dashed one' })
+
+      expect(store.getTask('DEV-1')).toEqual(store.getTask(devOne.id))
+      expect(store.getTask('DEV-1')).toMatchObject({ id: devOne.id, displayId: 'DEV-1' })
+      expect(store.getTask('DEV-2')?.id).toBe(devTwo.id)
+      expect([otherOne.displayId, otherTwo.displayId]).toEqual(['OTHER-2', 'OTHER-3'])
+      expect(store.getTask('OTHER-2')?.id).toBe(otherOne.id)
+      expect(store.getTask('OTHER-3')?.id).toBe(otherTwo.id)
+      expect(dashedOne.displayId).toBe('MY-APP-2')
+      expect(store.getTask('MY-APP-2')?.id).toBe(dashedOne.id)
+
+      for (const ref of [
+        'DEV-3',
+        'OTHER-1',
+        'NOPE-1',
+        'DEV-01',
+        'DEV-1x',
+        'DEV- 1',
+        'DEV-',
+        'DEV',
+      ]) {
+        expect(store.getTask(ref), ref).toBeUndefined()
+      }
+      for (const ref of ['APP-2', 'dev-1', '-1', '1', '']) {
+        expect(store.getTask(ref), ref).toBeUndefined()
+      }
+
+      store.deleteTask(otherOne.id)
+      expect(store.getTask('OTHER-2')).toBeUndefined()
+      expect(
+        (await store.createTask({ factoryId: other.id, title: 'Other three' })).displayId,
+      ).toBe('OTHER-4')
+
+      store.removeFactory(other.id)
+      expect(store.getTask('OTHER-3')).toBeUndefined()
+      expect(store.getTask('?-3')?.id).toBe(otherTwo.id)
+      expect(store.getTask('DEV-2')?.id).toBe(devTwo.id)
     } finally {
       await store.close()
     }

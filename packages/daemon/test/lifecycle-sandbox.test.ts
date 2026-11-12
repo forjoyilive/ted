@@ -13,6 +13,8 @@ import {
   waitUntil,
 } from './helpers.ts'
 
+import { observe } from './support/execution-observations.ts'
+
 let home: string
 let cleanup: () => Promise<void>
 let origin: string
@@ -33,7 +35,13 @@ afterEach(async () => {
   else process.env.TED_SANDBOX_BIN = savedSandbox
 })
 
-async function start(setup: string, teardown: string, permissions = 'auto', checks = false) {
+async function start(
+  setup: string,
+  teardown: string,
+  permissions = 'auto',
+  checks = false,
+  consent = permissions === 'bypass',
+) {
   await commitToOrigin(home, {
     '.gitignore': 'stub-*\n',
     '.ted/workflow.yaml': [
@@ -64,7 +72,12 @@ async function start(setup: string, teardown: string, permissions = 'auto', chec
       return res.body
     },
   }
-  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  if (consent)
+    await client.ok('PUT', `/factories/${factory.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
   const task = await client.ok<Task>('POST', '/tasks', {
     factory: 'NB',
     title: JSON.stringify({
@@ -97,6 +110,7 @@ const log = (kind: string) =>
 test.runIf(process.platform === 'darwin')(
   'setup and agent-edited teardown use private caches and cannot read or write the rest of TED_HOME',
   async () => {
+    process.env.TED_SANDBOX_BIN = '/usr/bin/sandbox-exec'
     const outside = path.join(home, 'escaped')
     const secret = path.join(home, 'private-secret')
     await writeFile(secret, 'secret')
@@ -142,6 +156,14 @@ test.runIf(process.platform === 'darwin')(
     await expect(readFile(outside)).rejects.toThrow()
     expect(await readFile(secret, 'utf8')).toBe('secret')
     await expect(readdir(path.join(home, 'sandbox', 'NB-1'))).rejects.toThrow()
+    await observe('lifecycle-native-sandbox', {
+      platform: process.platform,
+      nativeProgram: '/usr/bin/sandbox-exec',
+      setupAndTeardown: 'passed',
+      outOfRootWriteRefused: true,
+      privateReadRefused: true,
+      worktreeAndCacheWritesAllowed: true,
+    })
   },
 )
 
@@ -194,7 +216,7 @@ test.each([false, true])(
   },
 )
 
-test('Bypass keeps lifecycle commands unsandboxed even when no sandbox is available', async () => {
+test('confirmed local Bypass keeps lifecycle commands unsandboxed even when no sandbox is available', async () => {
   process.env.TED_SANDBOX_BIN = path.join(home, 'no-such-sandbox')
   const marker = path.join(home, 'outside-worktree')
   const { client, task } = await start(
@@ -207,6 +229,37 @@ test('Bypass keeps lifecycle commands unsandboxed even when no sandbox is availa
   expect(await readFile(marker, 'utf8')).toBe('setup\nteardown\n')
   const banners = await client.ok<Banner[]>('GET', '/banners')
   expect(banners.some((b) => b.problem === 'sandbox-unavailable')).toBe(false)
+})
+
+test('repo Bypass cannot remove the lifecycle sandbox without local consent', async () => {
+  process.env.TED_SANDBOX_BIN = path.join(home, 'no-such-sandbox')
+  const marker = path.join(home, 'outside-worktree')
+  const { client, task } = await start(
+    `echo escaped > '${marker}'`,
+    `echo escaped > '${marker}'`,
+    'bypass',
+    false,
+    false,
+  )
+  expect(task.repos[0]?.setup?.state).toBe('failed')
+  const archived = await archive(client, task)
+  expect(archived.repos[0]?.removed?.teardown?.outcome).toBe('failed')
+  await expect(readFile(marker)).rejects.toThrow()
+})
+
+test('revoking local Bypass requires a sandbox for the next lifecycle command', async () => {
+  process.env.TED_SANDBOX_BIN = path.join(home, 'no-such-sandbox')
+  const marker = path.join(home, 'outside-worktree')
+  const { client, task } = await start(
+    `echo setup > '${marker}'`,
+    `echo teardown >> '${marker}'`,
+    'bypass',
+  )
+  expect(task.repos[0]?.setup?.state).toBe('passed')
+  await client.ok('PUT', `/factories/${task.factoryId}/permissions`, { mode: 'auto' })
+  const archived = await archive(client, task)
+  expect(archived.repos[0]?.removed?.teardown?.outcome).toBe('failed')
+  expect(await readFile(marker, 'utf8')).toBe('setup\n')
 })
 
 test.runIf(process.platform === 'darwin')(

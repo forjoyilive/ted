@@ -1,4 +1,4 @@
-import type { Factory, Task } from '@ted/protocol'
+import type { Factory, ListGroup, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import {
   defaultView,
@@ -81,6 +81,7 @@ describe('defaults', () => {
       'stage',
       'status',
       'updated',
+      'started',
     ])
     expect(defaultView('all')).toMatchObject({ sort: 'manual', group: 'stage' })
     expect(shownColumns(defaultView('all'))).toContain('factory')
@@ -312,5 +313,41 @@ describe('Show all from the Board’s Done column', () => {
     expect(view).toMatchObject({ sort: 'updated', group: 'none', filters: { stages: ['done'] } })
     const shown = sortTasks(filterTasks(done, view.filters), view.sort)
     expect(shown.map((t) => t.displayId)).toEqual(['NB-2', 'NB-1'])
+  })
+})
+
+describe('empty groups', () => {
+  test.each(['stage', 'factory', 'status', 'priority'] as ListGroup[])(
+    '%s groups stay visible after all Tasks are filtered out when enabled',
+    (group) => {
+      const view = { ...defaultView('all'), group, showEmptyGroups: true }
+      const filtered = filterTasks([task({ displayId: 'NB-90' })], {}, 'no match')
+      const groups = groupTasks(filtered, view, factories)
+      expect(groups.length).toBeGreaterThan(0)
+      expect(groups.every((g) => g.tasks.length === 0)).toBe(true)
+      expect(groupTasks(filtered, { ...view, showEmptyGroups: false }, factories)).toEqual([])
+      expect(groupTasks(filtered, { ...defaultView('all'), group }, factories)).toEqual([])
+    },
+  )
+
+  test('all Priority groups appear in order beside populated groups', () => {
+    const view = { ...defaultView('all'), group: 'priority' as const, showEmptyGroups: true }
+    const tasks = [task({ displayId: 'NB-91', priority: 'high' })]
+    expect(groupTasks(tasks, view, factories).map((g) => [g.key, g.tasks.length])).toEqual([
+      ['urgent', 0],
+      ['high', 1],
+      ['medium', 0],
+      ['low', 0],
+      ['none', 0],
+    ])
+    expect(
+      groupTasks(tasks, { ...view, showEmptyGroups: false }, factories).map((g) => g.key),
+    ).toEqual(['high'])
+  })
+
+  test('None never adds an empty group', () => {
+    expect(
+      groupTasks([], { ...defaultView('all'), group: 'none', showEmptyGroups: true }, factories),
+    ).toEqual([])
   })
 })

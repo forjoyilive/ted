@@ -101,8 +101,12 @@ labels; the initial six attempts must remain in the report.
   A pass on retry makes `reliablePass` false even if `pnpm check` exited zero.
   Read the raw artifacts before making the final acceptance claim.
 
-`totalMs` measures installation through Check reporting, before evidence copying
-and lock release. `lockWaitMs` covers acquisition of both the full-suite lock and
+`totalMs` measures Check startup through reporting, before evidence copying
+and lock release. In the frozen measured source, installation preceded lock
+acquisition. After the required merge from main, the lock is acquired before
+installation, preserving main’s protection against concurrent dependency changes;
+its wait is still recorded separately. This does not change the six archived
+measurements. `lockWaitMs` covers acquisition of both the full-suite lock and
 all slots. `workMs = totalMs - lockWaitMs` includes installation, typecheck, lint,
 test startup/execution/teardown and reporting. Use `workMs <= 180000` for the
 agreed full-Check speed target; also publish the raw total and lock wait. Never

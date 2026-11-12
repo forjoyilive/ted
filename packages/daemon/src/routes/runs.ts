@@ -1,52 +1,72 @@
-import path from 'node:path'
-import { stripVTControlCharacters } from 'node:util'
 import {
-  type AgentKind,
-  agentKinds,
-  type Effort,
-  efforts,
-  isModelName,
-  type SendRunMessageRequest,
-  type SendSubAgentRequest,
-  type StartDevRunRequest,
-  type StartSubAgentRequest,
+  parseSendRunMessageRequest,
+  parseSendSubAgentRequest,
+  parseSideChatMessageRequest,
+  parseStartDevRunRequest,
+  parseStartSubAgentRequest,
 } from '@ted/protocol'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from '../diagnostics.ts'
 import { RequestError as HttpError } from '../errors.ts'
-import { type Route, readJson } from './route.ts'
+import { jsonRoute, type Route } from './route.ts'
 
 const maxWaitMs = 60_000
 const defaultWaitMs = 25_000
 
 export const runRoutes: Route[] = [
   {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/side-chat$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.get(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [201, await sideChats.open(id)],
+  },
+  jsonRoute(parseSideChatMessageRequest, {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/messages$/,
+    async handle({ body, params: [id = ''] }, { sideChats }) {
+      return [201, await sideChats.send(id, body.text)]
+    },
+  }),
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/stop$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.stop(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/retry$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.retry(id)],
+  },
+
+  jsonRoute(parseStartSubAgentRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/sub-agents$/,
     runToken: true,
-    async handle({ req, params: [ref = ''], caller }, { tasks }) {
-      return [201, await tasks.startSubAgent(ref, caller, subAgentRequest(await readJson(req)))]
+    async handle({ body, params: [ref = ''], caller }, { tasks }) {
+      return [201, await tasks.startSubAgent(ref, caller, body)]
     },
-  },
+  }),
   {
     method: 'GET',
     path: /^\/sub-agents\/([^/?]+)\/wait(?:\?timeoutMs=(\d+))?$/,
+    waits: true,
     runToken: true,
     async handle({ params: [id = '', timeout = ''], caller }, { tasks }) {
       const timeoutMs = timeout === '' ? defaultWaitMs : Math.min(Number(timeout), maxWaitMs)
       return [200, await tasks.waitForSubAgent(id, caller, timeoutMs)]
     },
   },
-  {
+  jsonRoute(parseSendSubAgentRequest, {
     method: 'POST',
     path: /^\/sub-agents\/([^/]+)\/messages$/,
     runToken: true,
-    async handle({ req, params: [id = ''], caller }, { tasks }) {
-      const body = (await readJson(req)) as Partial<SendSubAgentRequest> | null
-      const text = typeof body?.text === 'string' ? body.text.trim() : ''
-      if (text === '') throw new HttpError(400, 'text is required')
-      return [200, await tasks.sendSubAgent(id, caller, text)]
+    async handle({ body, params: [id = ''], caller }, { tasks }) {
+      return [200, await tasks.sendSubAgent(id, caller, body.text)]
     },
-  },
+  }),
   {
     method: 'POST',
     path: /^\/sub-agents\/([^/]+)\/stop$/,
@@ -79,41 +99,26 @@ export const runRoutes: Route[] = [
       return [200, await readRunOutput(home, id)]
     },
   },
-  {
+  jsonRoute(parseStartDevRunRequest, {
     method: 'POST',
     path: /^\/dev\/runs$/,
-    async handle({ req }, { runs, agents, disk }) {
+    async handle({ body }, { runs, agents, disk }) {
       if (disk.held()) throw new HttpError(507, 'The disk is full, so TED isn’t starting new Runs')
-      const body = (await readJson(req)) as Partial<StartDevRunRequest> | null
-      const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
-      const cwd = typeof body?.cwd === 'string' ? body.cwd : ''
-      const agent = body?.agent ?? agents.defaultLead()
-      if (prompt === '') throw new HttpError(400, 'prompt is required')
-      if (!path.isAbsolute(cwd)) throw new HttpError(400, 'cwd must be an absolute path')
-      if (!agentKinds.includes(agent as AgentKind)) {
-        throw new HttpError(400, 'agent must be claude or codex')
-      }
-      return [201, await runs.start({ agent, prompt, cwd })]
+      return [201, await runs.start({ ...body, agent: body.agent ?? agents.defaultLead() })]
     },
-  },
+  }),
   {
     method: 'GET',
     path: /^\/runs\/([^/]+)\/chat$/,
     handle: async ({ params: [id = ''] }, { conversations }) => [200, await conversations.chat(id)],
   },
-  {
+  jsonRoute(parseSendRunMessageRequest, {
     method: 'POST',
     path: /^\/runs\/([^/]+)\/messages$/,
-    async handle({ req, params: [id = ''] }, { conversations }) {
-      const body = (await readJson(req)) as Partial<SendRunMessageRequest> | null
-      const text = typeof body?.text === 'string' ? body.text.trim() : ''
-      if (text === '') throw new HttpError(400, 'text is required')
-      if (body?.interrupt !== undefined && typeof body.interrupt !== 'boolean') {
-        throw new HttpError(400, 'interrupt must be true or false')
-      }
-      return [201, await conversations.send(id, text, { interrupt: body?.interrupt === true })]
+    async handle({ body, params: [id = ''] }, { conversations }) {
+      return [201, await conversations.send(id, body.text, { interrupt: body.interrupt === true })]
     },
-  },
+  }),
   {
     method: 'POST',
     path: /^\/runs\/([^/]+)\/messages\/([^/]+)\/send-now$/,
@@ -191,39 +196,3 @@ export const runRoutes: Route[] = [
     },
   },
 ]
-
-function subAgentRequest(body: unknown): StartSubAgentRequest {
-  const input = (body ?? {}) as Partial<Record<keyof StartSubAgentRequest, unknown>>
-  const prompt = typeof input.prompt === 'string' ? input.prompt : ''
-  if (prompt.trim() === '') throw new HttpError(400, 'the prompt file is empty')
-  const { agent, model, effort, name, ownWorktree, reviewer } = input
-  if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-    throw new HttpError(400, 'agent must be claude or codex')
-  }
-  if (model !== undefined && !isModelName(model)) {
-    throw new HttpError(400, 'model must be a model name, such as opus or gpt-5.5')
-  }
-  if (effort !== undefined && !efforts.includes(effort as Effort)) {
-    throw new HttpError(400, `effort must be one of ${efforts.join(', ')}`)
-  }
-  if (name !== undefined && typeof name !== 'string') throw new HttpError(400, 'name must be text')
-  if (ownWorktree !== undefined && typeof ownWorktree !== 'boolean') {
-    throw new HttpError(400, 'ownWorktree must be true or false')
-  }
-  if (reviewer !== undefined && typeof reviewer !== 'boolean') {
-    throw new HttpError(400, 'reviewer must be true or false')
-  }
-  return {
-    prompt,
-    ...(agent !== undefined && { agent: agent as AgentKind }),
-    ...(model !== undefined && { model }),
-    ...(effort !== undefined && { effort: effort as Effort }),
-    ...(typeof name === 'string' && name.trim() !== '' && { name: oneLine(name) }),
-    ...(ownWorktree === true && { ownWorktree }),
-    ...(reviewer === true && { reviewer }),
-  }
-}
-
-function oneLine(text: string): string {
-  return stripVTControlCharacters(text).replace(/\s+/g, ' ').trim()
-}

@@ -1,7 +1,6 @@
 import type {
   AppInput,
   CheckInput,
-  CheckTry,
   Factory,
   FactorySettingsView,
   RepoCheck,
@@ -15,12 +14,22 @@ import type {
   Task,
 } from '@ted/protocol'
 import { appKinds } from '@ted/protocol/factory-settings'
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
-import { useConnection } from '../data.ts'
+import { Skeleton } from '../components/Loading.tsx'
+import { Select } from '../components/Select.tsx'
+import { useEventValue } from '../data.ts'
 import {
   editedFields,
   missingCopies,
@@ -44,11 +53,13 @@ import {
   Toggle,
   WorkflowSection,
 } from './FactorySettingsSections.tsx'
+import { LinearIntakeSection } from './LinearIntakeSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
 
 const sections = [
+  ['linear-intake', 'Linear intake'],
   ['repos', 'Repos'],
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
@@ -83,73 +94,74 @@ export function FactorySettings({
   onRemoveFactory,
   onOpenTask,
 }: FactorySettingsProps) {
-  const [view, setView] = useState<FactorySettingsView>()
   const [loadError, setLoadError] = useState<string>()
   const [draft, setDraft] = useState<SettingsDraft>()
   const [base, setBase] = useState<{ draft: SettingsDraft; version: string }>()
-  const [tries, setTries] = useState<CheckTry[]>([])
   const [reviewing, setReviewing] = useState(false)
   const [saved, setSaved] = useState<SaveSettingsResult>()
-  const [home, setHome] = useState<string>()
+  const [merging, setMerging] = useState(false)
+  const [mergeError, setMergeError] = useState<string>()
+  const mergeBusy = useRef(false)
   const [setupError, setSetupError] = useState<string>()
   const pendingFolders = useRef(new Map<string, string>())
-  const { epoch } = useConnection()
   const scroller = useRef<HTMLDivElement>(null)
   const started = useRef(false)
-
-  const load = useCallback(async () => {
-    try {
-      const loaded = await ted.factorySettings(factory.id)
-      setView(loaded)
-      setTries(loaded.tries)
-      setLoadError(undefined)
-      return loaded
-    } catch (failure) {
-      setLoadError(readableError(failure))
-      return undefined
-    }
-  }, [factory.id])
+  const savedNotice = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!saved) return
+    savedNotice.current?.focus({ preventScroll: true })
+    if (scroller.current) scroller.current.scrollTop = 0
+  }, [saved])
 
   const restart = useCallback((from: FactorySettingsView) => {
     setBase({ draft: settingsDraft(from), version: from.version })
     setDraft(settingsDraft(from))
   }, [])
 
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type !== 'check-try-updated' || event.checkTry.factoryId !== factory.id) return
-        const next = event.checkTry
-        setTries((current) => [...current.filter((t) => t.name !== next.name), next])
-      }),
-    [factory.id],
-  )
-
-  useEffect(() => {
-    void epoch
-    void load().then((loaded) => {
+  const driftRef = useRef(0)
+  const { value: view, refresh: load } = useEventValue<FactorySettingsView | undefined>({
+    initial: undefined,
+    key: factory.id,
+    load: () => ted.factorySettings(factory.id),
+    event: (event) => {
+      if (event.type === 'check-try-updated' && event.checkTry.factoryId === factory.id) {
+        return (current) =>
+          current && {
+            ...current,
+            tries: [...current.tries.filter((t) => t.name !== event.checkTry.name), event.checkTry],
+          }
+      }
+      if (
+        event.type === 'drift-changed' &&
+        (event.drift.factories[factory.id] ?? 0) !== driftRef.current
+      )
+        return 'reload'
+      return undefined
+    },
+    changed: (loaded) => {
+      setLoadError(undefined)
       if (!loaded || started.current) return
       started.current = true
       restart(loaded)
-    })
-    void ted.homeFolder().then(setHome, () => undefined)
-  }, [load, epoch, restart])
-
-  const drifted = view?.stages.filter((s) => s.drift !== undefined).length ?? 0
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type !== 'drift-changed') return
-        if ((event.drift.factories[factory.id] ?? 0) !== drifted) void load()
-      }),
-    [factory.id, drifted, load],
-  )
+    },
+    error: (failure) => setLoadError(readableError(failure)),
+  })
+  driftRef.current = view?.stages.filter((s) => s.drift !== undefined).length ?? 0
+  const drifted = driftRef.current
+  const tries = view?.tries ?? []
+  const { value: home } = useEventValue<string | undefined>({
+    initial: undefined,
+    load: ted.homeFolder,
+    event: () => undefined,
+  })
 
   const loaded = base?.draft.repos ?? []
   const unsaved = base && draft ? unsavedChanges(draft, base.draft) : { count: 0, files: [] }
   const count = unsaved.count
-  const onDraft = (change: (current: SettingsDraft) => SettingsDraft) =>
+  const onDraft = (change: (current: SettingsDraft) => SettingsDraft) => {
+    if (mergeBusy.current) return
     setDraft((current) => (current ? change(current) : current))
+  }
   const setRepos = (change: (repos: RepoSettingsInput[]) => RepoSettingsInput[]) =>
     onDraft((current) => ({ ...current, repos: change(current.repos) }))
   const updateRepo = (index: number, change: (repo: RepoSettingsInput) => RepoSettingsInput) =>
@@ -177,11 +189,14 @@ export function FactorySettings({
     })
 
   async function afterSave(result: SaveSettingsResult) {
-    setSaved(result)
     const next = await load()
-    if (!next) return
+    if (!next) {
+      setSaved(result)
+      return
+    }
     if (!result.merged) {
       restart(next)
+      setSaved(result)
       return
     }
     for (const [name, folder] of pendingFolders.current) {
@@ -191,6 +206,24 @@ export function FactorySettings({
     }
     pendingFolders.current.clear()
     restart((await load()) ?? next)
+    setSaved(result)
+  }
+
+  async function mergeSaved() {
+    if (!saved?.receipt || count > 0 || mergeBusy.current) return
+    mergeBusy.current = true
+    setMerging(true)
+    setMergeError(undefined)
+    try {
+      const result = await ted.mergeFactorySettings(factory.id, { receipt: saved.receipt })
+      if (result.merged) await afterSave(result)
+      else setSaved(result)
+    } catch (failure) {
+      setMergeError(readableError(failure))
+    } finally {
+      mergeBusy.current = false
+      setMerging(false)
+    }
   }
 
   const scrollTo = (id: string) =>
@@ -241,57 +274,96 @@ export function FactorySettings({
         </nav>
         <div className={styles.scroller} ref={scroller}>
           <div className={styles.column}>
-            {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
-            {view?.invalid && <InvalidNotice invalid={view.invalid} />}
-            <GeneralSection factory={factory} />
-            {loadError !== undefined && (
-              <p className={styles.loadError} role="alert">
-                {loadError}
-              </p>
-            )}
-            {view && draft && base && (
-              <ReposSection
-                view={view}
-                draft={draft.repos}
-                loaded={loaded}
-                home={home}
-                onRepo={updateRepo}
-                onDraft={setRepos}
-                onFolder={async (repo, folder) => {
-                  if (folder === undefined) await ted.clearRepoLocalFolder(factory.id, repo.was)
-                  else await ted.setRepoLocalFolder(factory.id, repo.was, folder)
-                  await load()
+            {saved && (
+              <SavedNotice
+                notice={savedNotice}
+                result={saved}
+                merging={merging}
+                hasEdits={count > 0}
+                error={mergeError}
+                onMerge={() => void mergeSaved()}
+                onDismiss={() => {
+                  setSaved(undefined)
+                  setMergeError(undefined)
                 }}
-                onNewRepoFolder={(name, folder) => pendingFolders.current.set(name, folder)}
-                onRemoveRepo={removeRepo}
-                onUndoRemove={undoRemove}
-                factoryId={factory.id}
-                onOpenFactory={onOpenFactory}
-                onOpenGitHubSettings={onOpenGitHubSettings}
               />
             )}
-            {view && draft && base && (
-              <>
-                <WorkflowSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
-                <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
-                <AgentsSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
-                <PermissionsSection
+            <fieldset className={styles.settingsFields} disabled={merging}>
+              <legend className={styles.visuallyHidden}>Factory settings</legend>
+              {view && (
+                <div className={styles.repoGuide}>
+                  <strong>How repo settings are saved</strong>
+                  <p>
+                    Edit settings marked “In the repo”, then choose{' '}
+                    <strong>Review and save…</strong>. TED creates a pull request: a proposed change
+                    to your repo. The changes must merge before TED can use them.
+                  </p>
+                </div>
+              )}
+              {!view && !loadError && (
+                <Skeleton shape="settings" label="Loading Factory settings…" />
+              )}
+              {view?.invalid && <InvalidNotice invalid={view.invalid} />}
+              <GeneralSection factory={factory} />
+              <LinearIntakeSection key={factory.id} factoryId={factory.id} />
+              {loadError !== undefined && (
+                <p className={styles.loadError} role="alert">
+                  {loadError}
+                </p>
+              )}
+              {view && draft && base && (
+                <ReposSection
+                  disabled={merging}
                   view={view}
-                  draft={draft}
-                  loaded={base.draft}
-                  onDraft={onDraft}
+                  draft={draft.repos}
+                  loaded={loaded}
+                  home={home}
+                  onRepo={updateRepo}
+                  onDraft={setRepos}
+                  onFolder={async (repo, folder) => {
+                    if (folder === undefined) await ted.clearRepoLocalFolder(factory.id, repo.was)
+                    else await ted.setRepoLocalFolder(factory.id, repo.was, folder)
+                    await load()
+                  }}
+                  onNewRepoFolder={(name, folder) => pendingFolders.current.set(name, folder)}
+                  onRemoveRepo={removeRepo}
+                  onUndoRemove={undoRemove}
+                  factoryId={factory.id}
+                  onOpenFactory={onOpenFactory}
+                  onOpenGitHubSettings={onOpenGitHubSettings}
                 />
-                <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
-              </>
-            )}
-            <DangerZoneSection onRemove={onRemoveFactory} />
+              )}
+              {view && draft && base && (
+                <>
+                  <WorkflowSection
+                    view={view}
+                    draft={draft}
+                    loaded={base.draft}
+                    onDraft={onDraft}
+                  />
+                  <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
+                  <AgentsSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
+                  <PermissionsSection
+                    view={view}
+                    draft={draft}
+                    loaded={base.draft}
+                    onDraft={onDraft}
+                  />
+                  <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
+                </>
+              )}
+              <DangerZoneSection onRemove={onRemoveFactory} />
+            </fieldset>
           </div>
         </div>
       </div>
       {count > 0 && view && (
         <footer className={styles.saveBar}>
           <span className={styles.unsavedDot} aria-hidden />
-          <span>{unsavedSummary(unsaved)}</span>
+          <div>
+            <span>{unsavedSummary(unsaved)}</span>
+            <p className={styles.saveHint}>Review your changes before creating a pull request.</p>
+          </div>
           <span className={views.headerSpacer} />
           <Button size="small" onClick={() => restart(view)}>
             Discard
@@ -318,21 +390,67 @@ export function FactorySettings({
   )
 }
 
-function SavedNotice({ result, onDismiss }: { result: SaveSettingsResult; onDismiss: () => void }) {
+function SavedNotice({
+  notice,
+  result,
+  onDismiss,
+  onMerge,
+  merging,
+  hasEdits,
+  error,
+}: {
+  notice: RefObject<HTMLDivElement | null>
+  result: SaveSettingsResult
+  onDismiss: () => void
+  onMerge: () => void
+  merging: boolean
+  hasEdits: boolean
+  error: string | undefined
+}) {
   const { number, url } = result.pullRequest
   return (
-    <div className={result.merged ? styles.savedNotice : styles.openNotice} role="status">
-      <span className={styles.noticeText}>
-        {result.merged
-          ? `Saved and merged pull request #${number}.`
-          : result.reason !== undefined
-            ? `Pull request #${number} is open. ${result.reason}`
-            : `Pull request #${number} is open for review.`}
-      </span>
-      <Button size="small" onClick={() => void ted.openOnGitHub(url)}>
-        Open on GitHub
-      </Button>
-      <button type="button" className={styles.iconButton} aria-label="Dismiss" onClick={onDismiss}>
+    <div
+      ref={notice}
+      tabIndex={-1}
+      className={result.merged ? styles.savedNotice : styles.openNotice}
+      role="status"
+    >
+      <div className={styles.noticeText}>
+        <strong>
+          {result.merged
+            ? `Pull request #${number} merged. Settings saved to the repo.`
+            : `Pull request #${number} ${result.receipt ? 'is open' : 'has not merged'}. These changes are not in use yet.`}
+        </strong>
+        <p>
+          {result.merged
+            ? 'Tasks use updated Workflow settings when they next enter a Stage.'
+            : result.receipt
+              ? 'Merge it here when it’s ready, or open it on GitHub to review it.'
+              : 'Open it on GitHub to review its status.'}
+        </p>
+        {!result.merged && result.reason && <p>{result.reason}</p>}
+        {!result.merged && result.receipt && hasEdits && (
+          <p>Save or discard your new edits before merging this pull request.</p>
+        )}
+        {error && <p role="alert">{error}</p>}
+        <div className={styles.noticeActions}>
+          {!result.merged && result.receipt && (
+            <Button size="small" variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
+              {merging ? 'Merging…' : 'Merge pull request'}
+            </Button>
+          )}
+          <Button size="small" onClick={() => void ted.openOnGitHub(url)}>
+            Open on GitHub
+          </Button>
+        </div>
+      </div>
+      <button
+        type="button"
+        className={styles.iconButton}
+        aria-label="Dismiss"
+        disabled={merging}
+        onClick={onDismiss}
+      >
         <CloseIcon size={12} />
       </button>
     </div>
@@ -343,7 +461,7 @@ function Chip({ where }: { where: 'machine' | 'repo' }) {
   return where === 'machine' ? (
     <span className={styles.machineChip}>Saved on {machine}</span>
   ) : (
-    <span className={styles.repoChip}>Saved to the repo · pull request</span>
+    <span className={styles.repoChip}>In the repo</span>
   )
 }
 
@@ -487,6 +605,7 @@ function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
 }
 
 interface ReposSectionProps {
+  disabled: boolean
   view: FactorySettingsView
   draft: RepoSettingsInput[]
   loaded: RepoSettingsInput[]
@@ -503,6 +622,7 @@ interface ReposSectionProps {
 }
 
 function ReposSection({
+  disabled,
   view,
   draft,
   loaded,
@@ -552,6 +672,7 @@ function ReposSection({
             shown={shown}
             edited={editedFields(repo, loaded)}
             home={home}
+            disabled={disabled}
             dragging={dragging}
             onDragStart={() => setDragging(index)}
             onDragEnd={() => setDragging(undefined)}
@@ -617,6 +738,7 @@ function ReposSection({
 }
 
 interface RepoCardProps {
+  disabled: boolean
   repo: RepoSettingsInput
   index: number
   shown: RepoSettingsView | undefined
@@ -637,6 +759,7 @@ function Edited({ when }: { when: boolean }) {
 }
 
 function RepoCard({
+  disabled,
   repo,
   index,
   shown,
@@ -654,7 +777,7 @@ function RepoCard({
   const id = useId()
   const primary = index === 0
   const isNew = repo.was === undefined
-  const canDrop = !primary && dragging !== undefined && dragging !== index
+  const canDrop = !disabled && !primary && dragging !== undefined && dragging !== index
   const set = (fields: Partial<RepoSettingsInput>) => onChange((r) => ({ ...r, ...fields }))
 
   return (
@@ -676,10 +799,14 @@ function RepoCard({
         ) : (
           <span
             className={styles.handle}
-            draggable
+            draggable={!disabled}
             role="img"
             aria-label="Drag to reorder"
             onDragStart={(event) => {
+              if (disabled) {
+                event.preventDefault()
+                return
+              }
               event.dataTransfer.effectAllowed = 'move'
               onDragStart()
             }}
@@ -734,9 +861,10 @@ function RepoCard({
           <label className={styles.label} htmlFor={`${id}-merge`}>
             Merge method <Edited when={edited.has('mergeMethod')} />
           </label>
-          <select
+          <Select
+            fullWidth
             id={`${id}-merge`}
-            className={styles.select}
+            controlClassName={styles.select}
             value={repo.mergeMethod ?? 'squash'}
             onChange={(event) => {
               const chosen = event.target.value as SettingsMergeMethod
@@ -754,7 +882,7 @@ function RepoCard({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
@@ -1136,9 +1264,10 @@ function AppEditor({
           <label className={styles.label} htmlFor={`${id}-kind`}>
             Kind
           </label>
-          <select
+          <Select
+            fullWidth
             id={`${id}-kind`}
-            className={styles.select}
+            controlClassName={styles.select}
             value={app.kind}
             onChange={(event) => {
               const kind = appKinds.find((k) => k === event.target.value) ?? 'web'
@@ -1151,7 +1280,7 @@ function AppEditor({
                 {appKindLabels[kind]}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
       <div className={styles.field}>

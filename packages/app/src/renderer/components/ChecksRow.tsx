@@ -56,7 +56,9 @@ export function ChecksRow({
   checks,
   judgments = [],
   onOpen,
+  accepted = [],
 }: {
+  accepted?: readonly number[]
   checks: readonly CheckResult[]
   judgments?: readonly Judgment[]
   onOpen: (position: number) => void
@@ -65,7 +67,10 @@ export function ChecksRow({
   return (
     <ul className={styles.row} aria-label="Checks">
       {checks.map((check, position) => {
-        const detail = checkDetail(check)
+        const detail =
+          accepted.includes(position) && checkFailed(check.state)
+            ? 'failed, accepted by you'
+            : checkDetail(check)
         const ran =
           check.state !== 'skipped' && check.state !== 'not-run' && check.state !== 'waiting'
         const text = (

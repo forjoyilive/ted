@@ -1,13 +1,14 @@
 import type http from 'node:http'
-import { type AgentKind, agentKinds, type Effort, efforts, isModelName } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Attachments } from '../attachments.ts'
 import type { CommandLine } from '../command-line.ts'
+import type { CpuProfiler } from '../cpu-profile.ts'
 import type { Data, Services } from '../data.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
 import type { RunTokens } from '../run-token.ts'
+import type { SlowMonitor } from '../slow-moments.ts'
 import type { Caller } from '../tasks/tasks.ts'
 
 export interface BaseOptions {
@@ -27,6 +28,8 @@ export interface BaseOptions {
   onShutdown: () => void
   home: string
   commandLine: CommandLine
+  slow: SlowMonitor
+  profiler: CpuProfiler
 }
 
 export type ServerOptions = BaseOptions & Services
@@ -43,7 +46,24 @@ export interface Route<O = ServerOptions> {
   path: RegExp
   runToken?: true
   fileToken?: true
+  waits?: true
   handle(context: RequestContext, options: O): Promise<[number, unknown] | undefined>
+}
+
+const patterns = new WeakMap<RegExp, string>()
+
+export function routePattern(path: RegExp): string {
+  const known = patterns.get(path)
+  if (known !== undefined) return known
+  const source = path.source.replace(/^\^/, '').replace(/\$$/, '')
+  const query = source.search(/\(\?:\\\?|\(\\\?|\\\?/)
+  const pattern = (query === -1 ? source : source.slice(0, query))
+    .replaceAll('\\/', '/')
+    .replace(/\(\?:(\/[^()]*(?:\([^()]*\)[^()]*)*)\)\?/g, '$1')
+    .replace(/\((?!\?)[a-z-]+(?:\|[a-z-]+)+\)/g, ':action')
+    .replace(/\((?!\?)[^()]*\)/g, ':id')
+  patterns.set(path, pattern)
+  return pattern
 }
 
 export const maxBodyBytes = 1024 * 1024
@@ -70,47 +90,18 @@ export async function readJson(req: http.IncomingMessage): Promise<unknown> {
   }
 }
 
-export function bodyObject(value: unknown, name = 'body'): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new HttpError(
-      400,
-      name === 'body' ? 'body must be a JSON object' : `${name} must be an object`,
-    )
-  }
-  return value as Record<string, unknown>
-}
-
-export function text(value: unknown, name: string): string {
-  if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
-  return value
-}
-
-export function optionalText(value: unknown, name: string): string | undefined {
-  return value === undefined || value === null ? undefined : text(value, name)
-}
-
-export interface AgentChoice {
-  agent?: AgentKind
-  model?: string
-  effort?: Effort
-}
-
-export function agentChoice(value: unknown, name?: string): AgentChoice {
-  const given = bodyObject(value, name)
-  const field = (key: string) => (name === undefined ? key : `${name}.${key}`)
-  const { agent, model, effort } = given
-  if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-    throw new HttpError(400, `${field('agent')} must be ${agentKinds.join(' or ')}`)
-  }
-  if (model !== undefined && !isModelName(model)) {
-    throw new HttpError(400, `${field('model')} must be a model name, such as opus or gpt-5.5`)
-  }
-  if (effort !== undefined && !efforts.includes(effort as Effort)) {
-    throw new HttpError(400, `${field('effort')} must be one of ${efforts.join(', ')}`)
-  }
+export function jsonRoute<T, O = ServerOptions>(
+  parser: (value: unknown, context: RequestContext) => T,
+  route: Omit<Route<O>, 'handle'> & {
+    optionalBody?: true
+    handle(context: RequestContext & { body: T }, options: O): ReturnType<Route<O>['handle']>
+  },
+): Route<O> {
   return {
-    ...(agent !== undefined && { agent: agent as AgentKind }),
-    ...(typeof model === 'string' && { model }),
-    ...(effort !== undefined && { effort: effort as Effort }),
+    ...route,
+    async handle(context, options) {
+      const value = await (route.optionalBody ? readOptionalJson : readJson)(context.req)
+      return route.handle({ ...context, body: parser(value, context) }, options)
+    },
   }
 }

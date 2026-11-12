@@ -14,6 +14,7 @@ import type { Comment, Task } from './task.ts'
 import type { WaitingRequest } from './waiting.ts'
 
 export type DaemonEvent =
+  | { type: 'side-chat-changed'; sourceRunId: string }
   | { type: 'coordinator-changed'; factoryId: string }
   | { type: 'task-created'; task: Task }
   | { type: 'task-updated'; task: Task }
@@ -23,7 +24,7 @@ export type DaemonEvent =
   | { type: 'check-run-updated'; checkRun: CheckRun }
   | { type: 'sent-back'; sendBack: SendBack }
   | { type: 'run-updated'; run: Run }
-  | { type: 'run-output'; runId: string }
+  | { type: 'run-output'; runId: string; lines?: true }
   | { type: 'factory-added'; factory: Factory }
   | { type: 'factory-updated'; factory: Factory }
   | { type: 'factory-removed'; factoryId: string }

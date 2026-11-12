@@ -185,3 +185,15 @@ describe('taskActivity', () => {
     expect(taskActivity(facts)).toBeUndefined()
   })
 })
+
+test('a snoozed Backlog Task carries its schedule alongside blockers without inventing a Stage', () => {
+  const until = '2099-11-11T09:00:00.000Z'
+  const facts = at({ stage: 'backlog', snoozedUntil: until, blockedBy: ['NB-2'] })
+  expect(taskStatus(facts)).toBeUndefined()
+  expect(taskMarkers(facts, undefined)).toEqual([
+    { kind: 'snoozed', until },
+    { kind: 'blocked-by', by: 'NB-2' },
+  ])
+  expect(taskActivity(at({ stage: 'backlog', snoozedUntil: until }))).toBe('Scheduled to start')
+  expect(taskMarkers({ ...facts, archived: true }, undefined)).toEqual([])
+})

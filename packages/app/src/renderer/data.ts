@@ -4,6 +4,7 @@ import type {
   Automation,
   AutomationDetail,
   AutomationRequest,
+  AutomationTaskLink,
   AutomationTemplate,
   Banner,
   CheckRun,
@@ -14,6 +15,7 @@ import type {
   DescriptionVersion,
   DriftCounts,
   Factory,
+  FailureCase,
   InboxItem,
   MachineSettings,
   Plan,
@@ -29,11 +31,13 @@ import type {
   TaskApp,
   TaskBrief,
   ThreadEvent,
+  ValidationObligations,
 } from '@ted/protocol'
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
-import { type TedEvent, ted } from './ted.ts'
+import { type EventChange, eventValue, type ValueUpdate } from './event-value.ts'
+import { readableError, type TedEvent, ted } from './ted.ts'
 
 export interface Connection {
   connection: DaemonConnection
@@ -75,16 +79,123 @@ export function useConnectionState(): Connection {
 
 export const useConnection = () => useContext(ConnectionContext)
 
-export function useUpdateStatus(): UpdateStatus {
-  const [status, setStatus] = useState<UpdateStatus>({ state: 'idle' })
+export function useEventValue<T>(options: {
+  initial: T
+  load: () => Promise<T>
+  event: (event: TedEvent) => EventChange<T>
+  key?: string
+  enabled?: boolean
+  focus?: boolean
+  reconcile?: (loaded: T, current: T) => T
+  changed?: (value: T) => void
+  error?: (error: unknown) => void
+}) {
+  const { epoch } = useConnection()
+  const key = options.key ?? ''
+  const enabled = options.enabled ?? true
+  const focus = options.focus ?? false
+  const [state, setState] = useState<{
+    key: string
+    value: T
+    loaded: boolean
+    error: string | undefined
+  }>({ key, value: options.initial, loaded: false, error: undefined })
+  const current = useRef(options)
+  current.current = options
+  const snapshot = useRef(state)
+  snapshot.current = state
+  const controller = useRef<ReturnType<typeof eventValue<T, TedEvent>> | undefined>(undefined)
   useEffect(() => {
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'update') setStatus(event.status)
+    void epoch
+    if (!enabled) return
+    setState((previous) =>
+      previous.key === key
+        ? { ...previous, error: undefined }
+        : { key, value: current.current.initial, loaded: false, error: undefined },
+    )
+    const source = eventValue<T, TedEvent>({
+      initial: snapshot.current.key === key ? snapshot.current.value : current.current.initial,
+      load: () => current.current.load(),
+      event: (event) => current.current.event(event),
+      subscribe: ted.onEvent,
+      reconcile: (loaded, value) =>
+        current.current.reconcile ? current.current.reconcile(loaded, value) : loaded,
+      changed: (value) => {
+        setState((previous) => ({
+          key,
+          value,
+          loaded: previous.key === key && previous.loaded,
+          error: undefined,
+        }))
+        current.current.changed?.(value)
+      },
+      loaded: () => setState((previous) => ({ ...previous, loaded: true })),
+      error: (error) => {
+        setState((previous) => ({ ...previous, error: readableError(error) }))
+        current.current.error?.(error)
+      },
     })
-    ted.updateStatus().then(setStatus, (error: unknown) => console.error(error))
-    return unsubscribe
+    controller.current = source
+    const refresh = () => void source.refresh()
+    if (focus) window.addEventListener('focus', refresh)
+    return () => {
+      source.dispose()
+      if (focus) window.removeEventListener('focus', refresh)
+      if (controller.current === source) controller.current = undefined
+    }
+  }, [key, epoch, enabled, focus])
+  const refresh = useCallback((load?: () => Promise<T>) => {
+    setState((previous) => ({ ...previous, error: undefined }))
+    return controller.current?.refresh(load) ?? Promise.resolve(undefined)
   }, [])
-  return status
+  const update = useCallback((change: ValueUpdate<T>) => controller.current?.update(change), [])
+  const retry = useCallback(() => void refresh(), [refresh])
+  return {
+    value: state.key === key ? state.value : options.initial,
+    loaded: state.key === key && state.loaded,
+    error: state.key === key ? state.error : undefined,
+    retry,
+    refresh,
+    update,
+  }
+}
+
+export function useBrowserOpen(
+  taskId: string,
+  open: (app: Extract<TedEvent, { type: 'browser-open' }>['app']) => void,
+) {
+  const current = useRef(open)
+  current.current = open
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type === 'browser-open' && event.taskId === taskId) current.current(event.app)
+      }),
+    [taskId],
+  )
+}
+
+export function useMenuCommands(
+  command: (command: import('../background.ts').MenuCommand) => void,
+) {
+  const current = useRef(command)
+  current.current = command
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type === 'menu-command') current.current(event.command)
+      }),
+    [],
+  )
+}
+
+export function useUpdateStatus(): UpdateStatus {
+  return useEventValue<UpdateStatus>({
+    initial: { state: 'idle' },
+    load: ted.updateStatus,
+    event: (event) => (event.type === 'update' ? () => event.status : undefined),
+    error: (error) => console.error(error),
+  }).value
 }
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
@@ -109,16 +220,23 @@ function useLiveList<T extends { id: string }>(
   pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
   drop: (event: TedEvent) => string | undefined = keepAll,
-): { items: T[]; loaded: boolean } {
+): { items: T[]; loaded: boolean; error: string | undefined; retry: () => void } {
   const [items, setItems] = useState<T[]>([])
   const [done, setDone] = useState(false)
+  const [error, setError] = useState<string>()
+  const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
 
   const loaded = useRef(load)
 
   useEffect(() => {
     void epoch
-    if (loaded.current !== load) setItems([])
+    void attempt
+    if (loaded.current !== load) {
+      setItems([])
+      setDone(false)
+    }
+    setError(undefined)
     loaded.current = load
     let active = true
     let fresh: T[] | undefined = []
@@ -146,15 +264,23 @@ function useLiveList<T extends { id: string }>(
         setDone(true)
         fresh = undefined
       },
-      () => undefined,
+      (failure: unknown) => {
+        if (active) setError(readableError(failure))
+      },
     )
     return () => {
       active = false
       unsubscribe()
     }
-  }, [load, pick, order, drop, epoch])
+  }, [load, pick, order, drop, epoch, attempt])
 
-  return { items, loaded: done }
+  const current = loaded.current === load
+  return {
+    items: current ? items : [],
+    loaded: current && done,
+    error: current ? error : undefined,
+    retry: () => setAttempt((n) => n + 1),
+  }
 }
 
 const byCreatedAt = (a: { createdAt: string }, b: { createdAt: string }) =>
@@ -188,6 +314,10 @@ export function useFactoryList(): { factories: Factory[]; loaded: boolean } {
 }
 
 export function useComments(taskId: string): Comment[] {
+  return useCommentList(taskId).items
+}
+
+export function useCommentList(taskId: string) {
   const load = useCallback(() => ted.listComments(taskId), [taskId])
   const pick = useCallback(
     (event: TedEvent) =>
@@ -197,12 +327,16 @@ export function useComments(taskId: string): Comment[] {
         : undefined,
     [taskId],
   )
-  return useLive(load, pick, byCreatedAt)
+  return useLiveList(load, pick, byCreatedAt)
 }
 
 const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
 
 export function useCheckRuns(taskId: string): CheckRun[] {
+  return useCheckRunList(taskId).items
+}
+
+export function useCheckRunList(taskId: string) {
   const load = useCallback(() => ted.listCheckRuns(taskId), [taskId])
   const pick = useCallback(
     (event: TedEvent) =>
@@ -211,43 +345,25 @@ export function useCheckRuns(taskId: string): CheckRun[] {
         : undefined,
     [taskId],
   )
-  return useLive(load, pick, byStartedAt)
+  return useLiveList(load, pick, byStartedAt)
 }
 
 export function useThreadEvents(taskId: string): ThreadEvent[] {
-  const [events, setEvents] = useState<ThreadEvent[]>([])
-  const { epoch } = useConnection()
+  return useThreadEventList(taskId).value ?? []
+}
 
-  useEffect(() => {
-    void epoch
-    let latest = 0
-    setEvents([])
-    const load = () => {
-      const call = ++latest
-      void ted.listThreadEvents(taskId).then(
-        (loaded) => {
-          if (call === latest) setEvents(loaded)
-        },
-        () => undefined,
-      )
-    }
-    const unsubscribe = ted.onEvent((event) => {
-      if (
-        (event.type === 'task-updated' && event.task.id === taskId) ||
-        ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
-          event.comment.taskId === taskId)
-      ) {
-        load()
-      }
-    })
-    load()
-    return () => {
-      latest = -1
-      unsubscribe()
-    }
-  }, [taskId, epoch])
-
-  return events
+export function useThreadEventList(taskId: string) {
+  return useEventValue<ThreadEvent[] | undefined>({
+    initial: undefined,
+    key: taskId,
+    load: () => ted.listThreadEvents(taskId),
+    event: (event) =>
+      (event.type === 'task-updated' && event.task.id === taskId) ||
+      ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+        event.comment.taskId === taskId)
+        ? 'reload'
+        : undefined,
+  })
 }
 
 const inboxEvents = new Set<TedEvent['type']>([
@@ -267,131 +383,55 @@ export function useAnswered(enabled: boolean): InboxItem[] {
 }
 
 function useInboxList(list: () => Promise<InboxItem[]>, enabled: boolean): InboxItem[] {
-  const [items, setItems] = useState<InboxItem[]>([])
-  const { epoch } = useConnection()
-
-  useEffect(() => {
-    void epoch
-    if (!enabled) return
-    let latest = 0
-    const load = () => {
-      const call = ++latest
-      void list().then(
-        (loaded) => {
-          if (call === latest) setItems(loaded)
-        },
-        () => undefined,
-      )
-    }
-    const unsubscribe = ted.onEvent((event) => {
-      if (inboxEvents.has(event.type)) load()
-    })
-    load()
-    return () => {
-      latest = -1
-      unsubscribe()
-    }
-  }, [epoch, enabled, list])
-
-  return items
+  return useEventValue<InboxItem[]>({
+    initial: [],
+    load: list,
+    enabled,
+    key: list === ted.listInbox ? 'inbox' : 'answered',
+    event: (event) => (inboxEvents.has(event.type) ? 'reload' : undefined),
+  }).value
 }
 
 export function useSettings(): MachineSettings | undefined {
-  const [settings, setSettings] = useState<MachineSettings>()
-  const { epoch } = useConnection()
+  return useSettingsState().settings
+}
 
-  useEffect(() => {
-    void epoch
-    let changed = false
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type !== 'settings-changed') return
-      changed = true
-      setSettings(event.settings)
-    })
-    void ted.getSettings().then(
-      (loaded) => {
-        if (!changed) setSettings(loaded)
-      },
-      () => undefined,
-    )
-    return unsubscribe
-  }, [epoch])
-
-  return settings
+export function useSettingsState() {
+  const resource = useEventValue<MachineSettings | undefined>({
+    initial: undefined,
+    load: ted.getSettings,
+    event: (event) => (event.type === 'settings-changed' ? () => event.settings : undefined),
+  })
+  return { settings: resource.value, error: resource.error, retry: resource.retry }
 }
 
 export function useSlots(): RunSlots | undefined {
-  const [slots, setSlots] = useState<RunSlots>()
-  const { epoch } = useConnection()
-
-  useEffect(() => {
-    void epoch
-    let live = false
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'slots-changed') {
-        live = true
-        setSlots(event.slots)
-      }
-    })
-    void ted.getSlots().then(
-      (loaded) => {
-        if (!live) setSlots(loaded)
-      },
-      () => undefined,
-    )
-    return unsubscribe
-  }, [epoch])
-
-  return slots
+  return useEventValue<RunSlots | undefined>({
+    initial: undefined,
+    load: ted.getSlots,
+    event: (event) => (event.type === 'slots-changed' ? () => event.slots : undefined),
+  }).value
 }
 
 export function useDrift(): DriftCounts | undefined {
-  const [drift, setDrift] = useState<DriftCounts>()
-  const { epoch } = useConnection()
-
-  useEffect(() => {
-    void epoch
-    let live = false
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'drift-changed') {
-        live = true
-        setDrift(event.drift)
-      }
-    })
-    void ted.drift().then(
-      (loaded) => {
-        if (!live) setDrift(loaded)
-      },
-      () => undefined,
-    )
-    return unsubscribe
-  }, [epoch])
-
-  return drift
+  return useEventValue<DriftCounts | undefined>({
+    initial: undefined,
+    load: ted.drift,
+    event: (event) => (event.type === 'drift-changed' ? () => event.drift : undefined),
+  }).value
 }
 
 export function useDataStatus(): DataStatus | undefined {
-  const [status, setStatus] = useState<DataStatus>()
-  const { epoch } = useConnection()
+  return useDataStatusState().status
+}
 
-  useEffect(() => {
-    void epoch
-    let changed = false
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type !== 'data-status') return
-      changed = true
-      setStatus(event.status)
-    })
-    void ted.getDataStatus().then(
-      (loaded) => {
-        if (!changed) setStatus(loaded)
-      },
-      () => undefined,
-    )
-    return unsubscribe
-  }, [epoch])
-
-  return status
+export function useDataStatusState() {
+  const resource = useEventValue<DataStatus | undefined>({
+    initial: undefined,
+    load: ted.getDataStatus,
+    event: (event) => (event.type === 'data-status' ? () => event.status : undefined),
+  })
+  return { status: resource.value, error: resource.error, retry: resource.retry }
 }
 
 export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {
@@ -420,34 +460,18 @@ export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {
 }
 
 export function useBanners(): Banner[] {
-  const [banners, setBanners] = useState<Banner[]>([])
+  const { value: banners } = useEventValue<Banner[]>({
+    initial: [],
+    load: ted.listBanners,
+    event: (event) => {
+      if (event.type === 'banner-raised' || event.type === 'banner-updated')
+        return (current) => mergeById(current, [event.banner])
+      if (event.type === 'banner-cleared')
+        return (current) => current.filter((b) => b.id !== event.id)
+      return undefined
+    },
+  })
   const [now, setNow] = useState(() => Date.now())
-  const { epoch } = useConnection()
-
-  useEffect(() => {
-    void epoch
-    let whileLoading: Map<string, Banner | undefined> | undefined = new Map()
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'banner-raised' || event.type === 'banner-updated') {
-        whileLoading?.set(event.banner.id, event.banner)
-        setBanners((current) => mergeById(current, [event.banner]))
-      } else if (event.type === 'banner-cleared') {
-        whileLoading?.set(event.id, undefined)
-        setBanners((current) => current.filter((b) => b.id !== event.id))
-      }
-    })
-    void ted.listBanners().then(
-      (loaded) => {
-        const changes = whileLoading ?? new Map<string, Banner | undefined>()
-        whileLoading = undefined
-        const kept = loaded.filter((b) => !changes.has(b.id))
-        const raised = [...changes.values()].filter((b) => b !== undefined)
-        setBanners(mergeById(kept, raised))
-      },
-      () => undefined,
-    )
-    return unsubscribe
-  }, [epoch])
 
   useEffect(() => {
     const at = nextReturn(banners, new Date(now))
@@ -459,50 +483,83 @@ export function useBanners(): Banner[] {
   return banners
 }
 
+function mergeHealth(current: AgentHealth[], incoming: AgentHealth[]): AgentHealth[] {
+  const byAgent = new Map(current.map((h) => [h.agent, h]))
+  for (const health of incoming) {
+    const known = byAgent.get(health.agent)
+    if (!known || known.checkedAt <= health.checkedAt) byAgent.set(health.agent, health)
+  }
+  return [...byAgent.values()].sort((a, b) => a.agent.localeCompare(b.agent))
+}
+
 export function useAgentHealth(): AgentHealth[] {
-  const [health, setHealth] = useState<AgentHealth[]>([])
-  const { epoch } = useConnection()
+  return useAgentHealthState().health
+}
 
-  useEffect(() => {
-    void epoch
-    const merge = (incoming: AgentHealth[]) =>
-      setHealth((current) => {
-        const byAgent = new Map(current.map((h) => [h.agent, h]))
-        for (const h of incoming) {
-          const known = byAgent.get(h.agent)
-          if (!known || known.checkedAt <= h.checkedAt) byAgent.set(h.agent, h)
-        }
-        return [...byAgent.values()].sort((a, b) => a.agent.localeCompare(b.agent))
-      })
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'agent-health-changed') merge([event.health])
-    })
-    void ted.agentHealth().then(merge, () => undefined)
-    return unsubscribe
-  }, [epoch])
+export function useAgentHealthState() {
+  const resource = useEventValue<AgentHealth[]>({
+    initial: [],
+    load: ted.agentHealth,
+    reconcile: (loaded, current) => mergeHealth(current, loaded),
+    event: (event) =>
+      event.type === 'agent-health-changed'
+        ? (current) => mergeHealth(current, [event.health])
+        : undefined,
+  })
+  return {
+    health: resource.value,
+    loaded: resource.loaded,
+    error: resource.error,
+    retry: resource.retry,
+  }
+}
 
-  return health
+interface Loaded<T> {
+  value: T | undefined
+  loading: boolean
 }
 
 function useReloading<T>(
   load: () => Promise<T>,
-  affects: (event: TedEvent) => boolean,
+  affects: (event: TedEvent, current: Loaded<T>) => boolean,
   key: string,
 ): T | undefined {
-  const [value, setValue] = useState<T>()
+  return useReloadingState(load, affects, key).value
+}
+
+const outputEveryMs = 1_000
+
+const outputLines = (event: TedEvent) => event.type === 'run-output' && event.lines === true
+
+function useReloadingState<T>(
+  load: () => Promise<T>,
+  affects: (event: TedEvent, current: Loaded<T>) => boolean,
+  key: string,
+  paced: (event: TedEvent) => boolean = () => false,
+) {
+  const [state, setState] = useState<{ key: string; value?: T; error?: string }>()
+  const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
   const loadRef = useRef(load)
   const affectsRef = useRef(affects)
+  const pacedRef = useRef(paced)
   loadRef.current = load
   affectsRef.current = affects
+  pacedRef.current = paced
 
   useEffect(() => {
     void epoch
-    void key
+    void attempt
     let active = true
     let running = false
     let again = false
-    setValue(undefined)
+    let latest: T | undefined
+    let pacedAt = Number.NEGATIVE_INFINITY
+    let timer: ReturnType<typeof setTimeout> | undefined
+    setState((previous) => ({
+      key,
+      ...(previous?.key === key && previous.value !== undefined && { value: previous.value }),
+    }))
     const run = () => {
       if (running) {
         again = true
@@ -512,10 +569,14 @@ function useReloading<T>(
       loadRef
         .current()
         .then(
-          (loaded) => {
-            if (active) setValue(loaded)
+          (value) => {
+            latest = value
+            if (active) setState({ key, value })
           },
-          () => undefined,
+          (failure: unknown) => {
+            if (active)
+              setState((previous) => ({ ...previous, key, error: readableError(failure) }))
+          },
         )
         .finally(() => {
           running = false
@@ -525,17 +586,31 @@ function useReloading<T>(
           }
         })
     }
+    const now = () => {
+      clearTimeout(timer)
+      timer = undefined
+      pacedAt = Date.now()
+      run()
+    }
     const unsubscribe = ted.onEvent((event) => {
-      if (affectsRef.current(event)) run()
+      if (!affectsRef.current(event, { value: latest, loading: running })) return
+      const wait = pacedRef.current(event) ? pacedAt + outputEveryMs - Date.now() : 0
+      if (wait <= 0) now()
+      else timer ??= setTimeout(now, wait)
     })
     run()
     return () => {
       active = false
+      clearTimeout(timer)
       unsubscribe()
     }
-  }, [key, epoch])
+  }, [key, epoch, attempt])
 
-  return value
+  return {
+    value: state?.key === key ? state.value : undefined,
+    error: state?.key === key ? state.error : undefined,
+    retry: () => setAttempt((n) => n + 1),
+  }
 }
 
 const planEvent = (event: TedEvent, planId?: string) =>
@@ -546,8 +621,12 @@ const planEvent = (event: TedEvent, planId?: string) =>
   event.type === 'task-updated'
 
 export function useCoordinator(factoryId: string): Coordinator | null | undefined {
-  return useReloading(
-    () => ted.getCoordinator(factoryId),
+  return useCoordinatorState(factoryId).value
+}
+
+export function useCoordinatorState(factoryId: string) {
+  return useReloadingState(
+    () => ted.coordinator(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
       event.type === 'task-updated' ||
@@ -562,14 +641,19 @@ export function useCoordinatorChat(
   factoryId: string,
   runIds: readonly string[],
 ): RunChat | null | undefined {
-  return useReloading(
-    () => ted.getCoordinatorChat(factoryId),
+  return useCoordinatorChatState(factoryId, runIds).value
+}
+
+export function useCoordinatorChatState(factoryId: string, runIds: readonly string[]) {
+  return useReloadingState(
+    () => ted.coordinatorChat(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
       (event.type === 'run-output' && runIds.includes(event.runId)) ||
       (event.type === 'run-updated' && runIds.includes(event.run.id)) ||
       event.type === 'agent-health-changed',
     factoryId,
+    outputLines,
   )
 }
 
@@ -584,11 +668,15 @@ export function useCoordinatorStatuses(): CoordinatorStatus[] {
 }
 
 export function usePlan(planId: string | undefined): PlanDetail | undefined {
-  return useReloading(
+  return usePlanState(planId).value
+}
+
+export function usePlanState(planId: string | undefined) {
+  return useReloadingState(
     () => (planId === undefined ? Promise.resolve(undefined) : ted.getPlan(planId)),
     (event) => planId !== undefined && planEvent(event, planId),
     planId ?? '',
-  ) as PlanDetail | undefined
+  )
 }
 
 export function usePlans(factoryId: string): Plan[] {
@@ -622,7 +710,11 @@ export function usePlanInbox(): PlanInboxItem[] {
 }
 
 export function useRunChat(runId: string): RunChat | undefined {
-  return useReloading(
+  return useRunChatState(runId).value
+}
+
+export function useRunChatState(runId: string) {
+  return useReloadingState(
     () => ted.getRunChat(runId),
     (event) =>
       (event.type === 'run-output' && event.runId === runId) ||
@@ -632,6 +724,7 @@ export function useRunChat(runId: string): RunChat | undefined {
         event.comment.author.kind === 'run' &&
         event.comment.author.runId === runId),
     runId,
+    outputLines,
   )
 }
 
@@ -668,7 +761,11 @@ export function useTaskApps(taskId: string): TaskApp[] {
 }
 
 export function useTaskBrief(taskId: string): TaskBrief | null | undefined {
-  return useReloading(
+  return useTaskBriefState(taskId).value
+}
+
+export function useTaskBriefState(taskId: string) {
+  return useReloadingState(
     () => ted.taskBrief(taskId),
     (event) => event.type === 'task-updated' && event.task.id === taskId,
     taskId,
@@ -676,35 +773,112 @@ export function useTaskBrief(taskId: string): TaskBrief | null | undefined {
 }
 
 export function useDescriptions(taskId: string): DescriptionVersion[] | undefined {
-  return useReloading(
+  return useDescriptionsState(taskId).value
+}
+
+export function useDescriptionsState(taskId: string) {
+  return useReloadingState(
     () => ted.taskDescriptions(taskId),
     (event) => event.type === 'task-updated' && event.task.id === taskId,
     taskId,
   )
 }
 
-const automationEvents = new Set<TedEvent['type']>([
-  'automation-updated',
-  'automation-deleted',
-  'run-updated',
-  'slots-changed',
-  'task-updated',
-  'task-deleted',
-  'agent-health-changed',
-])
+const taskSignature = (link: AutomationTaskLink) =>
+  JSON.stringify([link.displayId, link.title, link.stage, link.source])
 
-export function useAutomations(factoryId: string | undefined): Automation[] | undefined {
+function automationWatch<T>(created: (value: T) => readonly AutomationTaskLink[]) {
+  const seen = new Map<string, string>()
+  const differs = (id: string, signature: string) => {
+    const before = seen.get(id)
+    seen.set(id, signature)
+    return before !== signature
+  }
+  return (event: TedEvent, { value, loading }: Loaded<T>): boolean => {
+    switch (event.type) {
+      case 'automation-updated':
+      case 'automation-deleted':
+      case 'task-deleted':
+      case 'agent-health-changed':
+        return true
+      case 'run-updated':
+        return (
+          event.run.taskId === undefined &&
+          event.run.parentRunId === undefined &&
+          differs(`run ${event.run.id}`, event.run.state)
+        )
+      case 'slots-changed':
+        return differs(
+          'slots',
+          event.slots.queue
+            .flatMap((q) => (q.kind === 'automation' ? [`${q.runId} ${q.place}`] : []))
+            .join(),
+        )
+      case 'task-updated': {
+        const { task } = event
+        if (
+          task.createdBy === 'human' ||
+          task.createdBy === 'planning' ||
+          task.createdBy === 'setup'
+        ) {
+          return false
+        }
+        const id = `task ${task.id}`
+        const signature = taskSignature({
+          id: task.id,
+          displayId: task.displayId,
+          title: task.title,
+          stage: task.stage,
+          ...(task.source?.url !== undefined && { source: task.source.url }),
+        })
+        const shown = value === undefined ? undefined : created(value).find((l) => l.id === task.id)
+        const before = seen.get(id) ?? (shown && taskSignature(shown))
+        seen.set(id, signature)
+        return before === undefined ? loading : before !== signature
+      }
+      default:
+        return false
+    }
+  }
+}
+
+const listedTasks = (automations: Automation[]) => automations.flatMap((a) => a.last?.created ?? [])
+
+const historyTasks = (detail: AutomationDetail | null) =>
+  detail?.history.flatMap((row) => row.created ?? []) ?? []
+
+export function useAutomationOutcomes(): Automation[] | undefined {
   return useReloading(
-    () => ted.listAutomations(factoryId),
-    (event) => automationEvents.has(event.type),
-    factoryId ?? '',
+    () => ted.listAutomations(undefined),
+    (event) => event.type === 'automation-updated' || event.type === 'automation-deleted',
+    'automation-outcomes',
   )
 }
 
+export function useAutomationsState(factoryId: string | undefined) {
+  const { epoch } = useConnection()
+  const key = factoryId ?? ''
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection or list starts a new watch
+  const affects = useMemo(() => automationWatch(listedTasks), [epoch, key])
+  return useReloadingState(() => ted.listAutomations(factoryId), affects, key)
+}
+
 export function useAutomation(id: string): AutomationDetail | null | undefined {
-  return useReloading(
-    () => ted.getAutomation(id).catch(() => null),
-    (event) => automationEvents.has(event.type),
+  return useAutomationState(id).value
+}
+
+export function useAutomationState(id: string) {
+  const { epoch } = useConnection()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection or Automation starts a new watch
+  const watch = useMemo(() => automationWatch(historyTasks), [epoch, id])
+  return useReloadingState(
+    () => ted.getAutomation(id),
+    (event, current) =>
+      event.type === 'automation-updated' || event.type === 'automation-deleted'
+        ? current.value == null ||
+          event.automationId === id ||
+          event.automationId === current.value.automation.id
+        : watch(event, current),
     id,
   )
 }
@@ -731,4 +905,57 @@ export function useAutomationRequests(): AutomationRequest[] {
 
 export function useAutomationTemplates(): AutomationTemplate[] {
   return useReloading(ted.automationTemplates, () => false, '') ?? []
+}
+
+export function useFailures(taskId: string): FailureCase[] {
+  return useValidationData(taskId, ted.listFailures) ?? []
+}
+
+export function useValidationObligations(taskId: string): ValidationObligations | undefined {
+  return useValidationData(taskId, ted.validationObligations)
+}
+
+function useValidationData<T>(taskId: string, read: (id: string) => Promise<T>): T | undefined {
+  return useEventValue<T | undefined>({
+    initial: undefined,
+    key: taskId,
+    load: () => read(taskId),
+    event: (event) =>
+      (event.type === 'task-updated' && event.task.id === taskId) ||
+      ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+        event.comment.taskId === taskId) ||
+      (event.type === 'check-run-updated' && event.checkRun.taskId === taskId)
+        ? 'reload'
+        : undefined,
+  }).value
+}
+
+export function useFactoryDashboard(
+  factoryId: string,
+  range: import('@ted/protocol').DashboardRange,
+) {
+  const resource = useReloadingState(
+    () => ted.factoryDashboard(factoryId, range),
+    (event) =>
+      ((event.type === 'task-created' || event.type === 'task-updated') &&
+        event.task.factoryId === factoryId) ||
+      event.type === 'task-deleted' ||
+      (event.type === 'factory-removed' && event.factoryId === factoryId) ||
+      (event.type === 'factory-updated' && event.factory.id === factoryId) ||
+      event.type === 'settings-changed',
+    JSON.stringify([factoryId, range]),
+    () => true,
+  )
+  const retry = useRef(resource.retry)
+  retry.current = resource.retry
+  useEffect(() => {
+    const refresh = () => retry.current()
+    const timer = setInterval(refresh, 30_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
+  return resource
 }

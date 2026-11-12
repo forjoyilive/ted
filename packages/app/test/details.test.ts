@@ -70,7 +70,7 @@ describe('Task details summaries', () => {
     ])
   })
 
-  test('a brief written just before a Gate request says it was at that Gate', () => {
+  test('a brief written just before a sign-off request says it was at that Sign-off', () => {
     const written = brief('review', minutesAgo(31))
     const gate = comment({
       kind: 'signoff',
@@ -79,7 +79,7 @@ describe('Task details summaries', () => {
       gate: { approveLabel: 'Approve' },
     })
     expect(briefUpdatedLine(written, [gate], now)).toBe(
-      'Updated by the Task Lead at the Review Gate · 31m ago',
+      'Updated by the Task Lead at the Review sign-off · 31m ago',
     )
     expect(briefUpdatedLine(written, [], now)).toBe('Updated by the Task Lead in Review · 31m ago')
     const earlier = { ...gate, createdAt: minutesAgo(40) }

@@ -10,10 +10,11 @@ import type {
   Task,
   ValidationObligations,
 } from '@ted/protocol'
-import { failureChoices } from '@ted/protocol'
+import { failureChoices, validateFailureChoices } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
+import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
 export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' }>): string {
   return createHash('sha256')
@@ -22,8 +23,74 @@ export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' 
 }
 
 export const failureNoticeTitle = 'Failure acceptance invalidated'
+export const failureRefusedTitle = 'Failure acceptance refused'
+export const failureNoticeTitles: readonly (string | undefined)[] = [
+  failureNoticeTitle,
+  failureRefusedTitle,
+]
 
-function acceptedResolution(value: FailureCase): boolean {
+const testedInputs = (context: FailureContext) =>
+  JSON.stringify([
+    context.version,
+    context.ciFailures,
+    context.repos.map(({ repo, head, tree, mergeBase }) => [repo, head, tree, mergeBase]),
+    context.checks,
+    context.ci,
+  ])
+
+export const sameTested = (a: FailureContext, b: FailureContext) =>
+  testedInputs(a) === testedInputs(b)
+
+const otherChoices = (validation: boolean) =>
+  validation
+    ? 'Choose Retry or Fix in this Task instead.'
+    : 'Type a reason and choose Fixed or No longer applicable instead.'
+
+const cantAccept = {
+  changed:
+    'This failure can’t be accepted: the Task’s code or Checks changed since it was tested, and TED can’t tie a later test run to it.',
+  unknown:
+    'This failure can’t be accepted: TED has no record it can verify of what was tested when it happened.',
+}
+
+export const acceptRefusals = {
+  changed:
+    'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.',
+  changedForGood: (validation: boolean) =>
+    `The Task’s code or Checks changed since this failure was tested, and TED can’t tie a later test run to it, so it can’t be accepted any more. ${otherChoices(validation)}`,
+  unverified:
+    'TED couldn’t read the Task’s current code, Checks and CI to compare them with what was tested, so this failure can’t be accepted right now. Try again in a moment.',
+  unknown:
+    'TED has no record it can verify of what was tested when this failure happened, so it can’t be accepted. Ask the Task Lead to record it again with a tested context.',
+}
+
+const assessmentWords: Record<AssessFailureRequest['assessment'], string> = {
+  regression: 'this Task caused it',
+  unrelated: 'this Task didn’t cause it',
+  uncertain: 'the cause isn’t known',
+}
+
+function whatFailed(value: FailureCase): string {
+  const { source } = value
+  if (source.kind === 'finding') return `Failed: ${source.finding}`
+  if (source.kind === 'github-ci') return `Failed: CI on ${source.repo}#${source.number}`
+  return `Failed: the ${value.originalCheck?.name ?? 'Factory'} Check`
+}
+
+const freshContextSteps = (id: string) =>
+  `Capture a fresh context with \`ted failure context\`, add evidence that names it with \`ted failure evidence ${id} --file <json>\` (\`{"evidence":"…","contextId":"<new context ID>"}\`), then run \`ted failure assess ${id} --file <json>\` and \`ted failure ask ${id}\`. Evidence without the new contextId leaves the decision bound to the old context.`
+
+const newCaseSteps =
+  'A newly captured context can’t be attached to this failure, because TED can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory Check); a failure that happens again is a new case to record, assess and ask about.'
+
+export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
+  return workflow.settings.stages.work?.lead_closes_failures === true
+}
+
+export const leadClosesRefusal =
+  'only the human closes a failure recorded outside Validate: assess it with a recommendation of Fixed and run `ted failure ask <id>`. A Factory lets the Task Lead close its own Finding with passing evidence with `stages.work.lead_closes_failures: true` in its `.ted/workflow.yaml`; only the human changes that'
+
+export function acceptedResolution(value: FailureCase): boolean {
   const resolution = value.resolutions.at(-1)
   return (
     resolution?.resolution === 'accepted' &&
@@ -58,6 +125,18 @@ export function failureText(value: string): string {
   return redactSecrets(value).slice(0, 16_000)
 }
 
+export function generatedFailureText(value: string): string {
+  return failureText(
+    redactSecrets(value).replace(/https?:\/\/[^\s<>"']+/gi, (link) => {
+      try {
+        return failureText(link)
+      } catch {
+        return '[unsafe or invalid link omitted]'
+      }
+    }),
+  )
+}
+
 export function createFailureCases(options: {
   store: TedStore
   snapshot(task: Task, bindCi: () => void): Promise<FailureContext>
@@ -68,6 +147,9 @@ export function createFailureCases(options: {
   tell(task: Task, comment: Comment): Promise<void>
 }) {
   const { store } = options
+  const closed = (value: FailureCase) =>
+    value.verifications?.length ||
+    ['fixed', 'no-longer-applicable'].includes(value.resolutions.at(-1)?.resolution ?? '')
   const observations = new Map<string, { ci: string | null | undefined; generation: number }>()
   const collections = new WeakMap<FailureContext, number>()
   async function snapshot(
@@ -106,7 +188,10 @@ export function createFailureCases(options: {
       throw new RequestError(400, 'tested context must belong to this Task')
     return found
   }
-  const sourceContext = (source: FailureSource, context?: FailureContext) => {
+  const sourceContext = (
+    source: FailureSource,
+    context?: Pick<FailureContext, 'capturedAt' | 'ciFailures'>,
+  ) => {
     if (!context) return false
     if (source.kind === 'github-ci')
       return context.ciFailures?.includes(ciFailureKey(source)) === true
@@ -125,6 +210,34 @@ export function createFailureCases(options: {
   const decisionComment = (value: FailureCase) => {
     const decision = value.decisions.at(-1)
     return decision ? store.getComment(decision.commentId) : undefined
+  }
+  const attachable = (task: Task, value: FailureCase, current?: FailureContext | null) =>
+    sourceContext(value.source, tested(task, value.contextId)) &&
+    sourceContext(value.source, current ?? { capturedAt: new Date().toISOString() })
+  const nextSteps = (task: Task, value: FailureCase, current?: FailureContext | null) =>
+    attachable(task, value, current) ? freshContextSteps(value.id) : newCaseSteps
+  async function tellRefused(
+    task: Task,
+    value: FailureCase,
+    requestId: string,
+    why: string,
+    current?: FailureContext | null,
+  ) {
+    const body = `The human chose Accept this failure for failure case ${value.id} (decision ${requestId}) and TED refused it: ${why} The question stays open and the Task stays held. ${nextSteps(task, value, current)}`
+    if (
+      store
+        .listComments(task.id)
+        .some((comment) => comment.author.kind === 'ted' && comment.body === body)
+    )
+      return
+    store.postComment({
+      taskId: task.id,
+      author: { kind: 'ted' },
+      title: failureRefusedTitle,
+      body,
+    })
+    await store.persisted()
+    await options.onInvalidated(task, [value.id])
   }
   const withdraw = (value: FailureCase) => {
     const comment = decisionComment(value)
@@ -158,7 +271,13 @@ export function createFailureCases(options: {
     for (let value of values) {
       const resolution = value.resolutions.at(-1)
       let disposition: ValidationObligations['cases'][number]['disposition'] =
-        resolution?.resolution ?? 'unresolved'
+        value.verifications?.at(-1)?.replacedBy
+          ? 'retried'
+          : value.verifications?.length
+            ? 'fixed'
+            : resolution?.resolution === 'retry' || resolution?.resolution === 'fix'
+              ? 'unresolved'
+              : (resolution?.resolution ?? 'unresolved')
       const context = tested(task, resolution?.contextId ?? value.contextId)
       const state = completed
         ? 'historical'
@@ -174,10 +293,10 @@ export function createFailureCases(options: {
                 : 'changed'
             : !current
               ? 'unknown'
-              : current.fingerprint === context.fingerprint
+              : sameTested(current, context)
                 ? 'current'
                 : 'changed'
-      if (resolution?.resolution === 'accepted') {
+      if (resolution?.resolution === 'accepted' && !value.verifications?.length) {
         const invalid = !acceptedResolution(value)
         if (!completed && !invalid && state !== 'current') {
           value = {
@@ -194,7 +313,7 @@ export function createFailureCases(options: {
           }
           store.invalidateFailure(value, {
             title: failureNoticeTitle,
-            body: `Acceptance is no longer current for failure case ${value.id} (decision ${resolution.requestId}). Its tested context changed or could not be verified. Advancement remains held; capture new evidence and request a fresh human decision.`,
+            body: `Acceptance is no longer current for failure case ${value.id} (decision ${resolution.requestId}). Its tested context changed or could not be verified. Advancement remains held until the human decides again. ${nextSteps(task, value, current)}`,
           })
           invalidated.push(value.id)
           withdraw(value)
@@ -249,7 +368,115 @@ export function createFailureCases(options: {
       throw new RequestError(409, 'this failure decision is stale or already answered')
     return { value, decision, assessment }
   }
+  async function record(
+    task: Task,
+    runId: string,
+    request: RecordFailureRequest,
+    generated = false,
+  ): Promise<FailureCase> {
+    const context = tested(task, request.contextId)
+    let originalCheck: FailureCase['originalCheck']
+    const source = request.source
+    if (source.kind === 'factory-check' || source.kind === 'post-rebase-check') {
+      const run = store.getCheckRun(source.checkRunId)
+      const check = run?.checks[source.position]
+      if (
+        !run ||
+        run.taskId !== task.id ||
+        !check ||
+        !['failed', 'timed-out'].includes(check.state)
+      )
+        throw new RequestError(400, 'source must identify a failed or timed-out Check on this Task')
+      if ((run.trigger === 'merge') !== (source.kind === 'post-rebase-check'))
+        throw new RequestError(400, 'Check source does not match its trigger')
+      if (context && context.capturedAt > run.startedAt)
+        throw new RequestError(
+          409,
+          'context must be captured before Check execution, not borrowed from the current worktree',
+        )
+      originalCheck = {
+        ...check,
+        name: generatedFailureText(check.name),
+        command: generatedFailureText(check.command),
+        timeout: generatedFailureText(check.timeout),
+      }
+    } else if (source.kind === 'finding') {
+      if (store.getRun(source.runId)?.taskId !== task.id)
+        throw new RequestError(400, 'Finding must originate from a Run on this Task')
+    } else if (
+      source.kind === 'github-ci' &&
+      !task.repos.some(
+        (r) => !r.removed && r.repo === source.repo && r.pullRequest?.number === source.number,
+      )
+    )
+      throw new RequestError(400, 'CI source must identify this Task’s pull request')
+    if (context && !sourceContext(source, context))
+      throw new RequestError(
+        409,
+        'tested context does not identify this execution; omit contextId for historical or unknown evidence',
+      )
+    const safeSource =
+      source.kind === 'finding'
+        ? { ...source, finding: failureText(source.finding) }
+        : source.kind === 'github-ci'
+          ? { ...source, attempt: failureText(source.attempt) }
+          : source
+    const value: FailureCase = {
+      id: randomUUID(),
+      taskId: task.id,
+      recordedBy: runId,
+      provenance: originalCheck ? 'stored-check' : 'task-lead-reported',
+      source: safeSource,
+      evidence: generated ? generatedFailureText(request.evidence) : failureText(request.evidence),
+      ...(originalCheck && { originalCheck }),
+      ...(context && { contextId: context.id }),
+      createdAt: new Date().toISOString(),
+      ...(task.stage === 'validate' && { validation: true }),
+      assessments: [],
+      additions: [],
+      decisions: [],
+      resolutions: [],
+      invalidations: [],
+    }
+    store.failures.save(value, 'recorded')
+    if (value.validation)
+      store.postComment({
+        taskId: task.id,
+        author: { kind: 'ted' },
+        title: 'Validate failure recorded',
+        body: `Failure ${value.id}\n\n${value.evidence}\n\nThe Task stays in Validate for investigation. No send-back was recorded.`,
+      })
+    await store.persisted()
+    await options.onHold(task)
+    return value
+  }
   return {
+    pendingDecision,
+    verifyResult(
+      task: Task,
+      id: string,
+      evidence: string,
+      checkRunId?: string,
+      replacedBy?: string,
+    ) {
+      const value = get(task, id)
+      withdraw(value)
+      return store.failures.save(
+        {
+          ...value,
+          verifications: [
+            ...(value.verifications ?? []),
+            {
+              at: new Date().toISOString(),
+              evidence: failureText(evidence),
+              ...(checkRunId && { checkRunId }),
+              ...(replacedBy && { replacedBy }),
+            },
+          ],
+        },
+        'verified',
+      )
+    },
     list: (task: Task) => store.failures.list(task.id),
     get,
     obligations,
@@ -279,86 +506,16 @@ export function createFailureCases(options: {
       }
       return store.failures.capture(context)
     },
-    async record(task: Task, runId: string, request: RecordFailureRequest): Promise<FailureCase> {
-      const context = tested(task, request.contextId)
-      let originalCheck: FailureCase['originalCheck']
-      const source = request.source
-      if (source.kind === 'factory-check' || source.kind === 'post-rebase-check') {
-        const run = store.getCheckRun(source.checkRunId)
-        const check = run?.checks[source.position]
-        if (
-          !run ||
-          run.taskId !== task.id ||
-          !check ||
-          !['failed', 'timed-out'].includes(check.state)
-        )
-          throw new RequestError(
-            400,
-            'source must identify a failed or timed-out Check on this Task',
-          )
-        if ((run.trigger === 'merge') !== (source.kind === 'post-rebase-check'))
-          throw new RequestError(400, 'Check source does not match its trigger')
-        if (context && context.capturedAt > run.startedAt)
-          throw new RequestError(
-            409,
-            'context must be captured before Check execution, not borrowed from the current worktree',
-          )
-        originalCheck = {
-          ...check,
-          name: failureText(check.name),
-          command: failureText(check.command),
-          timeout: failureText(check.timeout),
-        }
-      } else if (source.kind === 'finding') {
-        if (store.getRun(source.runId)?.taskId !== task.id)
-          throw new RequestError(400, 'Finding must originate from a Run on this Task')
-      } else if (
-        source.kind === 'github-ci' &&
-        !task.repos.some(
-          (r) => !r.removed && r.repo === source.repo && r.pullRequest?.number === source.number,
-        )
-      )
-        throw new RequestError(400, 'CI source must identify this Task’s pull request')
-      if (context && !sourceContext(source, context))
-        throw new RequestError(
-          409,
-          'tested context does not identify this execution; omit contextId for historical or unknown evidence',
-        )
-      const safeSource =
-        source.kind === 'finding'
-          ? { ...source, finding: failureText(source.finding) }
-          : source.kind === 'github-ci'
-            ? { ...source, attempt: failureText(source.attempt) }
-            : source
-      const value: FailureCase = {
-        id: randomUUID(),
-        taskId: task.id,
-        recordedBy: runId,
-        provenance: originalCheck ? 'stored-check' : 'task-lead-reported',
-        source: safeSource,
-        evidence: failureText(request.evidence),
-        ...(originalCheck && { originalCheck }),
-        ...(context && { contextId: context.id }),
-        createdAt: new Date().toISOString(),
-        assessments: [],
-        additions: [],
-        decisions: [],
-        resolutions: [],
-        invalidations: [],
-      }
-      store.failures.save(value, 'recorded')
-      await store.persisted()
-      await options.onHold(task)
-      return value
+    record,
+    recordCheck(task: Task, runId: string, request: RecordFailureRequest) {
+      if (request.source.kind !== 'factory-check')
+        throw new RequestError(400, 'automatic evidence requires a stored Factory Check')
+      return record(task, runId, request, true)
     },
     evidence(task: Task, id: string, runId: string, evidence: string, contextId?: string) {
       const value = get(task, id)
       tested(task, contextId)
-      if (
-        value.resolutions.at(-1)?.resolution &&
-        value.resolutions.at(-1)?.resolution !== 'accepted'
-      )
-        throw new RequestError(409, 'this case is closed; record a new failure')
+      if (closed(value)) throw new RequestError(409, 'this case is closed; record a new failure')
       const safeEvidence = failureText(evidence)
       withdraw(value)
       const next = {
@@ -380,13 +537,18 @@ export function createFailureCases(options: {
       await obligations(task)
       options.assertLead(task, runId)
       const value = get(task, id)
-      const lastResolution = value.resolutions.at(-1)
-      if (lastResolution && lastResolution.resolution !== 'accepted')
-        throw new RequestError(409, 'this case is closed; record a new failure')
+      if (closed(value)) throw new RequestError(409, 'this case is closed; record a new failure')
       if (acceptedResolution(value))
         throw new RequestError(409, 'this failure already has current acceptance')
       withdraw(value)
       const contextId = value.additions.at(-1)?.contextId ?? value.contextId
+      if (value.validation)
+        store.postComment({
+          taskId: task.id,
+          author: { kind: 'run', runId },
+          title: 'Failure assessment',
+          body: `Failure ${value.id}\n\nAssessment: ${request.assessment}\n\nRecommendation: ${recommendation}`,
+        })
       return store.failures.save(
         {
           ...value,
@@ -407,11 +569,13 @@ export function createFailureCases(options: {
       )
     },
     async request(task: Task, id: string, runId: string) {
-      await obligations(task)
+      const observed =
+        store.failures.list(task.id).length > 0 ? await snapshot(task).catch(() => null) : undefined
+      await obligations(task, observed)
       options.assertLead(task, runId)
       const value = get(task, id)
       const resolution = value.resolutions.at(-1)
-      if (resolution && (resolution.resolution !== 'accepted' || acceptedResolution(value)))
+      if (closed(value) || (resolution?.resolution === 'accepted' && acceptedResolution(value)))
         throw new RequestError(409, 'this case is already resolved')
       const assessment = currentAssessment(value)
       if (!assessment)
@@ -422,21 +586,35 @@ export function createFailureCases(options: {
           409,
           'this assessment already has a decision request; assess again for a new decision',
         )
+      const bound = tested(task, assessment.contextId)
+      const current = verifiedContext(task, observed)
+      const stale = !!bound && !!current && !sameTested(bound, current)
+      if (stale && attachable(task, value, current))
+        throw new RequestError(
+          409,
+          `The Task’s code, Checks or CI changed since tested context ${bound.id}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
+        )
+      const unknown =
+        !bound ||
+        !sourceContext(value.source, tested(task, value.contextId)) ||
+        !sourceContext(value.source, bound)
+      const why = unknown ? cantAccept.unknown : stale ? cantAccept.changed : undefined
       return store.postFailureDecision(
         value,
         [
+          whatFailed(value),
+          `The Task Lead’s assessment: ${assessmentWords[assessment.assessment]}.`,
+          `Recommendation: ${assessment.recommendation}`,
+          why
+            ? value.validation
+              ? `Retry runs the failed step again. Fix in this Task sends it back to Work. ${why}`
+              : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
+            : value.validation
+              ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
+              : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
           `Failure ${value.id}`,
-          `Source: ${JSON.stringify(value.source)}`,
-          `Original tested context: ${value.contextId ?? 'unknown'}`,
-          `Decision tested context: ${assessment.contextId ?? 'unknown'}`,
-          `Original evidence:\n${value.evidence}`,
-          ...value.additions.map(
-            (addition) =>
-              `Evidence added ${addition.at} (context ${addition.contextId ?? 'unknown'}):\n${addition.evidence}`,
-          ),
-          `Assessment: ${assessment.assessment}\nRecommendation: ${assessment.recommendation}`,
-          'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
         ].join('\n\n'),
+        !why,
       )
     },
     findDecision(commentId: string) {
@@ -448,29 +626,52 @@ export function createFailureCases(options: {
           .find((v) => v.decisions.some((d) => d.commentId === commentId))
       )
     },
-    async resolve(task: Task, id: string, request: ResolveFailureRequest) {
+    async resolve(task: Task, id: string, request: ResolveFailureRequest, sendDrafts = true) {
       await obligations(task)
       pendingDecision(task, id, request.requestId)
       const reason = failureText(request.reason?.trim() ?? '')
-      if (request.resolution !== 'accepted' && !reason)
+      if (
+        request.resolution !== 'accepted' &&
+        request.resolution !== 'retry' &&
+        request.resolution !== 'fix' &&
+        !reason
+      )
         throw new RequestError(400, 'closing a failure needs a reason')
       const current =
         request.resolution === 'accepted'
           ? verifiedContext(task, await snapshot(task).catch(() => null))
           : undefined
       const verification = current === undefined ? undefined : verify(task, current)
+      let refused: { value: FailureCase; why: string } | undefined
       try {
         const { value, decision, assessment } = pendingDecision(task, id, request.requestId)
         const context = tested(task, decision.contextId)
-        if (
-          request.resolution === 'accepted' &&
-          (!sourceContext(value.source, tested(task, value.contextId)) ||
+        if (request.resolution === 'accepted') {
+          if (
+            !sourceContext(value.source, tested(task, value.contextId)) ||
             !sourceContext(value.source, context) ||
-            !context ||
-            !current ||
-            context.fingerprint !== current.fingerprint)
-        )
-          throw new RequestError(409, 'acceptance requires verified matching tested context')
+            !context
+          ) {
+            refused = {
+              value,
+              why: 'TED can’t verify what was tested for the context this decision is bound to.',
+            }
+            throw new RequestError(409, acceptRefusals.unknown)
+          }
+          if (!current) throw new RequestError(409, acceptRefusals.unverified)
+          if (!sameTested(context, current)) {
+            refused = {
+              value,
+              why: 'the Task’s code, Checks or CI changed since the tested context this decision is bound to.',
+            }
+            throw new RequestError(
+              409,
+              attachable(task, value, current)
+                ? acceptRefusals.changed
+                : acceptRefusals.changedForGood(value.validation === true),
+            )
+          }
+        }
         const at = new Date().toISOString()
         const next = {
           ...value,
@@ -487,16 +688,32 @@ export function createFailureCases(options: {
         }
         const answer = {
           kind: 'answered' as const,
-          choice: failureChoices[request.resolution],
+          choice:
+            request.resolution === 'retry' || request.resolution === 'fix'
+              ? validateFailureChoices[request.resolution]
+              : failureChoices[request.resolution],
           text: reason,
           at,
         }
-        store.resolveFailure(next, request.requestId, answer, options.drafts(task.id))
+        store.resolveFailure(
+          next,
+          request.requestId,
+          answer,
+          sendDrafts ? options.drafts(task.id) : [],
+        )
         await store.persisted()
         await options.tell(task, store.getComment(request.requestId) as Comment)
         return next
       } finally {
-        if (verification) await applyHold(task, verification)
+        try {
+          if (verification) await applyHold(task, verification)
+        } finally {
+          if (refused)
+            await tellRefused(task, refused.value, request.requestId, refused.why, current).catch(
+              (error: unknown) =>
+                console.error('couldn’t tell the Task Lead about a refusal:', error),
+            )
+        }
       }
     },
   }

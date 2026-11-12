@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type IntegrationsHealth, integrationInstallPages, readDaemonInfo } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { createIntegrations, type Integrations } from '../src/integrations.ts'
@@ -43,7 +43,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  integrations?.close()
+  await integrations?.close()
   integrations = undefined
   await store.close()
   delete process.env.TED_STUB_GH
@@ -83,6 +83,91 @@ function start(
 }
 
 describe('GitHub health', () => {
+  test('close drains every gh child before cleanup, including an older fresh check', async () => {
+    const older = {
+      entered: path.join(dir, 'older-entered'),
+      release: path.join(dir, 'older-release'),
+    }
+    const newer = {
+      entered: path.join(dir, 'newer-entered'),
+      release: path.join(dir, 'newer-release'),
+    }
+    await setGh({ healthGate: older })
+    const { integrations } = start()
+    const first = integrations.check({ fresh: true })
+    let second: Promise<IntegrationsHealth> | undefined
+    let closing: Promise<void> | undefined
+    try {
+      await expect.poll(() => readFile(older.entered, 'utf8').catch(() => '')).toBe('waiting')
+      await setGh({ healthGate: newer })
+      second = integrations.check({ fresh: true })
+      await expect.poll(() => readFile(newer.entered, 'utf8').catch(() => '')).toBe('waiting')
+      let closed = false
+      closing = Promise.resolve(integrations.close()).then(() => {
+        closed = true
+      })
+      await writeFile(newer.release, 'go')
+      await second
+      expect(closed).toBe(false)
+      expect((await ghCalls()).filter((call) => call.args[0] === '--version')).toHaveLength(1)
+      await writeFile(older.release, 'go')
+      await closing
+      expect((await ghCalls()).filter((call) => call.args[0] === '--version')).toHaveLength(2)
+      expect(integrations.current()).toBeUndefined()
+      expect(store.listBanners()).toEqual([])
+    } finally {
+      await Promise.all([writeFile(older.release, 'go'), writeFile(newer.release, 'go')])
+      await Promise.allSettled([first, second, closing])
+    }
+  })
+
+  test('close drains an older failing reload before removing its home', async () => {
+    const older = Promise.withResolvers<void>()
+    const newer = Promise.withResolvers<void>()
+    const env = { ...process.env }
+    let reloads = 0
+    integrations = createIntegrations({
+      store,
+      banners: createBanners({ store }),
+      ghBin: stubGh,
+      openTerminal: async () => {},
+      environment: {
+        current: () => env,
+        async reload() {
+          const first = reloads++ === 0
+          await (first ? older.promise : newer.promise)
+          await writeFile(path.join(dir, first ? 'older-health' : 'newer-health'), 'settled')
+          if (first) throw new Error('health reload failed')
+          return env
+        },
+      },
+    })
+    const first = integrations.check({ fresh: true }).then(
+      () => 'ready',
+      (error: Error) => error.message,
+    )
+    const second = integrations.check({ fresh: true })
+    let closed = false
+    const closing = Promise.resolve(integrations.close()).then(() => {
+      closed = true
+    })
+    try {
+      newer.resolve()
+      await second
+      expect(closed).toBe(false)
+      older.resolve()
+      expect(await first).toBe('health reload failed')
+      await closing
+      expect(await readFile(path.join(dir, 'older-health'), 'utf8')).toBe('settled')
+      expect(integrations.current()).toBeUndefined()
+      expect(store.listBanners()).toEqual([])
+    } finally {
+      older.resolve()
+      newer.resolve()
+      await Promise.allSettled([first, second, closing])
+    }
+  })
+
   test('a signed-in host is ready, with its login, token source, protocol, scopes and gh', async () => {
     await setGh({ hosts: { 'github.com': [ready()] } })
     const { integrations } = start()
@@ -352,6 +437,44 @@ describe('Git health', () => {
 })
 
 describe('Fix in the user’s terminal', () => {
+  test('close drains a pending Fix without starting its watch afterward', async () => {
+    const entered = Promise.withResolvers<void>()
+    const terminal = Promise.withResolvers<void>()
+    integrations = createIntegrations({
+      store,
+      banners: createBanners({ store }),
+      ghBin: stubGh,
+      openTerminal: async () => {
+        entered.resolve()
+        await terminal.promise
+        await writeFile(path.join(dir, 'terminal-command'), 'gh auth login')
+      },
+    })
+    const fixing = integrations.fix({ fix: 'gh-login' })
+    await entered.promise
+    const intervals = vi.spyOn(globalThis, 'setInterval')
+    let closed = false
+    const closing = Promise.resolve(integrations.close()).then(() => {
+      closed = true
+    })
+    try {
+      await Promise.resolve()
+      expect(closed).toBe(false)
+      terminal.resolve()
+      await fixing
+      await closing
+      expect(await readFile(path.join(dir, 'terminal-command'), 'utf8')).toBe('gh auth login')
+      await expect(integrations.check({ fresh: true })).rejects.toThrow('Integrations are closed')
+      await expect(integrations.fix({ fix: 'gh-login' })).rejects.toThrow('Integrations are closed')
+      integrations.start()
+      expect(intervals).not.toHaveBeenCalled()
+    } finally {
+      terminal.resolve()
+      await Promise.allSettled([fixing, closing])
+      intervals.mockRestore()
+    }
+  })
+
   test('a GitHub Fix opens the terminal with the daemon’s environment, as an agent Fix does', async () => {
     const shared = { ...process.env, PATH: '/login/bin:/usr/bin' }
     const environment = { current: () => shared, reload: async () => shared }

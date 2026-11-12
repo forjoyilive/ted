@@ -36,8 +36,12 @@ function stubHealth(): {
   signedIn?: boolean
   account?: 'chatgpt' | 'apiKey'
   rateLimits?: Record<string, unknown>
+  rateLimitsDelayMs?: number
+  rateLimitsError?: boolean
+  rateLimitsHang?: boolean
   resumeSteps?: Step[]
   turnStartDelayMs?: number
+  turnStartWaitFor?: string
 } {
   try {
     return JSON.parse(
@@ -209,6 +213,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     answers.get(message.id)?.(message)
     continue
   }
+  appendFileSync(
+    path.join(process.env.TED_HOME ?? '', 'stub-usage-methods.jsonl'),
+    `${JSON.stringify(message.method)}\n`,
+  )
   const id = message.id ?? 0
   if (message.method === 'initialize') {
     initialized = true
@@ -227,8 +235,16 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     })
   } else if (message.method === 'account/rateLimits/read') {
-    const limits = stubHealth().rateLimits
-    send({ id, result: { rateLimits: limits ?? { primary: null, secondary: null } } })
+    const health = stubHealth()
+    appendFileSync(
+      path.join(process.env.TED_HOME ?? '', 'stub-usage-reads.jsonl'),
+      `${JSON.stringify({ pid: process.pid, cwd: process.cwd(), env: process.env })}\n`,
+    )
+    if (health.rateLimitsHang) continue
+    if (health.rateLimitsDelayMs) await sleep(health.rateLimitsDelayMs)
+    if (health.rateLimitsError) send({ id, error: { code: -1, message: 'Usage unavailable' } })
+    else
+      send({ id, result: { rateLimits: health.rateLimits ?? { primary: null, secondary: null } } })
   } else if (message.method === 'model/list') {
     send({ id, result: { data: models, nextCursor: null } })
   } else if (message.method === 'config/read') {
@@ -290,6 +306,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
   } else if (message.method === 'turn/start') {
     await sleep(stubHealth().turnStartDelayMs ?? 0)
+    const waitFor = stubHealth().turnStartWaitFor
+    while (waitFor && !existsSync(waitFor)) await sleep(25)
     turnActive = true
     interrupted = false
     const turn = ++turnNumber

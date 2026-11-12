@@ -27,6 +27,7 @@ export interface CheckSettings {
 }
 
 export interface StageSettings {
+  effort?: string
   enabled?: boolean
   gate?: boolean
   max_back?: number
@@ -34,6 +35,9 @@ export interface StageSettings {
   depth?: string
   checks?: CheckSettings[]
   loop_check?: number | false
+  p1_only_from?: number | false
+  sub_agents?: boolean
+  lead_closes_failures?: boolean
 }
 
 export interface WorktreeCommand {
@@ -336,6 +340,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           continue
         }
         switch (entry.name) {
+          case 'effort':
+            if (!oneOf(node, efforts))
+              error(node, `\`${path}\` must be one of ${efforts.join(', ')}`)
+            else stage.effort = scalar(node) as string
+            break
           case 'enabled':
           case 'gate':
             if (typeof scalar(node) !== 'boolean') {
@@ -368,6 +377,24 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               error(node, `\`${path}\` must be a whole number above 0, or false`)
             } else stage.loop_check = scalar(node) as number | false
             break
+          case 'p1_only_from':
+            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            else if (scalar(node) !== false && !wholeNumber(node, 2)) {
+              error(node, `\`${path}\` must be a round number, 2 or more, or false`)
+            } else stage.p1_only_from = scalar(node) as number | false
+            break
+          case 'sub_agents':
+            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            else if (typeof scalar(node) !== 'boolean') {
+              error(node, `\`${path}\` must be true or false`)
+            } else stage.sub_agents = scalar(node) as boolean
+            break
+          case 'lead_closes_failures':
+            if (id !== 'work') warn(entry.key, `unknown key \`${path}\``)
+            else if (typeof scalar(node) !== 'boolean') {
+              error(node, `\`${path}\` must be true or false`)
+            } else stage.lead_closes_failures = scalar(node) as boolean
+            break
           case 'checks':
             if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
             else if (context.kind === 'library') warn(entry.key, `\`${path}${factoryOnly}`)
@@ -379,6 +406,18 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           default:
             warn(entry.key, `unknown key \`${path}\``)
         }
+      }
+      const p1From = stage.p1_only_from
+      if (
+        typeof p1From === 'number' &&
+        stage.max_back !== undefined &&
+        p1From > stage.max_back + 1
+      ) {
+        const round = stage.max_back + 1
+        warn(
+          entries(stageNode).find((entry) => entry.name === 'p1_only_from')?.key ?? stageNode,
+          `\`stages.${id}.p1_only_from\` is ${p1From}, but \`max_back: ${stage.max_back}\` in this file lets Validate reach round ${round} at most before TED asks the human, so round ${p1From} comes only if the human sends the Task back again`,
+        )
       }
       settings.stages[id as StageId] = stage
     }

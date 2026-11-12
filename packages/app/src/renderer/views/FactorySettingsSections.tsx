@@ -19,12 +19,16 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { Select } from '../components/Select.tsx'
+import { StageEffort } from '../components/StageEffort.tsx'
+import { useEventValue } from '../data.ts'
 import {
   agentEdited,
   driftLine,
   lastRunText,
   lastValidLine,
   type SettingsDraft,
+  type StageDraft,
   stageEdited,
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
@@ -103,6 +107,93 @@ export function Toggle({
   )
 }
 
+export function ValidateRounds({
+  stage,
+  onStage,
+}: {
+  stage: Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'> | undefined
+  onStage: (fields: Pick<StageDraft, 'p1OnlyFrom' | 'subAgents'>) => void
+}) {
+  const from = stage?.p1OnlyFrom ?? false
+  const rounds = [2, 3, 4, 5, 6]
+  if (from !== false && !rounds.includes(from)) rounds.push(from)
+  return (
+    <div className={styles.validateRounds}>
+      <span className={styles.roundSetting}>
+        Send back only for P1 Findings
+        <select
+          aria-label="Validate sends back only for P1 Findings"
+          className={styles.cellSelect}
+          value={from === false ? 'off' : String(from)}
+          onChange={(event) =>
+            onStage({
+              p1OnlyFrom: event.target.value === 'off' ? false : Number(event.target.value),
+            })
+          }
+        >
+          <option value="off">Off</option>
+          {rounds.map((round) => (
+            <option key={round} value={round}>
+              From round {round}
+            </option>
+          ))}
+        </select>
+        <Help>
+          Off: every blocking Finding sends the Task back to Work. From a round: in that round of
+          Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost
+          or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from
+          an earlier round that is still not fixed sends it back too. Every other new Finding stays
+          unfixed and is listed as a note for you at Review. You get fewer rounds, and problems
+          Validate found can merge if you approve without reading the notes.
+        </Help>
+      </span>
+      <span className={styles.roundSetting}>
+        Other sub-agents in Validate
+        <Toggle
+          label="Other sub-agents in Validate"
+          checked={stage?.subAgents === true}
+          onChange={(subAgents) => onStage({ subAgents })}
+        />
+        <Help>
+          Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can
+          also start other sub-agents, for example to run slow tests. Each one takes a working Run,
+          and a sub-agent that reviews the diff adds Findings that can cost another round. The
+          one-reviewer rule stays either way.
+        </Help>
+      </span>
+    </div>
+  )
+}
+
+export function WorkFailures({
+  stage,
+  onStage,
+}: {
+  stage: Pick<StageDraft, 'leadClosesFailures'> | undefined
+  onStage: (fields: Pick<StageDraft, 'leadClosesFailures'>) => void
+}) {
+  return (
+    <div className={styles.validateRounds}>
+      <span className={styles.roundSetting}>
+        Task Lead closes its own fixed failures
+        <Toggle
+          label="Task Lead closes its own fixed failures"
+          checked={stage?.leadClosesFailures === true}
+          onChange={(leadClosesFailures) => onStage({ leadClosesFailures })}
+        />
+        <Help>
+          Off: when a test the Task Lead ran itself failed outside Validate and it recorded the
+          failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs
+          the test again and it passes, it closes the failure itself with that evidence, and you get
+          a line in the thread and no question. TED doesn’t run the test, so you are trusting the
+          Task Lead’s report. Failed Checks and failures found in Validate still need your decision,
+          and only you can accept a failure that still happens.
+        </Help>
+      </span>
+    </div>
+  )
+}
+
 export function InvalidNotice({
   invalid,
 }: {
@@ -139,10 +230,12 @@ function SectionHeading({
   id,
   title: heading,
   help,
+  where = 'repo',
 }: {
   id: string
   title: string
   help: ReactNode
+  where?: 'repo' | 'machine'
 }) {
   return (
     <div className={base.sectionHeading}>
@@ -150,7 +243,11 @@ function SectionHeading({
         {heading}
       </h2>
       <Help>{help}</Help>
-      <span className={base.repoChip}>Saved to the repo · pull request</span>
+      {where === 'repo' ? (
+        <span className={base.repoChip}>In the repo</span>
+      ) : (
+        <span className={base.machineChip}>Saved on {machine}</span>
+      )}
     </div>
   )
 }
@@ -191,22 +288,23 @@ export function WorkflowSection({
       <SectionHeading
         id="workflow"
         title="Workflow"
-        help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory."
+        help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort."
       />
       <OvernightNotice />
-      <div className={styles.table}>
+      <div className={`${styles.table} ${styles.workflowTable}`}>
         <div className={`${styles.workflowRow} ${styles.headRow}`}>
           <span>Stage</span>
           <span>On</span>
           <span className={styles.gateHeading}>
-            Gate
+            Sign-off
             <Help>
-              A Gate makes the Task wait for your sign-off at the end of this Stage before moving
-              on. If the Stage skips itself, its Gate is skipped too.
+              When on, the Task waits for your approval at the end of this Stage before moving on.
+              If the Stage skips itself, its sign-off is skipped too.
             </Help>
           </span>
           <span>Send-backs</span>
           <span>Clarify depth</span>
+          <span>Task Lead effort</span>
           <span>From</span>
           <span className={base.visuallyHidden}>Actions</span>
         </div>
@@ -230,7 +328,7 @@ export function WorkflowSection({
           <span className={styles.warnMark} aria-hidden>
             ▲
           </span>{' '}
-          The Review Gate is off, so Merge runs right after Validate without your sign-off.
+          The Review sign-off is off, so Merge runs right after Validate without your sign-off.
         </p>
       )}
       {view.ignoredStageFiles.map((file) => (
@@ -311,7 +409,7 @@ function StageRow({
         <span>
           {agent ? (
             <Toggle
-              label={`${name} Gate`}
+              label={`${name} sign-off`}
               checked={stage?.gate ?? row.gate}
               onChange={(gate) => onStage({ gate })}
             />
@@ -337,9 +435,10 @@ function StageRow({
         </span>
         <span>
           {row.id === 'clarify' ? (
-            <select
+            <Select
+              fullWidth
               aria-label="Clarify depth"
-              className={styles.cellSelect}
+              controlClassName={styles.cellSelect}
               value={stage?.depth ?? 'auto'}
               onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
             >
@@ -348,7 +447,20 @@ function StageRow({
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
+          ) : (
+            dash
+          )}
+        </span>
+        <span>
+          {agent ? (
+            <StageEffort
+              stage={name}
+              value={stage?.effort}
+              inherited={row.inheritedEffort}
+              source={row.inheritedEffortFrom}
+              onChange={(effort) => onStage({ effort })}
+            />
           ) : (
             dash
           )}
@@ -392,6 +504,8 @@ function StageRow({
           )}
         </span>
       </div>
+      {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
+      {row.id === 'work' && <WorkFailures stage={stage} onStage={onStage} />}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}
@@ -495,7 +609,7 @@ export function DriftNotice({
             </Button>
             <Help>
               Creates a Task in this Factory that folds the inherited changes into your copy and
-              updates based_on. Its Review Gate is always on, so you see the result before it
+              updates based_on. Its Review sign-off is always on, so you see the result before it
               merges.
             </Help>
           </>
@@ -600,9 +714,10 @@ export function ChecksSection({
                 onChange={(event) => setCheck(index, { run: event.target.value })}
               />
               {multiRepo && (
-                <select
+                <Select
+                  fullWidth
                   aria-label={`${check.name || 'Check'} repo`}
-                  className={styles.cellSelect}
+                  controlClassName={styles.cellSelect}
                   value={check.repo ?? draft.repos[0]?.name ?? ''}
                   onChange={(event) =>
                     setCheck(index, {
@@ -615,7 +730,7 @@ export function ChecksSection({
                       {repo.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               )}
               <input
                 aria-label={`${check.name || 'Check'} timeout`}
@@ -821,9 +936,10 @@ function AgentRow({
         </span>
         <span className={`${base.mono} ${styles.agentKey}`}>{row.role}</span>
       </span>
-      <select
+      <Select
+        fullWidth
         aria-label={`${name} agent`}
-        className={styles.cellSelect}
+        controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.agent ?? 'claude'}
         onChange={(event) => update({ agent: event.target.value })}
@@ -833,7 +949,7 @@ function AgentRow({
             {label}
           </option>
         ))}
-      </select>
+      </Select>
       <input
         aria-label={`${name} model`}
         className={`${styles.cellInput} ${base.mono}`}
@@ -842,9 +958,10 @@ function AgentRow({
         value={shown.model ?? ''}
         onChange={(event) => update({ model: event.target.value })}
       />
-      <select
+      <Select
+        fullWidth
         aria-label={`${name} effort`}
-        className={styles.cellSelect}
+        controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.effort ?? ''}
         onChange={(event) => {
@@ -861,7 +978,7 @@ function AgentRow({
             {effort}
           </option>
         ))}
-      </select>
+      </Select>
       <FromChip layer={own ? 'factory' : row.inheritedFrom} />
       <span className={styles.actions}>
         {own ? (
@@ -894,76 +1011,173 @@ export function PermissionsSection({
   onDraft: Update
 }) {
   const id = useId()
-  const bypass = draft.permissions === 'bypass'
+  const { value: mode, update } = useEventValue({
+    initial: view.permissions,
+    key: view.factoryId,
+    load: async () => view.permissions,
+    event: (event) =>
+      event.type === 'settings-changed'
+        ? () => (event.settings.factoryPermissions[view.factoryId] === 'bypass' ? 'bypass' : 'auto')
+        : undefined,
+  })
+  const setMode = (mode: typeof view.permissions) => update(() => mode)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const dialog = useRef<HTMLDialogElement>(null)
+  const bypass = mode === 'bypass'
+  useEffect(() => update(() => view.permissions), [view, update])
+  useEffect(() => {
+    if (confirming) dialog.current?.showModal()
+  }, [confirming])
+
+  const save = async (next: 'auto' | 'bypass') => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const saved = await ted.setFactoryPermissions(view.factoryId, next, confirmed)
+      setMode(saved.mode)
+      setConfirming(false)
+    } catch (failure) {
+      setError(readableError(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <section className={base.section} aria-labelledby="permissions">
-      <SectionHeading
-        id="permissions"
-        title="Permissions and limits"
-        help="Applies to Task Leads, sub-agents, reviewers and Planning Runs. Automations always run in Auto permissions."
-      />
-      <fieldset className={styles.radios}>
-        <legend className={base.visuallyHidden}>Permission mode</legend>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name={`${id}-permissions`}
-            checked={!bypass}
-            onChange={() => onDraft((d) => ({ ...d, permissions: 'auto' }))}
-          />
-          Auto
-          <Help>Agents ask before risky actions, and TED sends you each permission request.</Help>
-          <Edited when={draft.permissions !== loaded.permissions && !bypass} />
-        </label>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name={`${id}-permissions`}
-            checked={bypass}
-            onChange={() => onDraft((d) => ({ ...d, permissions: 'bypass' }))}
-          />
-          Bypass
-          <Help>
-            Only for Factories whose Runs happen in an isolated machine or VM. Can’t be set in the
-            Library.
-          </Help>
-          <Edited when={draft.permissions !== loaded.permissions && bypass} />
-        </label>
-      </fieldset>
-      {bypass && (
-        <p className={styles.bypass} role="note">
-          <span className={styles.bypassMark} aria-hidden>
-            ●
-          </span>{' '}
-          <span>
-            <strong>Bypass is on.</strong> Every Run in this Factory acts without asking: it can run
-            any command, change any file and use the network on {machine}. Use it only when Runs
-            happen in an isolated machine or VM. Automations always run in Auto permissions.
-          </span>
+    <>
+      <section className={base.section} aria-labelledby="permissions">
+        <SectionHeading
+          id="permissions"
+          title="Permission mode"
+          where="machine"
+          help="Permission mode is saved only on this computer, separately for each Factory."
+        />
+        <p className={base.caption}>
+          Saved here immediately. Applies to new and restarted Task Leads, sub-agents and reviewers,
+          and new Checks and agent-started Apps. Running processes keep their current permissions;
+          stop them to end existing access. Planning, Automation and Coordinator Runs always use
+          Auto.
         </p>
-      )}
-      <div className={base.field}>
-        <label className={base.label} htmlFor={`${id}-limit`}>
-          Limit on working Runs{' '}
-          <Edited when={draft.maxWorkingRuns.trim() !== loaded.maxWorkingRuns.trim()} />
-        </label>
-        <span className={styles.limitLine}>
-          <input
-            id={`${id}-limit`}
-            className={styles.limitInput}
-            inputMode="numeric"
-            value={draft.maxWorkingRuns}
-            onChange={(event) =>
-              onDraft((d) => ({ ...d, maxWorkingRuns: event.target.value.replace(/\D/g, '') }))
-            }
-          />
-          <span className={base.caption}>
-            of {machineShort} {view.machineMaxWorkingRuns}
+        {view.repoPermissions === 'bypass' && !bypass && (
+          <p className={styles.bypass}>
+            The repo requests Bypass. This computer uses Auto until you enable Bypass here.
+          </p>
+        )}
+        <p>
+          <strong>{bypass ? 'Bypass is on.' : 'Auto is on.'}</strong>
+        </p>
+        {bypass ? (
+          <>
+            <p className={styles.bypass}>
+              Agents act without asking: they can run any command, change any file and use the
+              network on {machine}. Agent-started Checks and Apps run outside TED’s sandbox.
+            </p>
+            <Button disabled={busy} onClick={() => void save('auto')}>
+              Use Auto
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className={base.caption}>
+              Agents use Auto permissions and requests reach your Inbox.
+            </p>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setConfirmed(false)
+                setError(undefined)
+                setConfirming(true)
+              }}
+            >
+              Enable Bypass…
+            </Button>
+          </>
+        )}
+        {error && !confirming && (
+          <p role="alert" className={base.fieldError}>
+            {error}
+          </p>
+        )}
+        {confirming && (
+          <dialog
+            ref={dialog}
+            className={base.dialog}
+            aria-labelledby={`${id}-confirm`}
+            onCancel={(event) => {
+              event.preventDefault()
+              if (!busy) setConfirming(false)
+            }}
+          >
+            <div className={base.dialogBody}>
+              <h2 id={`${id}-confirm`} className={base.dialogHeading}>
+                Enable Bypass on this computer?
+              </h2>
+              <p className={styles.bypass}>
+                Agents can run any command, change any file and use the network without asking.
+                Agent-started Checks and Apps also run outside TED’s sandbox. Use only on an
+                isolated machine or VM. This choice applies only to this Factory on {machine}.
+              </p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  disabled={busy}
+                  onChange={(event) => setConfirmed(event.target.checked)}
+                />{' '}
+                I understand and want to enable Bypass.
+              </label>
+              {error && (
+                <p role="alert" className={base.fieldError}>
+                  {error}
+                </p>
+              )}
+            </div>
+            <div className={base.dialogFooter}>
+              <Button disabled={busy} onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={busy || !confirmed}
+                onClick={() => void save('bypass')}
+              >
+                Enable Bypass
+              </Button>
+            </div>
+          </dialog>
+        )}
+      </section>
+      <section className={base.section} aria-labelledby={`${id}-limits`}>
+        <SectionHeading
+          id={`${id}-limits`}
+          title="Working Run limit"
+          help="This Factory’s limit follows its Workflow."
+        />
+        <div className={base.field}>
+          <label className={base.label} htmlFor={`${id}-limit`}>
+            Limit on working Runs{' '}
+            <Edited when={draft.maxWorkingRuns.trim() !== loaded.maxWorkingRuns.trim()} />
+          </label>
+          <span className={styles.limitLine}>
+            <input
+              id={`${id}-limit`}
+              className={styles.limitInput}
+              inputMode="numeric"
+              value={draft.maxWorkingRuns}
+              onChange={(event) =>
+                onDraft((d) => ({ ...d, maxWorkingRuns: event.target.value.replace(/\D/g, '') }))
+              }
+            />
+            <span className={base.caption}>
+              of {machineShort} {view.machineMaxWorkingRuns}
+            </span>
+            <Help>Leave empty to use only the Mac’s limit.</Help>
           </span>
-          <Help>Leave empty to use only the Mac’s limit.</Help>
-        </span>
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   )
 }
 

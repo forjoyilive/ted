@@ -1,5 +1,5 @@
-import { RequestError } from '../errors.ts'
-import { bodyObject, type Route, readJson } from './route.ts'
+import { parseSendPeerMessage } from '@ted/protocol'
+import { jsonRoute, type Route } from './route.ts'
 
 export const peerRoutes: Route[] = [
   {
@@ -32,6 +32,7 @@ export const peerRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/peers\/watch\?cursor=([a-f0-9]{64})&timeout=([\d.]{1,8})$/,
+    waits: true,
     runToken: true,
     async handle({ caller, params: [cursor = '', timeout = '25'], res }, { tasks }) {
       const controller = new AbortController()
@@ -44,18 +45,12 @@ export const peerRoutes: Route[] = [
       }
     },
   },
-  {
+  jsonRoute(parseSendPeerMessage, {
     method: 'POST',
     path: /^\/peers\/tasks\/([^/]+)\/messages$/,
     runToken: true,
-    async handle({ caller, params: [ref = ''], req }, { tasks }) {
-      const body = bodyObject(await readJson(req))
-      if (typeof body.operation !== 'string' || typeof body.text !== 'string')
-        throw new RequestError(400, 'operation and text are required')
-      return [
-        201,
-        await tasks.peers.send(caller, ref, { operation: body.operation, text: body.text }),
-      ]
+    async handle({ caller, params: [ref = ''], body }, { tasks }) {
+      return [201, await tasks.peers.send(caller, ref, body)]
     },
-  },
+  }),
 ]

@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,9 +19,10 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
-const electronPath = createRequire(import.meta.url)('electron') as string
+const electronPath = resolveElectron()
 const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
 )
@@ -142,7 +142,7 @@ describe('Changes in Task details', () => {
     await diff.getByText('2 of 3').waitFor()
     await diff
       .getByText(
-        'Task branch against its merge-base with main, widgets’s base branch, including uncommitted work',
+        'Local changes · Task branch against its merge-base with main, widgets’s base branch, including uncommitted work',
       )
       .waitFor()
     const removed = diff.getByRole('row', { name: /three/ })
@@ -170,16 +170,15 @@ describe('Changes in Task details', () => {
       const changes = window
         .getByRole('complementary', { name: 'Task details' })
         .getByRole('region', { name: 'Changes' })
-      await changes.getByRole('button', { name: 'Expand all' }).click()
+      await changes.getByRole('button', { name: 'All changes' }).click()
 
       const all = window.getByRole('region', { name: 'All changes' })
-      await all.getByRole('navigation', { name: 'Changed files' }).waitFor()
+      await window.getByRole('complementary', { name: 'Task details' }).waitFor()
       await expect
         .poll(() => all.getByRole('heading', { level: 3 }).allTextContents())
         .toEqual(['README.md', 'src/search/SearchPanel.tsx', 'src/search/useSearch.ts'])
       await all.getByRole('row', { name: /THREE/ }).waitFor()
-      const index = all.getByRole('navigation', { name: 'Changed files' })
-      expect(await index.evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+      expect(await all.getByRole('navigation', { name: 'Changed files' }).count()).toBe(0)
 
       await all.getByRole('button', { name: 'Collapse' }).click()
       await window.getByRole('region', { name: 'Task thread' }).waitFor()
@@ -201,7 +200,7 @@ describe('Changes in Task details', () => {
     await changes.getByRole('heading', { name: 'Changes · 4 files' }).waitFor()
   })
 
-  test('a committed change undone in the working tree shows what the pull request gets', async () => {
+  test('a committed change undone in the working tree remains readable as local committed work', async () => {
     const window = await openTaskWithChanges()
     const changes = window
       .getByRole('complementary', { name: 'Task details' })

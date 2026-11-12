@@ -10,19 +10,22 @@ import type {
 } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
+import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
 import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
 import { RunIcon } from '../components/RunIcon.tsx'
+import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
-import { usePlan, useRunChat } from '../data.ts'
+import { usePlan, usePlanState, useRunChat } from '../data.ts'
+import { InboxRequestsContext } from '../inbox-requests.ts'
 import {
   planEnded,
   planStartedLine,
@@ -41,8 +44,10 @@ import views from './views.module.css'
 export function PlanChatView({
   factory,
   planId,
+  revealRequest,
   from,
   onBack,
+  backLabel,
   onOpenPlan,
   onPlanMore,
   onOpenTask,
@@ -50,8 +55,10 @@ export function PlanChatView({
 }: {
   factory: Factory
   planId: string | undefined
+  revealRequest?: ScrollReveal | undefined
   from?: string
   onBack: () => void
+  backLabel?: string
   onOpenPlan: (planId: string) => void
   onPlanMore: (planId: string) => void
   onOpenTask: (ref: string) => void
@@ -72,7 +79,9 @@ export function PlanChatView({
     <PlanChat
       key={planId}
       planId={planId}
+      revealRequest={revealRequest}
       onBack={onBack}
+      {...(backLabel !== undefined && { backLabel })}
       onOpenTask={onOpenTask}
       onOpenPlan={onOpenPlan}
       onPlanMore={onPlanMore}
@@ -159,10 +168,10 @@ export function LeadSelects({
   )
 }
 
-function Back({ onBack }: { onBack: () => void }) {
+function Back({ onBack, label = '← Plans' }: { onBack: () => void; label?: string }) {
   return (
     <button type="button" className={styles.back} onClick={onBack}>
-      ← Plans
+      {label}
     </button>
   )
 }
@@ -492,11 +501,13 @@ function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
 function PlanHeader({
   plan,
   onBack,
+  backLabel,
   onDeleted,
   onOpenTask,
 }: {
   plan: Plan
   onBack: () => void
+  backLabel?: string
   onDeleted: () => void
   onOpenTask: (ref: string) => void
 }) {
@@ -520,7 +531,7 @@ function PlanHeader({
 
   return (
     <header className={styles.header}>
-      <Back onBack={onBack} />
+      <Back onBack={onBack} {...(backLabel !== undefined && { label: backLabel })} />
       <div className={styles.titleRow}>
         <TitleEditor plan={plan} renameSignal={renameSignal} />
         <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
@@ -636,7 +647,7 @@ function EventLine({ text, at, good }: { text: string; at: string; good?: boolea
   )
 }
 
-function PinnedCard({ request, onAnswered }: { request: PlanRequest; onAnswered: () => void }) {
+function PlanRequestCard({ request }: { request: PlanRequest }) {
   const now = useNow()
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
@@ -647,7 +658,6 @@ function PinnedCard({ request, onAnswered }: { request: PlanRequest; onAnswered:
     setError(undefined)
     try {
       await ted.answerPlanRequest(request.id, answer)
-      onAnswered()
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -656,7 +666,11 @@ function PinnedCard({ request, onAnswered }: { request: PlanRequest; onAnswered:
   }
 
   return (
-    <section className={styles.pinned} aria-label={`${kind} from the planner`}>
+    <section
+      className={styles.request}
+      aria-label={`${kind} from the planner`}
+      data-request={request.id}
+    >
       <div className={styles.cardHead}>
         <span className={styles.pendingKind}>{kind}</span>
         <span>{`· ${detail} · from the planner · ${ago(request.createdAt, now)}`}</span>
@@ -714,13 +728,16 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
       : {
           id: request.id,
           at: request.createdAt,
-          node: (
-            <OneLiner
-              request={request}
-              latest={request.id === latestProposal?.id}
-              onOpenTask={onOpenTask}
-            />
-          ),
+          node:
+            request.answer === undefined ? (
+              <PlanRequestCard request={request} />
+            ) : (
+              <OneLiner
+                request={request}
+                latest={request.id === latestProposal?.id}
+                onOpenTask={onOpenTask}
+              />
+            ),
         },
   )
   if (plan.finishedAt !== undefined && planEnded(plan)) {
@@ -780,49 +797,65 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
 
 function PlanChat({
   planId,
+  revealRequest,
   onBack,
+  backLabel,
   onOpenTask,
   onOpenPlan,
   onPlanMore,
   onDeleted,
 }: {
   planId: string
+  revealRequest?: ScrollReveal | undefined
   onBack: () => void
+  backLabel?: string
   onOpenTask: (ref: string) => void
   onOpenPlan: (planId: string) => void
   onPlanMore: (planId: string) => void
   onDeleted: () => void
 }) {
-  const detail = usePlan(planId)
-  const [, setAnswered] = useState(0)
+  const inbox = useContext(InboxRequestsContext)
+  const resource = usePlanState(planId)
+  const detail = resource.value
   if (!detail) {
     return (
       <section className={views.pane} aria-label="Planning chat">
-        <p className={views.empty}>Loading the planning chat…</p>
+        <div className={views.empty}>
+          {resource.error ? (
+            <LoadingError error={resource.error} retry={resource.retry} />
+          ) : (
+            <Skeleton shape="history" label="Loading the planning chat…" />
+          )}
+        </div>
       </section>
     )
   }
   const { plan } = detail
-  const open = detail.requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
+  const requests = detail.requests.filter((request) => !inbox?.resolved.has(request.id))
+  const open = requests.filter((request) => request.kind !== 'note' && request.answer === undefined)
   const ended = planEnded(plan)
   return (
     <>
       <section className={views.pane} aria-label="Planning chat">
-        <PlanHeader plan={plan} onBack={onBack} onDeleted={onDeleted} onOpenTask={onOpenTask} />
+        <PlanHeader
+          plan={plan}
+          {...(backLabel !== undefined && { backLabel })}
+          onBack={onBack}
+          onDeleted={onDeleted}
+          onOpenTask={onOpenTask}
+        />
         {plan.runId !== undefined ? (
           <RunChat
             runId={plan.runId}
             bar={false}
-            extra={extraItems(detail, onOpenTask)}
-            {...(open && {
-              pinned: (
-                <PinnedCard
-                  key={open.id}
-                  request={open}
-                  onAnswered={() => setAnswered((n) => n + 1)}
-                />
-              ),
-            })}
+            extra={extraItems({ ...detail, requests }, onOpenTask)}
+            requests={open.map((request) => ({
+              id: request.id,
+              label: requestHeading(request).kind,
+              title: request.title ?? request.body,
+            }))}
+            revealRequest={revealRequest}
+            onJumpRequest={(id) => inbox?.select(id)}
             placeholder="Message the planner…"
             help="Goes to the planner. While a round is open, this talks it through."
             {...(ended && { readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} /> })}
@@ -834,7 +867,7 @@ function PlanChat({
           </>
         )}
       </section>
-      <PlanPane detail={detail} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />
+      <PlanPane detail={{ ...detail, requests }} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />
     </>
   )
 }

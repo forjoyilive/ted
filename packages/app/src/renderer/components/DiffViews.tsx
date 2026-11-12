@@ -1,12 +1,19 @@
 import type { FileDiff, LineSide, TaskChanges } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { type ChangedFile, changedFiles, splitPath } from '../changes.ts'
+import {
+  type ChangedFile,
+  changedFiles,
+  type PullRequestChangesState,
+  splitPath,
+} from '../changes.ts'
 import { readableError, ted } from '../ted.ts'
+import { formatTime } from '../time.ts'
 import { Button } from './Button.tsx'
 import { ChangeList, DiffCounts } from './ChangesSection.tsx'
 import { FileDiffBody, type Gutter, type RowExtra } from './DiffTable.tsx'
 import styles from './DiffViews.module.css'
 import { ChevronIcon } from './icons.tsx'
+import { Loading } from './Loading.tsx'
 
 export interface DiffSeams {
   after?: (file: ChangedFile) => RowExtra | undefined
@@ -19,11 +26,13 @@ function useFileDiffs(
   repo: string,
   file: string | undefined,
   version: unknown,
+  remote?: PullRequestChangesState,
 ): { diffs?: FileDiff[]; error?: string } {
   const [state, setState] = useState<{ key: string; diffs?: FileDiff[]; error?: string }>()
   const key = `${taskId}\0${repo}\0${file ?? ''}`
   useEffect(() => {
     void version
+    if (remote !== undefined) return
     let live = true
     void ted.fileDiffs(taskId, repo, file).then(
       (diffs) => {
@@ -36,7 +45,14 @@ function useFileDiffs(
     return () => {
       live = false
     }
-  }, [taskId, repo, file, key, version])
+  }, [taskId, repo, file, key, version, remote])
+  if (remote !== undefined) {
+    if (!remote.changes) return {}
+    const error = remote.changes.repos.find((r) => r.name === repo)?.unavailable
+    if (error) return { error }
+    const diffs = remote.snapshots.get(repo)?.diffs ?? []
+    return { diffs: file === undefined ? diffs : diffs.filter((d) => d.path === file) }
+  }
   if (state?.key !== key) return {}
   return {
     ...(state.diffs !== undefined && { diffs: state.diffs }),
@@ -91,6 +107,29 @@ function OpenInEditor({
   )
 }
 
+function PullRequestSummary({ remote, repo }: { remote: PullRequestChangesState; repo?: string }) {
+  const snapshots = [...remote.snapshots.values()].filter(
+    (s) => repo === undefined || s.repo.name === repo,
+  )
+  return (
+    <div className={styles.remoteSummary}>
+      <p className={styles.against}>
+        Pull request changes · Read-only. Use Local changes to leave line comments.
+      </p>
+      {snapshots.map((s) => (
+        <p className={styles.against} key={s.repo.name}>
+          {s.repo.name} · PR #{s.number} · {s.state} · pushed revision {s.head.slice(0, 7)} ·
+          against {s.repo.baseBranch} · loaded {formatTime(s.loadedAt)}
+          {s.limited && ' · Showing the first 1,000 files only.'}
+        </p>
+      ))}
+      <Button size="small" onClick={remote.refresh}>
+        {remote.changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
+      </Button>
+    </div>
+  )
+}
+
 export interface LineFocus {
   side: LineSide
   line: number
@@ -104,7 +143,9 @@ export function DiffView({
   focus,
   footer,
   onBack,
+  backLabel = '← Thread',
   onOpen,
+  remote,
 }: {
   taskId: string
   changes: TaskChanges | undefined
@@ -112,13 +153,15 @@ export function DiffView({
   seams?: DiffSeams
   focus?: LineFocus | undefined
   footer?: ReactNode
+  backLabel?: string
   onBack: () => void
   onOpen: (file: ChangedFile) => void
+  remote?: PullRequestChangesState | undefined
 }) {
   const files = changedFiles(changes)
   const index = files.findIndex((f) => f.repo === file.repo && f.path === file.path)
   const current = files[index] ?? file
-  const { diffs, error } = useFileDiffs(taskId, file.repo, file.path, changes)
+  const { diffs, error } = useFileDiffs(taskId, file.repo, file.path, changes, remote)
   const diff = diffs?.[0]
   const previous = files[index - 1]
   const next = files[index + 1]
@@ -134,7 +177,7 @@ export function DiffView({
     <section className={styles.pane} aria-label="Diff">
       <header className={styles.header}>
         <button type="button" className={styles.back} onClick={onBack}>
-          ← Thread
+          {backLabel}
         </button>
         <div className={styles.titleRow}>
           <FilePath path={current.path} />
@@ -164,30 +207,45 @@ export function DiffView({
           >
             <ChevronIcon open />
           </button>
-          <OpenInEditor
-            file={current}
-            line={focus?.side === 'new' ? focus.line : firstChangedLine(diff)}
-            seams={seams}
-          />
+          {remote === undefined && (
+            <OpenInEditor
+              file={current}
+              line={focus?.side === 'new' ? focus.line : firstChangedLine(diff)}
+              seams={seams}
+            />
+          )}
         </div>
-        <p className={styles.against}>
-          Task branch against its merge-base with {current.baseBranch}, {current.repo}’s base
-          branch, including uncommitted work
-        </p>
+        {remote ? (
+          <PullRequestSummary remote={remote} repo={file.repo} />
+        ) : (
+          <p className={styles.against}>
+            Local changes · Task branch against its merge-base with {current.baseBranch},{' '}
+            {current.repo}’s base branch, including uncommitted work
+          </p>
+        )}
       </header>
-      <div className={styles.body} ref={body}>
+      <div
+        className={`${styles.body} ${diffs === undefined && error === undefined ? styles.pending : ''}`}
+        ref={body}
+      >
         {error !== undefined ? (
           <p className={styles.error}>{error}</p>
         ) : diff ? (
           <FileDiffBody
             key={`${diff.repo}\0${diff.path}`}
             diff={diff}
-            after={seams.after?.(current)}
-            gutter={seams.gutter?.(current)}
+            after={remote === undefined ? seams.after?.(current) : undefined}
+            gutter={remote === undefined ? seams.gutter?.(current) : undefined}
           />
         ) : diffs ? (
-          <p className={styles.note}>This file no longer differs from its base.</p>
-        ) : null}
+          <p className={styles.note}>
+            {remote
+              ? 'This file is not in the loaded pull request changes.'
+              : 'This file no longer differs from its base.'}
+          </p>
+        ) : (
+          <Loading label="Loading diff…" />
+        )}
       </div>
       {footer}
     </section>
@@ -200,11 +258,17 @@ export function AllChanges({
   seams = {},
   footer,
   onCollapse,
+  backLabel = 'Collapse',
+  remote,
+  sidebar = false,
 }: {
   taskId: string
-  changes: TaskChanges
+  changes: TaskChanges | undefined
+  remote?: PullRequestChangesState | undefined
+  sidebar?: boolean
   seams?: DiffSeams
   footer?: ReactNode
+  backLabel?: string
   onCollapse: () => void
 }) {
   const sections = useRef(new Map<string, HTMLElement>())
@@ -217,35 +281,44 @@ export function AllChanges({
     <section className={styles.all} aria-label="All changes">
       <header className={styles.allHeader}>
         <h2 className={styles.allTitle}>
-          All changes · {files.length === 1 ? '1 file' : `${files.length} files`}
+          {remote ? 'Pull request changes' : 'Local changes'} · All changes ·{' '}
+          {files.length === 1 ? '1 file' : `${files.length} files`}
         </h2>
         <span className={styles.spacer} />
         <Button size="small" onClick={onCollapse}>
-          Collapse
+          {backLabel}
         </Button>
       </header>
+      {remote && <PullRequestSummary remote={remote} />}
       <div className={styles.allBody}>
-        <nav className={styles.index} aria-label="Changed files">
-          <ChangeList changes={changes} onOpen={scrollTo} />
-        </nav>
+        {!sidebar && changes && (
+          <nav className={styles.index} aria-label="Changed files">
+            <ChangeList changes={changes} onOpen={scrollTo} />
+          </nav>
+        )}
         <div className={styles.column}>
-          {changes.repos
-            .filter((repo) => repo.files.length > 0)
-            .map((repo) => (
-              <RepoDiffs
-                key={repo.name}
-                taskId={taskId}
-                repo={repo.name}
-                changes={changes}
-                files={files.filter((f) => f.repo === repo.name)}
-                seams={seams}
-                onSection={(file, element) => {
-                  const key = `${file.repo}\0${file.path}`
-                  if (element) sections.current.set(key, element)
-                  else sections.current.delete(key)
-                }}
-              />
-            ))}
+          {!changes && <Loading label="Loading changes…" />}
+          {changes?.files === 0 && changes.repos.every((r) => !r.unavailable) && (
+            <p className={styles.note}>
+              {remote ? 'No changes in the pull request.' : 'No changes yet'}
+            </p>
+          )}
+          {changes?.repos.map((repo) => (
+            <RepoDiffs
+              key={repo.name}
+              taskId={taskId}
+              repo={repo.name}
+              changes={changes}
+              remote={remote}
+              files={files.filter((f) => f.repo === repo.name)}
+              seams={seams}
+              onSection={(file, element) => {
+                const key = `${file.repo}\0${file.path}`
+                if (element) sections.current.set(key, element)
+                else sections.current.delete(key)
+              }}
+            />
+          ))}
         </div>
       </div>
       {footer}
@@ -260,16 +333,19 @@ function RepoDiffs({
   files,
   seams,
   onSection,
+  remote,
 }: {
   taskId: string
   repo: string
   changes: TaskChanges
+  remote?: PullRequestChangesState | undefined
   files: ChangedFile[]
   seams: DiffSeams
   onSection: (file: ChangedFile, element: HTMLElement | null) => void
 }) {
-  const { diffs, error } = useFileDiffs(taskId, repo, undefined, changes)
+  const { diffs, error } = useFileDiffs(taskId, repo, undefined, changes, remote)
   if (error !== undefined) return <p className={styles.error}>{error}</p>
+  if (diffs === undefined) return <Loading label="Loading diffs…" />
   return files.map((file) => {
     const diff = diffs?.find((d) => d.path === file.path)
     return (
@@ -283,10 +359,16 @@ function RepoDiffs({
           <span className={styles.repoChip}>{file.repo}</span>
           <DiffCounts added={file.added} removed={file.removed} />
           <span className={styles.spacer} />
-          <OpenInEditor file={file} line={firstChangedLine(diff)} seams={seams} />
+          {remote === undefined && (
+            <OpenInEditor file={file} line={firstChangedLine(diff)} seams={seams} />
+          )}
         </header>
         {diff && (
-          <FileDiffBody diff={diff} after={seams.after?.(file)} gutter={seams.gutter?.(file)} />
+          <FileDiffBody
+            diff={diff}
+            after={remote === undefined ? seams.after?.(file) : undefined}
+            gutter={remote === undefined ? seams.gutter?.(file) : undefined}
+          />
         )}
       </article>
     )

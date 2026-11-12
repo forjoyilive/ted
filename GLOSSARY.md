@@ -4,6 +4,18 @@ TED (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
+**Controller**:
+The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when TED uses several machines.
+_Avoid_: Primary server, master
+
+**Execution machine**:
+The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
+_Avoid_: Worker node, remote host
+
+**Task assignment**:
+The durable ownership of a Task’s execution by one machine; losing contact does not move that ownership elsewhere.
+_Avoid_: Lease, placement hint
+
 **Factory**:
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
 _Avoid_: Project (when meaning the whole pipeline), pipeline
@@ -36,12 +48,12 @@ _Avoid_: Icebox, queue
 The holding Stage at the end of a Workflow where a Task sits once all of its pull requests have merged. Nothing runs on a Task in Done.
 _Avoid_: Closed, complete, shipped
 
-**Gate**:
-A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its Gate. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. Overnight mode turns these Gates off while it is on; Gates TED forces stay.
+**Sign-off**:
+A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its sign-off. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. The configuration key remains `gate`. Overnight mode turns these sign-offs off while it is on; Sign-offs TED forces stay.
 _Avoid_: Approval step, checkpoint
 
 **Overnight mode**:
-A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Gates set in the Workflow or on one Task count as off, the Merge Gate included. Gates TED forces (a setup Task, Clarify at grilling depth), Gate requests already open, questions and permission prompts still wait for the human. A Task whose changes touch `.ted/` keeps every Gate it has with the mode off, and its Review Gate is on, so Workflow changes never merge unseen.
+A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Sign-offs set in the Workflow or on one Task count as off, the Merge sign-off included. Sign-offs TED forces (a setup Task, Clarify at grilling depth), Sign-off requests already open, questions and permission prompts still wait for the human. A Task whose changes touch `.ted/` keeps every sign-off it has with the mode off, and its Review sign-off is on, so Workflow changes never merge unseen.
 _Avoid_: Night mode, autopilot
 
 **Stage file**:
@@ -53,12 +65,16 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly, and a failure sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
+A command a Factory lists for Validate, which TED runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work. A failure at Validate entry stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:
 Something Validate found wrong with a Task’s work. A blocking Finding sends the Task back to Work; a note carries forward to Review.
 _Avoid_: Issue, bug, comment
+
+**P1**:
+The highest severity of a Finding: the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. From Validate’s second round a new Finding about code the fixes didn’t touch is blocking only if it is P1, and a Factory can set a round from which a new Finding sends a Task back only if it is P1.
+_Avoid_: Critical, blocker, severity 1
 
 **Failure case**:
 A record of one failure, its evidence, the Task Lead’s assessment and the human’s decision. Accepting a failure case allows that failure in its tested context; the original result stays failed.
@@ -133,7 +149,7 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s explicit requests to start Backlog Tasks, reorder waiting Tasks, send a Task Lead a message, or answer a question a Run asked or a question with choices that TED asked. It works only when messaged; each Task keeps its own Task Lead.
+The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead.
 _Avoid_: Foreman, manager, supervisor
 
 **Sub-agent**:
@@ -141,7 +157,7 @@ A Run the Task Lead starts on its Task for one piece of work, such as exploring 
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
 A sub-agent TED starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.
@@ -157,6 +173,10 @@ _Avoid_: Planning session, epic, map
 **Conversation**:
 A Run’s full exchange with its agent, including tool calls and messages the human types directly into it; kept with the Run and separate from the Task’s Comments.
 _Avoid_: Transcript, chat log
+
+**Side chat**:
+A separate conversation for asking questions about a Task Lead Run, using the Conversation as it was when the side chat started, while the Run continues its work. Its answers stay in the side chat.
+_Avoid_: Fork, sub-agent, steering thread
 
 **Task brief**:
 The Task Lead’s own summary of where a Task stands, kept with the Task, so a fresh Run can pick up the work.

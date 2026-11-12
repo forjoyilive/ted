@@ -77,7 +77,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 24px;
+  min-height: 24px;
   padding: 0 9px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
@@ -188,4 +188,22 @@
 
 .failedKind {
   color: var(--status-failed-fg);
+}
+
+.confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+
+.confirmationDetail {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
 }

@@ -27,8 +27,10 @@ import { redactSecrets } from './redact.ts'
 import type { Conversations } from './runs/conversations.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { Shells } from './shells.ts'
+import type { SideChats } from './side-chats/side-chats.ts'
 import type { Storage } from './storage.ts'
 import { type CompactOptions, compactOutputEvents, hasOutputToCompact } from './store/compact.ts'
+import { type DropOptions, dropSupersededOutput } from './store/drop-output.ts'
 import {
   checkStore,
   eventCount,
@@ -44,6 +46,7 @@ import { plural } from './text.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
+  sideChats: SideChats
   store: TedStore
   automations: Automations
   coordinators: Coordinators
@@ -79,6 +82,7 @@ export interface DataOptions {
   dailyCheckMs?: number
   progressEveryMs?: number
   compaction?: Pick<CompactOptions, 'beforeVerify'>
+  outputDrop?: DropOptions
 }
 
 export interface Data {
@@ -196,6 +200,23 @@ export function createData(options: DataOptions): Data {
     }
     const startedAt = Date.now()
     if (rebuilding) setStatus(updating(progress, startedAt))
+    if (rebuilding && backUp) {
+      const dropped = await dropSupersededOutput(paths.store, {
+        ...options.outputDrop,
+        ...(!backedUp && { backUp: () => backups.takePreUpdate(meta?.lastOpenedBy) }),
+      })
+      if (dropped.kind === 'failed') {
+        console.error(
+          `dropping replaced Run output events failed, so the event log stays as it is: ${redactSecrets(dropped.reason)}`,
+        )
+      } else if (dropped.kind === 'dropped') {
+        console.log(
+          `dropped ${plural(dropped.dropped, 'replaced Run output event')} from the event log: ${plural(dropped.events, 'event')} left, ${dropped.bytesBefore} bytes before, ${dropped.bytesAfter} after`,
+        )
+        progress = { done: 0, total: dropped.events }
+        setStatus(updating(progress, startedAt))
+      }
+    }
 
     let store: TedStore
     try {

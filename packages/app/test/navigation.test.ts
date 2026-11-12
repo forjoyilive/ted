@@ -7,6 +7,7 @@ import {
   initialNavigation,
   type Navigation,
   navigate,
+  newPlan,
   startHistory,
   withHistory,
 } from '../src/renderer/navigation.ts'
@@ -21,16 +22,33 @@ function after(...actions: Parameters<typeof navigate>[1][]): Navigation {
 }
 
 describe('navigation', () => {
+  test('opening a Planning request retains its target and clears it on ordinary navigation', () => {
+    const targeted = navigate(initialNavigation, {
+      type: 'open-plan',
+      factoryId: 'nb',
+      planId: 'p1',
+      requestId: 'round2',
+    })
+    expect(targeted).toMatchObject({
+      planId: 'p1',
+      requestId: 'round2',
+      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+    })
+    expect(
+      navigate(targeted, { type: 'open-plan', factoryId: 'nb', planId: 'p1' }).requestId,
+    ).toBeUndefined()
+  })
+
   test('starts on the Inbox with no current Factory', () => {
     expect(initialNavigation.screen).toEqual({ kind: 'inbox' })
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()
   })
 
-  test('opening a Factory shows its Board the first time and its last-used View after', () => {
+  test('opening a Factory shows its Dashboard the first time and its last-used View after', () => {
     expect(after({ type: 'open-factory', factoryId: 'nb' }).screen).toEqual({
       kind: 'factory',
       factoryId: 'nb',
-      view: 'board',
+      view: 'dashboard',
     })
 
     const back = after(
@@ -65,7 +83,7 @@ describe('navigation', () => {
       backLink(
         after({ type: 'open-factory', factoryId: 'nb' }, { type: 'open-task', taskId: 't1' }),
       ),
-    ).toBe('← Board')
+    ).toBe('← Dashboard')
     expect(
       backLink(
         after(
@@ -205,7 +223,33 @@ describe('back and forward (⌘[ and ⌘])', () => {
       { type: 'open-factory', factoryId: 'nb' },
       { type: 'forward' },
     )
-    expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
+    expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'dashboard' })
+  })
+
+  test('history retains a continuation source without leaking it into another place or new plan', () => {
+    let history = walk({ type: 'open-plan', factoryId: 'nb', from: 'p1' })
+    history = withHistory(history, { type: 'open', screen: { kind: 'inbox' } })
+    expect(history.now.planFrom).toBeUndefined()
+
+    history = withHistory(history, { type: 'back' })
+    expect(history.now).toMatchObject({
+      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      planId: newPlan,
+      planFrom: 'p1',
+    })
+    history = withHistory(history, { type: 'forward' })
+    expect(history.now.screen).toEqual({ kind: 'inbox' })
+    expect(history.now.planFrom).toBeUndefined()
+
+    history = withHistory(history, { type: 'back' })
+    history = withHistory(history, { type: 'open-plan', factoryId: 'nb' })
+    expect(history.now.planId).toBe(newPlan)
+    expect(history.now.planFrom).toBeUndefined()
+    history = withHistory(history, { type: 'back' })
+    expect(history.now.planFrom).toBe('p1')
+    history = withHistory(history, { type: 'forward' })
+    expect(history.now.planId).toBe(newPlan)
+    expect(history.now.planFrom).toBeUndefined()
   })
 
   test('back with nowhere to go, and actions that stay in place, change nothing', () => {
@@ -218,4 +262,79 @@ describe('back and forward (⌘[ and ⌘])', () => {
     )
     expect(state.now.screen).toEqual({ kind: 'inbox' })
   })
+})
+
+test('Task return and history preserve a Dashboard range and metric sample', () => {
+  const screen = {
+    kind: 'factory',
+    factoryId: 'nb',
+    view: 'dashboard',
+    dashboard: { range: '7d', sample: { metric: 'intake', period: 'previous', bucket: 2 } },
+  } as const
+  const start = startHistory(navigate(initialNavigation, { type: 'open', screen }))
+  const opened = withHistory(start, { type: 'open-task', taskId: 't1', factoryId: 'nb' })
+  expect(backLink(opened.now)).toBe('← Dashboard')
+  expect(navigate(opened.now, { type: 'close-task' }).screen).toEqual(screen)
+  expect(withHistory(opened, { type: 'back' }).now.screen).toEqual(screen)
+})
+
+test('Inbox Planning requests preserve Inbox navigation, then yield to Tasks and Automations', () => {
+  const opened = after(
+    { type: 'open-task', taskId: 't1', factoryId: 'nb', requestId: 'c1' },
+    { type: 'open-plan', factoryId: 'nb', planId: 'p1', requestId: 'round1' },
+  )
+  expect(opened).toMatchObject({
+    screen: { kind: 'inbox' },
+    planId: 'p1',
+    requestId: 'round1',
+    lastFactoryId: 'nb',
+  })
+  expect(opened.taskId).toBeUndefined()
+  const taskOpen = navigate(opened, {
+    type: 'open-task',
+    taskId: 't2',
+    factoryId: 'ms',
+    requestId: 'c2',
+  })
+  expect(taskOpen.planId).toBeUndefined()
+  expect(taskOpen.requestId).toBe('c2')
+  const automationOpen = navigate(opened, {
+    type: 'open-automation',
+    automationId: 'a1',
+    factoryId: 'ms',
+    runId: 'r1',
+    requestId: 'q1',
+  })
+  expect(automationOpen.planId).toBeUndefined()
+  expect(automationOpen.requestId).toBe('q1')
+  const left = navigate(opened, { type: 'open', screen: { kind: 'all-tasks' } })
+  expect(left.planId).toBeUndefined()
+  expect(left.requestId).toBeUndefined()
+})
+
+test('history restores an Inbox Planning request and its Factory after opening another Task', () => {
+  let history = startHistory(initialNavigation)
+  history = withHistory(history, {
+    type: 'open-plan',
+    factoryId: 'nb',
+    planId: 'p1',
+    requestId: 'round1',
+  })
+  history = withHistory(history, {
+    type: 'open-task',
+    taskId: 't2',
+    factoryId: 'ms',
+    requestId: 'c2',
+  })
+  history = withHistory(history, { type: 'back' })
+  expect(history.now).toMatchObject({
+    screen: { kind: 'inbox' },
+    planId: 'p1',
+    requestId: 'round1',
+    lastFactoryId: 'nb',
+  })
+  expect(history.now.taskId).toBeUndefined()
+  history = withHistory(history, { type: 'forward' })
+  expect(history.now).toMatchObject({ taskId: 't2', requestId: 'c2' })
+  expect(history.now.planId).toBeUndefined()
 })

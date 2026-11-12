@@ -278,7 +278,9 @@ export function activityMessage(
       : 'If something needs to change, send the Task back to Work with `ted outcome back --to work --findings <file>`, listing what has to change. It passes Validate again and comes back for a new sign-off.',
     ...(conflict
       ? [
-          'To resolve a merge conflict, bring in the latest base branch, resolve the conflicts, run the Checks and commit.',
+          atWork
+            ? 'To resolve a merge conflict, bring in the latest base branch, resolve the conflicts, run the Checks and commit.'
+            : 'A merge conflict is resolved in Work: bring in the latest base branch, resolve the conflicts, run the Checks and commit. When the conflict is the only thing to change, add `--cause base-conflict` to that command; TED then records the send-back as a base conflict and doesn’t count it against the limit.',
         ]
       : []),
     ...(review

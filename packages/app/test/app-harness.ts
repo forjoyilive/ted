@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -23,13 +22,14 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 export const appDir = fileURLToPath(new URL('..', import.meta.url))
 export const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
 export const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
 )
-export const electronPath = createRequire(import.meta.url)('electron') as string
+export const electronPath = resolveElectron()
 export const run = promisify(execFile)
 
 export const ctx: {

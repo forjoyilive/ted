@@ -86,7 +86,7 @@ export interface AgentHealthSpec {
   versionArgs: string[]
   authArgs: string[]
   auth(result: { code: number | null; stdout: string; stderr: string }): AuthCheck
-  signIn: string
+  signIn(env: NodeJS.ProcessEnv): string
   update: string
   install: string
 }
@@ -106,6 +106,12 @@ export type AgentChatEntry =
       at?: string
       endedAt?: string
     }
+
+export interface AgentChat {
+  add(entry: ConversationEntry): void
+  entries(): readonly AgentChatEntry[]
+  userFrom(key: string): number | undefined
+}
 
 export type AutoModeSignal = 'on' | 'unavailable'
 
@@ -134,6 +140,7 @@ export interface Agent {
   autoModeFrom(line: string): AutoModeSignal | undefined
   permissionReply(reply: PermissionReply): string[]
   chat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[]
+  chatFrom(cwd: string): AgentChat
   acceptedTextFrom(line: string): string | undefined
   agentTextFrom(line: string): string | undefined
   sessionIdFrom(line: string): string | undefined
@@ -144,8 +151,15 @@ export interface Agent {
   usageFrom(line: string): UsageSignal | undefined
   retryingFrom(line: string): boolean | undefined
   credentialFrom(line: string): CredentialReport | undefined
+  readPlanUsage?(options: {
+    binary: string
+    env: NodeJS.ProcessEnv
+    cwd: string
+    signal: AbortSignal
+  }): Promise<PlanWindow[] | undefined>
   planUsageFrom(line: string): PlanWindow[] | undefined
   costOf(lines: readonly string[], model: string | undefined): number | undefined
+  costLine(line: string): boolean
   keyHelp(source: string | undefined): string
   environment(env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv
   health: AgentHealthSpec

@@ -5,6 +5,7 @@ export const queueKinds = [
   'sub-agent',
   'planning',
   'coordinator',
+  'side-chat',
   'automation-draft',
   'automation',
   'task',
@@ -43,8 +44,10 @@ export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
     e.kind === 'task' ? priorities.indexOf(e.priority ?? 'none') : 0
   return [...entries].sort(
     (a, b) =>
-      queueKinds.indexOf(a.kind === 'coordinator' ? 'planning' : a.kind) -
-        queueKinds.indexOf(b.kind === 'coordinator' ? 'planning' : b.kind) ||
+      queueKinds.indexOf(a.kind === 'coordinator' || a.kind === 'side-chat' ? 'planning' : a.kind) -
+        queueKinds.indexOf(
+          b.kind === 'coordinator' || b.kind === 'side-chat' ? 'planning' : b.kind,
+        ) ||
       priorityRank(a) - priorityRank(b) ||
       a.rank - b.rank ||
       a.id.localeCompare(b.id),
@@ -57,7 +60,11 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
   const started: T[] = []
   for (const entry of ordered) {
     const factory = entry.factoryId
-    if (!use.handoffs?.has(entry.id)) {
+    if (
+      entry.kind !== 'automation' &&
+      entry.kind !== 'automation-draft' &&
+      !use.handoffs?.has(entry.id)
+    ) {
       if (working >= use.limit) continue
       if (use.heldForLoad && working > 0) continue
       const cap = factory === undefined ? undefined : use.caps[factory]

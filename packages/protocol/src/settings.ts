@@ -1,6 +1,7 @@
 import type { Billing } from './health.ts'
+import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
-import type { AgentKind } from './run.ts'
+import type { AgentKind, PermissionMode } from './run.ts'
 import type { EditorChoice } from './shell.ts'
 
 export const timeFormats = ['system', '12-hour', '24-hour'] as const
@@ -15,6 +16,8 @@ export const workingRunLimits = { min: 1, max: 99 } as const
 
 export const checkLimits = { min: 1, max: 16 } as const
 
+export const textSizeLimits = { min: 80, max: 200, step: 5 } as const
+
 export const terminalFontSizes = { min: 10, max: 20 } as const
 
 export const runOutputDayLimits = { min: 1, max: 365 } as const
@@ -26,10 +29,12 @@ export type QuitChoice = (typeof quitChoices)[number]
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string
+  textSize: number
   appearance: Appearance
   terminalFontSize: number
   profilePicture: string | null
   developerMode: boolean
+  preparationNoticeSeen: boolean
   overnightMode: boolean
   maxWorkingRuns: number
   adjustRunsToLoad: boolean
@@ -49,9 +54,11 @@ export interface MachineSettings {
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
   editorCommand: string
+  linearIntakeScopes: Readonly<Record<string, LinearIntakeScope>>
   linearSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
+  factoryPermissions: Readonly<Record<string, PermissionMode>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
   lowPriorityWork: boolean
   maxChecksAtOnce: number
@@ -60,10 +67,12 @@ export interface MachineSettings {
 export const defaultMachineSettings: MachineSettings = {
   timeFormat: 'system',
   timeZone: 'system',
+  textSize: 100,
   appearance: 'system',
   terminalFontSize: 13,
   profilePicture: null,
   developerMode: false,
+  preparationNoticeSeen: false,
   overnightMode: false,
   maxWorkingRuns: 6,
   adjustRunsToLoad: false,
@@ -83,9 +92,11 @@ export const defaultMachineSettings: MachineSettings = {
   billing: { claude: 'subscription', codex: 'subscription' },
   editor: null,
   editorCommand: '',
+  linearIntakeScopes: {},
   linearSync: true,
   linearSyncTeams: {},
   linearSyncDeclined: {},
+  factoryPermissions: {},
   appsOutsideSandbox: {},
   lowPriorityWork: true,
   maxChecksAtOnce: 2,

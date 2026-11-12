@@ -37,7 +37,7 @@ Ticket: [KRI-61](https://linear.app/kriyadesign/issue/KRI-61). Middle pane only,
 | Re-sign-off · Changes since you approved | [27:386](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-386) |
 | Sign-off · Merge off | [27:538](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-538) |
 | Sign-off answered · a Comment now cancels the merge | [27:482](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-482) |
-| Merge sign-off · Merge Gate | [27:596](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-596) |
+| Merge sign-off | [27:596](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-596) |
 | Failed Task · FAILED ask with Send and Retry | [27:668](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-668) |
 | Task Lead went idle · ask with Nudge again | [27:728](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-728) |
 | Question · answered | [27:2431](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-2431) |

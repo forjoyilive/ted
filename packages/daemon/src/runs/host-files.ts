@@ -1,6 +1,11 @@
 import path from 'node:path'
+import type { PermissionMode } from '@ted/protocol'
+import type { LaunchAuthority } from './launch-authority.ts'
 
 export interface LaunchFile {
+  launchId?: string
+  permissions?: PermissionMode
+  authority?: LaunchAuthority
   command: string
   args: string[]
   cwd: string
@@ -20,11 +25,17 @@ export type DriveAgent = (io: {
   stop: () => void
 }) => HostDriver
 
-export const hostProtocol = 1
-export const oldestHostProtocol = 1
+export const hostProtocol = 5
+export const oldestHostProtocol = 5
 
 export type HostRecord =
-  | { t: 'start'; v: number; hostPid: number; agentPid: number | null }
+  | {
+      t: 'start'
+      v: number
+      hostPid: number
+      agentPid: number | null
+      permissions?: PermissionMode
+    }
   | { t: 'out'; line: string; at?: string }
   | { t: 'err'; line: string }
   | { t: 'exit'; code: number | null; signal: string | null; error?: string; stopped?: boolean }
@@ -79,5 +90,6 @@ export function runFiles(runDir: string) {
     queued: path.join(runDir, 'queued'),
     pid: path.join(runDir, 'host.pid'),
     env: path.join(runDir, 'env.json'),
+    readTo: path.join(runDir, 'read-offset.json'),
   }
 }

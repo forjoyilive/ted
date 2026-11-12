@@ -9,14 +9,11 @@ import type {
 } from '@ted/protocol'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
-import { Help } from '../components/Help.tsx'
 import { readableError, ted } from '../ted.ts'
 import styles from './FactorySettings.module.css'
-import sections from './FactorySettingsSections.module.css'
 
 export function SaveSettingsDialog({
   factoryId,
-  factoryName,
   view,
   changes: given,
   onClose,
@@ -36,7 +33,6 @@ export function SaveSettingsDialog({
   const [mode, setMode] = useState<SettingsSaveMode>('merge')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  const [bypassConfirmed, setBypassConfirmed] = useState(false)
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -61,8 +57,7 @@ export function SaveSettingsDialog({
     : preview && !preview.valid && preview.problems.length === 0
       ? 'Nothing changed in the file.'
       : undefined
-  const needsBypass = preview?.turnsOnBypass === true && !bypassConfirmed
-  const canSave = preview?.valid === true && view.github.ready && !busy && !needsBypass
+  const canSave = preview?.valid === true && view.github.ready && !busy
 
   async function save() {
     if (!canSave) return
@@ -74,7 +69,6 @@ export function SaveSettingsDialog({
           changes,
           mode,
           version: view.version,
-          ...(preview?.turnsOnBypass === true && { confirmBypass: bypassConfirmed }),
         }),
       )
     } catch (failure) {
@@ -101,6 +95,10 @@ export function SaveSettingsDialog({
           TED commits these changes to a new branch of {view.repo} and opens the pull request
           “Update TED settings”, using {account}.
         </p>
+        <p className={styles.dialogText}>
+          The changes must merge before TED can use them. Tasks use updated Workflow settings when
+          they next enter a Stage.
+        </p>
         {!preview && error === undefined && <p className={styles.caption}>Preparing the diff…</p>}
         {preview?.files.map((file) => (
           <FileDiff key={file.path} file={file} />
@@ -118,25 +116,6 @@ export function SaveSettingsDialog({
             </ul>
           </div>
         )}
-        {preview?.turnsOnBypass === true && (
-          <div className={sections.confirmBypass} role="alert">
-            <p>
-              <strong>This save turns on Bypass.</strong> Every Run in {factoryName} will act
-              without asking: it can run any command, change any file and use the network. Use it
-              only when Runs happen in an isolated machine or VM. Automations always run in Auto
-              permissions.
-            </p>
-            <label>
-              <input
-                type="checkbox"
-                checked={bypassConfirmed}
-                disabled={busy}
-                onChange={(event) => setBypassConfirmed(event.target.checked)}
-              />
-              Turn on Bypass for {factoryName}
-            </label>
-          </div>
-        )}
         {preview?.sideEffects.map((effect) => (
           <p key={effect} className={styles.sideEffect}>
             <span aria-hidden>ⓘ</span> {effect}
@@ -144,29 +123,38 @@ export function SaveSettingsDialog({
         ))}
         <fieldset className={styles.modes} disabled={busy}>
           <legend className={styles.visuallyHidden}>How to save</legend>
-          <label className={styles.mode}>
-            <input
-              type="radio"
-              name={`${headingId}-mode`}
-              checked={mode === 'merge'}
-              onChange={() => setMode('merge')}
-            />
-            Save and merge
-            <Help>
-              Merges the pull request right away, the same way TED merges Tasks. If{' '}
-              {view.defaultBranch} needs a review or passing checks, it stays open.
-            </Help>
-          </label>
-          <label className={styles.mode}>
-            <input
-              type="radio"
-              name={`${headingId}-mode`}
-              checked={mode === 'pull-request'}
-              onChange={() => setMode('pull-request')}
-            />
-            Save as pull request
-            <Help>Leaves the pull request open, to review and merge on GitHub.</Help>
-          </label>
+          <div>
+            <label className={styles.mode}>
+              <input
+                type="radio"
+                name={`${headingId}-mode`}
+                checked={mode === 'merge'}
+                onChange={() => setMode('merge')}
+                aria-describedby={`${headingId}-merge-help`}
+              />
+              Save and merge
+            </label>
+            <p id={`${headingId}-merge-help`} className={styles.modeHelp}>
+              TED creates the pull request and tries to merge it. If {view.defaultBranch} needs a
+              review or passing checks, it stays open.
+            </p>
+          </div>
+          <div>
+            <label className={styles.mode}>
+              <input
+                type="radio"
+                name={`${headingId}-mode`}
+                checked={mode === 'pull-request'}
+                onChange={() => setMode('pull-request')}
+                aria-describedby={`${headingId}-pr-help`}
+              />
+              Save as pull request
+            </label>
+            <p id={`${headingId}-pr-help`} className={styles.modeHelp}>
+              TED creates the pull request and leaves it open for you to review and merge on GitHub,
+              or merge from the save result in TED.
+            </p>
+          </div>
         </fieldset>
         {error !== undefined && (
           <p className={styles.fieldError} role="alert">

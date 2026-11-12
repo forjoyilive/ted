@@ -31,10 +31,7 @@
         },
         "node": "v24.7.0",
         "pnpm": "10.28.0",
-        "command": [
-          "pnpm",
-          "check"
-        ],
+        "command": ["pnpm", "check"],
         "commandEnvironment": {
           "CI": "true"
         },
@@ -356,9 +353,7 @@
             {
               "file": "packages/daemon/test/codex.test.ts",
               "name": "Codex Runs a Codex Run’s output lands as its Conversation, with the thread ID as session ID",
-              "messages": [
-                "AssertionError: expected [] to deeply equal [ 'hello', 'world' ]"
-              ]
+              "messages": ["AssertionError: expected [] to deeply equal [ 'hello', 'world' ]"]
             }
           ],
           "passedOnRetry": []
@@ -403,10 +398,7 @@
         },
         "node": "v24.7.0",
         "pnpm": "10.28.0",
-        "command": [
-          "pnpm",
-          "check"
-        ],
+        "command": ["pnpm", "check"],
         "commandEnvironment": {
           "CI": "true"
         },
@@ -767,10 +759,7 @@
         },
         "node": "v24.7.0",
         "pnpm": "10.28.0",
-        "command": [
-          "pnpm",
-          "check"
-        ],
+        "command": ["pnpm", "check"],
         "commandEnvironment": {
           "CI": "true"
         },
@@ -1146,10 +1135,7 @@
         },
         "node": "v24.7.0",
         "pnpm": "10.28.0",
-        "command": [
-          "pnpm",
-          "check"
-        ],
+        "command": ["pnpm", "check"],
         "commandEnvironment": {
           "CI": "true"
         },
@@ -1695,16 +1681,12 @@
             {
               "file": "packages/daemon/test/failure-merge.test.ts",
               "name": "completed acceptance survives background reads, explicit queries and daemon restart",
-              "messages": [
-                "Error: Test timed out in 30000ms."
-              ]
+              "messages": ["Error: Test timed out in 30000ms."]
             },
             {
               "file": "packages/daemon/test/merge-gate.test.ts",
               "name": "CI stuck no check after the push asks the human; Keep waiting asks again later; Merge anyway merges",
-              "messages": [
-                "Error: Hook timed out in 10000ms."
-              ]
+              "messages": ["Error: Hook timed out in 10000ms."]
             }
           ],
           "passedOnRetry": []
@@ -1749,10 +1731,7 @@
         },
         "node": "v24.7.0",
         "pnpm": "10.28.0",
-        "command": [
-          "pnpm",
-          "check"
-        ],
+        "command": ["pnpm", "check"],
         "commandEnvironment": {
           "CI": "true"
         },
@@ -2104,9 +2083,7 @@
             {
               "file": "packages/daemon/test/worktrees.test.ts",
               "name": "worktree setup outcomes archiving during setup stops setup, starts no Task Lead and removes the worktree",
-              "messages": [
-                "AssertionError: expected 1 to be +0 // Object.is equality"
-              ]
+              "messages": ["AssertionError: expected 1 to be +0 // Object.is equality"]
             }
           ],
           "passedOnRetry": []
@@ -2151,10 +2128,7 @@
         },
         "node": "v24.7.0",
         "pnpm": "10.28.0",
-        "command": [
-          "pnpm",
-          "check"
-        ],
+        "command": ["pnpm", "check"],
         "commandEnvironment": {
           "CI": "true"
         },
@@ -2266,10 +2240,7 @@
             {
               "file": "packages/app/test/updates-app.test.ts",
               "name": "in-app updates Restart to update keeps a working Run going into the next launch with no lost output",
-              "messages": [
-                "Error: Test timed out in 90000ms.",
-                "Error: Test timed out in 90000ms."
-              ]
+              "messages": ["Error: Test timed out in 90000ms.", "Error: Test timed out in 90000ms."]
             }
           ],
           "passedOnRetry": [

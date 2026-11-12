@@ -13,6 +13,7 @@ import {
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
 import styles from './AddFactoryDialog.module.css'
 
@@ -49,7 +50,11 @@ export function AddFactoryDialog({
   const [key, setKey] = useState('')
   const [keyEdited, setKeyEdited] = useState(false)
   const [showTutorial, setShowTutorial] = useState(first)
-  const [health, setHealth] = useState<IntegrationsHealth>()
+  const { value: health } = useEventValue<IntegrationsHealth | undefined>({
+    initial: undefined,
+    load: ted.getIntegrations,
+    event: (event) => (event.type === 'integrations-checked' ? () => event.health : undefined),
+  })
   const [home, setHome] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -58,11 +63,7 @@ export function AddFactoryDialog({
 
   useEffect(() => {
     dialog.current?.showModal()
-    void ted.getIntegrations().then(setHealth, () => undefined)
     void ted.homeFolder().then(setHome, () => undefined)
-    return ted.onEvent((event) => {
-      if (event.type === 'integrations-checked') setHealth(event.health)
-    })
   }, [])
 
   const primary = rows[0]
@@ -196,7 +197,7 @@ export function AddFactoryDialog({
         </h2>
         <Help>
           A Factory carries Tasks from creation to merge for one product. TED works in its own
-          clones of these repos and never writes to your folders.
+          clones of these repos and never writes directly to your folders.
         </Help>
       </header>
 

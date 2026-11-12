@@ -1,5 +1,6 @@
 import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
 import { ago, useNow } from '../requests.ts'
+import { formatDate } from '../time.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from './StatusChip.tsx'
 import styles from './TaskStatus.module.css'
@@ -37,7 +38,7 @@ export function statusLabel(status: TaskStatus): string {
     case 'working':
       return 'Working'
     case 'stopped':
-      return 'Stopped'
+      return status.prepared ? 'Ready for Work' : 'Stopped'
     case 'blocked':
       return `Blocked by ${status.ended ? `${status.ended} ` : ''}${status.by}`
     case 'queued':
@@ -60,7 +61,7 @@ function look(status: TaskStatus): { tone: StatusTone; glyph: StatusGlyph } {
     case 'working':
       return { tone: 'working', glyph: 'working' }
     case 'stopped':
-      return { tone: 'neutral', glyph: 'stopped' }
+      return { tone: status.prepared ? 'success' : 'neutral', glyph: 'stopped' }
     case 'blocked':
       return { tone: 'neutral', glyph: 'blocked' }
     case 'queued':
@@ -94,14 +95,45 @@ function BlockedBy({
 }
 
 function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: string) => void }) {
+  if (marker.kind === 'test-activity') {
+    return (
+      <StatusChip
+        tone={marker.phase === 'running' ? 'testing' : 'neutral'}
+        glyph={marker.phase === 'running' ? 'working' : 'queued'}
+        title={marker.detail}
+      >
+        {marker.label}
+      </StatusChip>
+    )
+  }
   if (marker.kind === 'blocked-by') {
     return <BlockedBy by={marker.by} ended={marker.ended} onOpenTask={onOpenTask} />
   }
-  return <span className={styles.marker}>Needs planning</span>
+  if (marker.kind === 'snoozed') {
+    return (
+      <span
+        className={styles.marker}
+        title={formatDate(marker.until, { dateStyle: 'full', timeStyle: 'long' })}
+      >
+        Scheduled ·{' '}
+        {formatDate(marker.until, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </span>
+    )
+  }
+  return (
+    <span className={styles.marker}>
+      {marker.kind === 'preparing' ? 'Preparing through Design' : 'Needs planning'}
+    </span>
+  )
 }
 
 function detailedLabel(status: TaskStatus, now: number): string {
-  if (status.kind === 'stopped' && status.at !== undefined) {
+  if (status.kind === 'stopped' && !status.prepared && status.at !== undefined) {
     return `Stopped by you · ${ago(status.at, now)}`
   }
   return statusLabel(status)
@@ -121,9 +153,11 @@ export function TaskStatusChips({
   if (!status && markers.length === 0) return null
   return (
     <span className={styles.chips}>
-      {markers.map((marker) => (
-        <Marker key={marker.kind} marker={marker} onOpenTask={onOpenTask} />
-      ))}
+      {markers
+        .filter((marker) => marker.kind !== 'test-activity')
+        .map((marker) => (
+          <Marker key={marker.kind} marker={marker} onOpenTask={onOpenTask} />
+        ))}
       {status?.kind === 'blocked' ? (
         <BlockedBy by={status.by} ended={status.ended} onOpenTask={onOpenTask} />
       ) : (
@@ -133,6 +167,15 @@ export function TaskStatusChips({
           </StatusChip>
         )
       )}
+      {markers
+        .filter((marker) => marker.kind === 'test-activity')
+        .map((marker) => (
+          <Marker
+            key={`${marker.source}-${marker.phase}`}
+            marker={marker}
+            onOpenTask={onOpenTask}
+          />
+        ))}
     </span>
   )
 }

@@ -1,4 +1,5 @@
 import {
+  type ActiveTestInvocations,
   type BlockerEnded,
   busyHold,
   type CommentBox,
@@ -11,20 +12,25 @@ import {
 } from '@ted/protocol'
 
 export interface TaskFacts {
+  preparing?: boolean
+  snoozedUntil?: string
   stage: StageId
   runs: readonly RunState[]
   openRequests?: number
   failed?: boolean
   partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
+  pausedRuns?: readonly { id: string; reason: string }[]
   tedWorking?: boolean
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
   checksWaiting?: { place: number }
-  stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' }
+  testActivity?: ActiveTestInvocations
+  stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' | 'prepared' }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
+  queuedSubAgents?: readonly { id: string; hold?: string; paused?: string }[]
   heldForLoad?: boolean
   github?: GitHubWait
   mergePending?: boolean
@@ -76,7 +82,12 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.tedWorking || facts.settingUp || facts.runs.includes('working')) {
     return { kind: 'working' }
   }
-  if (facts.stopped) return { kind: 'stopped', at: facts.stopped.at }
+  if (facts.stopped)
+    return {
+      kind: 'stopped',
+      at: facts.stopped.at,
+      ...(facts.stopped.why === 'prepared' && { prepared: true }),
+    }
   if (facts.stage === 'backlog') return undefined
   const blocker = facts.blockedBy?.[0]
   if (blocker !== undefined && facts.runs.length === 0) {
@@ -122,10 +133,50 @@ export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): Co
   return facts.leadLive ? 'live' : 'no-run'
 }
 
+function testMarkers(facts: TaskFacts): TaskMarker[] {
+  if (facts.stage === 'done' || facts.stopped) return []
+  const markers: TaskMarker[] = []
+  const add = (source: 'tests' | 'checks', phase: 'running' | 'waiting', detail: string) => {
+    markers.push({
+      kind: 'test-activity',
+      source,
+      phase,
+      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'Checks' : 'tests'}`,
+      detail,
+    })
+  }
+  if (facts.checksWaiting) {
+    add(
+      'checks',
+      'waiting',
+      `Waiting for a Check slot · ${ordinal(facts.checksWaiting.place)} in line`,
+    )
+  } else if (facts.checking) {
+    const { name, index, total } = facts.checking
+    if (facts.testActivity?.checksWaiting)
+      add('checks', 'waiting', `${name} · Waiting for a shared test slot`)
+    else add('checks', 'running', `${name} · ${index} of ${total} Checks`)
+  }
+  for (const phase of ['running', 'waiting'] as const) {
+    const count = facts.testActivity?.[phase] ?? 0
+    if (count > 0)
+      add(
+        'tests',
+        phase,
+        `${count} supported test ${count === 1 ? 'command' : 'commands'} ${phase === 'running' ? 'running' : 'waiting for a shared test slot'}`,
+      )
+  }
+  return markers
+}
+
 export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): TaskMarker[] {
   if (facts.archived) return []
   const blocker = facts.blockedBy?.[0]
   return [
+    ...(facts.preparing ? [{ kind: 'preparing' } as const] : []),
+    ...(facts.snoozedUntil && facts.stage === 'backlog'
+      ? [{ kind: 'snoozed' as const, until: facts.snoozedUntil }]
+      : []),
     ...(facts.needsPlanning ? [{ kind: 'needs-planning' } as const] : []),
     ...(blocker !== undefined && status?.kind !== 'blocked'
       ? [
@@ -136,6 +187,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
           },
         ]
       : []),
+    ...testMarkers(facts),
   ]
 }
 
@@ -152,9 +204,18 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   }
   if (facts.checking) {
     const { name, index, total } = facts.checking
+    if (facts.testActivity?.checksWaiting) return `Waiting for a shared test slot · ${name}`
     return `Running Checks · ${name} (${index} of ${total})`
   }
   if (facts.checksWaiting) return `Waiting to run Checks · ${ordinal(facts.checksWaiting.place)}`
+  if (facts.stage !== 'done' && facts.testActivity) {
+    const { running, waiting } = facts.testActivity
+    if (running > 0 && waiting > 0)
+      return `${running} test ${running === 1 ? 'command' : 'commands'} running · ${waiting} waiting`
+    if (running > 0) return `Running tests · ${running} ${running === 1 ? 'command' : 'commands'}`
+    if (waiting > 0)
+      return `Waiting for a shared test slot · ${waiting} test ${waiting === 1 ? 'command' : 'commands'}`
+  }
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.planningInChat) return 'Planning in chat'
   if (facts.agentActivity !== undefined) return facts.agentActivity
@@ -172,11 +233,13 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   }
   if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
   if (facts.stage === 'backlog' && facts.needsPlanning) return 'Waiting for a plan made outside TED'
+  if (facts.stage === 'backlog' && facts.snoozedUntil) return 'Scheduled to start'
   if (facts.stage === 'backlog') return 'Not started'
   return undefined
 }
 
 function stoppedActivity({ runs, why }: NonNullable<TaskFacts['stopped']>): string {
+  if (why === 'prepared') return 'Ready for Work · Resume or turn on Overnight mode.'
   if (why === 'blockers-removed') return 'Its blockers are gone. Resume to carry on.'
   if (runs === 0) return 'Worktree and Apps kept.'
   return `Worktree and Apps kept. ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped.`
@@ -200,4 +263,70 @@ function ordinal(n: number): string {
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+export interface TaskWaitReason {
+  reason: 'run-slot' | 'github' | 'agent-paused' | 'blocker'
+  id: string
+  detail?: string
+}
+
+export function taskWaitReasons(taskId: string, facts: TaskFacts): TaskWaitReason[] {
+  if (facts.archived || facts.stage === 'done') return []
+  const reasons: TaskWaitReason[] = []
+  if (facts.queue)
+    reasons.push({
+      reason: 'run-slot',
+      id: taskId,
+      detail:
+        facts.heldForLoad && 'place' in facts.queue
+          ? busyHold
+          : 'hold' in facts.queue
+            ? facts.queue.hold
+            : 'slot',
+    })
+  for (const queued of facts.queuedSubAgents ?? []) {
+    reasons.push({ reason: 'run-slot', id: queued.id, detail: queued.hold ?? 'slot' })
+    if (queued.paused !== undefined)
+      reasons.push({ reason: 'agent-paused', id: queued.id, detail: queued.paused })
+  }
+  if (facts.pausedRuns !== undefined) {
+    for (const paused of facts.pausedRuns)
+      reasons.push({ reason: 'agent-paused', id: paused.id, detail: paused.reason })
+  } else if (facts.paused !== undefined)
+    reasons.push({ reason: 'agent-paused', id: taskId, detail: facts.paused })
+  for (const id of facts.blockedBy ?? []) reasons.push({ reason: 'blocker', id })
+  if (facts.github !== undefined)
+    reasons.push({ reason: 'github', id: taskId, detail: facts.github })
+  return reasons
+}
+
+export function taskPauses(input: {
+  taskId: string
+  heldAgent: string | undefined
+  liveRuns: readonly { id: string; agent: string }[]
+  queuedAgent: string | undefined
+  pauses: Readonly<Record<string, string | undefined>>
+}): { id: string; reason: string }[] {
+  const subjects = [
+    ...(input.heldAgent ? [{ id: input.taskId, agent: input.heldAgent }] : []),
+    ...input.liveRuns,
+    ...(input.queuedAgent ? [{ id: input.taskId, agent: input.queuedAgent }] : []),
+  ]
+  const paused = new Map<string, { id: string; reason: string }>()
+  for (const { id, agent } of subjects) {
+    const reason = input.pauses[agent]
+    if (reason !== undefined && !paused.has(id)) paused.set(id, { id, reason })
+  }
+  return [...paused.values()]
+}
+
+export function taskIsMerged(
+  stage: StageId,
+  pullRequests: readonly { number: number | null; state: string | null }[],
+): boolean {
+  return (
+    stage === 'done' &&
+    pullRequests.every((request) => request.number === null || request.state === 'merged')
+  )
 }

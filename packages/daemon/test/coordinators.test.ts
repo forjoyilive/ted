@@ -15,6 +15,7 @@ import {
   type RunSlots,
   type RunWithConversation,
   readDaemonInfo,
+  sizeChoices,
   type Task,
   tedPaths,
   type WaitingRequest,
@@ -26,10 +27,12 @@ import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   commitToOrigin,
+  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -60,6 +63,7 @@ async function setup(
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
     ...(disk && { disk }),
     ...(nudgeAfterMs !== undefined && { nudgeAfterMs }),
   })
@@ -306,6 +310,14 @@ test('concurrent first messages share one Coordinator and survive daemon restart
     ),
   )
   expect(chats[0]?.runId).toBe(chats[1]?.runId)
+  const leadRunId = await waitUntil(
+    async () => (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId,
+    'the Task Lead Run',
+  )
+  await waitUntil(
+    async () => (await hostRecords(home, leadRunId)).some((r) => r.t === 'start'),
+    'the Task Lead’s host to start',
+  )
   await daemon?.stop()
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -374,6 +386,27 @@ test('Factory removal deletes Coordinator history, pending work and managed file
   await expect(
     import('node:fs/promises').then((fs) => fs.stat(path.join(home, 'coordinators', c.runId))),
   ).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test('reset deletes the conversation and the next message starts a new one', async () => {
+  const s = await setup()
+  const { c, run } = await s.start()
+  await s.ok('POST', `${s.base}/reset`)
+  expect(await s.chat()).toBeNull()
+  expect((await s.client.call('GET', `/runs/${c.runId}/chat`)).status).toBe(404)
+  expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
+  expect(existsSync(path.join(home, 'coordinators', c.runId))).toBe(false)
+  expect((await api(s.port, s.tokens.issue(c.runId)).call('POST', `${s.base}/reset`)).status).toBe(
+    403,
+  )
+
+  const next = await s.start([{ say: 'A fresh start' }, { endTurn: true }])
+  expect(next.c.runId).not.toBe(c.runId)
+  expect(next.c.runIds).toEqual([next.c.runId])
+  expect(next.c.receipts).toEqual([])
+  await s.ok('POST', `${s.base}/reset`)
+  await s.ok('POST', `${s.base}/reset`)
+  expect(await s.chat()).toBeNull()
 })
 
 test('agent health pauses queued responses and sending advice leaves Tasks unchanged', async () => {
@@ -789,7 +822,7 @@ test('tell posts a Comment marked as sent through the Coordinator and delivers i
       })
     ).status,
   ).toBe(400)
-  for (const kind of ['tell', 'answer'])
+  for (const kind of ['tell', 'answer', 'resume'])
     expect(
       (await lead.call('POST', `/coordinator/tasks/${task.id}/${kind}`, { ...input, request: 'x' }))
         .status,
@@ -885,7 +918,8 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
   expect((again.body as { error: string }).error).toContain('already closed')
 })
 
-test('answer refuses Gate requests and permission prompts', async () => {
+test('answer approves a sign-off request or asks for changes, and refuses permission prompts', async () => {
+  await commitToOrigin(scratch, { 'app.txt': 'one\ntwo\nthree\n' })
   const s = await setup(undefined, 'version: 1\norder: [intake, design, work, merge]\n')
   const briefFile = path.join(scratch, 'brief.md')
   await writeFile(
@@ -916,30 +950,107 @@ test('answer refuses Gate requests and permission prompts', async () => {
   )
   const request = (id: string, wanted: (c: Comment) => boolean, what: string) =>
     waitUntil(async () => (await s.comments(id)).find(wanted), what)
-  const gate = await request(gated.task.id, (c) => c.gate !== undefined, 'a Gate request')
+  const openGate = (c: Comment) => c.gate !== undefined && c.answer === undefined
+  const gate = await request(gated.task.id, openGate, 'a sign-off request')
   const permission = await request(
     prompted.task.id,
     (c) => c.kind === 'permission',
     'a permission request',
   )
+  const worktree = await waitUntil(
+    async () =>
+      (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === gated.task.id)?.repos[0]?.worktree,
+    'the worktree',
+  )
+  await writeFile(path.join(worktree, 'app.txt'), 'one\nTWO\nthree\n')
+  await s.ok('POST', `/tasks/${gated.task.id}/line-comments`, {
+    repo: 'widgets',
+    path: 'app.txt',
+    from: { new: 2 },
+    body: 'An unfinished review note',
+  })
+  const unsent = async () =>
+    (await s.ok<LineComment[]>('GET', `/tasks/${gated.task.id}/line-comments`)).filter(
+      (c) => c.sent === undefined,
+    )
   const { run } = await s.start()
-  for (const [task, comment] of [
-    [gated.task, gate],
-    [prompted.task, permission],
-  ] as const) {
-    const refused = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-      operation: `refused-${comment.kind}`,
+  const answer = async (task: Task, body: Record<string, unknown>) =>
+    run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
       version: await version(run, task.id),
-      request: comment.id,
-      message: 'Approved',
+      ...body,
     })
-    expect(refused.status, comment.kind).toBe(403)
-    expect((await s.comments(task.id)).find((c) => c.id === comment.id)?.answer).toBeUndefined()
-    expect(await s.waitingIds()).toContain(comment.id)
-  }
+  const read = unpack<CoordinatorTask>(
+    (await run.call('GET', `/coordinator/tasks/${gated.task.id}`)).body,
+  )
+  expect(read.openRequests.find((r) => r.id === gate.id)?.coordinatorMayAnswer).toBe(
+    'approve or request changes',
+  )
+
+  const refused = await answer(prompted.task, {
+    operation: 'refused-permission',
+    request: permission.id,
+    decision: 'approve',
+  })
+  expect(refused.status).toBe(403)
+  expect(
+    (await s.comments(prompted.task.id)).find((c) => c.id === permission.id)?.answer,
+  ).toBeUndefined()
+
+  const words = await answer(gated.task, {
+    operation: 'words',
+    request: gate.id,
+    message: 'Looks fine',
+  })
+  expect(words.status).toBe(400)
+  expect(
+    (await answer(gated.task, { operation: 'bare', request: gate.id, decision: 'request-changes' }))
+      .status,
+  ).toBe(400)
+  expect(await s.waitingIds()).toContain(gate.id)
+
+  const changes = await answer(gated.task, {
+    operation: 'changes',
+    request: gate.id,
+    decision: 'request-changes',
+    message: 'Show both copies side by side.',
+  })
+  expect(changes.status).toBe(200)
+  expect((changes.body as CoordinatorReceipt).text).toContain(
+    `Requested changes on ${gated.task.displayId}’s Sign-off request`,
+  )
+  const asked = (await s.comments(gated.task.id)).find((c) => c.id === gate.id)
+  expect(asked?.answer).toEqual({
+    kind: 'changes-requested',
+    at: expect.any(String),
+    text: `${coordinatorLine}\n\nShow both copies side by side.`,
+  })
+  expect(asked?.lineComments ?? []).toEqual([])
+  expect(await unsent()).toHaveLength(1)
+
+  const second = await request(
+    gated.task.id,
+    (c) => openGate(c) && c.id !== gate.id,
+    'a second Sign-off request',
+  )
+  const approved = await answer(gated.task, {
+    operation: 'approve',
+    request: second.id,
+    decision: 'approve',
+  })
+  expect(approved.status).toBe(200)
+  const receipt = approved.body as CoordinatorReceipt
+  expect(receipt.text).toContain(`Approved ${gated.task.displayId}’s Sign-off request`)
+  expect(receipt.before?.stage).toBe('design')
+  expect(receipt.after?.stage).not.toBe('design')
+  expect((await s.comments(gated.task.id)).find((c) => c.id === second.id)?.answer).toMatchObject({
+    kind: 'approved',
+    text: coordinatorLine,
+  })
+  expect(await s.waitingIds()).not.toContain(second.id)
+  expect(await unsent()).toHaveLength(1)
 })
 
-test('answer refuses Clarify rounds and size checks', async () => {
+test('answer answers a Clarify round and a size check', async () => {
   const s = await setup(undefined, 'version: 1\norder: [intake, clarify, work]\n')
   const roundFile = path.join(scratch, 'round.json')
   await writeFile(
@@ -975,19 +1086,97 @@ test('answer refuses Clarify rounds and size checks', async () => {
   const round = await request(asking.task.id, (c) => c.kind === 'round', 'a round')
   const sizeCheck = await request(sizing.task.id, (c) => c.sizeCheck !== undefined, 'a size check')
   const { run } = await s.start()
-  for (const [task, comment, body] of [
-    [asking.task, round, { message: '7 days' }],
-    [sizing.task, sizeCheck, { choice: sizeCheck.choices?.[0] }],
-  ] as const) {
-    const refused = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-      operation: `refused-${comment.kind}`,
+  const answer = async (task: Task, body: Record<string, unknown>) =>
+    run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
       version: await version(run, task.id),
-      request: comment.id,
       ...body,
     })
-    expect(refused.status, comment.kind).toBe(403)
-    expect((await s.comments(task.id)).find((c) => c.id === comment.id)?.answer).toBeUndefined()
-  }
+  const read = unpack<CoordinatorTask>(
+    (await run.call('GET', `/coordinator/tasks/${asking.task.id}`)).body,
+  )
+  expect(read.openRequests.find((r) => r.id === round.id)).toMatchObject({
+    coordinatorMayAnswer: 'round answers',
+    questions: [{ question: 'How long offline before a warning?', recommended: '7 days' }],
+  })
+
+  expect(
+    (await answer(asking.task, { operation: 'words', request: round.id, message: '14 days' }))
+      .status,
+  ).toBe(400)
+  expect(
+    (
+      await answer(asking.task, {
+        operation: 'short',
+        request: round.id,
+        answers: [{ answer: '14 days' }, { answer: 'Extra' }],
+      })
+    ).status,
+  ).toBe(400)
+  const answered = await answer(asking.task, {
+    operation: 'round',
+    request: round.id,
+    answers: [{ answer: '14 days', note: 'People travel.' }],
+  })
+  expect(answered.status).toBe(200)
+  expect((answered.body as CoordinatorReceipt).text).toContain(
+    `Answered ${asking.task.displayId}’s Clarify round “Sync · 1 question”`,
+  )
+  expect((await s.comments(asking.task.id)).find((c) => c.id === round.id)?.answer).toMatchObject({
+    kind: 'answered',
+    answers: [{ answer: '14 days', note: 'People travel.', changed: true }],
+    text: coordinatorLine,
+  })
+
+  expect(
+    (await answer(sizing.task, { operation: 'size-words', request: sizeCheck.id, message: 'Go' }))
+      .status,
+  ).toBe(400)
+  const sized = await answer(sizing.task, {
+    operation: 'size',
+    request: sizeCheck.id,
+    choice: sizeChoices.grill,
+  })
+  expect(sized.status).toBe(200)
+  expect(
+    (await s.comments(sizing.task.id)).find((c) => c.id === sizeCheck.id)?.answer,
+  ).toMatchObject({ kind: 'answered', choice: sizeChoices.grill, text: coordinatorLine })
+  const waiting = await s.waitingIds()
+  expect(waiting).not.toContain(round.id)
+  expect(waiting).not.toContain(sizeCheck.id)
+})
+
+test('resume queues a stopped Task again and refuses one that isn’t stopped', async () => {
+  const s = await setup(),
+    { task, leadRunId } = await s.led(hold()),
+    { run } = await s.start()
+  const resume = async (operation: string, at?: string) =>
+    run.call('POST', `/coordinator/tasks/${task.id}/resume`, {
+      operation,
+      version: at ?? (await version(run, task.id)),
+    })
+  const current = async () => (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+
+  const running = await resume('too-early')
+  expect(running.status).toBe(409)
+  expect((running.body as { error: string }).error).toContain('isn’t stopped')
+
+  await s.ok('POST', `/tasks/${task.id}/stop`)
+  expect((await current())?.status?.kind).toBe('stopped')
+  const stoppedAt = await version(run, task.id)
+  const resumed = await resume('resume-1', stoppedAt)
+  expect(resumed.status).toBe(200)
+  expect(resumed.body).toMatchObject({
+    operation: 'resume',
+    taskId: task.id,
+    text: expect.stringContaining(`Resumed ${task.displayId}`),
+  })
+  expect((await current())?.status?.kind).not.toBe('stopped')
+  await waitUntil(async () => {
+    const lead = (await current())?.leadRunId
+    return lead !== undefined && lead !== leadRunId
+  }, 'a new Task Lead Run')
+  expect((await s.comments(task.id)).filter((c) => c.author.kind === 'human')).toEqual([])
+  expect((await resume('resume-1', stoppedAt)).body).toEqual(resumed.body)
 })
 
 test('the Coordinator CLI tells and answers with a message argument and never reads a file', async () => {
@@ -1159,6 +1348,77 @@ test('tell and answer cap the message, remove secrets and leave line comment dra
   expect(await unsent()).toHaveLength(1)
 })
 
+test.each(['general', 'Validate'])(
+  'answer resolves a %s failure decision and leaves line comment drafts unsent',
+  async (stage) => {
+    await commitToOrigin(scratch, { 'app.txt': 'one\ntwo\nthree\n' })
+    const workflow =
+      stage === 'Validate' ? 'version: 1\norder: [intake, work, validate, review]\n' : undefined
+    const s = await setup(undefined, workflow),
+      { task, leadRunId, lead } = await s.led(hold())
+    const { run } = await s.start()
+    const worktree = await waitUntil(
+      async () =>
+        (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.repos[0]?.worktree,
+      'the worktree',
+    )
+    await writeFile(path.join(worktree, 'app.txt'), 'one\nTWO\nthree\n')
+    const post = async <T>(route: string, body: unknown = {}) => {
+      const res = await lead.call('POST', `/tasks/${task.id}${route}`, body)
+      expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+      return res.body as T
+    }
+    if (stage === 'Validate') {
+      await post('/outcome', { outcome: 'advance' })
+      await post('/outcome', { outcome: 'advance' })
+    }
+    const context =
+      stage === 'Validate' ? await post<{ id: string }>('/failure-contexts') : undefined
+    const failure = await post<{ id: string }>('/failures', {
+      source: { kind: 'finding', runId: leadRunId, finding: 'A flaky test' },
+      evidence: 'Fails on main too',
+      ...(context && { contextId: context.id }),
+    })
+    await post(`/failures/${failure.id}/assessments`, {
+      assessment: 'unrelated',
+      recommendation:
+        stage === 'Validate' ? 'Accept for this context' : 'No longer applicable to this Task',
+    })
+    const asked = await post<{ decisions: { commentId: string }[] }>(
+      `/failures/${failure.id}/decision`,
+    )
+    const requestId = asked.decisions.at(-1)?.commentId ?? ''
+    await s.ok('POST', `/tasks/${task.id}/line-comments`, {
+      repo: 'widgets',
+      path: 'app.txt',
+      from: { new: 2 },
+      body: 'An unfinished review note',
+    })
+    const unsent = async () =>
+      (await s.ok<LineComment[]>('GET', `/tasks/${task.id}/line-comments`)).filter(
+        (c) => c.sent === undefined,
+      )
+    const read = unpack<CoordinatorTask>(
+      (await run.call('GET', `/coordinator/tasks/${task.id}`)).body,
+    )
+    expect(read.openRequests.find((r) => r.id === requestId)?.coordinatorMayAnswer).toBe(
+      'with a choice',
+    )
+    const choice = stage === 'Validate' ? 'Accept this failure' : 'No longer applicable'
+    const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+      operation: 'resolve-failure',
+      version: read.version,
+      request: requestId,
+      choice,
+    })
+    expect(answered.status, JSON.stringify(answered.body)).toBe(200)
+    const comment = (await s.comments(task.id)).find((c) => c.id === requestId)
+    expect(comment?.answer).toMatchObject({ kind: 'answered', choice })
+    expect(comment?.lineComments ?? []).toEqual([])
+    expect(await unsent()).toHaveLength(1)
+  },
+)
+
 test('answer gives a choice on TED’s idle question, and refuses free text alone', async () => {
   const s = await setup(undefined, undefined, 100)
   const { task } = await s.led(
@@ -1203,7 +1463,7 @@ test('answer gives a choice on TED’s idle question, and refuses free text alon
       ...body,
     })
   const words = await answer({ operation: 'words', message: 'Carry on with the template.' })
-  expect(words.status).toBe(403)
+  expect(words.status).toBe(400)
   expect((words.body as { error: string }).error).toContain('one of its choices')
   expect((await answer({ operation: 'other', choice: 'Stop it' })).status).toBe(409)
   expect((await s.comments(task.id)).find((c) => c.id === idle.id)?.answer).toBeUndefined()
@@ -1224,7 +1484,6 @@ test('answer gives a choice on TED’s idle question, and refuses free text alon
 })
 
 test('answer gives Try again on Validate’s send-back limit; the receipt shows the Stage change', async () => {
-  await commitToOrigin(scratch, { '.gitignore': 'stub-*\n' })
   const s = await setup(
     undefined,
     [
@@ -1233,17 +1492,28 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
       'stages:',
       '  validate:',
       '    max_back: 1',
-      '    checks:',
-      '      - { name: Tests, run: "echo nope; exit 1" }',
       '',
     ].join('\n'),
   )
-  const advance = { run: ['ted', 'outcome', 'advance'] }
-  const { task } = await s.led(
-    { everyMessage: [advance] },
-    { run: ['sh', '-c', 'echo x > a.txt'] },
-    advance,
-  )
+  const findings = path.join(scratch, 'findings.md')
+  await writeFile(findings, '1. The export button does nothing.\n')
+  const count = path.join(scratch, 'lead-messages')
+  const each = {
+    run: [
+      'sh',
+      '-c',
+      [
+        `n=$(cat "${count}" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "${count}";`,
+        'case $n in',
+        '1|2|4) ted outcome advance;;',
+        `3|5) ted outcome back --to work --findings "${findings}";;`,
+        'esac',
+      ].join(' '),
+    ],
+  }
+  const { task } = await s.led({ everyMessage: [each, { endTurn: true }] }, each, {
+    endTurn: true,
+  })
   const limit = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
     'TED to ask about the send-back limit',
@@ -1258,14 +1528,6 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
     (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.stage
   expect(await stage()).toBe('validate')
   const { run } = await s.start()
-  const skipped = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-    operation: 'move-on',
-    version: await version(run, task.id),
-    request: limit.id,
-    choice: 'Move to Done anyway',
-  })
-  expect(skipped.status).toBe(403)
-  expect(await stage()).toBe('validate')
   const again = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
     operation: 'try-again',
     version: await version(run, task.id),

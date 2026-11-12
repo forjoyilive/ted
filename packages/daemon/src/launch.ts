@@ -9,6 +9,7 @@ import {
   type DaemonInfo,
   DaemonRequestError,
   DaemonUnreachableError,
+  filterTedEnv,
   readDaemonInfo,
   runTokenFrom,
   type Subscription,
@@ -24,6 +25,8 @@ export { crashReport } from './logs.ts'
 
 const startTimeoutMs = 2 * 60_000
 const retryDelayMs = 100
+
+export const daemonAlreadyRunningExitCode = 75
 
 export class DaemonDidNotStartError extends Error {}
 
@@ -53,10 +56,12 @@ export async function withDaemon<T>(
       }
     }
     if (!child) child = await startDaemon(home, appToken)
-    else if (exited(child) && !(await anotherDaemonStarting(home))) {
-      throw new DaemonDidNotStartError(
-        `TED’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
-      )
+    else if (exited(child)) {
+      if (child.exitCode === daemonAlreadyRunningExitCode) child = undefined
+      else if (!(await anotherDaemonStarting(home)))
+        throw new DaemonDidNotStartError(
+          `TED’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
+        )
     }
     if (Date.now() > deadline) {
       throw new DaemonDidNotStartError(
@@ -166,7 +171,12 @@ async function startDaemon(home: string, appToken?: string): Promise<ChildProces
   const child = spawn(daemon.command, daemon.args, {
     detached: true,
     stdio: [appToken === undefined ? 'ignore' : 'pipe', output.fd, output.fd],
-    env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1', ...inheritedFdsEnv() },
+    env: {
+      ...filterTedEnv(process.env),
+      TED_HOME: home,
+      ELECTRON_RUN_AS_NODE: '1',
+      ...inheritedFdsEnv(),
+    },
   })
   child.stdin?.on('error', () => undefined)
   child.stdin?.end(`${appToken}\n`)

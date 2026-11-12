@@ -176,7 +176,10 @@ describe('TED app', () => {
     const files = path.join(ctx.home, 'design')
     await mkdir(files)
     const at = (name: string) => path.join(files, name)
-    await writeFile(at('welcome.png'), Buffer.from(onePixelPng, 'base64'))
+    await writeFile(
+      at('welcome.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="1000"><rect width="100" height="1000" fill="#eeeeee"/></svg>',
+    )
     await writeFile(at('walkthrough.webm'), 'not really a video')
     await writeFile(
       at('onboarding.html'),
@@ -200,7 +203,7 @@ describe('TED app', () => {
       at('design.json'),
       JSON.stringify({
         summary: 'Merged the welcome and sync screens into one.',
-        screenshots: [{ path: at('welcome.png'), caption: 'Step 1 · Welcome' }],
+        screenshots: [{ path: at('welcome.svg'), caption: 'Step 1 · Welcome' }],
         video: { path: at('walkthrough.webm'), caption: 'Walkthrough · 0:42' },
         prototype: at('onboarding.html'),
         figma: { url: 'https://www.figma.com/design/abc/Onboarding', label: 'Onboarding v2' },
@@ -239,6 +242,29 @@ describe('TED app', () => {
     await card.getByText('Merged the welcome and sync screens into one.').waitFor()
     await card.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
     const screenshot = card.getByRole('button', { name: 'View Step 1 · Welcome' })
+    await expect
+      .poll(() =>
+        screenshot.locator('img').evaluate((el) => (el as HTMLImageElement).naturalHeight),
+      )
+      .toBe(1000)
+    const client = await daemonClient()
+    await ctx.app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setSize(1280, 1600),
+    )
+    for (const textSize of [100, 200]) {
+      await client.updateSettings({ textSize, appearance: textSize === 200 ? 'dark' : 'light' })
+      await expect
+        .poll(() => screenshot.evaluate((el) => el.getBoundingClientRect().height))
+        .toBe(108)
+      await expect
+        .poll(() => screenshot.locator('span').evaluate((el) => getComputedStyle(el).fontSize))
+        .toBe(`${(12.5 * textSize) / 100}px`)
+      await mkdir(path.resolve('node_modules/.cache/ted-100/app'), { recursive: true })
+      await screenshot.screenshot({
+        path: path.resolve(`node_modules/.cache/ted-100/app/design-review-${textSize}.png`),
+      })
+    }
+    await client.updateSettings({ textSize: 100, appearance: 'light' })
     await screenshot.click()
     const imageViewer = window.getByRole('dialog', { name: 'Step 1 · Welcome', exact: true })
     await imageViewer.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
@@ -254,6 +280,41 @@ describe('TED app', () => {
     const prototype = card.getByRole('region', { name: 'Prototype' })
     await prototype.getByText('onboarding.html · interactive · sandboxed').waitFor()
     const frame = prototype.locator('iframe[title="onboarding.html"]')
+    expect(await card.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
+    expect(
+      await card.evaluate(
+        (el) =>
+          [...el.querySelectorAll('*')].filter(
+            (child) =>
+              child.tagName !== 'TEXTAREA' &&
+              /auto|scroll/.test(getComputedStyle(child).overflowY) &&
+              child.scrollHeight > child.clientHeight,
+          ).length,
+      ),
+    ).toBe(0)
+    await ctx.app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setMinimumSize(900, 400),
+    )
+    for (const [height, expected] of [
+      [500, 360],
+      [1000, 650],
+      [1400, 720],
+    ] as const) {
+      await window.setViewportSize({ width: 1440, height })
+      await expect
+        .poll(() => frame.evaluate((el) => el.getBoundingClientRect().height))
+        .toBe(expected)
+    }
+    await window.setViewportSize({ width: 1440, height: 1000 })
+    await thread.getByRole('button', { name: /Jump to Design review/ }).click()
+    const captures = path.resolve('node_modules/.cache/ted-152-design')
+    await mkdir(captures, { recursive: true })
+    await window.screenshot({ path: path.join(captures, 'native-review.png') })
+    await card.getByRole('button', { name: 'Approve', exact: true }).scrollIntoViewIfNeeded()
+    await window.screenshot({ path: path.join(captures, 'native-review-controls.png') })
+    await window.setViewportSize({ width: 1000, height: 900 })
+    await thread.getByRole('button', { name: /Jump to Design review/ }).click()
+    await window.screenshot({ path: path.join(captures, 'native-review-narrow.png') })
     expect(await frame.getAttribute('sandbox')).toBe('allow-scripts')
     const inside = frame.contentFrame()
     await inside.getByRole('button', { name: 'Next' }).click()

@@ -2,8 +2,10 @@ import { timingSafeEqual } from 'node:crypto'
 import { once } from 'node:events'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { performance } from 'node:perf_hooks'
 import { Readable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
+import type { ProfileRequest, RestoreBackupRequest, ShutdownRequest } from '@ted/protocol'
 import {
   type AppAuth,
   bodyHash,
@@ -13,11 +15,14 @@ import {
   daemonProof,
   equalHex,
   parseAppAuth,
-  type RestoreBackupRequest,
+  parseProfileRequest,
+  parseRestoreBackupRequest,
+  parseShutdownRequest,
+  RequestValidationError,
   requestMac,
   responseMac,
   responseMacHeader,
-  type ShutdownRequest,
+  testReporterPrefix,
 } from '@ted/protocol'
 import { maxAttachmentBytes } from './attachments.ts'
 import type { Data } from './data.ts'
@@ -26,6 +31,7 @@ import { RequestError as HttpError } from './errors.ts'
 import { redactSecrets } from './redact.ts'
 import { appRoutes } from './routes/apps.ts'
 import { automationRoutes } from './routes/automations.ts'
+import { browserRoutes } from './routes/browser.ts'
 import { coordinatorRoutes } from './routes/coordinators.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
@@ -35,16 +41,17 @@ import { peerRoutes } from './routes/peers.ts'
 import { planRoutes } from './routes/plans.ts'
 import {
   type BaseOptions,
+  jsonRoute,
   maxBodyBytes,
   type RequestContext,
   type Route,
-  readJson,
-  readOptionalJson,
+  routePattern,
 } from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
 import { searchRoutes } from './routes/search.ts'
 import { shellRoutes } from './routes/shells.ts'
 import { taskRoutes } from './routes/tasks.ts'
+import { testInvocationRoutes } from './routes/test-invocations.ts'
 import type { Caller } from './tasks/tasks.ts'
 
 export type { BaseOptions, ServerOptions } from './routes/route.ts'
@@ -53,6 +60,7 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'GET',
     path: /^\/events(\?app=1)?$/,
+    waits: true,
     async handle({ req, res, params: [app] }, options) {
       streamEvents(req, res, options, app === '?app=1')
       return undefined
@@ -83,24 +91,20 @@ const dataRoutes: Route<BaseOptions>[] = [
     path: /^\/backups$/,
     handle: async (_, { data }) => [200, await data.summary()],
   },
-  {
+  jsonRoute<RestoreBackupRequest, BaseOptions>(parseRestoreBackupRequest, {
     method: 'POST',
     path: /^\/backups\/restore$/,
     fileToken: true,
-    async handle({ req }, { data }) {
-      const body = (await readJson(req)) as Partial<RestoreBackupRequest> | null
-      const name = typeof body?.name === 'string' ? body.name : ''
-      const stopRuns = body?.stopRuns === true
-      return [200, await data.restore({ name, stopRuns })]
+    async handle({ body }, { data }) {
+      return [200, await data.restore(body)]
     },
-  },
-  {
+  }),
+  jsonRoute<ShutdownRequest, BaseOptions>(parseShutdownRequest, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/shutdown$/,
     fileToken: true,
-    async handle({ req, res, caller }, { data, onShutdown }) {
-      const body = (await readOptionalJson(req)) as Partial<ShutdownRequest> | null
-      const keepRuns = body?.keepRuns === true
+    async handle({ body: { keepRuns }, res, caller }, { data, onShutdown }) {
       if (caller.kind === 'file' && !keepRuns) {
         throw new HttpError(403, 'only the TED app can do this')
       }
@@ -111,7 +115,7 @@ const dataRoutes: Route<BaseOptions>[] = [
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
     },
-  },
+  }),
   {
     method: 'GET',
     path: /^\/command-line$/,
@@ -122,6 +126,20 @@ const dataRoutes: Route<BaseOptions>[] = [
     path: /^\/command-line\/install$/,
     handle: async (_, { commandLine }) => [200, await commandLine.install()],
   },
+  {
+    method: 'GET',
+    path: /^\/diagnostics\/slow$/,
+    handle: async (_, { slow }) => [200, slow.read()],
+  },
+  jsonRoute<ProfileRequest, BaseOptions>(parseProfileRequest, {
+    optionalBody: true,
+    method: 'POST',
+    path: /^\/diagnostics\/profile$/,
+    waits: true,
+    async handle({ body }, { profiler }) {
+      return [201, await profiler.record(body.seconds)]
+    },
+  }),
   {
     method: 'POST',
     path: /^\/app\/open$/,
@@ -146,9 +164,11 @@ async function settled(data: Data): Promise<void> {
 
 const routes: Route[] = [
   ...taskRoutes,
+  ...testInvocationRoutes,
   ...peerRoutes,
   ...shellRoutes,
   ...appRoutes,
+  ...browserRoutes,
   ...factoryRoutes,
   ...machineRoutes,
   ...libraryRoutes,
@@ -162,19 +182,40 @@ const routes: Route[] = [
 
 const drainTimeoutMs = 10_000
 
+interface Timing {
+  route?: string
+  started?: number
+  handled?: number
+}
+
 export async function listen(options: BaseOptions): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
     const release = options.idle?.hold()
     if (release) res.on('close', release)
-    handle(req, res, options).catch(async (error: unknown) => {
-      await drain(req)
-      if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
-      if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
-      console.error(
-        redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
-      )
-      sendJson(res, 500, { error: 'internal error' })
-    })
+    const timing: Timing = {}
+    handle(req, res, options, timing)
+      .catch(async (error: unknown) => {
+        await drain(req)
+        if (error instanceof HttpError || error instanceof RequestValidationError)
+          return sendJson(res, error.status, { error: error.message })
+        if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
+        console.error(
+          redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
+        )
+        sendJson(res, 500, { error: 'internal error' })
+      })
+      .finally(() => {
+        const { route, started } = timing
+        if (route === undefined || started === undefined) return
+        const now = performance.now()
+        options.slow.request({
+          method: req.method ?? '',
+          route,
+          status: res.statusCode,
+          handlerMs: (timing.handled ?? now) - started,
+          totalMs: now - started,
+        })
+      })
   })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
@@ -187,6 +228,7 @@ async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   options: BaseOptions,
+  timing: Timing,
 ): Promise<void> {
   if (!isLoopbackHost(req.headers.host)) throw new HttpError(403, 'host not allowed')
   if (req.headers.origin !== undefined) throw new HttpError(403, 'browser requests not allowed')
@@ -204,16 +246,22 @@ async function handle(
   if (signed) signedResponses.set(res, { key: options.appToken, nonce: signed.nonce })
   const request = signed ? replay(req, await readSignedBody(req, url)) : req
 
-  if (caller.kind === 'run') {
+  if (caller.kind === 'run' && caller.runId.startsWith(testReporterPrefix)) {
+    const id = caller.runId.slice(testReporterPrefix.length).split(':')[0]
+    if (req.method !== 'POST' || url !== `/test-invocations/${id}/reports`)
+      throw new HttpError(403, 'test reporters may only report their own invocation')
+  } else if (caller.kind === 'run') {
     const services = await options.data.services()
     if (!services.store.getRun(caller.runId)) throw new HttpError(403, 'This Run no longer exists')
+    if (services.store.sideChats.forRun(caller.runId))
+      throw new HttpError(403, 'Side chats have no Task or tool authority')
     if (services.store.coordinators.forRun(caller.runId)) {
       const ownBoundary = req.method === 'POST' && url === `/runs/${caller.runId}/boundary`
       const coordinatorTool =
         (req.method === 'GET' &&
           /^\/coordinator\/tasks(?:\/[^/?]+)?(?:\?offset=\d{1,8})?$/.test(url)) ||
         (req.method === 'POST' &&
-          /^\/coordinator\/tasks\/[^/]+\/(start|move|tell|answer)$/.test(url))
+          /^\/coordinator\/tasks\/[^/]+\/(start|move|tell|answer|resume)$/.test(url))
       if (!coordinatorTool && !ownBoundary && !(req.method === 'GET' && url === '/caller')) {
         throw new HttpError(403, 'Coordinator Runs may only use their Factory-scoped tools')
       }
@@ -221,7 +269,9 @@ async function handle(
   }
   const dataRoute = find(dataRoutes, req, url, caller)
   if (dataRoute) {
+    begin(dataRoute.route)
     const reply = await dataRoute.route.handle(context(dataRoute.params), options)
+    timing.handled = performance.now()
     if (reply) sendJson(res, ...reply)
     return
   }
@@ -231,9 +281,17 @@ async function handle(
   if (services.disk.cantSave() && req.method !== 'GET' && !url.startsWith('/storage/')) {
     throw new HttpError(507, cantSaveMessage)
   }
+  begin(route.route)
   const reply = await route.route.handle(context(route.params), { ...options, ...services })
+  timing.handled = performance.now()
   if (req.method !== 'GET') await services.store.persisted()
   if (reply) sendJson(res, ...reply)
+
+  function begin(found: { path: RegExp; waits?: true }): void {
+    if (found.waits) return
+    timing.route = routePattern(found.path)
+    timing.started = performance.now()
+  }
 
   function context(params: string[]): RequestContext {
     return { req: request, res, params, caller: caller as Caller }
@@ -293,7 +351,10 @@ const appAuthWindowMs = 60_000
 const signedResponses = new WeakMap<http.ServerResponse, { key: string; nonce: string }>()
 
 async function readSignedBody(req: http.IncomingMessage, url: string): Promise<Buffer> {
-  const limit = url === '/attachments' ? maxAttachmentBytes : maxBodyBytes
+  const limit =
+    url === '/attachments' || /^\/browser\/[^/]+\/[^/]+\/capture$/.test(url)
+      ? maxAttachmentBytes
+      : maxBodyBytes
   if (Number(req.headers['content-length']) > limit) throw new HttpError(413, 'body too large')
   const chunks: Buffer[] = []
   let size = 0

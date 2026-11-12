@@ -3,6 +3,7 @@ import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
 import { App } from '../../src/renderer/App.tsx'
 import { bridge, user } from './component.ts'
+import { dashboardFixture } from './dashboard.ts'
 import { factory } from './fixtures.ts'
 
 export function appState() {
@@ -20,6 +21,7 @@ export function appState() {
     slots: { limit: 3, working: 0, queued: 0, holders: [], queue: [], factories: [] },
   }
   const api = bridge({
+    factoryDashboard: () => dashboardFixture(true),
     listFactories: () => state.factories,
     listTasks: () => state.tasks,
     listInbox: () => state.inbox,
@@ -39,6 +41,7 @@ export function appState() {
     drift: () => ({ library: 0, factories: {} }),
     simulators: () => ({ supported: false, limit: 2, booted: [] }),
     getSettings: () => state.settings,
+    getLinear: () => ({ state: 'no-key' }),
     notificationsOff: () => false,
     updateStatus: () => ({ state: 'unavailable' }),
     getProfile: () => ({ name: 'Nabha Cosley' }),
@@ -61,15 +64,18 @@ export function appState() {
     },
     listComments: () => [],
     listThreadEvents: () => [],
+    listFailures: () => [],
+    validationObligations: () => ({ satisfied: true, cases: [], blockers: [], checkRuns: [] }),
     listCheckRuns: () => [],
     listTaskRuns: () => [],
     taskBrief: () => null,
-    taskGates: () => ({ overrides: {}, rows: [], revision: 'test' }),
     taskDescriptions: () => [],
     taskChanges: () => ({ repos: [] }),
+    taskFiles: (taskId) => ({ taskId, repos: [] }),
     lineComments: () => [],
     listApps: () => [],
     listStageEntries: () => [],
+    taskGates: () => ({ overrides: {}, rows: [], revision: 'gates-1' }),
   })
   return {
     state,

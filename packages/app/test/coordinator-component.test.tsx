@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { Coordinator, CoordinatorStatus, RunChat } from '@ted/protocol'
+import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { OvernightContext } from '../src/renderer/overnight.tsx'
@@ -80,8 +81,8 @@ function withCoordinator() {
     chat: RunChat | null
     statuses: CoordinatorStatus[]
   } = { coordinator: coordinator(), chat: conversation(), statuses: [] }
-  a.handle('getCoordinator', () => shown.coordinator)
-  a.handle('getCoordinatorChat', () => shown.chat)
+  a.handle('coordinator', () => shown.coordinator)
+  a.handle('coordinatorChat', () => shown.chat)
   a.handle('coordinatorStatuses', () => shown.statuses)
   a.handle('taskDefaults', () => ({ lead: { agent: 'claude' }, planner: { agent: 'claude' } }))
   const open = async () => {
@@ -153,6 +154,36 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
   expect(stop).toHaveBeenCalledWith('f1')
 })
 
+test('New conversation asks first, then resets the Coordinator and shows the empty composer', async () => {
+  const { a, shown, open } = withCoordinator()
+  const reset = vi.fn(() => {
+    shown.coordinator = null
+    shown.chat = null
+    return null
+  })
+  a.handle('resetCoordinator', reset)
+  a.mount()
+  const pane = await open()
+  await user().click(await within(pane).findByRole('button', { name: 'New conversation' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(dialog.textContent).toContain('Start a new Coordinator conversation?')
+  await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(reset).not.toHaveBeenCalled()
+  expect(screen.queryByRole('dialog')).toBeNull()
+
+  await user().click(within(pane).getByRole('button', { name: 'New conversation' }))
+  await user().click(
+    within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete and start new' }),
+  )
+  await vi.waitFor(() => expect(reset).toHaveBeenCalledWith('f1'))
+  await act(async () => {
+    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
+  })
+  await within(pane).findByText('What needs your attention in widgets?')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(within(pane).queryByRole('button', { name: 'New conversation' })).toBeNull()
+})
+
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
   const { a, open } = withCoordinator()
   a.mount()
@@ -194,6 +225,7 @@ test('the sidebar lists Coordinator above Board and shows Working only while it 
     .getAllByRole('button')
     .map((button) => button.textContent)
   expect(names.indexOf('Coordinator')).toBeGreaterThan(-1)
+  expect(names.indexOf('Dashboard')).toBe(names.indexOf('Coordinator') - 1)
   expect(names.indexOf('Coordinator')).toBe(names.indexOf('Board') - 1)
   const row = () => within(nav()).getByRole('button', { name: /^Coordinator/ })
   expect(within(row()).queryByRole('img')).toBeNull()
@@ -233,7 +265,7 @@ test('overnight mode is switched in Settings → General, not in the sidebar', a
 
 const notice = () => screen.queryByRole('status', { name: 'Overnight mode is on' })
 const noticeText =
-  '▲ Overnight mode is on. Gates set here are off until you turn it off in Settings → General. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you.'
+  '▲ Overnight mode is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you.'
 
 function overnight(on: boolean, view: React.ReactNode) {
   const openGeneral = vi.fn()
@@ -258,6 +290,8 @@ test('the Factory Workflow section shows the overnight notice only while overnig
     factorySettings: settingsView,
     homeFolder: () => '/test',
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    getSettings: () => defaultMachineSettings,
+    getLinear: () => ({ state: 'no-key' }),
   })
   await checkNotice(
     () => (
@@ -285,13 +319,13 @@ test('the Library page shows the overnight notice only while overnight mode is o
   )
 })
 
-test('a Task’s Gates editor shows the overnight notice only while overnight mode is on', async () => {
+test('a Task’s sign-offs editor shows the overnight notice only while overnight mode is on', async () => {
   bridge({})
   await checkNotice(
     () => <TaskGatesField taskId="NB-1" />,
     async () => {
       await user().click(await screen.findByRole('button', { name: /Use Workflow/ }))
-      await screen.findByRole('region', { name: 'Gates for this Task' })
+      await screen.findByRole('region', { name: 'Sign-offs for this Task' })
     },
   )
 })
@@ -324,4 +358,27 @@ test('the notice follows the setting live and its link opens Settings → Genera
   )
   await screen.findByRole('heading', { name: 'Library' })
   expect(notice()).toBeNull()
+})
+
+test('Coordinator loading failures can retry without losing the combined conversation', async () => {
+  const { a, open } = withCoordinator()
+  a.handle('coordinator', () => Promise.reject(new Error('Coordinator unavailable')))
+  a.handle('coordinatorChat', () => Promise.reject(new Error('Conversation unavailable')))
+  a.mount()
+  const region = await open()
+  expect((await within(region).findByRole('alert')).textContent).toContain(
+    'Coordinator unavailable',
+  )
+  a.handle('coordinator', () => coordinator())
+  await user().click(within(region).getByRole('button', { name: 'Try again' }))
+  expect((await within(region).findByRole('alert')).textContent).toContain(
+    'Conversation unavailable',
+  )
+  a.handle('coordinatorChat', () => conversation())
+  await user().click(within(region).getByRole('button', { name: 'Try again' }))
+  await within(region).findByText('Start with NB-1.')
+  a.handle('coordinatorChat', () => Promise.reject(new Error('Refresh unavailable')))
+  act(() => a.emit({ type: 'coordinator-changed', factoryId: 'f1' }))
+  await within(region).findByRole('alert')
+  expect(within(region).getByText('Start with NB-1.')).toBeTruthy()
 })

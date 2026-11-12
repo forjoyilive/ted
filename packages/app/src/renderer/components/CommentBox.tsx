@@ -103,7 +103,7 @@ export function CommentBox({
         const created = await ted.followUpTask(task.id, text, refs)
         onFollowedUp?.(created)
       } else if (cancels) await ted.cancelMerge(task.id, text, refs)
-      else await ted.postComment(task.id, text, refs)
+      else await ted.postComment(task.id, { body: text, attachments: refs })
       setText('')
       setFiles([])
     } catch (failed) {

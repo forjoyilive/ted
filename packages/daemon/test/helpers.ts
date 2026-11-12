@@ -18,7 +18,9 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { stringify } from 'yaml'
+import { isLockHeld } from '../src/lock.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { runFiles } from '../src/runs/host-files.ts'
 import { signalGroup, signalProcess } from '../src/signal.ts'
 import { killMarked } from './support/processes.ts'
 
@@ -106,6 +108,18 @@ export async function waitUntil<T>(
   }
 }
 
+// A host that has not started when its daemon stops refuses to start, so a test that
+// restarts the daemon under a Run waits for this first.
+export async function hostsStarted(home: string): Promise<void> {
+  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
+  for (const runId of runIds) {
+    await waitUntil(
+      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
+      `Run ${runId}’s host to start`,
+    )
+  }
+}
+
 export async function hostRecords(home: string, runId: string): Promise<Record<string, unknown>[]> {
   const log = await readFile(path.join(home, 'runs', runId, 'host.log'), 'utf8').catch(() => '')
   return log
@@ -115,9 +129,25 @@ export async function hostRecords(home: string, runId: string): Promise<Record<s
     .map((l) => JSON.parse(l) as Record<string, unknown>)
 }
 
-export async function killRunHosts(home: string): Promise<void> {
+// A host that had not started when its daemon stopped refuses to start (launch authority)
+// and exits, so the wait for its start record ends once nothing holds the Run’s lock.
+export async function killRunHosts(
+  home: string,
+  { waitForStart = false }: { waitForStart?: boolean } = {},
+): Promise<void> {
   const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
   for (const runId of runIds) {
+    if (waitForStart) {
+      const lock = runFiles(path.join(home, 'runs', runId)).lock
+      const since = Date.now()
+      await waitUntil(
+        async () =>
+          (await hostRecords(home, runId)).some((r) => r.t === 'start') ||
+          (Date.now() - since > 300 && !isLockHeld(lock)),
+        `Run ${runId}’s host to start`,
+        2_000,
+      ).catch(() => undefined)
+    }
     const starts = (await hostRecords(home, runId)).filter((r) => r.t === 'start')
     for (const pid of starts.flatMap((start) => [start.agentPid, start.hostPid])) {
       try {
@@ -263,14 +293,17 @@ export function assistantTexts(conversation: ConversationEntry[]): string[] {
   })
 }
 
-export async function makeOriginRepo(parent: string): Promise<string> {
+export async function makeOriginRepo(
+  parent: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
   const origin = path.join(parent, 'acme', 'widgets.git')
   const work = path.join(parent, 'seed')
   const git = (cwd: string, ...args: string[]) =>
     execFileAsync('git', args, {
       cwd,
       env: {
-        ...process.env,
+        ...environment,
         GIT_AUTHOR_NAME: 'Test',
         GIT_AUTHOR_EMAIL: 'test@example.com',
         GIT_COMMITTER_NAME: 'Test',
@@ -332,4 +365,51 @@ export async function editEventlog(home: string, sql: string): Promise<void> {
   const db = new DatabaseSync(path.join(dir, file))
   db.exec(sql)
   db.close()
+}
+
+export function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const name of [
+    'PATH',
+    'TMPDIR',
+    'SystemRoot',
+    'TED_TEST_RUN',
+    'TED_TEST_FILE',
+    'TED_EXIT_WITH_PID',
+  ]) {
+    if (process.env[name] !== undefined) env[name] = process.env[name]
+  }
+  return {
+    ...env,
+    HOME: home,
+    XDG_CONFIG_HOME: path.join(home, '.config'),
+    TED_HOME: home,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_TERMINAL_PROMPT: '0',
+    TED_LOGIN_SHELL: 'off',
+    TED_STAY_AWAKE: 'off',
+    TED_LOW_PRIORITY: 'off',
+    TED_GH_BIN: fileURLToPath(new URL('./fixtures/stub-gh.ts', import.meta.url)),
+    TED_KEYRING_MODULE: fileURLToPath(new URL('./fixtures/stub-keyring.ts', import.meta.url)),
+    TED_LINEAR_API: 'http://127.0.0.1:9/graphql',
+    TED_TIME_MACHINE: 'off',
+    TED_STUB_GH: path.join(home, 'gh.json'),
+    TED_STUB_GH_LOG: path.join(home, 'gh.jsonl'),
+    TED_FREE_BYTES_FILE: fileURLToPath(new URL('./fixtures/free-bytes.txt', import.meta.url)),
+    TED_LOAD_FILE: fileURLToPath(new URL('./fixtures/load.txt', import.meta.url)),
+    TED_ONLINE_FILE: fileURLToPath(new URL('./fixtures/online.txt', import.meta.url)),
+  }
+}
+
+export async function all<T>(names: readonly T[], body: (name: T, index: number) => Promise<void>) {
+  const results = await Promise.allSettled(names.map(body))
+  const failed = results.flatMap((result, i) =>
+    result.status === 'rejected'
+      ? [
+          `${String(names[i])}: ${result.reason instanceof Error ? result.reason.stack : result.reason}`,
+        ]
+      : [],
+  )
+  if (failed.length > 0) throw new Error(failed.join('\n\n'))
 }

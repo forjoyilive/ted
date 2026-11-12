@@ -2,9 +2,9 @@
 // ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
 // grouping of calls, and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
-import { type ReactNode, useEffect, useState } from 'react'
+import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
-import { useRunChat } from '../data.ts'
+import { useRunChatState } from '../data.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -12,9 +12,12 @@ import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
+import { LoadingError, Skeleton } from './Loading.tsx'
+import { Markdown } from './Markdown.tsx'
+import { type RequestJump, RequestJumpBar } from './RequestJumpBar.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
-import { ScrollMemory } from './ScrollMemory.tsx'
+import { ScrollMemory, type ScrollReveal } from './ScrollMemory.tsx'
 
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -54,7 +57,15 @@ export function runMeta(run: RunSummary): string {
     .join(' · ')
 }
 
-function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void) | undefined }) {
+function RunBar({
+  run,
+  onStopTask,
+  action,
+}: {
+  run: RunSummary
+  onStopTask: (() => void) | undefined
+  action?: ReactNode
+}) {
   const now = useNow()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -77,6 +88,7 @@ function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void)
           {!live && ' · finished'}
         </span>
       </div>
+      {action}
       {error !== undefined && (
         <span className={styles.barError} role="alert">
           {error}
@@ -245,7 +257,7 @@ function AgentMessage({
           <span className={styles.author}>{run.name}</span>
           {item.at !== undefined && <span className={styles.when}>{ago(item.at, now)}</span>}
         </div>
-        <p className={styles.text}>{item.text}</p>
+        <Markdown className={styles.text} text={item.text} />
       </div>
     </div>
   )
@@ -338,7 +350,7 @@ function HumanMessage({
             />
           )}
         </div>
-        <p className={styles.text}>{item.text}</p>
+        <Markdown className={styles.text} text={item.text} />
       </div>
     </div>
   )
@@ -444,17 +456,30 @@ function PermissionRow({
   )
 }
 
-function ChatRow({
-  item,
-  run,
-  now,
-  options,
-}: {
+interface ChatRowProps {
   item: ChatItem
   run: RunSummary
   now: number
   options: ChatOptions
-}) {
+}
+
+function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
+  return (
+    before.now === after.now &&
+    before.run.id === after.run.id &&
+    before.run.agent === after.run.agent &&
+    before.run.name === after.run.name &&
+    before.run.state === after.run.state &&
+    before.options.live === after.options.live &&
+    before.options.interrupt === after.options.interrupt &&
+    before.options.inspect === after.options.inspect &&
+    (before.options.matchItemId === before.item.id) ===
+      (after.options.matchItemId === after.item.id) &&
+    (before.item === after.item || JSON.stringify(before.item) === JSON.stringify(after.item))
+  )
+}
+
+const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps) {
   switch (item.kind) {
     case 'instructions':
       return (
@@ -495,7 +520,7 @@ function ChatRow({
     case 'permission':
       return <PermissionRow item={item} now={now} inspect={options.inspect} />
   }
-}
+}, sameRow)
 
 export interface ChatExtra {
   id: string
@@ -504,6 +529,7 @@ export interface ChatExtra {
 }
 
 export interface ChatOptions {
+  headerAction?: ReactNode
   inspect?: boolean
   matchItemId?: string
 
@@ -511,6 +537,9 @@ export interface ChatOptions {
   bar?: boolean
   extra?: readonly ChatExtra[]
   pinned?: ReactNode
+  requests?: readonly RequestJump[]
+  revealRequest?: ScrollReveal | undefined
+  onJumpRequest?: ((id: string) => void) | undefined
   label?: string
   placeholder?: string
   endedPlaceholder?: string
@@ -566,7 +595,7 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       interrupt={options.interrupt !== false}
       send={
         options.send ??
-        ((text, interrupt) => ted.sendRunMessage(run.id, text, interrupt && working))
+        ((text, interrupt) => ted.sendRunMessage(run.id, text, { interrupt: interrupt && working }))
       }
       stopTurn={options.stopTurn ?? (() => ted.interruptRun(run.id))}
     />
@@ -704,9 +733,14 @@ export function ChatBody({
   options?: ChatOptions
 }) {
   const { run, items } = chat
+  const [requestReveal, setRequestReveal] = useState<ScrollReveal>()
+  useEffect(() => {
+    setRequestReveal(options.revealRequest)
+  }, [options.revealRequest])
   const rows = withExtras(items, options.extra ?? [])
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
-  const now = useTicking(running)
+  const ticking = useTicking(running)
+  const now = useNow()
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
 
   return (
@@ -714,10 +748,19 @@ export function ChatBody({
       {!options.inspect &&
         (options.header
           ? options.header(run)
-          : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />)}
+          : options.bar !== false && (
+              <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
+            ))}
+      <RequestJumpBar
+        requests={options.requests ?? []}
+        onJump={(id) => {
+          setRequestReveal({ id })
+          options.onJumpRequest?.(id)
+        }}
+      />
       <ScrollMemory
         spot={options.inspect ? `search:${run.id}:${options.matchItemId}` : `run:${run.id}`}
-        reveal={options.matchItemId}
+        reveal={options.matchItemId ?? requestReveal}
         count={rows.length}
         grows={lastText}
         className={styles.items}
@@ -730,10 +773,24 @@ export function ChatBody({
               tabIndex={options.matchItemId === row.item.id ? -1 : undefined}
               className={options.matchItemId === row.item.id ? styles.searchMatch : undefined}
             >
-              <ChatRow item={row.item} run={run} now={now} options={options} />
+              <ChatRow
+                item={row.item}
+                run={run}
+                now={row.item.kind === 'tool' && row.item.status === 'running' ? ticking : now}
+                options={options}
+              />
             </div>
           ) : (
-            <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
+            <div
+              key={`extra:${row.extra.id}`}
+              data-chat-item={row.extra.id}
+              tabIndex={-1}
+              data-nav-item={
+                options.requests?.some((request) => request.id === row.extra.id) || undefined
+              }
+            >
+              {row.extra.node}
+            </div>
           ),
         )}
       </ScrollMemory>
@@ -751,28 +808,43 @@ export function RunChat({
   runId: string
   onStopTask?: (() => void) | undefined
 } & ChatOptions) {
-  const chat = useRunChat(runId)
-  return <ChatSection chat={chat} onStopTask={onStopTask} options={options} />
+  const resource = useRunChatState(runId)
+  return (
+    <ChatSection
+      chat={resource.value}
+      error={resource.error}
+      retry={resource.retry}
+      onStopTask={onStopTask}
+      options={options}
+    />
+  )
 }
 
 export function ChatSection({
   chat,
   loading = 'Loading the Run…',
+  error,
+  retry,
   onStopTask,
   options = {},
 }: {
   chat: Chat | undefined
   loading?: string
+  error?: string | undefined
+  retry?: (() => void) | undefined
   onStopTask?: (() => void) | undefined
   options?: ChatOptions
 }) {
   return (
     <section className={styles.chat} aria-label="Run chat">
+      {error && retry && <LoadingError error={error} retry={retry} />}
       {chat ? (
         <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
-      ) : (
-        <p className={styles.loading}>{loading}</p>
-      )}
+      ) : !error ? (
+        <div className={styles.loading}>
+          <Skeleton shape="history" label={loading} />
+        </div>
+      ) : null}
     </section>
   )
 }

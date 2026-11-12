@@ -8,7 +8,7 @@ import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
 import type { CheckSettings } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
-import { type CommandSandbox, runTaskCommand } from './command.ts'
+import { type CommandLaunch, runTaskCommand } from './command.ts'
 import { durationMs } from './worktree.ts'
 
 export const defaultCheckTimeout = '10m'
@@ -92,15 +92,26 @@ export async function planChecks(input: {
   return planned
 }
 
+export function supportsTestReporting(command: string): boolean {
+  const words = command.trim().split(/[ \t]+/)
+  if (!words.every((word) => /^[A-Za-z0-9_./:@=+-]+$/.test(word))) return false
+  if (words.shift() !== 'pnpm') return false
+  const exec = words[0] === 'exec'
+  if (exec) words.shift()
+  return (!exec && words[0] === 'check') || (words[0] === 'vitest' && words[1] === 'run')
+}
+
 export async function runChecks(input: {
   checks: readonly RunnableCheck[]
   taskDisplayId: string
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
-  sandbox?: CommandSandbox
+  prepareLaunch: () => Promise<CommandLaunch>
   signal?: AbortSignal
   lowPriority: boolean
+  onInterrupted?: (position: number) => void
+  reportingEnv?: (position: number, supported: boolean) => Promise<Record<string, string>>
   onStart: (position: number) => void
   onFinish: (
     position: number,
@@ -114,6 +125,10 @@ export async function runChecks(input: {
     input.onStart(position)
     const started = Date.now()
     const log = input.logFor(position)
+    const reporting =
+      (await input
+        .reportingEnv?.(position, supportsTestReporting(check.command))
+        .catch(() => ({}))) ?? {}
     const result =
       check.builtIn === 'ted-settings'
         ? await checkSettings(cwd, log, input.libraryDir)
@@ -121,14 +136,17 @@ export async function runChecks(input: {
             label: 'this Check',
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
-            env: checkEnv(input.taskDisplayId, env ?? {}, input.env),
+            env: { ...checkEnv(input.taskDisplayId, env ?? {}, input.env), ...reporting },
             log,
             shell: [loginShell(input.env), '-lc'],
             lowPriority: input.lowPriority,
             ...(input.signal !== undefined && { signal: input.signal }),
-            ...(input.sandbox !== undefined && { sandbox: input.sandbox }),
+            prepareLaunch: input.prepareLaunch,
           })
-    if (result.outcome === 'interrupted') return { outcome: 'interrupted', notFound }
+    if (result.outcome === 'interrupted') {
+      input.onInterrupted?.(position)
+      return { outcome: 'interrupted', notFound }
+    }
     const state: CheckState = result.outcome
     const finished = {
       state,

@@ -64,6 +64,13 @@ describe('TED defaults', () => {
     expect(settings.stages.validate?.loop_check).toBe(3)
     expect(settings.stages.clarify?.depth).toBe('auto')
   })
+
+  test('leave P1-only rounds and other sub-agents in Validate off', async () => {
+    const { settings } = resolveWorkflow([await defaults()])
+
+    expect(settings.stages.validate?.p1_only_from).toBeUndefined()
+    expect(settings.stages.validate?.sub_agents).toBeUndefined()
+  })
 })
 
 describe('layers', () => {
@@ -95,6 +102,23 @@ describe('layers', () => {
     ])
 
     expect(settings.stages.design).toEqual({ gate: false, max_back: 1 })
+  })
+
+  test('a Factory turns off the Library’s P1-only round and keeps its sub-agents setting', async () => {
+    const { settings } = resolveWorkflow([
+      await defaults(),
+      library({
+        'workflow.yaml': 'version: 1\nstages:\n  validate: { p1_only_from: 3, sub_agents: true }\n',
+      }),
+      factory({ 'workflow.yaml': 'version: 1\nstages:\n  validate: { p1_only_from: false }\n' }),
+    ])
+
+    expect(settings.stages.validate).toMatchObject({
+      max_back: 5,
+      loop_check: 3,
+      p1_only_from: false,
+      sub_agents: true,
+    })
   })
 
   test('lead, reviewer and planner merge key by key, and a plain name sets the agent', async () => {
@@ -415,6 +439,47 @@ describe('checking a layer', () => {
     ])
   })
 
+  test('p1_only_from takes a round of 2 or more or false, and sub_agents true or false', () => {
+    const validate = (line: string) =>
+      problems({ 'workflow.yaml': `stages:\n  validate:\n    ${line}\n` })
+    for (const value of ['1', '0', '2.5', 'soon', 'true']) {
+      expect(validate(`p1_only_from: ${value}`)).toEqual([
+        'error .ted/workflow.yaml 3 19 `stages.validate.p1_only_from` must be a round number, 2 or more, or false',
+      ])
+    }
+    for (const value of ['2', '7', 'false']) expect(validate(`p1_only_from: ${value}`)).toEqual([])
+    expect(validate('sub_agents: 1')).toEqual([
+      'error .ted/workflow.yaml 3 17 `stages.validate.sub_agents` must be true or false',
+    ])
+    for (const value of ['true', 'false']) expect(validate(`sub_agents: ${value}`)).toEqual([])
+    expect(
+      problems(
+        { 'workflow.yaml': 'stages:\n  validate: { p1_only_from: 3, sub_agents: true }\n' },
+        'library',
+      ),
+    ).toEqual([])
+    expect(validate('max_back: 5\n    p1_only_from: 6')).toEqual([])
+    expect(validate('p1_only_from: 7\n    max_back: 5')).toEqual([
+      'warning .ted/workflow.yaml 3 5 `stages.validate.p1_only_from` is 7, but `max_back: 5` in this file lets Validate reach round 6 at most before TED asks the human, so round 7 comes only if the human sends the Task back again',
+    ])
+    expect(
+      problems({ 'workflow.yaml': 'stages:\n  work: { p1_only_from: 3, sub_agents: true }\n' }),
+    ).toEqual([
+      'warning .ted/workflow.yaml 2 11 unknown key `stages.work.p1_only_from`',
+      'warning .ted/workflow.yaml 2 28 unknown key `stages.work.sub_agents`',
+    ])
+    const work = (line: string) => problems({ 'workflow.yaml': `stages:\n  work:\n    ${line}\n` })
+    expect(work('lead_closes_failures: 1')).toEqual([
+      'error .ted/workflow.yaml 3 27 `stages.work.lead_closes_failures` must be true or false',
+    ])
+    for (const value of ['true', 'false']) {
+      expect(work(`lead_closes_failures: ${value}`)).toEqual([])
+    }
+    expect(validate('lead_closes_failures: true')).toEqual([
+      'warning .ted/workflow.yaml 3 5 unknown key `stages.validate.lead_closes_failures`',
+    ])
+  })
+
   test('Checks are Factory only', () => {
     expect(
       problems(
@@ -552,4 +617,38 @@ test('Task Gates override inheritance without enabling Stages, and mandatory Gat
   ])
   expect(withTaskGates(changed, {}).settings.stages.design?.gate).toBe(false)
   expect(withTaskGates(changed, { design: true }).settings.stages.design?.gate).toBe(true)
+})
+
+describe('Stage effort', () => {
+  test('inherits by Stage and overrides only the chosen Stage', async () => {
+    const workflow = resolveWorkflow([
+      await defaults(),
+      library({
+        'workflow.yaml':
+          'version: 1\nstages:\n  design: { effort: high }\n  work: { effort: medium }\n',
+      }),
+      factory({ 'workflow.yaml': 'version: 1\nstages:\n  design: { effort: ultra }\n' }),
+    ])
+    expect(workflow.settings.stages.design?.effort).toBe('ultra')
+    expect(workflow.settings.stages.work?.effort).toBe('medium')
+    expect(workflow.settings.stages.intake?.effort).toBeUndefined()
+  })
+
+  test('rejects invalid effort values and effort on holding Stages', () => {
+    for (const [id, value] of [
+      ['work', 'huge'],
+      ['work', 'null'],
+      ['backlog', 'high'],
+      ['done', 'medium'],
+    ]) {
+      expect(
+        factory({ 'workflow.yaml': `version: 1\nstages:\n  ${id}: { effort: ${value} }\n` }).valid,
+      ).toBe(false)
+    }
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']) {
+      expect(
+        factory({ 'workflow.yaml': `version: 1\nstages:\n  work: { effort: ${effort} }\n` }).valid,
+      ).toBe(true)
+    }
+  })
 })

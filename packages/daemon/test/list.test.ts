@@ -281,7 +281,26 @@ describe('List views', () => {
       listViews: { all: view },
     })
     expect(saved.listViews).toEqual({ all: view })
+    const withEmpty = {
+      ...view,
+      showEmptyGroups: true,
+      columnsVersion: 2,
+      columns: ['title', 'updated', 'started'],
+    }
+    await client.ok('PATCH', '/settings', { listViews: { all: withEmpty, nb: view } })
+    expect((await client.ok<{ listViews: unknown }>('GET', '/settings')).listViews).toEqual({
+      all: withEmpty,
+      nb: view,
+    })
+    const withoutEmpty = { ...view, showEmptyGroups: false }
+    await client.ok('PATCH', '/settings', { listViews: { all: withoutEmpty } })
+    expect((await client.ok<{ listViews: unknown }>('GET', '/settings')).listViews).toEqual({
+      all: withoutEmpty,
+    })
     for (const bad of [
+      { all: { ...view, showEmptyGroups: 'yes' } },
+      { all: { ...view, showEmptyGroups: null } },
+      { all: { ...view, columnsVersion: 3 } },
       { all: { ...view, sort: 'sideways' } },
       { all: { ...view, columns: ['nonsense'] } },
       { all: { ...view, filters: { archived: 'maybe' } } },

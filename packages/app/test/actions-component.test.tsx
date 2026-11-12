@@ -2,6 +2,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { ArchiveDialog, DeleteDialog } from '../src/renderer/components/ArchiveDialogs.tsx'
+import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { appState } from './support/app.tsx'
@@ -66,7 +67,7 @@ test('Edit Task focuses description, sends only changed fields and supports comm
       description: 'In titles and bodies.',
     }),
   )
-  expect(close).toHaveBeenCalledOnce()
+  await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
 })
 
 test('failed data rebuild shows its stopping event and error with Copy report and Quit', async () => {
@@ -152,6 +153,11 @@ test('App opens unfinished setup without starting, then starts the ordinary Task
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   await u.click(await screen.findByRole('button', { name: 'Start NB-1' }))
   const notice = await screen.findByRole('dialog', { name: 'Start NB-1?' })
   expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toEqual([])
@@ -162,6 +168,11 @@ test('App opens unfinished setup without starting, then starts the ordinary Task
   expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toEqual([])
   expect(a.state.tasks.find((t) => t.id === 'NB-1')?.stage).toBe('backlog')
   await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   await u.click(await screen.findByRole('button', { name: 'Start NB-1' }))
   await u.click(
     within(screen.getByRole('dialog', { name: 'Start NB-1?' })).getByRole('button', {
@@ -186,14 +197,12 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
     automations: [],
     factories: [],
   }))
-  a.handle('deleteTask', async (id, choices) => {
+  a.handle('deleteTask', (id, choices) => {
     expect(id).toBe('NB-1')
     expect(choices).toEqual({ blocked: 'unblock' })
     a.state.tasks = [task({ ...blocked, blockedBy: [] })]
-    await act(async () => {
-      a.emit({ type: 'task-deleted', taskId: 'NB-1' })
-      a.emit({ type: 'task-updated', task: task({ ...blocked, blockedBy: [] }) })
-    })
+    a.emit({ type: 'task-deleted', taskId: 'NB-1' })
+    a.emit({ type: 'task-updated', task: task({ ...blocked, blockedBy: [] }) })
   })
   a.mount()
   const u = user()
@@ -221,4 +230,34 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
   )
   expect(document.querySelector('tr[data-task="NB-2"]')?.textContent).not.toContain('Blocked')
   expect(a.request).toHaveBeenCalledWith('deleteTask', 'NB-1', { blocked: 'unblock' })
+})
+
+test('Ready for Work keeps Resume and offers a manual Stop to exclude Overnight pickup', async () => {
+  const ready = task({
+    stage: 'work',
+    preparation: 'ready',
+    statuses: ['stopped'],
+    status: { kind: 'stopped', at: '2026-11-11T00:00:00Z', prepared: true },
+  })
+  const api = bridge({ stopTask: vi.fn() })
+  const view = await act(async () => render(<TaskActionsMenu task={ready} />))
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  expect(screen.getByRole('menuitem', { name: /^Resume/ })).toBeTruthy()
+  await u.click(screen.getByRole('menuitem', { name: 'Stop Task' }))
+  expect(api.request).toHaveBeenCalledWith('stopTask', ready.id)
+  await act(async () => {
+    view.rerender(
+      <TaskActionsMenu
+        task={task({
+          stage: 'work',
+          statuses: ['stopped'],
+          status: { kind: 'stopped', at: '2026-11-11T00:00:01Z' },
+        })}
+      />,
+    )
+  })
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  expect(screen.getByRole('menuitem', { name: /^Resume/ })).toBeTruthy()
+  expect(screen.queryByRole('menuitem', { name: 'Stop Task' })).toBeNull()
 })

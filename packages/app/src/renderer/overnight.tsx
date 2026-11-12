@@ -34,7 +34,7 @@ export function OvernightNotice() {
       <span className={sections.warnMark} aria-hidden>
         ▲
       </span>{' '}
-      Overnight mode is on. Gates set here are off until you turn it off in{' '}
+      Overnight mode is on. Sign-offs set here are off until you turn it off in{' '}
       <button type="button" className={base.link} onClick={openGeneral}>
         Settings → General
       </button>

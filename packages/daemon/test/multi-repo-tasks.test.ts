@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -7,6 +7,7 @@ import {
   type Banner,
   type Factory,
   type Run,
+  type RunSummary,
   type Task,
   type TaskReposResult,
   tedPaths,
@@ -18,7 +19,6 @@ import {
   api,
   assistantTexts,
   commitToOrigin,
-  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -69,14 +69,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
-  await killRunHosts(home)
+  await killRunHosts(home, { waitForStart: true })
   process.env = { ...savedEnv }
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
@@ -458,6 +451,81 @@ describe('a multi-repo Task', () => {
     })
     expect(stdout.trim()).toBe('api work')
   })
+})
+
+describe('Validate rounds in a multi-repo Factory', () => {
+  test('a repo removed since the last review makes the next round a full review', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, review, merge]',
+        'reviewer: { agent: same }',
+        'repos:',
+        '  - name: widgets',
+        '  - name: api',
+        '    remote: https://github.com/acme/api.git',
+        'stages:',
+        '  validate: { max_back: 5, loop_check: false }',
+        '',
+      ].join('\n'),
+    })
+    const client = await start()
+    await addFactory(client)
+    const prompt = path.join(scratch, 'review.md')
+    await writeFile(
+      prompt,
+      `# Review the whole branch\n\n${steps({ say: 'Reviewed' }, { endTurn: true })}\n`,
+    )
+    const findings = path.join(scratch, 'findings.md')
+    await writeFile(findings, '1. The export button does nothing.\n')
+    const count = path.join(scratch, 'lead-messages')
+    const review = `out=$(ted run start --reviewer --prompt-file "${prompt}"); ted run wait "$(echo "$out" | grep -o "[0-9a-f-]\\{36\\}" | head -1)";`
+    const each = {
+      run: [
+        'sh',
+        '-c',
+        [
+          `n=$(cat "${count}" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "${count}";`,
+          'case $n in',
+          '1) ted task repos set widgets api; ted outcome advance;;',
+          '2) ted outcome advance;;',
+          `3) ${review} ted outcome back --to work --findings "${findings}";;`,
+          '4) ted task repos remove api --yes; ted outcome advance;;',
+          `5) ${review} ted outcome advance;;`,
+          'esac',
+        ].join(' '),
+      ],
+    }
+    const task = await createTask(
+      client,
+      steps({ everyMessage: [each, { endTurn: true }] }, each, { endTurn: true }),
+    )
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.stage === 'review' || undefined,
+      'the Task to reach Review',
+      90_000,
+    )
+
+    const userMessages = async (runId: string) =>
+      (await client.getRun(runId)).conversation.flatMap((e) => {
+        const line = JSON.parse(e.line) as { type: string; message?: { content?: unknown } }
+        return line.type === 'user' && typeof line.message?.content === 'string'
+          ? [line.message.content]
+          : []
+      })
+    const reviewers = (await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`))
+      .filter((r) => r.name === 'Reviewer · Validate')
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+    expect(reviewers).toHaveLength(2)
+    const second = (await userMessages(reviewers[1]?.id ?? ''))[0] ?? ''
+    expect(second).toContain('# Your instructions from the Task Lead of NB-1')
+    expect(second).not.toContain('TED set the scope of this review')
+    const lead = (await getTask(client, task.id))?.leadRunId ?? ''
+    const round = (await userMessages(lead)).find((m) => m.includes('# Validate round 2'))
+    expect(round).toContain('this round reviews the whole change again')
+    expect(round).not.toContain('This round checks the fixes.')
+  }, 150_000)
 })
 
 describe('a single-repo Factory', () => {

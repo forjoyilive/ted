@@ -4,7 +4,7 @@ import { stageName } from './list-view.ts'
 import { ago, briefSections } from './requests.ts'
 import { activeSubAgentCount, activeSubAgentLabel } from './sub-agents.ts'
 
-export type DetailsSectionId = 'code' | 'changes' | 'runs' | 'apps' | 'brief'
+export type DetailsSectionId = 'code' | 'files' | 'changes' | 'runs' | 'apps' | 'brief'
 
 const collapsedKey = 'ted.taskDetails.collapsed'
 
@@ -52,7 +52,9 @@ export function briefUpdatedLine(
   const atGate = comments.some(
     (c) => c.gate !== undefined && c.stage === brief.stage && c.createdAt >= brief.createdAt,
   )
-  const where = atGate ? `at the ${stageName(brief.stage)} Gate` : `in ${stageName(brief.stage)}`
+  const where = atGate
+    ? `at the ${stageName(brief.stage)} sign-off`
+    : `in ${stageName(brief.stage)}`
   return `Updated by the Task Lead ${where} · ${ago(brief.createdAt, now)}`
 }
 

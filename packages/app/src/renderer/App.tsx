@@ -8,9 +8,17 @@ import type {
   Task,
 } from '@ted/protocol'
 import { simulatorsLine } from '@ted/protocol/app'
-import { planChip, runsPaused } from '@ted/protocol/health'
+import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
-import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import type { MenuCommand } from '../background.ts'
 import { updateBanner, updateChip, updateFailedProblem } from '../updates.ts'
 import styles from './App.module.css'
@@ -33,6 +41,7 @@ import {
 import { BannerStack } from './components/BannerStack.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
+import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
@@ -46,16 +55,17 @@ import {
   useAgentHealth,
   useAllPlans,
   useAnswered,
+  useAutomationOutcomes,
   useAutomationRequests,
-  useAutomations,
   useBanners,
   useConnection,
   useCoordinatorStatuses,
   useDrift,
   useFactoryList,
   useInbox,
+  useMenuCommands,
   usePlanInbox,
-  useSettings,
+  useSettingsState,
   useSimulators,
   useSlots,
   useTasks,
@@ -69,10 +79,12 @@ import {
   focusFirst,
   moveFocus,
   pressDialogPrimary,
+  pressImageNavigation,
   rankNeighbours,
+  replyBox,
   requestChangesBox,
 } from './key-targets.ts'
-import { keyBindings } from './keymap.ts'
+import { imageNavigationKey, keyBindings } from './keymap.ts'
 import { doneView, failedView, queueView, rankMove } from './list-view.ts'
 import {
   backLink,
@@ -98,12 +110,12 @@ import {
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
-import { timePreferences } from './time.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
 import { CoordinatorView } from './views/Coordinator.tsx'
+import { Dashboard } from './views/Dashboard.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
@@ -138,11 +150,6 @@ function pausedFooter(health: readonly AgentHealth[]) {
     .filter((h) => h.state !== 'ready')
     .reduce((total, h) => total + h.pausedRuns, 0)
   return paused > 0 ? { paused: runsPaused(paused) } : {}
-}
-
-function planFooter(health: readonly AgentHealth[]) {
-  const chips = health.flatMap((h) => planChip(h, undefined, timePreferences()) ?? [])
-  return chips.length > 0 ? { planChips: chips } : {}
 }
 
 function factoryBadges(
@@ -214,15 +221,26 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
 export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
   const [history, dispatch] = useReducer(withHistory, initialNavigation, startHistory)
   const navigation = history.now
+  const revealRequest = useMemo(
+    () => (navigation.requestId === undefined ? undefined : { id: navigation.requestId }),
+    [navigation],
+  )
   const tasks = useTasks()
   const { factories, loaded: factoriesLoaded } = useFactoryList()
-  const settings = useSettings()
+  const settingsResource = useSettingsState()
+  const settings = settingsResource.settings
   const settingsOpen = navigation.settings !== undefined
   const slots = useSlots()
   const drift = useDrift()
   const simulators = useSimulators()
   const simulatorsFooter = simulators && simulatorsLine(simulators)
   const [runsOpen, setRunsOpen] = useState(false)
+  const [usageOpen, setUsageOpen] = useState(false)
+  const closeUsage = useCallback(() => setUsageOpen(false), [])
+  useEffect(() => {
+    void navigation
+    setUsageOpen(false)
+  }, [navigation])
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
   const [removing, setRemoving] = useState<Factory>()
@@ -279,7 +297,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setNewTaskOpen(factoryId === undefined ? {} : { factoryId })
   const inbox = useInbox()
   const questions = useAutomationRequests()
-  const allAutomations = useAutomations(undefined)
+  const allAutomations = useAutomationOutcomes()
   const planInbox = usePlanInbox()
   const inboxCount = useWaitingCount()
   const notificationsOff = useNotificationsOff()
@@ -308,6 +326,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   useEffect(() => {
     if (settings === undefined) return
+    document.documentElement.style.setProperty('--text-scale', String(settings.textSize / 100))
     document.documentElement.style.setProperty(
       '--terminal-font-size',
       `${settings.terminalFontSize}px`,
@@ -328,6 +347,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   useEffect(() => {
     if (!offline) return
+    setUsageOpen(false)
     setNewTaskOpen(undefined)
     setAddFactoryOpen(false)
     setPaletteOpen(false)
@@ -360,13 +380,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   const onMenuCommand = useRef<(command: MenuCommand) => void>(() => undefined)
 
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type === 'menu-command') onMenuCommand.current(event.command)
-      }),
-    [],
-  )
+  useMenuCommands((command) => onMenuCommand.current(command))
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
@@ -391,6 +405,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     back: () => dispatch({ type: 'back' }),
     forward: () => dispatch({ type: 'forward' }),
     close: () => {
+      if (usageOpen) {
+        closeUsage()
+        return true
+      }
       if (settingsOpen) dispatch({ type: 'close-settings' })
       else if (navigation.taskId !== undefined) dispatch({ type: 'close-task' })
       else return false
@@ -402,10 +420,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       setArmed(button)
       return button !== undefined
     },
-    reply: () =>
-      panes.current !== null &&
-      (focusFirst(panes.current, 'textarea[data-answer-box]') ||
-        focusFirst(panes.current, 'textarea[data-comment-box]')),
+    reply: () => {
+      const box = panes.current ? replyBox(panes.current) : undefined
+      box?.focus()
+      return box !== undefined
+    },
     requestChanges: () => {
       const box = panes.current ? requestChangesBox(panes.current) : undefined
       box?.focus()
@@ -439,7 +458,14 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const sequences = useRef(keySequences(keyBindings))
   const onShortcut = useRef<(event: KeyboardEvent) => void>(() => undefined)
   onShortcut.current = (event) => {
-    if (event.defaultPrevented || event.isComposing || offline) return
+    if (event.defaultPrevented || event.isComposing) return
+    const imageDirection = imageNavigationKey(event)
+    if (imageDirection && !isTyping(event.target) && pressImageNavigation(imageDirection)) {
+      sequences.current.reset()
+      event.preventDefault()
+      return
+    }
+    if (offline) return
     if (resizeSidebarFromKey(event)) {
       sequences.current.reset()
       return
@@ -457,9 +483,18 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return
     }
     if (!found || runsOpen) return
+    if (usageOpen && found.id !== 'close') return
     if (settingsOpen && !allowedInSettings.has(found.id)) return
     if (!commandKey && document.querySelector('[role="menu"]')) return
-    const anyDialog = dialogOpen || document.querySelector('dialog[open]') !== null
+    const openDialog = [...document.querySelectorAll('dialog[open]')].at(-1)
+    const anyDialog = dialogOpen || openDialog !== undefined
+    if (
+      openDialog?.hasAttribute('data-nav-dialog') &&
+      (found.id === 'next' || found.id === 'previous')
+    ) {
+      if (moveFocus(openDialog, found.id)) event.preventDefault()
+      return
+    }
     const factoryNumber = /^factory:(\d)$/.exec(found.id)?.[1]
     if (factoryNumber !== undefined) {
       const factory = factories[Number(factoryNumber) - 1]
@@ -652,7 +687,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         tasks={tasks}
         factories={factories}
         backLink={backLink(navigation)}
-        requestId={navigation.requestId}
+        revealRequest={revealRequest}
         answeredId={inboxScreen?.answered ? navigation.requestId : undefined}
         onBack={() => dispatch({ type: 'close-task' })}
         onOpenTask={openTaskByRef}
@@ -678,12 +713,38 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           },
         })
       }
+      const planFactory =
+        navigation.planId === undefined
+          ? undefined
+          : factories.find((factory) => factory.id === navigation.lastFactoryId)
+      const planned =
+        planFactory && navigation.planId ? (
+          <PlanChatView
+            key={navigation.planId}
+            factory={planFactory}
+            planId={navigation.planId}
+            revealRequest={revealRequest}
+            backLabel="← Inbox"
+            onBack={() => dispatch({ type: 'open', screen })}
+            onDeleted={() => dispatch({ type: 'open', screen })}
+            onOpenTask={openTaskByRef}
+            onOpenPlan={(planId) =>
+              dispatch({ type: 'open-plan', factoryId: planFactory.id, planId })
+            }
+            onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: planFactory.id, from })}
+          />
+        ) : undefined
       return (
         <Inbox
           items={inbox}
           plans={planInbox}
-          onOpenPlan={({ plan }) =>
-            dispatch({ type: 'open-plan', factoryId: plan.factoryId, planId: plan.id })
+          onOpenPlan={({ plan, request }) =>
+            dispatch({
+              type: 'open-plan',
+              factoryId: plan.factoryId,
+              planId: plan.id,
+              requestId: request.id,
+            })
           }
           answered={answered}
           factories={factories}
@@ -715,6 +776,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onNewTask={() => openNewTask()}
         >
           {opened ??
+            planned ??
             (navigation.automation?.runId === undefined
               ? undefined
               : automationRun(navigation.automation.id, navigation.automation.runId))}
@@ -750,6 +812,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
         const openPlans = () => dispatch({ type: 'open-plan', factoryId: screen.factoryId })
+        if (screen.view === 'dashboard') {
+          return (
+            <Dashboard
+              key={screen.factoryId}
+              factoryId={screen.factoryId}
+              title={name}
+              state={screen.dashboard ?? { range: '30d' }}
+              onChange={(dashboard) => dispatch({ type: 'open', screen: { ...screen, dashboard } })}
+              onOpenTask={openTaskByRef}
+              banners={view.banners}
+            />
+          )
+        }
         if (screen.view === 'board') {
           return (
             <Board
@@ -795,9 +870,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               key={factory.id}
               factory={factory}
               banners={view.banners}
-              onOpenFactory={(factoryId) =>
-                dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
-              }
+              onOpenFactory={(factoryId) => dispatch({ type: 'open-factory', factoryId })}
               onOpenGitHubSettings={() =>
                 dispatch({ type: 'open-settings', section: 'integrations' })
               }
@@ -852,6 +925,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
                 key={navigation.planId}
                 factory={factory}
                 planId={navigation.planId === newPlan ? undefined : navigation.planId}
+                revealRequest={revealRequest}
                 onBack={backToPlans}
                 {...(navigation.planFrom !== undefined && { from: navigation.planFrom })}
                 onOpenPlan={(planId) =>
@@ -935,14 +1009,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onClose={() => setAddFactoryOpen(false)}
           onAdded={(added) => {
             setAddFactoryOpen(false)
-            dispatch({
-              type: 'open',
-              screen: { kind: 'factory', factoryId: added.id, view: 'board' },
-            })
+            dispatch({ type: 'open-factory', factoryId: added.id })
           }}
           onOpenFactory={(factoryId) => {
             setAddFactoryOpen(false)
-            dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
+            dispatch({ type: 'open-factory', factoryId })
           }}
           onOpenGitHubSettings={() => {
             setAddFactoryOpen(false)
@@ -1028,6 +1099,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           <div ref={panes} className={styles.panes}>
             {find}
             <SettingsShell
+              error={settingsResource.error}
+              retry={settingsResource.retry}
               section={navigation.settings.section}
               settings={settings}
               factories={factories}
@@ -1055,6 +1128,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           navigation={navigation}
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
+          developerMode={settings?.developerMode ?? false}
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}
@@ -1064,7 +1138,6 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
             ...(settings?.overnightMode && { overnight: 'Overnight mode is on' }),
-            ...planFooter(agentHealth),
             ...(chip !== undefined && { update: chip }),
           }}
           onUpdate={() =>
@@ -1079,7 +1152,26 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
           }}
           runsOpen={runsOpen}
-          onOpenRuns={() => setRunsOpen((open) => !open)}
+          onOpenRuns={() => {
+            setUsageOpen(false)
+            setRunsOpen((open) => !open)
+          }}
+          usage={
+            <PlanUsage
+              health={agentHealth}
+              billing={settings?.billing ?? { claude: 'subscription', codex: 'subscription' }}
+              open={usageOpen}
+              onToggle={() => {
+                setRunsOpen(false)
+                setUsageOpen((open) => !open)
+              }}
+              onClose={closeUsage}
+              onSettings={() => {
+                setUsageOpen(false)
+                dispatch({ type: 'open-settings', section: 'agents' })
+              }}
+            />
+          }
           dispatch={dispatch}
           onNewTask={openNewTask}
           onSearch={() => setPaletteOpen(true)}

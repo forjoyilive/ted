@@ -2,6 +2,7 @@ import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/pr
 import path from 'node:path'
 import {
   isLinearTeamKey,
+  type LinearIntakeChoices,
   type LinearIssue,
   type LinearKeyPlace,
   type LinearLookup,
@@ -24,6 +25,8 @@ import {
 import { type Keyring, KeyringUnavailableError } from './keyring.ts'
 
 export interface Linear {
+  intakeChoices(): Promise<LinearIntakeChoices>
+  intakeMembership(link: LinearUrl): Promise<LinearIntakeMembership>
   status(): Promise<LinearStatus>
   save(request: SaveLinearKeyRequest): Promise<LinearStatus>
   test(): Promise<LinearStatus>
@@ -34,6 +37,13 @@ export interface Linear {
   teamStates(teamId: string): Promise<LinearWorkflowState[]>
   moveIssue(issueId: string, stateId: string): Promise<void>
   linkUrl(issueId: string, url: string, title: string): Promise<void>
+}
+
+export interface LinearIntakeMembership {
+  workspaceId: string
+  workspace: string
+  teamId: string
+  projectId: string | null
 }
 
 export interface LinearWorkflowState {
@@ -112,6 +122,103 @@ export function createLinear(options: LinearOptions): Linear {
   const issues = new Map<string, { at: number; lookup: LinearLookup }>()
   const teams = new Map<string, { at: number; states: LinearWorkflowState[] }>()
   let syncKey: { at: number; key: string | undefined } | undefined
+
+  async function intakeRead<T>(work: (key: string) => Promise<T>): Promise<T> {
+    try {
+      return await work(await requireKey())
+    } catch (error) {
+      throw new RequestError(
+        409,
+        redactSecrets(
+          `Couldn’t verify Linear intake scope: ${reasonOf(error)}. Check Linear in App Settings → Integrations and try again.`,
+        ),
+      )
+    }
+  }
+
+  async function intakeChoices(): Promise<LinearIntakeChoices> {
+    return intakeRead(async (key) => {
+      const data = await query<{ organization: { id: string; urlKey: string } }>(
+        key,
+        'query TedIntakeWorkspace { organization { id urlKey } }',
+        undefined,
+        { strict: true },
+      )
+      if (!data.organization?.id || !data.organization.urlKey)
+        throw new Error('Linear workspace is missing')
+      async function pages(collection: 'teams' | 'projects') {
+        const nodes: { id: string; name: string; key: string }[] = []
+        let after: string | undefined
+        const cursors = new Set<string>()
+        for (let page = 0; page < 200; page++) {
+          const result = await query<{
+            targets: {
+              nodes: { id: string; name: string; key: string }[]
+              pageInfo: { hasNextPage: boolean; endCursor: string | null }
+            }
+          }>(
+            key,
+            `query TedIntakeChoices($after: String) { targets: ${collection}(first: 100, after: $after) { nodes { id name ${collection === 'teams' ? 'key' : ''} } pageInfo { hasNextPage endCursor } } }`,
+            { after: after ?? null },
+            { strict: true },
+          )
+          const connection = result.targets
+          if (
+            !Array.isArray(connection?.nodes) ||
+            typeof connection.pageInfo?.hasNextPage !== 'boolean' ||
+            connection.nodes.some(
+              (node) => !node.id || !node.name || (collection === 'teams' && !node.key),
+            )
+          ) {
+            throw new Error('Linear returned incomplete choices')
+          }
+          nodes.push(...connection.nodes)
+          if (!connection.pageInfo.hasNextPage)
+            return nodes.sort((a, b) => a.name.localeCompare(b.name))
+          const cursor = connection.pageInfo.endCursor
+          if (!cursor || cursors.has(cursor)) throw new Error('Linear returned an incomplete page')
+          cursors.add(cursor)
+          after = cursor
+        }
+        throw new Error('Linear returned too many pages')
+      }
+      return {
+        workspaceId: data.organization.id,
+        workspace: data.organization.urlKey.toLowerCase(),
+        teams: await pages('teams'),
+        projects: await pages('projects'),
+      }
+    })
+  }
+
+  async function intakeMembership(link: LinearUrl): Promise<LinearIntakeMembership> {
+    return intakeRead(async (key) => {
+      const data = await query<{
+        organization: { id: string; urlKey: string }
+        issue: { identifier: string; team: { id: string }; project: { id: string } | null } | null
+      }>(
+        key,
+        'query TedIntakeMembership($id: String!) { organization { id urlKey } issue(id: $id) { identifier team { id } project { id } } }',
+        { id: link.identifier },
+        { strict: true },
+      )
+      if (
+        !data.organization?.id ||
+        !data.organization.urlKey ||
+        !data.issue?.team?.id ||
+        data.issue.identifier !== link.identifier ||
+        data.issue.project === undefined ||
+        (data.issue.project !== null && !data.issue.project.id)
+      )
+        throw new Error('Linear returned incomplete issue scope')
+      return {
+        workspaceId: data.organization.id,
+        workspace: data.organization.urlKey.toLowerCase(),
+        teamId: data.issue.team.id,
+        projectId: data.issue.project?.id ?? null,
+      }
+    })
+  }
 
   async function keyForSync(): Promise<string | undefined> {
     if (syncKey && now() - syncKey.at < cacheMs) return syncKey.key
@@ -467,6 +574,8 @@ export function createLinear(options: LinearOptions): Linear {
       return issueFor(link)
     },
 
+    intakeChoices,
+    intakeMembership,
     issueFor,
     issueStates,
     teamStates,

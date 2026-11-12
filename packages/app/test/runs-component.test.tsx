@@ -72,6 +72,11 @@ test('Factory caps appear in Board and List headers only when working', async ()
   const a = appState()
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
   expect(screen.queryByText('1 of 1 working')).toBeNull()
   working(a)
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))

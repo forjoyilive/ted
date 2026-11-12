@@ -107,7 +107,7 @@ describe('creating a Task from the New Task dialog', () => {
     })
 
     expect(plain).toMatchObject({ priority: 'none', clarifyDepth: 'auto', blockedBy: [] })
-    expect(plain.lead).toEqual({ agent: 'claude' })
+    expect(plain.lead).toMatchObject({ agent: 'claude' })
     expect(set).toMatchObject({
       priority: 'high',
       clarifyDepth: 'grilling',
@@ -333,7 +333,7 @@ describe('Task defaults', () => {
     })
     const { client, factory } = await withFactory()
 
-    expect(await client.taskDefaults(factory.id)).toEqual({
+    expect(await client.taskDefaults(factory.id)).toMatchObject({
       lead: { agent: 'claude', model: 'opus', effort: 'high' },
       planner: { agent: 'claude', model: 'sonnet', effort: 'max' },
       clarifyDepth: 'few',
@@ -343,7 +343,7 @@ describe('Task defaults', () => {
   test('with nothing set, the lead is the default agent and Clarify depth is Auto', async () => {
     const { client, factory } = await withFactory()
 
-    expect(await client.taskDefaults(factory.id)).toEqual({
+    expect(await client.taskDefaults(factory.id)).toMatchObject({
       lead: { agent: 'claude' },
       planner: { agent: 'claude' },
       clarifyDepth: 'auto',

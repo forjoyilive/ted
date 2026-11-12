@@ -1,18 +1,39 @@
+import type { FailureCase } from '@ted/protocol'
 import { type CheckRun, checkLabel } from '@ted/protocol/checks'
 import { useEffect, useId, useRef, useState } from 'react'
+import { useFailures } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './CheckOutputDialog.module.css'
+import { FailureDetails } from './FailureDetails.tsx'
 import { CloseIcon } from './icons.tsx'
+import { Loading } from './Loading.tsx'
 
-export function CheckOutputDialog({
-  checkRun,
-  position,
-  onClose,
-}: {
+interface CheckOutputProps {
   checkRun: CheckRun
   position: number
   onClose: () => void
-}) {
+  failures?: readonly FailureCase[] | undefined
+}
+
+export function CheckOutputDialog(props: CheckOutputProps) {
+  return props.failures ? (
+    <RecordedCheckOutput {...props} failures={props.failures} />
+  ) : (
+    <CurrentCheckOutput {...props} />
+  )
+}
+
+function CurrentCheckOutput(props: CheckOutputProps) {
+  const failures = useFailures(props.checkRun.taskId)
+  return <RecordedCheckOutput {...props} failures={failures} />
+}
+
+function RecordedCheckOutput({
+  checkRun,
+  position,
+  onClose,
+  failures,
+}: CheckOutputProps & { failures: readonly FailureCase[] }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const headingId = useId()
   const [shown, setShown] = useState(position)
@@ -89,14 +110,30 @@ export function CheckOutputDialog({
           })}
         </div>
       )}
+      {failures
+        .filter(
+          (f) =>
+            (f.source.kind === 'factory-check' || f.source.kind === 'post-rebase-check') &&
+            f.source.checkRunId === checkRun.id &&
+            f.source.position === shown,
+        )
+        .map((f) => (
+          <FailureDetails key={f.id} failure={f} />
+        ))}
       {check && <code className={styles.command}>{check.command}</code>}
       {error !== undefined ? (
         <p className={styles.error} role="alert">
           {error}
         </p>
       ) : (
-        <pre className={styles.output}>
-          {text === undefined ? 'Loading…' : text === '' ? 'No output.' : text}
+        <pre className={`${styles.output} ${text === undefined ? styles.pending : ''}`}>
+          {text === undefined ? (
+            <Loading terminal label="Loading Check output…" />
+          ) : text === '' ? (
+            'No output.'
+          ) : (
+            text
+          )}
         </pre>
       )}
       {output?.position === shown && <p className={styles.log}>Full log: {output.log}</p>}

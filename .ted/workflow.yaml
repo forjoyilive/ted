@@ -12,13 +12,14 @@ repos:
         run: TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
-  design: { gate: true }
+  design: { gate: true, based_on: 3fbeefc }
+  work: { based_on: d83680f }
   validate:
     checks:
       - { name: Typecheck, run: pnpm typecheck }
       - { name: Lint, run: pnpm lint }
-  review: { enabled: true, gate: true }
+  review: { enabled: false, gate: false }
   merge: { gate: false }
   clarify:
     enabled: true
-    gate: true
+    gate: false

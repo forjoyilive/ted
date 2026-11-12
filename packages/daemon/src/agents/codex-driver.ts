@@ -1,7 +1,9 @@
 import { type Effort, efforts } from '@ted/protocol'
 import type { DriveAgent } from '../runs/host-files.ts'
+import { rememberCodexSession } from './codex-home.ts'
 
 export interface CodexPlan {
+  sessionHome?: string
   textOnly?: boolean
   thread: { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> }
   prompt: string
@@ -106,6 +108,13 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     const openedId = opened.result?.thread?.id
     if (opened.error !== undefined || typeof openedId !== 'string') return stop()
     threadId = openedId
+    if (plan.sessionHome !== undefined) {
+      try {
+        rememberCodexSession(plan.sessionHome, openedId)
+      } catch {
+        return stop()
+      }
+    }
     if (plan.prompt === '') interruptWanted = false
     if (plan.prompt !== '') {
       const turn = await startTurn(plan.prompt)

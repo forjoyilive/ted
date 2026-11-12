@@ -1,10 +1,12 @@
 import type { Attachment, DesignFile, DesignReview, SetupProposal } from '@ted/protocol'
 import { type ReactNode, useEffect, useState } from 'react'
+import { useBytes } from '../attachment-bytes.ts'
 import { stageName } from '../list-view.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
-import { useBytes } from './CommentFiles.tsx'
 import styles from './DesignReview.module.css'
+import { Loading } from './Loading.tsx'
+import { Markdown } from './Markdown.tsx'
 import { ImageViewer, Viewer } from './Viewer.tsx'
 
 const prototypeSrc = ({ hash, name }: DesignFile) =>
@@ -16,30 +18,35 @@ function mediaTypeOf(file: DesignFile, files: readonly Attachment[], fallback: s
   return files.find((a) => a.hash === file.hash && a.name === file.name)?.mediaType ?? fallback
 }
 
-function ScreenshotTile({ file, files }: { file: DesignFile; files: readonly Attachment[] }) {
-  const { data, error } = useBytes({ hash: file.hash, name: file.name, size: 0, mediaType: '' })
-  const [open, setOpen] = useState(false)
+function ScreenshotTile({
+  file,
+  files,
+  onOpen,
+}: {
+  file: DesignFile
+  files: readonly Attachment[]
+  onOpen: () => void
+}) {
+  const { data, error } = useBytes(file)
   const src =
     data === undefined ? undefined : `data:${mediaTypeOf(file, files, 'image/png')};base64,${data}`
   return (
-    <>
-      <button
-        type="button"
-        className={styles.tile}
-        aria-label={`View ${label(file)}`}
-        onClick={() => setOpen(true)}
-      >
-        {src !== undefined ? (
-          <img className={styles.shot} src={src} alt={label(file)} />
-        ) : (
-          <span className={styles.loading}>{error ?? 'Loading…'}</span>
-        )}
-        <span className={styles.tileCaption}>{label(file)}</span>
-      </button>
-      {open && src !== undefined && (
-        <ImageViewer title={label(file)} src={src} onClose={() => setOpen(false)} />
+    <button
+      type="button"
+      className={styles.tile}
+      aria-label={`View ${label(file)}`}
+      disabled={src === undefined}
+      onClick={onOpen}
+    >
+      {src !== undefined ? (
+        <img className={styles.shot} src={src} alt={label(file)} />
+      ) : (
+        <span className={styles.loading}>
+          {error ?? <Loading compact label="Loading image…" />}
+        </span>
       )}
-    </>
+      <span className={styles.tileCaption}>{label(file)}</span>
+    </button>
   )
 }
 
@@ -58,9 +65,10 @@ function useBlobUrl(data: string | undefined, mediaType: string): string | undef
 }
 
 function VideoPlayer({ file, files }: { file: DesignFile; files: readonly Attachment[] }) {
-  const { data, error } = useBytes({ hash: file.hash, name: file.name, size: 0, mediaType: '' })
+  const { data, error } = useBytes(file)
   const src = useBlobUrl(data, mediaTypeOf(file, files, 'video/mp4'))
-  if (src === undefined) return <p className={styles.loading}>{error ?? 'Loading…'}</p>
+  if (src === undefined)
+    return <p className={styles.loading}>{error ?? <Loading compact label="Loading video…" />}</p>
   return (
     <video className={styles.video} src={src} controls autoPlay>
       <track kind="captions" />
@@ -286,17 +294,35 @@ export function DesignReviewContent({
   taskId: string
   commentId: string
 }) {
+  const [open, setOpen] = useState<number>()
   const shots = design.screenshots ?? []
   return (
     <div className={styles.review}>
-      {design.summary !== undefined && <p className={styles.summary}>{design.summary}</p>}
+      {design.summary !== undefined && (
+        <Markdown className={styles.summary} text={design.summary} />
+      )}
       {(shots.length > 0 || design.video) && (
         <div className={styles.tiles}>
-          {shots.map((shot) => (
-            <ScreenshotTile key={`${shot.hash}:${shot.name}`} file={shot} files={files} />
+          {shots.map((shot, index) => (
+            <ScreenshotTile
+              key={`${shot.hash}:${shot.name}`}
+              file={shot}
+              files={files}
+              onOpen={() => setOpen(index)}
+            />
           ))}
           {design.video && <VideoTile file={design.video} files={files} />}
         </div>
+      )}
+      {open !== undefined && (
+        <ImageViewer
+          images={shots.map((shot) => ({
+            ...shot,
+            mediaType: mediaTypeOf(shot, files, 'image/png'),
+          }))}
+          initialIndex={open}
+          onClose={() => setOpen(undefined)}
+        />
       )}
       {design.setup && <SetupProposalView setup={design.setup} />}
       {design.prototype && <Prototype file={design.prototype} />}
@@ -306,7 +332,9 @@ export function DesignReviewContent({
           <h3 className={styles.worthHeading}>Worth your eye</h3>
           <ol className={styles.worthList}>
             {design.worthYourEye.map((point) => (
-              <li key={point}>{point}</li>
+              <li key={point}>
+                <Markdown text={point} />
+              </li>
             ))}
           </ol>
         </section>

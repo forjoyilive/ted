@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./demo": "./src/dev/demo.ts",
     "./launch": "./src/launch.ts",
     "./workflow": "./src/workflow/index.ts"
   },

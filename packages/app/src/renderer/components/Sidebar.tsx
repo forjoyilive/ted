@@ -1,10 +1,12 @@
 import type { Coordinator, Factory } from '@ted/protocol'
+import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
 import { FactoryMenu } from './FactoryMenu.tsx'
-import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
+import { ChevronIcon, DotIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import { ResizableSidebar } from './ResizableSidebar.tsx'
+import { ResourceUsage } from './ResourceUsage.tsx'
 import styles from './Sidebar.module.css'
 import { StatusChip } from './StatusChip.tsx'
 
@@ -24,7 +26,6 @@ export interface SidebarFooter {
   paused?: string
   overnight?: string
   simulators?: string
-  planChips?: readonly string[]
   update?: { label: string; busy: boolean }
 }
 
@@ -32,6 +33,7 @@ interface SidebarProps {
   navigation: Navigation
   factories: readonly Factory[]
   currentFactoryId: string | undefined
+  developerMode?: boolean
   inboxCount: number
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
@@ -39,7 +41,7 @@ interface SidebarProps {
   runsOpen?: boolean
   onOpenRuns?: () => void
   onOpenFailed?: () => void
-  onOpenPlanUsage?: () => void
+  usage?: ReactNode
   onUpdate?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: (factoryId?: string) => void
@@ -119,6 +121,7 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
 }
 
 const factoryViews: { view: FactoryView; label: string }[] = [
+  { view: 'dashboard', label: 'Dashboard' },
   { view: 'coordinator', label: 'Coordinator' },
   { view: 'board', label: 'Board' },
   { view: 'list', label: 'List' },
@@ -167,13 +170,14 @@ export function Sidebar({
   factories,
   currentFactoryId,
   inboxCount,
+  developerMode = false,
   badges = {},
   settingsProblem = false,
   footer = {},
   runsOpen = false,
   onOpenRuns,
   onOpenFailed,
-  onOpenPlanUsage,
+  usage,
   onUpdate,
   dispatch,
   onNewTask,
@@ -209,14 +213,6 @@ export function Sidebar({
             <SearchIcon className={styles.searchIcon} />
             <span className={styles.searchLabel}>Search</span>
             <span className={styles.shortcut}>⌘K</span>
-          </button>
-          <button
-            type="button"
-            className={styles.newTask}
-            aria-label="New Task"
-            onClick={() => onNewTask()}
-          >
-            <PlusIcon />
           </button>
         </div>
 
@@ -502,21 +498,6 @@ export function Sidebar({
             {footer.simulators !== undefined && (
               <p className={styles.simulators}>{footer.simulators}</p>
             )}
-            {footer.planChips?.map((chip) => (
-              <button
-                key={chip}
-                type="button"
-                className={styles.planChip}
-                onClick={() =>
-                  onOpenPlanUsage
-                    ? onOpenPlanUsage()
-                    : dispatch({ type: 'open-settings', section: 'agents' })
-                }
-              >
-                <DotIcon />
-                {chip}
-              </button>
-            ))}
             {footer.update !== undefined && (
               <button
                 type="button"
@@ -529,6 +510,8 @@ export function Sidebar({
             )}
           </footer>
         )}
+        {usage}
+        {developerMode && <ResourceUsage />}
       </nav>
     </ResizableSidebar>
   )

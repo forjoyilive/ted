@@ -36,8 +36,11 @@ export function age(iso: string, now: number): string {
   if (minutes < 1) return 'now'
   if (minutes < 60) return `${minutes}m`
   const hours = Math.floor(minutes / 60)
+  if (hours === 1 && minutes % 60 !== 0) return `1h ${minutes % 60}m`
   if (hours < 24) return `${hours}h`
-  return `${Math.floor(hours / 24)}d`
+  const days = Math.floor(hours / 24)
+  if (days === 1 && hours % 24 !== 0) return `1d ${hours % 24}h`
+  return `${days}d`
 }
 
 export function ago(iso: string, now: number): string {
@@ -60,8 +63,18 @@ export function useNow(): number {
 
 export function briefSections(text: string): { heading: string; body: string }[] {
   const sections: { heading: string; lines: string[] }[] = []
+  let fence: { marker: string; length: number } | undefined
   for (const line of text.split('\n')) {
-    const heading = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line.trim())?.[1]
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+    const inCode = fence !== undefined
+    if (marker) {
+      const run = marker[1] ?? ''
+      if (!fence) fence = { marker: run[0] ?? '`', length: run.length }
+      else if (run[0] === fence.marker && run.length >= fence.length && marker[2]?.trim() === '')
+        fence = undefined
+    }
+    const heading =
+      !inCode && !marker ? /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line.trim())?.[1] : undefined
     if (heading) sections.push({ heading, lines: [] })
     else if (sections.length === 0) sections.push({ heading: '', lines: [line] })
     else sections.at(-1)?.lines.push(line)

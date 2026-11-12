@@ -1,19 +1,29 @@
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Activity, Banner, CheckRun, Factory, SendBack, Task } from '@ted/protocol'
+import { setTimeout as sleep } from 'node:timers/promises'
+import type {
+  Activity,
+  Banner,
+  CheckRun,
+  Factory,
+  FailureCase,
+  SendBack,
+  Task,
+  ThreadEvent,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   assistantTexts,
   commitToOrigin,
-  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -32,20 +42,18 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
-  await killRunHosts(home)
+  await killRunHosts(home, { waitForStart: true })
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
 })
 
 async function startTed() {
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
+  })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -75,8 +83,13 @@ const workflow = (checks: string, extra: Record<string, string> = {}) =>
     ...extra,
   })
 
-async function startTask(client: Client, title: string): Promise<Task> {
-  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+async function startTask(client: Client, title: string, bypass = false): Promise<Task> {
+  const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  if (bypass)
+    await client.ok('PUT', `/factories/${factory.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })
   await client.ok('POST', `/tasks/${task.id}/start`)
   return task
@@ -111,12 +124,6 @@ const leadMessages = async (client: Client, task: Task) => {
   return current?.leadRunId ? userMessages(client, current.leadRunId) : []
 }
 
-const sendBacks = (client: Client, task: Task) =>
-  waitUntil(async () => {
-    const found = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
-    return found.length > 0 ? found : undefined
-  }, 'a send-back')
-
 const worktreeFile = async (client: Client, task: Task, name: string) => {
   const repo = await waitUntil(
     async () => (await getTask(client, task.id))?.repos[0],
@@ -127,8 +134,14 @@ const worktreeFile = async (client: Client, task: Task, name: string) => {
 
 const states = (run: CheckRun | undefined) => run?.checks.map((c) => [c.name, c.state])
 
-describe('Checks at Validate', () => {
-  test('Checks run in order, the first failure sends the Task back to Work with its output', async () => {
+const threadEvents = (client: Client, task: Task) =>
+  client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+
+const counter =
+  'f="stub-n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";'
+
+describe('Checks before a Task leaves Work', () => {
+  test('a failure keeps the Task in Work with its output and no send-back; the run that passes is the one Validate uses', async () => {
     const flag = 'stub-failed-once'
     await workflow(
       [
@@ -143,47 +156,47 @@ describe('Checks at Validate', () => {
       steps({ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance),
     )
 
-    const [first, second] = await finishedRuns(client, task, 2)
-    expect(first?.trigger).toBe('validate')
-    expect(first?.stage).toBe('validate')
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
+      'the Task to finish',
+      60_000,
+    )
+    const [first, second, ...more] = await checkRuns(client, task)
+    expect(more).toEqual([])
+    expect(first?.trigger).toBe('hand-off')
+    expect(first?.stage).toBe('work')
     expect(states(first)).toEqual([
       ['Typecheck', 'passed'],
       ['Tests', 'failed'],
       ['Lint', 'not-run'],
     ])
     expect(first?.outcome).toBe('failed')
+    expect(second?.trigger).toBe('hand-off')
     expect(states(second)).toEqual([
       ['Typecheck', 'passed'],
       ['Tests', 'passed'],
       ['Lint', 'passed'],
     ])
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
 
-    const [sendBack] = await sendBacks(client, task)
-    expect(sendBack).toMatchObject({
-      from: 'validate',
-      to: 'work',
-      counted: true,
-      round: 1,
-      limit: 5,
-      checkRunId: first?.id,
-    })
-    expect(sendBack?.findings).toContain('Tests')
-    expect(sendBack?.findings).toContain('\n102\n')
-    expect(sendBack?.findings).not.toContain('\n101\n')
-    expect(sendBack?.findings).toContain('[redacted]')
-    expect(sendBack?.findings).not.toContain('ghp_abcdefghij')
-    expect(sendBack?.findings).toMatch(/Full output: .*checks.*2\.log/)
-
-    const messages = await waitUntil(async () => {
-      const all = await leadMessages(client, task)
-      return all.some((m) => m.includes('None failed')) ? all : undefined
-    }, 'the Validate instructions after the Checks pass')
-    expect(
-      messages.some((m) => m.includes('moved this Task back to Work') && m.includes('\n300\n')),
-    ).toBe(true)
+    const messages = await leadMessages(client, task)
+    const failed = messages.find((m) => m.startsWith('# A Check failed')) ?? ''
+    expect(failed).toContain('so the Task stays in Work')
+    expect(failed).toContain('This is failure 1 of 3 in this visit to Work')
+    expect(failed).toContain('\n102\n')
+    expect(failed).not.toContain('\n101\n')
+    expect(failed).toContain('[redacted]')
+    expect(failed).not.toContain('ghp_abcdefghij')
+    expect(failed).toMatch(/Full output: .*checks.*2\.log/)
+    expect(messages.some((m) => m.includes('moved this Task back to Work'))).toBe(false)
     const passed = messages.find((m) => m.includes('None failed')) ?? ''
     expect(passed).toContain('✓ Typecheck\n✓ Tests\n✓ Lint')
     expect(passed).toContain('TED moved this Task to Validate')
+    expect(passed).toContain('before moving the Task out of Work')
+
+    const events = await threadEvents(client, task)
+    expect(events.find((e) => e.validate === 'passed')?.checkRunId).toBe(second?.id)
+    expect(events.some((e) => e.text.includes('sent this back'))).toBe(false)
 
     const output = await client.ok<{ text: string }>(
       'GET',
@@ -191,7 +204,186 @@ describe('Checks at Validate', () => {
     )
     expect(output.text.split('\n')[0]).toBe('1')
     expect(output.text).not.toContain('ghp_abcdefghij')
-  })
+  }, 90_000)
+
+  test('after three failures in one Work visit TED asks the human and refuses an outcome until they answer; Diagnose in Validate moves the Task and the failure becomes a failure case', async () => {
+    await workflow('      - { name: Tests, run: "echo nope; exit 1" }')
+    const client = await startTed()
+    const task = await startTask(
+      client,
+      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance, {
+        endTurn: true,
+      }),
+    )
+
+    const questions = () =>
+      client.ok<
+        {
+          id: string
+          kind: string
+          title?: string
+          body: string
+          author: { kind: string }
+          answer?: unknown
+        }[]
+      >('GET', `/tasks/${task.id}/comments`)
+    const question = await waitUntil(
+      async () => {
+        return (await questions()).find((c) => c.kind === 'question')
+      },
+      'the question to the human',
+      60_000,
+    )
+    expect(question).toMatchObject({
+      author: { kind: 'ted' },
+      title: 'Checks have failed 3 times as NB-1 tried to leave Work',
+      choices: ['Try again', 'Diagnose in Validate'],
+      purpose: { kind: 'send-back' },
+    })
+    expect(question.body).toContain('**Try again** keeps the Task in Work')
+    expect(question.body).toContain('**Diagnose in Validate** moves the Task to Validate')
+    expect((await finishedRuns(client, task, 3)).map((r) => [r.trigger, r.outcome])).toEqual([
+      ['hand-off', 'failed'],
+      ['hand-off', 'failed'],
+      ['hand-off', 'failed'],
+    ])
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+    await waitUntil(async () => {
+      const id = (await getTask(client, task.id))?.leadRunId
+      if (!id) return undefined
+      return assistantTexts((await client.getRun(id)).conversation).some((t) =>
+        t.includes('TED asked the human about NB-1’s failing Checks'),
+      )
+    }, 'the Task Lead’s advance to be refused')
+    expect((await getTask(client, task.id))?.stage).toBe('work')
+    expect((await threadEvents(client, task)).map((e) => e.text)).toContain(
+      'Checks kept failing as this Task tried to leave Work, so TED asked the human',
+    )
+
+    await client.ok('POST', `/comments/${question.id}/answer`, {
+      action: 'answer',
+      choice: 'Try again',
+    })
+    await finishedRuns(client, task, 4)
+    await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).some((m) =>
+          m.includes('This is failure 1 of 3 in this visit to Work'),
+        ) || undefined,
+      'the count to start over after the answer',
+    )
+    expect((await getTask(client, task.id))?.stage).toBe('work')
+
+    const second = await waitUntil(
+      async () => (await questions()).find((c) => c.kind === 'question' && c.answer === undefined),
+      'the second question to the human',
+      60_000,
+    )
+    await client.ok('POST', `/comments/${second.id}/answer`, {
+      action: 'answer',
+      choice: 'Diagnose in Validate',
+      text: 'Tests are broken on main',
+    })
+    const runs = await finishedRuns(client, task, 7)
+    expect(runs.slice(3).map((r) => [r.trigger, r.stage, r.outcome])).toEqual([
+      ['hand-off', 'work', 'failed'],
+      ['hand-off', 'work', 'failed'],
+      ['hand-off', 'work', 'failed'],
+      ['validate', 'validate', 'failed'],
+    ])
+    const failure = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`))[0],
+      'the failure case in Validate',
+    )
+    expect(failure.evidence).toContain('nope')
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+    const chosen = await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).find((m) => m.includes('with Diagnose in Validate')),
+      'the Task Lead to hear what the human chose',
+    )
+    expect(chosen).toContain('The human added:\n\nTests are broken on main')
+    expect(chosen).toContain(failure.id)
+  }, 180_000)
+})
+
+describe('Checks at Validate', () => {
+  test('Validate entered from Review runs the Checks again, and a failure there stays in Validate for diagnosis without a send-back to Work', async () => {
+    await commitToOrigin(scratch, {
+      '.gitignore': 'stub-*\n',
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, review]',
+        'stages:',
+        '  validate:',
+        '    max_back: 0',
+        '    checks:',
+        '      - { name: Typecheck, run: "echo typed" }',
+        '      - { name: Tests, run: "n=$(cat stub-runs 2>/dev/null || echo 0); n=$((n+1)); echo $n > stub-runs; if [ $n -eq 2 ]; then seq 1 300; echo token ghp_abcdefghijklmnopqrstuvwxyz0123; exit 1; fi" }',
+        '      - { name: Lint, run: "echo linted" }',
+        '',
+      ].join('\n'),
+    })
+    const findings = path.join(scratch, 'findings.md')
+    await writeFile(findings, 'Check it again.\n')
+    const client = await startTed()
+    const script = [
+      counter,
+      'case $n in',
+      '1) ted outcome advance;;',
+      '2) echo x > work.txt; ted outcome advance;;',
+      '3) ted outcome advance;;',
+      `4) ted outcome back --to validate --findings "${findings}";;`,
+      'esac',
+    ].join(' ')
+    const run = { run: ['sh', '-c', script] }
+    const task = await startTask(
+      client,
+      steps({ everyMessage: [run, { endTurn: true }] }, run, { endTurn: true }),
+    )
+
+    const [first, second] = await finishedRuns(client, task, 2)
+    expect([first, second].map((r) => [r?.trigger, r?.stage, r?.outcome])).toEqual([
+      ['hand-off', 'work', 'passed'],
+      ['validate', 'validate', 'failed'],
+    ])
+    expect(states(second)).toEqual([
+      ['Typecheck', 'passed'],
+      ['Tests', 'failed'],
+      ['Lint', 'not-run'],
+    ])
+    const failure = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`))[0],
+      'failure evidence',
+    )
+    expect(failure.evidence).toContain('\n102\n')
+    expect(failure.evidence).not.toContain('\n101\n')
+    expect(failure.evidence).toContain('[redacted]')
+    expect(failure.evidence).not.toContain('ghp_abcdefghij')
+    expect(failure.evidence).toMatch(/Full output: .*checks.*2\.log/)
+    await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).some(
+          (m) => m.includes('# A Check failed') && m.includes(failure.id),
+        ),
+      'diagnosis instructions',
+    )
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+    expect(
+      (await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).map((b) => [
+        b.from,
+        b.to,
+      ]),
+    ).toEqual([['review', 'validate']])
+    expect(await client.ok('GET', '/inbox')).toEqual([])
+    const output = await client.ok<{ text: string }>(
+      'GET',
+      `/check-runs/${second?.id}/checks/1/output`,
+    )
+    expect(output.text.split('\n')[0]).toBe('1')
+    expect(output.text).not.toContain('ghp_abcdefghij')
+  }, 120_000)
 
   test('a Check past its timeout fails and the Checks after it don’t run', async () => {
     await workflow(
@@ -216,8 +408,13 @@ describe('Checks at Validate', () => {
       ['Tests', 'timed-out'],
       ['Lint', 'not-run'],
     ])
-    const [sendBack] = await sendBacks(client, task)
-    expect(sendBack?.findings).toContain('timed out after 1s')
+    const failed = await waitUntil(
+      async () => (await leadMessages(client, task)).find((m) => m.startsWith('# A Check failed')),
+      'the failure to reach the Task Lead',
+    )
+    expect(failed).toContain('timed out after 1s')
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+    expect((await getTask(client, task.id))?.stage).toBe('work')
   })
 
   test('a Check whose command isn’t found raises the setup-suggested banner', async () => {
@@ -305,8 +502,12 @@ describe('Checks at Validate', () => {
     }, 'the Checks to start')
     expect(running.activity).toBe('Running Checks · Tests (2 of 3)')
     expect(running.status).toEqual({ kind: 'working' })
-    const slots = await client.ok<{ holders: { taskId: string }[] }>('GET', '/slots')
-    expect(slots.holders.some((h) => h.taskId === task.id)).toBe(false)
+    await expect
+      .poll(async () => {
+        const slots = await client.ok<{ holders: { taskId: string }[] }>('GET', '/slots')
+        return slots.holders.some((h) => h.taskId === task.id)
+      })
+      .toBe(false)
     expect(await client.ok<{ checksRunning: number }>('GET', '/activity')).toMatchObject({
       checksRunning: 1,
     })
@@ -344,8 +545,8 @@ describe('Checks at Validate', () => {
   })
 })
 
-describe('Checks over the send-back limit and across restarts', () => {
-  test('Resume is refused while interrupted Validate Checks are being prepared again', async () => {
+describe('Checks across restarts', () => {
+  test('Resume is refused while interrupted hand-off Checks are being prepared again', async () => {
     await workflow(
       '      - { name: Tests, run: "echo run >> stub-count; while [ ! -e stub-go ]; do sleep 0.05; done" }',
     )
@@ -422,71 +623,6 @@ describe('Checks over the send-back limit and across restarts', () => {
     }
   }, 60_000)
 
-  test('past max_back a failing Check asks the human instead of sending back', async () => {
-    await commitToOrigin(scratch, {
-      '.gitignore': 'stub-*\n',
-      '.ted/workflow.yaml': [
-        'version: 1',
-        'order: [intake, work, validate]',
-        'stages:',
-        '  validate:',
-        '    max_back: 1',
-        '    checks:',
-        '      - { name: Tests, run: "echo nope; exit 1" }',
-        '',
-      ].join('\n'),
-    })
-    const client = await startTed()
-    const task = await startTask(
-      client,
-      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance),
-    )
-
-    const question = await waitUntil(
-      async () => {
-        const comments = await client.ok<
-          { id: string; kind: string; title?: string; author: { kind: string } }[]
-        >('GET', `/tasks/${task.id}/comments`)
-        return comments.find((c) => c.kind === 'question')
-      },
-      'the question to the human',
-      40_000,
-    )
-    expect(question).toMatchObject({
-      author: { kind: 'ted' },
-      title: 'Validate has sent this Task back 1 time, its limit',
-      choices: ['Try again', 'Move to Done anyway'],
-    })
-    expect(await sendBacks(client, task)).toHaveLength(1)
-    const messages = await waitUntil(async () => {
-      const all = await leadMessages(client, task)
-      return all.some((m) => m.includes('# A Check failed')) ? all : undefined
-    }, 'the note that TED asked the human')
-    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the human')
-    await waitUntil(async () => {
-      const id = (await getTask(client, task.id))?.leadRunId
-      if (!id) return undefined
-      return assistantTexts((await client.getRun(id)).conversation).some((t) =>
-        t.includes('TED asked the human whether to keep sending NB-1 back'),
-      )
-    }, 'the Task Lead’s advance to be refused')
-    expect((await getTask(client, task.id))?.stage).toBe('validate')
-    await client.ok('POST', `/comments/${question.id}/answer`, {
-      action: 'answer',
-      choice: 'Move to Done anyway',
-    })
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
-      'the Task Lead to finish',
-      40_000,
-    )
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.repos.every((r) => r.removed) || undefined,
-      'the worktree to be removed',
-      40_000,
-    )
-  }, 90_000)
-
   test('Checks cut short by a daemon restart run again from the start', async () => {
     const go = path.join(scratch, 'go')
     await workflow(
@@ -534,6 +670,64 @@ describe('Checks over the send-back limit and across restarts', () => {
       return all.some((m) => m.includes('None failed')) || undefined
     }, 'the Validate instructions')
   }, 90_000)
+})
+
+describe('Checks before a stopped Task leaves Work', () => {
+  test('a Task stopped while its Checks run stays in Work when they pass, and a restart doesn’t run them again', async () => {
+    const go = path.join(scratch, 'go')
+    await workflow(
+      `      - { name: Tests, run: "echo run >> stub-count; while [ ! -e '${go}' ]; do sleep 0.05; done" }`,
+    )
+    let client = await startTed()
+    const task = await startTask(
+      client,
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > a.txt'] },
+        advance,
+        advance,
+      ),
+    )
+    const count = await worktreeFile(client, task, 'stub-count')
+    const started = (times: number) =>
+      waitUntil(
+        () =>
+          readFile(count, 'utf8').then(
+            (t) => t === 'run\n'.repeat(times) || undefined,
+            () => undefined,
+          ),
+        `Check run ${times} to start`,
+        40_000,
+      )
+    await started(1)
+
+    await client.ok('POST', `/tasks/${task.id}/stop`, {})
+    await writeFile(go, '')
+    expect((await finishedRuns(client, task, 1)).map((r) => r.outcome)).toEqual(['passed'])
+    await rm(go)
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    await started(2)
+    const resumed = await getTask(client, task.id)
+    expect(resumed?.stage).toBe('work')
+    expect(await leadMessages(client, task)).toEqual(
+      expect.arrayContaining([expect.stringContaining('# TED didn’t use the Checks’ result')]),
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/stop`, {})
+    await daemon?.stop()
+    client = await startTed()
+    await waitUntil(
+      async () => (await checkRuns(client, task)).at(-1)?.outcome === 'interrupted' || undefined,
+      'the interrupted Check run',
+    )
+    await sleep(1_500)
+    expect((await checkRuns(client, task)).map((r) => r.outcome)).toEqual(['passed', 'interrupted'])
+    expect(await readFile(count, 'utf8')).toBe('run\nrun\n')
+    const stopped = await getTask(client, task.id)
+    expect(stopped?.stage).toBe('work')
+    expect(stopped?.status?.kind).toBe('stopped')
+    expect((await client.ok<Activity>('GET', '/activity')).checksRunning).toBe(0)
+  }, 120_000)
 })
 
 describe('the Checks’ environment', () => {
@@ -778,7 +972,7 @@ describe('the Checks’ sandbox', () => {
   )
 
   test.runIf(process.platform === 'darwin')(
-    'Validate’s Checks run sandboxed too, since they run the code the agent wrote',
+    'the Checks TED runs before Validate are sandboxed too, since they run the code the agent wrote',
     async () => {
       await workflow(escapeCheck([path.join(home, 'planted')]))
       const client = await startTed()
@@ -792,35 +986,82 @@ describe('the Checks’ sandbox', () => {
         ),
       )
       const [run] = await finishedRuns(client, task, 1)
-      expect(run?.trigger).toBe('validate')
+      expect(run?.trigger).toBe('hand-off')
       expect(states(run)).toEqual([['Escape', 'passed']])
       await expect(readFile(path.join(home, 'planted'))).rejects.toThrow()
     },
   )
 
-  test('in a Bypass Factory the Checks run as before, outside any sandbox', async () => {
-    await commitToOrigin(scratch, {
-      '.gitignore': 'stub-*\n',
-      '.ted/workflow.yaml': [
-        'version: 1',
-        'permissions: bypass',
-        'order: [intake, work, validate]',
-        'stages:',
-        '  validate:',
-        '    checks:',
-        escapeCheck([path.join(scratch, 'out')]),
-        '',
-      ].join('\n'),
-    })
-    const client = await startTed()
-    const task = await startTask(
-      client,
-      steps({ run: ['sh', '-c', 'echo x > a.txt'] }, { run: ['ted', 'checks'] }, { endTurn: true }),
-    )
-    const [run] = await finishedRuns(client, task, 1)
-    expect(states(run)).toEqual([['Escape', 'passed']])
-    expect(await readFile(path.join(scratch, 'out'), 'utf8')).toBe('')
-  })
+  test.each([false, true])(
+    'repo Bypass only removes the Checks’ sandbox with local consent: %s',
+    async (consent) => {
+      await commitToOrigin(scratch, {
+        '.gitignore': 'stub-*\n',
+        '.ted/workflow.yaml': [
+          'version: 1',
+          'permissions: bypass',
+          'order: [intake, work, validate]',
+          'stages:',
+          '  validate:',
+          '    checks:',
+          escapeCheck([path.join(scratch, 'out')]),
+          '',
+        ].join('\n'),
+      })
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ),
+        consent,
+      )
+      const [run] = await finishedRuns(client, task, 1)
+      expect(states(run)).toEqual([['Escape', 'passed']])
+      if (consent) expect(await readFile(path.join(scratch, 'out'), 'utf8')).toBe('')
+      else await expect(readFile(path.join(scratch, 'out'))).rejects.toThrow()
+    },
+  )
+
+  test.runIf(process.platform === 'darwin')(
+    'revoking Bypass while a Check runs sandboxes the next Check in the batch',
+    async () => {
+      await workflow(
+        [
+          '      - { name: Hold, run: "touch stub-check-started; while [ ! -f stub-release ]; do sleep 0.02; done" }',
+          escapeCheck([path.join(scratch, 'out')]),
+        ].join('\n'),
+      )
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ),
+        true,
+      )
+      const started = await worktreeFile(client, task, 'stub-check-started')
+      await waitUntil(
+        () =>
+          readFile(started)
+            .then(() => true)
+            .catch(() => false),
+        'first Check',
+      )
+      await client.ok('PUT', `/factories/${task.factoryId}/permissions`, { mode: 'auto' })
+      await writeFile(await worktreeFile(client, task, 'stub-release'), '')
+      const [run] = await finishedRuns(client, task, 1)
+      expect(states(run)).toEqual([
+        ['Hold', 'passed'],
+        ['Escape', 'passed'],
+      ])
+      await expect(readFile(path.join(scratch, 'out'))).rejects.toThrow()
+    },
+  )
 
   test('without a working sandbox, ted checks is refused and a banner says why', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')

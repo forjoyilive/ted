@@ -1,3 +1,4 @@
+import { filterTedEnv } from '@ted/protocol'
 import { readLoginEnv } from './cli-env.ts'
 
 export interface Environment {
@@ -9,14 +10,14 @@ export function createEnvironment(options: {
   loginShell: boolean
   base?: NodeJS.ProcessEnv
 }): Environment {
-  const base = options.base ?? process.env
+  const base = filterTedEnv(options.base ?? process.env)
   let env: NodeJS.ProcessEnv = { ...base }
   let loading: Promise<NodeJS.ProcessEnv> | undefined
 
   async function load(): Promise<NodeJS.ProcessEnv> {
     const read = options.loginShell ? await readLoginEnv(base) : { ...base }
     if (base.ELECTRON_RUN_AS_NODE === undefined) delete read.ELECTRON_RUN_AS_NODE
-    env = read
+    env = filterTedEnv(read)
     return env
   }
 

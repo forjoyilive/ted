@@ -8,6 +8,7 @@ import styles from './Apps.module.css'
 import { type ShownApp, StatusDot, useAppActions } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { OpenIcon } from './icons.tsx'
+import { Loading } from './Loading.tsx'
 
 export function AppLogView({
   task,
@@ -29,7 +30,7 @@ export function AppLogView({
       ) : (
         <h2 className={styles.logTitle}>{shown.name}</h2>
       )}
-      <LogBody taskId={task.id} shown={shown} />
+      <LogBody key={`${task.id}:${shown.repo}:${shown.name}`} taskId={task.id} shown={shown} />
     </section>
   )
 }
@@ -100,7 +101,7 @@ function LogBody({ taskId, shown }: { taskId: string; shown: ShownApp }) {
     let stopped = false
     const load = () =>
       ted
-        .appLog(taskId, shown.repo, shown.name)
+        .appLog(taskId, { repo: shown.repo, name: shown.name })
         .then((next) => {
           if (stopped) return
           setError(undefined)
@@ -125,19 +126,21 @@ function LogBody({ taskId, shown }: { taskId: string; shown: ShownApp }) {
   return (
     <pre
       ref={body}
-      className={styles.logBody}
+      className={`${styles.logBody} ${log === undefined && error === undefined ? styles.pending : ''}`}
       onScroll={(event) => {
         const element = event.currentTarget
         pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24
       }}
     >
-      {error !== undefined
-        ? error
-        : log === undefined
-          ? 'Loading…'
-          : log.text === ''
-            ? 'Nothing in the log yet.'
-            : `${log.truncated ? 'Earlier output isn’t kept.\n' : ''}${log.text}`}
+      {error !== undefined ? (
+        error
+      ) : log === undefined ? (
+        <Loading terminal label="Loading App log…" />
+      ) : log.text === '' ? (
+        'Nothing in the log yet.'
+      ) : (
+        `${log.truncated ? 'Earlier output isn’t kept.\n' : ''}${log.text}`
+      )}
     </pre>
   )
 }

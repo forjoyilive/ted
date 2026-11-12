@@ -8,7 +8,9 @@ import type {
 } from '@ted/protocol'
 import { minGhVersion } from '@ted/protocol/integrations'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
+import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
 import { Button, SettingsGroup, SettingsPage } from './controls.tsx'
 import styles from './integrations.module.css'
@@ -23,35 +25,22 @@ type Tone = 'ok' | 'warn' | 'stop'
 const chipTone: Record<Tone, StatusTone> = { ok: 'success', warn: 'waiting', stop: 'failed' }
 
 export function useIntegrations() {
-  const [health, setHealth] = useState<IntegrationsHealth>()
   const [checking, setChecking] = useState(false)
   const [problem, setProblem] = useState<string>()
 
-  useEffect(() => {
-    let stopped = false
-    ted.getIntegrations().then(
-      (next) => {
-        if (!stopped) setHealth(next)
-      },
-      (error: unknown) => setProblem(message(error)),
-    )
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'integrations-checked') setHealth(event.health)
-    })
-    return () => {
-      stopped = true
-      unsubscribe()
-    }
-  }, [])
+  const { value: health, refresh } = useEventValue<IntegrationsHealth | undefined>({
+    initial: undefined,
+    load: ted.getIntegrations,
+    event: (event) => (event.type === 'integrations-checked' ? () => event.health : undefined),
+    changed: () => setProblem(undefined),
+    error: (error) => setProblem(message(error)),
+  })
 
   const checkAgain = useCallback(() => {
     setChecking(true)
     setProblem(undefined)
-    ted
-      .checkIntegrations()
-      .then(setHealth, (error: unknown) => setProblem(message(error)))
-      .finally(() => setChecking(false))
-  }, [])
+    void refresh(ted.checkIntegrations).finally(() => setChecking(false))
+  }, [refresh])
 
   return { health, checking, problem, checkAgain }
 }
@@ -88,19 +77,21 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
   const note = (key: string) => (opened?.key === key ? opened.text : undefined)
   const checkButton = (
     <Button onClick={checkAgain} disabled={checking}>
-      {checking ? 'Checking…' : 'Check again'}
+      {checking ? <Loading compact label="Checking…" /> : 'Check again'}
     </Button>
   )
 
   return (
     <SettingsPage title="Integrations">
-      {problem !== undefined && <p className={styles.problem}>{problem}</p>}
+      {problem !== undefined && <LoadingError error={problem} retry={checkAgain} />}
       <SettingsGroup
         label="GitHub"
         help="TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use."
       >
         {!health ? (
-          <LoadingRow />
+          problem ? null : (
+            <LoadingRow />
+          )
         ) : health.github.cli.state !== 'ready' ? (
           <CliRow
             cli={health.github.cli}
@@ -123,7 +114,9 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
       </SettingsGroup>
       <SettingsGroup label="Git">
         {!health ? (
-          <LoadingRow />
+          problem ? null : (
+            <LoadingRow />
+          )
         ) : (
           <GitRow
             git={health.git}
@@ -143,11 +136,7 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
 }
 
 function LoadingRow() {
-  return (
-    <div className={styles.row}>
-      <p className={styles.detail}>Checking…</p>
-    </div>
-  )
+  return <Skeleton shape="settings" rows={1} framed={false} label="Loading integrations…" />
 }
 
 function HealthRow({

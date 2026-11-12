@@ -171,16 +171,6 @@ export function RoundQuestions({
             </Button>
           )}
           <Button
-            arm="accept-recommended"
-            disabled={sending}
-            onClick={() => {
-              setDrafts(recommendedDrafts(round))
-              onSend({ action: 'accept-recommended' })
-            }}
-          >
-            Accept all recommended
-          </Button>
-          <Button
             variant="primary"
             disabled={sending || !complete}
             onClick={() =>

@@ -8,7 +8,7 @@ import { LimitsPage } from '../src/renderer/settings/LimitsPage.tsx'
 import { NotificationsPage } from '../src/renderer/settings/NotificationsPage.tsx'
 import { StoragePage } from '../src/renderer/settings/StoragePage.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 
 const _nav = () => screen.getByRole('navigation', { name: 'Settings' })
 
@@ -19,6 +19,30 @@ test('terminal font size saves and immediately applies the CSS variable', async 
   await user().selectOptions(screen.getByRole('combobox', { name: 'Terminal font size' }), '16')
   expect(a.request).toHaveBeenCalledWith('updateSettings', { terminalFontSize: 16 })
   expect(document.documentElement.style.getPropertyValue('--terminal-font-size')).toBe('16px')
+})
+
+test('text size steps by 5%, resets, and leaves terminal sizing independent', async () => {
+  const a = appState()
+  a.mount()
+  await a.settings()
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+  await user().click(screen.getByRole('button', { name: 'Increase text size' }))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 105 })
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1.05')
+  expect(screen.getByText('105%')).toBeTruthy()
+  expect(document.documentElement.style.getPropertyValue('--terminal-font-size')).toBe('13px')
+  await user().click(screen.getByRole('button', { name: /^Default$/ }))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 100 })
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+})
+
+test.each([80, 200])('text size disables the button at %s%%', async (textSize) => {
+  const a = appState()
+  a.state.settings.textSize = textSize
+  a.mount()
+  await a.settings()
+  const name = textSize === 80 ? 'Decrease text size' : 'Increase text size'
+  expect(screen.getByRole<HTMLButtonElement>('button', { name }).disabled).toBe(true)
 })
 
 test('source command row explains that installation requires an installed copy', async () => {
@@ -189,12 +213,21 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
           runId: 'run-123456',
           agent: 'claude',
           state: 'idle',
-          cpuPercent: 0,
-          memoryBytes: 100,
+          cpuPercent: 12.5,
+          memoryBytes: 128 * 1024 * 1024,
           tokens: { input: 1, output: 2 },
         },
       ],
-      processes: [],
+      processes: [
+        {
+          pid: 123,
+          ppid: 1,
+          command: 'node',
+          owner: 'daemon',
+          cpuPercent: 2.4,
+          memoryBytes: 64 * 1024 * 1024,
+        },
+      ],
     }),
     readDaemonLog: () => ({ text: 'TED daemon 123 listening', truncated: false }),
     readRunOutput: () => ({ text: 'from the stub', truncated: false }),
@@ -202,6 +235,7 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+  expect(api.request).not.toHaveBeenCalledWith('getDiagnostics')
   await user().click(screen.getByRole('switch', { name: 'Developer mode' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: true })
   view.rerender(
@@ -211,6 +245,8 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
     />,
   )
   await screen.findByText('TED daemon 123 listening')
+  for (const reading of ['12.5%', '128 MB', '2.4%', '64 MB', 'System memory usage'])
+    expect(screen.getByText(reading)).toBeTruthy()
   expect(
     within(screen.getByRole('region', { name: 'Diagnostics' })).getByRole('cell', {
       name: 'run-1234',
@@ -223,6 +259,79 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: false })
   view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+})
+
+test('Record a CPU profile asks for one profile at a time and shows where it was saved', async () => {
+  const { DeveloperPage } = await import('../src/renderer/settings/DeveloperPage.tsx')
+  const result = deferred<{ file: string; seconds: number; bytes: number }>()
+  const api = bridge({
+    tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    recordProfile: () => result.promise,
+  })
+  render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
+  expect(api.request).toHaveBeenCalledWith('recordProfile', 30)
+  expect(screen.getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+  await act(async () =>
+    result.resolve({ file: '~/.ted/logs/profiles/daemon-1.cpuprofile', seconds: 30, bytes: 10 }),
+  )
+  expect(screen.getByText('Saved to ~/.ted/logs/profiles/daemon-1.cpuprofile')).toBeTruthy()
+  api.handle('recordProfile', () => {
+    throw new Error(
+      "Error invoking remote method 'ted:request': DaemonRequestError: TED is already recording a CPU profile",
+    )
+  })
+  await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
+  await screen.findByText('Couldn’t record a profile: TED is already recording a CPU profile')
+  expect(api.request).toHaveBeenCalledTimes(3)
+})
+
+test('resource readings refresh while Developer mode is visible and stop when hidden', async () => {
+  const { DeveloperPage } = await import('../src/renderer/settings/DeveloperPage.tsx')
+  let cpuPercent = 12.5
+  const diagnostics = vi.fn(() => ({
+    memory: { totalBytes: 1024 ** 3, availableBytes: 512 * 1024 ** 2 },
+    runs: [
+      {
+        runId: 'live-run',
+        agent: 'codex',
+        state: 'working',
+        cpuPercent,
+        memoryBytes: 128 * 1024 ** 2,
+        tokens: { input: 0, output: 0 },
+      },
+    ],
+    processes: [],
+  }))
+  bridge({
+    tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    getDiagnostics: diagnostics,
+    readDaemonLog: () => ({ text: '', truncated: false }),
+  })
+  vi.useFakeTimers()
+  try {
+    const view = render(
+      <DeveloperPage
+        settings={{ ...defaultMachineSettings, developerMode: true }}
+        dispatch={vi.fn()}
+      />,
+    )
+    await act(async () => {})
+    expect(screen.getByText('12.5%')).toBeTruthy()
+    expect(screen.getByText('128 MB')).toBeTruthy()
+    cpuPercent = 37.8
+    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    expect(screen.getByText('37.8%')).toBeTruthy()
+    expect(screen.queryByText('12.5%')).toBeNull()
+    expect(diagnostics).toHaveBeenCalledTimes(2)
+
+    view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+    await act(async () => vi.advanceTimersByTimeAsync(4_000))
+    expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
+    expect(diagnostics).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('Settings shell lists all sections and opens a Factory’s settings', async () => {

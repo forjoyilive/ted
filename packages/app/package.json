@@ -1,12 +1,12 @@
 {
   "name": "@ted/app",
-  "version": "0.1.7",
+  "version": "0.1.11",
   "private": true,
   "type": "module",
   "main": "src/main.ts",
   "scripts": {
     "build": "vite build",
-    "start": "vite build && electron .",
+    "start": "node scripts/start.ts",
     "package": "node scripts/package.ts",
     "smoke": "node scripts/smoke.ts",
     "icons": "node scripts/icons.ts"
@@ -21,7 +21,9 @@
     "@xterm/xterm": "6.0.0",
     "electron-updater": "6.8.11",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@testing-library/react": "16.3.3",

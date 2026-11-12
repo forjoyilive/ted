@@ -14,6 +14,7 @@
 }
 
 .detailsPane {
+  container: task-details / inline-size;
   flex: 1;
   min-width: 0;
   width: 100%;
@@ -222,7 +223,7 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 19px;
+  font-size: var(--text-19);
   font-weight: var(--weight-semibold);
   line-height: 1.45;
 }
@@ -303,7 +304,6 @@
   margin: 2px 0 0;
   font-size: var(--text-14);
   line-height: var(--leading-body);
-  white-space: pre-wrap;
 }
 
 .details {
@@ -390,8 +390,26 @@
 }
 
 .requestItem {
+  flex-shrink: 0;
+  scroll-margin-block: 8px;
   display: flex;
   flex-direction: column;
+}
+
+.requestItem:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+
+.requestItem[hidden] {
+  display: none;
+}
+
+.threadComposer {
+  flex-shrink: 0;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .pinned {
@@ -757,4 +775,32 @@
 
 .details .gatesValue:has(section) {
   grid-column: 1 / -1;
+}
+
+@container task-details (width < 14em) {
+  .details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .details dd {
+    min-width: 0;
+    margin-bottom: 8px;
+  }
+
+  .details button {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.threadBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.threadBody[hidden] {
+  display: none;
 }

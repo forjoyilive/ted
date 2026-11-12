@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import {
   copyFileSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -12,7 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { failedTests, parseReport, parseRetries } from './check.ts'
+import { failedTests, onlyAppChanged, parseReport, parseRetries, runRefusal } from './check.ts'
 import {
   appendRun,
   type FailureRun,
@@ -20,6 +19,34 @@ import {
   parseHistory,
   recordFailureRun,
 } from './check-history.ts'
+
+describe('which tests a change needs', () => {
+  test('a change inside the app’s source and tests needs only the app’s tests', () => {
+    expect(onlyAppChanged(['packages/app/src/renderer/views/Board.tsx'])).toBe(true)
+    expect(
+      onlyAppChanged([
+        'packages/app/test/board-component.test.tsx',
+        'packages/app/src/main.ts',
+        'docs/spec/ted-v1-spec.md',
+        'AGENTS.md',
+      ]),
+    ).toBe(true)
+  })
+
+  test.each([
+    ['daemon code', ['packages/app/src/main.ts', 'packages/daemon/src/server.ts']],
+    ['protocol code', ['packages/app/src/main.ts', 'packages/protocol/src/task.ts']],
+    ['the CLI', ['packages/cli/src/main.ts']],
+    ['the app’s own config', ['packages/app/src/main.ts', 'packages/app/package.json']],
+    ['the repo’s config', ['packages/app/src/main.ts', 'vitest.config.ts']],
+    ['the lockfile', ['packages/app/src/main.ts', 'pnpm-lock.yaml']],
+    ['the check script', ['packages/app/src/main.ts', 'scripts/check.ts']],
+    ['docs alone', ['docs/adr/0001-workflow-needs-ted.md', 'AGENTS.md']],
+    ['nothing', []],
+  ])('a change that touches %s needs every test', (_, files) => {
+    expect(onlyAppChanged(files)).toBe(false)
+  })
+})
 
 const at = '2026-11-10T00:00:00.000Z'
 const run = (failures: string[] = [], problems: string[] = []): FailureRun => ({
@@ -64,6 +91,13 @@ function report(status = 'passed') {
 }
 const parse = (value: unknown, exitedOk = true) =>
   parseReport(JSON.stringify(value), 'node', exitedOk)
+
+describe('pnpm check started by a Run', () => {
+  test('is refused', () => {
+    expect(runRefusal({})).toBeUndefined()
+    expect(runRefusal({ TED_RUN: 'run-1' })).toContain('pnpm vitest run <files>')
+  })
+})
 
 describe('failure window', () => {
   test('successful runs age failures out after 20 runs', () => {
@@ -369,9 +403,14 @@ describe('check runner integration with stub processes', () => {
         export const heldLockEnv = 'TED_STUB_CHECK_LOCK'
         export const waitingMessage = () => ''
         export async function acquireFullRun() {
+          writeFileSync(${JSON.stringify(path.join(root, 'locked'))}, 'yes')
           return async () => writeFileSync(${JSON.stringify(path.join(root, 'unlocked'))}, 'yes')
         }
       `,
+    )
+    writeFileSync(
+      path.join(scripts, 'test-reporting.ts'),
+      `export { acquireFullRun as reportedTestLock } from '../packages/daemon/test/support/suite-lock.ts'`,
     )
     writeFileSync(
       path.join(root, 'run.ts'),
@@ -444,6 +483,7 @@ describe('check runner integration with stub processes', () => {
         const fs = require('node:fs')
         const args = process.argv.slice(2)
         fs.appendFileSync(${JSON.stringify(path.join(root, 'commands'))}, JSON.stringify(args) + '\\n')
+        if (args[0] === 'install' && !fs.existsSync(${JSON.stringify(path.join(root, 'locked'))})) process.exit(9)
         if (args[0] === 'install' && ${JSON.stringify(mode === 'install-failed')}) process.exit(1)
         if (args[0] === 'exec') {
           const project = args[args.indexOf('--project') + 1]
@@ -480,10 +520,10 @@ describe('check runner integration with stub processes', () => {
       expect(result.stderr).toContain('Timing reporting')
     }
     if (mode === 'install-failed') {
-      expect(existsSync(path.join(root, 'unlocked'))).toBe(false)
+      expect(readFileSync(path.join(root, 'unlocked'), 'utf8')).toBe('yes')
       const measured = JSON.parse(readFileSync(path.join(root, 'check-measurement.json'), 'utf8'))
       expect(measured.ok).toBe(false)
-      expect(measured.lockWaitMs).toBeNull()
+      expect(measured.lockWaitMs).toBeGreaterThanOrEqual(0)
       expect(measured.artifacts).toEqual({})
       expect(readFileSync(path.join(root, 'commands'), 'utf8')).not.toContain('vitest')
       return
@@ -495,6 +535,8 @@ describe('check runner integration with stub processes', () => {
     expect(measured.workMs + measured.lockWaitMs).toBeCloseTo(measured.totalMs)
     expect(measured.ok).toBe(mode === 'passed' || mode === 'retried')
     const commands = readFileSync(path.join(root, 'commands'), 'utf8')
+    expect(commands).toContain('--config.confirm-modules-purge=false')
+    expect(measured.phases.install.startMs).toBeGreaterThanOrEqual(measured.phases.lock.endMs)
     expect(commands).toContain('"--project","electron","--maxWorkers","3"')
     expect(commands).toContain('"--project","node","--maxWorkers","6"')
     if (mode === 'write-error') return

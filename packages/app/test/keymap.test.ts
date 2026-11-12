@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { keyCommands } from '../src/renderer/commands.ts'
 import { keyBindings, keysFor, shortcutSheet } from '../src/renderer/keymap.ts'
 import { keySequences } from '../src/renderer/shortcuts.ts'
 
@@ -30,7 +31,6 @@ const specShortcuts = [
   '↵',
   'R',
   'A',
-  '⇧A',
   '⇧R',
   '⌘↵',
   'S',
@@ -59,6 +59,13 @@ describe('the shortcut sheet', () => {
   })
 
   test('the sheet and the command registry read the same keys', () => {
+    expect(keysFor('accept-recommended')).toEqual([])
+    expect(keyCommands.some((command) => command.id === 'accept-recommended')).toBe(false)
+    expect(
+      shortcutSheet()
+        .flatMap((section) => section.rows)
+        .some((row) => row.id === 'accept-recommended'),
+    ).toBe(false)
     expect(keysFor('new-task')).toEqual(['⌘N', 'C'])
     expect(keysFor('go-to-inbox')).toEqual(['G I'])
     expect(keysFor('archive')).toEqual(['⌘⌫'])
@@ -72,10 +79,12 @@ describe('the shortcut sheet', () => {
         0,
       )
     expect(press('3', { metaKey: true })).toMatchObject({ id: 'factory:3' })
-    expect(press('A', { shiftKey: true })).toMatchObject({ id: 'accept-recommended' })
+    expect(press('A', { shiftKey: true })).toBeUndefined()
     expect(press('r')).toMatchObject({ id: 'reply' })
     expect(press('g')).toBe('pending')
     expect(press('b')).toMatchObject({ id: 'go-to-board' })
+    expect(press('g')).toBe('pending')
+    expect(press('d')).toMatchObject({ id: 'go-to-dashboard' })
     expect(press('[', { metaKey: true })).toMatchObject({ id: 'back' })
     expect(press('Enter')).toMatchObject({ id: 'open' })
   })

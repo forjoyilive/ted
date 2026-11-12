@@ -1,8 +1,11 @@
 import type { SimulatorAsk } from './app.ts'
 import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
+import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
+import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import { RequestValidationError } from './validation.ts'
 
 export const agentStageIds = [
   'intake',
@@ -46,6 +49,7 @@ export function isModelName(value: unknown): value is string {
 }
 
 export interface TaskLead {
+  effortMode?: 'stage'
   agent: AgentKind
   model?: string
   effort?: Effort
@@ -108,7 +112,7 @@ export type TaskStatus =
   | { kind: 'waiting-on-you' }
   | { kind: 'paused'; reason: string }
   | { kind: 'working' }
-  | { kind: 'stopped'; at?: string }
+  | { kind: 'stopped'; at?: string; prepared?: true }
   | { kind: 'blocked'; by: string; ended?: BlockerEnded }
   | { kind: 'queued'; place: number }
   | { kind: 'queued'; hold: string }
@@ -118,7 +122,16 @@ export type BlockerEnded = 'archived' | 'deleted'
 
 export type TaskMarker =
   | { kind: 'blocked-by'; by: string; ended?: BlockerEnded }
+  | { kind: 'snoozed'; until: string }
   | { kind: 'needs-planning' }
+  | { kind: 'preparing' }
+  | {
+      kind: 'test-activity'
+      source: 'tests' | 'checks'
+      phase: 'running' | 'waiting'
+      label: string
+      detail: string
+    }
 
 export type TrackState = 'past' | 'current' | 'skipped' | 'future'
 
@@ -158,7 +171,29 @@ export interface TaskSource {
   sentry?: { shortId: string }
 }
 
+export interface SetTaskSnoozeRequest {
+  snoozedUntil: string | null
+}
+
+export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new RequestValidationError(400, 'body must be a JSON object')
+  }
+  const until = (value as Record<string, unknown>).snoozedUntil
+  if (until === null) return { snoozedUntil: null }
+  if (
+    typeof until !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(until) ||
+    !Number.isFinite(Date.parse(until)) ||
+    new Date(until).toISOString() !== until
+  ) {
+    throw new RequestValidationError(400, 'snoozedUntil must be an ISO instant or null')
+  }
+  return { snoozedUntil: until }
+}
+
 export interface Task {
+  snoozedUntil?: string
   gateOverrides?: import('./task-gates.ts').TaskGateOverrides
   id: string
   factoryId: string
@@ -170,6 +205,7 @@ export interface Task {
   clarifyDepth: ClarifyDepth
   clarifyDepthBy?: ClarifyDepthChooser
   lead?: TaskLead
+  stageEffort?: Effort
   blockedBy: string[]
   attachments: Attachment[]
   source?: TaskSource
@@ -179,6 +215,7 @@ export interface Task {
   leadRunId?: string
   rank: number
   status?: TaskStatus
+  preparation?: 'preparing' | 'ready'
   statuses: TaskStatusKind[]
   markers: TaskMarker[]
   activity?: string
@@ -196,6 +233,7 @@ export interface Task {
   fromPlan?: { id: string; title: string; deleted?: boolean }
   merged?: TaskMerged
   createdAt: string
+  startedAt?: string
   updatedAt: string
   archived?: TaskArchive
 }
@@ -363,6 +401,10 @@ export interface TaskDraftState {
   clearedRevisions?: string[]
 }
 
+export interface StartTaskRequest {
+  prepare?: boolean
+}
+
 export interface CreateTaskRequest {
   draftRevision?: string
   title?: string
@@ -523,7 +565,28 @@ export type CommentAnswer =
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
+export type RequestPurpose =
+  | { kind: 'model'; runId: string }
+  | {
+      kind:
+        | 'question'
+        | 'round'
+        | 'proposal'
+        | 'gate'
+        | 'permission'
+        | 'simulator'
+        | 'size-check'
+        | 'send-back'
+        | 'failure'
+        | 'failed-run'
+        | 'linear-closed'
+        | 'linear-team'
+        | 'idle-run'
+        | 'ci-stuck'
+    }
+
 export interface Comment {
+  purpose?: RequestPurpose
   id: string
   taskId: string
   kind: CommentKind
@@ -672,6 +735,7 @@ export interface ThreadEvent {
   checkRunId?: string
   judgments?: Judgment[]
   validate?: 'passed' | 'sent-back'
+  validation?: ValidationSnapshot
   changes?: ChatDiff
   planId?: string
 }
@@ -729,7 +793,14 @@ export type ReportOutcomeRequest =
       changes?: string
       design?: DesignReviewInput
     }
-  | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
+  | {
+      outcome: 'back'
+      to: AgentStageId
+      findings: string
+      judged?: ValidateJudgments
+      cause?: DeclaredSendBackCause
+      severity?: FindingSeverity
+    }
   | { outcome: 'ask'; question: string; choices?: string[] }
 
 export type Outcome = ReportOutcomeRequest['outcome']
@@ -762,3 +833,19 @@ export interface WriteBriefRequest {
 }
 
 export type SetTaskLeadRequest = TaskLead
+
+export type SaveTaskDraftRequest = Omit<NewTaskDraft, 'attachments'> & {
+  attachments: AttachmentRef[]
+}
+
+export interface DesignFileSpec {
+  path: string
+  caption?: string
+}
+
+export interface LocalDesignReviewInput
+  extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
+  screenshots?: DesignFileSpec[]
+  video?: DesignFileSpec
+  prototype?: DesignFileSpec
+}

@@ -112,10 +112,14 @@ export function missingCopies(copies: readonly string[]): string {
 }
 
 export interface StageDraft {
+  effort?: import('@ted/protocol').Effort | null
   enabled: boolean
   gate: boolean
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
+  leadClosesFailures?: boolean
 }
 
 export interface SettingsDraft {
@@ -136,9 +140,11 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
   for (const row of view.stages) {
     stages[row.id] = {
       enabled: row.enabled,
+      effort: row.effort ?? null,
       gate: row.gate,
       ...(row.maxBack !== undefined && { maxBack: row.maxBack }),
       ...(row.depth !== undefined && { depth: row.depth }),
+      ...stageOptionsDraft(row),
     }
     if (row.id !== 'backlog' && row.id !== 'done') stageFiles[row.id] = row.factoryFile ?? null
   }
@@ -157,7 +163,28 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
   }
 }
 
-const stageFields = ['enabled', 'gate', 'maxBack', 'depth'] as const
+const stageFields = [
+  'enabled',
+  'gate',
+  'maxBack',
+  'depth',
+  'effort',
+  'p1OnlyFrom',
+  'subAgents',
+  'leadClosesFailures',
+] as const
+
+export function stageOptionsDraft(row: {
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
+  leadClosesFailures?: boolean
+}): Pick<StageDraft, 'p1OnlyFrom' | 'subAgents' | 'leadClosesFailures'> {
+  return {
+    ...(row.p1OnlyFrom !== undefined && { p1OnlyFrom: row.p1OnlyFrom }),
+    ...(row.subAgents !== undefined && { subAgents: row.subAgents }),
+    ...(row.leadClosesFailures !== undefined && { leadClosesFailures: row.leadClosesFailures }),
+  }
+}
 
 function sameChoice(a: AgentChoiceInput | null, b: AgentChoiceInput | null): boolean {
   const norm = (c: AgentChoiceInput | null) =>
@@ -212,7 +239,6 @@ export function settingsChanges(
     changes.agents ??= {}
     changes.agents[role] = draft.agents[role]
   }
-  if (draft.permissions !== loaded.permissions) changes.permissions = draft.permissions
   const limit = limitValue(draft.maxWorkingRuns)
   if (limit !== limitValue(loaded.maxWorkingRuns)) changes.maxWorkingRuns = limit
   if (draft.notes !== loaded.notes) changes.notes = draft.notes
@@ -237,7 +263,6 @@ export function unsavedChanges(draft: SettingsDraft, loaded: SettingsDraft): Uns
   }
   yaml += Object.keys(changes.agents ?? {}).length
   yaml += changes.keepStageFiles?.length ?? 0
-  if (changes.permissions !== undefined) yaml += 1
   if (changes.maxWorkingRuns !== undefined) yaml += 1
   const stageFiles = Object.entries(changes.stageFiles ?? {}) as [AgentStageId, string | null][]
   const overrides = stageFiles.some(
@@ -256,7 +281,17 @@ export function unsavedSummary({ count, files }: UnsavedChanges): string {
   return `${changes} to ${files.length} files in .ted/`
 }
 
-export type StageField = 'enabled' | 'gate' | 'maxBack' | 'depth' | 'file' | 'kept'
+export type StageField =
+  | 'enabled'
+  | 'gate'
+  | 'maxBack'
+  | 'depth'
+  | 'effort'
+  | 'p1OnlyFrom'
+  | 'subAgents'
+  | 'leadClosesFailures'
+  | 'file'
+  | 'kept'
 
 export function stageEdited(
   draft: SettingsDraft,

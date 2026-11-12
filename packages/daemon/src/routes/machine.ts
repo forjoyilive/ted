@@ -3,11 +3,11 @@ import {
   agentStageIds,
   appearances,
   archivedFilters,
-  type BannerActionInput,
   billings,
   checkLimits,
   createdByKinds,
   editorIds,
+  isLinearIntakeScope,
   isLinearTeamKey,
   isTimeZone,
   type ListFilters,
@@ -16,6 +16,7 @@ import {
   listGroups,
   listSorts,
   type MachineSettings,
+  parseBannerActionInput,
   priorities,
   quitChoices,
   runOutputDayLimits,
@@ -23,13 +24,14 @@ import {
   simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
+  textSizeLimits,
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
-import { type Route, readJson, readOptionalJson } from './route.ts'
+import { jsonRoute, type Route, readJson } from './route.ts'
 
 export const machineRoutes: Route[] = [
   {
@@ -75,16 +77,15 @@ export const machineRoutes: Route[] = [
     path: /^\/banners\/([^/]+)\/dismiss$/,
     handle: async ({ params: [id = ''] }, { banners }) => [200, banners.dismiss(id)],
   },
-  {
+  jsonRoute(parseBannerActionInput, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/banners\/([^/]+)\/action$/,
-    async handle({ req, params: [id = ''] }, { banners }) {
-      const body = (await readOptionalJson(req)) as Partial<BannerActionInput> | null
-      const folder = typeof body?.folder === 'string' ? body.folder : undefined
-      await banners.act(id, folder === undefined ? {} : { folder })
+    async handle({ body, params: [id = ''] }, { banners }) {
+      await banners.act(id, body)
       return [200, {}]
     },
-  },
+  }),
   {
     method: 'GET',
     path: /^\/storage$/,
@@ -165,12 +166,20 @@ function listView(value: unknown): ListView {
   if (!sort) throw new HttpError(400, `sort must be ${listSorts.join(', ')}`)
   const group = listGroups.find((g) => g === view.group)
   if (!group) throw new HttpError(400, `group must be ${listGroups.join(', ')}`)
+  if (view.showEmptyGroups !== undefined && typeof view.showEmptyGroups !== 'boolean') {
+    throw new HttpError(400, 'showEmptyGroups must be true or false')
+  }
   const columns = oneOfList('columns', view.columns, listColumns)
+  if (view.columnsVersion !== undefined && view.columnsVersion !== 2) {
+    throw new HttpError(400, 'columnsVersion must be 2')
+  }
   return {
     sort,
     group,
+    ...(view.columnsVersion === 2 && { columnsVersion: 2 }),
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
+    ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),
   }
 }
 
@@ -201,6 +210,19 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     const appearance = appearances.find((a) => a === value)
     if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
     return appearance
+  },
+  textSize(value) {
+    const { min, max, step } = textSizeLimits
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < min ||
+      value > max ||
+      value % step !== 0
+    ) {
+      throw new HttpError(400, `textSize must be from ${min} to ${max} in steps of ${step}`)
+    }
+    return value
   },
   terminalFontSize(value) {
     const { min, max } = terminalFontSizes
@@ -249,6 +271,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
     return choice
   },
+  preparationNoticeSeen: onOff('preparationNoticeSeen'),
   overnightMode: onOff('overnightMode'),
   adjustRunsToLoad: onOff('adjustRunsToLoad'),
   showTrayIcon: onOff('showTrayIcon'),
@@ -260,6 +283,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
+  linearIntakeScopes(value) {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      Array.isArray(value) ||
+      Object.entries(value).some(([id, scope]) => !id || !isLinearIntakeScope(scope))
+    ) {
+      throw new HttpError(400, 'linearIntakeScopes must contain a valid Linear scope per Factory')
+    }
+    return value as MachineSettings['linearIntakeScopes']
+  },
   linearSync: onOff('linearSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
   maxChecksAtOnce(value) {
@@ -271,6 +305,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
+  factoryPermissions() {
+    throw new HttpError(400, 'Change permission mode through Factory settings on this computer')
+  },
   appsOutsideSandbox(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'appsOutsideSandbox must be an object of App names by Factory ID')

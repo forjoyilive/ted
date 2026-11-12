@@ -94,3 +94,69 @@ describe('middle pane', () => {
     expect(middlePane(state, task, false)).toMatchObject({ all: false, covered: false })
   })
 })
+
+test('a file covers the middle pane, restores the Run or shell, and is scoped to an active repo', () => {
+  const file = { repo: 'web', path: 'unchanged.ts' }
+  const state = middlePaneStep(
+    middlePaneStep({}, task.id, { kind: 'shell', repo: 'web' }),
+    task.id,
+    { kind: 'file', file },
+  )
+  expect(middlePane(state, task, true)).toMatchObject({ file, covered: true, shell: 'web' })
+  expect(
+    middlePane(middlePaneStep(state, task.id, { kind: 'file', file: undefined }), task, true),
+  ).toMatchObject({ file: undefined, covered: false, shell: 'web' })
+  expect(middlePane(state, { ...task, id: 'other' }, true).file).toBeUndefined()
+  expect(middlePane(state, { ...task, repos: [] }, true).file).toBeUndefined()
+  expect(
+    middlePane(
+      middlePaneStep(state, task.id, {
+        kind: 'changes',
+        view: {
+          kind: 'diff',
+          file: { ...file, baseBranch: 'main', added: 0, removed: 0, uncommitted: false },
+        },
+      }),
+      task,
+      true,
+    ).file,
+  ).toBeUndefined()
+})
+
+test('a file temporarily covers All changes or Full brief and restores it on return', () => {
+  for (const action of [
+    { kind: 'brief', open: true },
+    { kind: 'changes', view: { kind: 'all' } },
+  ] as const) {
+    const original = middlePaneStep({}, task.id, action)
+    const opened = middlePaneStep(original, task.id, {
+      kind: 'file',
+      file: { repo: 'web', path: 'a.ts' },
+    })
+    expect(middlePane(opened, task, true)).toMatchObject({
+      file: { path: 'a.ts' },
+      all: false,
+      brief: false,
+      changes: undefined,
+    })
+    const closed = middlePaneStep(opened, task.id, { kind: 'file', file: undefined })
+    expect(closed).toEqual(original)
+    expect(middlePane(closed, task, true)).toMatchObject({ file: undefined, covered: true })
+  }
+})
+
+test('PR changes retain their source while loading and restore the underlying thread', () => {
+  const state = middlePaneStep({}, task.id, {
+    kind: 'changes',
+    view: { kind: 'all', source: 'pull-request' },
+  })
+  expect(middlePane(state, task, false)).toMatchObject({
+    all: true,
+    covered: true,
+    changes: { source: 'pull-request' },
+  })
+  expect(
+    middlePane(middlePaneStep(state, task.id, { kind: 'changes', view: undefined }), task, true),
+  ).toMatchObject({ covered: false })
+  expect(middlePane(state, { ...task, id: 'other' }, true).changes).toBeUndefined()
+})

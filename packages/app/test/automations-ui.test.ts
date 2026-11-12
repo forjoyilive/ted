@@ -1,5 +1,4 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,9 +16,10 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
-const electronPath = createRequire(import.meta.url)('electron') as string
+const electronPath = resolveElectron()
 
 vi.setConfig({ testTimeout: 120_000 })
 
@@ -80,15 +80,21 @@ async function openFirstFactory(window: Page) {
     .first()
   for (let tries = 0; tries < 30; tries++) {
     await window.keyboard.press('Meta+1')
-    if (await entry.isVisible()) return
-    await window.waitForTimeout(500)
+    const shown = await entry.waitFor({ timeout: 500 }).then(
+      () => true,
+      () => false,
+    )
+    if (shown) return
   }
   await entry.waitFor()
 }
 
 describe('Automations in the app', () => {
-  test('the empty page offers templates; a template fills the form and the schedule checks itself', async () => {
+  test('a missing Automation crosses the bridge as deleted rather than a request failure; the empty page offers templates; a template fills the form and the schedule checks itself', async () => {
     const { window, ted } = await launch()
+    expect(
+      await window.evaluate(() => globalThis.window.ted.request('getAutomation', 'missing')),
+    ).toBeNull()
     await openAutomations(window)
     const page = window.getByRole('region', { name: 'Automations' })
     await page.getByRole('heading', { name: 'No Automations yet' }).waitFor()
@@ -160,6 +166,49 @@ describe('Automations in the app', () => {
       .first()
       .click()
     await dialog(window).getByRole('heading', { name: 'New Automation in' }).waitFor()
+  })
+
+  test('the architecture template fills a weekly review and saves without starting Tasks', async () => {
+    const { window, ted } = await launch()
+    await openAutomations(window)
+    await window.getByRole('button', { name: 'Use template: Review codebase architecture' }).click()
+    const form = dialog(window)
+    await expect
+      .poll(() => form.getByLabel('Name').inputValue())
+      .toBe('Review codebase architecture')
+    expect(await form.getByRole('textbox', { name: 'Prompt' }).inputValue()).toContain(
+      'up to three',
+    )
+    expect(
+      await form.getByRole('radio', { name: /Review codebase architecture/ }).isChecked(),
+    ).toBe(true)
+    expect(await form.getByLabel('Repeat').inputValue()).toBe('weekly')
+    expect(
+      await form.getByRole('button', { name: 'Monday', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      await form.getByRole('button', { name: 'Tuesday', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('false')
+    expect(await form.getByLabel('Hour', { exact: true }).inputValue()).toBe('9')
+    expect(await form.getByLabel('Minute', { exact: true }).inputValue()).toBe('0')
+    await form.getByText(/^Next: .+ · .+ · .+/).waitFor()
+    if (process.env.TED_ARCHITECTURE_SCREENSHOT) {
+      await window.screenshot({ path: process.env.TED_ARCHITECTURE_SCREENSHOT })
+    }
+    await form.getByRole('button', { name: 'Save', exact: true }).click()
+    await form.waitFor({ state: 'detached' })
+    await window
+      .getByRole('region', { name: 'Automation' })
+      .getByRole('heading', { name: 'Review codebase architecture' })
+      .waitFor()
+    const [saved] = await ted.listAutomations()
+    expect(saved).toMatchObject({
+      template: 'architecture',
+      on: true,
+      schedule: { kind: 'weekly', days: ['mon'], at: '09:00' },
+    })
+    expect((await ted.getAutomation(saved?.id ?? '')).history).toEqual([])
+    expect(await ted.listTasks()).toEqual([])
   })
 
   test('drafts a new Automation Prompt, lets the human edit it and saves only on request', async () => {
@@ -300,7 +349,7 @@ describe('Automations in the app', () => {
     expect(await ted.listAutomations()).toEqual([])
   })
 
-  test('a question shows in the Inbox under the Automation’s name and is answered in its Run', async () => {
+  test('a question shows in the Inbox under the Automation’s name and is answered in its Run; a failed Run shows Retry on the newest failed row only, and Duplicate makes an off copy', async () => {
     const { window, ted } = await launch()
     const automation = await ted.createAutomation({
       factory: 'NB',
@@ -364,12 +413,9 @@ describe('Automations in the app', () => {
     await window.getByRole('region', { name: 'Automations' }).waitFor()
     expect(await ted.listAutomations()).toEqual([])
     expect((await ted.listTasks()).map((t) => t.title)).toContain('Crash on open')
-  })
 
-  test('a failed Run shows Retry on the newest failed row only, and Duplicate makes an off copy', async () => {
-    const { window, ted } = await launch()
     await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ resumeFails: true }))
-    const automation = await ted.createAutomation({
+    const triage = await ted.createAutomation({
       factory: 'NB',
       name: 'Daily triage',
       schedule: { kind: 'weekdays', at: '09:00' },
@@ -379,7 +425,7 @@ describe('Automations in the app', () => {
     const failures = async (count: number) =>
       waitUntil(
         async () => {
-          const { history: rows } = await history(ted, automation.id)
+          const { history: rows } = await history(ted, triage.id)
           return rows.length === count && rows.every((r) => r.result.kind === 'failed')
             ? rows
             : undefined
@@ -387,9 +433,9 @@ describe('Automations in the app', () => {
         `${count} failures`,
         40_000,
       )
-    await ted.runAutomation(automation.id)
+    await ted.runAutomation(triage.id)
     await failures(1)
-    await ted.runAutomation(automation.id)
+    await ted.runAutomation(triage.id)
     await failures(2)
 
     await openAutomations(window)
@@ -399,7 +445,6 @@ describe('Automations in the app', () => {
     await sidebar(window).getByRole('img', { name: 'An Automation failed' }).waitFor()
 
     await pageRow.getByRole('button', { name: 'Daily triage' }).click()
-    const view = window.getByRole('region', { name: 'Automation' })
     await view.getByRole('heading', { name: 'Daily triage' }).waitFor()
     const rows = view.locator('tbody tr')
     await expect.poll(() => rows.count()).toBe(2)

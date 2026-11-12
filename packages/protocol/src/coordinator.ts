@@ -3,6 +3,8 @@ import type {
   Comment,
   DescriptionVersion,
   MoveTaskRequest,
+  RoundAnswerInput,
+  RoundQuestion,
   Task,
   TaskBrief,
   TaskLead,
@@ -10,7 +12,7 @@ import type {
 
 export type CoordinatorTaskState = Pick<Task, 'stage' | 'priority' | 'rank' | 'status' | 'archived'>
 
-export type CoordinatorOperation = 'start' | 'move' | 'tell' | 'answer'
+export type CoordinatorOperation = 'start' | 'move' | 'tell' | 'answer' | 'resume'
 
 export interface CoordinatorReceipt {
   id: string
@@ -57,9 +59,14 @@ export interface CoordinatorRequest {
   title?: string
   text: string
   choices?: string[]
-  humanOnlyChoices?: string[]
+  questions?: RoundQuestion[]
   createdAt: string
-  coordinatorMayAnswer: 'yes' | 'with a choice' | 'no'
+  coordinatorMayAnswer:
+    | 'yes'
+    | 'with a choice'
+    | 'approve or request changes'
+    | 'round answers'
+    | 'no'
 }
 
 export type CoordinatorTaskSummary = Pick<
@@ -86,4 +93,9 @@ export interface CoordinatorAction extends MoveTaskRequest {
   message?: string
   request?: string
   choice?: string
+  decision?: 'approve' | 'request-changes'
+  answers?: RoundAnswerInput[]
+  recommended?: boolean
+  skipRows?: number[]
+  startUnblocked?: boolean
 }

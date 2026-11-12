@@ -1,15 +1,23 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Factory, FileDiff, Task, TaskChanges } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import {
+  type Factory,
+  type FileDiff,
+  type PullRequestChanges,
+  type Task,
+  type TaskChanges,
+  tedPaths,
+} from '@ted/protocol'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { openStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
-  hostRecords,
+  devRunToken,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -34,14 +42,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
-  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
-  for (const runId of runIds) {
-    await waitUntil(
-      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
-      `Run ${runId}’s host to start`,
-    ).catch(() => undefined)
-  }
-  await killRunHosts(home)
+  await killRunHosts(home, { waitForStart: true })
+  vi.unstubAllEnvs()
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
 })
@@ -54,7 +56,7 @@ async function startTed() {
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T
   }
-  return { ...client, ok }
+  return { ...client, ok, port: daemon.port, appToken: daemon.appToken }
 }
 
 type Client = Awaited<ReturnType<typeof startTed>>
@@ -120,6 +122,61 @@ test('Changes lists each repo’s files against its base branch, uncommitted wor
       },
     ],
   })
+  if (!daemon) throw new Error('no daemon')
+  await daemon.stop()
+  daemon = undefined
+  const store = await openStore({ directory: tedPaths(home).store })
+  store.pullRequestOpened(task.id, 'widgets', {
+    number: 7,
+    url: 'https://github.com/acme/widgets/pull/7',
+    base: 'main',
+  })
+  store.worktreeRemoved(task.id, 'widgets')
+  await store.close()
+  const head = 'a'.repeat(40)
+  const base = 'b'.repeat(40)
+  const ghState = path.join(scratch, 'gh-state.json')
+  await writeFile(
+    ghState,
+    JSON.stringify({
+      paths: {
+        'repos/acme/widgets/pulls/7': {
+          body: {
+            head: { sha: head },
+            base: { sha: base, ref: 'main' },
+            changed_files: 1,
+            state: 'open',
+          },
+        },
+        [`repos/acme/widgets/compare/${base}...${head}?per_page=1`]: {
+          body: { merge_base_commit: { sha: base } },
+        },
+        'repos/acme/widgets/pulls/7/files?per_page=100&page=1': {
+          body: [
+            {
+              filename: 'pushed.ts',
+              additions: 1,
+              deletions: 0,
+              patch: '@@ -0,0 +1 @@\n+pushed code',
+            },
+          ],
+        },
+      },
+    }),
+  )
+  vi.stubEnv('TED_STUB_GH', ghState)
+  const again = await startTed()
+  const route = `/tasks/${task.id}/pull-request-changes/widgets`
+  expect(await again.ok<PullRequestChanges>('GET', route)).toMatchObject({
+    head,
+    repo: { files: [{ path: 'pushed.ts', uncommitted: false }] },
+    diffs: [{ hunks: [{ rows: [{ text: 'pushed code' }] }] }],
+  })
+  if (!daemon) throw new Error('no daemon')
+  const token = JSON.parse(await readFile(path.join(home, 'daemon.json'), 'utf8')).token as string
+  for (const auth of [token, await devRunToken(home, again.port, again.appToken)]) {
+    expect((await api(again.port, auth).call('GET', route)).status).toBe(403)
+  }
 })
 
 test('the diffs route returns one file’s diff, or every file’s', async () => {
@@ -156,4 +213,7 @@ test('a Task with no worktree has no changes', async () => {
   const changes = await client.ok<TaskChanges>('GET', `/tasks/${task.id}/changes`)
 
   expect(changes).toEqual({ taskId: task.id, files: 0, repos: [] })
+  expect((await client.call('GET', `/tasks/${task.id}/pull-request-changes/widgets`)).status).toBe(
+    404,
+  )
 })

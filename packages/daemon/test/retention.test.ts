@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Factory, Task } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { pruneRunOutput, runOutputEnd } from '../src/retention.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
@@ -34,6 +34,7 @@ describe('pruning Run output', () => {
 
   afterEach(async () => {
     await store.close()
+    vi.useRealTimers()
     await rm(root, { recursive: true, force: true })
   })
 
@@ -87,17 +88,82 @@ describe('pruning Run output', () => {
     expect(await kept()).toEqual([run])
   })
 
-  test('removes a Done Task’s Run output 7 days after it became Done, and not before', async () => {
-    const task = await store.createTask({ title: 'Fix login' })
-    const run = await makeRun(task.id)
-    const sub = await makeRun(task.id)
+  test('keeps side-chat snapshots for open Tasks and prunes them with the closed Task', async () => {
+    const task = await store.createTask({ title: 'Side chat retention' })
+    const source = await makeRun(task.id)
+    const id = randomUUID()
+    await makeFolder(id)
+    store.sideChats.save({
+      id,
+      sourceRunId: source,
+      taskId: task.id,
+      factoryId: task.factoryId,
+      lead: { agent: 'claude' },
+      snapshotAt: new Date().toISOString(),
+      truncated: false,
+      digest: 'digest',
+      contextSent: false,
+      outputAfter: 0,
+      state: 'ready',
+    })
+    expect(runOutputEnd(store, id)).toBe('keep')
+    expect(await prune(400)).toEqual({ removed: [] })
     store.changeStage(task.id, 'done', entry)
+    expect((await prune(8)).removed.sort()).toEqual([source, id].sort())
+  })
+
+  test('a queued side question keeps its snapshot after the Task retention deadline', async () => {
+    const task = await store.createTask({ title: 'Queued side question' })
+    const source = await makeRun(task.id)
+    const id = randomUUID()
+    await makeFolder(id)
+    const chat = {
+      id,
+      sourceRunId: source,
+      taskId: task.id,
+      factoryId: task.factoryId,
+      lead: { agent: 'claude' as const },
+      snapshotAt: new Date().toISOString(),
+      truncated: false,
+      digest: 'digest',
+      contextSent: false,
+      outputAfter: 0,
+      state: 'queued' as const,
+    }
+    store.sideChats.save(chat)
+    store.changeStage(task.id, 'done', entry)
+    expect((await prune(8)).removed).toEqual([source])
+    store.sideChats.save({ ...chat, state: 'ready' })
+    expect((await prune(8)).removed).toEqual([id])
+  })
+
+  test('removes a Done Task’s Run output 7 days after it became Done, and not before', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const task = await store.createTask({ title: 'Fix login' })
+    const run = await makeRun(task.id, 'working')
+    const sub = await makeRun(task.id, 'working')
+    vi.setSystemTime(Date.now() + 1000)
+    for (const id of [run, sub]) store.recordRunOutput(id, { toOffset: 1, state: 'finished' })
+    store.changeStage(task.id, 'done', entry)
+    const intervals = store.taskIntervalHistory(task.id)
+    expect(intervals.intervals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'run-working',
+          contributors: expect.arrayContaining([
+            expect.objectContaining({ id: run }),
+            expect.objectContaining({ id: sub }),
+          ]),
+        }),
+      ]),
+    )
 
     expect(await prune(6)).toEqual({ removed: [] })
     expect(await kept()).toEqual([run, sub].sort())
 
     expect((await prune(8)).removed.sort()).toEqual([run, sub].sort())
     expect(await kept()).toEqual([])
+    expect(store.taskIntervalHistory(task.id, intervals.asOf)).toEqual(intervals)
   })
 
   test('an archived Task follows the same rule, and unarchiving it keeps its output again', async () => {

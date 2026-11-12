@@ -20,6 +20,7 @@ export const listColumns = [
   'created',
   'created-by',
   'tokens',
+  'started',
 ] as const
 
 export type ListColumn = (typeof listColumns)[number]
@@ -43,7 +44,9 @@ export interface ListFilters {
 export interface ListView {
   sort: ListSort
   group: ListGroup
+  showEmptyGroups?: boolean
   columns: ListColumn[]
+  columnsVersion?: 2
   filters: ListFilters
 }
 

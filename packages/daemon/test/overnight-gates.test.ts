@@ -1,9 +1,11 @@
 import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
+  type CheckRun,
   type Factory,
   type FactoryBoard,
   type FactorySettingsView,
+  type FailureCase,
   type InboxItem,
   type LibraryView,
   type Task,
@@ -12,7 +14,7 @@ import {
 } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
-import { api, waitUntil } from './helpers.ts'
+import { all, api, waitUntil } from './helpers.ts'
 import {
   branchHead,
   brief,
@@ -88,6 +90,13 @@ async function advance(client: Client, task: Task) {
 
 async function advanceTo(client: Client, task: Task, stage: string) {
   const res = await advance(client, task)
+  if (stage === 'validate' && /before \S+ leaves Work/.test(JSON.stringify(res.body))) {
+    await waitUntil(
+      async () => (await getTask(client, task.id)).stage === stage || undefined,
+      'the Checks to pass and the Task to reach Validate',
+    )
+    return
+  }
   expect(res.body).toMatchObject({ task: { stage } })
 }
 
@@ -103,42 +112,75 @@ const gates = (client: Client, task: Task) => client.ok<TaskGates>('GET', `/task
 
 const row = (view: TaskGates, stage: string) => view.rows.find((r) => r.stage === stage)
 
-describe('overnight mode turns Gates off', () => {
-  test('a Task with Design, Review and Merge Gates runs to Done with no Gate request', async () => {
+const kept = (stage: string) =>
+  `Overnight mode is on, but this Task changes .ted/, so its ${stage} sign-off stays on`
+
+async function stageReads(client: Client) {
+  const [factory] = await client.ok<Factory[]>('GET', '/factories')
+  const settings = await client.ok<FactorySettingsView>('GET', `/factories/${factory?.id}/settings`)
+  const library = await client.ok<LibraryView>('GET', '/library')
+  const board = await client.ok<FactoryBoard>('GET', `/factories/${factory?.id}/board`)
+  const pick = (rows: { id: string; gate: boolean; overnight?: true }[]) =>
+    rows
+      .filter((r) => r.id === 'design' || r.id === 'work')
+      .map(({ id, gate, overnight }) => ({ id, gate, overnight }))
+  return [pick(settings.stages), pick(library.stages), pick(board.stages)]
+}
+
+async function stopsAtDesign(client: Client, task: Task, line: string) {
+  const res = await advance(client, task)
+  expect(res.body).toMatchObject({
+    task: { stage: 'design' },
+    message: 'Waiting for the human at the Design sign-off. TED sends you their answer.',
+  })
+  expect(await lines(client, task)).toContain(line)
+}
+
+describe('overnight mode turns Sign-offs off', () => {
+  test('with Design, Review and Merge sign-offs saved, a Task runs to Done with no Sign-off request, while one that changes .ted/ and one whose worktree TED can’t read stop at Design', async () => {
     const client = await start(gated)
     await overnight(client, true)
-    const task = await begin(client)
-    await advanceTo(client, task, 'design')
-    await advanceTo(client, task, 'work')
-    await advanceTo(client, task, 'validate')
-    await advanceTo(client, task, 'review')
-    await advanceTo(client, task, 'merge')
-    const done = await waitForStage(client, task, 'done')
-    expect(done.repos[0]?.pullRequest?.state).toBe('merged')
-    expect(await merges()).toHaveLength(1)
-    const all = await client.ok<{ gate?: unknown }[]>('GET', `/tasks/${task.id}/comments`)
-    expect(all.filter((c) => c.gate !== undefined)).toEqual([])
-    const thread = await lines(client, task)
-    expect(thread).toContain('Overnight mode is on, so TED skipped the Design Gate')
-    expect(thread).toContain('Overnight mode is on, so TED skipped the Review Gate')
-    expect(thread).toContain('Overnight mode is on, so TED skipped the Merge Gate')
-  })
-
-  test('with overnight mode off the same Task stops at the Design Gate', async () => {
-    const client = await start(gated)
-    const task = await begin(client)
-    await advanceTo(client, task, 'design')
-    const res = await advance(client, task)
-    expect(res.body).toMatchObject({
-      task: { stage: 'design' },
-      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
+    await all(['plain', 'changes .ted/', 'unreadable worktree'], async (kind) => {
+      if (kind === 'changes .ted/') {
+        const task = await begin(client, {}, settingsStep)
+        await advanceTo(client, task, 'design')
+        const view = await gates(client, task)
+        expect(row(view, 'design')).toMatchObject({ inherited: true, effective: true })
+        expect(view.rows.some((r) => r.overnight)).toBe(false)
+        await stopsAtDesign(client, task, kept('Design'))
+        return
+      }
+      const task = await begin(client)
+      if (kind === 'unreadable worktree') {
+        await advanceTo(client, task, 'design')
+        await lead(client, task)
+        const worktree = (await getTask(client, task.id)).repos[0]?.worktree ?? ''
+        await rm(path.join(worktree, '.git'), { force: true })
+        await stopsAtDesign(
+          client,
+          task,
+          'Overnight mode is on, but TED couldn’t read this Task’s changes, so its Design sign-off stays on',
+        )
+        return
+      }
+      await advanceTo(client, task, 'design')
+      await advanceTo(client, task, 'work')
+      await advanceTo(client, task, 'validate')
+      await advanceTo(client, task, 'review')
+      await advanceTo(client, task, 'merge')
+      const done = await waitForStage(client, task, 'done')
+      expect(done.repos[0]?.pullRequest?.state).toBe('merged')
+      expect(await merges()).toHaveLength(1)
+      const all = await client.ok<{ gate?: unknown }[]>('GET', `/tasks/${task.id}/comments`)
+      expect(all.filter((c) => c.gate !== undefined)).toEqual([])
+      const thread = await lines(client, task)
+      expect(thread).toContain('Overnight mode is on, so TED skipped the Design sign-off')
+      expect(thread).toContain('Overnight mode is on, so TED skipped the Review sign-off')
+      expect(thread).toContain('Overnight mode is on, so TED skipped the Merge sign-off')
     })
-    expect(await gateRequests(client, task)).toHaveLength(1)
-    expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
-    expect(row(await gates(client, task), 'review')?.overnight).toBeUndefined()
-  })
+  }, 120_000)
 
-  test('a Gate turned on for one Task is off overnight too, and the saved choice stays', async () => {
+  test('a sign-off turned on for one Task is off overnight too, the saved choice stays, and turning overnight mode off mid-Task brings back the next Sign-off', async () => {
     const client = await start(gated)
     const task = await begin(client)
     const before = await gates(client, task)
@@ -168,26 +210,48 @@ describe('overnight mode turns Gates off', () => {
     await advanceTo(client, task, 'validate')
     expect(await gateRequests(client, task)).toEqual([])
     expect(await lines(client, task)).toContain(
-      'Overnight mode is on, so TED skipped the Work Gate',
+      'Overnight mode is on, so TED skipped the Work sign-off',
     )
     await overnight(client, false)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
     expect((await gates(client, task)).overrides).toEqual({ work: true })
+    expect((await getTask(client, task.id)).stage).toBe('validate')
+    await advanceTo(client, task, 'review')
+    const res = await advance(client, task)
+    expect(res.body).toMatchObject({
+      task: { stage: 'review' },
+      message: 'Waiting for the human at the Review sign-off. TED sends you their answer.',
+    })
+    expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
   })
 
-  test('a Gate request open when overnight mode turns on stays open', async () => {
+  test('with overnight mode off a Task stops at the Design sign-off, a sign-off request open when the mode turns on stays open, and the Factory settings, Library and Board reads mark Sign-offs that are off overnight', async () => {
     const client = await start(gated)
+    const off = [
+      { id: 'design', gate: true, overnight: undefined },
+      { id: 'work', gate: false, overnight: undefined },
+    ]
+    expect(await stageReads(client)).toEqual([off, off, off])
     const task = await begin(client)
     await advanceTo(client, task, 'design')
-    await advance(client, task)
+    const res = await advance(client, task)
+    expect(res.body).toMatchObject({
+      task: { stage: 'design' },
+      message: 'Waiting for the human at the Design sign-off. TED sends you their answer.',
+    })
+    expect(await gateRequests(client, task)).toHaveLength(1)
+    expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
+    expect(row(await gates(client, task), 'review')?.overnight).toBeUndefined()
     const [open] = await gateRequests(client, task)
     expect(open?.request.stage).toBe('design')
     await overnight(client, true)
+    const on = [{ ...off[0], overnight: true }, off[1]]
+    expect(await stageReads(client)).toEqual([on, on, on])
     expect(row(await gates(client, task), 'design')).toMatchObject({ effective: true })
     expect(row(await gates(client, task), 'design')?.overnight).toBeUndefined()
     const again = await advance(client, task)
     expect(again.status).toBe(409)
-    expect(JSON.stringify(again.body)).toContain('already waiting at the Design Gate')
+    expect(JSON.stringify(again.body)).toContain('already waiting at the Design sign-off')
     expect((await getTask(client, task.id)).stage).toBe('design')
     const still = await gateRequests(client, task)
     expect(still.map((item) => item.request.id)).toEqual([open?.request.id])
@@ -195,61 +259,26 @@ describe('overnight mode turns Gates off', () => {
     await client.ok('POST', `/comments/${open?.request.id}/answer`, { action: 'approve' })
     await waitForStage(client, task, 'work')
   })
-
-  test('the Factory settings, Library and Board reads mark Gates that are off overnight', async () => {
-    const client = await start(gated)
-    const [factory] = await client.ok<Factory[]>('GET', '/factories')
-    const read = async () => {
-      const settings = await client.ok<FactorySettingsView>(
-        'GET',
-        `/factories/${factory?.id}/settings`,
-      )
-      const library = await client.ok<LibraryView>('GET', '/library')
-      const board = await client.ok<FactoryBoard>('GET', `/factories/${factory?.id}/board`)
-      const pick = (rows: { id: string; gate: boolean; overnight?: true }[]) =>
-        rows
-          .filter((r) => r.id === 'design' || r.id === 'work')
-          .map(({ id, gate, overnight }) => ({ id, gate, overnight }))
-      return [pick(settings.stages), pick(library.stages), pick(board.stages)]
-    }
-    const off = [
-      { id: 'design', gate: true, overnight: undefined },
-      { id: 'work', gate: false, overnight: undefined },
-    ]
-    expect(await read()).toEqual([off, off, off])
-    await overnight(client, true)
-    const on = [
-      { id: 'design', gate: true, overnight: true },
-      { id: 'work', gate: false, overnight: undefined },
-    ]
-    expect(await read()).toEqual([on, on, on])
-  })
-
-  test('turning overnight mode off mid-Task brings back the next Gate', async () => {
-    const client = await start(gated)
-    await overnight(client, true)
-    const task = await begin(client)
-    await advanceTo(client, task, 'design')
-    await advanceTo(client, task, 'work')
-    await overnight(client, false)
-    expect((await getTask(client, task.id)).stage).toBe('work')
-    await advanceTo(client, task, 'validate')
-    await advanceTo(client, task, 'review')
-    const res = await advance(client, task)
-    expect(res.body).toMatchObject({
-      task: { stage: 'review' },
-      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
-    })
-    expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
-  })
 })
+
+async function verifyCurrent(client: Client, task: Task) {
+  const token = await lead(client, task)
+  const id = await waitUntil(async () => {
+    const response = await token.call('POST', `/tasks/${task.id}/checks`, {})
+    if (response.status === 409 && JSON.stringify(response.body).includes('already moving'))
+      return undefined
+    expect(response.status, JSON.stringify(response.body)).toBe(201)
+    return (response.body as CheckRun).id
+  }, 'start current coverage when the merge watcher releases the Task')
+  await waitUntil(async () => {
+    const runs = await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)
+    return runs.find((r) => r.id === id)?.outcome === 'passed'
+  }, 'fresh coverage for the changed worktree')
+}
 
 describe('overnight mode and a Task that changes .ted/', () => {
   const open = { order: 'intake, work, validate, merge' }
-  const kept = (stage: string) =>
-    `Overnight mode is on, but this Task changes .ted/, so its ${stage} Gate stays on`
-
-  test('with every Gate off in the Workflow, it stops for the human before Merge', async () => {
+  test('with every sign-off off in the Workflow, it stops for the human before Merge', async () => {
     const client = await start(open)
     await overnight(client, true)
     const task = await begin(client, {}, settingsStep)
@@ -259,7 +288,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'review' },
-      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Review sign-off. TED sends you their answer.',
     })
     const [request] = await gateRequests(client, task)
     expect(request?.request.stage).toBe('review')
@@ -288,40 +317,6 @@ describe('overnight mode and a Task that changes .ted/', () => {
     expect(await gateRequests(client, task)).toEqual([])
     const all = await client.ok<{ gate?: unknown }[]>('GET', `/tasks/${task.id}/comments`)
     expect(all.filter((c) => c.gate !== undefined)).toEqual([])
-  })
-
-  test('a Design Gate saved in the Workflow stays on for it', async () => {
-    const client = await start(gated)
-    await overnight(client, true)
-    const task = await begin(client, {}, settingsStep)
-    await advanceTo(client, task, 'design')
-    const view = await gates(client, task)
-    expect(row(view, 'design')).toMatchObject({ inherited: true, effective: true })
-    expect(view.rows.some((r) => r.overnight)).toBe(false)
-    const res = await advance(client, task)
-    expect(res.body).toMatchObject({
-      task: { stage: 'design' },
-      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
-    })
-    expect(await lines(client, task)).toContain(kept('Design'))
-  })
-
-  test('a worktree TED can’t read keeps the Gates on', async () => {
-    const client = await start(gated)
-    await overnight(client, true)
-    const task = await begin(client)
-    await advanceTo(client, task, 'design')
-    await lead(client, task)
-    const worktree = (await getTask(client, task.id)).repos[0]?.worktree ?? ''
-    await rm(path.join(worktree, '.git'), { force: true })
-    const res = await advance(client, task)
-    expect(res.body).toMatchObject({
-      task: { stage: 'design' },
-      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
-    })
-    expect(await lines(client, task)).toContain(
-      'Overnight mode is on, but TED couldn’t read this Task’s changes, so its Design Gate stays on',
-    )
   })
 
   const ci = { '.github/workflows/ci.yml': 'on: pull_request\n' }
@@ -357,6 +352,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const reviewed = repo?.pullRequest?.signedOff
     expect(reviewed).toBeDefined()
     await lateSettingsCommit(repo?.worktree ?? '')
+    await verifyCurrent(client, task)
 
     await setGh(passed)
     const card = await mergeCard(client, task)
@@ -380,6 +376,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const waiting = await waitingForCi(client, task)
     expect(await gateRequests(client, task)).toEqual([])
     await lateSettingsCommit(waiting.repos[0]?.worktree ?? '')
+    await verifyCurrent(client, task)
 
     await setGh(passed)
     const card = await mergeCard(client, task)
@@ -430,6 +427,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
       'the Task to record auto-merge as off',
     )
 
+    await verifyCurrent(client, task)
     await setGh({
       mergeState: 'CLEAN',
       checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
@@ -464,6 +462,8 @@ describe('overnight mode and a Task that changes .ted/', () => {
     flip.worktree = waiting.repos[0]?.worktree ?? ''
 
     await setGh(passed)
+    await waitUntil(async () => flip.done, 'late settings edit before the merge')
+    await verifyCurrent(client, task)
     await mergeCard(client, task)
     expect(flip.done).toBe(true)
     expect(await merges()).toEqual([])
@@ -480,6 +480,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const waiting = await waitingForCi(client, task)
     await new Promise((resolve) => setTimeout(resolve, 300))
     await writeFile(path.join(waiting.repos[0]?.worktree ?? '', '.ted', 'notes.md'), 'Edited.\n')
+    await verifyCurrent(client, task)
 
     await setGh(passed)
     await mergeCard(client, task)
@@ -504,6 +505,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const repo = (await getTask(client, task.id)).repos[0]
     const requested = repo?.pushed?.commit
     await lateSettingsCommit(repo?.worktree ?? '')
+    await verifyCurrent(client, task)
 
     await client.ok('POST', `/comments/${review?.request.id}/answer`, { action: 'approve' })
     const card = await mergeCard(client, task)
@@ -516,5 +518,73 @@ describe('overnight mode and a Task that changes .ted/', () => {
     await waitForStage(client, task, 'done')
     expect(await merges()).toHaveLength(1)
     expect(await branchHead(repo?.branch ?? '')).toBe(listed)
+  })
+
+  test('verified failure history cannot delay disabling auto-merge for a late settings edit', async () => {
+    const client = await start({
+      ...open,
+      files: ci,
+      workflow: [
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Tests, run: "n=$(cat stub-runs 2>/dev/null || echo 0); n=$((n+1)); echo $n > stub-runs; [ $n -ne 2 ]" }',
+      ],
+      merge: {
+        mergeState: 'BLOCKED',
+        autoMergeAllowed: true,
+        checks: [{ name: 'test', status: 'IN_PROGRESS', required: true }],
+      },
+    })
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    const token = await lead(client, task)
+    const post = async <T>(route: string, body = {}): Promise<T> => {
+      const res = await token.call('POST', `/tasks/${task.id}${route}`, body)
+      expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+      return res.body as T
+    }
+    await waitUntil(
+      async () => (await token.call('POST', `/tasks/${task.id}/checks`, {})).status === 201,
+      'the Checks to run again in Validate',
+    )
+    const finding = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).at(-1),
+      'failed Check recorded',
+    )
+    await post(`/failures/${finding.id}/assessments`, {
+      assessment: 'uncertain',
+      recommendation: 'Retry the transient fixture failure.',
+    })
+    const asked = await post<FailureCase>(`/failures/${finding.id}/decision`)
+    await client.ok('POST', `/comments/${asked.decisions.at(-1)?.commentId}/answer`, {
+      action: 'answer',
+      choice: 'Retry',
+    })
+    await waitUntil(
+      async () =>
+        (await client.ok<{ satisfied: boolean }>('GET', `/tasks/${task.id}/validation-obligations`))
+          .satisfied,
+      'retry verifies the historical failure',
+    )
+    await advanceTo(client, task, 'merge')
+    const auto = await waitUntil(async () => {
+      const value = await getTask(client, task.id)
+      return value.repos[0]?.pullRequest?.autoMerge ? value : undefined
+    }, 'auto-merge enabled')
+    await lateSettingsCommit(auto.repos[0]?.worktree ?? '')
+    await waitUntil(
+      async () => (await readGh()).merge.autoMerge === undefined,
+      'auto-merge disabled despite verified failure history',
+    )
+    expect((await merges()).at(-1)).toContain('--disable-auto')
+    const obligations = await client.ok<{ satisfied: boolean }>(
+      'GET',
+      `/tasks/${task.id}/validation-obligations`,
+    )
+    expect(obligations.satisfied).toBe(false)
+    expect(await plainMerges()).toEqual([])
   })
 })

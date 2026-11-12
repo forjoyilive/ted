@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -158,7 +158,7 @@ const answers = (url: string) =>
   )
 
 describe('Apps', () => {
-  test('▶ starts a Web App on a free loopback port with the Task’s App variables, and ted run-app reuses it', async () => {
+  test('▶ starts a Web App on a free loopback port with the Task’s App variables, ted run-app reuses it, and a crash shows as a thread event', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const marker = path.join(scratch, 'go')
     const client = await start()
@@ -241,9 +241,14 @@ describe('Apps', () => {
     expect(stopped.state).toBe('stopped')
     expect(await answers(`http://127.0.0.1:${port}/`)).toBe(false)
     await eventText(client, task, 'You stopped Web')
+
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Crashy' })
+    const crashed = await waitForState(client, task, 'Crashy', 'exited')
+    expect(crashed.exitCode).toBe(3)
+    await eventText(client, task, 'Crashy exited with code 3')
   })
 
-  test('a taken fixed port fails with a clear message', async () => {
+  test('a taken fixed port fails with a clear message, and an App’s log keeps only its last bytes', async () => {
     const server = net.createServer()
     blocker = server
     const taken = await new Promise<number>((resolve) =>
@@ -251,10 +256,18 @@ describe('Apps', () => {
     )
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': appsYaml(
-        ['      - name: Fixed', `        port: ${taken}`, `        run: ${runStub}`].join('\n'),
+        [
+          '      - name: Fixed',
+          `        port: ${taken}`,
+          `        run: ${runStub}`,
+          '      - name: Chatty',
+          `        run: ${runStub}`,
+          '        env:',
+          '          STUB_APP_LINES: "3000"',
+        ].join('\n'),
       ),
     })
-    const client = await start()
+    const client = await start(4096)
     const task = await taskWithWorktree(client)
 
     const res = await client.call('POST', `/tasks/${task.id}/apps/start`, { name: 'Fixed' })
@@ -267,9 +280,24 @@ describe('Apps', () => {
       problem: `port ${taken} is taken`,
     })
     await eventText(client, task, `Fixed couldn’t start: port ${taken} is taken`)
+
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Chatty' })
+    await waitForState(client, task, 'Chatty', 'running')
+
+    const log = await waitUntil(async () => {
+      const found = await client.ok<AppLog>('GET', `/tasks/${task.id}/apps/widgets/Chatty/log`)
+      return found.text.includes('line 03000') ? found : undefined
+    }, 'the last line in the log')
+    const dir = path.join(home, 'apps', task.id, 'widgets', 'chatty')
+    const sizes = await Promise.all(
+      ['app.log', 'app.log.1'].map((f) => stat(path.join(dir, f)).then((s) => s.size)),
+    )
+    expect(sizes.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(4096)
+    expect(log.truncated).toBe(true)
+    expect(log.text).not.toContain('line 00001')
   })
 
-  test('a Run starts only its own Task’s Apps, and only the human stops or restarts them', async () => {
+  test('a Run starts only its own Task’s Apps, only the human stops or restarts them, and the human’s ▶ asks first until they choose Always for that App in this Factory, which a Run can’t choose', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const client = await start()
     const task = await taskWithWorktree(client)
@@ -287,35 +315,26 @@ describe('Apps', () => {
       (await asRun.call('POST', `/tasks/${task.id}/apps/restart`, { name: 'Web' })).status,
     ).toBe(403)
     expect((await apps(client, task)).every((a) => a.state === 'stopped')).toBe(true)
-  })
 
-  test('an App’s log keeps only its last bytes', async () => {
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': appsYaml(
-        [
-          '      - name: Chatty',
-          `        run: ${runStub}`,
-          '        env:',
-          '          STUB_APP_LINES: "3000"',
-        ].join('\n'),
-      ),
-    })
-    const client = await start(4096)
-    const task = await taskWithWorktree(client)
-    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Chatty' })
-    await waitForState(client, task, 'Chatty', 'running')
-
-    const log = await waitUntil(async () => {
-      const found = await client.ok<AppLog>('GET', `/tasks/${task.id}/apps/widgets/Chatty/log`)
-      return found.text.includes('line 03000') ? found : undefined
-    }, 'the last line in the log')
-    const dir = path.join(home, 'apps', task.id, 'widgets', 'chatty')
-    const sizes = await Promise.all(
-      ['app.log', 'app.log.1'].map((f) => stat(path.join(dir, f)).then((s) => s.size)),
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
+    const lead = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId
+    const asLead = api(
+      daemon?.port ?? 0,
+      (await loadRunTokens(tedPaths(home).runTokenKey)).issue(lead ?? ''),
     )
-    expect(sizes.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(4096)
-    expect(log.truncated).toBe(true)
-    expect(log.text).not.toContain('line 00001')
+    for (const action of ['stop', 'restart'])
+      expect(
+        (await asLead.call('POST', `/tasks/${task.id}/apps/${action}`, { name: 'Web' })).status,
+        `the Task’s own Run asks to ${action}`,
+      ).toBe(403)
+    const refused = await asLead.call('PATCH', '/settings', {
+      appsOutsideSandbox: { [task.factoryId]: ['API'] },
+    })
+    expect(refused.status).toBe(403)
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
+    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: ['API'] } })
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBeUndefined()
+    expect((await appNamed(client, task, 'Web'))?.confirmOutsideSandbox).toBe(true)
   })
 
   test('a running App removed from the settings stays listed and stoppable, and ted run-app stops waiting for it', async () => {
@@ -353,18 +372,6 @@ describe('Apps', () => {
     })
     expect(stopped.state).toBe('stopped')
     expect(await appNamed(client, task, 'Slow')).toBeUndefined()
-  })
-
-  test('a crash shows as a thread event', async () => {
-    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
-    const client = await start()
-    const task = await taskWithWorktree(client)
-
-    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Crashy' })
-
-    const crashed = await waitForState(client, task, 'Crashy', 'exited')
-    expect(crashed.exitCode).toBe(3)
-    await eventText(client, task, 'Crashy exited with code 3')
   })
 
   test('an App survives a daemon restart, and archiving the Task stops it', async () => {
@@ -496,36 +503,39 @@ describe('the Apps’ sandbox', () => {
     },
   )
 
-  test('the human’s ▶ asks first until they choose Always for that App in this Factory, and a Run can’t choose it', async () => {
-    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
-    const client = await start()
-    const task = await taskWithWorktree(client)
-    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
-    const lead = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId
-    const asRun = api(
-      daemon?.port ?? 0,
-      (await loadRunTokens(tedPaths(home).runTokenKey)).issue(lead ?? ''),
-    )
-    const refused = await asRun.call('PATCH', '/settings', {
-      appsOutsideSandbox: { [task.factoryId]: ['API'] },
-    })
-    expect(refused.status).toBe(403)
-    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
-    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: ['API'] } })
-    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBeUndefined()
-    expect((await appNamed(client, task, 'Web'))?.confirmOutsideSandbox).toBe(true)
-  })
-
-  test('in a Bypass Factory an App runs as before', async () => {
-    const outside = path.join(scratch, 'outside')
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': `permissions: bypass\n${appsYaml(toucher(outside))}`,
-    })
-    const client = await start()
-    const task = await taskWithWorktree(client)
-    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Toucher' })
-    expect(await logOf(client, task, outside)).toContain(`wrote ${outside}`)
-  })
+  test.each([false, true])(
+    'repo Bypass only removes an agent’s App sandbox with local consent: %s',
+    async (consent) => {
+      const outside = path.join(scratch, 'outside')
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml': `permissions: bypass\n${appsYaml(toucher(outside))}`,
+      })
+      const client = await start()
+      const task = await taskWithWorktree(client)
+      if (consent)
+        await client.ok('PUT', `/factories/${task.factoryId}/permissions`, {
+          mode: 'bypass',
+          confirmBypass: true,
+        })
+      const asRun = api(
+        daemon?.port ?? 0,
+        (await loadRunTokens(tedPaths(home).runTokenKey)).issue(
+          task.leadRunId ??
+            (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId ??
+            '',
+        ),
+      )
+      expect(
+        (await asRun.call('POST', `/tasks/${task.id}/apps/start`, { name: 'Toucher' })).status,
+      ).toBe(200)
+      const log = await logOf(client, task, outside)
+      if (consent) expect(log).toContain(`wrote ${outside}`)
+      else {
+        expect(log).not.toContain(`wrote ${outside}`)
+        await expect(readFile(outside)).rejects.toThrow()
+      }
+    },
+  )
 
   test('without a working sandbox a Run’s App doesn’t start and says why, but the human’s does', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })

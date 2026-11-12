@@ -13,12 +13,12 @@ import {
   type Task,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
   api,
   appClient,
-  basedOnLine,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -129,17 +129,10 @@ describe('Library settings', () => {
 
     const after = await client.save(changes, before.version)
     expect(await libraryFile('stages/review.md')).toBe(edited)
-    expect(await libraryFile('workflow.yaml')).toBe(
-      [
-        'version: 1',
-        'stages:',
-        '  design:',
-        '    gate: false',
-        '  review:',
-        `    ${basedOnLine(blobHash(review))}`,
-        '',
-      ].join('\n'),
-    )
+    expect(parse((await libraryFile('workflow.yaml')) ?? '')).toEqual({
+      version: 1,
+      stages: { design: { gate: false }, review: { based_on: blobHash(review) } },
+    })
     expect(after.stages.find((s) => s.id === 'review')).toMatchObject({
       from: 'library',
       libraryFile: edited,
@@ -360,4 +353,48 @@ describe('restart idle Runs onto new agent versions', () => {
     await new Promise((resolve) => setTimeout(resolve, 1000))
     expect(await starts()).toHaveLength(1)
   })
+})
+
+test('the Validate round settings save to the Library and turn off again', async () => {
+  const client = await start()
+  const before = await client.view()
+  const validate = (view: typeof before) => view.stages.find((s) => s.id === 'validate')
+  expect(validate(before)).toMatchObject({ p1OnlyFrom: false, subAgents: false })
+  const on = await client.save(
+    {
+      stages: {
+        validate: { p1OnlyFrom: 2, subAgents: true },
+        work: { leadClosesFailures: true },
+      },
+    },
+    before.version,
+  )
+  expect(validate(on)).toMatchObject({ p1OnlyFrom: 2, subAgents: true, maxBack: 5 })
+  expect(before.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
+  expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
+  const yaml = await libraryFile('workflow.yaml')
+  expect(yaml).toContain('p1_only_from: 2')
+  expect(yaml).toContain('sub_agents: true')
+  const off = await client.save(
+    { stages: { validate: { p1OnlyFrom: false, subAgents: false } } },
+    on.version,
+  )
+  expect(validate(off)).toMatchObject({ p1OnlyFrom: false, subAgents: false })
+  expect(await libraryFile('workflow.yaml')).toContain('p1_only_from: false')
+})
+
+test('Stage effort saves and removing it restores inheritance without losing other Stage settings', async () => {
+  const client = await start()
+  const before = await client.view()
+  const after = await client.save(
+    { stages: { work: { effort: 'high', maxBack: 2 } } },
+    before.version,
+  )
+  expect(after.stages.find((s) => s.id === 'work')).toMatchObject({ effort: 'high', maxBack: 2 })
+  const reset = await client.save({ stages: { work: { effort: null } } }, after.version)
+  expect(reset.stages.find((s) => s.id === 'work')).toMatchObject({ effort: null, maxBack: 2 })
+  expect(await libraryFile('workflow.yaml')).not.toContain('effort:')
+  for (const stages of [{ work: { effort: 'huge' } }, { done: { effort: 'high' } }]) {
+    expect((await client.call('POST', '/library/preview', { stages })).status).toBe(400)
+  }
 })

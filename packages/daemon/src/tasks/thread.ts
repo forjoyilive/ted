@@ -7,9 +7,10 @@ import type {
   LayerUse,
   ThreadEvent,
   ThreadEventTone,
+  ValidationSnapshot,
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
-import type { LoggedEvent } from '../store/index.ts'
+import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
@@ -149,6 +150,14 @@ export function appExitLine(name: string, code: unknown, signal: unknown): strin
   return `${name} stopped running`
 }
 
+export function taskThreadEvents(
+  store: Pick<TedStore, 'taskLog'>,
+  taskId: string,
+  context: ThreadContext,
+): ThreadEvent[] {
+  return threadEvents(taskId, store.taskLog(taskId), context)
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -162,6 +171,7 @@ export function threadEvents(
   let sentBackTo: string | undefined
   let held = false
   let judged: Record<string, unknown> | undefined
+  let declared: string | undefined
   let depthSet = false
   const splits = new Set(log.filter((e) => e.name === 'v1.TaskSplit').map((e) => e.at))
   const descriptionChanges = (version: unknown) => {
@@ -174,13 +184,18 @@ export function threadEvents(
   const edits = new Map(
     log.filter((e) => e.name === 'v1.TaskEdited').map((e) => [e.at, e.data.version] as const),
   )
+  const causes = new Map(
+    log
+      .filter((e) => e.name === 'v1.SendBackCauseRecorded')
+      .map((e) => [e.at, e.data.cause] as const),
+  )
   const add = (
     entry: LoggedEvent,
     tone: ThreadEventTone,
     line: string,
     findings?: string,
     checkRunId?: string,
-    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'changes' | 'planId'>,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'validation' | 'changes' | 'planId'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -193,6 +208,7 @@ export function threadEvents(
       ...(extra?.judgments !== undefined &&
         extra.judgments.length > 0 && { judgments: extra.judgments }),
       ...(extra?.validate !== undefined && { validate: extra.validate }),
+      ...(extra?.validation !== undefined && { validation: extra.validation }),
       ...(extra?.changes !== undefined && { changes: extra.changes }),
       ...(extra?.planId !== undefined && { planId: extra.planId }),
     })
@@ -279,6 +295,12 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.TaskSnoozed':
+        add(entry, 'edit', 'Task snoozed')
+        break
+      case 'v1.TaskSnoozeCleared':
+        add(entry, 'edit', 'Snooze cleared')
+        break
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break
@@ -383,7 +405,17 @@ export function threadEvents(
       case 'v1.TaskRequeuedAfterBlockers':
         add(entry, 'run', 'Blockers merged · Task queued to carry on')
         break
+      case 'v1.TaskPreparationChanged':
+        if (data.state === 'preparing') add(entry, 'run', 'Preparing through Design')
+        break
+      case 'v1.TaskResumedOvernight':
+        add(entry, 'run', 'Overnight mode resumed the Task')
+        break
       case 'v1.TaskStopped': {
+        if (data.why === 'prepared') {
+          add(entry, 'quiet', 'Ready for Work · Resume or turn on Overnight mode')
+          break
+        }
         if (data.why === 'blockers-removed') {
           add(entry, 'quiet', 'Blockers removed · resume the Task to carry on')
           break
@@ -419,11 +451,19 @@ export function threadEvents(
           text(data.findings).trim(),
         )
         break
+      case 'v1.SendBackSeverityDeclared':
+        declared = text(data.severity)
+        break
       case 'v2.TaskSentBack': {
         sentBackTo = text(data.to)
         const fromValidate = text(data.from) === 'validate'
         const judgedNow = fromValidate ? judged : undefined
         judged = undefined
+        const severity =
+          fromValidate && typeof data.round === 'number' && !text(data.checkRunId)
+            ? declared
+            : undefined
+        declared = undefined
         const round =
           typeof data.round !== 'number'
             ? ''
@@ -437,7 +477,7 @@ export function threadEvents(
           'failure',
           `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
             judgedNow ? reviewedBy(judgedNow) : ''
-          }`,
+          }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}${severity === 'p1' ? ' · P1 declared' : severity === 'unfixed' ? ' · earlier Finding unfixed declared' : ''}`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
           checkRunId ?? (judgedNow ? text(judgedNow.checkRunId) || undefined : undefined),
           {
@@ -448,6 +488,7 @@ export function threadEvents(
         break
       }
       case 'v1.ValidateJudged':
+      case 'v2.ValidateJudged':
         if (data.outcome === 'sent-back') {
           judged = data
           break
@@ -459,8 +500,35 @@ export function threadEvents(
           `Validate passed${reviewedBy(data)}`,
           undefined,
           text(data.checkRunId) || undefined,
-          { judgments: judgmentsIn(data), validate: 'passed' },
+          {
+            judgments: judgmentsIn(data),
+            validate: 'passed',
+            ...(typeof data.validation === 'string' && {
+              validation: JSON.parse(data.validation) as ValidationSnapshot,
+            }),
+          },
         )
+        break
+      case 'v1.SendBackAsked':
+        add(
+          entry,
+          'failure',
+          data.from === data.to
+            ? `Checks kept failing as this Task tried to leave ${stageTitle(text(data.from))}, so TED asked the human`
+            : `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          text(data.findings).trim(),
+          text(data.checkRunId) || undefined,
+        )
+        break
+      case 'v1.BaseConflictFound':
+        if (text(data.sendBackId) === '') {
+          const count = typeof data.fileCount === 'number' ? data.fileCount : 0
+          add(
+            entry,
+            'failure',
+            `TED kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
+          )
+        }
         break
       case 'v1.LoopCheckStarted':
         add(
@@ -484,9 +552,11 @@ export function threadEvents(
         break
       }
       case 'v1.TaskStageEntered':
-      case 'v2.TaskStageEntered': {
+      case 'v2.TaskStageEntered':
+      case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
+        declared = undefined
         if (sentBackTo === stage) {
           sentBackTo = undefined
           const fallback = settingsFallback(data.layers)
@@ -526,7 +596,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskGatesChanged':
-        add(entry, 'edit', 'You changed this Task’s Gates')
+        add(entry, 'edit', 'You changed this Task’s sign-offs')
         break
       case 'v1.GateKeptOvernight':
         add(
@@ -536,14 +606,14 @@ export function threadEvents(
             data.reason === 'unreadable'
               ? 'TED couldn’t read this Task’s changes'
               : 'this Task changes .ted/'
-          }, so its ${stageTitle(text(data.stage))} Gate stays on`,
+          }, so its ${stageTitle(text(data.stage))} sign-off stays on`,
         )
         break
       case 'v1.GateSkippedOvernight':
         add(
           entry,
           'quiet',
-          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} Gate`,
+          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} sign-off`,
         )
         break
       case 'v1.TaskLeadSet':

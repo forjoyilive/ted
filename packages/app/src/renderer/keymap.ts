@@ -17,6 +17,7 @@ const sections: readonly SheetSection[] = [
       { id: 'new-task', label: 'New Task', keys: ['⌘N', 'C'] },
       { id: 'go-to-inbox', label: 'Go to Inbox', keys: ['G I'] },
       { id: 'go-to-all-tasks', label: 'Go to All Tasks', keys: ['G A'] },
+      { id: 'go-to-dashboard', label: 'Go to Dashboard', keys: ['G D'] },
       { id: 'go-to-board', label: 'Go to Board', keys: ['G B'] },
       { id: 'go-to-list', label: 'Go to List', keys: ['G L'] },
       { id: 'go-to-plans', label: 'Go to Plans', keys: ['G P'] },
@@ -44,11 +45,6 @@ const sections: readonly SheetSection[] = [
     rows: [
       { id: 'reply', label: 'Reply', keys: ['R'] },
       { id: 'approve', label: 'Approve, then ↵ to confirm', keys: ['A'] },
-      {
-        id: 'accept-recommended',
-        label: 'Accept all recommended, then ↵ to confirm',
-        keys: ['⇧A'],
-      },
       { id: 'request-changes', label: 'Request changes', keys: ['⇧R'] },
       {
         id: 'send-message',
@@ -72,6 +68,7 @@ const sections: readonly SheetSection[] = [
       { id: 'move-up', label: 'Move up in rank (Manual order)', keys: ['⌥↑'] },
       { id: 'move-down', label: 'Move down in rank (Manual order)', keys: ['⌥↓'] },
       { id: 'archive', label: 'Archive', keys: ['⌘⌫'] },
+      { id: 'quick-open', label: 'Open a file', keys: ['⌘P'] },
       { id: 'shell', label: 'Open the Task’s shell', keys: ['⌃`'] },
     ],
   },
@@ -91,6 +88,19 @@ const byId = new Map(sections.flatMap((s) => s.rows.map((r) => [r.id, r.keys] as
 
 export function keysFor(id: string): readonly string[] {
   return byId.get(id) ?? []
+}
+
+export function imageNavigationKey(event: {
+  key: string
+  shiftKey: boolean
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+}): 'previous' | 'next' | undefined {
+  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return undefined
+  if (event.key === 'ArrowLeft') return 'previous'
+  if (event.key === 'ArrowRight') return 'next'
+  return undefined
 }
 
 export const keyBindings: readonly { id: string; shortcuts: readonly string[] }[] = [

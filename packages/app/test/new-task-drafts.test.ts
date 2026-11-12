@@ -135,7 +135,7 @@ describe('New Task drafts', () => {
     }
   })
 
-  test('switches independent Factory drafts and clears only the submitted draft with Create more and Create', async () => {
+  test('switches independent Factory drafts and clears only the submitted draft with Create more and Create; a removed Linear source stays dismissed on reopening', async () => {
     const window = await setup()
     const client = await daemonClient()
     const factories = await client.listFactories()
@@ -179,12 +179,34 @@ describe('New Task drafts', () => {
     await form(window).waitFor({ state: 'detached' })
     expect((await client.taskDraft(second.id)).draft).toBeNull()
     expect((await client.listTasks()).some((t) => t.description === 'Site draft')).toBe(true)
+
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await open(window)
+    await form(window)
+      .getByLabel('Description', { exact: true })
+      .fill('https://linear.app/kriyadesign/issue/KRI-229')
+    await form(window).getByRole('button', { name: 'Remove source' }).click()
+    await form(window).getByLabel('Start now', { exact: true }).uncheck()
+    const blocker = await client.createTask({ factory: 'NB', title: 'Temporary blocker' })
+    await form(window).getByRole('button', { name: 'Add blocker', exact: true }).click()
+    await form(window).getByLabel('Find a Task').fill(blocker.displayId)
+    await form(window).getByRole('option').filter({ hasText: blocker.displayId }).click()
+    await window.keyboard.press('Escape')
+    await form(window).waitFor({ state: 'detached' })
+    await open(window)
+    expect(await form(window).getByRole('button', { name: 'Remove source' }).count()).toBe(0)
+    await form(window).getByRole('button', { name: 'Close', exact: true }).click()
+    await form(window).waitFor({ state: 'detached' })
+    await waitUntil(async () => (await client.taskDraft(first.id)).draft, 'saved draft')
   })
 
   test('waits for incomplete startup health and keeps an available lead after Create more', async () => {
     const parent = path.join(ctx.home, 'origin')
     const origin = await makeOriginRepo(parent)
-    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\nlead: { agent: claude }\n' })
+    await commitToOrigin(parent, {
+      '.ted/workflow.yaml':
+        'version: 1\nlead: { agent: claude }\nstages:\n  intake: { effort: high }\n',
+    })
     await addFactory(origin, 'NB')
     let window = await launchApp()
     await sidebar(window).getByRole('button', { name: 'widgets', exact: true }).click()
@@ -235,10 +257,12 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
       .filter({ hasText: 'Task Lead changed to Codex' })
       .waitFor()
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     await window.keyboard.press('Escape')
     await form(window).waitFor({ state: 'detached' })
     await open(window)
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     expect(await form(window).getByRole('status').count()).toBe(0)
     await form(window).getByRole('button', { name: 'Create more', exact: true }).click()
     await waitFor(
@@ -251,6 +275,7 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByRole('button', { name: /^More/ }).click()
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     expect(
       await form(window).getByRole('button', { name: 'Create', exact: true }).isEnabled(),
     ).toBe(true)
@@ -259,34 +284,19 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     const task = (await (await daemonClient()).listTasks()).find(
       (task) => task.description === 'Keep my Task when the installed agents change',
     )
-    expect(task?.lead?.agent).toBe('codex')
+    expect(task?.lead).toMatchObject({ agent: 'codex', effortMode: 'stage' })
     expect(
       (await restarted.listTasks()).find(
         (task) => task.description === 'Another Task after Create more',
-      )?.lead?.agent,
-    ).toBe('codex')
-  })
-
-  test('a removed Linear source stays dismissed on reopening', async () => {
-    const window = await setup()
-    const client = await daemonClient()
-    await form(window)
-      .getByLabel('Description', { exact: true })
-      .fill('https://linear.app/kriyadesign/issue/KRI-229')
-    await form(window).getByRole('button', { name: 'Remove source' }).click()
-    await form(window).getByLabel('Start now', { exact: true }).uncheck()
-    const factory = (await client.listFactories()).find((f) => f.key === 'NB')
-    if (!factory) throw new Error('no Factory')
-    const blocker = await client.createTask({ factory: 'NB', title: 'Temporary blocker' })
-    await form(window).getByRole('button', { name: 'Add blocker', exact: true }).click()
-    await form(window).getByLabel('Find a Task').fill(blocker.displayId)
-    await form(window).getByRole('option').filter({ hasText: blocker.displayId }).click()
-    await window.keyboard.press('Escape')
-    await form(window).waitFor({ state: 'detached' })
-    await open(window)
-    expect(await form(window).getByRole('button', { name: 'Remove source' }).count()).toBe(0)
-    await form(window).getByRole('button', { name: 'Close', exact: true }).click()
-    await form(window).waitFor({ state: 'detached' })
-    await waitUntil(async () => (await client.taskDraft(factory.id)).draft, 'saved draft')
+      )?.lead,
+    ).toMatchObject({ agent: 'codex', effortMode: 'stage' })
+    if (!task) throw new Error('Created Task missing')
+    await restarted.startTask(task.displayId)
+    await waitUntil(async () => {
+      const current = (await restarted.listTasks()).find((entry) => entry.id === task.id)
+      if (!current?.leadRunId) return false
+      return (await restarted.getRun(current.leadRunId)).run.effort === 'high'
+    }, 'fallback Task Lead to use the configured Intake effort')
+    await restarted.stopTask(task.displayId)
   })
 })
