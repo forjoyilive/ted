@@ -175,7 +175,7 @@ export function AutomationPromptDraft({
             <Button
               size="small"
               disabled={busy || !request.trim() || !factory}
-              onClick={() => void generate()}
+              onClick={() => generate()}
             >
               {job?.state === 'failed' || error
                 ? 'Try again'
@@ -184,7 +184,7 @@ export function AutomationPromptDraft({
                   : 'Generate draft'}
             </Button>
             {busy && (
-              <Button size="small" onClick={() => void cancel()}>
+              <Button size="small" onClick={() => cancel()}>
                 Cancel drafting
               </Button>
             )}

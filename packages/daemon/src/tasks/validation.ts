@@ -10,6 +10,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
@@ -73,6 +74,15 @@ export function createValidation(options: ValidationOptions) {
       .context(task)
       .then(coverageOf)
       .catch(() => undefined)
+  const codeOf = (covered: string) => JSON.stringify(JSON.parse(covered).repos)
+  const merged = (task: Task) => {
+    const opened = task.repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    return (
+      task.stage === 'merge' &&
+      opened.length > 0 &&
+      opened.every((r) => r.pullRequest?.state === 'merged')
+    )
+  }
 
   async function failureEvidence(task: Task, run: CheckRun, position: number) {
     const evidence = generatedFailureText(
@@ -83,7 +93,7 @@ export function createValidation(options: ValidationOptions) {
   }
 
   function sourceCheck(value: FailureCase) {
-    return value.source.kind === 'factory-check'
+    return value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
       ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
           value.originalCheck)
       : value.originalCheck
@@ -93,15 +103,26 @@ export function createValidation(options: ValidationOptions) {
     for (const prior of store.failures.list(task.id)) {
       const original = sourceCheck(prior)
       if (
-        !prior.validation ||
+        (!prior.validation &&
+          !(
+            prior.source.kind === 'post-rebase-check' &&
+            prior.resolutions.at(-1)?.resolution === 'repair'
+          )) ||
         prior.verifications?.length ||
-        prior.source.kind !== 'factory-check' ||
+        (prior.source.kind !== 'factory-check' && prior.source.kind !== 'post-rebase-check') ||
         prior.source.checkRunId === run.id ||
         !original ||
         run.startedAt < prior.createdAt
       )
         continue
       const decision = prior.resolutions.at(-1)
+      if (
+        decision?.resolution === 'repair' &&
+        !prior.repairProgress?.some(
+          (p) => p.requestId === decision.requestId && run.startedAt >= p.at,
+        )
+      )
+        continue
       if (
         decision?.resolution === 'accepted' &&
         !prior.invalidations.some((i) => i.requestId === decision.requestId)
@@ -158,8 +179,30 @@ export function createValidation(options: ValidationOptions) {
       if (context) contextId = store.failures.capture(context).id
       if (context) await failures.obligations(task, context)
       const prior = progress?.contextId ? store.failures.context(progress.contextId) : undefined
+      const incorporation = store.failures
+        .list(task.id)
+        .flatMap((value) => {
+          const decision = value.resolutions.at(-1)
+          return decision?.resolution === 'repair' && !value.verifications?.length
+            ? (value.repairProgress ?? []).filter((p) => p.requestId === decision.requestId)
+            : []
+        })
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .at(-1)
+      const repairNeedsExecution =
+        incorporation !== undefined &&
+        !progress?.executions.some((execution) => {
+          const run = store.getCheckRun(execution.runId)
+          return (
+            execution.start === 0 &&
+            run?.stage === task.stage &&
+            run.trigger === trigger &&
+            run.startedAt >= incorporation.at
+          )
+        })
       if (
         !progress ||
+        repairNeedsExecution ||
         progress.visit !== visitStart(task) ||
         !local ||
         (progress.coverage ?? (prior && coverageOf(prior))) !== local ||
@@ -307,6 +350,11 @@ export function createValidation(options: ValidationOptions) {
                 continue
               const decision = previous.resolutions.at(-1)
               if (
+                decision?.resolution === 'repair' &&
+                !previous.repairProgress?.some((p) => p.requestId === decision.requestId)
+              )
+                continue
+              if (
                 decision?.resolution === 'accepted' &&
                 !previous.invalidations.some((i) => i.requestId === decision.requestId)
               )
@@ -314,7 +362,7 @@ export function createValidation(options: ValidationOptions) {
               failures.verifyResult(
                 task,
                 previous.id,
-                `A new execution failed; failure ${failureId} now holds this verification.`,
+                `A new execution failed; failure ${shortReference(failureId)} now holds this verification.`,
                 checkRun.id,
                 failureId,
               )
@@ -422,7 +470,7 @@ export function createValidation(options: ValidationOptions) {
         await store.persisted()
         await options.deliver(
           task,
-          `Validate failure ${value.id} still needs diagnosis or a human decision. Original evidence:\n\n${value.evidence}`,
+          `Validate failure ${shortReference(value.id)} still needs diagnosis or a human decision. Original evidence:\n\n${value.evidence}`,
         )
         return
       }
@@ -521,7 +569,7 @@ export function createValidation(options: ValidationOptions) {
       const failureId = store.failures.progress(taskId)?.failureId
       await options.deliver(
         current,
-        `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ?? '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
       )
     } finally {
       options.setChecking(taskId, false)
@@ -535,6 +583,7 @@ export function createValidation(options: ValidationOptions) {
     sendDrafts = true,
   ) {
     const value = failures.get(task, id)
+    id = value.id
     if (!value.validation) {
       if (input.resolution === 'retry' || input.resolution === 'fix')
         throw new RequestError(400, 'this failure does not support Validate actions')
@@ -595,6 +644,16 @@ export function createValidation(options: ValidationOptions) {
     if (task.stage === 'done') return true
     if (!progress) return task.stage !== 'validate' && visitStart(task) === ''
     if (progress.pending || progress.next < progress.checks.length) return false
+    const previous = progress.contextId ? store.failures.context(progress.contextId) : undefined
+    const tested = progress.coverage ?? (previous && coverageOf(previous))
+    // The Check plan is read from the default branch, which holds this Task’s own changes
+    // once its pull requests have merged, so only the code is compared from then on.
+    if (merged(task)) {
+      if (progress.visit !== visitStart(task)) return false
+      if (progress.checks.every((c) => c.state === 'skipped')) return true
+      const local = await coverage(task)
+      return local !== undefined && tested !== undefined && codeOf(local) === codeOf(tested)
+    }
     const resolution = await options.workflow(task)
     const plan = await options.plan(task, resolution)
     const samePlan =
@@ -605,8 +664,6 @@ export function createValidation(options: ValidationOptions) {
       progress.checks.every((c) => c.state === 'skipped') &&
       plan.every((p) => p.check.state === 'skipped')
     const local = samePlan && !skipped ? await coverage(task) : undefined
-    const previous = progress.contextId ? store.failures.context(progress.contextId) : undefined
-    const tested = progress.coverage ?? (previous && coverageOf(previous))
     if (samePlan && (skipped || (local && tested === local))) return true
     store.failures.saveProgress({
       taskId: task.id,
@@ -621,25 +678,45 @@ export function createValidation(options: ValidationOptions) {
   }
 
   async function verifyRepair(task: StoredTask, value: FailureCase, evidence: string) {
-    if (value.source.kind !== 'factory-check')
-      throw new RequestError(409, 'only a Factory Check repair can use current Check coverage')
+    if (value.source.kind !== 'factory-check' && value.source.kind !== 'post-rebase-check')
+      throw new RequestError(409, 'only a Check repair can use current Check coverage')
     const source = store.getCheckRun(value.source.checkRunId)
     const obligations = await failures.obligations(task)
     const current = await currentCoverage(task)
     const progress = store.failures.progress(task.id)
     const original = sourceCheck(value)
+    const decision = value.resolutions.at(-1)
+    const incorporation =
+      decision?.resolution === 'repair'
+        ? value.repairProgress?.findLast((p) => p.requestId === decision.requestId)
+        : undefined
+    const freshRepair =
+      incorporation &&
+      progress &&
+      (progress.checks.length === 0 ||
+        progress.executions.some((execution) => {
+          const run = store.getCheckRun(execution.runId)
+          return (
+            execution.start === 0 &&
+            run?.finishedAt !== undefined &&
+            run.stage === task.stage &&
+            run.trigger === task.stage &&
+            run.startedAt >= incorporation.at
+          )
+        }))
     if (
       !current ||
       !progress ||
       progress.pending ||
       !source ||
-      source.startedAt >= progress.visit ||
-      !store
-        .listStageEntries(task.id)
-        .some(
-          (entry) =>
-            entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
-        ) ||
+      (!freshRepair &&
+        (source.startedAt >= progress.visit ||
+          !store
+            .listStageEntries(task.id)
+            .some(
+              (entry) =>
+                entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
+            ))) ||
       !original ||
       progress.checks.some((c, position) => {
         if (c.state === 'passed' || c.state === 'skipped') return false
@@ -670,7 +747,7 @@ export function createValidation(options: ValidationOptions) {
     )
       throw new RequestError(
         409,
-        'complete current Checks in a fresh Validate visit and explain why the old Check is now skipped, removed or replaced',
+        'complete current Checks after repair incorporation or in a fresh Validate visit, and explain why the old Check is now skipped, removed or replaced',
       )
     return failures.verifyResult(
       task,
@@ -687,10 +764,35 @@ export function createValidation(options: ValidationOptions) {
       )
   }
 
+  function pendingRepair(task: Task): boolean {
+    return store.failures.list(task.id).some((value) => {
+      const decision = value.resolutions.at(-1)
+      if (decision?.resolution !== 'repair' || value.verifications?.length) return false
+      const incorporation = value.repairProgress?.findLast(
+        (p) => p.requestId === decision.requestId,
+      )
+      return (
+        incorporation !== undefined &&
+        !store
+          .listCheckRuns()
+          .some(
+            (run) =>
+              run.taskId === task.id &&
+              run.stage === task.stage &&
+              run.trigger === task.stage &&
+              run.startedAt >= incorporation.at &&
+              run.finishedAt !== undefined &&
+              run.outcome !== 'interrupted',
+          )
+      )
+    })
+  }
+
   function recover() {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
-      const restart = checkRun.trigger === 'validate' && task?.stage === 'validate'
+      const restart =
+        checkRun.trigger === 'validate' && task?.stage === 'validate' && !pendingRepair(task)
       if (restart) options.setChecking(task.id, true)
       store.checkSlotBoundary(checkRun.id, 'recovered', new Date().toISOString())
       store.finishChecks(checkRun.id, 'interrupted')
@@ -709,7 +811,17 @@ export function createValidation(options: ValidationOptions) {
         decision?.resolution === 'fix'
       if (
         task.stage === 'validate' &&
+        !pendingRepair(task) &&
         !task.archived &&
+        !store.failures.list(task.id).some((f) => {
+          const decision = f.resolutions.at(-1)
+          return (
+            decision?.resolution === 'repair' &&
+            !f.verifications?.length &&
+            !f.repairProgress?.some((p) => p.requestId === decision.requestId)
+          )
+        }) &&
+        !find(task.id).waitsForBlockers &&
         !find(task.id).stopped &&
         (!progress ||
           progress.visit !== visitStart(task) ||
@@ -727,6 +839,7 @@ export function createValidation(options: ValidationOptions) {
   }
 
   return {
+    pendingRepair,
     begin: beginChecks,
     coverage,
     enter: validateChecks,

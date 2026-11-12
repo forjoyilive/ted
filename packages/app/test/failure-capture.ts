@@ -4,6 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type { ElectronApplication } from 'playwright'
 import { TestRunner } from 'vitest'
+import { captureStartup, startupHome } from './startup-evidence.ts'
 
 const root = fileURLToPath(new URL('../../..', import.meta.url))
 const capturesDir = path.join(root, 'node_modules', '.cache', 'ted-test-captures')
@@ -73,6 +74,7 @@ async function capture(
   const dir = path.join(runDir, `${path.basename(test.file)}-${slug}-${process.pid}-${captured}`)
   await mkdir(dir)
 
+  await captureStartup(app)
   const notes = [`${test.file} > ${test.name}`, '', ...test.errors]
   const window = app.windows()[0]
   if (window) {
@@ -82,10 +84,12 @@ async function capture(
   } else {
     notes.push('', 'The app had no window.')
   }
-  const home = await within(
-    app.evaluate(() => process.env.TED_HOME),
-    5000,
-  )
+  const home =
+    startupHome(app) ??
+    (await within(
+      app.evaluate(() => process.env.TED_HOME),
+      5000,
+    ))
   if (home) {
     const budget = { left: maxCaptureBytes }
     const skipped = [

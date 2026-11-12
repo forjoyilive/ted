@@ -13,9 +13,9 @@ import {
   env,
   launchApp,
   lightApp,
+  openFactoryView,
   openSettings,
   setUpAppTests,
-  sidebar,
   startDaemonAsApp,
 } from './app-harness.ts'
 import { appLoaded, firstWindow } from './first-window.ts'
@@ -79,7 +79,7 @@ describe('New Task dialog', () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     await addFactory(origin, 'NB')
     const window = await launchApp()
-    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await openFactoryView(window, 'widgets', 'Board')
     return window
   }
 

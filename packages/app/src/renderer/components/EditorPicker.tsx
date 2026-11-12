@@ -40,7 +40,7 @@ export function EditorPickerHost() {
   if (!request) return null
   const finish = (pick: EditorPick | undefined) => {
     setRequest(undefined)
-    request(pick)
+    return request(pick)
   }
   return <EditorPicker onPick={finish} />
 }

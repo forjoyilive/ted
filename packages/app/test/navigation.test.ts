@@ -23,7 +23,7 @@ function after(...actions: Parameters<typeof navigate>[1][]): Navigation {
 
 describe('navigation', () => {
   test('opening a Planning request retains its target and clears it on ordinary navigation', () => {
-    const targeted = navigate(initialNavigation, {
+    const targeted = navigate(after({ type: 'open-factory', factoryId: 'nb' }), {
       type: 'open-plan',
       factoryId: 'nb',
       planId: 'p1',

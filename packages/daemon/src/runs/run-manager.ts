@@ -29,7 +29,7 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
 import { chatToolPolicy } from '@ted/protocol/run'
 import {
   type AutoModeSignal,
@@ -187,6 +187,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   const billingOf = (kind: AgentKind) => store.settings().billing[kind]
+  // Every launch of an agent passes here, so nothing starts Antigravity on a Google plan
+  // before the human has accepted Google’s terms notice, whatever agent health last said.
+  const launchBilling = (kind: AgentKind) => {
+    const settings = store.settings()
+    if (
+      kind === 'antigravity' &&
+      settings.billing.antigravity === 'subscription' &&
+      !settings.antigravityPlanAccepted
+    )
+      throw new RequestError(409, antigravityPlanNotice)
+    return billingOf(kind)
+  }
 
   const environment = (): NodeJS.ProcessEnv => {
     const base = filterTedEnv(options.env?.() ?? process.env)
@@ -614,7 +626,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
         tools: chatToolPolicy(run.agent),
       }),
-      billing: billingOf(run.agent),
+      billing: launchBilling(run.agent),
     })
     const inputFrom = await stat(files.input).then(
       (info) => info.size,
@@ -839,7 +851,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
             tools: chatToolPolicy(kind),
           }),
-          billing: billingOf(kind),
+          billing: launchBilling(kind),
         })
         await writeLaunch(
           runDir,
@@ -909,7 +921,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
             tools: chatToolPolicy(run.agent),
           }),
-          billing: billingOf(run.agent),
+          billing: launchBilling(run.agent),
         })
         const inputFrom = await stat(files.input).then(
           (info) => info.size,
@@ -987,7 +999,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...((store.automationDrafts.get(runId) || store.sideChats.forRun(runId)) && {
               tools: chatToolPolicy(run.agent),
             }),
-            billing: billingOf(run.agent),
+            billing: launchBilling(run.agent),
           })
           await writeLaunch(runDir, run.cwd, launch, permissions)
           signal.throwIfAborted()

@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { executionIds } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { createBanners } from '../src/banners.ts'
-import { branchExists } from '../src/git.ts'
+import { branchExists, hasLocalBranch } from '../src/git.ts'
 import { createSandbox } from '../src/sandbox.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import { createTaskExecution } from '../src/tasks/execution.ts'
@@ -208,4 +210,106 @@ test('final cleanup refuses a linked sandbox root and leaves the sibling folder 
   await symlink(sibling, path.join(home, 'sandbox'))
   await expect(backend().cleanFolders(ref)).rejects.toThrow('plain')
   expect(await readFile(victim, 'utf8')).toBe('untouched')
+})
+
+test('a start removes a clean leftover worktree and its branch, leaves one with work, a plain folder or a link alone, and a failed add leaves no worktree or branch', async () => {
+  const origin = await makeOriginRepo(path.join(home, 'source'))
+  const factory = store.addFactory({
+    key: 'LO',
+    name: 'widgets',
+    repo: 'acme/widgets',
+    cloneUrl: origin,
+    defaultBranch: 'main',
+  })
+  const task = await store.createTask({ title: 'Leftover', factoryId: factory.id })
+  const ref = await createTaskExecution(store).local(task.id)
+  const entry = {
+    name: 'widgets',
+    repo: factory.repo,
+    cloneUrl: origin,
+    primary: true,
+    env: {},
+    copy: [],
+  }
+  const local = backend()
+  const clone = await local.prepare(ref, factory, entry)
+  const repo = local.localPath(clone)
+  const target = path.join(home, 'worktrees', task.displayId, 'widgets')
+  const git = (cwd: string, ...args: string[]) =>
+    promisify(execFile)('git', args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Test',
+        GIT_AUTHOR_EMAIL: 'test@example.com',
+        GIT_COMMITTER_NAME: 'Test',
+        GIT_COMMITTER_EMAIL: 'test@example.com',
+      },
+    })
+  const leftover = (branch: string) =>
+    git(repo, 'worktree', 'add', '--no-track', '-b', branch, target, 'origin/main')
+  const there = (file: string) =>
+    stat(file).then(
+      () => true,
+      () => false,
+    )
+
+  expect(await local.clear(clone, entry)).toBeUndefined()
+  await mkdir(target, { recursive: true })
+  expect(await local.clear(clone, entry)).toBeUndefined()
+
+  await leftover('ted/left')
+  expect(await local.clear(clone, entry)).toEqual({ branch: 'ted/left', branchDeleted: true })
+  expect(await there(target)).toBe(false)
+  expect(await hasLocalBranch(repo, 'ted/left')).toBe(false)
+
+  await leftover('ted/left')
+  await rm(target, { recursive: true })
+  const afterPrune = await local.create(clone, entry, 'ted/pruned', true)
+  await local.rollback(afterPrune)
+  await git(repo, 'branch', '-D', 'ted/left')
+
+  await leftover('ted/left')
+  await writeFile(path.join(target, 'note.txt'), 'mine\n')
+  await expect(local.clear(clone, entry)).rejects.toThrow(
+    'is a worktree on branch ted/left with 1 uncommitted file.',
+  )
+  await expect(local.create(clone, entry, 'ted/again', true)).rejects.toThrow('already exists')
+  expect(await hasLocalBranch(repo, 'ted/again')).toBe(false)
+  expect(await readFile(path.join(target, 'note.txt'), 'utf8')).toBe('mine\n')
+
+  await git(target, 'add', 'note.txt')
+  await git(target, 'commit', '-m', 'mine')
+  await expect(local.clear(clone, entry)).rejects.toThrow('with commits that aren’t on origin/main')
+  expect(await readFile(path.join(target, 'note.txt'), 'utf8')).toBe('mine\n')
+  expect(await local.clear(clone, entry, 'ted/left')).toEqual({
+    branch: 'ted/left',
+    branchDeleted: false,
+  })
+  expect(await there(target)).toBe(false)
+  expect((await git(repo, 'log', '-1', '--format=%s', 'ted/left')).stdout.trim()).toBe('mine')
+
+  await mkdir(target)
+  await writeFile(path.join(target, 'keep'), 'untouched')
+  await expect(local.clear(clone, entry)).rejects.toThrow('isn’t a worktree of TED’s widgets clone')
+  expect(await readFile(path.join(target, 'keep'), 'utf8')).toBe('untouched')
+
+  const outside = path.join(home, 'outside')
+  await mkdir(outside)
+  await writeFile(path.join(outside, 'keep'), 'untouched')
+  await rm(target, { recursive: true })
+  await symlink(outside, target)
+  await expect(local.clear(clone, entry)).rejects.toThrow('is a link')
+  expect(await readFile(path.join(outside, 'keep'), 'utf8')).toBe('untouched')
+  await rm(target)
+
+  const hook = path.join(repo, '.git', 'hooks', 'post-checkout')
+  await mkdir(path.dirname(hook), { recursive: true })
+  await writeFile(hook, '#!/bin/sh\nexit 1\n')
+  await chmod(hook, 0o755)
+  await expect(local.create(clone, entry, 'ted/failed', true)).rejects.toThrow('couldn’t make')
+  expect(await there(target)).toBe(false)
+  expect(await hasLocalBranch(repo, 'ted/failed')).toBe(false)
+  await rm(hook)
+  await local.rollback(await local.create(clone, entry, 'ted/failed', true))
 })

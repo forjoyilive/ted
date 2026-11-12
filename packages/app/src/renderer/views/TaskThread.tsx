@@ -4,19 +4,17 @@ import type {
   CheckRun,
   ClarifyDepth,
   Comment,
-  DescriptionVersion,
   Factory,
   LineComment,
   Priority,
   Task,
-  TaskBrief,
   TaskChanges,
   TaskEnding,
   TaskFileRef,
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import {
@@ -25,8 +23,10 @@ import {
   usePullRequestChanges,
   useTaskChanges,
 } from '../changes.ts'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { AppLogView } from '../components/AppLogView.tsx'
 import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
+import { AutopilotField } from '../components/Autopilot.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -36,14 +36,13 @@ import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
-import { DetailsSection } from '../components/DetailsSection.tsx'
 import { AllChanges, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
 import { FileView } from '../components/FileView.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
-import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
+import { ChevronIcon } from '../components/icons.tsx'
 import {
   DraftBar,
   isDraft,
@@ -54,6 +53,7 @@ import {
 } from '../components/LineComments.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
+import { PeerMessage } from '../components/PeerMessage.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
 import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
@@ -68,6 +68,7 @@ import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx
 import { TaskBrowserView } from '../components/TaskBrowserView.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { TaskConversationTabs } from '../components/TaskConversationTabs.tsx'
+import { TaskDescription } from '../components/TaskDescription.tsx'
 import { TaskDiscussion } from '../components/TaskDiscussion.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
@@ -76,7 +77,6 @@ import {
   useCheckRunList,
   useCommentList,
   useComments,
-  useDescriptionsState,
   useFailures,
   useStageEntries,
   useTaskBriefState,
@@ -84,7 +84,6 @@ import {
   useTaskRunsState,
   useThreadEventList,
 } from '../data.ts'
-import { briefPart, briefSummary } from '../details.ts'
 import { openInEditor } from '../editor.ts'
 import { quickOpenEvent, takeFileRequest, useTaskFiles } from '../files.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
@@ -153,6 +152,13 @@ function NoteRow({
         ? 'TED'
         : 'Task Lead'
   const state = delivery(task, comment)
+  if (comment.peer) {
+    return (
+      <li className={styles.peerComment}>
+        <PeerMessage peer={comment.peer} at={comment.createdAt} now={now} />
+      </li>
+    )
+  }
   return (
     <li className={styles.comment}>
       {agent !== undefined ? (
@@ -216,23 +222,31 @@ function EventRow({
       at={event.at}
       action={
         planId !== undefined ? (
-          <button type="button" className={styles.linkButton} onClick={() => onOpenPlan(planId)}>
+          <ActionButton
+            type="button"
+            className={styles.linkButton}
+            onClick={() => onOpenPlan(planId)}
+          >
             Open chat
-          </button>
+          </ActionButton>
         ) : runId !== undefined ? (
-          <button type="button" className={styles.linkButton} onClick={() => onOpenRun(runId)}>
+          <ActionButton
+            type="button"
+            className={styles.linkButton}
+            onClick={() => onOpenRun(runId)}
+          >
             View message
-          </button>
+          </ActionButton>
         ) : (
           changes !== undefined && (
-            <button
+            <ActionButton
               type="button"
               className={styles.linkButton}
               aria-expanded={showChanges}
               onClick={() => setShowChanges((shown) => !shown)}
             >
               {showChanges ? 'Hide changes' : 'Show changes'}
-            </button>
+            </ActionButton>
           )
         )
       }
@@ -336,11 +350,11 @@ export function TaskPanes({
   const show = (runId: string | undefined) => go({ kind: 'run', runId })
   const openRun = (runId: string) => {
     show(runId)
-    void ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
+    return ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
   const closeRun = (runId: string) => {
     if (visibleRun === runId) show(undefined)
-    void ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
+    return ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
   const openShell = (repo: string) => go({ kind: 'shell', repo })
   useEffect(() => {
@@ -357,7 +371,7 @@ export function TaskPanes({
   }, [task.id, task.repos])
   const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file, source })
   const openLocalFile = (file: ChangedFile) => showChanges({ kind: 'diff', file, source: 'local' })
-  const lineComments = useLineComments(task.id)
+  const lineComments = useLineComments(task)
   const drafts = lineComments.filter(isDraft)
   const seams: DiffSeams = {
     ...useDiffComments(
@@ -485,6 +499,7 @@ export function TaskPanes({
         onShowRun={show}
         onOpenRun={openRun}
         onCloseRun={closeRun}
+        onOpenBrief={openBrief}
         hidden={covered || shellRepo !== undefined}
         lines={{ current: lineComments, onOpen: openLine }}
         shownApp={shownApp}
@@ -525,11 +540,6 @@ export function TaskPanes({
             refresh={fileList.refresh}
           />
         }
-        brief={brief}
-        briefError={briefResource.error}
-        onRetryBrief={briefResource.retry}
-        briefOpen={fullBrief}
-        onOpenBrief={openBrief}
       />
     </>
   )
@@ -551,6 +561,7 @@ export function TaskThread({
   onShowRun,
   onOpenRun,
   onCloseRun,
+  onOpenBrief,
   hidden = false,
   lines,
   shownApp,
@@ -572,6 +583,7 @@ export function TaskThread({
   onShowRun: (runId: string | undefined) => void
   onOpenRun: (runId: string) => void
   onCloseRun: (runId: string) => void
+  onOpenBrief?: (() => void) | undefined
   hidden?: boolean
   lines?: LineLinks | undefined
   shownApp?: ShownApp | undefined
@@ -716,6 +728,7 @@ export function TaskThread({
             request={comment}
             task={task}
             newer={newer}
+            onOpenTask={onOpenTask}
             expanded={comment.id === answeredId}
             onOpenRun={onOpenRun}
           />
@@ -744,6 +757,7 @@ export function TaskThread({
           onOpenFile={onOpenFile}
           onAllChanges={onAllChanges}
           request={comment}
+          onOpenTask={onOpenTask}
           task={task}
           onOpenRun={onOpenRun}
           onOpenApp={onOpenApp}
@@ -767,14 +781,14 @@ export function TaskThread({
         </section>
       )}
       <section
-        className={styles.pane}
+        className={`${styles.pane} ${styles.taskPane}`}
         aria-label="Task thread"
         style={hidden || talking ? { display: 'none' } : undefined}
       >
         {backLink !== undefined && (
-          <button type="button" className={styles.back} onClick={onBack}>
+          <ActionButton type="button" className={styles.back} onClick={onBack}>
             {backLink}
-          </button>
+          </ActionButton>
         )}
         {task.archived && <ArchivedBar task={task} />}
         <header
@@ -787,39 +801,39 @@ export function TaskThread({
               {task.followUpOf ? (
                 <>
                   {'Follow-up to '}
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.metaLink}
                     onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
                   >
                     {task.followUpOf.displayId}
-                  </button>
+                  </ActionButton>
                 </>
               ) : task.setup ? (
                 'Created by TED'
               ) : task.splitFrom ? (
                 <>
                   {'Split from '}
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.metaLink}
                     onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
                   >
                     {task.splitFrom.displayId}
-                  </button>
+                  </ActionButton>
                 </>
               ) : task.fromPlan?.deleted ? (
                 'From a deleted planning chat'
               ) : task.fromPlan ? (
                 <>
                   {'From planning chat '}
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.metaLink}
                     onClick={() => task.fromPlan && onOpenPlan(task.fromPlan.id)}
                   >
                     {task.fromPlan.title}
-                  </button>
+                  </ActionButton>
                 </>
               ) : (
                 'Created by you'
@@ -836,7 +850,7 @@ export function TaskThread({
                 size="small"
                 variant="primary"
                 onClick={() =>
-                  void runStatusAction(headerAction.kind, task).catch((error: unknown) =>
+                  runStatusAction(headerAction.kind, task).catch((error: unknown) =>
                     console.error(error),
                   )
                 }
@@ -844,8 +858,9 @@ export function TaskThread({
                 {headerAction.label}
               </Button>
             )}
-            <TaskActionsMenu task={task} onFollowedUp={onFollowedUp} />
+            <TaskActionsMenu task={task} onFollowedUp={onFollowedUp} onOpenBrief={onOpenBrief} />
           </div>
+          <TaskDescription task={task} />
           <div className={styles.headerRow}>
             <StageTrack
               track={task.track}
@@ -859,7 +874,6 @@ export function TaskThread({
               activity !== undefined && <span className={styles.activity}>· {activity}</span>
             )}
           </div>
-          {task.description !== '' && <p className={styles.description}>{task.description}</p>}
         </header>
         <TaskConversationTabs
           task={task}
@@ -870,145 +884,147 @@ export function TaskThread({
           onOpen={openConversation}
           onClose={onCloseRun}
         />
-        {shownApp?.browser ? (
-          <TaskBrowserView
-            task={task}
-            shown={shownApp}
-            onBack={() => onCloseApp?.()}
-            onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
-          />
-        ) : shownApp !== undefined ? (
-          <AppLogView
-            key={`${shownApp.repo}/${shownApp.name}`}
-            task={task}
-            shown={shownApp}
-            onBack={() => onCloseApp?.()}
-          />
-        ) : showingSubAgent && shownRun !== undefined && !talking ? (
-          <>
-            {open.length > 0 && (
-              <div className={styles.filterNote}>
-                A Task request needs your answer ·{' '}
-                <button
+        <div className={styles.taskContent}>
+          {shownApp?.browser ? (
+            <TaskBrowserView
+              task={task}
+              shown={shownApp}
+              onBack={() => onCloseApp?.()}
+              onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
+            />
+          ) : shownApp !== undefined ? (
+            <AppLogView
+              key={`${shownApp.repo}/${shownApp.name}`}
+              task={task}
+              shown={shownApp}
+              onBack={() => onCloseApp?.()}
+            />
+          ) : showingSubAgent && shownRun !== undefined && !talking ? (
+            <>
+              {open.length > 0 && (
+                <div className={styles.filterNote}>
+                  A Task request needs your answer ·{' '}
+                  <ActionButton
+                    type="button"
+                    className={styles.linkButton}
+                    onClick={() => {
+                      onShowRun(undefined)
+                      if (open[0]) jumpToRequest(open[0].id)
+                    }}
+                  >
+                    View in Task Lead
+                  </ActionButton>
+                </div>
+              )}
+              <RunWithSideChat
+                key={shownRun}
+                runId={shownRun}
+                bar={shownRun !== task.leadRunId}
+                endedNote={
+                  task.canResume
+                    ? 'This Run has ended and is read-only. Resume the Task to carry on.'
+                    : undefined
+                }
+                onStopTask={() =>
+                  ted.stopTask(task.id).catch((error: unknown) => console.error(error))
+                }
+              />
+            </>
+          ) : null}
+          <div className={styles.threadBody} hidden={showingSubAgent || shownApp !== undefined}>
+            {stage !== undefined && (
+              <p className={styles.filterNote}>
+                Showing {stageName(stage)} only ·{' '}
+                <ActionButton
                   type="button"
                   className={styles.linkButton}
-                  onClick={() => {
-                    onShowRun(undefined)
-                    if (open[0]) jumpToRequest(open[0].id)
-                  }}
+                  onClick={() => setFilter(undefined)}
                 >
-                  View in Task Lead
-                </button>
-              </div>
+                  Show all
+                </ActionButton>
+              </p>
             )}
-            <RunWithSideChat
-              key={shownRun}
-              runId={shownRun}
-              bar={shownRun !== task.leadRunId}
-              endedNote={
-                task.canResume
-                  ? 'This Run has ended and is read-only. Resume the Task to carry on.'
-                  : undefined
-              }
-              onStopTask={() =>
-                void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
-              }
+            <RequestJumpBar
+              requests={open.map((request) => ({
+                id: request.id,
+                label: requestLabel(request),
+                title: headline(request),
+              }))}
+              onJump={jumpToRequest}
             />
-          </>
-        ) : null}
-        <div className={styles.threadBody} hidden={showingSubAgent || shownApp !== undefined}>
-          {stage !== undefined && (
-            <p className={styles.filterNote}>
-              Showing {stageName(stage)} only ·{' '}
-              <button
-                type="button"
-                className={styles.linkButton}
-                onClick={() => setFilter(undefined)}
-              >
-                Show all
-              </button>
-            </p>
+            <TaskDiscussion
+              taskId={task.id}
+              leadRunId={task.leadRunId}
+              earlier={earlier}
+              revealRun={
+                conversationReveal?.runId === shownRun
+                  ? conversationReveal?.target
+                  : shownRun !== task.leadRunId
+                    ? shownRun
+                    : undefined
+              }
+              revealRequest={reveal}
+              comments={commentList.items}
+              entries={entries}
+              stage={stage}
+              active={!hidden && !talking && !showingSubAgent && shownApp === undefined}
+              loading={historyLoading}
+              extra={[
+                ...rendered.map((item) => ({
+                  id:
+                    item.kind === 'comment'
+                      ? `comment:${item.comment.id}`
+                      : item.kind === 'event'
+                        ? `event:${item.event.id}`
+                        : `check:${item.checkRun.id}`,
+                  at: item.createdAt,
+                  hidden: !shownItems.has(item),
+                  node: <ul className={styles.discussionExtra}>{renderItem(item)}</ul>,
+                })),
+                ...(historyError
+                  ? [
+                      {
+                        id: 'history-error',
+                        at: task.createdAt,
+                        node: <LoadingError error={historyError} retry={retryHistory} />,
+                      },
+                    ]
+                  : []),
+                ...(historyLoading
+                  ? [
+                      {
+                        id: 'history-loading',
+                        at: task.createdAt,
+                        node: <Skeleton shape="history" label="Loading Task history…" />,
+                      },
+                    ]
+                  : []),
+              ]}
+              footer={(chat) => (
+                <div className={styles.threadComposer}>
+                  <UnsentChip
+                    drafts={(lines?.current ?? []).filter(isDraft)}
+                    onOpen={(c) => lines?.onOpen(c)}
+                  />
+                  <CommentBox
+                    key={task.id}
+                    task={task}
+                    run={chat?.run}
+                    hasLineComments={(lines?.current ?? []).some(isDraft)}
+                    onFollowedUp={onFollowedUp}
+                  />
+                </div>
+              )}
+            />
+          </div>
+          {output && (
+            <CheckOutputDialog
+              checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
+              position={output.position}
+              onClose={() => setOutput(undefined)}
+            />
           )}
-          <RequestJumpBar
-            requests={open.map((request) => ({
-              id: request.id,
-              label: requestLabel(request),
-              title: headline(request),
-            }))}
-            onJump={jumpToRequest}
-          />
-          <TaskDiscussion
-            taskId={task.id}
-            leadRunId={task.leadRunId}
-            earlier={earlier}
-            revealRun={
-              conversationReveal?.runId === shownRun
-                ? conversationReveal?.target
-                : shownRun !== task.leadRunId
-                  ? shownRun
-                  : undefined
-            }
-            revealRequest={reveal}
-            comments={commentList.items}
-            entries={entries}
-            stage={stage}
-            active={!hidden && !talking && !showingSubAgent && shownApp === undefined}
-            loading={historyLoading}
-            extra={[
-              ...rendered.map((item) => ({
-                id:
-                  item.kind === 'comment'
-                    ? `comment:${item.comment.id}`
-                    : item.kind === 'event'
-                      ? `event:${item.event.id}`
-                      : `check:${item.checkRun.id}`,
-                at: item.createdAt,
-                hidden: !shownItems.has(item),
-                node: <ul className={styles.discussionExtra}>{renderItem(item)}</ul>,
-              })),
-              ...(historyError
-                ? [
-                    {
-                      id: 'history-error',
-                      at: task.createdAt,
-                      node: <LoadingError error={historyError} retry={retryHistory} />,
-                    },
-                  ]
-                : []),
-              ...(historyLoading
-                ? [
-                    {
-                      id: 'history-loading',
-                      at: task.createdAt,
-                      node: <Skeleton shape="history" label="Loading Task history…" />,
-                    },
-                  ]
-                : []),
-            ]}
-            footer={(chat) => (
-              <div className={styles.threadComposer}>
-                <UnsentChip
-                  drafts={(lines?.current ?? []).filter(isDraft)}
-                  onOpen={(c) => lines?.onOpen(c)}
-                />
-                <CommentBox
-                  key={task.id}
-                  task={task}
-                  run={chat?.run}
-                  hasLineComments={(lines?.current ?? []).some(isDraft)}
-                  onFollowedUp={onFollowedUp}
-                />
-              </div>
-            )}
-          />
         </div>
-        {output && (
-          <CheckOutputDialog
-            checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
-            position={output.position}
-            onClose={() => setOutput(undefined)}
-          />
-        )}
       </section>
     </>
   )
@@ -1031,21 +1047,21 @@ function ArchivedBar({ task }: { task: Task }) {
     <div className={styles.archivedBar}>
       <span>{`Archived ${at ? formatDate(at, { day: 'numeric', month: 'short' }) : ''}`}</span>
       <span aria-hidden>·</span>
-      <button
+      <ActionButton
         type="button"
         className={styles.archivedAction}
         disabled={busy}
         onClick={() => {
           setBusy(true)
           setError(undefined)
-          ted
+          return ted
             .unarchiveTask(task.id)
             .catch((failure: unknown) => setError(readableError(failure)))
             .finally(() => setBusy(false))
         }}
       >
         Unarchive
-      </button>
+      </ActionButton>
       {error !== undefined && (
         <span className={styles.archivedError} role="alert">
           {error}
@@ -1066,11 +1082,6 @@ export function TaskDetails({
   hidden = false,
   shownApp,
   onOpenApp,
-  brief,
-  briefError,
-  onRetryBrief,
-  briefOpen = false,
-  onOpenBrief,
 }: {
   task: Task
   tasks: readonly Task[]
@@ -1082,16 +1093,11 @@ export function TaskDetails({
   hidden?: boolean
   shownApp?: ShownApp | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
-  brief?: TaskBrief | null | undefined
-  briefError?: string | undefined
-  onRetryBrief?: (() => void) | undefined
-  briefOpen?: boolean
-  onOpenBrief?: (() => void) | undefined
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
     setError(undefined)
-    request.catch((failure: unknown) => setError(readableError(failure)))
+    return request.catch((failure: unknown) => setError(readableError(failure)))
   }
   const editable = !task.archived
   const blocks = tasks.filter((t) => t.blockedBy.includes(task.id))
@@ -1099,6 +1105,7 @@ export function TaskDetails({
   const factory = factories.find((f) => f.id === task.factoryId)
   return (
     <DetailsPane className={styles.detailsPane} aria-label="Task details" hidden={hidden}>
+      <h2 className={styles.detailsHeading}>Task Details</h2>
       {task.setup && (
         <p className={styles.setupNote}>
           The Design and Review sign-offs are always on for a setup Task. Tasks started before it
@@ -1155,9 +1162,13 @@ export function TaskDetails({
             </>
           )}
         </dd>
+        <dt>Autopilot</dt>
+        <dd>
+          <AutopilotField task={task} />
+        </dd>
         <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
-          <TaskGatesField key={task.id} taskId={task.id} />
+          <TaskGatesField key={task.id} taskId={task.id} factoryId={task.factoryId} task={task} />
         </dd>
         {factory && showsRepos(factory) && (
           <>
@@ -1232,14 +1243,6 @@ export function TaskDetails({
       {files}
       <TaskRuns task={task} onOpenRun={onOpenRun} />
       <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
-      <TaskBriefSection
-        task={task}
-        brief={brief}
-        error={briefError}
-        retry={onRetryBrief}
-        open={briefOpen}
-        onOpenBrief={() => onOpenBrief?.()}
-      />
     </DetailsPane>
   )
 }
@@ -1277,167 +1280,6 @@ function FieldSelect({
   )
 }
 
-function TaskBriefSection({
-  task,
-  brief,
-  error,
-  retry,
-  open,
-  onOpenBrief,
-}: {
-  task: Task
-  brief: TaskBrief | null | undefined
-  error: string | undefined
-  retry: (() => void) | undefined
-  open: boolean
-  onOpenBrief: () => void
-}) {
-  const now = useNow()
-  const goal = brief ? briefPart(brief.text, 'Goal') : undefined
-  const next = brief ? briefPart(brief.text, 'Next step') : undefined
-  return (
-    <DetailsSection
-      id="brief"
-      title="Task brief"
-      collapsedSummary={brief === undefined ? undefined : briefSummary(brief, now)}
-    >
-      {error && retry && <LoadingError error={error} retry={retry} />}
-      {brief === undefined && !error && <Skeleton rows={1} label="Loading Task brief…" />}
-      {brief === null && (
-        <p className={styles.briefEmpty}>The Task Lead hasn’t written a Task brief yet.</p>
-      )}
-      {brief && (
-        <>
-          {goal !== undefined && <p className={styles.briefLine}>{`Goal: ${goal}`}</p>}
-          {next !== undefined && <p className={styles.briefLine}>{`Next step: ${next}`}</p>}
-          <Button size="small" aria-pressed={open} onClick={onOpenBrief}>
-            Full brief
-          </Button>
-        </>
-      )}
-      <OriginalRequest task={task} />
-    </DetailsSection>
-  )
-}
-
-function OriginalRequest({ task }: { task: Task }) {
-  const [open, setOpen] = useState(false)
-  const [history, setHistory] = useState(false)
-  const descriptions = useDescriptionsState(task.id)
-  const versions = descriptions.value
-  const original = versions?.[0]
-  const edits = (versions?.length ?? 1) - 1
-  return (
-    <>
-      <div className={styles.originalRow}>
-        <button
-          type="button"
-          className={styles.originalToggle}
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <ChevronIcon open={open} />
-          Original request
-        </button>
-        <button type="button" className={styles.linkButton} onClick={() => setHistory(true)}>
-          {edits === 0
-            ? 'Description history'
-            : `Description history · ${edits} ${edits === 1 ? 'edit' : 'edits'}`}
-        </button>
-      </div>
-      {open && (
-        <div className={styles.originalText}>
-          {descriptions.error && (
-            <LoadingError error={descriptions.error} retry={descriptions.retry} />
-          )}
-          {versions === undefined
-            ? !descriptions.error && <Skeleton label="Loading original request…" />
-            : original?.text.trim()
-              ? original.text
-              : task.source
-                ? `Created from ${task.source.linear?.identifier ?? task.source.url} with no description.`
-                : 'No description.'}
-        </div>
-      )}
-      {open && task.attachments.length > 0 && <CommentFiles files={task.attachments} />}
-      {history && (
-        <DescriptionHistory
-          task={task}
-          versions={versions}
-          error={descriptions.error}
-          retry={descriptions.retry}
-          onClose={() => setHistory(false)}
-        />
-      )}
-    </>
-  )
-}
-
-function DescriptionHistory({
-  task,
-  versions,
-  error,
-  retry,
-  onClose,
-}: {
-  task: Task
-  versions: readonly DescriptionVersion[] | undefined
-  error: string | undefined
-  retry: () => void
-  onClose: () => void
-}) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  const headingId = useId()
-  useEffect(() => {
-    dialog.current?.showModal()
-  }, [])
-  return (
-    <dialog
-      ref={dialog}
-      className={styles.historyDialog}
-      aria-labelledby={headingId}
-      onCancel={(event) => {
-        event.preventDefault()
-        onClose()
-      }}
-    >
-      <header className={styles.historyHead}>
-        <h2 id={headingId} className={styles.historyHeading}>
-          {`${task.displayId} description history`}
-        </h2>
-        <button type="button" className={styles.historyClose} aria-label="Close" onClick={onClose}>
-          <CloseIcon />
-        </button>
-      </header>
-      <ol className={styles.historyList} aria-busy={versions === undefined && error === undefined}>
-        {error ? (
-          <li>
-            <LoadingError error={error} retry={retry} />
-          </li>
-        ) : versions === undefined ? (
-          <li>
-            <Skeleton shape="history" label="Loading description history…" />
-          </li>
-        ) : null}
-        {versions?.length === 0 && <li>No description history.</li>}
-        {[...(versions ?? [])].reverse().map((v) => (
-          <li key={v.version} className={styles.historyItem}>
-            <p className={styles.historyMeta}>
-              {v.version === 1
-                ? `Original request · ${formatDate(v.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
-                : `Version ${v.version} · edited by you ${formatDate(v.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
-              {v.version === versions?.length && versions.length > 1 ? ' · current' : ''}
-            </p>
-            <p className={styles.historyText}>
-              {v.text.trim() === '' ? 'No description.' : v.text}
-            </p>
-          </li>
-        ))}
-      </ol>
-    </dialog>
-  )
-}
-
 function TaskRuns({ task, onOpenRun }: { task: Task; onOpenRun: (runId: string) => void }) {
   return <RunsSection runs={useTaskRuns(task.id)} onOpenRun={onOpenRun} />
 }
@@ -1456,7 +1298,7 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
   const gone = task.blockedBy.filter((id) => !tasks.some((t) => t.id === id))
   const change = (request: Promise<Task>) => {
     setError(undefined)
-    request.catch((failure: unknown) => setError(readableError(failure)))
+    return request.catch((failure: unknown) => setError(readableError(failure)))
   }
   return (
     <>
@@ -1471,13 +1313,13 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
       {gone.map((id) => (
         <p key={id} className={styles.deletedBlocker}>
           A deleted Task
-          <button
+          <ActionButton
             type="button"
             className={styles.linkButton}
             onClick={() => change(ted.unblockTask(task.id, id))}
           >
             Remove
-          </button>
+          </ActionButton>
         </p>
       ))}
       {error !== undefined && (

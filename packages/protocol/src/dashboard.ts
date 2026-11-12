@@ -116,6 +116,7 @@ export interface FlowPeriod {
   taskIds: string[]
   incomplete: { taskId: string; reasons: string[] }[]
   stages: FlowStage[]
+  reasons: FlowReason[]
   sendBacks: FlowSendBackGroup[]
   firstPass: {
     passed: number
@@ -129,4 +130,47 @@ export interface DashboardFlow {
   tasks: FlowTask[]
   current: FlowPeriod
   previous: FlowPeriod | null
+}
+
+export type FlowReasonId =
+  | import('./task-intervals.ts').TaskIntervalReason
+  | 'check-slot'
+  | 'test-lock'
+  | 'running-check'
+
+export interface FlowMeasuredInterval extends FlowInterval {
+  contributors: import('./task-intervals.ts').TaskIntervalContributor[]
+}
+
+export interface FlowTestEvidence {
+  id: string
+  runId?: string
+  checkRunId?: string
+  position?: number
+  registeredAt: string
+  coverage: 'reported' | 'unreported' | 'unsupported' | 'incomplete'
+  openWaitStartedAt?: string
+  checkCommand?: FlowInterval & { overlapMs: number }
+  outcome?: string
+}
+
+export interface FlowReasonSample {
+  taskId: string
+  elapsedMs: number | null
+  eligibleMs: number
+  coveredMs: number | null
+  coverage: 'full' | 'partial' | 'unavailable'
+  intervals: FlowMeasuredInterval[]
+  coverageIntervals: import('./task-intervals.ts').TaskIntervalCoverage[]
+  notices: string[]
+  invocations: FlowTestEvidence[]
+}
+
+export interface FlowReason {
+  reason: FlowReasonId
+  totalMs: number
+  medianMs: number | null
+  p25Ms: number | null
+  p75Ms: number | null
+  samples: FlowReasonSample[]
 }

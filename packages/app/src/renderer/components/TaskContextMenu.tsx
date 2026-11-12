@@ -2,6 +2,7 @@ import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
 import { useEffect, useState } from 'react'
+import { usePendingAction } from '../pending-action.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -34,6 +35,12 @@ function BulkTaskMenu({
   at: MenuPosition | undefined
   onClose: () => void
 }) {
+  const activity = usePendingAction(
+    `task-actions:${tasks
+      .map((t) => t.id)
+      .sort()
+      .join(',')}`,
+  )
   const [snoozing, setSnoozing] = useState(false)
   const [confirmation, setConfirmation] = useState<'archive' | 'delete'>()
   const [closePullRequests, setClosePullRequests] = useState(true)
@@ -154,15 +161,20 @@ function BulkTaskMenu({
   return (
     <>
       {at && (
-        <ContextMenu at={at} label={`${tasks.length} selected Tasks`} onClose={onClose}>
+        <ContextMenu
+          at={at}
+          label={`${tasks.length} selected Tasks`}
+          onClose={onClose}
+          pending={activity.pending}
+        >
           <MenuItems
             items={items}
             choose={(item) => {
-              onClose()
               setError(undefined)
-              Promise.resolve()
-                .then(() => item.action?.())
-                .catch((failure: unknown) => setError(readableError(failure)))
+              const result = activity.run(() => item.action?.())
+              if (result)
+                return result.then(onClose, (failure: unknown) => setError(readableError(failure)))
+              onClose()
             }}
           />
         </ContextMenu>
@@ -241,7 +253,7 @@ function BulkTaskMenu({
                 <Button
                   disabled={busy}
                   variant={confirmation === 'delete' ? 'danger' : 'primary'}
-                  onClick={() => void perform()}
+                  onClick={() => perform()}
                 >
                   {confirmation === 'archive' ? 'Archive' : 'Delete'} {tasks.length} Tasks
                 </Button>

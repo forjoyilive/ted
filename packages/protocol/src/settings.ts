@@ -61,6 +61,7 @@ export interface MachineSettings {
   factoryPermissions: Readonly<Record<string, PermissionMode>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
   lowPriorityWork: boolean
+  antigravityPlanAccepted: boolean
   maxChecksAtOnce: number
 }
 
@@ -99,6 +100,7 @@ export const defaultMachineSettings: MachineSettings = {
   factoryPermissions: {},
   appsOutsideSandbox: {},
   lowPriorityWork: true,
+  antigravityPlanAccepted: false,
   maxChecksAtOnce: 2,
 }
 

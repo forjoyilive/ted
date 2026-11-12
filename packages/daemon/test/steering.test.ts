@@ -482,3 +482,39 @@ test('a reply saved while its idle Task Lead is offline is sent when health reco
   )
   expect(sent.runId).toBe(runId)
 })
+
+test('an idle question reply waits for a working slot and records sent only after admission', async () => {
+  const client = await startTed()
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  let blocker: Task | undefined
+  const { task, runId, saved, current } = await questionDuringWork(client, async (_task, runId) => {
+    await writeFile(file('answer-boundary'), '')
+    await writeFile(file('finish-answer'), '')
+    await waitForState(client, runId, 'idle')
+    blocker = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: JSON.stringify({
+        steps: [{ say: 'slot occupied' }, { waitFor: file('keep-slot') }, { endTurn: true }],
+      }),
+    })
+    const blockerRun = await waitUntil(async () => {
+      const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === blocker?.id)
+      return task?.leadRunId
+    }, 'the blocking Task Lead')
+    await said(client, blockerRun, 'slot occupied')
+  })
+  expect(saved.answerDelivery?.sent).toBeUndefined()
+  await waitUntil(async () => {
+    const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+    return current?.status?.kind === 'queued' ? true : undefined
+  }, 'the reply to wait for a slot')
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  if (!blocker) throw new Error('the blocking Task was not created')
+  await client.ok('POST', `/tasks/${blocker.id}/stop`)
+  const sent = await waitUntil(
+    async () => (await current())?.answerDelivery?.sent,
+    'admitted reply',
+  )
+  expect(sent.runId).toBe(runId)
+})

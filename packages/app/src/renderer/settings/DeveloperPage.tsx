@@ -1,7 +1,9 @@
 import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
+import { useRefreshAction } from '../refresh-action.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button, Select, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
@@ -15,7 +17,7 @@ function usePolled<T>(load: () => Promise<T>) {
     value?: T | undefined
     error?: string
   }>()
-  const [attempt, setAttempt] = useState(0)
+  const { revision: attempt, refresh: retry, settled } = useRefreshAction()
   useEffect(() => {
     void attempt
     let stopped = false
@@ -37,30 +39,30 @@ function usePolled<T>(load: () => Promise<T>) {
           running = false
         })
     }
-    void tick()
+    void tick()?.finally(() => settled(attempt))
     const timer = setInterval(tick, refreshMs)
     return () => {
       stopped = true
+      settled(attempt)
       clearInterval(timer)
     }
-  }, [load, attempt])
+  }, [load, attempt, settled])
   return {
     value: state?.load === load ? state.value : undefined,
     error: state?.load === load ? state.error : undefined,
-    retry: () => setAttempt((n) => n + 1),
+    retry,
   }
 }
 
 const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(0)} MB`
 const gigabytes = (bytes: number) => `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 const tokens = (count: number) => count.toLocaleString('en-US')
-const shortId = (id: string) => id.slice(0, 8)
 
 function useCopyReport() {
   const [status, setStatus] = useState<string>()
   const copy = () => {
     setStatus(undefined)
-    ted.copyReport().then(
+    return ted.copyReport().then(
       () => setStatus('Report copied.'),
       (error: unknown) =>
         setStatus(`Couldn’t copy the report: ${error instanceof Error ? error.message : error}`),
@@ -75,7 +77,7 @@ function useProfile() {
   const record = () => {
     setRecording(true)
     setStatus(undefined)
-    ted
+    return ted
       .recordProfile(profileSeconds.default)
       .then(
         ({ file }) => setStatus(`Saved to ${file}`),
@@ -108,7 +110,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           <Switch
             label="Developer mode"
             checked={settings.developerMode}
-            onChange={(developerMode) => void ted.updateSettings({ developerMode })}
+            onChange={(developerMode) => ted.updateSettings({ developerMode })}
           />
         </SettingRow>
         <SettingRow
@@ -120,7 +122,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           <Button
             onClick={() => {
               setFolderProblem(undefined)
-              ted.showTedFolder().catch((error: unknown) => {
+              return ted.showTedFolder().catch((error: unknown) => {
                 setFolderProblem(error instanceof Error ? error.message : String(error))
               })
             }}
@@ -168,7 +170,7 @@ function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
 }
 
 function owner(process: ProcessInfo): string {
-  return process.owner === 'daemon' ? 'Daemon' : `Run ${shortId(process.owner.runId)}`
+  return process.owner === 'daemon' ? 'Daemon' : `Run ${shortReference(process.owner.runId)}`
 }
 
 function DiagnosticsView({
@@ -219,7 +221,7 @@ function DiagnosticsView({
                 {diagnostics?.runs.map((run) => (
                   <tr key={run.runId}>
                     <td className={styles.mono} title={run.runId}>
-                      {shortId(run.runId)}
+                      {shortReference(run.runId)}
                     </td>
                     <td>
                       {run.agent === 'claude'
@@ -297,7 +299,7 @@ function LogViewer({ runs }: { runs: string[] }) {
 
   const options = [
     { value: daemonLog, label: 'Daemon log' },
-    ...runs.map((runId) => ({ value: runId, label: `Run ${shortId(runId)} raw output` })),
+    ...runs.map((runId) => ({ value: runId, label: `Run ${shortReference(runId)} raw output` })),
   ]
 
   return (

@@ -141,7 +141,45 @@ export async function addWorktree(
   repo: string,
   input: { path: string; branch: string; from: string },
 ): Promise<void> {
+  await git(repo, 'worktree', 'prune')
   await git(repo, 'worktree', 'add', '--no-track', '-b', input.branch, input.path, input.from)
+}
+
+export interface ListedWorktree {
+  path: string
+  head?: string
+  branch?: string
+  locked: boolean
+}
+
+export async function listWorktrees(repo: string): Promise<ListedWorktree[]> {
+  const out = await git(repo, 'worktree', 'list', '--porcelain', '-z')
+  const listed: ListedWorktree[] = []
+  let current: ListedWorktree | undefined
+  for (const field of out.split('\0')) {
+    const space = field.indexOf(' ')
+    const name = space === -1 ? field : field.slice(0, space)
+    const value = space === -1 ? '' : field.slice(space + 1)
+    if (name === 'worktree') {
+      current = { path: value, locked: false }
+      listed.push(current)
+    } else if (!current) continue
+    else if (name === 'HEAD') current.head = value
+    else if (name === 'branch') current.branch = value.replace(/^refs\/heads\//, '')
+    else if (name === 'locked') current.locked = true
+  }
+  return listed
+}
+
+export async function hasLocalBranch(repo: string, branch: string): Promise<boolean> {
+  return git(repo, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`).then(
+    () => true,
+    () => false,
+  )
+}
+
+export async function deleteBranchAt(repo: string, branch: string, tip: string): Promise<void> {
+  await git(repo, '-c', 'core.hooksPath=/dev/null', 'update-ref', '-d', `refs/heads/${branch}`, tip)
 }
 
 export async function restoreWorktree(
@@ -723,6 +761,45 @@ export function parsePatch(patch: string): { hunks: DiffHunk[]; truncated?: true
 
 export async function headCommit(worktree: string): Promise<string> {
   return git(worktree, '--no-replace-objects', ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+}
+
+export async function prepareIncorporation(
+  worktree: string,
+  onto: string,
+): Promise<{ head: string; commit: string }> {
+  const changes = await workingChanges(worktree, 'HEAD')
+  if (changes.files.some((file) => file.uncommitted))
+    throw new GitError(
+      'Save or commit the worktree’s local changes before incorporating the repair',
+    )
+  const head = changes.head
+  if (await isAncestor(worktree, onto, head)) return { head, commit: head }
+  const base = await mergeBase(worktree, head, onto)
+  const tree = await replayedTree(worktree, { from: base, to: head, onto })
+  if (!tree)
+    throw new GitError(
+      'The merged repair conflicts with this Task; resolve the conflict before validation',
+    )
+  if (await isAncestor(worktree, head, onto)) return { head, commit: onto }
+  const commit = await git(
+    worktree,
+    ...noHooks,
+    '-c',
+    'user.name=TED',
+    '-c',
+    'user.email=ted@localhost',
+    '-c',
+    'commit.gpgsign=false',
+    'commit-tree',
+    tree,
+    '-p',
+    head,
+    '-p',
+    onto,
+    '-m',
+    'Incorporate merged repair',
+  )
+  return { head, commit }
 }
 
 export async function moveBranchTo(worktree: string, commit: string): Promise<void> {

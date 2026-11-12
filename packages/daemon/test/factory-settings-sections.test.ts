@@ -112,7 +112,11 @@ async function start(
   }
   const factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   const id = factory.id
-  const settings = () => ok<FactorySettingsView>('GET', `/factories/${id}/settings`)
+  const settings = (refresh?: 'first') =>
+    ok<FactorySettingsView>(
+      'GET',
+      `/factories/${id}/settings${refresh ? `?refresh=${refresh}` : ''}`,
+    )
   const preview = (changes: FactorySettingsChanges) =>
     ok<SettingsPreview>('POST', `/factories/${id}/settings/preview`, changes)
   const save = async (changes: FactorySettingsChanges, version: string, extra = {}) => {
@@ -568,7 +572,7 @@ describe('Factory settings: an invalid file', () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': `${workflowYaml}  review:\n    max_back: lots\n`,
     })
-    const view = await client.settings()
+    const view = await client.settings('first')
     expect(view.source).toBe('last-valid')
     expect(view.invalid).toMatchObject({
       file: '.ted/workflow.yaml',

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { redactSecrets } from '../../packages/daemon/src/redact.ts'
 import {
   executionManifest,
@@ -207,10 +207,11 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
   if (selected.length) selectScenarios(selected)
   if (
     options.action === 'acceptance' &&
-    (options.scenarios.length !== 1 || options.scenarios[0] !== 'lab-access')
+    (options.scenarios.length !== 1 ||
+      !['lab-access', 'product-pairing'].includes(options.scenarios[0] ?? ''))
   )
     throw new Error(
-      'initial acceptance selects only lab-access; use --action scenario for implementation scenarios',
+      'acceptance selects only lab-access or product-pairing; use --action scenario for other implementation scenarios',
     )
   const id = options.runId ?? randomUUID()
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('invalid run id')
@@ -384,7 +385,7 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
         artifacts.push((await step(host, 'build')).artifacts)
         if ((await step(host, 'verify')).contentHash !== expected)
           throw new Error(`${host.role}: source changed during build`)
-        if (options.action === 'acceptance') {
+        if (options.action === 'acceptance' && options.scenarios[0] === 'lab-access') {
           await step(host, 'probe')
           await step(host, 'start')
           const first = await step(host, 'observe')
@@ -405,6 +406,70 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
             throw new Error('restart did not create a fresh process')
           await step(host, 'stop')
         }
+      }
+      if (options.action === 'acceptance' && selected.includes('product-pairing')) {
+        const controller = config.hosts[0],
+          executor = config.hosts[1]
+        const result = {
+          id: 'product-pairing',
+          evidence: 'actual two-Mac execution' as const,
+          scope: 'production behavior',
+          command: replay,
+          prerequisites: [
+            'two pinned actual Macs',
+            'same reachable local network',
+            'committed product transport',
+          ],
+          expected: [
+            'two-mac-pairing',
+            'two-mac-worker-restart',
+            'two-mac-peer-refusal',
+            'two-mac-revocation',
+          ],
+          observed: [] as unknown[],
+          result: 'fail' as 'pass' | 'fail',
+          durationMs: 0,
+          evidencePaths: [] as string[],
+        }
+        report.scenarios.push(result)
+        await publish(directory, report)
+        const started = Date.now()
+        const { productPairing } = await import(
+          pathToFileURL(
+            path.join(
+              controller.root,
+              'runs',
+              id,
+              'source/scripts/execution-lab/product-pairing.ts',
+            ),
+          ).href
+        )
+        const observations = await productPairing({
+          run: path.join(controller.root, 'runs', id),
+          remoteAddress: executor.address,
+          worker: (product: unknown) =>
+            callHost(
+              config,
+              executor,
+              {
+                labId: config.labId,
+                host: executor,
+                action: 'product',
+                runId: id,
+                product: product as NonNullable<HostRequest['product']>,
+              },
+              run,
+            ),
+        })
+        if (!result.expected.every((invariant) => observations.invariants.includes(invariant)))
+          throw new Error('Product pairing evidence is incomplete')
+        result.observed.push({
+          ...observations,
+          hosts: preflight.map((host) => ({ machineId: host.machineId, hostname: host.hostname })),
+        })
+        result.durationMs = Date.now() - started
+        result.result = 'pass'
+        await publish(directory, report)
       }
       if (JSON.stringify(artifacts[0]) !== JSON.stringify(artifacts[1]))
         throw new Error('build artifacts differ across Macs')

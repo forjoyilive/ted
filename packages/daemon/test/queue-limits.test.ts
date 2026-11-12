@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type Activity,
+  type Comment,
   DaemonClient,
   type DaemonEvent,
   type Factory,
+  type InboxItem,
   type RunSlots,
   readDaemonInfo,
   type Task,
@@ -23,6 +25,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -44,8 +47,8 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startWithStub() {
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+async function startWithStub(options: { clock?: ManualClock; nudgeAfterMs?: number } = {}) {
+  daemon = await startDaemon({ ...options, home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -197,13 +200,12 @@ describe('the queue', () => {
     }
   })
 
-  test('a waiting Run frees its slot, and when it works again it isn’t held back', async () => {
+  test('permission waits release their slot and permission continuations are not held back', async () => {
     const client = await startWithStub()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const answered = path.join(scratch, 'answered')
     const a = await startTask(
       client,
-      `${steps({ hook: 'PermissionRequest' }, { waitFor: answered }, { hook: 'PreToolUse' }, { waitFor: path.join(scratch, 'never') })}`,
+      `${steps({ permission: { tool: 'Bash', input: { command: 'echo allowed' } } }, { hook: 'PreToolUse' }, { waitFor: path.join(scratch, 'never') })}`,
     )
     await waitForRunState(client, a, 'waiting')
     expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
@@ -215,7 +217,11 @@ describe('the queue', () => {
     const c = await startTask(client, 'C')
     expect(c.status).toEqual({ kind: 'queued', place: 1 })
 
-    await writeFile(answered, '')
+    const permission = (await client.ok<InboxItem[]>('GET', '/inbox')).find(
+      (item) => item.task.id === a.id && item.request.kind === 'permission',
+    )?.request
+    if (!permission) throw new Error('missing permission request')
+    await client.ok('POST', `/comments/${permission.id}/answer`, { action: 'approve' })
     await waitForRunState(client, a, 'working')
     const slots = await client.ok<RunSlots>('GET', '/slots')
     expect(slots).toMatchObject({ limit: 1, working: 2, queued: 1 })
@@ -223,6 +229,170 @@ describe('the queue', () => {
       .poll(() => client.ok<Activity>('GET', '/activity'))
       .toMatchObject({ runs: { working: 2, active: 2, queued: 1 } })
     expect((await getTask(client, c.id)).status?.kind).toBe('queued')
+  })
+
+  test('answered questions and sign-offs wait within both limits and precede new starts after restart', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\nstages:\n  intake:\n    gate: true\n',
+    })
+    const clock = new ManualClock()
+    let client = await startWithStub({ clock, nudgeAfterMs: 1000 })
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const never = path.join(scratch, 'never')
+    const briefFile = path.join(scratch, 'brief.md')
+    await writeFile(
+      briefFile,
+      '## Goal\n\nContinue the Task after sign-off.\n\n## Decisions so far\n\nNone.\n\n## Current state\n\nReady for sign-off.\n\n## Open questions\n\nNone.\n\n## Next step\n\nContinue.\n',
+    )
+    const afterAnswer = [{ hook: 'PreToolUse' }, { waitFor: never }]
+    const low = await startTask(
+      client,
+      steps(
+        { everyMessage: afterAnswer },
+        { run: ['ted', 'comment', '--choice', 'Continue', 'Question'] },
+        { endTurn: true },
+      ),
+      'low',
+    )
+    await waitForRunState(client, low, 'idle')
+    const high = await startTask(
+      client,
+      steps(
+        { everyMessage: afterAnswer },
+        { run: ['ted', 'brief', 'write', '--file', briefFile] },
+        { run: ['ted', 'outcome', 'advance'] },
+        { endTurn: true },
+      ),
+      'high',
+    )
+    await waitForRunState(client, high, 'idle')
+    const { question, signoff } = await waitUntil(async () => {
+      const items = await client.ok<InboxItem[]>('GET', '/inbox')
+      const question = items.find(
+        (item) => item.task.id === low.id && item.request.choices?.includes('Continue'),
+      )?.request
+      const signoff = items.find((item) => item.task.id === high.id && item.request.gate)?.request
+      return question && signoff ? { question, signoff } : undefined
+    }, 'the question and sign-off requests')
+    await client.ok('PUT', `/tasks/${low.id}/lead`, { agent: 'claude', model: 'unavailable' })
+    const lowWithLead = await waitForLead(client, low)
+    if (!lowWithLead.leadRunId) throw new Error('missing low Task Lead')
+    const lowRunId = lowWithLead.leadRunId
+    await expect
+      .poll(async () => (await client.getRun(lowRunId)).run)
+      .toMatchObject({ model: 'unavailable', state: 'idle' })
+    await client.ok('POST', `/runs/${lowRunId}/messages`, { text: 'Try the selected model.' })
+    await waitForRunState(client, low, 'waiting')
+    const blocker = await startTask(client, workingUntil(never))
+    await waitForRunState(client, blocker, 'working')
+    const fresh = await startTask(client, 'Fresh urgent Task', 'urgent')
+    await client.ok('POST', `/comments/${question.id}/answer`, {
+      action: 'answer',
+      choice: 'Continue',
+    })
+    await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+    await client.ok('PUT', `/tasks/${low.id}/lead`, { agent: 'claude', model: 'sonnet' })
+    const remaining = (await client.ok<InboxItem[]>('GET', '/inbox')).map((item) => item.request.id)
+    expect(remaining).not.toContain(question.id)
+    expect(remaining).not.toContain(signoff.id)
+    const queuedIds = async () =>
+      (await client.ok<RunSlots>('GET', '/slots')).queue.flatMap((entry) =>
+        'taskId' in entry ? [entry.taskId] : [],
+      )
+    await expect.poll(queuedIds).toEqual([high.id, low.id, fresh.id])
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1, queued: 3 })
+    expect((await getTask(client, high.id)).stage).toBe('clarify')
+    expect((await getTask(client, high.id)).status).toEqual({ kind: 'queued', place: 1 })
+    await expect
+      .poll(() => client.ok<Activity>('GET', '/activity'))
+      .toMatchObject({ runs: { working: 1, queued: 3 } })
+
+    clock.advance(1001)
+    expect(await queuedIds()).toEqual([high.id, low.id, fresh.id])
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    const restarted = api(daemon.port, { appKey: daemon.appToken })
+    client = {
+      ...client,
+      ...restarted,
+      ok: async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+        const res = await restarted.call(method, route, body)
+        if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+        return res.body as T
+      },
+    }
+    await expect.poll(queuedIds).toEqual([high.id, low.id, fresh.id])
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 6 })
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1, queued: 3 })
+    await client.ok('POST', `/tasks/${blocker.id}/stop`)
+    await waitForRunState(client, high, 'working')
+    expect(await queuedIds()).toEqual([low.id, fresh.id])
+    await client.ok('POST', `/tasks/${high.id}/stop`)
+    await waitForRunState(client, low, 'working')
+    expect(await queuedIds()).toEqual([fresh.id])
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1 })
+  })
+
+  test('each answered Clarify round releases capacity and queues again', async () => {
+    const round = path.join(scratch, 'round.json')
+    await writeFile(
+      round,
+      JSON.stringify({
+        title: 'Choose',
+        questions: [{ question: 'Continue?', recommended: 'Yes' }],
+      }),
+    )
+    const client = await startWithStub()
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const again = path.join(scratch, 'ask-again')
+    const lead = await startTask(
+      client,
+      steps(
+        {
+          everyMessage: [
+            {
+              everyMessage: [
+                { hook: 'PreToolUse' },
+                { waitFor: again },
+                { run: ['ted', 'ask', '--round', round] },
+                { endTurn: true },
+              ],
+            },
+            { run: ['ted', 'clarify', 'depth', 'grilling', 'Several choices'] },
+            { run: ['ted', 'ask', '--round', round] },
+            { endTurn: true },
+          ],
+        },
+        { run: ['ted', 'outcome', 'advance'] },
+        { endTurn: true },
+      ),
+    )
+    await waitForRunState(client, lead, 'idle')
+    const openRound = () =>
+      waitUntil(
+        async () =>
+          (await client.ok<Comment[]>('GET', `/tasks/${lead.id}/comments`)).find(
+            (comment) => comment.kind === 'round' && !comment.answer,
+          ),
+        'an open round',
+      )
+    const first = await openRound()
+    await waitForRunState(client, lead, 'idle')
+    const blocker = await startTask(client, workingUntil(path.join(scratch, 'never')))
+    await waitForRunState(client, blocker, 'working')
+    await client.ok('POST', `/comments/${first.id}/answer`, { action: 'accept-recommended' })
+    await expect.poll(async () => (await getTask(client, lead.id)).status?.kind).toBe('queued')
+    await client.ok('POST', `/tasks/${blocker.id}/stop`)
+    await waitForRunState(client, lead, 'working')
+    const fresh = await startTask(client, workingUntil(path.join(scratch, 'never')))
+    await writeFile(again, '')
+    await waitForRunState(client, lead, 'idle')
+    await waitForRunState(client, fresh, 'working')
+    const second = await openRound()
+    expect(second.id).not.toBe(first.id)
+    await client.ok('POST', `/comments/${second.id}/answer`, { action: 'accept-recommended' })
+    await expect.poll(async () => (await getTask(client, lead.id)).status?.kind).toBe('queued')
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1, queued: 1 })
   })
 
   test('a Factory’s max_working_runs caps its Tasks, and the slots show the cap', async () => {

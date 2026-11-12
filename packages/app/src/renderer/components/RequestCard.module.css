@@ -67,33 +67,6 @@
 
 
 
-.choices {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.choice {
-  padding: 7px 12px;
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-control);
-  background: var(--surface-card);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-14);
-  text-align: left;
-}
-
-.needsReason {
-  color: var(--text-muted);
-}
-
-.choice:hover:not(:disabled) {
-  border-color: var(--accent-default);
-  background: var(--accent-subtle);
-}
-
-.choice:focus-visible,
 .box:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;

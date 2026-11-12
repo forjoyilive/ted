@@ -480,3 +480,103 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.dashboardTabs {
+  display: flex;
+  gap: 22px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dashboardTabs button {
+  padding: 10px 2px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-caption);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dashboardTabs button[aria-selected='true'] {
+  border-bottom-color: var(--accent-default);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.dashboardTabs button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+}
+
+.timingRows {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.timingRow p {
+  margin: 5px 0 0;
+}
+
+.timingNumber {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 9px;
+  min-width: 100px;
+  font-size: var(--text-17);
+}
+
+.timingChange {
+  font-size: var(--text-11);
+  color: var(--text-caption);
+}
+
+.partial {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 2px 5px;
+  border-radius: var(--radius-control);
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-10);
+}
+
+.timingHighlight {
+  margin: 18px 0;
+  padding: 18px;
+  border-radius: 8px;
+  background: var(--accent-subtle);
+  font-size: var(--text-13);
+}
+
+.timingHeading {
+  margin-top: 24px !important;
+}
+
+.timingStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.timingStats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  font-size: var(--text-12);
+}

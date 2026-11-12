@@ -2,6 +2,7 @@ import type { CheckResult, CheckRun } from './checks.ts'
 
 export const failureChoices = {
   accepted: 'Accept this failure',
+  repair: 'Wait for a repair Task',
   fixed: 'Fixed',
   'no-longer-applicable': 'No longer applicable',
 } as const
@@ -42,13 +43,19 @@ export interface FailureAssessment extends AssessFailureRequest {
   at: string
 }
 
+export type RepairSelection =
+  | { kind: 'existing'; taskId: string }
+  | { kind: 'new'; title: string; description: string; start: boolean }
+
 export interface ResolveFailureRequest {
   requestId: string
-  resolution: 'accepted' | 'fixed' | 'no-longer-applicable' | 'retry' | 'fix'
+  resolution: 'accepted' | 'fixed' | 'no-longer-applicable' | 'retry' | 'fix' | 'repair'
   reason?: string
+  repair?: RepairSelection
 }
 
 export interface FailureResolution extends ResolveFailureRequest {
+  repairTask?: { id: string; displayId: string; title: string }
   at: string
   contextId?: string
   assessmentId: string
@@ -76,6 +83,11 @@ export interface FailureCase {
   additions: { evidence: string; runId: string; at: string; contextId?: string }[]
   decisions: FailureDecision[]
   resolutions: FailureResolution[]
+  repairProgress?: {
+    requestId: string
+    at: string
+    repos: { repo: string; head: string; onto: string }[]
+  }[]
   invalidations: { requestId: string; reason: string; at: string }[]
 }
 
@@ -101,6 +113,7 @@ export const validateFailureChoices = {
   retry: 'Retry',
   fix: 'Fix in this Task',
   accepted: 'Accept this failure',
+  repair: 'Wait for a repair Task',
 } as const
 
 export interface ValidationSnapshot {

@@ -8,6 +8,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useConnection } from '../data.ts'
 import { openInEditor } from '../editor.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
@@ -55,7 +56,7 @@ export function TaskShell({
   }, [taskId, repo, epoch])
 
   const refresh = () => {
-    void ted
+    return ted
       .shellWorkspace(taskId, repo)
       .then((next) => {
         if (alive.current) setWorkspace(next)
@@ -139,7 +140,7 @@ export function TaskShell({
           onFocus={() => setActive(shell.id)}
           onSplit={(direction) => {
             if (workspace)
-              void change({
+              return change({
                 kind: 'split',
                 revision: workspace.revision,
                 shellId: shell.id,
@@ -161,9 +162,9 @@ export function TaskShell({
 
   return (
     <section className={styles.pane} aria-label="Shell">
-      <button type="button" className={styles.back} onClick={onBack}>
+      <ActionButton type="button" className={styles.back} onClick={onBack}>
         ← Task Lead
-      </button>
+      </ActionButton>
       <header className={styles.header}>
         <span className={styles.repo}>{repo}</span>
         {workspace?.shells[0] && (
@@ -175,7 +176,7 @@ export function TaskShell({
         <Button
           size="small"
           onClick={() => {
-            void openInEditor({ taskId, repo }).catch((error: unknown) =>
+            return openInEditor({ taskId, repo }).catch((error: unknown) =>
               setProblem(readableError(error)),
             )
           }}
@@ -207,7 +208,7 @@ export function TaskShell({
                   disabled={busy}
                   onClick={() => {
                     setBusy(true)
-                    void ted
+                    return ted
                       .openShellWorkspace(taskId, repo, initialSize, true)
                       .then(setWorkspace)
                       .catch((error: unknown) => setProblem(readableError(error)))
@@ -237,7 +238,7 @@ export function TaskShell({
               </p>
               <div className={dialogStyles.actions}>
                 <Button onClick={() => setConfirm(undefined)}>Cancel</Button>
-                <Button variant="danger" onClick={() => void confirmAction()}>
+                <Button variant="danger" onClick={() => confirmAction()}>
                   {confirm.kind === 'close' ? 'Close shell' : 'Restart shell'}
                 </Button>
               </div>
@@ -362,7 +363,7 @@ function ShellLayoutView({
     return next.ratio
   }
   const commit = (id: string, ratio: number) => {
-    void onRatio(id, ratio).finally(() => setDraft(undefined))
+    return onRatio(id, ratio).finally(() => setDraft(undefined))
   }
   return (
     <div ref={host} className={styles.workspace}>

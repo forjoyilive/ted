@@ -1,7 +1,14 @@
-import type { DashboardMetric, DashboardRange, FlowValidateOutcome } from '@ted/protocol'
+import type {
+  DashboardMetric,
+  DashboardRange,
+  FlowReasonId,
+  FlowValidateOutcome,
+} from '@ted/protocol'
 
 export type FlowSelection = { period: 'current' | 'previous' } & (
   | { kind: 'stage'; stage: string }
+  | { kind: 'reason'; reason: FlowReasonId }
+  | { kind: 'guide' }
   | { kind: 'send-back'; from: string; to: string }
   | { kind: 'affected' }
   | { kind: 'incomplete' }
@@ -16,6 +23,7 @@ export interface DashboardSelection {
 }
 
 export interface DashboardViewState {
+  panel?: 'overview' | 'flow' | 'stages'
   range: DashboardRange
   sample?: DashboardSelection
   flowSample?: FlowSelection

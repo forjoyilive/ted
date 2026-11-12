@@ -28,12 +28,15 @@ export function waiting(requests: readonly Comment[], tasks: readonly Task[]): I
   )
 }
 
+export const answeredSince = (now: Date) =>
+  new Date(now.getTime() - answeredDays * 24 * 60 * 60 * 1000).toISOString()
+
 export function answered(
   requests: readonly Comment[],
   tasks: readonly Task[],
   now: Date,
 ): InboxItem[] {
-  const since = new Date(now.getTime() - answeredDays * 24 * 60 * 60 * 1000).toISOString()
+  const since = answeredSince(now)
   const at = (item: InboxItem) => item.request.answer?.at ?? ''
   return withTasks(
     requests.filter(

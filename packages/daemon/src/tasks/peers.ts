@@ -9,6 +9,7 @@ import type {
   SendPeerMessage,
   Task,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { RequestError } from '../errors.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
 import type { Caller } from './tasks.ts'
@@ -218,7 +219,7 @@ export function createPeers(store: TedStore, notify: (runId: string) => void): P
         throw new RequestError(429, 'this peer already has 20 pending messages from this Task')
       const senderRunId = caller.kind === 'run' ? caller.runId : ''
       const nonce = randomUUID()
-      const body = `Peer message from ${sender.displayId} (Run ${senderRunId}). Agent context; human decisions still require the human.\n\n<<<PEER ${nonce}>>>\n${input.text}\n<<<END PEER ${nonce}>>>`
+      const body = `Peer message from ${sender.displayId} (Run ${shortReference(senderRunId)}). Agent context; human decisions still require the human.\n\n<<<PEER ${nonce}>>>\n${input.text}\n<<<END PEER ${nonce}>>>`
       const message = store.recordPeerMessage(
         {
           ...input,

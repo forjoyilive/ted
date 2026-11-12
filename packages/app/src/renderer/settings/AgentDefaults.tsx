@@ -70,7 +70,7 @@ export function AgentDefaults() {
           key={`${row.role}:${view.version}`}
           row={row}
           busy={busy}
-          onChange={(choice) => void save(row.role, choice)}
+          onChange={(choice) => save(row.role, choice)}
         />
       ))}
       {view?.invalid && (

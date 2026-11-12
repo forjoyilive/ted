@@ -1,5 +1,7 @@
 # Task Gates override sign-off without skipping Stage work
 
+**Updated by KRI-362:** Grilling depth no longer forces Clarify sign-off. Clarify follows its effective Workflow or Task sign-off setting at every depth, including overnight mode. Explicit forced Gates and setup Tasks’ Design and Review Gates remain required. The earlier Grilling exception described below is superseded.
+
 KRI-200 needs the human to choose Gates for one Task without editing the Factory’s Workflow. Task details edits a sparse map of Stage-to-boolean overrides; an absent entry follows the Workflow again, while an explicit On or Off keeps that choice across inherited changes. Gate Off keeps the Stage’s work. It never inserts an omitted Stage or bypasses Validate’s reviewer.
 
 `v1.TaskGatesChanged` persists the map. Only the app may write it through `PUT /tasks/:id/gates`; Runs and the file token cannot. `Tasks.taskWorkflow` applies preferences before forced Gates and setup requirements, with grilling Clarify still requiring sign-off. `GET /tasks/:id/gates` explains inherited and effective values and why a row is locked. A revision of the effective rows prevents stale saves, and editing uses the same Task hold as Stage advancement.

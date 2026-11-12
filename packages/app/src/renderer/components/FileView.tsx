@@ -29,7 +29,7 @@ export function FileView({
       const call = ++latest
       setContent(undefined)
       setError(undefined)
-      void ted.taskFile(taskId, file.repo, file.path).then(
+      return ted.taskFile(taskId, file.repo, file.path).then(
         (loaded) => {
           if (current && call === latest) setContent(loaded)
         },
@@ -69,9 +69,12 @@ export function FileView({
             variant="quiet"
             disabled={content?.kind !== 'text'}
             onClick={() => {
-              void openInEditor({ taskId, repo: file.repo, file: file.path, snapshot: true }).catch(
-                (failure: unknown) => setError(readableError(failure)),
-              )
+              return openInEditor({
+                taskId,
+                repo: file.repo,
+                file: file.path,
+                snapshot: true,
+              }).catch((failure: unknown) => setError(readableError(failure)))
             }}
           >
             Open snapshot

@@ -49,19 +49,19 @@ The holding Stage at the end of a Workflow where a Task sits once all of its pul
 _Avoid_: Closed, complete, shipped
 
 **Sign-off**:
-A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its sign-off. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. The configuration key remains `gate`. Overnight mode turns these sign-offs off while it is on; Sign-offs TED forces stay.
+A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its sign-off. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. The configuration key remains `gate`. Autopilot turns these sign-offs off while it is on; Sign-offs TED forces stay.
 _Avoid_: Approval step, checkpoint
 
-**Overnight mode**:
-A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Sign-offs set in the Workflow or on one Task count as off, the Merge sign-off included. Sign-offs TED forces (a setup Task, Clarify at grilling depth), Sign-off requests already open, questions and permission prompts still wait for the human. A Task whose changes touch `.ted/` keeps every sign-off it has with the mode off, and its Review sign-off is on, so Workflow changes never merge unseen.
-_Avoid_: Night mode, autopilot
+**Autopilot**:
+A mode in which the Task Lead makes routine decisions and carries a Task through Merge without routine questions or sign-offs, while protected decisions still wait for the user. Each Task follows the global setting or explicitly turns Autopilot on or off; the user can change a selected set together.
+_Avoid_: Overnight mode, auto mode
 
 **Stage file**:
 The Markdown instructions an agent follows while a Task is in that Stage.
 _Avoid_: Prompt, playbook
 
 **Clarify depth**:
-How much questioning Clarify does on a Task: none, a few simple questions in one round, or a grilling session of several rounds that ends in the human’s sign-off. The Task Lead picks it unless the human or the Workflow sets it.
+How much questioning Clarify does on a Task: none, a few simple questions in one round, or a grilling session of several rounds. The Stage’s Sign-off setting applies at every depth. The Task Lead picks it unless the human or the Workflow sets it.
 _Avoid_: Tier, level
 
 **Check**:
@@ -129,7 +129,7 @@ How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Tas
 _Avoid_: Severity, importance
 
 **Queued**:
-The status of a started Task, or of a new Automation or Planning Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy when **Start fewer Runs when this computer is busy** is on; a queued Task waits at the start of Intake. A status, not a Stage.
+The status of a started Task, or of a new Automation or Planning Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy when **Start fewer Runs when this computer is busy** is on; a newly started queued Task waits at the start of Intake, and an answered Task can wait in its current Stage before its Run continues. A status, not a Stage.
 _Avoid_: Pending, ready
 
 **Paused**:

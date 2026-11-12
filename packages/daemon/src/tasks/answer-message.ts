@@ -4,7 +4,7 @@ export function answerMessage(comment: Comment, lines?: string): string {
   const answer = comment.answer
   if (answer?.kind !== 'answered') throw new Error('an answer message needs an answered question')
   return [
-    `The user replied to “${comment.title ?? comment.body.split('\n').find((line) => line.trim() !== '') ?? ''}”:`,
+    `${comment.autopilotAnswered ? 'Autopilot' : 'The user'} replied to “${comment.title ?? comment.body.split('\n').find((line) => line.trim() !== '') ?? ''}”:`,
     ...(answer.choice !== undefined ? [answer.choice] : []),
     ...(answer.text !== undefined ? [answer.text] : []),
     ...(lines !== undefined ? [lines] : []),

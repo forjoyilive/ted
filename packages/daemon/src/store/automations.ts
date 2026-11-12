@@ -3,10 +3,12 @@ import { queryDb, type Store } from '@livestore/livestore'
 import type {
   AgentKind,
   AutomationSchedule,
+  AutomationTaskLink,
   AutomationTemplateId,
   AutomationTrigger,
   DaemonEvent,
   Effort,
+  StageId,
 } from '@ted/protocol'
 import {
   automationComments,
@@ -14,7 +16,10 @@ import {
   automations,
   automationTasks,
   events,
+  runs,
   type schema,
+  taskSources,
+  tasks,
 } from './schema.ts'
 
 export interface StoredAutomation {
@@ -101,6 +106,8 @@ export interface AutomationStore {
   taskCreated(link: Omit<AutomationTaskRecord, 'at'>): void
   createdTasks(automationId?: string): AutomationTaskRecord[]
   createdTask(taskId: string): AutomationTaskRecord | undefined
+  taskLinks(taskIds: readonly string[]): Map<string, AutomationTaskLink>
+  firingsWithRun(firingIds: readonly string[]): Set<string>
   postComment(input: {
     automationId: string
     firingId: string
@@ -118,12 +125,21 @@ export function createAutomationStore({
   commit,
   emit,
   changed,
+  factoryKey,
 }: {
   store: Store<typeof schema>
   commit: Store<typeof schema>['commit']
   emit: (event: DaemonEvent) => void
   changed: () => void
+  factoryKey: (factoryId: string) => string
 }): AutomationStore {
+  const inChunks = <T>(ids: readonly string[], read: (chunk: string[]) => readonly T[]): T[] => {
+    const unique = [...new Set(ids)]
+    const found: T[] = []
+    for (let at = 0; at < unique.length; at += 500) found.push(...read(unique.slice(at, at + 500)))
+    return found
+  }
+
   const toAutomation = ({
     schedule,
     model,
@@ -298,6 +314,57 @@ export function createAutomationStore({
       return store.query(queryDb(query))
     },
     createdTask: (taskId) => store.query(queryDb(automationTasks.where({ taskId }))).at(0),
+    taskLinks(taskIds) {
+      const rows = inChunks(taskIds, (ids) =>
+        store.query(
+          queryDb(
+            tasks
+              .select('id', 'factoryId', 'number', 'title', 'stage')
+              .where({ id: { op: 'IN', value: ids } }),
+          ),
+        ),
+      )
+      const sources = new Map(
+        inChunks(
+          rows.map((row) => row.id),
+          (ids) =>
+            store.query(
+              queryDb(
+                taskSources.select('taskId', 'url').where({ taskId: { op: 'IN', value: ids } }),
+              ),
+            ),
+        ).map((row) => [row.taskId, row.url]),
+      )
+      const keys = new Map<string, string>()
+      const keyOf = (factoryId: string) => {
+        const known = keys.get(factoryId)
+        if (known !== undefined) return known
+        const key = factoryKey(factoryId)
+        keys.set(factoryId, key)
+        return key
+      }
+      return new Map(
+        rows.map((row) => {
+          const source = sources.get(row.id)
+          return [
+            row.id,
+            {
+              id: row.id,
+              displayId: `${keyOf(row.factoryId)}-${row.number}`,
+              title: row.title,
+              stage: row.stage as StageId,
+              ...(source !== undefined && { source }),
+            },
+          ]
+        }),
+      )
+    },
+    firingsWithRun: (firingIds) =>
+      new Set(
+        inChunks(firingIds, (ids) =>
+          store.query(queryDb(runs.select('id').where({ id: { op: 'IN', value: ids } }))),
+        ),
+      ),
     postComment({ choices, ...input }) {
       const id = randomUUID()
       commit(

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import type { Comment, Factory, Task } from '@ted/protocol'
+import type { Comment, Factory, RunWithConversation, Task } from '@ted/protocol'
 import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -69,6 +69,14 @@ const stubRecord = () =>
 describe('Codex Runs', () => {
   test('a Codex Run’s output lands as its Conversation, with the thread ID as session ID', async () => {
     const client = await startWithStubs()
+    const release = path.join(cwd, 'start-first-turn')
+    await writeFile(
+      path.join(home, 'stub-codex.json'),
+      JSON.stringify({ turnStartWaitFor: release }),
+    )
+    const turnCompleted = (r: RunWithConversation) =>
+      r.run.state === 'idle' &&
+      r.conversation.some(({ line }) => JSON.parse(line).method === 'turn/completed')
 
     const run = await client.startRun(
       [{ say: 'hello' }, { say: 'world' }, { endTurn: true }],
@@ -77,12 +85,22 @@ describe('Codex Runs', () => {
     )
     expect(run.agent).toBe('codex')
 
-    const done = await waitUntil(async () => {
+    const opened = await waitUntil(async () => {
       const r = await client.getRun(run.id)
       return r.run.state === 'idle' ? r : undefined
-    }, 'the Run to go idle')
+    }, 'the thread to open before its first turn starts')
+    expect(assistantTexts(opened.conversation)).toEqual([])
+    expect(opened.run.sessionId).toMatch(/^0199a000-/)
+    expect(turnCompleted(opened)).toBe(false)
+
+    await writeFile(release, '')
+    const done = await waitUntil(async () => {
+      const r = await client.getRun(run.id)
+      return turnCompleted(r) ? r : undefined
+    }, 'the first turn to complete and the Run to go idle')
     expect(assistantTexts(done.conversation)).toEqual(['hello', 'world'])
     expect(done.run.sessionId).toMatch(/^0199a000-/)
+    expect(done.run.sessionId).toBe(opened.run.sessionId)
     const { env } = await stubRecord()
     expect(env.CODEX_HOME).toBe(path.join(home, 'codex'))
     expect(env.CODEX_SQLITE_HOME).toBe(path.join(home, 'codex'))

@@ -226,6 +226,9 @@
   font-size: var(--text-19);
   font-weight: var(--weight-semibold);
   line-height: 1.45;
+  max-height: calc(1.45em * 6);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
 .stageName {
@@ -273,6 +276,11 @@
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 8px;
+  margin-left: -14px;
+}
+
+.peerComment {
+  min-width: 0;
   margin-left: -14px;
 }
 
@@ -346,16 +354,6 @@
   position: absolute;
   opacity: 0;
   pointer-events: none;
-}
-
-.description {
-  max-height: 180px;
-  margin: 4px 0 0;
-  overflow-y: auto;
-  color: var(--text-secondary);
-  font-size: var(--text-13);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .detailList {
@@ -537,127 +535,6 @@
   font-size: var(--text-12);
 }
 
-.briefLine {
-  margin: 0 0 8px;
-  color: var(--text-primary);
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-}
-
-.briefEmpty {
-  margin: 0 0 8px;
-  color: var(--text-tertiary);
-}
-
-.originalRow {
-  display: flex;
-  margin-top: 12px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.originalToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--text-primary);
-  font: inherit;
-  cursor: pointer;
-}
-
-.originalToggle:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.originalText {
-  margin: 6px 0 0 16px;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.historyDialog {
-  box-sizing: border-box;
-  width: 560px;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
-  margin: auto;
-  padding: 20px 24px;
-  border: none;
-  border-radius: 12px;
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  box-shadow: 0 12px 32px var(--shadow-dialog);
-  font-size: var(--text-13);
-  line-height: var(--leading-body);
-}
-
-.historyDialog::backdrop {
-  background: var(--surface-scrim);
-}
-
-.historyHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.historyHeading {
-  flex: 1;
-  margin: 0;
-  font-size: var(--text-17);
-  font-weight: var(--weight-semibold);
-}
-
-.historyClose {
-  display: inline-flex;
-  padding: 4px;
-  border: none;
-  border-radius: var(--radius-control);
-  background: none;
-  color: var(--text-caption);
-}
-
-.historyClose:hover {
-  background: var(--surface-selected);
-}
-
-.historyList {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.historyItem {
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.historyItem:last-child {
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.historyMeta {
-  margin: 0 0 4px;
-  color: var(--text-caption);
-  font-size: var(--text-12);
-}
-
-.historyText {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .setupTag {
   flex-shrink: 0;
   padding: 1px 6px;
@@ -724,4 +601,24 @@
 
 .threadBody[hidden] {
   display: none;
+}
+
+.detailsHeading {
+  margin: 0 0 18px;
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.taskPane {
+  overflow-y: auto;
+}
+
+.taskContent {
+  display: flex;
+  flex: 1;
+  flex-shrink: 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: min(50vh, 320px);
 }
