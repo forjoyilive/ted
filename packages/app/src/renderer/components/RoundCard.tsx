@@ -1,5 +1,13 @@
-import type { AnswerRequest, Comment, Round, RoundAnswer, RoundQuestion } from '@ted/protocol'
-import { useId, useState } from 'react'
+import type {
+  AnswerRequest,
+  Comment,
+  MessageBox,
+  Round,
+  RoundAnswer,
+  RoundQuestion,
+} from '@ted/protocol'
+import { useId } from 'react'
+import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { Button } from './Button.tsx'
 import styles from './RoundCard.module.css'
 
@@ -14,6 +22,17 @@ const initialDraft = (question: RoundQuestion): Draft => ({
   answer: question.choices ? '' : question.recommended,
   note: '',
 })
+
+const isDraft = (value: unknown): value is Draft => {
+  if (value === null || typeof value !== 'object') return false
+  const { answer, note, other, custom } = value as Record<string, unknown>
+  return (
+    typeof answer === 'string' &&
+    typeof note === 'string' &&
+    (other === undefined || typeof other === 'boolean') &&
+    (custom === undefined || typeof custom === 'string')
+  )
+}
 
 function Tag({ changed, onReset }: { changed: boolean; onReset: () => void }) {
   if (!changed) return <span className={styles.tag}>Recommended</span>
@@ -139,17 +158,26 @@ export function RoundQuestions({
   talking,
   onSend,
   onTalk,
+  box,
 }: {
   round: Round
+  box?: MessageBox | undefined
   readOnly: boolean
   sending: boolean
   talking: boolean
   onSend: (answer: AnswerRequest) => void
   onTalk: (() => void) | undefined
 }) {
-  const [drafts, setDrafts] = useState(() => round.questions.map(initialDraft))
+  const kept = useMessageDraft(box)
+  const [drafts, setDrafts] = draftField(
+    kept,
+    'answers',
+    round.questions.map(initialDraft),
+    (value): value is Draft[] =>
+      Array.isArray(value) && value.length === round.questions.length && value.every(isDraft),
+  )
   const update = (i: number, draft: Draft) =>
-    setDrafts((all) => all.map((d, at) => (at === i ? draft : d)))
+    setDrafts(drafts.map((d, at) => (at === i ? draft : d)))
   const complete = drafts.every((d) => (d.other ? (d.custom ?? '') : d.answer).trim() !== '')
   return (
     <>

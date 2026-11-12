@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { AutomationPromptDraft, DraftAutomationPromptRequest, SlotHolder } from '@ted/protocol'
 import { chatToolPolicy } from '@ted/protocol/run'
+import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { chatItems } from '../runs/conversations.ts'
@@ -37,7 +38,8 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     return draft
   }
   const paused = (draft: StoredAutomationDraft) =>
-    draft.input.agent && store.agentPauses()[draft.input.agent]
+    draft.input.agent &&
+    (agentStartHold(store, draft.input.agent, draft.id) ?? store.agentPauses()[draft.input.agent])
   const view = (draft: StoredAutomationDraft): AutomationPromptDraft => ({
     id: draft.id,
     factoryId: draft.factoryId,
@@ -208,6 +210,10 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       })
       if (saved.get(id)?.state === 'working') settle(id)
     } catch (error) {
+      if (error instanceof AgentDisabledError) {
+        saved.change(id, 'queued')
+        return
+      }
       end(id, 'failed', {
         error: redactSecrets(`Couldn’t draft the Prompt: ${String(error)}`).slice(0, 500),
       })
@@ -227,7 +233,13 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         })),
     runnable: (id) => {
       const draft = saved.get(id)
-      return !closed && !!draft && !paused(draft)
+      return (
+        !closed &&
+        !!draft &&
+        !!draft.input.agent &&
+        !agentStartHold(store, draft.input.agent, draft.id) &&
+        !paused(draft)
+      )
     },
     begin(id) {
       if (closed || starting.has(id)) return
@@ -372,11 +384,15 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         throw new RequestError(413, 'The drafting request is too long')
       const settings = (await options.workflows.resolve(factory, { fetch: false })).workflow
         .settings
-      const defaults = resolveAgentChoices(settings, {
-        claude: agents.installed('claude'),
-        antigravity: agents.installed('antigravity'),
-        codex: agents.installed('codex'),
-      }).lead
+      const defaults = resolveAgentChoices(
+        settings,
+        {
+          claude: agents.installed('claude'),
+          antigravity: agents.installed('antigravity'),
+          codex: agents.installed('codex'),
+        },
+        store.settings().enabledAgents,
+      ).lead
       const lead =
         input.agent === undefined
           ? {

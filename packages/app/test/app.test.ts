@@ -249,6 +249,7 @@ describe('TED app', () => {
     await taskRow(window, 'NB-1').click()
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Design review' })
+    const answer = thread.getByRole('region', { name: 'Answer', exact: true })
     await card.waitFor({ timeout: 40_000 })
 
     await card.getByRole('heading', { name: 'Onboarding design: two steps' }).waitFor()
@@ -270,7 +271,11 @@ describe('TED app', () => {
         .poll(() => screenshot.evaluate((el) => el.getBoundingClientRect().height))
         .toBe(108)
       await expect
-        .poll(() => screenshot.locator('span').evaluate((el) => getComputedStyle(el).fontSize))
+        .poll(() =>
+          screenshot
+            .getByText('Step 1 · Welcome', { exact: true })
+            .evaluate((el) => getComputedStyle(el).fontSize),
+        )
         .toBe(`${(12.5 * textSize) / 100}px`)
       await mkdir(path.resolve('node_modules/.cache/ted-100/app'), { recursive: true })
       await screenshot.screenshot({
@@ -323,7 +328,8 @@ describe('TED app', () => {
     const captures = path.resolve('node_modules/.cache/ted-152-design')
     await mkdir(captures, { recursive: true })
     await window.screenshot({ path: path.join(captures, 'native-review.png') })
-    await card.getByRole('button', { name: 'Approve', exact: true }).scrollIntoViewIfNeeded()
+    await card.getByText('Answer at the bottom of the Task ↓').scrollIntoViewIfNeeded()
+    await answer.getByRole('button', { name: 'Approve', exact: true }).waitFor()
     await window.screenshot({ path: path.join(captures, 'native-review-controls.png') })
     await window.setViewportSize({ width: 1000, height: 900 })
     await thread.getByRole('button', { name: /Jump to Design review/ }).click()
@@ -373,8 +379,10 @@ describe('TED app', () => {
       'The notification ask waits.',
     ])
 
-    await card.getByRole('textbox', { name: 'Your answer' }).fill('Keep the Skip link.')
-    await card.getByRole('button', { name: 'Approve' }).click()
+    expect(await card.getByRole('textbox', { name: 'Your answer' }).count()).toBe(0)
+    expect(await thread.getByRole('textbox', { name: 'Comment' }).count()).toBe(0)
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill('Keep the Skip link.')
+    await answer.getByRole('button', { name: 'Approve' }).click()
     const answered = thread.getByRole('region', { name: 'Design review, answered' })
     await answered.getByText('You approved').waitFor()
     await answered.locator('blockquote').getByText('Keep the Skip link.', { exact: true }).waitFor()
@@ -474,6 +482,9 @@ describe('TED app', () => {
       )
       .toBe(2)
     expect((await client.listTasks())[0]?.leadRunId).toBe(runId)
+    await window
+      .getByRole('menuitem', { name: 'Restart', exact: true })
+      .waitFor({ state: 'detached' })
     await taskHeader.getByRole('button', { name: 'Task actions' }).click()
     await expect
       .poll(() => window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())

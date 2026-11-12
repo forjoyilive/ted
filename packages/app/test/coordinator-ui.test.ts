@@ -6,18 +6,10 @@ import { type Coordinator, type CoordinatorTask, tedPaths } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron } from 'playwright'
 import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { loadRunTokens } from '../../daemon/src/run-token.ts'
-import {
-  api,
-  daemonAsApp,
-  killRunHosts,
-  makeOriginRepo,
-  removeHome,
-  stopDaemonIn,
-  waitUntil,
-} from '../../daemon/test/helpers.ts'
+import { api, daemonAsApp, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
-import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { cleanupCoordinator } from './support/coordinator-cleanup.ts'
 import { resolveElectron } from './support/electron-installation.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -28,11 +20,13 @@ vi.setConfig({ testTimeout: 120_000 })
 beforeAll(async () => {
   await buildRenderer()
 })
-afterEach(async () => {
-  await closeApp(app)
-  await stopDaemonIn(home)
-  await killRunHosts(home)
-  await removeHome(home)
+afterEach(async ({ task }) => {
+  const test = task.name
+  const closing = app
+  app = undefined
+  await cleanupCoordinator(home, closing, (evidence) =>
+    process.stderr.write(`Coordinator cleanup: ${JSON.stringify({ test, ...evidence })}\n`),
+  )
 })
 
 test('Coordinator opens from the sidebar, sends, shows receipts and keeps its whole conversation when reopened and after a new Run', async () => {

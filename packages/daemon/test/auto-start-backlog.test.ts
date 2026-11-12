@@ -129,32 +129,28 @@ describe('automatic Backlog starts', () => {
     expect((await client.ok<Factory[]>('GET', '/factories'))[0]?.autoStartBacklog).toBe(true)
   })
 
-  test.each(['factory', 'overnight'] as const)(
-    'fills immediately, honors the machine cap, refills on waiting, and stops filling when disabled (%s)',
-    async (mode) => {
-      const enable = (client: Client, factory: Factory, enabled = true) =>
-        mode === 'overnight'
-          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
-          : client.ok('PUT', route(factory), { enabled })
-      const { client, factory } = await start()
-      await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-      const free = path.join(scratch, 'free')
-      const a = await create(client, { title: working(free) })
-      const b = await create(client)
-      const c = await create(client)
-      await enable(client, factory)
-      await lead(client, a)
-      expect((await get(client, b)).stage).toBe('backlog')
-      expect(await slots(client)).toMatchObject({ working: 1, queued: 0 })
-      await writeFile(free, '')
-      await lead(client, b)
-      await enable(client, factory, false)
-      await client.ok('POST', `/tasks/${b.id}/stop`)
-      expect((await get(client, b)).leadRunId).toBeDefined()
-      expect((await get(client, c)).stage).toBe('backlog')
-      expect((await get(client, a)).runs[0]?.state).toBe('idle')
-    },
-  )
+  test('fills immediately, honors the machine cap, refills on waiting, stops filling when disabled, and Autopilot alone starts nothing', async () => {
+    const { client, factory } = await start()
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1, overnightMode: true })
+    const free = path.join(scratch, 'free')
+    const a = await create(client, { title: working(free) })
+    const b = await create(client)
+    const c = await create(client)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await get(client, a)).stage).toBe('backlog')
+    await enable(client, factory)
+    await lead(client, a)
+    expect((await get(client, b)).stage).toBe('backlog')
+    expect(await slots(client)).toMatchObject({ working: 1, queued: 0 })
+    await writeFile(free, '')
+    await lead(client, b)
+    await enable(client, factory, false)
+    await client.ok('POST', `/tasks/${b.id}/stop`)
+    expect((await get(client, b)).leadRunId).toBeDefined()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await get(client, c)).stage).toBe('backlog')
+    expect((await get(client, a)).runs[0]?.state).toBe('idle')
+  })
 
   test('serves Queued work first and leaves excess Backlog Tasks unstarted', async () => {
     const { client, factory } = await start()

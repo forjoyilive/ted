@@ -13,6 +13,7 @@ import type {
   Task,
   ThreadEvent,
 } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -304,7 +305,7 @@ describe('Checks before a Task leaves Work', () => {
       'the Task Lead to hear what the human chose',
     )
     expect(chosen).toContain('The human added:\n\nTests are broken on main')
-    expect(chosen).toContain(failure.id)
+    expect(chosen).toContain(shortReference(failure.id))
   }, 180_000)
 })
 
@@ -365,7 +366,7 @@ describe('Checks at Validate', () => {
     await waitUntil(
       async () =>
         (await leadMessages(client, task)).some(
-          (m) => m.includes('# A Check failed') && m.includes(failure.id),
+          (m) => m.includes('# A Check failed') && m.includes(shortReference(failure.id)),
         ),
       'diagnosis instructions',
     )
