@@ -3,6 +3,7 @@ import type {
   Comment,
   CommentAnswer,
   MergeRow,
+  MessageBox,
   SignOffChanges,
   Task,
   TaskChanges,
@@ -19,6 +20,7 @@ import {
   useThreadEvents,
   useValidationObligations,
 } from '../data.ts'
+import { draftField, useMessageDraft } from '../message-drafts.ts'
 import {
   ago,
   briefSections,
@@ -456,9 +458,28 @@ export function RequestAnswer({
 }) {
   const repairFormId = useId()
   const boxId = useId()
-  const [selection, setSelection] = useState<QuestionSelection>()
-  const [otherText, setOtherText] = useState('')
-  const [text, setText] = useState('')
+  const box: MessageBox = { kind: 'request', id: request.id }
+  const kept = useMessageDraft(box)
+  const { text, setText } = kept
+  const [selection, setSelection] = draftField(
+    kept,
+    'selection',
+    undefined,
+    (value): value is QuestionSelection | undefined =>
+      value === undefined ||
+      (value !== null &&
+        typeof value === 'object' &&
+        (('other' in value && value.other === true) ||
+          ('choice' in value &&
+            typeof value.choice === 'string' &&
+            (request.choices ?? []).includes(value.choice)))),
+  )
+  const [otherText, setOtherText] = draftField(
+    kept,
+    'otherText',
+    '',
+    (value): value is string => typeof value === 'string',
+  )
   const {
     send: post,
     sending,
@@ -477,10 +498,7 @@ export function RequestAnswer({
   const chosenOwner = offered.find((b) => b.udid === chosen)?.displayId
 
   async function send(answer: AnswerRequest) {
-    if (await post(answer)) {
-      setText('')
-      setOtherText('')
-    }
+    if (await post(answer)) kept.clear()
   }
 
   const withText = typed ? { text } : {}
@@ -600,6 +618,7 @@ export function RequestAnswer({
             task={task}
             request={request}
             reason={text}
+            box={box}
             onCancel={() => setSelection(undefined)}
             onSendingChange={setSending}
           />
@@ -743,6 +762,8 @@ export function RequestCard({
     readOnly,
     onOpenPlan,
   )
+  const box: MessageBox | undefined =
+    readOnly || request.answer !== undefined ? undefined : { kind: 'request', id: request.id }
   const shown =
     request.permission && request.body.trim() === ''
       ? 'The agent didn’t provide an explanation for this request.'
@@ -857,6 +878,7 @@ export function RequestCard({
           readOnly={readOnly}
           sending={sending}
           talking={request.talk !== undefined}
+          box={box}
           onSend={(answer) => send(answer)}
           onTalk={onOpenRun && (() => talk())}
         />
@@ -874,6 +896,7 @@ export function RequestCard({
             proposal={request.proposal}
             readOnly={readOnly}
             sending={sending}
+            box={box}
             onSend={(answer) => send(answer)}
           />
         ))}

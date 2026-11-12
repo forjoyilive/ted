@@ -130,6 +130,7 @@ import type {
   LinearStatus,
   SaveLinearKeyRequest,
 } from './linear.ts'
+import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
   Plan,
@@ -489,6 +490,14 @@ export class DaemonClient {
 
   saveTaskDraft(factoryId: string, draft: SaveTaskDraftRequest): Promise<TaskDraftState> {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/task-draft`, draft)
+  }
+
+  messageDraft(box: MessageBox): Promise<MessageDraftState> {
+    return this.#request('GET', messageDraftPath(box))
+  }
+
+  saveMessageDraft(box: MessageBox, draft: SaveMessageDraftRequest): Promise<MessageDraftState> {
+    return this.#request('PUT', messageDraftPath(box), draft)
   }
 
   createTask(input: CreateTaskRequest): Promise<Task> {
@@ -1712,4 +1721,8 @@ function factoryQuery(factory: string | undefined): string {
 
 function shellRoute(ref: string, repo: string, rest = '', id?: string): string {
   return `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/shell${id === undefined ? '' : `/panes/${encodeURIComponent(id)}`}${rest}`
+}
+
+function messageDraftPath(box: MessageBox): string {
+  return `/message-drafts/${box.kind}/${encodeURIComponent(box.id)}`
 }

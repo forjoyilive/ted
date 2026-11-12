@@ -27,6 +27,7 @@ import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import {
   planEnded,
   planStartedLine,
@@ -188,7 +189,8 @@ function NewPlanChat({
 }) {
   const earlier = usePlan(from)?.plan
   const [lead, setLead] = useState<TaskLead>()
-  const [text, setText] = useState('')
+  const draft = useMessageDraft({ kind: 'new-plan', id: factory.id })
+  const { text, setText } = draft
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const cloning = !factory.cloned
@@ -226,6 +228,7 @@ function NewPlanChat({
         ...(lead?.model !== undefined && { model: lead.model }),
         ...(lead?.effort !== undefined && { effort: lead.effort }),
       })
+      draft.clear()
       onStarted(plan.id)
     } catch (failed) {
       setError(readableError(failed))
@@ -683,6 +686,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
             sending={sending}
             talking={false}
             onTalk={undefined}
+            box={{ kind: 'plan-request', id: request.id }}
             onSend={(answer) => send(answer)}
           />
           <p className={styles.talkHint}>Typing below talks it through with the planner.</p>
@@ -693,6 +697,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
           proposal={request.proposal}
           readOnly={false}
           sending={sending}
+          box={{ kind: 'plan-request', id: request.id }}
           onSend={(answer) => send(answer)}
         />
       )}

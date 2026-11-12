@@ -9,6 +9,8 @@ import type {
   ApiCostReport,
   DashboardRange,
   FactoryDashboard,
+  MessageBox,
+  MessageDraft,
   NewTaskDraft,
   PeerMessage,
   TaskDraftState,
@@ -54,6 +56,7 @@ import {
   type DiffRow,
   defaultMachineSettings,
   type Effort,
+  emptyMessageDraft,
   type Factory,
   type FailureCase,
   type FindingSeverity,
@@ -149,6 +152,8 @@ import {
   loopChecks,
   machineSettings,
   machineSettingValues,
+  messageDraftKey,
+  messageDrafts,
   p1OnlyReviews,
   peerMessages,
   planRequests,
@@ -783,6 +788,13 @@ export interface TedStore extends TaskHistory {
   taskDraft(factoryId: string): TaskDraftState
   saveTaskDraft(factoryId: string, draft: NewTaskDraft): TaskDraftState
   removeTaskDraft(factoryId: string): void
+  messageDraft(box: MessageBox): MessageDraft | null
+  saveMessageDraft(
+    box: MessageBox,
+    owner: { factoryId?: string; taskId?: string; planId?: string },
+    draft: MessageDraft,
+  ): MessageDraft | null
+  messageDraftFiles(taskId: string): Attachment[]
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
   answerComment(
@@ -1113,6 +1125,13 @@ export async function openStore({
       ...(row?.clearedRevision ? { clearedRevision: row.clearedRevision } : {}),
       ...(clearedRevisions.length > 0 && { clearedRevisions }),
     }
+  }
+
+  const messageDraft = (box: MessageBox): MessageDraft | null => {
+    const row = store.query(
+      queryDb(messageDrafts.where({ key: messageDraftKey(box.kind, box.id) })),
+    )[0]
+    return row ? (JSON.parse(row.draft) as MessageDraft) : null
   }
 
   const allFactoryOrder = queryDb(factoryOrder.orderBy('position', 'asc'))
@@ -4324,8 +4343,39 @@ export async function openStore({
     removeTaskDraft(factoryId) {
       commit(events.taskDraftRemoved({ factoryId, at: new Date().toISOString() }))
     },
+    messageDraft,
+    saveMessageDraft(box, owner, draft) {
+      const key = messageDraftKey(box.kind, box.id)
+      const at = new Date().toISOString()
+      const kept = messageDraft(box)
+      if (emptyMessageDraft(draft)) {
+        if (kept) commit(events.messageDraftCleared({ key, at }))
+        return null
+      }
+      const text = JSON.stringify(draft)
+      if (kept === null || JSON.stringify(kept) !== text) {
+        commit(
+          events.messageDraftSaved({
+            key,
+            factoryId: owner.factoryId ?? null,
+            taskId: owner.taskId ?? null,
+            planId: owner.planId ?? null,
+            draft: text,
+            at,
+          }),
+        )
+      }
+      return messageDraft(box)
+    },
+    messageDraftFiles: (taskId) =>
+      store
+        .query(queryDb(messageDrafts.where({ taskId })))
+        .flatMap((row) => (JSON.parse(row.draft) as MessageDraft).attachments),
     filesInUse: () =>
       new Set([
+        ...store
+          .query(queryDb(messageDrafts))
+          .flatMap((row) => (JSON.parse(row.draft) as MessageDraft).attachments.map((a) => a.hash)),
         ...store
           .query(queryDb(taskDrafts))
           .flatMap((row) =>

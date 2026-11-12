@@ -92,6 +92,11 @@ roundTrip(P.parseSaveTaskDraftRequest, {
   dismissed: ['old'],
   filled: { title: 'Source title', priority: 'high' },
 })
+roundTrip(P.parseSaveMessageDraftRequest, {
+  text: 'Not sent yet',
+  attachments: [file],
+  fields: '{"skip":[2]}',
+})
 roundTrip(P.parseTaskLead, lead)
 roundTrip(P.parseResumeTaskRequest, { comment: 'Continue', attachments: [file] })
 roundTrip(P.parseAnswerTedStopsRequest, { restart: ['task-1'], leave: ['task-2'] })
@@ -201,6 +206,15 @@ rejects(
   'severity must be one of p1, unfixed',
 )
 rejects(P.parseSaveTaskDraftRequest, {}, 'invalid draft priority')
+rejects(P.parseSaveMessageDraftRequest, { attachments: [] }, 'text must be text')
+rejects(
+  P.parseSaveMessageDraftRequest,
+  { text: 'x'.repeat(P.maxMessageDraftText + 1) },
+  'text is too long to keep',
+)
+rejects(P.parseSaveMessageDraftRequest, { text: '', fields: {} }, 'fields must be text')
+rejects(() => P.parseMessageBox('settings', 'a'), undefined, 'no such message box')
+rejects(() => P.parseMessageBox('comment', ''), undefined, 'invalid message box')
 rejects(P.parseResumeTaskRequest, { comment: 2 }, 'comment must be text')
 rejects(P.parseAnswerTedStopsRequest, {}, 'name at least one Task')
 rejects(P.parseAnswerTedStopsRequest, { restart: [1] }, 'restart must be a list of Task IDs')

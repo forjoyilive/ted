@@ -38,6 +38,8 @@ export function appState() {
     checkAgentHealth: () => [],
     taskDraft: () => ({ draft: null }),
     saveTaskDraft: (_factory, draft) => ({ draft }),
+    messageDraft: () => ({ draft: null }),
+    saveMessageDraft: (_box, draft) => ({ draft }),
     getSlots: () => state.slots,
     drift: () => ({ library: 0, factories: {} }),
     simulators: () => ({ supported: false, limit: 2, booted: [] }),

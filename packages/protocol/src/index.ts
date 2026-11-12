@@ -458,6 +458,19 @@ export {
   listSorts,
   type StatusFilter,
 } from './list-view.ts'
+export {
+  emptyMessageDraft,
+  type MessageBox,
+  type MessageBoxKind,
+  type MessageDraft,
+  type MessageDraftState,
+  maxMessageDraftFields,
+  maxMessageDraftText,
+  messageBoxKinds,
+  parseMessageBox,
+  parseSaveMessageDraftRequest,
+  type SaveMessageDraftRequest,
+} from './message-draft.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
