@@ -58,13 +58,12 @@ sleep to infer that startup is held.
 ## Verification and limits
 
 No test files or Checks were run in Work. The Factory reserves test execution for
-the Task Lead in Validate. The diagnosis skill's execution loop is deferred to
-that Stage under the Factory's explicit rule. Regression cases are prepared;
-their pass/fail result is not yet established.
+the Task Lead in Validate. The diagnosis skill’s execution loop was deferred to
+that Stage under the Factory’s explicit rule; its first result is recorded below.
 
-Validate should run `packages/daemon/test/app-daemons.test.ts` and
+The first Validate ran `packages/daemon/test/app-daemons.test.ts` and
 `packages/app/test/coordinator-ui.test.ts` together with `--retry=0`, outside the
-Codex sandbox for native execution, while retaining the shared suite locks.
+Codex sandbox for native execution, retaining the shared suite locks.
 The Coordinator file and all its receipt, reopen, new-Run history and Not sent
 assertions are unchanged. No guard or worker cap was raised.
 
@@ -72,3 +71,35 @@ A focused pass will establish only these controlled lifecycle conditions and
 the native Coordinator cases on the checked source. It will not establish the
 cause of the historical slowdown, reproduce the original loaded suite, or meet
 KRI-256's full-suite reliability criteria.
+
+## First Validate result and remaining cleanup investigation
+
+At `a22551ca`, all nine ownership regression cases passed with retries disabled.
+The first native Coordinator case passed, but the Not sent case still failed
+with `Hook timed out in 10000ms` at the `afterEach` declaration. The invocation
+reported 10 passed and 1 failed overall. There was no daemon.json timeout in
+that invocation. The output did not identify the individual cleanup operation.
+Typecheck, Lint and independent code/security review passed. The native failure
+remains a blocker; it is not accepted as a passing result.
+
+A retry-disabled comparison on archived branch base `84ec6d1c` failed earlier,
+in `beforeAll` awaiting the renderer build, with the same 10-second hook limit.
+Neither native case executed. The archive’s Coordinator test and shared helper
+blobs matched the base commit. That comparison is inconclusive about the cleanup
+failure and does not establish that it is unrelated to the ownership repair.
+The detailed first-visit output is attached to the Task as the Validate round 1
+report; neither invocation has been retried on unchanged source.
+
+The next diagnostic slice keeps cleanup order, behavior and deadlines unchanged.
+It records each cleanup step in memory and emits the active step plus elapsed
+times after eight seconds, before the existing ten-second hook deadline. It
+reports completion after a slow cleanup, or the failed step if cleanup rejects.
+Fast successful cleanup stays silent. Reporting failures cannot replace the
+original cleanup error, and the warning timer is canceled when cleanup ends.
+Only static operation names and timings are logged, not test data or secrets.
+
+`cleanup-evidence.test.ts` prepares controlled coverage for a held cleanup step,
+preserved errors and warning-timer disposal. Test execution remains reserved for
+Validate. These diagnostics do not choose a repair for the remaining native
+failure or claim its cause. The next native execution must identify the boundary
+before a supported cleanup repair can be selected.

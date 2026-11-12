@@ -18,6 +18,7 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { cleanupWithEvidence } from './support/cleanup-evidence.ts'
 import { resolveElectron } from './support/electron-installation.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -29,10 +30,15 @@ beforeAll(async () => {
   await buildRenderer()
 })
 afterEach(async () => {
-  await closeApp(app)
-  await stopDaemonIn(home)
-  await killRunHosts(home)
-  await removeHome(home)
+  await cleanupWithEvidence(
+    [
+      { name: 'closeApp', run: () => closeApp(app) },
+      { name: 'stopDaemonIn', run: () => stopDaemonIn(home) },
+      { name: 'killRunHosts', run: () => killRunHosts(home) },
+      { name: 'removeHome', run: () => removeHome(home) },
+    ],
+    (evidence) => console.warn('Coordinator cleanup:', JSON.stringify(evidence)),
+  )
 })
 
 test('Coordinator opens from the sidebar, sends, shows receipts and keeps its whole conversation when reopened and after a new Run', async () => {
