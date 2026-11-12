@@ -917,7 +917,12 @@ export function createTasks(options: {
       released = true
       const left = (holds.get(taskId) ?? 1) - 1
       if (left > 0) holds.set(taskId, left)
-      else holds.delete(taskId)
+      else {
+        holds.delete(taskId)
+        setImmediate(() => {
+          if (!closed) pendingTalks(taskId)
+        })
+      }
       void pump()
     }
   }
@@ -3179,7 +3184,10 @@ export function createTasks(options: {
 
   const liveLead = (task: StoredTask) => liveLeadOf(store, task)
   const acknowledgeLeadMessages = (run: Run) => leadLifecycle.acknowledgeLeadMessages(run)
-  const applyLead = (taskId: string) => leadLifecycle.applyLead(taskId)
+  const applyLead = async (taskId: string) => {
+    await leadLifecycle.applyLead(taskId)
+    pendingTalks(taskId)
+  }
 
   async function askAboutModel(updated: Run): Promise<void> {
     if (updated.taskId === undefined) return
@@ -3221,6 +3229,7 @@ export function createTasks(options: {
   async function useDefaultModel(ref: string): Promise<Task> {
     const task = find(ref)
     await leadLifecycle.useDefaultModel(task)
+    pendingTalks(task.id)
     return publicTask(task.id)
   }
 
@@ -3234,6 +3243,7 @@ export function createTasks(options: {
       inBackground('update the model request', () => askAboutModel(run))
       if (run.taskId !== undefined) {
         const taskId = run.taskId
+        pendingTalks(taskId)
         inBackground('apply the Task Lead setting', () => applyLead(taskId))
       }
     })
@@ -4388,22 +4398,43 @@ export function createTasks(options: {
     return human.length + agent.length
   }
 
+  function availableTalkLead(task: StoredTask): Run | undefined {
+    const run = liveLead(task)
+    if (
+      !run ||
+      task.stopped ||
+      task.archived ||
+      task.stage === 'done' ||
+      task.stage === 'backlog' ||
+      run.problem ||
+      store.agentPauses()[run.agent] ||
+      holds.has(task.id) ||
+      leadLifecycle.applying(task.id) ||
+      leadLifecycle.recovering(run.id) ||
+      task.leadRestartPending
+    )
+      return undefined
+    return run
+  }
+
+  function talkLine(round: Comment): string {
+    return `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`
+  }
+
   function bindRoundTalk(task: StoredTask, round: Comment): Comment {
     const run = talkLead(task)
-    if (round.talk?.runId === run.id && !round.talkRequested) return round
-    const talking = store.startRoundTalk(
-      round.id,
-      run.id,
-      `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
-    )
+    const bound =
+      round.talk?.runId === run.id &&
+      (!round.talkRequested ||
+        store.pendingRoundTalks(run.id).some((pending) => pending.round.id === round.id))
+    const talking = bound ? round : store.startRoundTalk(round.id, run.id, talkLine(round))
     inBackground('deliver the talk request', () => options.steering.changed(run.id))
     return talking
   }
 
   function pendingTalks(taskId: string): void {
     const task = store.getTask(taskId)
-    if (!task || task.archived || task.stopped || stoppingByHand.has(task.id) || !liveLead(task))
-      return
+    if (!task || stoppingByHand.has(task.id) || !availableTalkLead(task)) return
     for (const round of store.listComments(taskId)) {
       if (round.kind === 'round' && !round.answer && round.talkRequested) bindRoundTalk(task, round)
     }
@@ -4421,13 +4452,14 @@ export function createTasks(options: {
       throw new RequestError(409, 'the Task is still stopping; try again')
     if (task.stopped && store.taskStoppedByHuman(task.id) && !request.confirmResume)
       return { resumeRequired: true }
-    if (!task.stopped && liveLead(task)) return bindRoundTalk(task, round)
+    if (availableTalkLead(task)) return bindRoundTalk(task, round)
     if (task.status?.kind === 'failed') {
       throw new RequestError(409, 'retry the failed Task before talking it through')
     }
     if (
       task.stopped ||
-      (canStartFresh(task) &&
+      (!liveLead(task) &&
+        canStartFresh(task) &&
         !leadLifecycle.pendingRevive(task.id) &&
         !leadLifecycle.recovering(task.leadRunId ?? ''))
     ) {
@@ -6313,6 +6345,26 @@ export function createTasks(options: {
   })
 
   options.steering.addSource({
+    acknowledged: true,
+    pending(run) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || stoppingByHand.has(task.id) || availableTalkLead(task)?.id !== run.id) return []
+      return store.pendingRoundTalks(run.id).map(({ messageId, round }) => ({
+        id: messageId,
+        text: talkLine(round),
+        at: round.talk?.startedAt ?? round.createdAt,
+      }))
+    },
+    delivered(run, ids) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || availableTalkLead(task)?.id !== run.id) return
+      for (const { messageId, round } of store.pendingRoundTalks(run.id)) {
+        if (ids.includes(messageId)) store.roundTalkNotified(round.id, run.id, messageId)
+      }
+    },
+  })
+
+  options.steering.addSource({
     pending(run) {
       const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!task || liveLead(task)?.id !== run.id) return []
@@ -6392,6 +6444,7 @@ export function createTasks(options: {
         run.taskId !== undefined &&
         store.getTask(run.taskId)?.leadRunId === run.id
       ) {
+        pendingTalks(run.taskId)
         inBackground('refresh reply delivery after agent recovery', () =>
           options.steering.refresh(run.id),
         )

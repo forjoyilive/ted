@@ -784,6 +784,9 @@ export interface TedStore extends TaskHistory {
   holdAnswer(id: string): void
   requestRoundTalk(id: string): Comment
   startRoundTalk(id: string, runId: string, text: string): Comment
+  roundTalkMessageIds(runId: string): string[]
+  pendingRoundTalks(runId: string): { messageId: string; round: Comment }[]
+  roundTalkNotified(id: string, runId: string, messageId: string): void
   roundTalkDone(id: string): Comment
   heldAnswers(taskId: string): Comment[]
   answersDelivered(ids: readonly string[], runId: string): void
@@ -1993,6 +1996,8 @@ export async function openStore({
     answerSentAt,
     failedRunId,
     talkRequested,
+    talkMessageId: _talkMessageId,
+    talkNotifiedAt,
     talkRunId,
     talkStartedAt,
     talkDoneAt,
@@ -2020,6 +2025,7 @@ export async function openStore({
             talk: {
               runId: talkRunId,
               startedAt: talkStartedAt,
+              ...(talkNotifiedAt !== null && { notifiedAt: talkNotifiedAt }),
               ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
             },
           }),
@@ -4318,13 +4324,45 @@ export async function openStore({
     },
     startRoundTalk(id, runId, text) {
       const at = new Date().toISOString()
+      const messageId = randomUUID()
       const taskId = taskIdOfRun(runId) ?? null
       commit(
-        events.roundTalkStarted({ id, runId, at }),
-        events.runMessageQueuedV2({ id: randomUUID(), runId, taskId, text, at, from: 'ted' }),
+        events.runMessageQueuedV2({ id: messageId, runId, taskId, text, at, from: 'ted' }),
+        events.roundTalkStartedV2({
+          id,
+          runId,
+          messageId,
+          at,
+        }),
       )
       emit({ type: 'run-output', runId })
       return emitComment(id)
+    },
+    roundTalkMessageIds(runId) {
+      return store
+        .query(
+          queryDb(runMessages.where({ runId, roundId: { op: '!=', value: null }, queued: true })),
+        )
+        .map((message) => message.id)
+    },
+    pendingRoundTalks(runId) {
+      return store
+        .query(queryDb(comments.where({ talkRunId: runId, talkRequested: true, answer: null })))
+        .flatMap((row) =>
+          row.talkMessageId === null
+            ? []
+            : [{ messageId: row.talkMessageId, round: toComment(row) }],
+        )
+    },
+    roundTalkNotified(id, runId, messageId) {
+      const at = new Date().toISOString()
+      const taskId = taskIdOfRun(runId) ?? null
+      commit(
+        events.runMessageDelivered({ id: messageId, runId, taskId, lead: false, at }),
+        events.roundTalkNotified({ id, runId, messageId, at }),
+      )
+      emit({ type: 'run-output', runId })
+      emitComment(id)
     },
     roundTalkDone(id) {
       commit(events.roundTalkDone({ id, at: new Date().toISOString() }))

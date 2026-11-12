@@ -531,6 +531,7 @@ export type TalkThroughResult = Comment | { resumeRequired: true }
 export interface RoundTalk {
   runId: string
   startedAt: string
+  notifiedAt?: string
   doneAt?: string
 }
 

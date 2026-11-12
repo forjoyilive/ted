@@ -9,7 +9,7 @@ import {
   type ThreadEvent,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
@@ -26,6 +26,28 @@ import {
   waitUntil,
 } from './helpers.ts'
 
+const transport = vi.hoisted(() => ({ loseCheckpoint: false, accepted: false }))
+vi.mock('../src/runs/run-manager.ts', async (original) => {
+  const module = await original<typeof import('../src/runs/run-manager.ts')>()
+  return {
+    ...module,
+    startRunManager: async (...args: Parameters<typeof module.startRunManager>) => {
+      const runs = await module.startRunManager(...args)
+      return {
+        ...runs,
+        dispatch: async (...input: Parameters<typeof runs.dispatch>) => {
+          const delivered = await runs.dispatch(...input)
+          if (delivered && transport.loseCheckpoint) {
+            transport.accepted = true
+            throw new Error('simulated daemon exit before the talk delivery checkpoint')
+          }
+          return delivered
+        },
+      }
+    },
+  }
+})
+
 let home: string
 let cleanup: () => Promise<void>
 let scratch: string
@@ -39,6 +61,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  transport.loseCheckpoint = false
+  transport.accepted = false
   await daemon?.stop()
   daemon = undefined
   await killRunHosts(home)
@@ -346,7 +370,8 @@ describe('Talk it through', () => {
     await client.ok('POST', `/tasks/${task.id}/stop`)
     const stopped = await client.call('POST', `/comments/${item.request.id}/talk`)
     expect(stopped).toMatchObject({ status: 200, body: { resumeRequired: true } })
-    expect((await getTask(client, task.id)).status?.kind).toBe('stopped')
+    expect((await getTask(client, task.id)).leadRunId).toBe(lead)
+    expect((await getTask(client, task.id)).runs.every((r) => r.state === 'finished')).toBe(true)
     expect(
       (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
     ).toBeUndefined()
@@ -459,6 +484,116 @@ describe('Talk it through', () => {
     expect(await client.call('POST', `/comments/${item.request.id}/talk`)).toMatchObject({
       status: 409,
     })
+  })
+
+  test('a live unavailable Lead keeps the talk pending until the default model is restored', async () => {
+    const client = await start()
+    const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
+      endTurn: true,
+    })
+    const item = await openRound(client, 1)
+    await waitUntil(
+      async () => (await client.getRun(await leadId(client, task))).run.state !== 'working',
+      'the initial Lead to settle',
+    )
+    await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', model: 'unavailable-9' })
+    await waitUntil(
+      async () =>
+        (await client.getRun(await leadId(client, task))).run.problem === 'model-unavailable',
+      'the live Lead to wait for a model',
+    )
+    const lead = await leadId(client, task)
+    const pending = await client.ok<Comment>('POST', `/comments/${item.request.id}/talk`)
+    expect(pending.talkRequested).toBe(true)
+    expect(pending.talk).toBeUndefined()
+    expect((await getTask(client, task.id)).leadRunId).toBe(lead)
+    expect(
+      (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+    ).toBe(false)
+    await client.ok('POST', `/tasks/${task.id}/lead/use-default-model`)
+    await waitUntil(async () => {
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      return round?.talk?.runId === lead && !round.talkRequested
+    }, 'the recovered live Lead to acknowledge the talk')
+    expect(
+      (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1')),
+    ).toHaveLength(1)
+  })
+
+  test('answering before a working Lead’s next boundary cancels its bound talk notification', async () => {
+    const client = await start()
+    const gate = path.join(scratch, 'allow-boundary')
+    const task = await startTask(
+      client,
+      advance,
+      few,
+      ask(client.storageFile),
+      { say: 'Before boundary' },
+      { waitFor: gate },
+      { tool: 'Read' },
+      reply,
+      { endTurn: true },
+    )
+    const item = await openRound(client, 1)
+    await waitForReply(client, task, 'Before boundary')
+    const lead = await leadId(client, task)
+    const pending = await waitUntil(async () => {
+      const requested = await client.ok<Comment>('POST', `/comments/${item.request.id}/talk`)
+      return requested.talk?.runId === lead ? requested : undefined
+    }, 'the talk to bind while the Lead is working')
+    expect(pending.talk?.runId).toBe(lead)
+    expect(pending.talkRequested).toBe(true)
+    await client.ok('POST', `/comments/${item.request.id}/answer`, {
+      action: 'answer-round',
+      answers: storageRound.questions.map((q) => ({ answer: q.recommended })),
+    })
+    await writeFile(gate, '')
+    await waitUntil(
+      async () => (await client.getRun(lead)).run.state !== 'working',
+      'the Lead to pass its boundary',
+    )
+    expect(
+      (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+    ).toBe(false)
+    expect(
+      (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
+    ).toBeUndefined()
+  })
+
+  test('a restart after host acknowledgement replays the checkpoint without delivering the talk twice', async () => {
+    let client = await start()
+    const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
+      endTurn: true,
+    })
+    const item = await openRound(client, 1)
+    await waitUntil(
+      async () => (await client.getRun(await leadId(client, task))).run.state !== 'working',
+      'the Lead to settle',
+    )
+    const lead = await leadId(client, task)
+    transport.loseCheckpoint = true
+    await client.ok('POST', `/comments/${item.request.id}/talk`)
+    await waitUntil(() => transport.accepted, 'host acknowledgement before the simulated exit')
+    expect(
+      (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
+    ).toBe(true)
+    await waitUntil(
+      async () =>
+        (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+      'the host to receive the original talk',
+    )
+    await hostsStarted(home)
+    await daemon?.stop()
+    transport.loseCheckpoint = false
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    client = { ...client, ...connection() }
+    await waitUntil(async () => {
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      return round?.talk?.runId === lead && !round.talkRequested
+    }, 'the replayed acknowledgement checkpoint')
+    expect(
+      (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1')),
+    ).toHaveLength(1)
   })
 
   test('after the Task Lead is replaced, Done talking asks for a fresh talk and the new Run can’t close the old one', async () => {

@@ -295,7 +295,10 @@ test('Talk it through confirms a stopped Task, preserves edits on cancel, and op
     (screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement).disabled,
   ).toBe(false)
   expect(open).not.toHaveBeenCalled()
-  const ready = { ...request, talk: { runId: 'new-lead', startedAt: createdAt } }
+  const ready = {
+    ...request,
+    talk: { runId: 'new-lead', startedAt: createdAt, notifiedAt: createdAt },
+  }
   view.rerender(<RequestCard {...props} request={ready} task={task({ leadRunId: 'new-lead' })} />)
   await waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith('new-lead'))
   view.unmount()
@@ -322,13 +325,98 @@ test('a talk that becomes ready after leaving the round offers Open chat on the 
   view.unmount()
   render(
     <RequestCard
-      request={{ ...request, talk: { runId: 'lead', startedAt: createdAt } }}
+      request={{ ...request, talk: { runId: 'lead', startedAt: createdAt, notifiedAt: createdAt } }}
       task={task({ leadRunId: 'lead' })}
       onOpenRun={open}
     />,
   )
   expect(screen.getByRole('button', { name: 'Open chat' })).toBeTruthy()
   expect(open).not.toHaveBeenCalled()
+})
+
+test('a still-mounted hidden round never opens a queued talk over another view', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  api.handle('talkThrough', () => ({ ...request, talkRequested: true }))
+  const open = vi.fn()
+  const props = { task: task({ leadRunId: 'lead' }), onOpenRun: open }
+  const view = render(<RequestCard {...props} request={request} active />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  view.rerender(<RequestCard {...props} request={{ ...request, talkRequested: true }} active />)
+  view.rerender(
+    <RequestCard {...props} request={{ ...request, talkRequested: true }} active={false} />,
+  )
+  const ready = { ...request, talk: { runId: 'lead', startedAt: createdAt, notifiedAt: createdAt } }
+  view.rerender(<RequestCard {...props} request={ready} active={false} />)
+  expect(open).not.toHaveBeenCalled()
+  view.rerender(<RequestCard {...props} request={ready} active />)
+  expect(open).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Open chat' })).toBeTruthy()
+})
+
+test('leaving and returning before a talk request finishes prevents late automatic navigation', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  const response = deferred<typeof request>()
+  api.handle('talkThrough', () => response.promise)
+  const open = vi.fn()
+  const props = { task: task({ leadRunId: 'lead' }), onOpenRun: open, request }
+  const view = render(<RequestCard {...props} active />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  view.rerender(<RequestCard {...props} active={false} />)
+  view.rerender(<RequestCard {...props} active />)
+  await act(async () =>
+    response.resolve({
+      ...request,
+      talk: { runId: 'lead', startedAt: createdAt, notifiedAt: createdAt },
+    }),
+  )
+  expect(open).not.toHaveBeenCalled()
+})
+
+test('cancelling a bound talk before acknowledgement never opens the stopped Lead', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  api.handle('talkThrough', () => ({ ...request, talkRequested: true }))
+  const open = vi.fn()
+  const props = {
+    task: task({ leadRunId: 'lead', status: { kind: 'waiting-on-you' } }),
+    onOpenRun: open,
+  }
+  const view = render(<RequestCard {...props} request={request} />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  const bound = { ...request, talk: { runId: 'lead', startedAt: createdAt } }
+  view.rerender(<RequestCard {...props} request={{ ...bound, talkRequested: true }} />)
+  view.rerender(<RequestCard {...props} request={bound} />)
+  expect(open).not.toHaveBeenCalled()
+})
+
+test('a pending talk explains a live Lead’s availability and acknowledgement wait', () => {
+  requestApi()
+  const lead = {
+    id: 'lead',
+    agent: 'claude' as const,
+    role: 'lead' as const,
+    name: 'Task Lead',
+    state: 'waiting' as const,
+  }
+  const request = comment({ kind: 'round', round, talkRequested: true })
+  const view = render(
+    <RequestCard
+      request={request}
+      task={task({ leadRunId: lead.id, runs: [{ ...lead, paused: 'Signed out' }] })}
+    />,
+  )
+  expect(screen.getByRole('status').textContent).toContain('Signed out')
+  view.rerender(
+    <RequestCard
+      request={{ ...request, talk: { runId: lead.id, startedAt: createdAt } }}
+      task={task({ leadRunId: lead.id, runs: [lead] })}
+    />,
+  )
+  expect(screen.getByRole('status').textContent).toContain(
+    'Waiting for the Task Lead to receive this request.',
+  )
 })
 
 test('grilling sign-off displays decisions, open questions and button guidance', async () => {

@@ -390,6 +390,7 @@ export function RequestCard({
   request,
   task,
   readOnly = false,
+  active = true,
   onOpenRun,
   onOpenTask,
   onOpenApp,
@@ -404,6 +405,7 @@ export function RequestCard({
   onOpenFile?: ((file: ChangedFile) => void) | undefined
   onAllChanges?: (() => void) | undefined
   readOnly?: boolean
+  active?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenTask?: ((id: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
@@ -412,7 +414,13 @@ export function RequestCard({
   const [confirmTalk, setConfirmTalk] = useState(false)
   const [openWhenReady, setOpenWhenReady] = useState(false)
   const pendingTalkSeen = useRef(false)
-  const previousTalkRun = useRef<string>(undefined)
+  const previousTalkStartedAt = useRef<string>(undefined)
+  const navigation = useRef(0)
+  useEffect(() => {
+    if (!active) navigation.current += 1
+  }, [active])
+  const activeRef = useRef(active)
+  activeRef.current = active
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -422,7 +430,7 @@ export function RequestCard({
   }, [])
   useEffect(() => {
     if (!openWhenReady) return
-    if (request.answer || task.archived) {
+    if (!active || request.answer || task.archived) {
       setOpenWhenReady(false)
       return
     }
@@ -433,13 +441,20 @@ export function RequestCard({
     if (
       request.talk &&
       request.talk.runId === task.leadRunId &&
-      task.status?.kind !== 'stopped' &&
-      request.talk.runId !== previousTalkRun.current
+      request.talk.notifiedAt !== undefined &&
+      request.talk.startedAt !== previousTalkStartedAt.current
     ) {
       setOpenWhenReady(false)
       onOpenRun?.(request.talk.runId)
     } else if (pendingTalkSeen.current) setOpenWhenReady(false)
-  }, [openWhenReady, request, task, onOpenRun])
+  }, [active, openWhenReady, request, task, onOpenRun])
+  const waitingLead = task.runs.find((run) => run.id === task.leadRunId && run.state !== 'finished')
+  const talkWaitReason = waitingLead
+    ? (waitingLead.paused ??
+      (request.talk?.runId === waitingLead.id
+        ? 'Waiting for the Task Lead to receive this request.'
+        : 'Waiting for the Task Lead’s agent or model to be available.'))
+    : task.activity || 'Waiting for a free slot or for the agent to be available.'
   const now = useNow()
   const repairFormId = useId()
   const [selection, setSelection] = useState<QuestionSelection>()
@@ -493,11 +508,12 @@ export function RequestCard({
     setSubmission(undefined)
     setSending(true)
     setError(undefined)
+    const requestedFrom = navigation.current
     try {
-      previousTalkRun.current = request.talk?.runId
+      previousTalkStartedAt.current = request.talk?.startedAt
       pendingTalkSeen.current = false
       const talking = await ted.talkThrough(request.id, { confirmResume })
-      if (!mounted.current) return
+      if (!mounted.current || !activeRef.current || requestedFrom !== navigation.current) return
       if ('resumeRequired' in talking) setConfirmTalk(true)
       else if (talking.talkRequested) setOpenWhenReady(true)
       else if (talking.talk && !talking.answer) onOpenRun?.(talking.talk.runId)
@@ -653,8 +669,7 @@ export function RequestCard({
       )}
       {request.talkRequested && !request.answer && !readOnly && (
         <p className={styles.summary} role="status">
-          Waiting for Task Lead…{' '}
-          {task.activity || 'Waiting for a free slot or for the agent to be available.'}
+          Waiting for Task Lead… {talkWaitReason}
         </p>
       )}
       {request.round && (
@@ -664,7 +679,7 @@ export function RequestCard({
           waiting={request.talkRequested === true}
           readOnly={readOnly}
           sending={sending}
-          talking={request.talk !== undefined && request.talk.runId === task.leadRunId}
+          talking={request.talk?.notifiedAt !== undefined && request.talk.runId === task.leadRunId}
           onSend={(answer) => void send(answer)}
           onTalk={onOpenRun && (() => void talk())}
         />
