@@ -1,3 +1,4 @@
+import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
@@ -7,7 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { redactSecrets } from '../../daemon/src/redact.ts'
 import {
   api,
@@ -38,8 +39,34 @@ let app: ElectronApplication | undefined
 let feed: http.Server | undefined
 let latest: { version: string; failInstall?: boolean }
 
+const loadWorkers = Number(process.env.UPDATE_RESTART_LOAD) || 0
+let workload: ChildProcess | undefined
+let workloadEnded = false
+
 beforeAll(async () => {
   await buildRenderer()
+  if (loadWorkers < 1) return
+  workload = spawn(
+    process.execPath,
+    [
+      fileURLToPath(new URL('../../../scripts/check-load.ts', import.meta.url)),
+      String(loadWorkers),
+    ],
+    { env: { ...process.env }, stdio: ['ignore', 'pipe', 'ignore'] },
+  )
+  workload.once('exit', () => {
+    workloadEnded = true
+  })
+  const [ready] = (await once(workload.stdout as NonNullable<ChildProcess['stdout']>, 'data', {
+    signal: AbortSignal.timeout(20_000),
+  })) as [Buffer]
+  if (!ready.toString('utf8').includes('READY')) throw new Error('CPU workload was not ready')
+})
+
+afterAll(() => {
+  const endedEarly = workloadEnded
+  workload?.kill('SIGKILL')
+  expect(endedEarly).toBe(false)
 })
 
 beforeEach(async () => {
