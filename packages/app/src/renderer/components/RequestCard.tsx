@@ -3,6 +3,7 @@ import type {
   Comment,
   CommentAnswer,
   MergeRow,
+  MessageBox,
   SignOffChanges,
   Task,
   TaskChanges,
@@ -19,6 +20,7 @@ import {
   useThreadEvents,
   useValidationObligations,
 } from '../data.ts'
+import { draftField, useMessageDraft } from '../message-drafts.ts'
 import {
   ago,
   briefSections,
@@ -414,10 +416,30 @@ export function RequestCard({
 }) {
   const now = useNow()
   const repairFormId = useId()
-  const [selection, setSelection] = useState<QuestionSelection>()
-  const [otherText, setOtherText] = useState('')
+  const box: MessageBox | undefined =
+    readOnly || request.answer !== undefined ? undefined : { kind: 'request', id: request.id }
+  const kept = useMessageDraft(box)
+  const { text, setText } = kept
+  const [selection, setSelection] = draftField(
+    kept,
+    'selection',
+    undefined,
+    (value): value is QuestionSelection | undefined =>
+      value === undefined ||
+      (value !== null &&
+        typeof value === 'object' &&
+        (('other' in value && value.other === true) ||
+          ('choice' in value &&
+            typeof value.choice === 'string' &&
+            (request.choices ?? []).includes(value.choice)))),
+  )
+  const [otherText, setOtherText] = draftField(
+    kept,
+    'otherText',
+    '',
+    (value): value is string => typeof value === 'string',
+  )
   const sendingRef = useRef(false)
-  const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const shown =
@@ -444,8 +466,7 @@ export function RequestCard({
     setError(undefined)
     try {
       const answered = await ted.answerRequest(request.id, answer)
-      setText('')
-      setOtherText('')
+      kept.clear()
       if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
         onOpenPlan?.(answered.answer.planId)
       }
@@ -591,6 +612,7 @@ export function RequestCard({
           readOnly={readOnly}
           sending={sending}
           talking={request.talk !== undefined}
+          box={box}
           onSend={(answer) => void send(answer)}
           onTalk={onOpenRun && (() => void talk())}
         />
@@ -608,6 +630,7 @@ export function RequestCard({
             proposal={request.proposal}
             readOnly={readOnly}
             sending={sending}
+            box={box}
             onSend={(answer) => void send(answer)}
           />
         ))}
@@ -698,6 +721,7 @@ export function RequestCard({
                 task={task}
                 request={request}
                 reason={text}
+                box={box}
                 onCancel={() => setSelection(undefined)}
                 onSendingChange={setSending}
               />

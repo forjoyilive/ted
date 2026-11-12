@@ -1,4 +1,4 @@
-import type { Coordinator, Factory, TaskLead } from '@ted/protocol'
+import type { Coordinator, Factory, MessageBox, TaskLead } from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
@@ -8,6 +8,7 @@ import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { useCoordinatorChatState, useCoordinatorState } from '../data.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Coordinator.module.css'
@@ -40,7 +41,8 @@ export function CoordinatorView({
   const coordinator = resource.value
   const chatResource = useCoordinatorChatState(factory.id, coordinator?.runIds ?? [])
   const chat = chatResource.value
-  const [text, setText] = useState('')
+  const box: MessageBox = { kind: 'coordinator', id: factory.id }
+  const { setText } = useMessageDraft(box)
   const [lead, setLead] = useState<TaskLead>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -132,8 +134,7 @@ export function CoordinatorView({
               endedPlaceholder={placeholder}
               help={help}
               interrupt={false}
-              value={text}
-              onValue={setText}
+              box={box}
               send={(message) => ted.messageCoordinator(factory.id, { text: message, ...lead })}
               stopTurn={() => ted.stopCoordinator(factory.id)}
             />
@@ -170,6 +171,7 @@ export function CoordinatorView({
               live: status !== 'failed',
               working: status === 'working' || status === 'queued' || status === 'paused',
               interrupt: false,
+              box,
               send: (message) => ted.messageCoordinator(factory.id, { text: message }),
               stopTurn: () => ted.stopCoordinator(factory.id),
             }}

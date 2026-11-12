@@ -5342,7 +5342,7 @@ export function createTasks(options: {
       const last = find(task.id)
       await lifecycle.cleanFolders(await execution.local(task.id))
       const runIds = store.taskRunList(task.id).map((r) => r.id)
-      const files = store.taskFiles(task.id)
+      const files = [...store.taskFiles(task.id), ...store.messageDraftFiles(task.id)]
       failures.forget(task.id)
       store.deleteTask(task.id)
       await store.persisted()

@@ -12,6 +12,8 @@ type Handler = (...args: unknown[]) => unknown
 export function bridge(given: Record<string, Handler>) {
   const handlers: Record<string, Handler> = {
     getSideChat: () => null,
+    messageDraft: () => ({ draft: null }),
+    saveMessageDraft: (_box, draft) => ({ draft }),
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
     ...given,
   }
