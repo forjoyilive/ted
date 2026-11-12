@@ -11,19 +11,30 @@ export interface CpuProfiler {
   close(): void
 }
 
+export interface StallProfiles {
+  stallMs?: number
+  windowMs?: number
+  tickMs?: number
+  log?: (line: string) => void
+}
+
 export const profilesKept = 5
 
 const samplingMicros = 1000
 const profileName = /^daemon-\d{8}-\d{6}\.cpuprofile$/
+const stallName = /^stall-\d{8}-\d{6}\.cpuprofile$/
+const stallSamplingMicros = 10_000
 
-export function createCpuProfiler(home: string): CpuProfiler {
+export function createCpuProfiler(home: string, stalls?: StallProfiles): CpuProfiler {
   let running: AbortController | undefined
+  const watch = stalls && watchStalls(home, stalls)
   return {
     async record(seconds) {
       if (running) throw new RequestError(409, 'TED is already recording a CPU profile')
       const stop = new AbortController()
       running = stop
       try {
+        await watch?.pause()
         await profilesDir(home)
         const text = await sample(seconds, stop.signal)
         const name = `daemon-${stamp(new Date())}.cpuprofile`
@@ -36,10 +47,92 @@ export function createCpuProfiler(home: string): CpuProfiler {
         }
       } finally {
         running = undefined
+        watch?.resume()
       }
     },
     close() {
       running?.abort()
+      watch?.close()
+    },
+  }
+}
+
+type Session = Awaited<ReturnType<typeof connect>>
+
+// ADR 0123: keeps a coarse profile of the last minute and saves it when the event loop was
+// blocked for `stallMs` or more, so a freeze names the code that caused it. The sampler runs
+// on V8’s own thread, so it keeps sampling while the loop is blocked.
+function watchStalls(home: string, options: StallProfiles) {
+  const stallMs = options.stallMs ?? 5_000
+  const windowMs = options.windowMs ?? 60_000
+  const tickMs = options.tickMs ?? 1_000
+  const log = options.log ?? ((line: string) => console.warn(line))
+  let session: Session | undefined
+  let startedAt = 0
+  let lastTick = Date.now()
+  let closed = false
+  let paused = false
+  let work: Promise<void> = Promise.resolve()
+  const queue = (step: () => Promise<void>) => {
+    work = work.then(step).catch((error: unknown) => {
+      session?.disconnect()
+      session = undefined
+      log(`couldn’t keep a profile for stalls: ${error instanceof Error ? error.message : error}`)
+    })
+    return work
+  }
+  const start = async () => {
+    if (closed || paused || session) return
+    const next = await connect()
+    await next.post('Profiler.enable')
+    await next.post('Profiler.setSamplingInterval', { interval: stallSamplingMicros })
+    await next.post('Profiler.start')
+    session = next
+    startedAt = Date.now()
+  }
+  const stop = async (keep?: number) => {
+    const current = session
+    if (!current) return
+    session = undefined
+    try {
+      const { profile } = await current.post('Profiler.stop')
+      if (keep === undefined) return
+      const dir = await profilesDir(home)
+      const name = `stall-${stamp(new Date())}.cpuprofile`
+      await save(path.join(dir, name), JSON.stringify(profile))
+      await prune(dir, stallName)
+      log(
+        `event loop blocked for ${keep} ms; a CPU profile of it is in ${displayPath(path.join(home, 'logs', 'profiles', name))}`,
+      )
+    } finally {
+      current.disconnect()
+    }
+  }
+  const timer = setInterval(() => {
+    const now = Date.now()
+    const late = now - lastTick - tickMs
+    lastTick = now
+    // A machine that slept looks like one very long stall; that profile is thrown away.
+    if (late >= stallMs && late < 10 * 60_000) void queue(() => stop(late)).then(() => queue(start))
+    else if (session && now - startedAt >= windowMs)
+      void queue(() => stop()).then(() => queue(start))
+  }, tickMs)
+  timer.unref()
+  void queue(start)
+  return {
+    pause() {
+      paused = true
+      return queue(() => stop())
+    },
+    resume() {
+      paused = false
+      lastTick = Date.now()
+      void queue(start)
+    },
+    close() {
+      closed = true
+      clearInterval(timer)
+      void queue(() => stop())
     },
   }
 }
@@ -112,8 +205,8 @@ async function save(file: string, text: string): Promise<void> {
   }
 }
 
-async function prune(dir: string): Promise<void> {
-  const names = (await readdir(dir)).filter((name) => profileName.test(name)).sort()
+async function prune(dir: string, pattern = profileName): Promise<void> {
+  const names = (await readdir(dir)).filter((name) => pattern.test(name)).sort()
   for (const name of names.slice(0, -profilesKept)) {
     const file = path.join(dir, name)
     const info = await lstat(file).catch(() => undefined)
