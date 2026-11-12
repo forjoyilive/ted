@@ -364,6 +364,8 @@ export {
   agentHealthStates,
   agentProblem,
   agentShortNames,
+  antigravityPlanNotice,
+  antigravityTermsUrl,
   type Billing,
   billingNames,
   billings,
