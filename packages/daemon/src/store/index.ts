@@ -856,6 +856,7 @@ export interface TedStore extends TaskHistory {
   tasksIn(ids: ReadonlySet<string>): Task[]
   preparedTasks(): string[]
   backlogTasks(): { id: string; snoozed: boolean }[]
+  unarchivedTaskRepos(): { id: string; stage: StageId; repos: TaskRepo[] }[]
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
@@ -4646,6 +4647,11 @@ export async function openStore({
         .query(allTasks)
         .filter((row) => row.stage === 'backlog' && row.archivedAt === null)
         .map((row) => ({ id: row.id, snoozed: Boolean(row.snoozedUntil) })),
+    unarchivedTaskRepos: () =>
+      store
+        .query(allTasks)
+        .filter((row) => row.archivedAt === null)
+        .map((row) => ({ id: row.id, stage: row.stage as StageId, repos: reposOf(row.id) })),
     runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {
