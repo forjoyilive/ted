@@ -12,14 +12,14 @@ A `v1`, `v2` or `v3.RunOutputRead` event only sets `runs.readOffset` and, when i
 
 ## When it runs
 
-Only in `data.ts`, with the store closed, when the state database is about to be rebuilt from the event log and a pre-update backup of this version exists. That is the only time the event count costs anything, and the rebuild then builds the state from the new log, so no state database ever holds numbers from the old one. It does nothing when fewer than 1,000 events would go, or when the log isn’t one client’s unbroken chain.
+Only in `data.ts`, with the store closed, when the state database is about to be rebuilt from the event log, and only after a pre-update backup taken in this same open: the one the rebuild took, or one the pass takes itself once it knows there is something to drop. An earlier backup doesn’t count, because the log may have grown since. That is the only time the event count costs anything, and the rebuild then builds the state from the new log, so no state database ever holds numbers from the old one. It does nothing when fewer than 1,000 events would go, or when the log isn’t one client’s unbroken chain.
 
 ## Why it is safe
 
 - It works on a copy of the event log. The copy replaces the original, by a rename, only after it passes verification. Any failure deletes the copy and the store opens from the original log.
 - Verification attaches the original and checks: SQLite’s integrity check; the same settings, tables, indexes and other tables’ rows; the copy is one chain starting at the original’s first number; walking both logs in order, every event of the copy is the original’s next event with the same name, arguments, client, session, schema hash and sync metadata, and every original event passed over is a readable `RunOutputRead`; the number passed over is the number dropped; and each Run’s final read offset and last output time, worked out the way the materializers do, are the same in both.
-- The current state files are removed before the rename. A crash between the two leaves the original log and no state, which rebuilds as before.
-- The pre-update backup holds the original log.
+- Every state file, of this schema and of older ones, is removed before the rename. A crash between the two leaves the original log and no state, which rebuilds as before; and an older TED opened later finds no state database numbered against the old log.
+- The pre-update backup taken in this open holds the original log.
 
 ## Considered Options
 

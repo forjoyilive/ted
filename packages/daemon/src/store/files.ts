@@ -8,7 +8,6 @@ export const storeFolder = storeId
 const metaFile = 'ted-store.json'
 const eventlogPattern = /^eventlog@(\d+)\.db$/
 const statePrefix = `state${schema.state.sqlite.hash}@`
-export const stateFilePrefix = statePrefix
 
 export interface OutputCompaction {
   state: 'done' | 'failed'

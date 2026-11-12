@@ -201,7 +201,10 @@ export function createData(options: DataOptions): Data {
     const startedAt = Date.now()
     if (rebuilding) setStatus(updating(progress, startedAt))
     if (rebuilding && backUp) {
-      const dropped = await dropSupersededOutput(paths.store, options.outputDrop)
+      const dropped = await dropSupersededOutput(paths.store, {
+        ...options.outputDrop,
+        ...(!backedUp && { backUp: () => backups.takePreUpdate(meta?.lastOpenedBy) }),
+      })
       if (dropped.kind === 'failed') {
         console.error(
           `dropping replaced Run output events failed, so the event log stays as it is: ${redactSecrets(dropped.reason)}`,

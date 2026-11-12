@@ -2,7 +2,7 @@ import { constants } from 'node:fs'
 import { copyFile, open, readdir, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { eventlogFile, stateFilePrefix } from './files.ts'
+import { eventlogFile } from './files.ts'
 import { events } from './schema.ts'
 
 export type OutputDrop =
@@ -12,6 +12,7 @@ export type OutputDrop =
 
 export interface DropOptions {
   atLeast?: number
+  backUp?: () => Promise<unknown>
   beforeVerify?: (copy: string) => void | Promise<void>
 }
 
@@ -189,8 +190,8 @@ async function flush(file: string): Promise<void> {
   }
 }
 
-// ADR 0121: run only with the store closed, after a backup, when the state is about to be
-// rebuilt from the event log; it removes the current state files before the new log is in place.
+// ADR 0121: run only with the store closed, when the state is about to be rebuilt from the
+// event log. Every state file, of any schema, goes before the renumbered log is in place.
 export async function dropSupersededOutput(
   directory: string,
   options: DropOptions = {},
@@ -205,6 +206,7 @@ export async function dropSupersededOutput(
   try {
     const drop = withDb(eventlog, true, (db) => (isPlainChain(db) ? superseded(db) : []))
     if (drop.length < (options.atLeast ?? 1000)) return { kind: 'nothing' }
+    await options.backUp?.()
     await discard()
     const bytesBefore = (await stat(eventlog)).size
     await copyFile(eventlog, copy, constants.COPYFILE_FICLONE)
@@ -245,7 +247,7 @@ export async function dropSupersededOutput(
     const bytesAfter = (await stat(copy)).size
     const folder = path.dirname(eventlog)
     for (const file of await readdir(folder)) {
-      if (file.startsWith(stateFilePrefix)) await rm(path.join(folder, file), { force: true })
+      if (file.startsWith('state')) await rm(path.join(folder, file), { force: true })
     }
     await rename(copy, eventlog)
     await flush(folder).catch(() => undefined)
