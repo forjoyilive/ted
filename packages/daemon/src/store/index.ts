@@ -93,7 +93,6 @@ import {
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { Effect } from 'effect'
-import { factoryDashboard as aggregateDashboard } from '../dashboard.ts'
 import { isDiskFullError } from '../disk.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
@@ -112,6 +111,7 @@ import { type AutomationDraftStore, createAutomationDraftStore } from './automat
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
@@ -1002,15 +1002,6 @@ export async function openStore({
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
-  const dashboardTasks = (factoryId: string) =>
-    queryDb(tasks.where({ factoryId, setup: false }).orderBy('number', 'asc'))
-  const dashboardEntries = (ids: string[]) =>
-    queryDb(
-      stageEntries.where({
-        taskId: { op: 'IN', value: ids },
-        stage: { op: 'IN', value: ['done', 'intake'] },
-      }),
-    )
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
   const liveRuns = queryDb(
     runs.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
@@ -3625,30 +3616,7 @@ export async function openStore({
       return task
     },
     factoryDashboard(factoryId, range, asOf = Date.now()) {
-      const rows = store.query(dashboardTasks(factoryId))
-      const entries = rows.length ? store.query(dashboardEntries(rows.map((row) => row.id))) : []
-      const byTask = new Map<string, { stage: string; at: string }[]>()
-      for (const entry of entries) {
-        const found = byTask.get(entry.taskId) ?? []
-        found.push({ stage: entry.stage, at: entry.at })
-        byTask.set(entry.taskId, found)
-      }
-      const factory =
-        listFactories().find((factory) => factory.id === factoryId) ?? placeholderFactory
-      return aggregateDashboard(
-        rows.map((row) => ({
-          id: row.id,
-          displayId: `${factory.key}-${row.number}`,
-          title: row.title,
-          createdAt: row.createdAt,
-          archived: row.archivedAt !== null,
-          setup: row.setup,
-          stage: row.stage,
-          entries: byTask.get(row.id) ?? [],
-        })),
-        range,
-        asOf,
-      )
+      return readFactoryDashboard(store, factoryId, range, asOf)
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),

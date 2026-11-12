@@ -14,6 +14,7 @@ import type { DashboardSelection, DashboardViewState } from '../dashboard.ts'
 import { useFactoryDashboard } from '../data.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
+import { Flow } from './DashboardFlow.tsx'
 import views from './views.module.css'
 
 const labels: Record<DashboardMetric, string> = {
@@ -600,6 +601,14 @@ export function Dashboard({
                 onOpenTask={onOpenTask}
               />
             )}
+            <Flow
+              data={data.flow}
+              asOf={data.asOf}
+              selection={state.flowSample}
+              select={(flowSample) => onChange({ range: state.range, flowSample })}
+              onClose={() => onChange({ range: state.range })}
+              onOpenTask={onOpenTask}
+            />
           </>
         )}
       </div>
