@@ -141,7 +141,9 @@ describe('Planning chats', () => {
     expect(await row.textContent()).toContain('Plan notebook sharing')
     await row.click()
     expect(await roundCard.getByRole('button', { name: 'Accept all recommended' }).count()).toBe(0)
-    expect(await roundCard.getByRole('radio', { name: /The owner only/ }).isChecked()).toBe(true)
+    expect(await roundCard.getByRole('radio', { name: /The owner only/ }).isChecked()).toBe(false)
+    expect(await roundCard.getByRole('button', { name: 'Submit answers' }).isEnabled()).toBe(false)
+    await roundCard.getByRole('radio', { name: /The owner only/ }).check()
     await roundCard.getByRole('button', { name: 'Submit answers' }).click()
     await row.waitFor({ state: 'detached' })
     await window
