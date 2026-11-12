@@ -49,6 +49,7 @@ let cliWorker = false
 const loadWorkers = Number(process.env.UPDATE_RESTART_LOAD) || 0
 let workload: ChildProcess | undefined
 let workloadEnded = false
+let endDiagnostics: (() => Promise<void>) | undefined
 
 beforeAll(async () => {
   await buildRenderer()
@@ -90,6 +91,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  await endDiagnostics?.()
+  endDiagnostics = undefined
   await closeApp(app)
   app = undefined
   if (cliWorker) await stopExecutionService(await executionHome())
@@ -178,7 +181,12 @@ describe('in-app updates', () => {
     let stderr = ''
     let saving = Promise.resolve()
     let ended = false
+    endDiagnostics = async () => {
+      ended = true
+      await saving
+    }
     const save = () => {
+      if (ended) return saving
       saving = saving.then(async () => {
         try {
           await mkdir(path.dirname(file), { recursive: true })
