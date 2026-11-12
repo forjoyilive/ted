@@ -28,6 +28,7 @@ const historyNames = [
   'v1.ValidateJudged',
   'v2.ValidateJudged',
   'v1.TaskMovedToBacklog',
+  'v1.TaskNeedsPlanning',
   'v1.TaskSentBack',
   'v2.TaskSentBack',
 ]
@@ -102,7 +103,7 @@ export function readFactoryDashboard(
       const data = JSON.parse(row.data) as Record<string, unknown>
       if (row.name.endsWith('TaskStageEntered')) {
         task.entries.push({ stage: String(data.stage), at: row.at, sequence: sequence(row.id) })
-      } else if (row.name.endsWith('TaskMovedToBacklog')) {
+      } else if (row.name.endsWith('TaskMovedToBacklog') || row.name === 'v1.TaskNeedsPlanning') {
         task.transitions.push({ stage: 'backlog', at: row.at, sequence: sequence(row.id) })
       } else if (row.name.endsWith('TaskSentBack')) {
         const key = backKey(row.taskId, String(data.from), String(data.to), row.at)

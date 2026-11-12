@@ -97,6 +97,8 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
   let archivedId = ''
   let passId = ''
   let backlogId = ''
+  let planningId = ''
+  let restartedId = ''
   try {
     vi.useFakeTimers({ toFake: ['Date'] })
     setAgo(100)
@@ -287,6 +289,19 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     setAgo(1)
     store.changeStage(backlog.id, 'work', entry)
 
+    setAgo(6)
+    const planning = await store.createTask({ factoryId, title: 'Waiting for outside planning' })
+    planningId = planning.id
+    const restarted = await store.createTask({ factoryId, title: 'Restarted after planning' })
+    restartedId = restarted.id
+    for (const task of [planning, restarted]) store.changeStage(task.id, 'intake', entry)
+    setAgo(5)
+    for (const task of [planning, restarted]) store.changeStage(task.id, 'clarify', entry)
+    setAgo(3)
+    for (const task of [planning, restarted]) store.needsPlanning(task.id, 'lead')
+    setAgo(1)
+    store.startAfterPlanning(restarted.id, 'clarify', entry)
+
     const other = store.createFactory({
       key: 'OT',
       name: 'Other',
@@ -307,6 +322,30 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     await store.close()
     store = await openStore({ directory: tedPaths(home).store })
     const data = store.factoryDashboard(factoryId, '7d', asOf)
+    const clarify = data.flow.current.stages.find((s) => s.stage === 'clarify')
+    expect(clarify?.samples.find((s) => s.taskId === planningId)).toMatchObject({
+      elapsedMs: 2 * hour,
+      intervals: [
+        {
+          from: new Date(asOf - 5 * hour).toISOString(),
+          to: new Date(asOf - 3 * hour).toISOString(),
+        },
+      ],
+    })
+    expect(clarify?.samples.find((s) => s.taskId === restartedId)).toMatchObject({
+      elapsedMs: 3 * hour,
+      intervals: [
+        {
+          from: new Date(asOf - 5 * hour).toISOString(),
+          to: new Date(asOf - 3 * hour).toISOString(),
+        },
+        { from: new Date(asOf - hour).toISOString(), to: new Date(asOf).toISOString() },
+      ],
+    })
+    expect(data.flow.current.stages.some((s) => s.stage === 'backlog')).toBe(false)
+    expect(
+      data.flow.current.incomplete.filter((s) => [planningId, restartedId].includes(s.taskId)),
+    ).toEqual([])
     expect(
       data.flow.current.stages
         .find((s) => s.stage === 'work')

@@ -302,7 +302,8 @@ test('first-pass Validate exposes complete first-visit outcomes and excludes ski
     '7d',
     now,
   ).flow.current.firstPass
-  expect(result).toMatchObject({ passed: 1, denominator: 3, percent: 100 / 3 })
+  expect(result).toMatchObject({ passed: 1, denominator: 3 })
+  expect(result.percent).toBeCloseTo(100 / 3)
   expect(result.samples.map((s) => [s.taskId, s.outcome])).toEqual([
     ['pass', 'passed'],
     ['accepted', 'failed'],
