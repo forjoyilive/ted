@@ -42,15 +42,17 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
     try {
       const ahead = await git.commitsAhead(target.worktree, `origin/${target.base}`)
       if (ahead === 0) return false
+      const head = await git.headCommit(target.worktree)
       const recorded = repoOf(task.id, target.name)?.pushed?.commit
       const commit = await git
         .pushBranch(target.worktree, target.branch, {
           url: target.url,
+          commit: head,
           ...(recorded !== undefined && { expected: recorded }),
         })
         .catch((error: unknown) => {
           if (recorded === undefined) throw error
-          return pushPastRecord(task, target, recorded, error)
+          return pushPastRecord(task, target, { head, recorded }, error)
         })
       const ci = await detectCi({ gh, commit, ...target })
       store.branchPushed(task.id, target.name, { commit, ...ci })
@@ -69,14 +71,13 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
   async function pushPastRecord(
     task: PullRequestTask,
     target: PullRequestTarget,
-    recorded: string,
+    { head, recorded }: { head: string; recorded: string },
     refused: unknown,
   ): Promise<string> {
     const remote = await git
       .fetchBranch(target.worktree, { url: target.url, branch: target.branch, haves: [recorded] })
       .catch(() => undefined)
     if (remote === undefined || remote === recorded) throw refused
-    const head = await git.headCommit(target.worktree)
     if (!(await git.isAncestor(target.worktree, remote, head))) {
       throw new git.GitError(
         `git push refused: the ${target.branch} branch on GitHub is at ${remote.slice(0, 8)}, which the commit being pushed (${head.slice(0, 8)}) does not include. TED last recorded a push of ${recorded.slice(0, 8)} and won’t overwrite commits it didn’t push.`,

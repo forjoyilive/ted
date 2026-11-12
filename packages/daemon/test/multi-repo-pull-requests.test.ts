@@ -56,7 +56,7 @@ async function repoWith(name: string, commits: number): Promise<PullRequestTarge
   }
 }
 
-function fakeStore(names: string[], onReconciled?: () => void) {
+function fakeStore(names: string[], onReconciled?: () => void, onRead?: () => void) {
   const reconciled: { name: string; recorded: string; remote: string }[] = []
   const repos = new Map<string, TaskRepo>(
     names.map((name) => [
@@ -76,7 +76,10 @@ function fakeStore(names: string[], onReconciled?: () => void) {
     if (repo) repos.set(name, { ...repo, ...fields })
   }
   const store = {
-    getTask: () => ({ repos: [...repos.values()] }),
+    getTask: () => {
+      onRead?.()
+      return { repos: [...repos.values()] }
+    },
     branchPushed: (_: string, name: string, push: Omit<NonNullable<TaskRepo['pushed']>, 'at'>) =>
       change(name, { pushed: { ...push, at: 'now' } }),
     branchPushFailed: (_: string, name: string, message: string) =>
@@ -322,4 +325,30 @@ test('a remote branch that moves again while TED recovers is not overwritten', a
   const during = await run('git', ['rev-parse', 'HEAD'], { cwd: other })
   expect(during.stdout.trim()).not.toBe(ahead)
   expect(await remoteTip('api')).toBe(during.stdout.trim())
+})
+
+test('a worktree that gains a commit during a push gets only the commit TED read first pushed', async () => {
+  const api = await repoWith('api', 1)
+  let reads = Number.NEGATIVE_INFINITY
+  const { store, repos, reconciled } = fakeStore(['api'], undefined, () => {
+    if (++reads !== 2) return
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: api.worktree, env })
+    git('commit', '--allow-empty', '-m', 'later')
+  })
+  const prs = createPullRequests({ store, gh: fakeGh().gh })
+  const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
+  await prs.push(task, [api], 'first')
+
+  await commitIn(api.worktree, 'ahead.txt')
+  await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
+  const read = await commitIn(api.worktree, 'reviewed.txt')
+  reads = 0
+  await prs.push(task, [api], 'again')
+
+  const later = await run('git', ['rev-parse', 'HEAD'], { cwd: api.worktree })
+  expect(later.stdout.trim()).not.toBe(read)
+  expect(reconciled).toHaveLength(1)
+  expect(repos.get('api')?.pushFailed).toBeUndefined()
+  expect(repos.get('api')?.pushed?.commit).toBe(read)
+  expect(await remoteTip('api')).toBe(read)
 })
