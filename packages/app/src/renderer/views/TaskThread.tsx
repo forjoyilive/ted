@@ -1053,7 +1053,7 @@ function ArchivedBar({ task }: { task: Task }) {
         onClick={() => {
           setBusy(true)
           setError(undefined)
-          ted
+          return ted
             .unarchiveTask(task.id)
             .catch((failure: unknown) => setError(readableError(failure)))
             .finally(() => setBusy(false))
@@ -1096,7 +1096,7 @@ export function TaskDetails({
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
     setError(undefined)
-    request.catch((failure: unknown) => setError(readableError(failure)))
+    return request.catch((failure: unknown) => setError(readableError(failure)))
   }
   const editable = !task.archived
   const blocks = tasks.filter((t) => t.blockedBy.includes(task.id))
@@ -1293,7 +1293,7 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
   const gone = task.blockedBy.filter((id) => !tasks.some((t) => t.id === id))
   const change = (request: Promise<Task>) => {
     setError(undefined)
-    request.catch((failure: unknown) => setError(readableError(failure)))
+    return request.catch((failure: unknown) => setError(readableError(failure)))
   }
   return (
     <>
