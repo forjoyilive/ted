@@ -9,6 +9,9 @@ export async function startStubAsana() {
   let offline = false
   let tokenError = false
   let redirect = false
+  let grantClientId = ''
+  let grant: Record<string, unknown> | undefined
+  let refreshToken: string | undefined = 'refresh-secret-opaque'
   let delay: Promise<void> | undefined
   const codes = new Map<string, string>()
   const server = http.createServer(async (req, res) => {
@@ -36,7 +39,7 @@ export async function startStubAsana() {
     if (path === '/-/oauth_token') {
       if (
         tokenError ||
-        revoked ||
+        (revoked && fields.grant_type === 'refresh_token') ||
         (fields.grant_type === 'authorization_code' &&
           codes.get(fields.code ?? '') !==
             createHash('sha256')
@@ -47,13 +50,28 @@ export async function startStubAsana() {
         res.end(JSON.stringify({ error: 'invalid_grant', error_description: fields.client_secret }))
         return
       }
-      if (fields.code) codes.delete(fields.code)
+      if (fields.code) {
+        codes.delete(fields.code)
+        revoked = false
+      }
+      grantClientId = fields.client_id ?? ''
       res.end(
         JSON.stringify({
           access_token: 'access-secret-opaque',
-          refresh_token: 'refresh-secret-opaque',
+          ...(refreshToken !== undefined && { refresh_token: refreshToken }),
           token_type: 'bearer',
           expires_in: expiresIn,
+        }),
+      )
+    } else if (path === '/-/token_info') {
+      res.end(
+        JSON.stringify({
+          active: !revoked,
+          token_type: 'bearer',
+          client_id: grantClientId,
+          scope:
+            'users:read workspaces:read projects:read tasks:read attachments:read stories:read tasks:write stories:write',
+          ...grant,
         }),
       )
     } else if (path === '/api/1.0/users/me') {
@@ -80,6 +98,12 @@ export async function startStubAsana() {
     setUser(next: typeof user) {
       user = next
       revoked = false
+    },
+    setGrant(value: Record<string, unknown> | undefined) {
+      grant = value
+    },
+    setRefreshToken(value: string | undefined) {
+      refreshToken = value
     },
     setExpiresIn(seconds: number) {
       expiresIn = seconds

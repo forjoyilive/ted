@@ -173,6 +173,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const asana = createAsana({
     ...options.asana,
     home: options.home,
+    hold: () => idle?.hold() ?? (() => undefined),
+    ...(options.clock && { clock: options.clock }),
     keyring:
       options.asana?.keyring ?? (await loadKeyring(process.env, process.platform, 'asana-oauth')),
   })

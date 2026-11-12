@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import {
   type AsanaConfiguration,
@@ -6,9 +6,10 @@ import {
   edition,
   parseAsanaConfiguration,
 } from '@ted/protocol'
+import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import { type Keyring, KeyringUnavailableError } from '../linear/keyring.ts'
-import { type Credentials, credentialStore } from './credentials.ts'
+import { CredentialCleanupError, type Credentials, credentialStore } from './credentials.ts'
 
 export const asanaScopes = [
   'users:read',
@@ -29,6 +30,8 @@ export interface AsanaOptions {
   now?: () => number
   sessionMs?: number
   timeoutMs?: number
+  hold?: () => () => void
+  clock?: Clock
 }
 
 class ConnectionError extends Error {}
@@ -39,7 +42,7 @@ export function createAsana(options: AsanaOptions) {
   const api = checkedOrigin(options.apiOrigin ?? 'https://app.asana.com')
   const port = options.callbackPort ?? (edition === 'release' ? 49174 : 49175)
   const redirectUri = `http://127.0.0.1:${port}/asana/callback`
-  const now = options.now ?? Date.now
+  const now = options.now ?? options.clock?.now ?? Date.now
   const store = credentialStore(options.home, options.keyring)
   let generation = 0
   let tail: Promise<unknown> = Promise.resolve()
@@ -47,11 +50,12 @@ export function createAsana(options: AsanaOptions) {
   let session:
     | {
         server: http.Server
-        timer: NodeJS.Timeout
+        timer: Timer
         state: string
         verifier: string
         expires: number
         generation: number
+        release: () => void
       }
     | undefined
   function serial<T>(work: () => Promise<T>): Promise<T> {
@@ -64,29 +68,37 @@ export function createAsana(options: AsanaOptions) {
   function cancelSession() {
     generation++
     if (!session) return
-    clearTimeout(session.timer)
+    session.timer.cancel()
     session.server.close()
     session.server.closeAllConnections()
+    session.release()
     session = undefined
   }
   async function status(): Promise<AsanaStatus> {
     try {
       const { record, place } = await store.read()
+      const verified = completeScopes(record?.tokens?.scopes)
       return {
         state: session
           ? 'authorizing'
           : notice
             ? 'error'
             : record?.tokens
-              ? 'connected'
+              ? verified
+                ? 'connected'
+                : 'error'
               : record
                 ? 'disconnected'
                 : 'unconfigured',
         configured: !!record,
         redirectUri,
         ...(place && { storedIn: place }),
-        ...(record?.tokens && { user: record.tokens.user }),
-        ...(notice && { error: notice }),
+        ...(record?.tokens && verified && { user: record.tokens.user }),
+        ...(notice
+          ? { error: notice }
+          : record?.tokens && !verified
+            ? { error: 'Reconnect to verify this account’s Asana permission grant.' }
+            : {}),
       }
     } catch (error) {
       return {
@@ -94,12 +106,15 @@ export function createAsana(options: AsanaOptions) {
         configured: false,
         redirectUri,
         error:
-          error instanceof KeyringUnavailableError
-            ? error.reason === 'locked'
-              ? 'Unlock your keyring, then try again.'
-              : 'No keyring is available. You can explicitly choose private-file storage.'
-            : 'Couldn’t read Asana credentials. Check your keyring and credential file permissions.',
-        ...(error instanceof KeyringUnavailableError && { storageProblem: error.reason }),
+          error instanceof CredentialCleanupError
+            ? 'Asana is disconnected, but old keyring credentials could not be deleted. Unlock or restore your keyring; TED will retry cleanup without restoring the account.'
+            : error instanceof KeyringUnavailableError
+              ? error.reason === 'locked'
+                ? 'Unlock your keyring, then try again.'
+                : 'No keyring is available. You can explicitly choose private-file storage.'
+              : 'Couldn’t read Asana credentials. Check your keyring and credential file permissions.',
+        ...((error instanceof KeyringUnavailableError || error instanceof CredentialCleanupError) &&
+          error.reason && { storageProblem: error.reason }),
       }
     }
   }
@@ -183,6 +198,26 @@ export function createAsana(options: AsanaOptions) {
       email: user.email.slice(0, 320),
     }
   }
+  async function grantedScopes(record: Credentials, access: string) {
+    const info = await request(`${oauth}/-/token_info`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: access }),
+    })
+    const scopes =
+      typeof info.scope === 'string' ? [...new Set(info.scope.split(/\s+/).filter(Boolean))] : []
+    if (
+      info.active !== true ||
+      info.client_id !== record.clientId ||
+      info.token_type !== 'bearer' ||
+      !completeScopes(scopes)
+    ) {
+      throw new RevokedError(
+        'Asana did not confirm this app’s complete permission grant. Check the registered scopes and reconnect.',
+      )
+    }
+    return scopes
+  }
   async function exchange(record: Credentials, fields: Record<string, string>) {
     const result = await request(`${oauth}/-/oauth_token`, form(record, fields))
     if (
@@ -208,6 +243,7 @@ export function createAsana(options: AsanaOptions) {
       access: result.access_token,
       refresh,
       expires: now() + result.expires_in * 1000,
+      scopes: await grantedScopes(record, result.access_token),
       user: await identity(result.access_token),
     }
   }
@@ -226,7 +262,7 @@ export function createAsana(options: AsanaOptions) {
       notice = undefined
       const { record, place } = await store.read()
       if (record && place) {
-        if (remove) await store.remove(place)
+        if (remove) await store.remove()
         else
           await store.write(
             { version: 1, clientId: record.clientId, clientSecret: record.clientSecret },
@@ -245,7 +281,7 @@ export function createAsana(options: AsanaOptions) {
       return serial(async () => {
         const old = await store.read().catch((error) => {
           if (
-            error instanceof KeyringUnavailableError &&
+            (error instanceof KeyringUnavailableError || error instanceof CredentialCleanupError) &&
             error.reason === 'no-keyring' &&
             parsed.inFile
           )
@@ -264,6 +300,7 @@ export function createAsana(options: AsanaOptions) {
     connect() {
       cancelSession()
       const started = generation
+      const release = options.hold?.() ?? (() => undefined)
       return serial(async () => {
         notice = undefined
         const { record, place } = await store.read()
@@ -280,6 +317,7 @@ export function createAsana(options: AsanaOptions) {
         const verifier = randomBytes(32).toString('base64url')
         const expires = now() + (options.sessionMs ?? 5 * 60_000)
         const server = http.createServer((req, res) => {
+          res.setHeader('connection', 'close')
           res.setHeader('content-type', 'text/plain; charset=utf-8')
           res.setHeader('cache-control', 'no-store')
           res.setHeader('referrer-policy', 'no-referrer')
@@ -303,7 +341,7 @@ export function createAsana(options: AsanaOptions) {
             current.generation !== generation ||
             now() >= expires ||
             url.searchParams.getAll('state').length !== 1 ||
-            url.searchParams.get('state') !== state ||
+            !sameState(url.searchParams.get('state'), state) ||
             url.searchParams.getAll('code').length > 1 ||
             url.searchParams.getAll('error').length > 1 ||
             url.searchParams.has('code') === url.searchParams.has('error')
@@ -313,12 +351,15 @@ export function createAsana(options: AsanaOptions) {
             return
           }
           const code = url.searchParams.get('code')
-          clearTimeout(current.timer)
+          current.timer.cancel()
           session = undefined
           server.close()
+          res.once('finish', () => server.closeAllConnections())
+          res.once('close', () => server.closeAllConnections())
           res.end('Authorization response received. Return to TED to see the result.')
           if (!code || code.length > 8192 || url.searchParams.has('error')) {
             notice = 'Authorization was denied or canceled. Connect to try again.'
+            release()
             return
           }
           void serial(async () => {
@@ -345,6 +386,8 @@ export function createAsana(options: AsanaOptions) {
               notice = undefined
             } catch (error) {
               if (started === generation) notice = safeError(error)
+            } finally {
+              release()
             }
           })
         })
@@ -366,9 +409,10 @@ export function createAsana(options: AsanaOptions) {
         }
         if (generation !== started) {
           server.close()
+          server.closeAllConnections()
           throw new ConnectionError('Authorization was canceled.')
         }
-        const timer = setTimeout(
+        const timer = (options.clock ?? systemClock).timeout(
           () => {
             if (session?.state !== state) return
             cancelSession()
@@ -377,7 +421,7 @@ export function createAsana(options: AsanaOptions) {
           options.sessionMs ?? 5 * 60_000,
         )
         timer.unref()
-        session = { server, timer, state, verifier, expires, generation: started }
+        session = { server, timer, state, verifier, expires, generation: started, release }
         const url = new URL('/-/oauth_authorize', 'https://app.asana.com')
         url.search = new URLSearchParams({
           client_id: record.clientId,
@@ -389,6 +433,9 @@ export function createAsana(options: AsanaOptions) {
           scope: asanaScopes.join(' '),
         }).toString()
         return { url: url.href }
+      }).catch((error: unknown) => {
+        release()
+        throw error
       })
     },
     cancel() {
@@ -424,7 +471,11 @@ export function createAsana(options: AsanaOptions) {
             })
           else {
             try {
-              tokens = { ...tokens, user: await identity(tokens.access) }
+              tokens = {
+                ...tokens,
+                scopes: await grantedScopes(record, tokens.access),
+                user: await identity(tokens.access),
+              }
             } catch (error) {
               if (!(error instanceof RevokedError)) throw error
               tokens = await exchange(record, {
@@ -478,4 +529,19 @@ function checkedOrigin(input: string) {
   )
     throw new Error('Asana endpoints must use the Asana HTTPS origin or a local test server')
   return url.origin
+}
+
+function sameState(actual: string | null, expected: string) {
+  if (actual === null) return false
+  const left = Buffer.from(actual)
+  const right = Buffer.from(expected)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
+function completeScopes(scopes: readonly string[] | undefined) {
+  return (
+    scopes !== undefined &&
+    asanaScopes.every((scope) => scopes.includes(scope)) &&
+    scopes.every((scope) => asanaScopes.includes(scope))
+  )
 }

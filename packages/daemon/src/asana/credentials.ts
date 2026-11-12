@@ -13,7 +13,19 @@ export interface Credentials {
     access: string
     refresh: string
     expires: number
+    scopes?: string[]
     user: NonNullable<AsanaStatus['user']>
+  }
+}
+
+type Removed = { version: 1; removed: true; cleanupPending: boolean }
+type StoredFile = Credentials | Removed
+
+export class CredentialCleanupError extends Error {
+  readonly reason: 'locked' | 'no-keyring' | undefined
+  constructor(cause: unknown) {
+    super('Asana keyring cleanup is pending')
+    this.reason = cause instanceof KeyringUnavailableError ? cause.reason : undefined
   }
 }
 
@@ -59,14 +71,47 @@ export function credentialStore(home: string, keyring: Keyring) {
         (process.getuid && info.uid !== process.getuid())
       )
         throw new Error('Unsafe Asana credential file')
-      return decode(await handle.readFile('utf8'))
+      return decodeFile(await handle.readFile('utf8'))
     } finally {
       await handle.close()
+    }
+  }
+  async function writeFile(record: StoredFile) {
+    await safeDirectory(true)
+    const temporary = path.join(directory, `${randomUUID()}.tmp`)
+    try {
+      const handle = await open(temporary, 'wx', 0o600)
+      try {
+        await handle.writeFile(JSON.stringify(record))
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await rename(temporary, file)
+      const folder = await open(directory, constants.O_RDONLY | constants.O_NOFOLLOW)
+      try {
+        await folder.sync()
+      } finally {
+        await folder.close()
+      }
+    } finally {
+      await rm(temporary, { force: true })
     }
   }
   return {
     async read(): Promise<{ record?: Credentials; place?: 'file' | 'keyring' }> {
       const stored = await readFile()
+      if (stored && 'removed' in stored) {
+        if (stored.cleanupPending) {
+          try {
+            await keyring.delete()
+            await writeFile({ version: 1, removed: true, cleanupPending: false })
+          } catch (error) {
+            throw new CredentialCleanupError(error)
+          }
+        }
+        return {}
+      }
       if (stored) return { record: stored, place: 'file' }
       const secret = await keyring.get()
       return secret ? { record: decode(secret), place: 'keyring' } : {}
@@ -77,30 +122,37 @@ export function credentialStore(home: string, keyring: Keyring) {
         if (await safeDirectory()) await rm(file, { force: true })
       } else {
         try {
-          await keyring.delete()
+          await keyring.get()
         } catch (error) {
           if (!(error instanceof KeyringUnavailableError) || error.reason !== 'no-keyring')
             throw error
         }
-        await safeDirectory(true)
-        const temporary = path.join(directory, `${randomUUID()}.tmp`)
+        const previous = await readFile()
         try {
-          const handle = await open(temporary, 'wx', 0o600)
-          try {
-            await handle.writeFile(JSON.stringify(record))
-            await handle.sync()
-          } finally {
-            await handle.close()
-          }
-          await rename(temporary, file)
-        } finally {
-          await rm(temporary, { force: true })
+          await writeFile(record)
+        } catch (error) {
+          if (previous) await writeFile(previous)
+          else await rm(file, { force: true })
+          throw error
+        }
+        try {
+          await keyring.delete()
+        } catch (error) {
+          if (error instanceof KeyringUnavailableError && error.reason === 'no-keyring') return
+          if (previous) await writeFile(previous)
+          else await rm(file, { force: true })
+          throw error
         }
       }
     },
-    async remove(place: 'file' | 'keyring') {
-      if (place === 'keyring') await keyring.delete()
-      if (await safeDirectory()) await rm(file, { force: true })
+    async remove() {
+      await writeFile({ version: 1, removed: true, cleanupPending: true })
+      try {
+        await keyring.delete()
+      } catch {
+        return
+      }
+      await writeFile({ version: 1, removed: true, cleanupPending: false })
     },
   }
 }
@@ -116,10 +168,24 @@ function decode(text: string): Credentials {
         typeof value.tokens.refresh !== 'string' ||
         !value.tokens.refresh ||
         !Number.isFinite(value.tokens.expires) ||
+        (value.tokens.scopes !== undefined &&
+          (!Array.isArray(value.tokens.scopes) ||
+            value.tokens.scopes.length > 100 ||
+            value.tokens.scopes.some((scope) => typeof scope !== 'string'))) ||
         typeof value.tokens.user?.gid !== 'string' ||
         typeof value.tokens.user?.name !== 'string' ||
         typeof value.tokens.user?.email !== 'string'))
   )
     throw new Error('Invalid stored Asana credentials')
   return value
+}
+
+function decodeFile(text: string): StoredFile {
+  const value = JSON.parse(text) as Partial<Removed> | null
+  if (value?.removed === true) {
+    if (value.version !== 1 || typeof value.cleanupPending !== 'boolean')
+      throw new Error('Invalid removed credential record')
+    return { version: 1, removed: true, cleanupPending: value.cleanupPending }
+  }
+  return decode(text)
 }

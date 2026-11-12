@@ -1,9 +1,10 @@
 import { chmod, link, mkdir, readdir, readFile, rm, symlink } from 'node:fs/promises'
 import http from 'node:http'
+import { connect as connectSocket, type Socket } from 'node:net'
 import path from 'node:path'
 import { type DaemonClient, identity, readDaemonInfo, tedEnv, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
+import { type DaemonOptions, type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { type Keyring, keyringService, linearKeyAccount } from '../src/linear/keyring.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { startStubAsana, unusedPort } from './fixtures/stub-asana.ts'
@@ -17,6 +18,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 const config = { clientId: '123', clientSecret: 'security-client-secret', inFile: false }
 let home: string
@@ -53,8 +55,9 @@ afterEach(async () => {
   await cleanup()
   vi.restoreAllMocks()
 })
-async function start() {
+async function start(options: Pick<DaemonOptions, 'clock' | 'idleExit'> = {}) {
   daemon = await startDaemon({
+    ...options,
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
@@ -74,59 +77,85 @@ async function connected(client: DaemonClient) {
 }
 
 test('callbacks reject wrong state, duplicates, host, path, expired attempts and replay; denial closes the listener', async () => {
-  const { client } = await start()
-  await client.configureAsana(config)
-  let attempt = await connect(client)
-  for (const change of [
-    (u: URL) => u.searchParams.set('state', 'wrong'),
-    (u: URL) => u.searchParams.append('state', 'duplicate'),
-    (u: URL) => u.searchParams.append('code', 'duplicate'),
-    (u: URL) => {
-      u.pathname = '/wrong'
-    },
-    (u: URL) => u.searchParams.set('error', 'access_denied'),
-  ]) {
-    const bad = new URL(attempt.callback)
-    change(bad)
-    expect((await fetch(bad)).status).toBe(400)
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 })
+  let slow: Socket | undefined
+  const sendCallback = (url: string) =>
+    new Promise<{ status: number; connection: string | undefined }>((resolve, reject) => {
+      const req = http.get(url, { agent }, (response) => {
+        response.resume()
+        response.once('end', () =>
+          resolve({ status: response.statusCode ?? 0, connection: response.headers.connection }),
+        )
+      })
+      req.once('error', reject)
+    })
+  try {
+    const { client } = await start()
+    await client.configureAsana(config)
+    let attempt = await connect(client)
+    for (const change of [
+      (u: URL) => u.searchParams.set('state', 'wrong'),
+      (u: URL) => u.searchParams.append('state', 'duplicate'),
+      (u: URL) => u.searchParams.append('code', 'duplicate'),
+      (u: URL) => {
+        u.pathname = '/wrong'
+      },
+      (u: URL) => u.searchParams.set('error', 'access_denied'),
+    ]) {
+      const bad = new URL(attempt.callback)
+      change(bad)
+      expect((await fetch(bad)).status).toBe(400)
+    }
+    expect(
+      (
+        await rawRequest(callbackPort, {
+          path: new URL(attempt.callback).pathname + new URL(attempt.callback).search,
+          headers: { host: 'attacker.test' },
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await rawRequest(callbackPort, {
+          path: 'http://[',
+          headers: { host: `127.0.0.1:${callbackPort}` },
+        })
+      ).status,
+    ).toBe(400)
+    expect(stub.requests).toHaveLength(0)
+    slow = connectSocket(callbackPort, '127.0.0.1')
+    slow.on('error', () => undefined)
+    await new Promise<void>((resolve) => slow?.once('connect', resolve))
+    slow.write('GET /asana/callback HTTP/1.1\r\nHost:')
+    expect(await sendCallback(attempt.callback)).toMatchObject({ status: 200, connection: 'close' })
+    await connected(client)
+    await waitUntil(() => slow?.destroyed, 'settlement closes the slow callback socket')
+    await expect(fetch(attempt.callback)).rejects.toThrow()
+    expect(stub.requests.filter((r) => r.path === '/-/oauth_token')).toHaveLength(1)
+    attempt = await connect(client)
+    expect(await sendCallback(attempt.callback)).toMatchObject({ status: 200, connection: 'close' })
+    await connected(client)
+    expect(stub.requests.filter((r) => r.path === '/-/oauth_token')).toHaveLength(2)
+    attempt = await connect(client)
+    const denied = new URL(attempt.callback)
+    denied.searchParams.delete('code')
+    denied.searchParams.set('error', 'access_denied')
+    expect((await fetch(denied)).status).toBe(200)
+    expect(await client.getAsana()).toMatchObject({
+      state: 'error',
+      error: expect.stringContaining('denied'),
+    })
+    await expect(fetch(attempt.callback)).rejects.toThrow()
+    attempt = await connect(client)
+    clock += 5 * 60_000
+    expect((await fetch(attempt.callback)).status).toBe(400)
+    expect(await client.getAsana()).not.toHaveProperty('user')
+    await client.cancelAsana()
+    await expect(fetch(attempt.callback)).rejects.toThrow()
+  } finally {
+    slow?.destroy()
+    agent.destroy()
   }
-  expect(
-    (
-      await rawRequest(callbackPort, {
-        path: new URL(attempt.callback).pathname + new URL(attempt.callback).search,
-        headers: { host: 'attacker.test' },
-      })
-    ).status,
-  ).toBe(400)
-  expect(
-    (
-      await rawRequest(callbackPort, {
-        path: 'http://[',
-        headers: { host: `127.0.0.1:${callbackPort}` },
-      })
-    ).status,
-  ).toBe(400)
-  expect(stub.requests).toHaveLength(0)
-  expect((await fetch(attempt.callback)).status).toBe(200)
-  await connected(client)
-  await expect(fetch(attempt.callback)).rejects.toThrow()
-  expect(stub.requests.filter((r) => r.path === '/-/oauth_token')).toHaveLength(1)
-  attempt = await connect(client)
-  const denied = new URL(attempt.callback)
-  denied.searchParams.delete('code')
-  denied.searchParams.set('error', 'access_denied')
-  expect((await fetch(denied)).status).toBe(200)
-  expect(await client.getAsana()).toMatchObject({
-    state: 'error',
-    error: expect.stringContaining('denied'),
-  })
-  await expect(fetch(attempt.callback)).rejects.toThrow()
-  attempt = await connect(client)
-  clock += 5 * 60_000
-  expect((await fetch(attempt.callback)).status).toBe(400)
-  expect(await client.getAsana()).not.toHaveProperty('user')
-  await client.cancelAsana()
-  await expect(fetch(attempt.callback)).rejects.toThrow()
 })
 
 test('cancel and disconnect invalidate a token response already in flight; shutdown releases the port', async () => {
@@ -244,4 +273,66 @@ test('fallback rejects symlink folders and public files; production ignores test
   await chmod(file, 0o600)
   await link(file, path.join(dir, 'copy'))
   expect(await client.getAsana()).toMatchObject({ state: 'error', configured: false })
+})
+
+test('authorization holds idle shutdown through browser waiting and exchange, and releases on settlement', async () => {
+  const time = new ManualClock()
+  const onIdle = vi.fn()
+  const { client } = await start({ clock: time, idleExit: { afterMs: 100, onIdle } })
+  await client.configureAsana(config)
+  const attempt = await connect(client)
+  time.advance(1000)
+  expect(onIdle).not.toHaveBeenCalled()
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  stub.hold(gate)
+  try {
+    await fetch(attempt.callback)
+    await waitUntil(() => stub.requests.some((r) => r.path === '/-/oauth_token'), 'exchange held')
+    time.advance(1000)
+    expect(onIdle).not.toHaveBeenCalled()
+  } finally {
+    release()
+    stub.hold(undefined)
+  }
+  await connected(client)
+  time.advance(100)
+  expect(onIdle).toHaveBeenCalledTimes(1)
+  await client.connectAsana()
+  time.advance(1000)
+  expect(onIdle).toHaveBeenCalledTimes(1)
+  await client.cancelAsana()
+  time.advance(100)
+  expect(onIdle).toHaveBeenCalledTimes(2)
+  const denied = new URL((await connect(client)).callback)
+  denied.searchParams.delete('code')
+  denied.searchParams.set('error', 'access_denied')
+  await fetch(denied)
+  await client.getAsana()
+  time.advance(100)
+  expect(onIdle).toHaveBeenCalledTimes(3)
+  const occupied = http.createServer()
+  await new Promise<void>((resolve) => occupied.listen(callbackPort, '127.0.0.1', resolve))
+  try {
+    await expect(client.connectAsana()).rejects.toThrow('port is busy')
+  } finally {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()))
+  }
+  time.advance(100)
+  expect(onIdle).toHaveBeenCalledTimes(4)
+  await client.connectAsana()
+  time.advance(5 * 60_000)
+  time.advance(100)
+  expect(onIdle).toHaveBeenCalledTimes(5)
+  await client.connectAsana()
+  await client.configureAsana(config)
+  time.advance(100)
+  expect(onIdle).toHaveBeenCalledTimes(6)
+  await client.connectAsana()
+  await daemon?.stop()
+  daemon = undefined
+  time.advance(1000)
+  expect(onIdle).toHaveBeenCalledTimes(6)
 })
