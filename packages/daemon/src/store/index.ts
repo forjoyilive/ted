@@ -3348,10 +3348,11 @@ export async function openStore({
         ...new Set(
           store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId),
         ),
-      ].filter((id) => {
-        const row = taskRow(id)
-        return row !== undefined && row.stage !== 'done' && row.archivedAt === null
-      }),
+      ]
+        .flatMap((id) => taskRow(id) ?? [])
+        .filter((row) => row.stage !== 'done' && row.archivedAt === null)
+        .sort((a, b) => a.number - b.number)
+        .map((row) => row.id),
     queue,
     dequeue(taskId) {
       commit(events.taskDequeued({ taskId, at: new Date().toISOString() }))
