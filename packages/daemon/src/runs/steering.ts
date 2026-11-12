@@ -192,7 +192,10 @@ export function createSteering(options: {
           (id) =>
             options.canDeliver(run.id, admitted) &&
             source.pending(run).some((message) => id === undefined || message.id === id),
-          { revocable: source.revocable === true, signal: source.signal },
+          {
+            revocable: source.revocable === true,
+            ...(source.signal !== undefined && { signal: source.signal }),
+          },
         )
       ) {
         source.delivered(
