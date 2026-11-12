@@ -50,3 +50,4 @@ export type DaemonEvent =
   | { type: 'library-changed'; version?: string }
   | { type: 'drift-changed'; drift: DriftCounts }
   | { type: 'line-comments-changed'; taskId: string }
+  | { type: 'ted-stops-changed' }

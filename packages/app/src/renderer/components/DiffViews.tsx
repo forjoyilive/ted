@@ -8,6 +8,7 @@ import {
 } from '../changes.ts'
 import { readableError, ted } from '../ted.ts'
 import { formatTime } from '../time.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList, DiffCounts } from './ChangesSection.tsx'
 import { FileDiffBody, type Gutter, type RowExtra } from './DiffTable.tsx'
@@ -98,7 +99,7 @@ function OpenInEditor({
         disabled={!open}
         onClick={() => {
           setProblem(undefined)
-          open?.(file, line).catch((error: unknown) => setProblem(readableError(error)))
+          return open?.(file, line).catch((error: unknown) => setProblem(readableError(error)))
         }}
       >
         Open in editor ↗
@@ -123,7 +124,7 @@ function PullRequestSummary({ remote, repo }: { remote: PullRequestChangesState;
           {s.limited && ' · Showing the first 1,000 files only.'}
         </p>
       ))}
-      <Button size="small" onClick={remote.refresh}>
+      <Button onClick={remote.refresh}>
         {remote.changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
       </Button>
     </div>
@@ -176,9 +177,9 @@ export function DiffView({
   return (
     <section className={styles.pane} aria-label="Diff">
       <header className={styles.header}>
-        <button type="button" className={styles.back} onClick={onBack}>
+        <ActionButton type="button" className={styles.back} onClick={onBack}>
           {backLabel}
-        </button>
+        </ActionButton>
         <div className={styles.titleRow}>
           <FilePath path={current.path} />
           <span className={styles.repoChip}>{current.repo}</span>
@@ -189,7 +190,7 @@ export function DiffView({
               {index + 1} of {files.length}
             </span>
           )}
-          <button
+          <ActionButton
             type="button"
             className={styles.step}
             aria-label="Previous file"
@@ -197,8 +198,8 @@ export function DiffView({
             onClick={() => previous && onOpen(previous)}
           >
             <ChevronIcon open className={styles.up} />
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             className={styles.step}
             aria-label="Next file"
@@ -206,7 +207,7 @@ export function DiffView({
             onClick={() => next && onOpen(next)}
           >
             <ChevronIcon open />
-          </button>
+          </ActionButton>
           {remote === undefined && (
             <OpenInEditor
               file={current}
@@ -285,9 +286,7 @@ export function AllChanges({
           {files.length === 1 ? '1 file' : `${files.length} files`}
         </h2>
         <span className={styles.spacer} />
-        <Button size="small" onClick={onCollapse}>
-          {backLabel}
-        </Button>
+        <Button onClick={onCollapse}>{backLabel}</Button>
       </header>
       {remote && <PullRequestSummary remote={remote} />}
       <div className={styles.allBody}>

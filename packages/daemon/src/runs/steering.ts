@@ -234,6 +234,7 @@ export function createSteering(options: {
       const ids = extra.filter((m) => m.source === source).map((m) => m.id)
       if (ids.length > 0) source.delivered(run, ids)
     }
+    await store.persisted()
     syncFlag(run.id)
     return ordered.length
   }

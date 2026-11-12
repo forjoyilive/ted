@@ -1,5 +1,6 @@
 import type { ConversationTab, RunSummary, Task } from '@ted/protocol'
 import { taskConversationTabs } from '../task-conversations.ts'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './TaskConversationTabs.module.css'
 
 export function TaskConversationTabs({
@@ -14,7 +15,7 @@ export function TaskConversationTabs({
   runs: readonly RunSummary[]
   shown: string | undefined
   onShow: (runId: string | undefined) => void
-  onOpen: (runId: string) => void
+  onOpen: (runId: string) => unknown
   onClose: (runId: string) => void
 }) {
   const earlier = runs.filter((run) => run.role === 'lead' && run.id !== task.leadRunId)
@@ -24,7 +25,7 @@ export function TaskConversationTabs({
   return (
     <div className={styles.bar}>
       <div className={styles.tabs} role="tablist" aria-label="Task Lead and sub-agents">
-        <button
+        <ActionButton
           type="button"
           role="tab"
           aria-selected={isLead}
@@ -32,10 +33,10 @@ export function TaskConversationTabs({
           onClick={() => onShow(undefined)}
         >
           Task Lead
-        </button>
+        </ActionButton>
         {tabs.map((tab: ConversationTab) => (
           <span key={tab.runId} className={styles.tabWrap}>
-            <button
+            <ActionButton
               type="button"
               role="tab"
               aria-selected={shown === tab.runId}
@@ -49,16 +50,16 @@ export function TaskConversationTabs({
                 aria-label={tab.state}
               />
               {tab.name}
-            </button>
+            </ActionButton>
             {tab.state === 'finished' && (
-              <button
+              <ActionButton
                 type="button"
                 className={styles.close}
                 aria-label={`Close ${tab.name}`}
                 onClick={() => onClose(tab.runId)}
               >
                 ×
-              </button>
+              </ActionButton>
             )}
           </span>
         ))}

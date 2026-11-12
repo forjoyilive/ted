@@ -672,3 +672,19 @@ test('failure input and missing Task are refused before connecting', async () =>
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('execution controls are terminal-only and never offer CLI approval', async () => {
+  for (const command of ['start', 'stop', 'status', 'serve', 'pair']) {
+    const output: string[] = []
+    const code = await runCli(['execution', command], {
+      env: { TED_RUN_CAPABILITY: 'private-capability' },
+      stdout: (value) => output.push(value),
+      stderr: (value) => output.push(value),
+    })
+    expect(code).toBe(2)
+    expect(output.join('')).toContain('not available inside a Run')
+    expect(output.join('').includes('private-capability')).toBe(false)
+  }
+  expect(() => parseInvocation(['execution', 'approve'], {})).toThrow(UsageError)
+  expect(parseInvocation(['execution', 'pair', '--capacity', '3'], {}).options.capacity).toBe('3')
+})

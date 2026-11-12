@@ -3,6 +3,7 @@ import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
+import { useRefreshAction } from '../refresh-action.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button, Select, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
@@ -16,7 +17,7 @@ function usePolled<T>(load: () => Promise<T>) {
     value?: T | undefined
     error?: string
   }>()
-  const [attempt, setAttempt] = useState(0)
+  const { revision: attempt, refresh: retry, settled } = useRefreshAction()
   useEffect(() => {
     void attempt
     let stopped = false
@@ -38,17 +39,18 @@ function usePolled<T>(load: () => Promise<T>) {
           running = false
         })
     }
-    void tick()
+    void tick()?.finally(() => settled(attempt))
     const timer = setInterval(tick, refreshMs)
     return () => {
       stopped = true
+      settled(attempt)
       clearInterval(timer)
     }
-  }, [load, attempt])
+  }, [load, attempt, settled])
   return {
     value: state?.load === load ? state.value : undefined,
     error: state?.load === load ? state.error : undefined,
-    retry: () => setAttempt((n) => n + 1),
+    retry,
   }
 }
 
@@ -60,7 +62,7 @@ function useCopyReport() {
   const [status, setStatus] = useState<string>()
   const copy = () => {
     setStatus(undefined)
-    ted.copyReport().then(
+    return ted.copyReport().then(
       () => setStatus('Report copied.'),
       (error: unknown) =>
         setStatus(`Couldn’t copy the report: ${error instanceof Error ? error.message : error}`),
@@ -75,7 +77,7 @@ function useProfile() {
   const record = () => {
     setRecording(true)
     setStatus(undefined)
-    ted
+    return ted
       .recordProfile(profileSeconds.default)
       .then(
         ({ file }) => setStatus(`Saved to ${file}`),
@@ -108,7 +110,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           <Switch
             label="Developer mode"
             checked={settings.developerMode}
-            onChange={(developerMode) => void ted.updateSettings({ developerMode })}
+            onChange={(developerMode) => ted.updateSettings({ developerMode })}
           />
         </SettingRow>
         <SettingRow
@@ -120,7 +122,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           <Button
             onClick={() => {
               setFolderProblem(undefined)
-              ted.showTedFolder().catch((error: unknown) => {
+              return ted.showTedFolder().catch((error: unknown) => {
                 setFolderProblem(error instanceof Error ? error.message : String(error))
               })
             }}

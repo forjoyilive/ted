@@ -3,13 +3,14 @@ import type {
   Comment,
   CommentAnswer,
   MergeRow,
+  MessageBox,
   SignOffChanges,
   Task,
   TaskChanges,
   ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
 import {
@@ -19,6 +20,7 @@ import {
   useThreadEvents,
   useValidationObligations,
 } from '../data.ts'
+import { draftField, useMessageDraft } from '../message-drafts.ts'
 import {
   ago,
   briefSections,
@@ -32,6 +34,7 @@ import {
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { stageName } from '../views/TaskViews.tsx'
+import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList } from './ChangesSection.tsx'
@@ -93,13 +96,13 @@ function MergeRows({ rows, taskId }: { rows: readonly MergeRow[]; taskId: string
             <div className={styles.mergeBody}>
               <div className={styles.mergeLine}>
                 <span className={styles.mergeRepo}>{row.name}</span>
-                <button
+                <ActionButton
                   type="button"
                   className={styles.mergeLink}
-                  onClick={() => void ted.openPullRequest(taskId, row.name)}
+                  onClick={() => ted.openPullRequest(taskId, row.name)}
                 >
                   {`PR #${row.number} · ${row.title}`}
-                </button>
+                </ActionButton>
               </div>
               <div className={styles.mergeDetail}>
                 {[
@@ -224,11 +227,7 @@ function ReviewChanges({
             {changes.repos.reduce((sum, r) => sum + r.added, 0)} −
             {changes.repos.reduce((sum, r) => sum + r.removed, 0)}
           </p>
-          {changes.files > 0 && (
-            <Button size="small" onClick={onAll}>
-              View all changes
-            </Button>
-          )}
+          {changes.files > 0 && <Button onClick={onAll}>View all changes</Button>}
           {changes.files === 0 && changes.repos.every((r) => !r.unavailable) && (
             <p className={styles.summary}>No current Task changes.</p>
           )}
@@ -250,11 +249,11 @@ function BriefSections({ text, title }: { text: string; title: string }) {
     )
     .filter((section) => section.body !== '')
   return (
-    <div className={styles.content}>
+    <div className={styles.details}>
       {sections.map(({ heading, body }) => (
         <section key={heading} className={styles.section} aria-label={heading}>
           <h3 className={styles.sectionHeading}>{heading}</h3>
-          <Markdown className={styles.sectionBody} text={body} />
+          <Markdown text={body} />
         </section>
       ))}
     </div>
@@ -327,17 +326,11 @@ function SignoffDecisions({ text }: { text: string }) {
   const open = body('open questions')
   return (
     <>
-      <section className={styles.content} aria-label="Decisions so far">
+      <section className={styles.section} aria-label="Decisions so far">
         <h3 className={styles.sectionHeading}>Decisions so far</h3>
-        {decisions === '' ? (
-          <p className={styles.sectionBody}>None yet.</p>
-        ) : (
-          <Markdown text={decisions} />
-        )}
+        <Markdown text={decisions === '' ? 'None yet.' : decisions} />
       </section>
-      <div className={styles.openQuestions}>
-        <Markdown text={`Open questions: ${open === '' ? 'none.' : open}`} />
-      </div>
+      <Markdown text={`Open questions: ${open === '' ? 'none.' : open}`} />
     </>
   )
 }
@@ -389,10 +382,360 @@ function SimulatorRequest({
   )
 }
 
+function reasonChoicesOf(request: Comment): string[] {
+  return request.author.kind === 'ted' &&
+    request.choices?.includes(failureChoices.fixed) &&
+    request.choices.includes(failureChoices['no-longer-applicable'])
+    ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
+    : []
+}
+
+function hasChoices(request: Comment): boolean {
+  return request.kind === 'question' && (request.choices?.length ?? 0) > 0
+}
+
+function isFailure(request: Comment): boolean {
+  return (
+    request.purpose?.kind === 'failure' ||
+    reasonChoicesOf(request).length > 0 ||
+    request.choices?.includes('Wait for a repair Task') === true ||
+    (request.choices?.includes(validateFailureChoices.retry) === true &&
+      request.choices.includes(validateFailureChoices.fix))
+  )
+}
+
+const failureWords = {
+  legend: 'Your decision',
+  otherLabel: 'Send a message to the Task Lead',
+}
+
+function useSending(
+  request: Comment,
+  readOnly: boolean,
+  onOpenPlan: ((planId: string) => void) | undefined,
+) {
+  const sendingRef = useRef(false)
+  const [sending, setSending] = useState(false)
+  const [submission, setSubmission] = useState<AnswerRequest>()
+  const [error, setError] = useState<string>()
+
+  async function send(answer: AnswerRequest): Promise<boolean> {
+    if (sendingRef.current || readOnly) return false
+    sendingRef.current = true
+    setSubmission(answer)
+    setSending(true)
+    setError(undefined)
+    try {
+      const answered = await ted.answerRequest(request.id, answer)
+      if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
+        onOpenPlan?.(answered.answer.planId)
+      }
+      return true
+    } catch (failed) {
+      setError(readableError(failed))
+      return false
+    } finally {
+      sendingRef.current = false
+      setSending(false)
+    }
+  }
+
+  return { send, sending, setSending, sendingRef, submission, setSubmission, error, setError }
+}
+
+export function RequestAnswer({
+  request,
+  task,
+  onOpenRun,
+  onOpenPlan,
+  lead,
+}: {
+  request: Comment
+  task: Task
+  onOpenRun?: ((runId: string) => void) | undefined
+  onOpenPlan?: ((planId: string) => void) | undefined
+  lead?: ReactNode
+}) {
+  const repairFormId = useId()
+  const boxId = useId()
+  const box: MessageBox = { kind: 'request', id: request.id }
+  const kept = useMessageDraft(box)
+  const { text, setText } = kept
+  const [selection, setSelection] = draftField(
+    kept,
+    'selection',
+    undefined,
+    (value): value is QuestionSelection | undefined =>
+      value === undefined ||
+      (value !== null &&
+        typeof value === 'object' &&
+        (('other' in value && value.other === true) ||
+          ('choice' in value &&
+            typeof value.choice === 'string' &&
+            (request.choices ?? []).includes(value.choice)))),
+  )
+  const [otherText, setOtherText] = draftField(
+    kept,
+    'otherText',
+    '',
+    (value): value is string => typeof value === 'string',
+  )
+  const {
+    send: post,
+    sending,
+    setSending,
+    submission,
+    error,
+  } = useSending(request, false, onOpenPlan)
+  const typed = text.trim() !== ''
+  const simulators = useSimulators()
+  const [picked, setPicked] = useState<string>()
+  const offered = simulators?.booted ?? request.simulator?.booted ?? []
+  const chosen =
+    picked !== undefined && offered.some((b) => b.udid === picked && !b.recording)
+      ? picked
+      : firstChoice(offered)
+  const chosenOwner = offered.find((b) => b.udid === chosen)?.displayId
+
+  async function send(answer: AnswerRequest) {
+    if (await post(answer)) kept.clear()
+  }
+
+  const withText = typed ? { text } : {}
+  const reasonChoices = reasonChoicesOf(request)
+  const questionChoices = hasChoices(request)
+  const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
+  const other = selection && 'other' in selection
+  const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
+  const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
+  const failure = isFailure(request)
+  const failureChoice = failure && questionChoices
+  const boxLabel = !failureChoice
+    ? undefined
+    : needsReason
+      ? selectedChoice === failureChoices.fixed
+        ? 'Why is this failure fixed?'
+        : 'Why does this failure no longer apply?'
+      : other
+        ? 'Message to the Task Lead'
+        : undefined
+  const answerText = questionChoices && other ? otherText : text
+  const ready = questionChoices
+    ? !repairing &&
+      (selectedChoice !== undefined ? !needsReason || typed : other && otherText.trim() !== '')
+    : typed
+
+  function sendAnswer() {
+    if (!ready || sending) return
+    return send(
+      request.gate
+        ? { action: 'request-changes', text }
+        : {
+            action: 'answer',
+            ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
+            ...(answerText.trim() !== '' && { text: answerText }),
+          },
+    )
+  }
+
+  return (
+    <>
+      {request.simulator && (
+        <SimulatorRequest request={request} readOnly={false} chosen={chosen} onChoose={setPicked} />
+      )}
+      {questionChoices && (
+        <QuestionChoices
+          choices={request.choices ?? []}
+          selection={selection}
+          onSelect={setSelection}
+          allowOther={!request.linearTeam}
+          disabled={sending}
+          {...(failure && failureWords)}
+        />
+      )}
+      {boxLabel !== undefined && (
+        <label className={styles.boxLabel} htmlFor={boxId}>
+          {boxLabel}
+        </label>
+      )}
+      {!request.linearTeam && (
+        <textarea
+          id={boxId}
+          className={styles.box}
+          data-answer-box
+          form={repairing ? repairFormId : undefined}
+          aria-label={boxLabel ?? 'Your answer'}
+          placeholder={
+            request.simulator
+              ? 'Comment…'
+              : needsReason
+                ? 'Explain what changed…'
+                : request.permission
+                  ? 'Comment, or say why you’re denying…'
+                  : request.design || request.gate
+                    ? 'Comment, or say what to change…'
+                    : questionChoices
+                      ? other
+                        ? failure
+                          ? 'Ask a question or add context…'
+                          : 'Your answer…'
+                        : 'Add to this answer…'
+                      : 'Comment to the Task Lead…'
+          }
+          value={answerText}
+          disabled={sending}
+          onChange={(event) =>
+            questionChoices && other
+              ? setOtherText(event.target.value)
+              : setText(event.target.value)
+          }
+          onKeyDown={
+            request.permission || request.simulator
+              ? undefined
+              : (event) =>
+                  repairing
+                    ? sendOnEnter(
+                        () => event.currentTarget.form?.requestSubmit(),
+                        () => !sending,
+                      )(event)
+                    : sendOnEnter(sendAnswer, () => !!ready && !sending)(event)
+          }
+        />
+      )}
+      {needsReason && (
+        <p className={styles.caption}>A reason is required. Confirming closes this failure.</p>
+      )}
+      {failureChoice && other && (
+        <p className={styles.caption}>
+          Sending a message leaves this failure open. Choose a decision to resolve it.
+        </p>
+      )}
+      {questionChoices && request.choices?.includes('Wait for a repair Task') && (
+        <div hidden={!repairing}>
+          <FailureRepairForm
+            id={repairFormId}
+            active={repairing}
+            task={task}
+            request={request}
+            reason={text}
+            box={box}
+            onCancel={() => setSelection(undefined)}
+            onSendingChange={setSending}
+          />
+        </div>
+      )}
+      {error !== undefined && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
+      <div className={styles.buttons}>
+        {lead}
+        {request.failed && onOpenRun && (
+          <ActionButton
+            type="button"
+            className={styles.openRun}
+            onClick={() => onOpenRun(request.failed?.runId ?? '')}
+          >
+            Open last Run
+          </ActionButton>
+        )}
+        {request.gate?.caption !== undefined &&
+          (request.stage === 'clarify' ? (
+            <span className={styles.caption}>{request.gate.caption}</span>
+          ) : (
+            <Help>{request.gate.caption}</Help>
+          ))}
+        {request.simulator ? (
+          <>
+            <Button disabled={sending} onClick={() => send({ action: 'deny', ...withText })}>
+              Deny
+            </Button>
+            <Button
+              variant="primary"
+              disabled={sending || chosen === undefined}
+              onClick={() =>
+                send({
+                  action: 'approve',
+                  ...(chosen !== undefined && { simulator: chosen }),
+                  ...withText,
+                })
+              }
+            >
+              {chosenOwner !== undefined ? `Shut down ${chosenOwner}’s and run` : 'Run'}
+            </Button>
+          </>
+        ) : request.permission ? (
+          <>
+            <Button disabled={sending} onClick={() => send({ action: 'deny', ...withText })}>
+              Deny
+            </Button>
+            <Button
+              variant="primary"
+              arm="approve"
+              pending={sending && submission?.action === 'approve'}
+              disabled={sending}
+              onClick={() => send({ action: 'approve', ...withText })}
+            >
+              Approve
+            </Button>
+          </>
+        ) : request.gate ? (
+          <>
+            <Button
+              data-request-changes
+              pending={sending && submission?.action === 'request-changes'}
+              disabled={sending || !typed}
+              onClick={() => send({ action: 'request-changes', text })}
+            >
+              Request changes
+            </Button>
+            <Button
+              variant="primary"
+              arm="approve"
+              pending={sending && submission?.action === 'approve'}
+              disabled={sending}
+              onClick={() => send({ action: 'approve', ...withText })}
+            >
+              {request.gate.approveLabel}
+            </Button>
+          </>
+        ) : !repairing ? (
+          <>
+            {request.failed && (
+              <Help>
+                Choose Retry to start a fresh Task Lead Run from the brief, or Other answer to leave
+                a Comment for the next Run. Send confirms your choice.
+              </Help>
+            )}
+            <Button
+              variant="primary"
+              disabled={sending || !ready}
+              pending={sending && submission?.action === 'answer'}
+              onClick={sendAnswer}
+            >
+              {failureChoice && selectedChoice !== undefined
+                ? `Confirm ${selectedChoice}`
+                : failureChoice && other
+                  ? 'Send message'
+                  : 'Send'}
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
+export function dockable(request: Comment): boolean {
+  return !request.round && !request.proposal
+}
+
 export function RequestCard({
   request,
   task,
   readOnly = false,
+  answerBelow = false,
   onOpenRun,
   onOpenTask,
   onOpenApp,
@@ -407,57 +750,34 @@ export function RequestCard({
   onOpenFile?: ((file: ChangedFile) => void) | undefined
   onAllChanges?: (() => void) | undefined
   readOnly?: boolean
+  answerBelow?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenTask?: ((id: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onOpenPlan?: ((planId: string) => void) | undefined
 }) {
   const now = useNow()
-  const repairFormId = useId()
-  const [selection, setSelection] = useState<QuestionSelection>()
-  const [otherText, setOtherText] = useState('')
-  const sendingRef = useRef(false)
-  const [text, setText] = useState('')
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string>()
+  const { send, sending, setSending, sendingRef, setSubmission, error, setError } = useSending(
+    request,
+    readOnly,
+    onOpenPlan,
+  )
+  const box: MessageBox | undefined =
+    readOnly || request.answer !== undefined ? undefined : { kind: 'request', id: request.id }
   const shown =
     request.permission && request.body.trim() === ''
       ? 'The agent didn’t provide an explanation for this request.'
       : summary(request)
-  const typed = text.trim() !== ''
   const [showingPrevious, setShowingPrevious] = useState(false)
-  const simulators = useSimulators()
-  const [picked, setPicked] = useState<string>()
-  const offered = simulators?.booted ?? request.simulator?.booted ?? []
-  const chosen =
-    picked !== undefined && offered.some((b) => b.udid === picked && !b.recording)
-      ? picked
-      : firstChoice(offered)
-  const chosenOwner = offered.find((b) => b.udid === chosen)?.displayId
   const changes = request.gate?.changes
   const rows = request.gate?.pullRequests
-
-  async function send(answer: AnswerRequest) {
-    if (sendingRef.current || readOnly) return
-    sendingRef.current = true
-    setSending(true)
-    setError(undefined)
-    try {
-      const answered = await ted.answerRequest(request.id, answer)
-      setText('')
-      setOtherText('')
-      if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
-        onOpenPlan?.(answered.answer.planId)
-      }
-    } catch (failed) {
-      setError(readableError(failed))
-    } finally {
-      sendingRef.current = false
-      setSending(false)
-    }
-  }
+  const below = answerBelow && !readOnly && dockable(request)
+  const failure = isFailure(request)
 
   async function talk() {
+    if (sendingRef.current) return
+    sendingRef.current = true
+    setSubmission(undefined)
     setSending(true)
     setError(undefined)
     try {
@@ -466,39 +786,9 @@ export function RequestCard({
     } catch (failed) {
       setError(readableError(failed))
     } finally {
+      sendingRef.current = false
       setSending(false)
     }
-  }
-
-  const withText = typed ? { text } : {}
-  const reasonChoices: string[] =
-    request.author.kind === 'ted' &&
-    request.choices?.includes(failureChoices.fixed) &&
-    request.choices.includes(failureChoices['no-longer-applicable'])
-      ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
-      : []
-  const questionChoices = request.kind === 'question' && (request.choices?.length ?? 0) > 0
-  const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
-  const other = selection && 'other' in selection
-  const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
-  const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
-  const answerText = questionChoices && other ? otherText : text
-  const ready = questionChoices
-    ? !repairing &&
-      (selectedChoice !== undefined ? !needsReason || typed : other && otherText.trim() !== '')
-    : typed
-
-  function sendAnswer() {
-    if (!ready || sending || readOnly) return
-    void send(
-      request.gate
-        ? { action: 'request-changes', text }
-        : {
-            action: 'answer',
-            ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
-            ...(answerText.trim() !== '' && { text: answerText }),
-          },
-    )
   }
 
   return (
@@ -509,19 +799,20 @@ export function RequestCard({
         ...(readOnly ? [styles.readOnly] : []),
       ].join(' ')}
       aria-label={readOnly ? `${requestLabel(request)}, read-only` : requestLabel(request)}
-      data-request={!readOnly && request.answer === undefined ? request.id : undefined}
+      data-request={!readOnly && !below && request.answer === undefined ? request.id : undefined}
+      data-docked={below && request.answer === undefined ? request.id : undefined}
     >
       <div className={styles.headRow}>
         <CardHead request={request} task={task} now={now} />
         {changes && !rows && !readOnly && (
-          <button
+          <ActionButton
             type="button"
             className={styles.showRequest}
             aria-expanded={showingPrevious}
             onClick={() => setShowingPrevious(!showingPrevious)}
           >
             {`${showingPrevious ? 'Hide' : 'View'} previously approved ${request.stage === 'review' ? 'review' : 'sign-off'}`}
-          </button>
+          </ActionButton>
         )}
       </div>
       {showingPrevious && changes && !rows && (
@@ -545,11 +836,7 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
-      ) : request.purpose?.kind === 'failure' ||
-        reasonChoices.length > 0 ||
-        request.choices?.includes('Wait for a repair Task') ||
-        (request.choices?.includes(validateFailureChoices.retry) &&
-          request.choices.includes(validateFailureChoices.fix)) ? (
+      ) : failure ? (
         <FailureRequestDetails
           taskId={task.id}
           requestId={request.id}
@@ -591,8 +878,9 @@ export function RequestCard({
           readOnly={readOnly}
           sending={sending}
           talking={request.talk !== undefined}
-          onSend={(answer) => void send(answer)}
-          onTalk={onOpenRun && (() => void talk())}
+          box={box}
+          onSend={(answer) => send(answer)}
+          onTalk={onOpenRun && (() => talk())}
         />
       )}
       {request.proposal &&
@@ -608,7 +896,8 @@ export function RequestCard({
             proposal={request.proposal}
             readOnly={readOnly}
             sending={sending}
-            onSend={(answer) => void send(answer)}
+            box={box}
+            onSend={(answer) => send(answer)}
           />
         ))}
       {request.sizeCheck && (
@@ -627,175 +916,36 @@ export function RequestCard({
         </p>
       )}
       <PermissionCommand request={request} />
-      {request.simulator && (
+      {readOnly && request.simulator && (
         <SimulatorRequest
           request={request}
-          readOnly={readOnly}
-          chosen={chosen}
-          onChoose={setPicked}
+          readOnly
+          chosen={firstChoice(request.simulator.booted)}
+          onChoose={() => {}}
         />
       )}
-      {questionChoices && (
+      {readOnly && hasChoices(request) && (
         <QuestionChoices
           choices={request.choices ?? []}
-          selection={selection}
-          onSelect={setSelection}
+          selection={undefined}
+          onSelect={() => {}}
           allowOther={!request.linearTeam}
-          disabled={sending || readOnly}
+          disabled
+          {...(failure && failureWords)}
         />
       )}
-      {!readOnly && !request.round && !request.proposal && (
-        <>
-          {!request.linearTeam && (
-            <textarea
-              className={styles.box}
-              data-answer-box
-              form={repairing ? repairFormId : undefined}
-              aria-label="Your answer"
-              placeholder={
-                request.simulator
-                  ? 'Comment…'
-                  : needsReason
-                    ? 'Your reason…'
-                    : request.permission
-                      ? 'Comment, or say why you’re denying…'
-                      : request.design
-                        ? 'Comment, or say what to change…'
-                        : questionChoices
-                          ? other
-                            ? 'Your answer…'
-                            : 'Add to this answer…'
-                          : 'Comment to the Task Lead…'
-              }
-              value={answerText}
-              disabled={sending}
-              onChange={(event) =>
-                questionChoices && other
-                  ? setOtherText(event.target.value)
-                  : setText(event.target.value)
-              }
-              onKeyDown={
-                request.permission || request.simulator
-                  ? undefined
-                  : (event) =>
-                      repairing
-                        ? sendOnEnter(
-                            () => event.currentTarget.form?.requestSubmit(),
-                            () => !sending,
-                          )(event)
-                        : sendOnEnter(sendAnswer, () => !!ready && !sending)(event)
-              }
-            />
-          )}
-          {needsReason && (
-            <p className={styles.caption}>Write a reason before sending this decision.</p>
-          )}
-          {questionChoices && request.choices?.includes('Wait for a repair Task') && (
-            <div hidden={!repairing}>
-              <FailureRepairForm
-                id={repairFormId}
-                active={repairing}
-                task={task}
-                request={request}
-                reason={text}
-                onCancel={() => setSelection(undefined)}
-                onSendingChange={setSending}
-              />
-            </div>
-          )}
-          {error !== undefined && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
-          <div className={styles.buttons}>
-            {request.failed && onOpenRun && (
-              <button
-                type="button"
-                className={styles.openRun}
-                onClick={() => onOpenRun(request.failed?.runId ?? '')}
-              >
-                Open last Run
-              </button>
-            )}
-            {request.gate?.caption !== undefined &&
-              (request.stage === 'clarify' ? (
-                <span className={styles.caption}>{request.gate.caption}</span>
-              ) : (
-                <Help>{request.gate.caption}</Help>
-              ))}
-            {request.simulator ? (
-              <>
-                <Button
-                  disabled={sending}
-                  onClick={() => void send({ action: 'deny', ...withText })}
-                >
-                  Deny
-                </Button>
-                <Button
-                  variant="primary"
-                  disabled={sending || chosen === undefined}
-                  onClick={() =>
-                    void send({
-                      action: 'approve',
-                      ...(chosen !== undefined && { simulator: chosen }),
-                      ...withText,
-                    })
-                  }
-                >
-                  {chosenOwner !== undefined ? `Shut down ${chosenOwner}’s and run` : 'Run'}
-                </Button>
-              </>
-            ) : request.permission ? (
-              <>
-                <Button
-                  disabled={sending}
-                  onClick={() => void send({ action: 'deny', ...withText })}
-                >
-                  Deny
-                </Button>
-                <Button
-                  variant="primary"
-                  arm="approve"
-                  disabled={sending}
-                  onClick={() => void send({ action: 'approve', ...withText })}
-                >
-                  Approve
-                </Button>
-              </>
-            ) : request.gate ? (
-              <>
-                <Button
-                  data-request-changes
-                  disabled={sending || !typed}
-                  onClick={() => void send({ action: 'request-changes', text })}
-                >
-                  Request changes
-                </Button>
-                <Button
-                  variant="primary"
-                  arm="approve"
-                  disabled={sending}
-                  onClick={() => void send({ action: 'approve', ...withText })}
-                >
-                  {request.gate.approveLabel}
-                </Button>
-              </>
-            ) : !repairing ? (
-              <>
-                {request.failed && (
-                  <Help>
-                    Choose Retry to start a fresh Task Lead Run from the brief, or Other answer to
-                    leave a Comment for the next Run. Send confirms your choice.
-                  </Help>
-                )}
-                <Button variant="primary" disabled={sending || !ready} onClick={sendAnswer}>
-                  Send
-                </Button>
-              </>
-            ) : null}
-          </div>
-        </>
+      {below ? (
+        <p className={styles.below}>Answer at the bottom of the Task ↓</p>
+      ) : (
+        !readOnly &&
+        dockable(request) && (
+          <RequestAnswer
+            request={request}
+            task={task}
+            onOpenRun={onOpenRun}
+            onOpenPlan={onOpenPlan}
+          />
+        )
       )}
     </section>
   )
@@ -852,7 +1002,7 @@ function answerLine(
       }
       return answer.choice !== undefined
         ? { mark: '✓', tone: 'good', text: `You answered: ${answer.choice}` }
-        : { mark: '✓', tone: 'good', text: 'You answered in your own words' }
+        : { mark: '✓', tone: 'good', text: 'You replied in your own words' }
     case 'withdrawn':
       if ('runStopped' in answer) {
         return {
@@ -942,6 +1092,72 @@ const outcomes: Partial<Record<CommentAnswer['kind'], string>> = {
   superseded: 'superseded',
 }
 
+function ReplyProgress({
+  request,
+  task,
+  now,
+  onOpenRun,
+}: {
+  request: Comment
+  task: Task
+  now: number
+  onOpenRun?: ((runId: string) => void) | undefined
+}) {
+  if (
+    request.kind !== 'question' ||
+    request.answer?.kind !== 'answered' ||
+    request.author.kind !== 'run' ||
+    (request.purpose && request.purpose.kind !== 'question') ||
+    request.gate ||
+    request.sizeCheck
+  )
+    return null
+  const receipt = request.answerDelivery
+  const lead = task.runs.find((run) => run.id === task.leadRunId)
+  const activity =
+    lead?.paused !== undefined
+      ? `Task Lead paused · ${lead.paused}`
+      : task.status?.kind === 'paused'
+        ? `Task Lead paused · ${task.status.reason}`
+        : lead?.state === 'working'
+          ? lead.onSubAgents
+            ? 'Task Lead waiting for sub-agents'
+            : 'Task Lead working'
+          : lead?.state === 'waiting'
+            ? 'Task Lead waiting'
+            : lead?.state === 'idle'
+              ? 'Task Lead idle'
+              : 'Task Lead stopped'
+  const runId = task.leadRunId ?? receipt?.sent?.runId ?? request.author.runId
+  return (
+    <section className={styles.replyProgress} aria-label="Reply delivery">
+      <div>
+        <span>
+          {receipt?.sent
+            ? 'Sent to Task Lead'
+            : receipt
+              ? 'Waiting to reach Task Lead'
+              : 'Delivery not recorded'}
+        </span>
+        {receipt && (
+          <span className={styles.answerAge}>
+            {' '}
+            · {ago(receipt.sent?.at ?? receipt.queuedAt, now)}
+          </span>
+        )}
+      </div>
+      <div className={styles.replyActivity}>
+        <span>{activity}</span>
+        {onOpenRun && (
+          <Button variant="quiet" size="small" onClick={() => onOpenRun(runId)}>
+            Open Conversation
+          </Button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export function AnsweredCard({
   request,
   task,
@@ -981,22 +1197,22 @@ export function AnsweredCard({
       <div className={styles.answeredHead}>
         <CardHead request={request} task={task} now={now} />
         {talked && onOpenRun ? (
-          <button
+          <ActionButton
             type="button"
             className={styles.showRequest}
             onClick={() => onOpenRun(talked.runId)}
           >
             Open chat
-          </button>
+          </ActionButton>
         ) : !permission ? (
-          <button
+          <ActionButton
             type="button"
             className={styles.showRequest}
             aria-expanded={showing}
             onClick={() => setShowing(!showing)}
           >
             {showing ? 'Hide request' : 'Show request'}
-          </button>
+          </ActionButton>
         ) : null}
       </div>
       {permission ? (
@@ -1041,6 +1257,7 @@ export function AnsweredCard({
           <Markdown text={quoted} />
         </blockquote>
       )}
+      <ReplyProgress request={request} task={task} now={now} onOpenRun={onOpenRun} />
       {!permission && showing && (
         <RequestCard request={request} task={task} onOpenTask={onOpenTask} readOnly />
       )}

@@ -98,7 +98,7 @@ function discussion(started = true) {
       await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
       await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
       if (started) await screen.findAllByText('Current exchange.')
-      else await screen.findByRole('textbox', { name: 'Comment' })
+      else await screen.findByRole('textbox', { name: /^(Comment|Your answer)$/ })
       return screen.getByRole('region', { name: 'Task thread' })
     },
     async startLead() {
@@ -414,6 +414,8 @@ test('starting the first Task Lead preserves message, attachment and request dra
   await user().keyboard('{Escape}')
   const answer = view.getByRole('textbox', { name: 'Your answer' })
   fireEvent.change(answer, { target: { value: 'Keep the existing choice.' } })
+  expect(view.queryByRole('textbox', { name: 'Comment' })).toBeNull()
+  await user().click(view.getByRole('button', { name: 'Comment without answering' }))
   const message = view.getByRole('textbox', { name: 'Comment' })
   fireEvent.change(message, { target: { value: 'Keep this draft too.' } })
   await user().upload(
@@ -426,6 +428,7 @@ test('starting the first Task Lead preserves message, attachment and request dra
   expect(view.getByRole('textbox', { name: 'Message the Task Lead' })).toBe(message)
   expect(message).toHaveProperty('value', 'Keep this draft too.')
   expect(view.getByRole('button', { name: 'Remove note.txt' })).toBe(attachment)
+  await user().click(view.getByRole('button', { name: 'Back to the answer' }))
   expect(view.getByRole('textbox', { name: 'Your answer' })).toBe(answer)
   expect(answer).toHaveProperty('value', 'Keep the existing choice.')
   expect(a.request).not.toHaveBeenCalledWith('getRunChat', undefined)
@@ -568,15 +571,17 @@ test('replacing the Task Lead keeps the Task message and request drafts mounted'
   const view = within(await a.open())
   const answer = view.getByRole('textbox', { name: 'Your answer' })
   fireEvent.change(answer, { target: { value: 'Keep the existing choice.' } })
+  await user().click(view.getByRole('button', { name: 'Comment without answering' }))
   fireEvent.change(view.getByRole('textbox', { name: 'Message the Task Lead' }), {
     target: { value: 'Keep this draft too.' },
   })
   await a.replaceLead()
   await view.findByText('Replacement exchange.')
-  expect(view.getByRole('textbox', { name: 'Your answer' })).toBe(answer)
-  expect(answer).toHaveProperty('value', 'Keep the existing choice.')
   expect(view.getByRole('textbox', { name: 'Message the Task Lead' })).toHaveProperty(
     'value',
     'Keep this draft too.',
   )
+  await user().click(view.getByRole('button', { name: 'Back to the answer' }))
+  expect(view.getByRole('textbox', { name: 'Your answer' })).toBe(answer)
+  expect(answer).toHaveProperty('value', 'Keep the existing choice.')
 })

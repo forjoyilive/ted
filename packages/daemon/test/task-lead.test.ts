@@ -484,6 +484,10 @@ describe('Stage effort', () => {
         (r) => r.state === 'working' && r.sessionId !== undefined,
         'working Task Lead',
       )
+      await waitUntil(
+        async () => (await userMessages(client, run.id)).length > 0,
+        'the Task Lead’s first turn to begin',
+      )
       const text = 'Keep this note held after Stop.'
       const queued = await client.ok<{ id: string }>('POST', `/runs/${run.id}/messages`, { text })
       if (release === 'new-message') {

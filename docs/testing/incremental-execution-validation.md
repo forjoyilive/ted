@@ -42,10 +42,10 @@ Selections are explicit; empty and unknown selections fail.
 | `ownership` | Row 1’s real assignment persistence before start, immutable retry receipt, stable machine identity, process restart and full event-log replay; conflict/stale-reference rejection and refusal of local execution on another machine’s assignment | isolated loopback integration; production behavior |
 | `reporting` | Selection, source identity, durable publication, failed/incomplete subprocess results, redaction, bounded evidence, replay instructions and scratch cleanup | isolated loopback integration; fixture controls |
 | `local-lifecycle` | Real local adapter handles, clone/create/copy/removal and the child-daemon setup/copy/teardown fixture; existing ordering, interrupted setup, multi-repo and setup-Task regressions | isolated loopback integration; production behavior |
-| `production-transport` | Skipped until an owning implementation Task adds its adapter | isolated loopback integration |
+| `production-transport` | Real execution pairing, identity/version/expiry refusals, human-only authorization, restart and revocation; no Task execution | isolated loopback integration; production behavior |
 | `two-mac` | Skipped until lab access and a real-machine adapter exist | actual two-Mac execution |
 | `native-sandbox` | On macOS, actual `/usr/bin/sandbox-exec` permits worktree/cache writes and refuses writes and private reads elsewhere in the synthetic TED home, during setup and teardown; missing-sandbox and local Bypass regressions also run | native-sandbox evidence |
-| `gui` | Skipped; no GUI scenario supplied | GUI evidence |
+| `gui` | Native pairing/worker windows, expandable guidance, worker IPC refusal, close/quit and worker-only process lifetime | GUI evidence |
 
 Loopback success never counts as two-Mac, native-sandbox or GUI evidence. The
 acknowledgment exchange echoes fixture messages only: it is not a transport backend,
@@ -167,3 +167,40 @@ cleanup resolves their recorded worktree handles through this adapter.
 The two-Mac extension uses TED-110's explicit opt-in lab when available. A local
 pass is not evidence of two-Mac execution, and unavailable lab access is recorded
 separately rather than represented by a simulated pass.
+
+## Pairing checkpoint (TED-112)
+
+`production-transport` now exercises the real pairing controller and isolated worker
+process over pinned TLS/mutual TLS. It does not execute Tasks or reconcile commands.
+Its selected files are `packages/protocol/test/execution-pairing.test.ts` and
+`packages/daemon/test/execution-pairing.test.ts` (two files, within the Run limit).
+
+```sh
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/validate-execution.ts \
+  --report-dir "$HOME/.cache/ted/execution-validation" --scenario production-transport --scenario gui
+```
+
+Expected observations: `pairing-peer-refusals`, `pairing-expiry`,
+`pairing-human-authority`, `pairing-restart`, `pairing-revocation`. The process fixture
+uses a synthetic app-authorized controller client, real certificates, persistence and
+service restart; it checks that file, Run and machine credentials cannot approve or
+invoke human-only controls, and that an old certificate cannot use a new grant.
+Controller clock injection is a fixture control for expiry, not a production input.
+These observations prove isolated process behavior only. No private keys, enrollment
+secrets or app/file/Run tokens belong in report observations or assertion output.
+
+The UI files are `packages/app/test/execution-pairing.test.tsx` (component interactions)
+and `packages/app/test/app-execution-pairing.test.ts` (real Electron window and IPC
+refusal). The `gui` shared scenario selects the native file and requires `pairing-ui`
+and `worker-only-lifecycle` observations. Run the component file separately, and
+all test files only in Validate. The native file captures an unpaired screen at
+`node_modules/.cache/ted-pairing-ui.png`; attach it to the Task before deleting the
+worktree. A sandbox skip is unresolved GUI evidence. Relevant existing env/CLI,
+background, theme, renderer and shared-harness regression files must also run in
+explicit batches of at most three files, each once per Validate visit.
+
+`product-pairing` is a dedicated actual two-Mac lab checkpoint. The normal runner
+leaves it unavailable and never contacts hosts. It does not make the later
+`two-mac` Task-execution placeholder pass. Use the lab command below; exact candidate,
+commands, expected/observed invariants and public identities use the same durable
+report schema as the earlier rows.

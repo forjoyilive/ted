@@ -45,6 +45,7 @@ import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
+import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
@@ -653,7 +654,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       onDismiss={(banner) =>
         banner.problem === updateFailedProblem
           ? setUpdateFailureDismissed(true)
-          : void ted.dismissBanner(banner.id)
+          : ted.dismissBanner(banner.id)
       }
       menu={keepsStoppingMenu}
     />
@@ -1059,6 +1060,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onOpenTask={openTask}
         />
       )}
+      <RestartStoppedDialog />
       {asking && (
         <SetupNoticeDialog
           task={asking.request.task}
@@ -1166,9 +1168,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             ...(settings?.overnightMode && { overnight: 'Autopilot is on' }),
             ...(chip !== undefined && { update: chip }),
           }}
-          onUpdate={() =>
+          onUpdate={() => {
             void ted.restartToUpdate().catch((error: unknown) => console.error(error))
-          }
+          }}
           onOpenFailed={() => {
             saveListView(
               settings,

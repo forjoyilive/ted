@@ -495,3 +495,15 @@
   display: flex;
   justify-content: flex-end;
 }
+
+.loadingName {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.loadingLine {
+  display: flex;
+  align-items: center;
+  min-height: 1lh;
+}

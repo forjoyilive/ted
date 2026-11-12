@@ -85,7 +85,7 @@ function RunSideChat({
   const show = () => {
     setOpen(true)
     setWhich('side')
-    void act((source) => ted.openSideChat(source)).catch(() => undefined)
+    return act((source) => ted.openSideChat(source)).catch(() => undefined)
   }
   const opened = useRef(onSideChatOpened)
   opened.current = onSideChatOpened
@@ -93,7 +93,7 @@ function RunSideChat({
   showRef.current = show
   useEffect(() => {
     if (!openSideChat || !eligible) return
-    showRef.current()
+    void showRef.current()
     opened.current?.()
   }, [openSideChat, eligible])
   const working = side?.state === 'working' || side?.state === 'queued'
@@ -101,10 +101,10 @@ function RunSideChat({
     <div className={styles.container}>
       {eligible && open && (
         <nav className={styles.switch} aria-label="Conversation view">
-          <Button size="small" aria-pressed={which === 'source'} onClick={() => setWhich('source')}>
+          <Button aria-pressed={which === 'source'} onClick={() => setWhich('source')}>
             Original Run · {chat.run.state}
           </Button>
-          <Button size="small" aria-pressed={which === 'side'} onClick={() => setWhich('side')}>
+          <Button aria-pressed={which === 'side'} onClick={() => setWhich('side')}>
             Side chat
           </Button>
         </nav>
@@ -139,7 +139,6 @@ function RunSideChat({
                         : 'Ready'}
               </span>
               <Button
-                size="small"
                 aria-label="Close side chat"
                 onClick={() => {
                   setOpen(false)
@@ -199,10 +198,9 @@ function RunSideChat({
                   pinned: working ? (
                     <div className={styles.actions}>
                       <Button
-                        size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.stopSideChat(source)).catch(() => undefined)
+                          return act((source) => ted.stopSideChat(source)).catch(() => undefined)
                         }}
                       >
                         Stop reply
@@ -211,10 +209,9 @@ function RunSideChat({
                   ) : side.state === 'failed' ? (
                     <div className={styles.actions}>
                       <Button
-                        size="small"
                         disabled={busy}
                         onClick={() => {
-                          void act((source) => ted.retrySideChat(source)).catch(() => undefined)
+                          return act((source) => ted.retrySideChat(source)).catch(() => undefined)
                         }}
                       >
                         Retry

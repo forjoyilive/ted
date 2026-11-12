@@ -75,3 +75,46 @@ describe('theme tokens', () => {
     }
   })
 })
+
+describe('button heights', () => {
+  const regular = 'var(--button-height)'
+  const small = 'var(--button-height-small)'
+
+  async function rule(file: string, name: string): Promise<string> {
+    const text = await readFile(path.join(rendererDir, file), 'utf8')
+    const found = text.match(new RegExp(`(?:^|\\n)\\.${name}(?:,\\n\\.[a-zA-Z]+)* \\{([^}]*)\\}`))
+    return found?.[1] ?? ''
+  }
+
+  test('the shared Button has two fixed heights', async () => {
+    const defined = await tokens()
+    expect(defined.get('--button-height')).toBe('calc(28px * var(--text-scale))')
+    expect(defined.get('--button-height-small')).toBe('calc(24px * var(--text-scale))')
+
+    expect(await rule('components/Button.module.css', 'regular')).toContain(`  height: ${regular};`)
+    expect(await rule('components/Button.module.css', 'small')).toContain(`  height: ${small};`)
+  })
+
+  test('hand-made buttons take their height from the same tokens', async () => {
+    const buttons: [file: string, name: string, height: string, grows?: 'grows'][] = [
+      ['components/TaskConversationTabs.module.css', 'historyButton', regular],
+      ['components/BannerStack.module.css', 'action', regular],
+      ['views/TaskLeadField.module.css', 'button', regular, 'grows'],
+      ['views/FactorySettings.module.css', 'dangerButton', regular],
+      ['settings/settings.module.css', 'button', regular],
+      ['views/DataScreen.module.css', 'primary', regular],
+      ['components/TaskActions.module.css', 'more', small],
+      ['components/DiffViews.module.css', 'step', small],
+      ['views/Board.module.css', 'start', small],
+      ['components/RequestJumpBar.module.css', 'jump', small],
+      ['components/LineComments.module.css', 'chip', small],
+      ['views/Inbox.module.css', 'chip', small, 'grows'],
+      ['components/Markdown.module.css', 'copy', small],
+    ]
+
+    for (const [file, name, height, grows] of buttons) {
+      const property = grows ? 'min-height' : 'height'
+      expect(await rule(file, name), `${file} .${name}`).toContain(`\n  ${property}: ${height};`)
+    }
+  })
+})

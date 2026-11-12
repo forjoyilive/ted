@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Comment, Factory, InboxItem, Run, Task, TaskGates, ThreadEvent } from '@ted/protocol'
@@ -146,6 +146,19 @@ const userMessages = async (client: Client, task: Task) =>
       ? [line.message.content]
       : []
   })
+
+// What TED wrote to the Task Lead’s input. The stub shows a message it gets in the middle of a
+// turn only while a tool hook runs, so whether it appears in the Conversation depends on timing.
+const sentToLead = async (client: Client, task: Task) =>
+  (await readFile(path.join(home, 'runs', (await leadRun(client, task)).id, 'input.jsonl'), 'utf8'))
+    .split('\n')
+    .flatMap((text) => {
+      if (text === '') return []
+      const line = JSON.parse(text) as { type?: string; message?: { content?: unknown } }
+      return line.type === 'user' && typeof line.message?.content === 'string'
+        ? [line.message.content]
+        : []
+    })
 
 const comments = (client: Client, task: Task) =>
   client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
@@ -390,7 +403,7 @@ describe('Clarify rounds', () => {
     await client.go('answered')
     const answer = await waitUntil(
       async () =>
-        (await userMessages(client, task)).find((m) => m.includes('The human answered Round')),
+        (await sentToLead(client, task)).find((m) => m.includes('The human answered Round')),
       'the round-answer guidance to reach the Task Lead before leaving Clarify',
     )
     expect(answer).toContain(
