@@ -153,6 +153,16 @@ export const taskBlockers = State.SQLite.table({
   },
 })
 
+export const taskParents = State.SQLite.table({
+  name: 'taskParents',
+  indexes: [{ name: 'idx_taskParents_parentId', columns: ['parentId'] }],
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    parentId: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const deletedTasks = State.SQLite.table({
   name: 'deletedTasks',
   columns: {
@@ -1133,6 +1143,14 @@ export const events = {
       leadEffort: Schema.NullOr(Schema.String),
       startRequested: Schema.Boolean,
       createdAt: Schema.String,
+    }),
+  }),
+  taskParentChanged: Events.synced({
+    name: 'v1.TaskParentChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      parentId: Schema.NullOr(Schema.String),
+      at: Schema.String,
     }),
   }),
   taskBlockerAdded: Events.synced({
@@ -3243,6 +3261,12 @@ const materializers = counted(
       'v1.TaskExecutionForgotten': ({ taskId }) => executionAssignments.delete().where({ taskId }),
       'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+      'v1.TaskParentChanged': ({ taskId, parentId, at }) => [
+        parentId === null
+          ? taskParents.delete().where({ taskId })
+          : taskParents.insert({ taskId, parentId, at }).onConflict('taskId', 'replace'),
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      ],
       'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
         taskBlockers
           .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
@@ -4156,6 +4180,7 @@ const state = State.SQLite.makeState({
     executionMachine,
     executionAssignments,
     taskBlockers,
+    taskParents,
     deletedTasks,
     taskAttachments,
     taskBrowserCaptures,

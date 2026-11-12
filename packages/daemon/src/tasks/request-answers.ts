@@ -83,6 +83,7 @@ export interface RequestAnswerPort {
   ): string
   leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
   settleDependents(id: string, choice: 'unblock'): void
+  beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
   wake(): void
   sendNudge(task: StoredTask, run: Run): Promise<void>
@@ -713,6 +714,8 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         if (answered) return answered
       }
       if (comment.purpose?.kind === 'linear-closed' && choice !== undefined) {
+        if (choice === linearArchiveChoice && !find(task.id).archived)
+          port.beforeArchive?.(find(task.id))
         const answered = answerRequest(task, comment, {
           kind: 'answered',
           at,

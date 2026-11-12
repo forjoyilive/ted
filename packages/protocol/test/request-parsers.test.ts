@@ -53,6 +53,8 @@ roundTrip(P.parseCoordinatorMessage, {
 const version = 'a'.repeat(64)
 const completeAction: Required<P.CoordinatorAction> = {
   operation: 'unique',
+  parentId: 'TED-2',
+  hierarchyRevision: version,
   version,
   after: 'TED-1',
   before: 'TED-3',
@@ -274,4 +276,19 @@ test('Validate failure parsers reject unknown categories and empty verification 
     }),
   ).toThrow('category must be test, review or visual')
   expect(() => P.parseVerifyFailureRequest({ evidence: '' })).toThrow('nonempty text')
+})
+
+test('Coordinator parent edits retain all fields and require an explicit parent and hierarchy revision', () => {
+  const input = { operation: 'parent-edit', version, parentId: 'TED-2', hierarchyRevision: version }
+  expect(P.parseCoordinatorAction(input, 'parent')).toEqual(input)
+  expect(P.parseCoordinatorAction({ ...input, parentId: null }, 'parent')).toEqual({
+    ...input,
+    parentId: null,
+  })
+  expect(() =>
+    P.parseCoordinatorAction({ ...input, hierarchyRevision: undefined }, 'parent'),
+  ).toThrow('hierarchyRevision')
+  expect(() => P.parseCoordinatorAction({ ...input, parentId: undefined }, 'parent')).toThrow(
+    'parentId',
+  )
 })

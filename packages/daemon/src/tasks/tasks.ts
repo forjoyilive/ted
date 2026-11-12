@@ -63,6 +63,7 @@ import type {
   SendBackCause,
   SetClarifyDepthRequest,
   SetTaskGatesRequest,
+  SetTaskParentRequest,
   SetTaskReposRequest,
   SetupProposal,
   SignOffChanges,
@@ -83,11 +84,14 @@ import type {
   TaskFiles,
   TaskGateOverrides,
   TaskGates,
+  TaskHierarchy,
+  TaskHierarchyPreview,
   TaskLead,
   TaskRepo,
   TaskReposResult,
   TaskSource,
   ThreadEvent,
+  UnarchiveTaskRequest,
   ValidateJudgments,
   ValidationObligations,
   WorktreeCommandOutcome,
@@ -439,7 +443,10 @@ export interface Tasks {
   allowLinearTeam(factoryId: string, team: string): MachineSettings
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
-  unarchive(ref: string): Promise<Task>
+  hierarchy(ref: string, caller?: Caller): TaskHierarchy
+  hierarchyPreview(ref: string): TaskHierarchyPreview
+  setParent(ref: string, input: SetTaskParentRequest): Task
+  unarchive(ref: string, input?: UnarchiveTaskRequest): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
@@ -848,6 +855,7 @@ export function createTasks(options: {
   const pullRequestQueue = new Map<string, Promise<void>>()
   const clearingAway = new Map<string, Promise<void>>()
   const deleting = new Set<string>()
+  const hierarchyBusy = new Set<string>()
   const removingFactories = new Set<string>()
   const merging = new Set<string>()
   const mergePollMs = options.mergePollMs ?? 30_000
@@ -1272,7 +1280,14 @@ export function createTasks(options: {
       const task = store.getTask(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
       if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
-      if (task.waitsForBlockers || task.stopped) return []
+      if (
+        task.waitsForBlockers ||
+        task.stopped ||
+        hierarchyBusy.has(task.id) ||
+        deleting.has(task.id) ||
+        unfinishedChildren(task.id)
+      )
+        return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
   }
@@ -1282,7 +1297,11 @@ export function createTasks(options: {
     return leadLifecycle
       .reviveCandidates()
       .flatMap(({ taskId, factoryId, agent }) =>
-        paused[agent] !== undefined || holds.has(taskId)
+        paused[agent] !== undefined ||
+        holds.has(taskId) ||
+        hierarchyBusy.has(taskId) ||
+        deleting.has(taskId) ||
+        unfinishedChildren(taskId)
           ? []
           : [{ id: taskId, kind: 'task' as const, rank: -1, factoryId }],
       )
@@ -1300,6 +1319,7 @@ export function createTasks(options: {
       !holds.has(task.id) &&
       !autoStartFailures.has(task.id) &&
       !deleting.has(task.id) &&
+      !hierarchyBusy.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (task.snoozedUntil !== undefined ||
@@ -1321,6 +1341,7 @@ export function createTasks(options: {
       !starting.has(task.id) &&
       !holds.has(task.id) &&
       !deleting.has(task.id) &&
+      !hierarchyBusy.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (agent === undefined || store.agentPauses()[agent] === undefined) &&
@@ -1385,6 +1406,8 @@ export function createTasks(options: {
       sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
     )
     for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+      if (hierarchyBusy.has(entry.id) || deleting.has(entry.id) || unfinishedChildren(entry.id))
+        continue
       if (reviveIds.has(entry.id)) {
         inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
       } else if (heldIds.has(entry.id)) relaunch(entry.id)
@@ -1428,7 +1451,10 @@ export function createTasks(options: {
   function runnable<T extends { id: string }>(entries: readonly T[]): T[] {
     const paused = store.agentPauses()
     return entries.filter((entry) => {
-      const agent = store.getTask(entry.id)?.lead?.agent
+      const task = store.getTask(entry.id)
+      if (hierarchyBusy.has(entry.id) || deleting.has(entry.id)) return false
+      if (task && unfinishedChildren(task.id)) return false
+      const agent = task?.lead?.agent
       return agent === undefined || paused[agent] === undefined
     })
   }
@@ -2386,7 +2412,13 @@ export function createTasks(options: {
     const name = find(taskId).displayId
     const canAct = () => {
       const current = store.getTask(taskId)
-      return !current?.stopped && !checking.has(taskId) && !holdsMerge(taskId)
+      return (
+        !current?.stopped &&
+        !checking.has(taskId) &&
+        !holdsMerge(taskId) &&
+        !hierarchyBusy.has(taskId) &&
+        !unfinishedChildren(taskId)
+      )
     }
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
@@ -2781,6 +2813,8 @@ export function createTasks(options: {
   ): Promise<TaskReposResult> {
     await beginning.get(taskId)?.catch(() => undefined)
     const task = find(taskId)
+    if (hierarchyBusy.has(task.id) || deleting.has(task.id))
+      throw new RequestError(409, `${task.displayId} has a hierarchy operation underway; try again`)
     if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
     if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
     const factory = factoryOf(task)
@@ -3783,7 +3817,10 @@ export function createTasks(options: {
       backMessage,
       leaveWorkToDiagnose,
       settleDependents,
-      archiveNow,
+      beforeArchive: (task) => {
+        archivePlan(task.id)
+      },
+      archiveNow: (task, close) => archiveHierarchy(task.id, { closePullRequests: close }),
       wake,
       sendNudge,
       useDefaultModel,
@@ -3924,6 +3961,8 @@ export function createTasks(options: {
   }
 
   async function holding<T>(task: Task, work: () => Promise<T>): Promise<T> {
+    if (hierarchyBusy.has(task.id) || deleting.has(task.id))
+      throw new RequestError(409, `${task.displayId} has a hierarchy operation underway; try again`)
     if (advancing.has(task.id)) {
       throw new RequestError(409, `${task.displayId} is already moving; try again`)
     }
@@ -4876,12 +4915,195 @@ export function createTasks(options: {
 
   function live(ref: string): StoredTask {
     const task = find(ref)
+    if (hierarchyBusy.has(task.id) || deleting.has(task.id))
+      throw new RequestError(409, `${task.displayId} has a hierarchy operation underway; try again`)
     if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
     return task
   }
 
+  function hierarchyRevision(factoryId: string): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify(
+          store
+            .listTasks()
+            .filter((task) => task.factoryId === factoryId)
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map((task) => [
+              task.id,
+              task.parentId,
+              task.childIds,
+              task.stage,
+              task.archived,
+              task.blockedBy,
+              task.status,
+              task.runs,
+              task.updatedAt,
+              task.merged,
+            ]),
+        ),
+      )
+      .digest('hex')
+  }
+
+  function hierarchy(ref: string, caller?: Caller): TaskHierarchy {
+    const task = caller?.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+    return {
+      parentId: task.parentId ?? null,
+      childIds: store.childrenOf(task.id),
+      revision: hierarchyRevision(task.factoryId),
+    }
+  }
+
+  function descendants(taskId: string): string[] {
+    const found: string[] = []
+    const seen = new Set([taskId])
+    const walk = (id: string) => {
+      for (const child of store.childrenOf(id)) {
+        if (seen.has(child)) throw new RequestError(409, 'Task hierarchy contains a cycle')
+        seen.add(child)
+        found.push(child)
+        walk(child)
+      }
+    }
+    walk(taskId)
+    return found
+  }
+
+  function hierarchyPreview(ref: string): TaskHierarchyPreview {
+    const task = find(ref)
+    return {
+      revision: hierarchyRevision(task.factoryId),
+      descendants: descendants(task.id).map((id) => {
+        const child = find(id)
+        return { id, displayId: child.displayId, title: child.title }
+      }),
+    }
+  }
+
+  function requireHierarchyRevision(task: StoredTask, revision?: string): void {
+    if (!revision || revision !== hierarchyRevision(task.factoryId))
+      throw new RequestError(
+        409,
+        'Hierarchy changed or was not confirmed; read the hierarchy preview and confirm again',
+      )
+  }
+
+  function safeParent(task: StoredTask): void {
+    const queued = store.queue().some((entry) => entry.id === task.id)
+    if (
+      task.archived ||
+      task.stage === 'done' ||
+      hasLiveRun(task) ||
+      hierarchyBusy.has(task.id) ||
+      deleting.has(task.id) ||
+      advancing.has(task.id) ||
+      beginning.has(task.id) ||
+      holds.has(task.id) ||
+      stoppingByHand.has(task.id) ||
+      mergeWatcher.inFlight(task.id) ||
+      store.mergePending(task.id) ||
+      !(task.stage === 'backlog' || queued || task.stopped || task.waitsForBlockers)
+    ) {
+      throw new RequestError(
+        409,
+        `${task.displayId} cannot change its children now. ${task.stage === 'done' ? 'Done parents stay closed; use Unlink and restore for an archived child.' : task.archived ? 'Restore the parent first.' : 'Stop the parent and wait for its Runs, Checks and transitions to finish, then try again.'}`,
+      )
+    }
+  }
+
+  function requireHierarchyIdle(ids: readonly string[]): void {
+    for (const id of ids) {
+      if (hierarchyBusy.has(id) || deleting.has(id) || removingFactories.has(find(id).factoryId))
+        throw new RequestError(
+          409,
+          `${find(id).displayId} has a hierarchy operation underway; try again`,
+        )
+    }
+  }
+
+  function holdParent(taskId: string): void {
+    if (unmergedBlockers(taskId).length > 0 && store.queue().some((q) => q.id === taskId))
+      store.waitForBlockers(taskId)
+  }
+
+  function releaseParent(taskId: string, wasBlocked: boolean): void {
+    const task = find(taskId)
+    if (!wasBlocked || unmergedBlockers(taskId).length > 0) return
+    if (task.stage === 'backlog') {
+      if (task.startRequested) store.setStartRequested(taskId, false)
+      store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+    } else if (
+      (task.waitsForBlockers || store.queue().some((entry) => entry.id === taskId)) &&
+      !liveLead(task) &&
+      !task.archived
+    )
+      store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+  }
+
+  function setParent(ref: string, input: SetTaskParentRequest): Task {
+    const task = find(ref)
+    requireHierarchyRevision(task, input.revision)
+    const parent = input.parentId === null ? undefined : find(input.parentId)
+    const old = task.parentId ? find(task.parentId) : undefined
+    requireHierarchyIdle([task.id, ...[old, parent].flatMap((t) => (t ? [t.id] : []))])
+    if (parent?.factoryId !== undefined && parent.factoryId !== task.factoryId)
+      throw new RequestError(409, 'Parent and child must belong to the same Factory')
+    if (parent?.id === task.id) throw new RequestError(409, 'A Task cannot parent itself')
+    if (parent?.id === old?.id) return publicTask(task.id)
+    if (old) safeParent(old)
+    if (parent) {
+      safeParent(parent)
+      if (cycleFrom(task.id, parent.id))
+        throw new RequestError(409, 'Parent link would create a hierarchy or blocker cycle')
+    }
+    const wasBlocked = old !== undefined && unmergedBlockers(old.id).length > 0
+    store.setTaskParent(task.id, parent?.id ?? null)
+    if (old) releaseParent(old.id, wasBlocked)
+    if (parent) holdParent(parent.id)
+    return publicTask(task.id)
+  }
+
+  function archivePlan(ref: string, revision?: string) {
+    const task = live(ref)
+    const children = descendants(task.id)
+    if (children.length > 0) requireHierarchyRevision(task, revision)
+    const ids = [task.id, ...children]
+    requireHierarchyIdle(ids)
+    const parent = task.parentId ? find(task.parentId) : undefined
+    if (parent && !store.isMerged(task.id)) safeParent(parent)
+    return {
+      task,
+      ids,
+      parent,
+      wasBlocked: parent !== undefined && unmergedBlockers(parent.id).length > 0,
+    }
+  }
+
+  function archiveHierarchy(
+    ref: string,
+    {
+      closePullRequests = false,
+      blocked = 'unblock',
+      hierarchyRevision: revision,
+    }: ArchiveTaskRequest = {},
+  ): Task {
+    const { task, ids, parent, wasBlocked } = archivePlan(ref, revision)
+    for (const id of [...ids].reverse()) {
+      const current = find(id)
+      if (current.archived) continue
+      settleDependents(id, blocked)
+      if (store.childrenOf(id).length > 0 && current.startRequested)
+        store.setStartRequested(id, false)
+      archiveNow(find(id), closePullRequests)
+    }
+    if (parent) releaseParent(parent.id, wasBlocked)
+    wake()
+    return publicTask(task.id)
+  }
+
   function removeBlockers(taskId: string, caller: Caller, blockerId?: string): void {
-    const links = store.blockers(taskId)
+    const links = store.blockers(taskId).filter((link) => link.kind !== 'child')
     const wasBlocked = links.some((l) => !l.merged)
     const runId = caller.kind === 'run' ? caller.runId : undefined
     for (const link of links) {
@@ -4932,7 +5154,12 @@ export function createTasks(options: {
     if (!task || task.archived || task.stage === 'done' || deleting.has(taskId)) return
     const marked = `${issue.identifier} was marked ${issue.state} in Linear`
     const pastSignOff = task.stage === 'merge'
-    if (!pastSignOff && !hasLiveRun(task)) {
+    if (
+      !pastSignOff &&
+      !hasLiveRun(task) &&
+      !task.parentId &&
+      store.childrenOf(task.id).length === 0
+    ) {
       settleDependents(task.id, 'unblock')
       archiveNow(task, false, marked)
       wake()
@@ -5010,31 +5237,78 @@ export function createTasks(options: {
     return archived
   }
 
-  async function unarchive(ref: string): Promise<Task> {
+  async function unarchive(ref: string, input: UnarchiveTaskRequest = {}): Promise<Task> {
     const task = find(ref)
     if (!task.archived || deleting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} isn’t archived`)
     }
-    await clearingAway.get(task.id)?.catch(() => undefined)
-    await pullRequestQueue.get(task.id)
-    const current = find(task.id)
-    if (!current.archived || deleting.has(task.id)) {
-      throw new RequestError(409, `${task.displayId} isn’t archived`)
+    const parent = task.parentId ? find(task.parentId) : undefined
+    const affected = [task.id, ...(parent ? [parent.id] : [])]
+    requireHierarchyIdle(affected)
+    if (parent && input.unlinkParent) {
+      requireHierarchyRevision(task, input.hierarchyRevision)
+      if (parent.stage !== 'done') safeParent(parent)
     }
-    const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
-    store.unarchiveTask(task.id, {
-      queue: midFlow,
-      waitForBlockers: midFlow && unmergedBlockers(task.id).length > 0,
-    })
-    if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
-      pullRequestWork(task.id, 'reopen')
+    if (parent && !input.unlinkParent && !store.isMerged(task.id)) safeParent(parent)
+    for (const id of affected) hierarchyBusy.add(id)
+    try {
+      await clearingAway.get(task.id)?.catch(() => undefined)
+      await pullRequestQueue.get(task.id)
+      const current = find(task.id)
+      if (!current.archived || deleting.has(task.id)) {
+        throw new RequestError(409, `${task.displayId} isn’t archived`)
+      }
+      if (parent && input.unlinkParent) store.setTaskParent(task.id, null)
+      const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
+      store.unarchiveTask(task.id, {
+        queue: midFlow,
+        waitForBlockers: midFlow && unmergedBlockers(task.id).length > 0,
+      })
+      if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
+        pullRequestWork(task.id, 'reopen')
+      }
+      if (parent && !input.unlinkParent) holdParent(parent.id)
+    } finally {
+      for (const id of affected) hierarchyBusy.delete(id)
     }
     await pump()
     wake()
     return publicTask(task.id)
   }
 
-  async function remove(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
+  async function remove(ref: string, input: DeleteTaskRequest): Promise<void> {
+    const task = find(ref)
+    if (removingFactories.has(task.factoryId)) return removeOne(ref, input)
+    const children = descendants(task.id)
+    if (children.length > 0) {
+      requireHierarchyRevision(task, input.hierarchyRevision)
+      if (!input.children)
+        throw new RequestError(
+          409,
+          'Choose whether to delete descendants or unparent direct children, or cancel',
+        )
+    }
+    const parent = task.parentId ? find(task.parentId) : undefined
+    if (parent) safeParent(parent)
+    const ids = input.children === 'delete' ? [task.id, ...children] : [task.id]
+    const affected = [...new Set([...ids, ...children, ...(parent ? [parent.id] : [])])]
+    requireHierarchyIdle(affected)
+    const wasBlocked = parent !== undefined && unmergedBlockers(parent.id).length > 0
+    for (const id of affected) hierarchyBusy.add(id)
+    try {
+      if (parent) store.setTaskParent(task.id, null)
+      if (input.children !== 'delete') {
+        for (const id of store.childrenOf(task.id)) store.setTaskParent(id, null)
+      }
+      if (parent) releaseParent(parent.id, wasBlocked)
+      for (const id of [...ids].reverse()) await removeOne(id, input)
+    } finally {
+      for (const id of affected) hierarchyBusy.delete(id)
+    }
+    wake()
+  }
+
+  async function removeOne(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
     const task = find(ref)
     if (deleting.has(task.id))
       throw new RequestError(409, `${task.displayId} is already being deleted`)
@@ -5609,8 +5883,14 @@ export function createTasks(options: {
     return walk(blockerId)
   }
 
+  function unfinishedChildren(taskId: string): boolean {
+    return store
+      .blockers(taskId)
+      .some((link) => link.kind === 'child' && !link.merged && !link.satisfied)
+  }
+
   function unmergedBlockers(taskId: string) {
-    return store.blockers(taskId).filter((b) => !b.merged)
+    return store.blockers(taskId).filter((b) => !b.merged && !b.satisfied)
   }
 
   function shouldStopForBlockers(task: StoredTask, run: Run): boolean {
@@ -5642,8 +5922,14 @@ export function createTasks(options: {
     const queued = new Set(store.queue().map((q) => q.id))
     for (const { id } of store.listTasks()) {
       const task = store.getTask(id)
-      if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
-      if (task.archived || task.stopped) continue
+      if (
+        !task ||
+        (task.blockedBy.length === 0 && !task.childIds?.length) ||
+        queued.has(id) ||
+        starting.has(id)
+      )
+        continue
+      if (task.archived || task.stopped || hierarchyBusy.has(id) || deleting.has(id)) continue
       if (unmergedBlockers(id).length > 0) continue
       if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
         inBackground(`start ${task.displayId}`, async () => {
@@ -6312,6 +6598,11 @@ export function createTasks(options: {
     observed?: PullRequestRead,
     target?: string,
   ): Promise<void> {
+    if (unfinishedChildren(task.id))
+      throw new RequestError(
+        409,
+        `${task.displayId} must wait for its unfinished children to merge before moving on`,
+      )
     let repair = false
     if (target && target !== 'done') {
       const workflow = (await taskWorkflow(find(task.id), { fetch: false })).workflow
@@ -6705,14 +6996,10 @@ export function createTasks(options: {
       return allowLinearTeam(factoryId, team.toUpperCase())
     },
 
-    archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {
-      const task = live(ref)
-      if (deleting.has(task.id)) throw new RequestError(409, `${task.displayId} is being deleted`)
-      settleDependents(task.id, blocked)
-      const archived = archiveNow(find(task.id), closePullRequests)
-      wake()
-      return archived
-    },
+    hierarchy,
+    hierarchyPreview,
+    setParent,
+    archive: archiveHierarchy,
 
     unarchive,
     delete: remove,
@@ -6723,7 +7010,13 @@ export function createTasks(options: {
       if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
       const done = store
         .listTasks()
-        .filter((t) => t.factoryId === factory.id && t.stage === 'done' && !t.archived)
+        .filter(
+          (t) =>
+            t.factoryId === factory.id &&
+            t.stage === 'done' &&
+            !t.archived &&
+            descendants(t.id).every((id) => find(id).archived),
+        )
       for (const task of done) archiveNow(find(task.id), false)
       if (done.length > 0) wake()
       return { archived: done.length }
@@ -6786,7 +7079,9 @@ export function createTasks(options: {
       }
       const current = find(task.id)
       const runId = caller.kind === 'run' ? caller.runId : undefined
-      const existing = store.blockers(task.id).find((b) => b.blockerId === blocker.id)
+      const existing = store
+        .blockers(task.id)
+        .find((b) => b.kind !== 'child' && b.blockerId === blocker.id)
       if (existing && (runId === undefined || existing.setByRunId === runId)) {
         return publicTask(task.id)
       }
@@ -6806,7 +7101,7 @@ export function createTasks(options: {
     unblock(ref, caller, by) {
       const task =
         caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
-      const links = store.blockers(task.id)
+      const links = store.blockers(task.id).filter((link) => link.kind !== 'child')
       const deleted = links.find(
         (l) => l.ended === 'deleted' && (l.blockerId === by || l.displayId === by),
       )

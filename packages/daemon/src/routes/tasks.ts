@@ -26,10 +26,12 @@ import {
   parseSetClarifyDepthRequest,
   parseSetPriorityRequest,
   parseSetTaskGatesRequest,
+  parseSetTaskParentRequest,
   parseSetTaskReposRequest,
   parseSetTaskSnoozeRequest,
   parseStartTaskRequest,
   parseTaskLead,
+  parseUnarchiveTaskRequest,
   parseVerifyFailureRequest,
   parseWriteBriefRequest,
 } from '@ted/protocol'
@@ -284,10 +286,33 @@ export const taskRoutes: Route[] = [
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.allowLinearSync(ref)],
   },
   {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/hierarchy$/,
+    runToken: true,
+    handle: async ({ params: [ref = ''], caller }, { tasks }) => [
+      200,
+      tasks.hierarchy(ref, caller),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/hierarchy\/preview$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.hierarchyPreview(ref)],
+  },
+  jsonRoute(parseSetTaskParentRequest, {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/parent$/,
+    handle: async ({ params: [ref = ''], body }, { tasks }) => [200, tasks.setParent(ref, body)],
+  }),
+  jsonRoute(parseUnarchiveTaskRequest, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/unarchive$/,
-    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.unarchive(ref)],
-  },
+    handle: async ({ params: [ref = ''], body }, { tasks }) => [
+      200,
+      await tasks.unarchive(ref, body),
+    ],
+  }),
   jsonRoute(parseDeleteTaskRequest, {
     optionalBody: true,
     method: 'POST',

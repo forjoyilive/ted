@@ -18,6 +18,7 @@ const flags = {
   timeout: { type: 'string' },
   cursor: { type: 'string' },
   operation: { type: 'string' },
+  'hierarchy-revision': { type: 'string' },
   version: { type: 'string' },
   neighbours: { type: 'string' },
   message: { type: 'string' },
@@ -191,6 +192,15 @@ export const commands = [
     max: 0,
     help: '  ted export --factory <key> [--format json|markdown] --output <path>\n                                             Export a Factory’s retained Tasks and history',
     callers: 'Terminal',
+  },
+  {
+    name: 'coordinator parent',
+    handler: 'coordinatorParent',
+    options: options('operation', 'version', 'hierarchy-revision'),
+    min: 2,
+    max: 2,
+    help: '  ted coordinator parent <child> <parent|none> --operation <id> --version <version> --hierarchy-revision <revision>\n                                             Change a parent link (Coordinator only)',
+    callers: 'Coordinator Run',
   },
   {
     name: 'coordinator resume',

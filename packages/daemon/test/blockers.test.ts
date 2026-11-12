@@ -1,11 +1,24 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentHealth, Comment, Factory, Task } from '@ted/protocol'
+import {
+  type AgentHealth,
+  type Comment,
+  type Coordinator,
+  type CoordinatorTask,
+  DaemonClient,
+  type Factory,
+  readDaemonInfo,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { runCli } from '../../cli/src/cli.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
+import { openStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
@@ -620,4 +633,423 @@ describe('blockers while the agent can’t run', () => {
       'to resume',
     )
   })
+})
+
+async function hierarchyApp() {
+  const info = await readDaemonInfo(home)
+  if (!info || !daemon) throw new Error('daemon is not running')
+  return new DaemonClient(info, info.token, { appKey: daemon.appToken })
+}
+async function parentOf(app: DaemonClient, child: Task, parent: Task | null) {
+  const { revision } = await app.taskHierarchy(child.id)
+  return app.setTaskParent(child.id, { parentId: parent?.id ?? null, revision })
+}
+
+test('parent events survive replay and keep hierarchy dependency effects separate from manual blockers', async () => {
+  const directory = path.join(scratch, 'hierarchy-store')
+  let store = await openStore({ directory })
+  try {
+    const parent = await store.createTask({ title: 'Parent' })
+    const child = await store.createTask({ title: 'Child' })
+    store.setTaskParent(child.id, parent.id)
+    store.addBlocker(parent.id, child.id)
+    expect(store.blockers(parent.id)).toHaveLength(2)
+    store.archiveTask(child.id)
+    expect(store.blockers(parent.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blockerId: child.id,
+          merged: false,
+          kind: 'child',
+          satisfied: true,
+        }),
+        expect.objectContaining({ blockerId: child.id, merged: false, ended: 'archived' }),
+      ]),
+    )
+    store.removeBlocker(parent.id, child.id)
+    store.stopTask(parent.id, { runs: 0, why: 'blockers-removed' })
+    store.setStartRequested(parent.id, true)
+    expect(store.getTask(parent.id)).toMatchObject({ stopped: false, startRequested: true })
+    expect(store.queue()).toEqual([])
+    await store.close()
+    store = await openStore({ directory })
+    expect(store.getTask(child.id)).toMatchObject({ parentId: parent.id })
+    expect(store.getTask(parent.id)).toMatchObject({ childIds: [child.id], blockedBy: [] })
+    expect(store.blockers(parent.id)).toMatchObject([{ kind: 'child', satisfied: true }])
+    store.deleteTask(parent.id)
+    expect(store.getTask(child.id)?.parentId).toBeUndefined()
+    await store.close()
+    store = await openStore({ directory })
+    expect(store.getTask(child.id)).toBeDefined()
+    expect(store.parentOf(child.id)).toBeUndefined()
+  } finally {
+    await store.close()
+  }
+})
+
+test('hierarchy API persists nested links, refuses stale and cyclic edits, and confirms archive and deletion effects', async () => {
+  let client = await startTed()
+  let app = await hierarchyApp()
+  const parent = await create(client, 'Parent')
+  const child = await create(client, 'Child')
+  const leaf = await create(client, 'Leaf')
+  const other = await create(client, 'Independent')
+  await parentOf(app, child, parent)
+  await parentOf(app, leaf, child)
+  await block(client, parent, child)
+  await client.ok('DELETE', `/tasks/${parent.id}/blockers`)
+  expect(await app.taskHierarchy(child.id)).toMatchObject({
+    parentId: parent.id,
+    childIds: [leaf.id],
+  })
+  expect((await getTask(client, parent.id)).blockedBy).toEqual([])
+  await expect(parentOf(app, parent, leaf)).rejects.toThrow('cycle')
+  expect((await block(client, leaf, parent)).status).toBe(409)
+  await block(client, leaf, other)
+  await expect(parentOf(app, parent, other)).rejects.toThrow('cycle')
+  await client.ok('DELETE', `/tasks/${leaf.id}/blockers`)
+  await expect(parentOf(app, child, child)).rejects.toThrow('itself')
+  const revision = (await app.taskHierarchy(child.id)).revision
+  await create(client, 'Changes the preview')
+  await expect(app.setTaskParent(child.id, { parentId: other.id, revision })).rejects.toThrow(
+    'confirm again',
+  )
+
+  const otherDirectory = path.join(scratch, 'other-factory')
+  await mkdir(otherDirectory)
+  const otherOrigin = await makeOriginRepo(otherDirectory)
+  const otherRepo = path.join(otherDirectory, 'acme', 'gadgets.git')
+  await rename(otherOrigin, otherRepo)
+  await client.ok('POST', '/dev/factories', { repo: otherRepo, key: 'OTHER' })
+  const foreign = await client.ok<Task>('POST', '/tasks', { title: 'Foreign', factory: 'OTHER' })
+  await expect(parentOf(app, child, foreign)).rejects.toThrow('same Factory')
+  await client.ok('POST', `/tasks/${parent.id}/start`)
+  await client.ok('POST', `/tasks/${child.id}/start`)
+  await daemon?.stop()
+  client = await openTed()
+  app = await hierarchyApp()
+  expect(await app.taskHierarchy(parent.id)).toMatchObject({ parentId: null, childIds: [child.id] })
+  expect(await app.taskHierarchy(child.id)).toMatchObject({
+    parentId: parent.id,
+    childIds: [leaf.id],
+  })
+  expect((await getTask(client, parent.id)).runs).toEqual([])
+  expect((await getTask(client, child.id)).runs).toEqual([])
+
+  await block(client, child, leaf)
+  await app.archiveTask(leaf.id, { blocked: 'keep' })
+  expect((await getTask(client, child.id)).blockedBy).toEqual([leaf.id])
+  await client.ok('DELETE', `/tasks/${child.id}/blockers`)
+  expect((await getTask(client, child.id)).runs).toEqual([])
+  expect((await getTask(client, leaf.id)).parentId).toBe(child.id)
+  await app.unarchiveTask(leaf.id)
+  expect((await getTask(client, child.id)).markers).toEqual(
+    expect.arrayContaining([expect.objectContaining({ kind: 'blocked-by', by: leaf.displayId })]),
+  )
+  await parentOf(app, leaf, other)
+  expect((await app.taskHierarchy(child.id)).childIds).toEqual([])
+  expect((await app.taskHierarchy(other.id)).childIds).toEqual([leaf.id])
+  expect((await getTask(client, child.id)).runs).toEqual([])
+  await parentOf(app, leaf, child)
+
+  const preview = await app.taskHierarchyPreview(parent.id)
+  expect(new Set(preview.descendants.map((task) => task.id))).toEqual(new Set([child.id, leaf.id]))
+  await expect(app.archiveTask(parent.id)).rejects.toThrow('confirm')
+  await create(client, 'Added after the archive preview')
+  await expect(app.archiveTask(parent.id, { hierarchyRevision: preview.revision })).rejects.toThrow(
+    'confirm again',
+  )
+  const confirmed = await app.taskHierarchyPreview(parent.id)
+  await app.archiveTask(parent.id, { hierarchyRevision: confirmed.revision })
+  for (const task of [parent, child, leaf])
+    expect((await getTask(client, task.id)).archived).toBeDefined()
+  expect((await getTask(client, other.id)).archived).toBeUndefined()
+  await expect(app.unarchiveTask(child.id)).rejects.toThrow('Restore the parent')
+  await app.unarchiveTask(parent.id)
+  expect((await getTask(client, parent.id)).archived).toBeUndefined()
+  expect((await getTask(client, child.id)).archived).toBeDefined()
+  await expect(app.deleteTask(parent.id)).rejects.toThrow('confirm')
+  const deletion = await app.taskHierarchyPreview(parent.id)
+  await expect(app.deleteTask(parent.id, { hierarchyRevision: deletion.revision })).rejects.toThrow(
+    'Choose',
+  )
+  await app.deleteTask(parent.id, { children: 'unparent', hierarchyRevision: deletion.revision })
+  expect((await getTask(client, child.id)).parentId).toBeUndefined()
+  expect((await getTask(client, leaf.id)).parentId).toBe(child.id)
+  const subtree = await app.taskHierarchyPreview(child.id)
+  await app.deleteTask(child.id, { children: 'delete', hierarchyRevision: subtree.revision })
+  expect((await client.ok<Task[]>('GET', '/tasks')).map((task) => task.id)).not.toEqual(
+    expect.arrayContaining([child.id, leaf.id]),
+  )
+  expect((await getTask(client, other.id)).id).toBe(other.id)
+
+  const deletionParent = await create(client, steps({ endTurn: true }))
+  const deletionChild = await create(client, 'Deletion child')
+  await parentOf(app, deletionChild, deletionParent)
+  await client.ok('POST', `/tasks/${deletionParent.id}/start`)
+  await app.deleteTask(deletionChild.id)
+  expect(await app.taskHierarchy(deletionParent.id)).toMatchObject({ childIds: [] })
+  expect((await getTask(client, deletionParent.id)).runs).toEqual([])
+  await client.ok('POST', `/tasks/${deletionParent.id}/start`)
+  const restarted = await waitFor(
+    client,
+    deletionParent,
+    (task) => task.runs[0]?.state === 'idle',
+    'to start only on the explicit request',
+  )
+  expect(restarted.status?.kind).not.toBe('stopped')
+})
+
+test('nested parents wait for children to merge while independent Tasks run, and Done parents only permit explicit unlink and restore', async () => {
+  const client = await startTed()
+  const app = await hierarchyApp()
+  const parentGate = path.join(scratch, 'parent-gate')
+  const childGate = path.join(scratch, 'child-gate')
+  const leafGate = path.join(scratch, 'leaf-gate')
+  const parent = await create(client, doneWhen(parentGate))
+  const child = await create(client, doneWhen(childGate))
+  const leaf = await create(client, doneWhen(leafGate))
+  const waived = await create(client, 'Archived unfinished work')
+  await parentOf(app, child, parent)
+  await parentOf(app, leaf, child)
+  await parentOf(app, waived, parent)
+  await app.archiveTask(waived.id)
+  await client.ok('POST', `/tasks/${parent.id}/start`)
+  await client.ok('POST', `/tasks/${child.id}/start`)
+  await client.ok('POST', `/tasks/${leaf.id}/start`)
+  await waitFor(client, leaf, (task) => task.runs[0]?.state === 'working', 'to start independently')
+  const independent = await create(client, steps({ endTurn: true }), { start: true })
+  await waitFor(
+    client,
+    independent,
+    (task) => task.runs[0]?.state === 'idle',
+    'to run while the parent waits',
+  )
+  expect((await getTask(client, parent.id)).runs).toEqual([])
+  expect((await getTask(client, child.id)).runs).toEqual([])
+  await writeFile(leafGate, 'go')
+  const mergedLeaf = await waitFor(client, leaf, (task) => task.stage === 'done', 'to merge')
+  const workingChild = await waitFor(
+    client,
+    child,
+    (task) => task.runs[0]?.state === 'working',
+    'to start after its child merges',
+  )
+  expect(Date.parse(workingChild.startedAt ?? '')).toBeGreaterThanOrEqual(
+    Date.parse(mergedLeaf.merged?.at ?? ''),
+  )
+  expect((await getTask(client, parent.id)).runs).toEqual([])
+  const candidate = await create(client, 'New child')
+  await expect(parentOf(app, candidate, child)).rejects.toThrow('Stop the parent')
+  expect((await getTask(client, child.id)).leadRunId).toBe(workingChild.leadRunId)
+  await writeFile(childGate, 'go')
+  const mergedChild = await waitFor(
+    client,
+    child,
+    (task) => task.stage === 'done',
+    'to merge after its child',
+  )
+  const workingParent = await waitFor(
+    client,
+    parent,
+    (task) => task.runs[0]?.state === 'working',
+    'to start after its children merge',
+  )
+  expect(Date.parse(workingParent.startedAt ?? '')).toBeGreaterThanOrEqual(
+    Date.parse(mergedChild.merged?.at ?? ''),
+  )
+  await expect(parentOf(app, waived, null)).rejects.toThrow('Stop the parent')
+  expect((await getTask(client, parent.id)).leadRunId).toBe(workingParent.leadRunId)
+  await expect(app.unarchiveTask(waived.id)).rejects.toThrow('Stop the parent')
+  await expect(
+    app.unarchiveTask(waived.id, {
+      unlinkParent: true,
+      hierarchyRevision: (await app.taskHierarchy(waived.id)).revision,
+    }),
+  ).rejects.toThrow('Stop the parent')
+  await writeFile(parentGate, 'go')
+  await waitFor(client, parent, (task) => task.stage === 'done', 'to finish its own Workflow')
+  await expect(parentOf(app, candidate, parent)).rejects.toThrow('Done parents')
+  await app.archiveTask(leaf.id)
+  await app.unarchiveTask(leaf.id)
+  expect((await getTask(client, leaf.id)).parentId).toBe(child.id)
+  await expect(app.unarchiveTask(waived.id)).rejects.toThrow('Done parents')
+  await app.unarchiveTask(waived.id, {
+    unlinkParent: true,
+    hierarchyRevision: (await app.taskHierarchy(waived.id)).revision,
+  })
+  expect((await getTask(client, waived.id)).parentId).toBeUndefined()
+  expect((await getTask(client, waived.id)).archived).toBeUndefined()
+  expect((await getTask(client, parent.id)).stage).toBe('done')
+})
+
+test('a queued parent is held before launch; Coordinator edits share app safety and scope while Task Leads keep manual-blocker authority', async () => {
+  const client = await startTed()
+  const app = await hierarchyApp()
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const holder = await create(client, steps({ waitFor: path.join(scratch, 'hold-slot') }), {
+    start: true,
+  })
+  const working = await waitFor(
+    client,
+    holder,
+    (task) => task.runs[0]?.state === 'working',
+    'to hold the slot',
+  )
+  const parent = await create(client, steps({ endTurn: true }), { start: true })
+  expect(parent.status?.kind).toBe('queued')
+  const child = await create(client, 'Child')
+  await parentOf(app, child, parent)
+  expect((await getTask(client, parent.id)).status?.kind).toBe('blocked')
+  expect((await getTask(client, parent.id)).runs).toEqual([])
+  await app.archiveTask(child.id)
+  expect((await getTask(client, parent.id)).status?.kind).toBe('stopped')
+  await app.unarchiveTask(child.id)
+  await client.ok('POST', `/tasks/${parent.id}/resume`)
+  expect((await getTask(client, parent.id)).runs).toEqual([])
+  const newParent = await create(client, 'New parent')
+  await expect(parentOf(app, newParent, holder)).rejects.toThrow('Stop the parent')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const lead = api(daemon?.port ?? 0, tokens.issue(working.leadRunId ?? ''))
+  expect((await lead.call('GET', `/tasks/${holder.id}/hierarchy`)).status).toBe(200)
+  expect((await lead.call('GET', `/tasks/${child.id}/hierarchy`)).status).toBe(403)
+  expect(
+    (
+      await lead.call('PUT', `/tasks/${holder.id}/parent`, {
+        parentId: newParent.id,
+        revision: (await app.taskHierarchy(holder.id)).revision,
+      })
+    ).status,
+  ).toBe(403)
+  expect(
+    (await lead.call('POST', `/tasks/${holder.id}/blockers`, { by: newParent.id })).status,
+  ).toBe(200)
+  expect((await lead.call('DELETE', `/tasks/${holder.id}/blockers`)).status).toBe(200)
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('missing daemon info')
+  const fileClient = new DaemonClient(info)
+  await expect(
+    fileClient.setTaskParent(child.id, {
+      parentId: newParent.id,
+      revision: (await app.taskHierarchy(child.id)).revision,
+    }),
+  ).rejects.toThrow()
+
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 3 })
+  const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
+  if (!factory) throw new Error('no Factory')
+  const chat = await client.ok<Coordinator>(
+    'POST',
+    `/factories/${factory.id}/coordinator/messages`,
+    {
+      text: steps({ waitFor: path.join(scratch, 'coordinator-finish') }),
+      agent: 'claude',
+    },
+  )
+  await waitUntil(async () => {
+    const current = await client.ok<Coordinator>('GET', `/factories/${factory.id}/coordinator`)
+    return current.started && current.status === 'working' ? current : undefined
+  }, 'Coordinator to start')
+  const coordinator = api(daemon?.port ?? 0, tokens.issue(chat.runId))
+  const read = async () => {
+    const response = await coordinator.call('GET', `/coordinator/tasks/${child.id}`)
+    const context = response.body.context as string
+    return JSON.parse(context.split('\n').slice(1, -1).join('\n')) as CoordinatorTask
+  }
+  const current = await read()
+  expect(current.hierarchy.parentId).toBe(parent.id)
+  const input = {
+    operation: 'reparent-child',
+    version: current.version,
+    parentId: newParent.id,
+    hierarchyRevision: current.hierarchy.revision,
+  }
+  const result = await coordinator.call('POST', `/coordinator/tasks/${child.id}/parent`, input)
+  expect(result.status).toBe(200)
+  expect(result.body).toMatchObject({ operation: 'parent', after: { parentId: newParent.id } })
+  expect(
+    (await coordinator.call('POST', `/coordinator/tasks/${child.id}/parent`, input)).body,
+  ).toEqual(result.body)
+  const stale = await coordinator.call('POST', `/coordinator/tasks/${child.id}/parent`, {
+    ...input,
+    operation: 'stale-reparent',
+  })
+  expect(stale.status).toBe(409)
+  const otherDirectory = path.join(scratch, 'outside-factory')
+  await mkdir(otherDirectory)
+  const otherOrigin = await makeOriginRepo(otherDirectory)
+  const otherRepo = path.join(otherDirectory, 'acme', 'gadgets.git')
+  await rename(otherOrigin, otherRepo)
+  await client.ok('POST', '/dev/factories', { repo: otherRepo, key: 'OUT' })
+  const foreign = await client.ok<Task>('POST', '/tasks', { title: 'Foreign', factory: 'OUT' })
+  const beforeForeign = await read()
+  expect(
+    (
+      await coordinator.call('POST', `/coordinator/tasks/${child.id}/parent`, {
+        ...input,
+        operation: 'foreign-parent',
+        version: beforeForeign.version,
+        parentId: foreign.id,
+        hierarchyRevision: beforeForeign.hierarchy.revision,
+      })
+    ).status,
+  ).toBe(404)
+  const beforeUnlink = await read()
+  const output: string[] = []
+  const errors: string[] = []
+  expect(
+    await runCli(
+      [
+        'coordinator',
+        'parent',
+        child.displayId,
+        'none',
+        '--operation',
+        'unlink-child',
+        '--version',
+        beforeUnlink.version,
+        '--hierarchy-revision',
+        beforeUnlink.hierarchy.revision,
+      ],
+      {
+        home,
+        env: { ...process.env },
+        stdout: (text) => output.push(text),
+        stderr: (text) => errors.push(text),
+        stdin: async () => {
+          throw new Error('Coordinator hierarchy commands must not read stdin')
+        },
+        connect: async (_home, work) => work(new DaemonClient(info, tokens.issue(chat.runId))),
+      },
+    ),
+  ).toBe(0)
+  expect(errors).toEqual([])
+  expect(JSON.parse(output.join(''))).toMatchObject({ operation: 'parent', taskId: child.id })
+  expect((await app.taskHierarchy(child.id)).parentId).toBeNull()
+  expect((await getTask(client, parent.id)).runs).toEqual([])
+  const queuedChildGate = path.join(scratch, 'queued-child-finish')
+  const queuedChild = await create(client, doneWhen(queuedChildGate))
+  await parentOf(app, queuedChild, parent)
+  await client.ok('POST', `/tasks/${parent.id}/resume`)
+  await client.ok('POST', `/tasks/${queuedChild.id}/start`)
+  await waitFor(
+    client,
+    queuedChild,
+    (task) => task.runs[0]?.state === 'working',
+    'to run ahead of its queued parent',
+  )
+  expect((await getTask(client, parent.id)).runs).toEqual([])
+  await writeFile(queuedChildGate, 'go')
+  await waitFor(
+    client,
+    queuedChild,
+    (task) => task.stage === 'done',
+    'to merge and release its queued parent',
+  )
+  await waitFor(
+    client,
+    parent,
+    (task) => task.runs[0]?.state === 'idle',
+    'to launch only after its child merges',
+  )
 })
