@@ -109,7 +109,9 @@ test('side chat shows beside the original Run, reopens its replies and fits a na
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
   await window.screenshot({ path: path.join(dir, 'side-chats-implemented-wide.png') })
   await side.getByRole('button', { name: 'Close side chat' }).click()
-  await chooseSideChat()
+  await window.getByRole('button', { name: 'Task actions' }).click()
+  await window.screenshot({ path: path.join(dir, 'task-actions-menu.png') })
+  await window.getByRole('menuitem', { name: 'Side chat', exact: true }).click()
   await side
     .getByText(
       'The Run is checking slot release between turns. This reply uses its starting Conversation snapshot.',

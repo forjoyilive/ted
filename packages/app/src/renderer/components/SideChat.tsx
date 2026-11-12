@@ -91,8 +91,14 @@ function RunSideChat({
   opened.current = onSideChatOpened
   const showRef = useRef(show)
   showRef.current = show
+  const asked = useRef(false)
   useEffect(() => {
-    if (!openSideChat || !eligible) return
+    if (!openSideChat) {
+      asked.current = false
+      return
+    }
+    if (asked.current || !eligible) return
+    asked.current = true
     void showRef.current()
     opened.current?.()
   }, [openSideChat, eligible])

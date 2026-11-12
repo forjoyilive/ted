@@ -550,6 +550,11 @@ test('earlier conversations can be reopened repeatedly from History', async () =
   )
   const earlier = within(required(view.getByText(/^Earlier conversation ·/).closest('details')))
   expect(earlier.queryByRole('button', { name: /side chat/i })).toBeNull()
+  await user().click(view.getByText(/^Earlier conversation ·/))
+  expect(required(view.getByText(/^Earlier conversation ·/).closest('details'))).toHaveProperty(
+    'open',
+    false,
+  )
   await chooseSideChat()
   const panel = within(await earlier.findByRole('region', { name: 'Side chat' }))
   await panel.findByText('An earlier side-chat answer.')
