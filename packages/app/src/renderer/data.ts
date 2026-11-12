@@ -185,13 +185,10 @@ function useShared<T>(
   const request = useRef({ load, event, epoch })
   request.current = { load, event, epoch }
   const subscribe = useCallback(
-    (notify: () => void) =>
-      shared.use<T>(
-        key,
-        request.current.epoch,
-        { load: () => request.current.load(), event: (e) => request.current.event(e) },
-        notify,
-      ),
+    (notify: () => void) => {
+      const { load, event, epoch } = request.current
+      return shared.use<T>(key, epoch, { load, event }, notify)
+    },
     [key],
   )
   const snapshot = useSyncExternalStore(subscribe, () => shared.read<T>(key))

@@ -4,13 +4,15 @@ import { createFetches } from '../src/workflow/fetches.ts'
 function setup() {
   const started: { clone: string; end: (error?: Error) => void }[] = []
   const timers: { ms: number; fire: () => void; canceled: boolean; unrefed: boolean }[] = []
+  const limits: typeof timers = []
   let now = 0
   const fetches = createFetches({
     now: () => now,
     everyMs: 60_000,
+    limitMs: 120_000,
     timeout: (fire, ms) => {
       const timer = { ms, fire, canceled: false, unrefed: false }
-      timers.push(timer)
+      ;(ms === 120_000 ? limits : timers).push(timer)
       return {
         cancel: () => {
           timer.canceled = true
@@ -29,6 +31,7 @@ function setup() {
     fetches,
     started,
     timers,
+    limits,
     at: (time: number) => {
       now = time
     },
@@ -164,4 +167,21 @@ test('closing ends a waiting background fetch without fetching', async () => {
   await fetches.soon('a')
   expect(started).toHaveLength(1)
   expect(timers).toHaveLength(1)
+})
+
+test('a fetch that never ends is given up on, so the next one can start', async () => {
+  const { fetches, started, limits } = setup()
+  const hung = fetches.fresh('a')
+  const waiting = fetches.fresh('a')
+  expect(started).toHaveLength(1)
+  expect(limits[0]).toMatchObject({ ms: 120_000, unrefed: true, canceled: false })
+
+  limits[0]?.fire()
+  await expect(hung).rejects.toThrow('the fetch took more than 120 s')
+  await settled()
+  expect(started).toHaveLength(2)
+
+  started[1]?.end()
+  await waiting
+  expect(limits[1]?.canceled).toBe(true)
 })

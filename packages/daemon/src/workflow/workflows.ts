@@ -252,6 +252,7 @@ export function createWorkflows(options: {
       await fetches.fresh(clone).catch((error: unknown) => {
         console.error(`couldn’t fetch ${factory.repo}; using the last fetched .ted/:`, error)
       })
+      factoryRefs.delete(factory.id)
     }
     const defaults = await sharedDefaultLayer()
     const library = await libraryLayer()
@@ -334,9 +335,11 @@ export function createWorkflows(options: {
       const clone = clonePath(reposDir, factory)
       await fetches.soon(clone)
       if (closed) return false
-      const at = (await exists(clone)) ? await factoryFilesAt(factory, clone) : undefined
+      const current = store.getFactory(factory.id)
+      if (!current) return false
+      const at = (await exists(clone)) ? await factoryFilesAt(current, clone) : undefined
       if (!at || at.commit === seen) return false
-      await resolve(factory, { fetch: false })
+      await resolve(current, { fetch: false })
       return true
     },
     close() {

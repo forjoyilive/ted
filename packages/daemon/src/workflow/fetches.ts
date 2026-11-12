@@ -7,6 +7,7 @@ export interface Fetches {
 }
 
 export const backgroundFetchEveryMs = 60_000
+export const fetchLimitMs = 120_000
 
 interface Later {
   promise: Promise<void>
@@ -20,10 +21,12 @@ export function createFetches(options: {
   now?: () => number
   everyMs?: number
   timeout?: Clock['timeout']
+  limitMs?: number
 }): Fetches {
   const now = options.now ?? Date.now
   const everyMs = options.everyMs ?? backgroundFetchEveryMs
   const timeout = options.timeout ?? systemClock.timeout
+  const limitMs = options.limitMs ?? fetchLimitMs
   const clones = new Map<
     string,
     { running?: Promise<void>; next?: Promise<void>; at?: number; later?: Later }
@@ -39,9 +42,22 @@ export function createFetches(options: {
     return state
   }
 
+  function limited(clone: string): Promise<void> {
+    const { promise, reject } = Promise.withResolvers<void>()
+    const timer = timeout(
+      () => reject(new Error(`the fetch took more than ${Math.round(limitMs / 1000)} s`)),
+      limitMs,
+    )
+    timer.unref()
+    const done = options.fetch(clone)
+    const cancel = () => timer.cancel()
+    done.then(cancel, cancel)
+    return Promise.race([done, promise])
+  }
+
   function start(clone: string): Promise<void> {
     const state = stateOf(clone)
-    const running = options.fetch(clone).then(() => {
+    const running = limited(clone).then(() => {
       state.at = now()
       const later = state.later
       if (!later) return
