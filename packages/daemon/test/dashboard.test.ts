@@ -196,6 +196,24 @@ test('Flow clips overlapping started Tasks, sums repeated visits, and stops at t
   expect(result.flow.previous?.stages.find((s) => s.stage === 'work')?.totalMs).toBe(14 * hour)
   expect(result.current.taskIds).toEqual(['done'])
   expect(result.current.intake.value).toBe(188 * hour)
+  const intake = flowTask('intake', [
+    ['intake', 8],
+    ['intake', 7],
+    ['backlog', 6],
+    ['intake', 6],
+    ['intake', 5],
+    ['work', 4],
+  ])
+  expect(
+    factoryDashboard([intake], '7d', now).flow.current.stages.find((s) => s.stage === 'intake')
+      ?.samples[0],
+  ).toMatchObject({
+    elapsedMs: 4 * hour,
+    intervals: [
+      { from: iso(now - 8 * hour), to: iso(now - 6 * hour) },
+      { from: iso(now - 6 * hour), to: iso(now - 4 * hour) },
+    ],
+  })
 })
 
 test('Flow handles boundaries, zero samples, historical archive after unarchive and absent or malformed records', () => {

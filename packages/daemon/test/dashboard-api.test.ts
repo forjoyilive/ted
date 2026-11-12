@@ -373,8 +373,16 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     expect(
       data.flow.current.stages
         .find((s) => s.stage === 'intake')
-        ?.samples.find((s) => s.taskId === admitted.id)?.elapsedMs,
-    ).toBe(4 * hour)
+        ?.samples.find((s) => s.taskId === admitted.id),
+    ).toMatchObject({
+      elapsedMs: 4 * hour,
+      intervals: [
+        {
+          from: new Date(asOf - 6 * hour).toISOString(),
+          to: new Date(asOf - 2 * hour).toISOString(),
+        },
+      ],
+    })
     expect(data.tasks.find((t) => t.id === admitted.id)?.intakeMs).toBe(2 * hour)
     const clarify = data.flow.current.stages.find((s) => s.stage === 'clarify')
     expect(clarify?.samples.find((s) => s.taskId === planningId)).toMatchObject({

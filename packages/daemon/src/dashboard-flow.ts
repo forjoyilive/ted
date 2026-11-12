@@ -97,7 +97,15 @@ function timing(task: DashboardTaskFacts, asOf: number) {
       const to = Math.min(next ? next.ms : end, end)
       if (!finite(to) || to < entry.ms || entry.stage === 'backlog' || entry.stage === 'done')
         continue
-      intervals.push({ stage: entry.stage, from: entry.ms, to })
+      const previous = intervals.at(-1)
+      if (
+        entry.stage === 'intake' &&
+        entries[index - 1]?.stage === 'intake' &&
+        previous?.stage === 'intake' &&
+        previous.to === entry.ms
+      )
+        previous.to = to
+      else intervals.push({ stage: entry.stage, from: entry.ms, to })
     }
   }
   const archivedEnd = [...(task.archives ?? []), task.archivedAt].some((at) => time(at) === end)
