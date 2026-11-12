@@ -68,7 +68,7 @@ export interface TaskDefaults {
   clarifyDepth: ClarifyDepth
 }
 
-export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in'
+export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in' | 'rerun' | 'required-check'
 
 export const taskStatusKinds = [
   'failed',

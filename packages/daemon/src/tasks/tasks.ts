@@ -192,6 +192,7 @@ import {
   tedSettingsCheck,
   touchesSettings,
 } from './checks.ts'
+import { acceptedCiCase, awaitsRerun, ciFailureSteps, openCiCase } from './ci-failures.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
@@ -207,6 +208,8 @@ import { freshAfterFailure, retryChoice } from './failures.ts'
 import { listTaskFiles, readTaskFile } from './files.ts'
 import {
   activityMessage,
+  checkList,
+  ciFailureEvidence,
   clean,
   failedChecks,
   freshRunReason,
@@ -237,8 +240,10 @@ import { createLocalLifecycle } from './local-lifecycle.ts'
 import {
   chooseMethod,
   defaultHost,
+  nextStep,
   type PullRequestRead,
   type PullRequestRef,
+  type RemoteCheck,
   type RemotePullRequest,
   reviewMissing,
 } from './merge.ts'
@@ -2373,12 +2378,15 @@ export function createTasks(options: {
       const task = store.getTask(id)
       if (!task) continue
       let ci: string | null | undefined
+      let ciFailures: string[] | undefined
       try {
-        ci = failureCi(task, read).ci
+        const observed = failureCi(task, read)
+        ci = observed.ci
+        ciFailures = observed.ciFailures
       } catch {
         ci = null
       }
-      const effects = failures.observeCi(task, ci)
+      const effects = failures.observeCi(task, ci, ciFailures)
       inBackground(`apply ${task.displayId}’s failure observation`, () => effects)
     }
     for (const { id, stage, repos } of unarchived) {
@@ -2396,16 +2404,21 @@ export function createTasks(options: {
           !advancing.has(task.id) &&
           !mergeWatcher.inFlight(task.id)
         ) {
-          inBackground(`verify ${task.displayId}’s failure context`, () =>
-            holding(task, async () => {
+          inBackground(`verify ${task.displayId}’s failure context`, async () => {
+            if (store.failures.list(task.id).some(openCiCase))
+              await reconcileCi(task.id, read).catch((error: unknown) => {
+                if (!(error instanceof RequestError && error.status === 409)) throw error
+              })
+            if (advancing.has(task.id) || closed) return
+            await holding(find(task.id), async () => {
               // With the read just made: asking for a fresh one here made every read cause
               // the next, without end, while any open Task had a failure case.
               const context = await failures
                 .snapshot(find(task.id), (bindCi) => failureSnapshot(find(task.id), read, bindCi))
                 .catch(() => null)
               if (!closed) await failures.obligations(find(task.id), context)
-            }),
-          )
+            })
+          })
         }
         await sendActivity(task.id, read)
       } catch (error) {
@@ -2542,6 +2555,145 @@ export function createTasks(options: {
     return tails
   }
 
+  const ciCheckNames = (pr: RemotePullRequest, checks: readonly RemoteCheck[]) =>
+    checkList(pr, checks) || 'a check'
+
+  async function reconcileCi(taskId: string, read: PullRequestRead): Promise<void> {
+    const task = find(taskId)
+    const failed = task.repos.some((repo) =>
+      read.pulls.get(`${taskId}:${repo.name}`)?.checks.some((check) => check.state === 'failed'),
+    )
+    if (!failed && !store.failures.list(taskId).some(openCiCase)) return
+    await untilFree(taskId)
+    const fix = await holding(find(taskId), () => reconcileCiHeld(taskId, read))
+    if (!fix) return
+    await applyValidationFix(find(taskId), fix)
+    if (find(taskId).stage !== 'merge')
+      await holding(find(taskId), () => reconcileCiHeld(taskId, read))
+  }
+
+  async function reconcileCiHeld(
+    taskId: string,
+    read: PullRequestRead,
+  ): Promise<FailureCase | undefined> {
+    const task = find(taskId)
+    const resolution = await gateWorkflow(task, { fetch: false })
+    const mode = mergeMode(task, resolution.workflow)
+    const merging = task.stage === 'merge' && !task.archived
+    const recording = merging && !task.stopped && (mode === 'merge' || mode === 'gate')
+    const accepted = acceptedCi(taskId)
+    const pulls = (merging ? await mergeTargets(task, resolution) : []).flatMap((target) => {
+      const pr = read.pulls.get(`${taskId}:${target.name}`)
+      if (!pr) return []
+      const step = nextStep(target, pr, { accepted })
+      return [
+        {
+          repo: target.repo,
+          number: target.number,
+          pr,
+          record: recording && step.kind === 'ci-failed',
+          host: read.hostOf.get(`${taskId}:${target.name}`) ?? defaultHost,
+        },
+      ]
+    })
+    const steps = ciFailureSteps({ merging, cases: store.failures.list(taskId), pulls })
+    for (const step of steps) {
+      if (step.kind !== 'close') continue
+      failures.verifyResult(find(taskId), step.id, step.evidence)
+      store.postComment({
+        taskId,
+        author: { kind: 'ted' },
+        title: 'CI failure closed',
+        body: `Failure ${shortReference(step.id)}\n\n${step.evidence}`,
+      })
+    }
+    const records = steps.filter((step) => step.kind === 'record')
+    if (records.length > 0) {
+      const context = await failures.snapshot(find(taskId), (bindCi) =>
+        failureSnapshot(find(taskId), read, bindCi),
+      )
+      const tails = new Map<string, Map<string, string>>()
+      let captured = false
+      for (const step of records) {
+        const { pull, check } = step
+        const where = `${pull.repo}#${pull.number}`
+        if (!tails.has(where))
+          tails.set(where, await ciTails(pull.repo, pull.host ?? defaultHost, pull.pr))
+        const request = {
+          source: step.source,
+          evidence: ciFailureEvidence(where, pull.pr, check, tails.get(where)?.get(check.name)),
+        }
+        const runId = find(taskId).leadRunId ?? 'ted'
+        const value = captured
+          ? await failures.record(find(taskId), runId, { ...request, contextId: context.id }, true)
+          : await failures.recordCi(find(taskId), runId, request, context)
+        captured = true
+        if (step.replaces)
+          failures.verifyResult(
+            find(taskId),
+            step.replaces,
+            `A later attempt of this check failed too; see failure ${shortReference(value.id)}.`,
+            undefined,
+            value.id,
+          )
+      }
+      await store.persisted()
+      await sendWaiting(taskId)
+    }
+    if (merging) {
+      for (const value of store.failures.list(taskId).filter(awaitsRerun)) {
+        const source = value.source
+        if (source.kind !== 'github-ci') continue
+        const repo = find(taskId).repos.find(
+          (r) =>
+            !r.removed && sameRepo(r.repo, source.repo) && r.pullRequest?.number === source.number,
+        )
+        if (repo?.pullRequest && repo.pullRequest.waiting !== 'rerun')
+          store.pullRequestWaiting(taskId, repo.name, 'rerun')
+      }
+    }
+    await store.persisted()
+    const fix = steps.find((step) => step.kind === 'send-back')
+    return fix ? store.failures.get(fix.id) : undefined
+  }
+
+  function acceptedCi(taskId: string): Set<string> {
+    return new Set(
+      store.failures
+        .list(taskId)
+        .filter(acceptedCiCase)
+        .map((value) => value.source.attempt),
+    )
+  }
+
+  async function ciBlocked(
+    taskId: string,
+    target: MergeWork,
+    pr: RemotePullRequest,
+    checks: readonly RemoteCheck[],
+  ): Promise<void> {
+    const keys = new Set(checks.map((check) => check.identity))
+    const cases = store.failures
+      .list(taskId)
+      .filter(acceptedCiCase)
+      .filter((value) => keys.has(value.source.attempt))
+    if (cases.length === 0) return
+    const body = `You accepted the failure of ${ciCheckNames(pr, checks)} on ${target.repo}#${target.number} (${cases.map((value) => `failure ${shortReference(value.id)}`).join(', ')}), but GitHub still won’t merge the pull request. Accepting a failure in TED never overrides GitHub’s own rules. TED merges once GitHub allows it: rerun the check on GitHub so it passes, or change the branch rule that requires it. Until then the Task waits at Merge.`
+    if (
+      store
+        .listComments(taskId)
+        .some((comment) => comment.author.kind === 'ted' && comment.body === body)
+    )
+      return
+    store.postComment({
+      taskId,
+      author: { kind: 'ted' },
+      title: 'GitHub still blocks this merge',
+      body,
+    })
+    await store.persisted()
+  }
+
   const mergeWatcher = createMergeWatcher({
     store,
     gh: options.gh,
@@ -2562,6 +2714,9 @@ export function createTasks(options: {
       recordPullRequests,
       requireObligations,
       read: () => watch?.next({ now: true }) ?? Promise.resolve(undefined),
+      ciFailures: reconcileCi,
+      acceptedCi,
+      ciBlocked,
       beforeMerge: options.beforeMerge,
     },
   })

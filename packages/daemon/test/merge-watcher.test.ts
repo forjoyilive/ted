@@ -189,8 +189,9 @@ test('waits for CI then merges when the poller reports success', async () => {
   expect(pr()?.merged?.noCi).toBe(false)
 })
 
-test('failed required CI sends back before any merge', async () => {
+test('failed CI without an attempt identity sends back before any merge', async () => {
   ci()
+  port.ciFailures = vi.fn(async () => {})
   await watcher.cycle(
     id,
     read(remote({ checks: [{ ...pending, required: true, state: 'failed' }] })),
@@ -198,6 +199,27 @@ test('failed required CI sends back before any merge', async () => {
   expect(current().stage).toBe('work')
   expect(port.sendBack).toHaveBeenCalledWith(id, expect.stringContaining('CI failed'))
   expect(gh.run).not.toHaveBeenCalled()
+})
+
+test('failed CI with attempt identities is handed to diagnosis; acceptance merges only when GitHub allows', async () => {
+  ci()
+  const failed = { ...pending, required: true, state: 'failed' as const, identity: 'run-1:a:b' }
+  const scoped = (over: Partial<RemotePullRequest> = {}) =>
+    read(remote({ checks: [failed], checksComplete: true, ...over }))
+  port.ciFailures = vi.fn(async () => {})
+  port.ciBlocked = vi.fn(async () => {})
+  expect(await watcher.cycle(id, scoped())).toBe('wait')
+  expect(port.ciFailures).toHaveBeenCalledTimes(1)
+  expect(port.sendBack).not.toHaveBeenCalled()
+  expect(current().stage).toBe('merge')
+  port.acceptedCi = () => new Set(['run-1:a:b'])
+  expect(await watcher.cycle(id, scoped({ mergeStateStatus: 'BLOCKED' }))).toBe('wait')
+  expect(pr()?.waiting).toBe('required-check')
+  expect(port.ciBlocked).toHaveBeenCalledWith(id, expect.anything(), expect.anything(), [failed])
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(await watcher.cycle(id, scoped({ mergeStateStatus: 'UNSTABLE' }))).toBe('done')
+  expect(gh.run).toHaveBeenCalledTimes(1)
+  expect(port.sendBack).not.toHaveBeenCalled()
 })
 
 test.each([

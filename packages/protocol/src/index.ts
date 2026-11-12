@@ -367,7 +367,12 @@ export {
   parseVerifyFailureRequest,
 } from './failure-parsers.ts'
 export type * from './failures.ts'
-export { failureChoices, validateFailureChoices, validationExecution } from './failures.ts'
+export {
+  ciFailureLabel,
+  failureChoices,
+  validateFailureChoices,
+  validationExecution,
+} from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,

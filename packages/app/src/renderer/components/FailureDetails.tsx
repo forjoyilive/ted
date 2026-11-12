@@ -1,5 +1,5 @@
 import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
-import { validationExecution } from '@ted/protocol/failures'
+import { ciFailureLabel, validationExecution } from '@ted/protocol/failures'
 import { shortReference } from '@ted/protocol/reference'
 import { useState } from 'react'
 import { useCheckRuns, useFailures, useTasks, useValidationObligations } from '../data.ts'
@@ -68,14 +68,16 @@ export function FailureDetails({
           : failure.verifications?.length
             ? failure.verifications.at(-1)?.checkRunId
               ? 'verified by a later execution'
-              : 'verified with recorded evidence'
+              : failure.validation && failure.source.kind === 'github-ci'
+                ? 'closed by TED'
+                : 'verified with recorded evidence'
             : (decision?.resolution ?? 'unresolved')
   const contextId = requestId ? request?.contextId : failure.contextId
   const what =
     failure.source.kind === 'finding'
       ? failure.source.finding
       : failure.source.kind === 'github-ci'
-        ? `CI on ${failure.source.repo}#${failure.source.number}`
+        ? ciFailureLabel(failure.source)
         : `The ${failure.originalCheck?.name ?? 'Factory'} Check`
   return (
     <section className={styles.content} aria-label="Failure assessment and decision">

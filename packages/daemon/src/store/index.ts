@@ -2979,7 +2979,7 @@ export async function openStore({
           kind: 'question',
           body,
           ...(value.validation && {
-            title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
+            title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
           choices: Object.values(value.validation ? validateFailureChoices : failureChoices).filter(
             (choice) =>
