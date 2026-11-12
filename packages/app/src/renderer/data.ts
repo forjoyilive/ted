@@ -790,31 +790,45 @@ export function useDescriptionsState(taskId: string) {
 const taskSignature = (link: AutomationTaskLink) =>
   JSON.stringify([link.displayId, link.title, link.stage, link.source])
 
-function automationWatch<T>(created: (value: T) => readonly AutomationTaskLink[]) {
-  const seen = new Map<string, string>()
+interface AutomationsShown {
+  ids: readonly string[]
+  tasks: readonly AutomationTaskLink[]
+}
+
+const automationFolder = /[\\/]automations[\\/]([^\\/]+)$/
+
+function automationWatch<T>(shown: (value: T) => AutomationsShown) {
+  const seen = new Map<string, string>([['slots', '']])
   const differs = (id: string, signature: string) => {
     const before = seen.get(id)
     seen.set(id, signature)
     return before !== signature
   }
   return (event: TedEvent, { value, loading }: Loaded<T>): boolean => {
+    const view = value === undefined ? undefined : shown(value)
+    const shows = (automationId: string) => view === undefined || view.ids.includes(automationId)
     switch (event.type) {
       case 'automation-updated':
       case 'automation-deleted':
       case 'task-deleted':
-      case 'agent-health-changed':
         return true
-      case 'run-updated':
+      case 'agent-health-changed':
+        return differs(`agent ${event.health.agent}`, event.health.reason ?? '')
+      case 'run-updated': {
+        const { run } = event
+        if (run.taskId !== undefined || run.parentRunId !== undefined) return false
+        const automationId = automationFolder.exec(run.cwd)?.[1]
         return (
-          event.run.taskId === undefined &&
-          event.run.parentRunId === undefined &&
-          differs(`run ${event.run.id}`, event.run.state)
+          automationId !== undefined && shows(automationId) && differs(`run ${run.id}`, run.state)
         )
+      }
       case 'slots-changed':
         return differs(
           'slots',
           event.slots.queue
-            .flatMap((q) => (q.kind === 'automation' ? [`${q.runId} ${q.place}`] : []))
+            .flatMap((q) =>
+              q.kind === 'automation' && shows(q.automationId) ? [`${q.runId} ${q.place}`] : [],
+            )
             .join(),
         )
       case 'task-updated': {
@@ -834,10 +848,11 @@ function automationWatch<T>(created: (value: T) => readonly AutomationTaskLink[]
           stage: task.stage,
           ...(task.source?.url !== undefined && { source: task.source.url }),
         })
-        const shown = value === undefined ? undefined : created(value).find((l) => l.id === task.id)
-        const before = seen.get(id) ?? (shown && taskSignature(shown))
+        const link = view?.tasks.find((l) => l.id === task.id)
+        if (!link) return loading && differs(id, signature)
+        const before = seen.get(id) ?? taskSignature(link)
         seen.set(id, signature)
-        return before === undefined ? loading : before !== signature
+        return before !== signature
       }
       default:
         return false
@@ -845,25 +860,33 @@ function automationWatch<T>(created: (value: T) => readonly AutomationTaskLink[]
   }
 }
 
-const listedTasks = (automations: Automation[]) => automations.flatMap((a) => a.last?.created ?? [])
+const everyEvent = () => true
 
-const historyTasks = (detail: AutomationDetail | null) =>
-  detail?.history.flatMap((row) => row.created ?? []) ?? []
+const listShown = (automations: Automation[]): AutomationsShown => ({
+  ids: automations.map((a) => a.id),
+  tasks: automations.flatMap((a) => a.last?.created ?? []),
+})
+
+const detailShown = (detail: AutomationDetail | null): AutomationsShown => ({
+  ids: detail ? [detail.automation.id] : [],
+  tasks: detail?.history.flatMap((row) => row.created ?? []) ?? [],
+})
 
 export function useAutomationOutcomes(): Automation[] | undefined {
-  return useReloading(
+  return useReloadingState(
     () => ted.listAutomations(undefined),
     (event) => event.type === 'automation-updated' || event.type === 'automation-deleted',
     'automation-outcomes',
-  )
+    everyEvent,
+  ).value
 }
 
 export function useAutomationsState(factoryId: string | undefined) {
   const { epoch } = useConnection()
   const key = factoryId ?? ''
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection or list starts a new watch
-  const affects = useMemo(() => automationWatch(listedTasks), [epoch, key])
-  return useReloadingState(() => ted.listAutomations(factoryId), affects, key)
+  const affects = useMemo(() => automationWatch(listShown), [epoch, key])
+  return useReloadingState(() => ted.listAutomations(factoryId), affects, key, everyEvent)
 }
 
 export function useAutomation(id: string): AutomationDetail | null | undefined {
@@ -873,7 +896,7 @@ export function useAutomation(id: string): AutomationDetail | null | undefined {
 export function useAutomationState(id: string) {
   const { epoch } = useConnection()
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new connection or Automation starts a new watch
-  const watch = useMemo(() => automationWatch(historyTasks), [epoch, id])
+  const watch = useMemo(() => automationWatch(detailShown), [epoch, id])
   return useReloadingState(
     () => ted.getAutomation(id),
     (event, current) =>
@@ -883,6 +906,7 @@ export function useAutomationState(id: string) {
           event.automationId === current.value.automation.id
         : watch(event, current),
     id,
+    everyEvent,
   )
 }
 
@@ -898,11 +922,12 @@ export function useWaitingCount(): number {
 
 export function useAutomationRequests(): AutomationRequest[] {
   return (
-    useReloading(
+    useReloadingState(
       () => ted.automationRequests(),
       (event) => event.type === 'automation-updated' || event.type === 'automation-deleted',
       '',
-    ) ?? []
+      everyEvent,
+    ).value ?? []
   )
 }
 

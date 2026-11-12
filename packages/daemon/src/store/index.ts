@@ -2659,6 +2659,7 @@ export async function openStore({
     commit,
     emit,
     changed: () => noteActivity(),
+    factoryKey,
   })
 
   const testInvocationStore = createTestInvocationStore({

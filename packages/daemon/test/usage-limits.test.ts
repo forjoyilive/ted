@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   type AgentHealth,
   type Banner,
+  DaemonClient,
   defaultMachineSettings,
   type Factory,
   type RunChat,
@@ -506,17 +507,49 @@ describe('Tokens, dollars, plan usage and retries', () => {
     expect((await healthOf(client, 'claude'))?.state).toBe('ready')
   })
 
-  test('plan usage comes from the last Run’s rate limit events', async () => {
+  test('plan usage comes from the last Run’s rate limit events, and the same usage again sends no event', async () => {
     const client = await start()
+    const sent: string[] = []
+    const events = await new DaemonClient(
+      { port: daemon?.port ?? 0, token: '', pid: 0, version: 'test' },
+      '',
+      { appKey: daemon?.appToken ?? '' },
+    ).subscribe((event) => {
+      if (event.type !== 'agent-health-changed' || event.health.agent !== 'claude') return
+      const usage = event.health.planUsage
+      sent.push(JSON.stringify({ ...event.health, planUsage: usage && { ...usage, at: '' } }))
+    })
     const resetsAt = Math.floor(Date.now() / 1000) + 3600
-    await startTask(
+    const fiveHour = limitEvent('allowed_warning', {
+      resetsAt,
+      rateLimitType: 'five_hour',
+      utilization: 0.87,
+    })
+    const task = await startTask(
       client,
       steps(
-        limitEvent('allowed_warning', { resetsAt, rateLimitType: 'five_hour', utilization: 0.87 }),
+        fiveHour,
         limitEvent('allowed', { rateLimitType: 'seven_day', utilization: 0.41 }),
+        { lines: 1, everyMs: 300 },
+        fiveHour,
+        { lines: 1, everyMs: 300 },
+        fiveHour,
         { endTurn: true },
       ),
     )
+    const runId = await leadRunOf(client, task.id)
+    await waitUntil(
+      async () =>
+        (await client.ok<RunWithConversation>('GET', `/runs/${runId}`)).run.state === 'idle' ||
+        undefined,
+      'the turn to end',
+    )
+    events.close()
+    expect(sent.length, 'events with plan usage').toBeGreaterThan(0)
+    expect(
+      sent.filter((health, i) => health === sent[i - 1]),
+      'events that repeat the one before',
+    ).toEqual([])
     const health = await waitUntil(async () => {
       const h = await healthOf(client, 'claude')
       return (h?.planUsage?.windows.length ?? 0) >= 2 ? h : undefined

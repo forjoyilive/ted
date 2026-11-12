@@ -445,6 +445,7 @@ export interface Tasks {
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
+  publishedSlots(): RunSlots | undefined
   subscribe(listener: (event: DaemonEvent) => void): () => void
   comment(
     ref: string,
@@ -886,6 +887,7 @@ export function createTasks(options: {
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
+  let publishedSlots: RunSlots | undefined
   const loadRatio = options.load?.ratio ?? machineLoadRatio
   let heldAtLoad: number | undefined
   let loadTimer: NodeJS.Timeout | undefined
@@ -1562,6 +1564,7 @@ export function createTasks(options: {
     if (!current || closed || shown === shownSlots) return
     const first = shownSlots === ''
     shownSlots = shown
+    publishedSlots = current
     if (first) return
     for (const listener of listeners) listener({ type: 'slots-changed', slots: current })
   }
@@ -7155,6 +7158,7 @@ export function createTasks(options: {
     },
 
     slots,
+    publishedSlots: () => publishedSlots,
     mergesInFlight: () => mergeWatcher.inFlightCount(),
     subscribe(listener) {
       listeners.add(listener)
