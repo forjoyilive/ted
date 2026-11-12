@@ -28,10 +28,15 @@ export function TaskBrowserView({
   const [status, setStatus] = useState('Opening…')
   const [capture, setCapture] = useState<Attachment>()
   const [busy, setBusy] = useState(false)
+  const [command, setCommand] = useState<BrowserRequest['action']>()
+  const active = useRef(false)
   const [ready, setReady] = useState(false)
   const [retryOpen, setRetryOpen] = useState(0)
   const running = app?.state === 'running'
   const act = async (request: BrowserRequest) => {
+    if (active.current) return
+    active.current = true
+    setCommand(request.action)
     setBusy(true)
     try {
       const result = await ted.browserCommand(task.id, {
@@ -46,6 +51,7 @@ export function TaskBrowserView({
     } catch (error) {
       setStatus(readableError(error))
     } finally {
+      active.current = false
       setBusy(false)
     }
   }
@@ -104,7 +110,7 @@ export function TaskBrowserView({
       }
       if (presenting) return
       presenting = true
-      void ted
+      return ted
         .presentBrowser(task.id, shown.repo, shown.name, {
           x: rect.x,
           y: rect.y,
@@ -168,7 +174,7 @@ export function TaskBrowserView({
           onChange={(event) => {
             const next = apps.find((a) => `${a.repo}/${a.name}` === event.target.value)
             if (next)
-              void ted
+              ted
                 .openAppPreview(task.id, next.repo, next.name)
                 .catch((error: unknown) => setStatus(readableError(error)))
           }}
@@ -184,7 +190,7 @@ export function TaskBrowserView({
           size="small"
           disabled={busy || !ready}
           aria-label="Back"
-          onClick={() => void act({ action: 'back' })}
+          onClick={() => act({ action: 'back' })}
         >
           ←
         </Button>
@@ -192,15 +198,11 @@ export function TaskBrowserView({
           size="small"
           disabled={busy || !ready}
           aria-label="Forward"
-          onClick={() => void act({ action: 'forward' })}
+          onClick={() => act({ action: 'forward' })}
         >
           →
         </Button>
-        <Button
-          size="small"
-          disabled={busy || !ready}
-          onClick={() => void act({ action: 'reload' })}
-        >
+        <Button size="small" disabled={busy || !ready} onClick={() => act({ action: 'reload' })}>
           Reload
         </Button>
         <Button size="small" onClick={onLog}>
@@ -211,7 +213,7 @@ export function TaskBrowserView({
         className={styles.toolbar}
         onSubmit={(event) => {
           event.preventDefault()
-          void act({ action: 'navigate', value: address })
+          return act({ action: 'navigate', value: address })
         }}
       >
         <input
@@ -225,13 +227,18 @@ export function TaskBrowserView({
           value={address}
           onChange={(event) => setAddress(event.target.value)}
         />
-        <Button size="small" type="submit" disabled={busy || !ready}>
+        <Button
+          size="small"
+          type="submit"
+          pending={busy && command === 'navigate'}
+          disabled={busy || !ready}
+        >
           Go
         </Button>
         <Button
           size="small"
           disabled={busy || !ready}
-          onClick={() => void act({ action: 'screenshot' })}
+          onClick={() => act({ action: 'screenshot' })}
         >
           Screenshot
         </Button>
@@ -239,9 +246,7 @@ export function TaskBrowserView({
           size="small"
           disabled={!ready}
           onClick={() =>
-            void ted
-              .externalBrowser(task.id)
-              .catch((error: unknown) => setStatus(readableError(error)))
+            ted.externalBrowser(task.id).catch((error: unknown) => setStatus(readableError(error)))
           }
         >
           Open ↗
@@ -260,7 +265,7 @@ export function TaskBrowserView({
           <Button
             size="small"
             onClick={() => {
-              void ted
+              return ted
                 .postComment(task.id, { body: 'Browser screenshot', attachments: [capture] })
                 .then(() => {
                   setCapture(undefined)

@@ -1720,3 +1720,60 @@ test('design summaries and review points use Markdown without changing media con
   expect(screen.getByText('code').tagName).toBe('CODE')
   expect(screen.getByRole('region', { name: 'Worth your eye' })).toBeTruthy()
 })
+
+test('Sending failure acceptance shows activity, blocks conflicting answers and recovers on rejection', async () => {
+  const completion = deferred<never>()
+  const answer = vi.fn(() => completion.promise)
+  bridge({
+    simulators: () => ({ supported: false }),
+    answerRequest: answer,
+    listFailures: () => [],
+  })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'question',
+        author: { kind: 'ted' },
+        choices: ['Accept this failure', 'Retry'],
+      })}
+    />,
+  )
+  await user().click(screen.getByRole('radio', { name: 'Accept this failure' }))
+  expect(answer).not.toHaveBeenCalled()
+  const button = screen.getByRole('button', { name: 'Send' })
+  await user().click(button)
+  expect(button.getAttribute('aria-busy')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Send' })).toBe(button)
+  const retry = screen.getByRole('radio', { name: 'Retry' })
+  expect(retry.matches(':disabled')).toBe(true)
+  fireEvent.click(button)
+  expect(answer).toHaveBeenCalledTimes(1)
+  await act(async () => completion.reject(new Error('Decision could not be saved')))
+  expect(screen.getByRole('alert').textContent).toBe('Decision could not be saved')
+  expect(button.getAttribute('aria-busy')).toBeNull()
+  expect(retry.matches(':disabled')).toBe(false)
+})
+
+test('keyboard sign-off changes show pending feedback on the matching answer only', async () => {
+  const completion = deferred<never>()
+  const answer = vi.fn(() => completion.promise)
+  bridge({ simulators: () => ({ supported: false }), answerRequest: answer })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({ kind: 'review', stage: 'design', gate: { approveLabel: 'Approve' } })}
+    />,
+  )
+  const box = screen.getByRole('textbox', { name: 'Your answer' })
+  fireEvent.change(box, { target: { value: 'Keep the pending label stable.' } })
+  fireEvent.keyDown(box, { key: 'Enter' })
+  const changes = screen.getByRole('button', { name: 'Request changes' })
+  expect(changes.getAttribute('aria-busy')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Approve' }).getAttribute('aria-busy')).toBeNull()
+  fireEvent.keyDown(box, { key: 'Enter' })
+  expect(answer).toHaveBeenCalledOnce()
+  await act(async () => completion.reject(new Error('Couldn’t send changes')))
+  expect(changes.getAttribute('aria-busy')).toBeNull()
+  expect(screen.getByRole('alert').textContent).toBe('Couldn’t send changes')
+})

@@ -109,7 +109,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
             if (value !== 'none' && value !== 'team' && value !== 'project') return
             setDraftKind(value)
             setSaveError(undefined)
-            if (value === 'none') void save(null)
+            if (value === 'none') save(null)
           }}
         >
           <option value="none">Unscoped</option>
@@ -131,7 +131,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
             onChange={(event) => {
               const target = targets?.find((target) => target.id === event.target.value)
               if (!choices || !target) return
-              void save({
+              return save({
                 kind,
                 id: target.id,
                 name: target.name,

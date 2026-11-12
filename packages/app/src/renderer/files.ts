@@ -1,6 +1,7 @@
 import type { Task, TaskFileRef, TaskFiles } from '@ted/protocol'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useConnection } from './data.ts'
+import { useRefreshAction } from './refresh-action.ts'
 import { readableError, ted } from './ted.ts'
 
 export const quickOpenEvent = 'ted:quick-open'
@@ -38,21 +39,23 @@ export function matchingFiles(files: TaskFiles | undefined, query: string): Task
 
 export function useTaskFiles(task: Task, enabled: boolean) {
   const [result, setResult] = useState<{ key: string; files?: TaskFiles; error?: string }>()
-  const [revision, setRevision] = useState(0)
+  const { revision, refresh, settled } = useRefreshAction()
   const { epoch } = useConnection()
   const repos = task.repos
     .filter((r) => !r.removed)
     .map((r) => `${r.name}:${r.worktree}`)
     .join('\0')
   const key = `${task.id}:${repos}`
-  const refresh = useCallback(() => setRevision((r) => r + 1), [])
   useEffect(() => {
-    if (!enabled || !repos) return
+    if (!enabled || !repos) {
+      settled(revision)
+      return
+    }
     let latest = 0
     let current = true
     const load = () => {
       const call = ++latest
-      void ted.taskFiles(task.id).then(
+      return ted.taskFiles(task.id).then(
         (files) => {
           if (current && call === latest) setResult({ key, files })
         },
@@ -63,13 +66,14 @@ export function useTaskFiles(task: Task, enabled: boolean) {
     }
     void epoch
     void revision
-    load()
+    void load().finally(() => settled(revision))
     window.addEventListener('focus', load)
     return () => {
       current = false
+      settled(revision)
       window.removeEventListener('focus', load)
     }
-  }, [task.id, key, repos, enabled, revision, epoch])
+  }, [task.id, key, repos, enabled, revision, epoch, settled])
   return {
     files: result?.key === key ? result.files : undefined,
     error: result?.key === key ? result.error : undefined,

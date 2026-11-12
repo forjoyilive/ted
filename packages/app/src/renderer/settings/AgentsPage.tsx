@@ -349,9 +349,7 @@ function AgentCard({
           <StatusChip tone={ready ? 'success' : stopping ? 'failed' : 'neutral'}>{chip}</StatusChip>
           <span className={styles.spacer} />
           {health.fix && (
-            <Button onClick={() => void ted.copyText(health.fix?.command ?? '')}>
-              Copy command
-            </Button>
+            <Button onClick={() => ted.copyText(health.fix?.command ?? '')}>Copy command</Button>
           )}
           <Button onClick={onCheck} disabled={checking}>
             {checking ? <Loading compact label="Checking…" /> : 'Check again'}
@@ -488,8 +486,8 @@ export function AgentsPage({ settings }: SettingsPageProps) {
             health={h}
             billing={settings.billing[h.agent]}
             opened={opened[h.agent] === true && h.state !== 'ready'}
-            onFix={() => void fix(h.agent)}
-            onCheck={() => void check()}
+            onFix={() => fix(h.agent)}
+            onCheck={() => check()}
             onBilling={(billing) => chooseBilling(h.agent, billing)}
             planAccepted={settings.antigravityPlanAccepted}
             apiCost={apiCost}
@@ -511,7 +509,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
           <Switch
             label="Restart idle Runs onto new agent versions"
             checked={settings.restartIdleRuns}
-            onChange={(restartIdleRuns) => void ted.updateSettings({ restartIdleRuns })}
+            onChange={(restartIdleRuns) => ted.updateSettings({ restartIdleRuns })}
           />
         </SettingRow>
       </SettingsGroup>
