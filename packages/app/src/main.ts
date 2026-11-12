@@ -706,14 +706,22 @@ async function restartToUpdate(): Promise<void> {
   await updates?.restart().catch((error: unknown) => console.error('restart to update:', error))
 }
 
+const quitWaitMs = 10_000
+const quitExitMs = 5_000
+
 async function quitCompletely(): Promise<void> {
   quitting = true
+  window?.hide()
   if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
   } else {
     supervisor?.close()
-    await client?.shutdown().catch((error: unknown) => console.error(error))
+    await Promise.race([
+      client?.shutdown().catch((error: unknown) => console.error(error)),
+      new Promise((resolve) => setTimeout(resolve, quitWaitMs)),
+    ])
   }
+  setTimeout(() => app.exit(0), quitExitMs)
   app.quit()
 }
 
