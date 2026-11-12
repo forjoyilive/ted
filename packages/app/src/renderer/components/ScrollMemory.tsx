@@ -19,6 +19,14 @@ function scrollTo(element: HTMLElement, top: number): number | undefined {
   return Math.abs(element.scrollTop - top) < 1 ? undefined : top
 }
 
+function typingInside(element: HTMLElement): boolean {
+  const focused = document.activeElement
+  return (
+    element.contains(focused) &&
+    focused?.closest('input, textarea, select, [contenteditable="true"]') != null
+  )
+}
+
 export function ScrollMemory({
   spot,
   count,
@@ -41,6 +49,7 @@ export function ScrollMemory({
   const scroller = useRef<HTMLElement>(null)
   const atBottom = useRef(true)
   const restoring = useRef<number | undefined>(undefined)
+  const lastTop = useRef(0)
   const counted = useRef(count)
   counted.current = count
   const seen = useRef(count)
@@ -56,6 +65,7 @@ export function ScrollMemory({
     restoring.current = undefined
     if (atBottom.current) element.scrollTop = element.scrollHeight
     else if (saved) restoring.current = scrollTo(element, saved.top)
+    lastTop.current = element.scrollTop
   }, [spot, active])
 
   useLayoutEffect(() => {
@@ -65,15 +75,9 @@ export function ScrollMemory({
     const added = count > seen.current
     seen.current = count
     if (restoring.current !== undefined) restoring.current = scrollTo(element, restoring.current)
-    else if (
-      atBottom.current &&
-      !(
-        element.contains(document.activeElement) &&
-        document.activeElement?.closest('input, textarea, select, [contenteditable="true"]')
-      )
-    )
-      element.scrollTop = element.scrollHeight
+    else if (atBottom.current && !typingInside(element)) element.scrollTop = element.scrollHeight
     else if (added) setNewBelow(true)
+    lastTop.current = element.scrollTop
   }, [count, grows, active])
 
   const revealed = useRef<{ spot: string; reveal: typeof reveal } | undefined>(undefined)
@@ -105,6 +109,15 @@ export function ScrollMemory({
     if (!active || !element || restoring.current !== undefined) return
     if (element.scrollHeight <= element.clientHeight) return
     const gap = element.scrollHeight - element.scrollTop - element.clientHeight
+    const movedUp = element.scrollTop < lastTop.current
+    lastTop.current = element.scrollTop
+    if (atBottom.current && gap >= slack && !movedUp) {
+      if (!typingInside(element)) {
+        element.scrollTop = element.scrollHeight
+        lastTop.current = element.scrollTop
+      }
+      return
+    }
     atBottom.current = gap < slack
     spots.set(spot, { top: element.scrollTop, atBottom: atBottom.current })
     if (atBottom.current) setNewBelow(false)
