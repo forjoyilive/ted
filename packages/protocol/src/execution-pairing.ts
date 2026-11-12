@@ -23,7 +23,14 @@ export interface ExecutionReadiness {
   platform: string
   arch: string
   version: string
-  agents: { name: string; detected: boolean; modelAccess: 'unknown'; reason: string }[]
+  agents: {
+    name: string
+    detected: boolean
+    version: string | null
+    versionReason: string
+    modelAccess: 'unknown'
+    reason: string
+  }[]
   sandbox: { available: boolean; reason: string }
   freeBytes: number
   loadPerCore: number
@@ -221,6 +228,8 @@ export function parseExecutionReadiness(value: unknown): ExecutionReadiness {
       return {
         name: text(agent.name, 32),
         detected: bool(agent.detected),
+        version: agent.version === null ? null : text(agent.version, 128),
+        versionReason: text(agent.versionReason, 256),
         modelAccess: 'unknown',
         reason: text(agent.reason, 256),
       }

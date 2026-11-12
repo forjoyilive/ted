@@ -27,7 +27,7 @@ export async function productPairing(options: {
   remoteAddress: string
   worker(action: ProductWorkerAction): Promise<Record<string, unknown>>
 }) {
-  const root = path.join(options.run, 'pairing-fixture')
+  const root = path.join(options.run, 'ted-execution-pairing')
   await mkdir(root, { mode: 0o700 })
   const controller = new FixtureMachine(root, 'controller', 'daemon', path.basename(options.run))
   let workerStarted = false
@@ -69,9 +69,10 @@ export async function productPairing(options: {
       throw new Error('Wrong identity did not produce an identity refusal')
     const incompatible = await options.worker({
       operation: 'attempt',
-      pair: { details: JSON.stringify({ ...offer, protocol: 999 }), capacity: 2 },
+      pair: { details: JSON.stringify(offer), capacity: 2 },
     })
-    if (incompatible.refused !== true) throw new Error('Wrong protocol was not refused')
+    if (incompatible.refused !== true || incompatible.transport !== 'pinned-tls')
+      throw new Error('Wrong protocol was not refused over product TLS')
     if ((await controller.client.executionMachines()).pending.length)
       throw new Error('Refused peer enrolled')
     await options.worker({
@@ -128,7 +129,7 @@ export async function productPairing(options: {
       authorization: {
         approval: 'app-authorized controller client',
         wrongIdentity: 'refused before enrollment',
-        wrongVersion: 'refused',
+        wrongVersion: 'refused by controller over pinned TLS',
         revocation: 'live connection stopped; restart refused',
       },
       workerPids: { before: connected.pid, after: restarted.pid },

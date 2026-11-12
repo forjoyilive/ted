@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   access,
   mkdir,
@@ -26,6 +26,7 @@ import {
   serviceEnvironment,
   waitForProcessExit,
 } from './execution-lab/host.ts'
+import { productPairing } from './execution-lab/product-pairing.ts'
 import {
   bootstrap,
   callHost,
@@ -77,6 +78,20 @@ async function scratch() {
 }
 
 describe('lab configuration and SSH control', () => {
+  it('product pairing cleans its real controller fixture without replacing the original failure', async () => {
+    const run = path.join(await scratch(), randomUUID())
+    await mkdir(run)
+    await expect(
+      productPairing({
+        run,
+        remoteAddress: '127.0.0.1',
+        worker: async () => {
+          throw new Error('must not contact a worker before route validation')
+        },
+      }),
+    ).rejects.toThrow('Real two-Mac pairing requires a non-loopback local address')
+    await expect(access(path.join(run, 'ted-execution-pairing'))).rejects.toThrow()
+  }, 60_000)
   it('can recover both hosts when report allocation or publication is unavailable', async () => {
     for (const phase of ['allocation', 'publication']) {
       const directory = await scratch()
@@ -574,11 +589,11 @@ describe('candidate content and standalone overrides', () => {
       ),
     ).toBe(false)
     expect(markedListing(worker, 502, run, home)).toBe(false)
-    const controller = `501 Tue Nov 11 10:00:00 2026 node ${root}/source/packages/daemon/test/fixtures/execution-machine.ts TED_LAB_RUN=${run} TED_HOME=${root}/pairing-fixture/home`
+    const controller = `501 Tue Nov 11 10:00:00 2026 node ${root}/source/packages/daemon/test/fixtures/execution-machine.ts TED_LAB_RUN=${run} TED_HOME=${root}/ted-execution-pairing/home`
     expect(markedListing(controller, 501, run, home)).toBe(true)
     expect(
       markedListing(
-        controller.replace('/pairing-fixture/home', '/pairing-fixture/home-sibling'),
+        controller.replace('/ted-execution-pairing/home', '/ted-execution-pairing/home-sibling'),
         501,
         run,
         home,

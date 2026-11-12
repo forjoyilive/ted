@@ -22,6 +22,8 @@ const readiness = {
     {
       name: 'codex',
       detected: true,
+      version: 'codex-cli 1.2.3',
+      versionReason: 'Local --version',
       modelAccess: 'unknown' as const,
       reason: 'Unverified on this Mac',
     },
@@ -82,6 +84,19 @@ test('execution parsers refuse invalid addresses, scope, readiness and incompati
     expect(() => parseExecutionReadiness({ ...readiness, capacity })).toThrow()
   for (const loadPerCore of [-1, NaN, Infinity])
     expect(() => parseExecutionReadiness({ ...readiness, loadPerCore })).toThrow()
+  expect(
+    parseExecutionReadiness({
+      ...readiness,
+      agents: [{ ...readiness.agents[0], version: null, versionReason: 'Local check timed out' }],
+    }).agents[0],
+  ).toMatchObject({ version: null, versionReason: 'Local check timed out' })
+  for (const version of [undefined, '', 'v'.repeat(129), 123])
+    expect(() =>
+      parseExecutionReadiness({
+        ...readiness,
+        agents: [{ ...readiness.agents[0], version }],
+      }),
+    ).toThrow()
   expect(() =>
     parseExecutionReadiness({
       ...readiness,

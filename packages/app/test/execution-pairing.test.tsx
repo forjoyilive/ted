@@ -10,7 +10,16 @@ const readiness = {
   platform: 'darwin',
   arch: 'arm64',
   version: '0.1',
-  agents: [{ name: 'codex', detected: true, modelAccess: 'unknown', reason: 'Unverified' }],
+  agents: [
+    {
+      name: 'codex',
+      detected: true,
+      version: 'codex-cli 1.2.3',
+      versionReason: 'Local --version',
+      modelAccess: 'unknown',
+      reason: 'Unverified',
+    },
+  ],
   sandbox: { available: true, reason: 'Probe passed' },
   freeBytes: 2e11,
   loadPerCore: 0.2,
@@ -40,6 +49,7 @@ test('pairing review starts with no repo grants, requires identity confirmation,
   })
   render(<MachinesPage />)
   await screen.findByText('Mini · Waiting for approval')
+  expect(screen.getByText('Version: codex-cli 1.2.3')).toBeTruthy()
   expect(screen.getByText(/both Macs must be on the same local network/)).toBeTruthy()
   const approve = screen.getByRole<HTMLButtonElement>('button', { name: 'Approve pairing' })
   expect(approve.disabled).toBe(true)

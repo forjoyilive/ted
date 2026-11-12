@@ -1,4 +1,4 @@
-import { readFile, realpath, symlink } from 'node:fs/promises'
+import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   DaemonClient,
@@ -8,8 +8,10 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { expect, test } from 'vitest'
-import { executionEnvironment } from '../src/command-env.ts'
+import { productWorker } from '../../../scripts/execution-lab/product-worker.ts'
+import { createEnvironment, executionEnvironment } from '../src/command-env.ts'
 import { privateDirectory, readPrivate } from '../src/execution/files.ts'
+import { createExecutionReadiness } from '../src/execution/readiness.ts'
 import { startExecutionService } from '../src/execution/service.ts'
 import { executionRequest } from '../src/execution/transport.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -24,7 +26,7 @@ import {
 
 test('pairing across isolated processes refuses untrusted peers and preserves approved trust through restart and revocation', async () => {
   const fixture = await createExecutionFixture()
-  const worker = executionWorkerFixture(path.join(fixture.root, 'worker'), 'c'.repeat(64))
+  const worker = executionWorkerFixture(path.join(fixture.root, 'execution-worker'), 'c'.repeat(64))
   try {
     const controller = await fixture.machine('controller')
     const { offer, factoryId } = await preparePairingController(controller)
@@ -61,6 +63,13 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
         executionRequest(offer, '/enroll', { ...attempted, ...incompatible }),
       ).rejects.toThrow()
     }
+    expect(
+      await productWorker(fixture.root, fixtureEnvironment(worker.home), {
+        operation: 'attempt',
+        pair: { details: JSON.stringify(offer), capacity: 2 },
+      }),
+    ).toEqual({ refused: true, transport: 'pinned-tls', protocol: 999 })
+    expect((await controller.client.executionMachines()).pending).toEqual([])
     await observe('pairing-peer-refusals', {
       wrongIdentity: 'refused before enrollment',
       wrongProtocol: 'refused',
@@ -263,6 +272,60 @@ test('execution storage refuses linked homes and child environment excludes broa
       TED_TEST_RUN: 'test',
     })
     expect(env).toEqual({ PATH: '/usr/bin', HOME: root, TED_TEST_RUN: 'test' })
+    const shell = path.join(root, 'login-shell')
+    const bin = path.join(root, 'bin')
+    await mkdir(bin)
+    await writeFile(
+      shell,
+      `#!/bin/sh
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export PATH="$script_dir/bin" SHELL=/bin/sh OPENAI_API_KEY=login-secret TED_RUN_CAPABILITY=login-secret
+printf '%s' '__TED_LOGIN_ENV__'
+/usr/bin/env -0
+`,
+      { mode: 0o700 },
+    )
+    await writeFile(
+      path.join(bin, 'claude'),
+      `#!/bin/sh
+test "$#" = 1 && test "$1" = --version || exit 1
+test -z "$OPENAI_API_KEY" && test -z "$TED_RUN_CAPABILITY" || exit 2
+printf '%s\\n' 'Claude Code 1.2.3'
+`,
+      { mode: 0o700 },
+    )
+    await writeFile(path.join(bin, 'codex'), '#!/bin/sh\nexit 1\n', { mode: 0o700 })
+    const environment = createEnvironment({
+      loginShell: true,
+      base: executionEnvironment({
+        ...process.env,
+        PATH: '/usr/bin:/bin',
+        SHELL: shell,
+        HOME: root,
+      }),
+    })
+    const discovered = executionEnvironment(await environment.reload())
+    expect(discovered.PATH).toBe(bin)
+    expect(discovered.OPENAI_API_KEY).toBeUndefined()
+    expect(discovered.TED_RUN_CAPABILITY).toBeUndefined()
+    const observed = await createExecutionReadiness(root, discovered)(2)
+    expect(observed.agents).toMatchObject([
+      { name: 'claude', detected: true, version: 'Claude Code 1.2.3', modelAccess: 'unknown' },
+      {
+        name: 'codex',
+        detected: true,
+        version: null,
+        versionReason: expect.stringContaining('failed'),
+      },
+    ])
+    const missing = await createExecutionReadiness(root, {
+      ...discovered,
+      PATH: path.join(root, 'absent'),
+    })(2)
+    expect(missing.agents).toMatchObject([
+      { detected: false, version: null, versionReason: 'Executable not detected' },
+      { detected: false, version: null, versionReason: 'Executable not detected' },
+    ])
   } finally {
     await fixture.close()
   }

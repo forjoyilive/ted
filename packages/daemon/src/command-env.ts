@@ -75,6 +75,7 @@ export function worktreeCommandEnv(
 export function executionEnvironment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const names = [
     'PATH',
+    'SHELL',
     'HOME',
     'USER',
     'LOGNAME',

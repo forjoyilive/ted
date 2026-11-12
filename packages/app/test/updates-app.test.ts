@@ -1,16 +1,18 @@
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { startExecutionService, stopExecutionService, workerRequest } from '@ted/daemon/execution'
 import { readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   api,
   assistantTexts,
+  fixtureEnvironment,
   hostRecords,
   isAlive,
   killRunHosts,
@@ -36,6 +38,7 @@ let cwd: string
 let app: ElectronApplication | undefined
 let feed: http.Server | undefined
 let latest: { version: string; failInstall?: boolean }
+let cliWorker = false
 
 beforeAll(async () => {
   await buildRenderer()
@@ -45,6 +48,7 @@ beforeEach(async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-app-update-'))
   cwd = await mkdtemp(path.join(tmpdir(), 'ted-app-update-cwd-'))
   latest = { version: '99.0.0' }
+  cliWorker = false
   feed = http.createServer((req, res) => {
     if (req.url !== '/latest.json') return void res.writeHead(404).end()
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(latest))
@@ -56,6 +60,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await closeApp(app)
   app = undefined
+  if (cliWorker) await stopExecutionService(await executionHome())
   feed?.close()
   feed = undefined
   await stopDaemonIn(home)
@@ -65,6 +70,7 @@ afterEach(async () => {
 }, 30_000)
 
 const updateLog = () => path.join(home, 'update-test.log')
+const executionHome = async () => path.join(await realpath(home), 'execution-worker')
 
 async function launchApp(): Promise<Page> {
   const port = ((feed as http.Server).address() as AddressInfo).port
@@ -79,6 +85,7 @@ async function launchApp(): Promise<Page> {
       TED_HIDDEN_WINDOW: '1',
       TED_UPDATE_FEED: `http://127.0.0.1:${port}/`,
       TED_UPDATE_LOG: updateLog(),
+      TED_EXECUTION_HOME: await executionHome(),
     },
   })
   const window = await loadedWindow(app)
@@ -124,6 +131,26 @@ describe('in-app updates', () => {
 
   test('Restart to update keeps a working Run going into the next launch with no lost output', async () => {
     const window = await launchApp()
+    await sidebar(window)
+      .getByRole('button', { name: /^Settings/ })
+      .last()
+      .click()
+    await window
+      .getByRole('navigation', { name: 'Settings' })
+      .getByRole('button', { name: 'Machines', exact: true })
+      .click()
+    const opened = app?.waitForEvent('window')
+    await window.getByRole('button', { name: 'Use this Mac as a worker…' }).click()
+    const worker = await opened
+    if (!worker) throw new Error('Worker window did not open')
+    await worker.getByRole('button', { name: 'Start worker' }).click()
+    await expect
+      .poll(async () => (await workerRequest(await executionHome(), 'status')).state)
+      .toBe('unpaired')
+    const workerControl = JSON.parse(
+      await readFile(path.join(await executionHome(), 'control.json'), 'utf8'),
+    ) as { pid: number }
+    await window.getByTitle('Back (Esc)').click()
     let { info, client } = await daemonApi()
     const release = path.join(cwd, 'release')
     const run = await client.startRun(
@@ -148,6 +175,8 @@ describe('in-app updates', () => {
     await sidebar(window).getByRole('button', { name: 'Update ready · Restart' }).click()
     await exited
     app = undefined
+    expect(isAlive(workerControl.pid)).toBe(false)
+    await expect(workerRequest(await executionHome(), 'status')).rejects.toThrow()
 
     expect(await readFile(updateLog(), 'utf8')).toBe('install 99.0.0\n')
     await waitUntil(() => !isAlive(info.pid) || undefined, 'the old daemon to stop')
@@ -173,6 +202,12 @@ describe('in-app updates', () => {
 
   test('a failed install shows the warning banner with Download, and TED comes back', async () => {
     latest = { version: '99.0.0', failInstall: true }
+    await startExecutionService(await executionHome(), fixtureEnvironment(home))
+    cliWorker = true
+    await workerRequest(await executionHome(), 'start')
+    const workerControl = JSON.parse(
+      await readFile(path.join(await executionHome(), 'control.json'), 'utf8'),
+    ) as { pid: number }
     const window = await launchApp()
     const { info } = await daemonApi()
 
@@ -187,6 +222,8 @@ describe('in-app updates', () => {
       return now && now.pid !== info.pid ? now : undefined
     }, 'a new daemon')
     expect(isAlive(next.pid)).toBe(true)
+    expect(isAlive(workerControl.pid)).toBe(true)
+    expect((await workerRequest(await executionHome(), 'status')).state).toBe('unpaired')
     await expect
       .poll(() =>
         window.evaluate(() =>

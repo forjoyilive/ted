@@ -5,7 +5,15 @@ import {
   stopExecutionService,
   workerRequest,
 } from '../../packages/daemon/src/execution/service.ts'
-import type { WorkerPairRequest } from '../../packages/protocol/src/execution-pairing.ts'
+import {
+  ExecutionRefused,
+  executionRequest,
+} from '../../packages/daemon/src/execution/transport.ts'
+import {
+  executionHello,
+  parseExecutionOffer,
+  type WorkerPairRequest,
+} from '../../packages/protocol/src/execution-pairing.ts'
 
 export interface ProductWorkerAction {
   operation: 'start' | 'stop' | 'restart' | 'status' | 'pair' | 'attempt'
@@ -31,10 +39,25 @@ export async function productWorker(
   if (action.operation === 'pair' || action.operation === 'attempt') {
     if (!action.pair) throw new Error('Pairing input is required')
     if (action.operation === 'attempt') {
+      const offer = parseExecutionOffer(JSON.parse(action.pair.details))
+      const status = await workerRequest(home, 'status')
+      if (!status.readiness) throw new Error('Worker has not reported readiness')
       try {
-        await workerRequest(home, 'pair', action.pair)
-      } catch {
-        return { refused: true, status: await workerRequest(home, 'status') }
+        await executionRequest(offer, '/enroll', {
+          ...executionHello(),
+          protocol: 999,
+          name: 'Lab version refusal',
+          csr: await readPrivate(home, 'worker.csr'),
+          secret: offer.secret,
+          readiness: status.readiness,
+        })
+      } catch (error) {
+        if (
+          error instanceof ExecutionRefused &&
+          error.message === 'Invalid or incompatible execution message'
+        )
+          return { refused: true, transport: 'pinned-tls', protocol: 999 }
+        throw error
       }
       throw new Error('Expected incompatible version to be refused')
     }

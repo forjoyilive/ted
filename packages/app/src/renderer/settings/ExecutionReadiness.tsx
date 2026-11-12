@@ -23,6 +23,9 @@ export function ExecutionReadiness({
           {value.agents.map((a) => (
             <div key={a.name}>
               {a.name}: {a.detected ? 'detected' : 'not detected'} · Model access unverified
+              <div>
+                {a.version ? `Version: ${a.version}` : `Version unavailable · ${a.versionReason}`}
+              </div>
             </div>
           ))}
         </dd>

@@ -720,7 +720,10 @@ async function startUpdates(supervised: DaemonSupervisor): Promise<void> {
     asksPassword,
     ...(failed !== undefined && { failed }),
     onStatus: showUpdate,
-    handOver: (onWork) => supervised.handOver({ onWork }),
+    handOver: async (onWork) => {
+      await workerWindow.close()
+      await supervised.handOver({ onWork })
+    },
     markPending: (version) => writeFile(pendingUpdateFile(), version),
     installFailed: async () => {
       quitting = false

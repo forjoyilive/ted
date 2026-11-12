@@ -82,6 +82,15 @@ the network makes it disconnected without deleting pairing. Unknown model access
 and stale offline readings remain explicit. The controller allows a short heartbeat
 gap; disconnected status can take up to ten seconds to appear.
 
+Readiness includes each detected agent’s bounded local `--version` result, refreshed
+at most once a minute. Failed, missing or oversized version output is shown as
+unavailable with a reason. These probes use a filtered environment and do not make
+model requests. Model access remains unverified.
+
+Restart to update stops this app’s worker before handing the daemon over. A worker
+started separately through CLI stays running. If installation fails, TED recovers
+its daemon; reopen the worker window and select Start to reconnect with saved pairing.
+
 ## Revoke and reconnect
 
 On the controller, choose **Revoke access** and confirm. TED durably revokes the

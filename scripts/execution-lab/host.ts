@@ -290,7 +290,7 @@ export function markedListing(text: string, uid: number, runId: string, home: st
     marker('TED_EXECUTION_HOME', path.join(root, 'execution-worker')) &&
     entry(path.join(root, 'source/packages/daemon/src/execution/main.ts'))
   const productController =
-    marker('TED_HOME', path.join(root, 'pairing-fixture/home')) &&
+    marker('TED_HOME', path.join(root, 'ted-execution-pairing/home')) &&
     entry(path.join(root, 'source/packages/daemon/test/fixtures/execution-machine.ts'))
   return (
     text.startsWith(`${uid} `) &&
