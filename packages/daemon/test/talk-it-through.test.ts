@@ -14,8 +14,8 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { revokeInput } from '../src/runs/input-permits.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { revokeInput } from '../src/runs/input-permits.ts'
 import { openStore } from '../src/store/index.ts'
 import {
   api,
@@ -799,7 +799,8 @@ describe('Talk it through', () => {
       await paused
     }
     const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(lead)
-    const runClient = api(daemon!.port, token)
+    if (!daemon) throw new Error('no daemon')
+    const runClient = api(daemon.port, token)
     await client.ok('POST', `/comments/${item.request.id}/talk`)
     const boundary = runClient.call('POST', `/runs/${lead}/boundary`)
     try {
