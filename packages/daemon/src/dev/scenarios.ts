@@ -7,6 +7,8 @@ import { commitDemoTask, demoGit } from './fixtures.ts'
 
 const script = (...steps: unknown[]) => JSON.stringify({ steps })
 const idle = { endTurn: true }
+// One advance fetches and test-merges every repo of the Task; it took 13.9 s beside other test runs.
+const advanceWaitMs = 60_000
 const round = {
   title: 'Choose the first release',
   questions: [
@@ -268,23 +270,27 @@ async function populateScenarios(
     await client.sendRunMessage(run, script(...list, ...(wait ? [{ say: marker }, idle] : [])))
     let checkedRevision = -1
     if (wait)
-      return until(async () => {
-        if (observed.run(run)?.state !== 'idle') return false
-        const revision = observed.revision(run)
-        if (revision === checkedRevision) return false
-        checkedRevision = revision
-        const current = await client.getRun(run)
-        const done =
-          current.run.state === 'idle' &&
-          current.conversation.some((entry) => {
-            const line = JSON.parse(entry.line)
-            return (
-              line.type === 'assistant' &&
-              line.message?.content?.some((part: { text?: string }) => part.text === marker)
-            )
-          })
-        return done ? current : false
-      }, `script on ${task.displayId}`)
+      return until(
+        async () => {
+          if (observed.run(run)?.state !== 'idle') return false
+          const revision = observed.revision(run)
+          if (revision === checkedRevision) return false
+          checkedRevision = revision
+          const current = await client.getRun(run)
+          const done =
+            current.run.state === 'idle' &&
+            current.conversation.some((entry) => {
+              const line = JSON.parse(entry.line)
+              return (
+                line.type === 'assistant' &&
+                line.message?.content?.some((part: { text?: string }) => part.text === marker)
+              )
+            })
+          return done ? current : false
+        },
+        `script on ${task.displayId}`,
+        advanceWaitMs,
+      )
   }
   async function command(task: Task, ...args: string[]) {
     const prefix: unknown[] = []
@@ -363,11 +369,15 @@ async function populateScenarios(
                 `advance ${task.displayId} toward ${target}`,
               )
               if (stage === 'work')
-                await until(async () => {
-                  const problem = demoCheckProblem(await client.listCheckRuns(task.id))
-                  if (problem) throw new Error(problem)
-                  return (await observed.task(task.id)).stage !== 'work'
-                }, `${task.displayId} to leave Work`)
+                await until(
+                  async () => {
+                    const problem = demoCheckProblem(await client.listCheckRuns(task.id))
+                    if (problem) throw new Error(problem)
+                    return (await observed.task(task.id)).stage !== 'work'
+                  },
+                  `${task.displayId} to leave Work`,
+                  advanceWaitMs,
+                )
             }
             await until(
               async () =>
