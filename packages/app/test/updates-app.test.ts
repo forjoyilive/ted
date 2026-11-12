@@ -104,7 +104,10 @@ afterEach(async () => {
 const updateLog = () => path.join(home, 'update-test.log')
 const executionHome = async () => path.join(await realpath(home), 'execution-worker')
 
-async function launchApp(extraEnv: Record<string, string> = {}): Promise<Page> {
+async function launchApp(
+  extraEnv: Record<string, string> = {},
+  launched?: (app: ElectronApplication) => void,
+): Promise<Page> {
   const port = ((feed as http.Server).address() as AddressInfo).port
   app = await electron.launch({
     executablePath: electronPath,
@@ -121,6 +124,7 @@ async function launchApp(extraEnv: Record<string, string> = {}): Promise<Page> {
       ...extraEnv,
     },
   })
+  launched?.(app)
   const window = await loadedWindow(app)
   return window
 }
@@ -172,13 +176,18 @@ describe('in-app updates', () => {
     }
     const observations: Record<string, unknown>[] = []
     let stderr = ''
-    const save = async () => {
-      try {
-        await mkdir(path.dirname(file), { recursive: true })
-        await writeFile(file, JSON.stringify({ pids, observations, stderr }, null, 2))
-      } catch {
-        console.warn('Update restart: could not save diagnostics')
-      }
+    let saving = Promise.resolve()
+    let ended = false
+    const save = () => {
+      saving = saving.then(async () => {
+        try {
+          await mkdir(path.dirname(file), { recursive: true })
+          await writeFile(file, JSON.stringify({ pids, observations, stderr }, null, 2))
+        } catch {
+          console.warn('Update restart: could not save diagnostics')
+        }
+      })
+      return saving
     }
     const mark = async (phase: string) => {
       const alive = (pid: number | undefined) => (pid === undefined ? null : isAlive(pid))
@@ -194,9 +203,10 @@ describe('in-app updates', () => {
       console.log('Update restart:', JSON.stringify({ home, ...observation }))
       await save()
     }
-    const watch = (launched: ElectronApplication | undefined) => {
-      pids.electron = launched?.process().pid
-      launched?.process().stderr?.on('data', (data: Buffer) => {
+    const watch = (launched: ElectronApplication) => {
+      pids.electron = launched.process().pid
+      launched.process().stderr?.on('data', (data: Buffer) => {
+        if (ended) return
         stderr = redactSecrets((stderr + data.toString('utf8')).slice(-16_384))
         void save()
       })
@@ -205,8 +215,7 @@ describe('in-app updates', () => {
     try {
       const gate = await executionStartupGate(cwd)
       await mark('launch-start')
-      const window = await launchApp(gate.env)
-      watch(app)
+      const window = await launchApp(gate.env, watch)
       await mark('launch-loaded')
       await sidebar(window)
         .getByRole('button', { name: /^Settings/ })
@@ -351,8 +360,7 @@ describe('in-app updates', () => {
 
       latest = { version: '0.0.1' }
       await mark('relaunch-start')
-      const relaunched = await launchApp()
-      watch(app)
+      const relaunched = await launchApp({}, watch)
       await mark('relaunch-loaded')
       ;({ info, client } = await daemonApi())
       await writeFile(release, '')
@@ -373,6 +381,9 @@ describe('in-app updates', () => {
     } catch (error) {
       await mark('failed')
       throw error
+    } finally {
+      ended = true
+      await saving
     }
   })
 
