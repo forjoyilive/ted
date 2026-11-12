@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url'
 import { integrationInstallPages } from '@ted/protocol/integrations'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
+import {
+  removeHome,
+  stopDaemonIn,
+  stubClaudePath,
+  stubCodexPath,
+} from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
@@ -59,6 +64,9 @@ async function launchApp(): Promise<Page> {
       TED_HOME: home,
       TED_IDLE_EXIT_MS: '30000',
       TED_HIDDEN_WINDOW: '1',
+      TED_CLAUDE_BIN: stubClaudePath,
+      TED_CODEX_BIN: stubCodexPath,
+      TED_ANTIGRAVITY_BIN: path.join(home, 'no-antigravity-here'),
       TED_STUB_GH: ghState,
       TED_FIX_LOG: fixLog,
     },

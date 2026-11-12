@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, realpath } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import {
   bannerId,
@@ -32,6 +32,11 @@ export interface CreatedWorktree extends CopyResult {
   branch: string
 }
 
+export interface ClearedWorktree {
+  branch?: string
+  branchDeleted: boolean
+}
+
 export interface LifecycleCommand {
   kind: 'setup' | 'teardown'
   command: WorktreeCommand
@@ -53,6 +58,11 @@ export interface TaskWorktreeLifecycle {
     branch: string,
     fresh: boolean,
   ): Promise<CreatedWorktree>
+  clear(
+    clone: LifecycleHandle,
+    entry: FactoryRepoEntry,
+    keep?: string,
+  ): Promise<ClearedWorktree | undefined>
   command(handle: LifecycleHandle, input: LifecycleCommand): Promise<CommandResult>
   remove(handle: LifecycleHandle): Promise<void>
   rollback(made: CreatedWorktree): Promise<void>
@@ -254,13 +264,7 @@ export function createLocalLifecycle(options: {
     fresh: boolean,
   ): Promise<CreatedWorktree> {
     await ready(clone)
-    const source = binding(clone, 'clone')
-    if (
-      source.repo.repo.toLowerCase() !== entry.repo.toLowerCase() ||
-      source.repo.name !== entry.name
-    ) {
-      throw new RequestError(409, 'execution repo mismatch')
-    }
+    const source = cloneOf(clone, entry)
     await plain(options.reposDir, source.file)
     await git.fetch(source.file)
     const base = entry.baseBranch ?? (await git.defaultBranch(source.file))
@@ -270,14 +274,25 @@ export function createLocalLifecycle(options: {
     await plain(options.worktreesDir, target, false, true)
     const add = fresh ? git.addWorktree : git.restoreWorktree
     const task = requireLocal(clone)
-    await add(source.file, { path: target, branch, from: `origin/${base}` }).catch(
-      (error: unknown) => {
-        throw new RequestError(
-          409,
-          `couldn’t make ${task.displayId}’s ${entry.name} worktree from origin/${base}: ${String(error)}`,
-        )
-      },
-    )
+    const from = `origin/${base}`
+    const tip = await git.revParse(source.file, from).catch(() => undefined)
+    const hadBranch = await git.hasLocalBranch(source.file, branch)
+    const hadWorktree = (await registered(source.file, target)) !== undefined
+    await add(source.file, { path: target, branch, from }).catch(async (error: unknown) => {
+      const left = hadWorktree ? undefined : await registered(source.file, target)
+      const removed =
+        left === undefined ||
+        (await remove(handle).then(
+          () => true,
+          () => false,
+        ))
+      if (fresh && !hadBranch && removed && tip !== undefined)
+        await git.deleteBranchAt(source.file, branch, tip).catch(() => undefined)
+      throw new RequestError(
+        409,
+        `couldn’t make ${task.displayId}’s ${entry.name} worktree from origin/${base}: ${String(error)}`,
+      )
+    })
     const copy = await copyFiles(store.localFolder(entry.repo), target, entry.copy).catch(
       async (error: unknown) => {
         await remove(handle).catch(() => undefined)
@@ -289,6 +304,96 @@ export function createLocalLifecycle(options: {
       },
     )
     return { handle, name: entry.name, repo: entry.repo, branch, ...copy }
+  }
+
+  function cloneOf(clone: LifecycleHandle, entry: FactoryRepoEntry): Binding {
+    const source = binding(clone, 'clone')
+    if (
+      source.repo.repo.toLowerCase() !== entry.repo.toLowerCase() ||
+      source.repo.name !== entry.name
+    ) {
+      throw new RequestError(409, 'execution repo mismatch')
+    }
+    return source
+  }
+
+  async function registered(
+    clone: string,
+    target: string,
+  ): Promise<git.ListedWorktree | undefined> {
+    const real = await realpath(target).catch(() => undefined)
+    if (real === undefined) return undefined
+    const admin = await realpath(path.join(clone, '.git', 'worktrees')).catch(() => undefined)
+    if (admin === undefined) return undefined
+    const link = path.join(real, '.git')
+    if (!(await lstat(link).catch(() => undefined))?.isFile()) return undefined
+    const gitDir = /^gitdir: (.+)$/m.exec(await readFile(link, 'utf8'))?.[1]
+    if (gitDir === undefined) return undefined
+    const pointsAt = await realpath(path.resolve(real, gitDir)).catch(() => undefined)
+    if (pointsAt === undefined || path.dirname(pointsAt) !== admin) return undefined
+    for (const listed of await git.listWorktrees(clone)) {
+      if ((await realpath(listed.path).catch(() => undefined)) === real) return listed
+    }
+    return undefined
+  }
+
+  async function clear(
+    clone: LifecycleHandle,
+    entry: FactoryRepoEntry,
+    keep?: string,
+  ): Promise<ClearedWorktree | undefined> {
+    const task = await ready(clone)
+    const source = cloneOf(clone, entry)
+    await plain(options.reposDir, source.file)
+    const handle = bind(clone, entry, 'worktree', true)
+    const target = localPath(handle)
+    await plain(options.worktreesDir, path.dirname(target), true)
+    const found = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+      return undefined
+    })
+    if (!found) return undefined
+    const inTheWay = (what: string, keepIt = '') =>
+      new RequestError(
+        409,
+        `${task.displayId} can’t start: ${target} is already there and ${what}. TED left it alone. ${keepIt}Move or delete it, then start ${task.displayId} again.`,
+      )
+    if (found.isSymbolicLink()) throw inTheWay('is a link')
+    if (!found.isDirectory()) throw inTheWay('is a file')
+    await plain(options.worktreesDir, target)
+    if ((await readdir(target)).length === 0) return undefined
+    const listed = await registered(source.file, target)
+    if (!listed) throw inTheWay(`isn’t a worktree of TED’s ${entry.name} clone`)
+    if (listed.locked) throw inTheWay('is a locked worktree')
+    const base = entry.baseBranch ?? (await git.defaultBranch(source.file))
+    const changes = await git.workingChanges(target, `origin/${base}`).catch(() => undefined)
+    if (!changes || changes.head !== listed.head) throw inTheWay('is a worktree TED couldn’t read')
+    const on = listed.branch === undefined ? 'no branch' : `branch ${listed.branch}`
+    const uncommitted = changes.files.filter((file) => file.uncommitted).length
+    if (uncommitted > 0) {
+      throw inTheWay(
+        `is a worktree on ${on} with ${uncommitted} uncommitted ${uncommitted === 1 ? 'file' : 'files'}`,
+        'Copy out anything you want to keep. ',
+      )
+    }
+    const ahead = changes.mergeBase !== changes.head
+    if (ahead && (listed.branch === undefined || listed.branch !== keep)) {
+      throw inTheWay(
+        `is a worktree on ${on} with commits that aren’t on origin/${base}`,
+        'Push or copy out anything you want to keep. ',
+      )
+    }
+    await plain(options.worktreesDir, target)
+    await git.removeWorktree(source.file, target)
+    bindings.delete(handle.id)
+    const stale = !ahead && listed.branch !== keep ? listed.branch : undefined
+    const branchDeleted =
+      stale !== undefined &&
+      (await git.deleteBranchAt(source.file, stale, changes.head).then(
+        () => true,
+        () => false,
+      ))
+    return { ...(listed.branch !== undefined && { branch: listed.branch }), branchDeleted }
   }
 
   async function remove(handle: LifecycleHandle): Promise<void> {
@@ -445,6 +550,7 @@ export function createLocalLifecycle(options: {
     localPath,
     prepare,
     create,
+    clear,
     command,
     remove,
     auxiliaryWorktrees,

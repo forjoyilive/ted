@@ -9,6 +9,7 @@ import {
   type AutomationRequest,
   type AutomationRun,
   type AutomationSchedule,
+  type AutomationTaskLink,
   type AutomationTemplate,
   type AutomationTrigger,
   type CreateAutomationRequest,
@@ -32,7 +33,12 @@ import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { StoredAutomation, StoredFiring } from '../store/automations.ts'
+import type {
+  AutomationTaskRecord,
+  StoredAutomation,
+  StoredAutomationComment,
+  StoredFiring,
+} from '../store/automations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
 import type { Caller } from '../tasks/tasks.ts'
@@ -47,6 +53,13 @@ import { automationTemplates } from './templates.ts'
 export interface AutomationQueue {
   addQueueSource(source: QueueSource): () => void
   slots(): Promise<RunSlots>
+  publishedSlots?(): RunSlots | undefined
+}
+
+interface AutomationRecord {
+  factoryKey: string
+  firings: StoredFiring[]
+  links: AutomationTaskRecord[]
 }
 
 export interface AutomationsOptions {
@@ -126,16 +139,21 @@ export function createAutomations(options: AutomationsOptions): Automations {
   let closed = false
 
   const factoryOf = (automation: StoredAutomation) => store.getFactory(automation.factoryId)
-  const live = () => saved.list().filter((a) => factoryOf(a) !== undefined)
+  const live = () => {
+    const factoryIds = new Set(store.listFactories().map((f) => f.id))
+    return saved.list().filter((a) => factoryIds.has(a.factoryId))
+  }
 
   const effectiveZone = () =>
     effectiveTimeZone(store.settings(), (options.systemTimeZone ?? systemTimeZone)())
 
-  function reconcileZones(): void {
+  function reconcileZones(): StoredAutomation[] {
     const timeZone = effectiveZone()
+    const all = live()
+    const stale = all.filter((a) => a.timeZone !== timeZone)
+    if (stale.length === 0) return all
     const at = iso(now())
-    for (const automation of live()) {
-      if (automation.timeZone === timeZone) continue
+    for (const automation of stale) {
       const { name, prompt, schedule, agent, model, effort } = automation
       saved.edit(
         automation.id,
@@ -151,12 +169,13 @@ export function createAutomations(options: AutomationsOptions): Automations {
         at,
       )
     }
+    return live()
   }
 
   function find(ref: string, factory?: string): StoredAutomation {
-    reconcileZones()
+    const all = reconcileZones()
     const inFactory = factory === undefined ? undefined : factoryByRef(factory)
-    const candidates = live().filter((a) => !inFactory || a.factoryId === inFactory.id)
+    const candidates = all.filter((a) => !inFactory || a.factoryId === inFactory.id)
     const exact = candidates.find((a) => a.id === ref)
     if (exact) return exact
     const byPrefix = ref.length >= 6 ? candidates.filter((a) => a.id.startsWith(ref)) : []
@@ -218,10 +237,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return firing && automation ? { automation, firing } : undefined
   }
 
-  const openQuestion = (firingId: string) =>
+  const openQuestion = (firing: StoredFiring) =>
     saved
-      .comments()
-      .some((c) => c.firingId === firingId && c.kind === 'question' && c.answer === undefined)
+      .comments(firing.automationId)
+      .some((c) => c.firingId === firing.id && c.kind === 'question' && c.answer === undefined)
 
   type Status = 'queued' | 'working' | 'waiting' | 'paused' | 'idle' | 'ended'
 
@@ -232,16 +251,21 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const run = store.getRun(firing.id)
     if (!run) return 'queued'
     if (run.state === 'finished') return 'ended'
-    if (run.state === 'waiting' || openQuestion(firing.id)) return 'waiting'
+    if (run.state === 'waiting' || openQuestion(firing)) return 'waiting'
     if (limited.has(run.id) || store.agentPauses()[run.agent] !== undefined) return 'paused'
     return run.state
   }
 
-  function previousRun(automationId: string): StoredFiring | undefined {
-    return saved
-      .firings(automationId)
-      .findLast((f) => f.state === 'queued' || f.state === 'started')
+  function previousRun(
+    automationId: string,
+    firings: readonly StoredFiring[] = saved.firings(automationId),
+  ): StoredFiring | undefined {
+    return firings.findLast((f) => f.state === 'queued' || f.state === 'started')
   }
+
+  const inQueue = (f: StoredFiring) =>
+    !starting.has(f.id) &&
+    (f.state === 'queued' || (f.state === 'started' && f.resume === 'queued'))
 
   function agentOf(firing: StoredFiring): AgentKind | undefined {
     return store.getRun(firing.id)?.agent ?? saved.get(firing.automationId)?.agent
@@ -249,14 +273,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   function queuedFirings(): StoredFiring[] {
     const automationIds = new Set(live().map((a) => a.id))
-    return saved
-      .firings()
-      .filter(
-        (f) =>
-          automationIds.has(f.automationId) &&
-          !starting.has(f.id) &&
-          (f.state === 'queued' || (f.state === 'started' && f.resume === 'queued')),
-      )
+    return saved.firings().filter((f) => automationIds.has(f.automationId) && inQueue(f))
   }
 
   const source: QueueSource = {
@@ -296,13 +313,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
         })
     },
     holders() {
+      const shown = new Map(live().map((a) => [a.id, a]))
       return saved.firings().flatMap((f): SlotHolder[] => {
-        const automation = saved.get(f.automationId)
-        if (!automation || !factoryOf(automation)) return []
-        const run = store.getRun(f.id)
+        if (!starting.has(f.id) && f.state !== 'started') return []
+        const automation = shown.get(f.automationId)
+        if (!automation) return []
         const holds =
           starting.has(f.id) ||
-          (f.state === 'started' && run?.state === 'working' && statusOf(f) === 'working')
+          (store.getRun(f.id)?.state === 'working' && statusOf(f) === 'working')
         if (!holds) return []
         return [
           {
@@ -447,9 +465,12 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return text === undefined ? undefined : firstLine(text) || undefined
   }
 
-  function failuresInARow(automationId: string): number {
+  function failuresInARow(
+    automationId: string,
+    firings: readonly StoredFiring[] = saved.firings(automationId),
+  ): number {
     let count = 0
-    for (const firing of saved.firings(automationId).reverse()) {
+    for (const firing of firings.toReversed()) {
       if (firing.outcome === 'failed') count++
       else if (firing.outcome === 'finished') break
     }
@@ -494,7 +515,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const run = store.getRun(runId)
     if (run?.state !== 'idle') return
     if (limited.has(runId) || store.agentPauses()[run.agent] !== undefined) return
-    if (openQuestion(own.firing.id)) return
+    if (openQuestion(own.firing)) return
     if ((unread.get(runId)?.length ?? 0) > 0) return
     const message = finalMessage(runId)
     saved.ended(own.firing.id, { outcome: 'finished', ...(message !== undefined && { message }) })
@@ -677,35 +698,52 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return undefined
   }
 
-  function createdBy(automationId: string, firingId?: string) {
-    const links = saved
-      .createdTasks(automationId)
-      .filter((link) => firingId === undefined || link.firingId === firingId)
+  function createdBy(automationId: string) {
+    const links = saved.createdTasks(automationId)
     const tasks = store.tasksIn(new Set(links.map((link) => link.taskId)))
     return new Map(tasks.map((task) => [task.id, task]))
   }
 
+  function recordsOf(automations: readonly StoredAutomation[]): AutomationRecord[] {
+    const keys = new Map(store.listFactories().map((f) => [f.id, f.key]))
+    return automations.map((automation) => ({
+      factoryKey: keys.get(automation.factoryId) ?? '',
+      firings: saved.firings(automation.id),
+      links: saved.createdTasks(automation.id),
+    }))
+  }
+
+  function historyRows(
+    firings: readonly StoredFiring[],
+    links: readonly AutomationTaskRecord[],
+  ): AutomationRun[] {
+    const shown = new Set(firings.map((f) => f.id))
+    const theirs = links.filter((link) => shown.has(link.firingId))
+    const tasks = saved.taskLinks(theirs.map((link) => link.taskId))
+    const ran = saved.firingsWithRun(firings.map((f) => f.id))
+    const created = new Map<string, AutomationTaskLink[]>()
+    for (const link of theirs) {
+      const task = tasks.get(link.taskId)
+      if (!task) continue
+      const known = created.get(link.firingId)
+      if (known) known.push(task)
+      else created.set(link.firingId, [task])
+    }
+    return firings.map((firing) =>
+      historyRow(firing, created.get(firing.id) ?? [], ran.has(firing.id)),
+    )
+  }
+
+  function historyRowOf(firing: StoredFiring): AutomationRun {
+    const [row] = historyRows([firing], saved.createdTasks(firing.automationId))
+    return row ?? historyRow(firing, [], false)
+  }
+
   function historyRow(
     firing: StoredFiring,
-    tasks = createdBy(firing.automationId, firing.id),
+    created: AutomationTaskLink[],
+    ran: boolean,
   ): AutomationRun {
-    const created = saved
-      .createdTasks(firing.automationId)
-      .filter((link) => link.firingId === firing.id)
-      .flatMap((link) => {
-        const task = tasks.get(link.taskId)
-        return task
-          ? [
-              {
-                id: task.id,
-                displayId: task.displayId,
-                title: task.title,
-                stage: task.stage,
-                ...(task.source?.url !== undefined && { source: task.source.url }),
-              },
-            ]
-          : []
-      })
     const result = ((): AutomationRun['result'] => {
       if (firing.state === 'skipped') return { kind: 'skipped' }
       if (firing.state === 'dropped') return { kind: 'dropped' }
@@ -728,22 +766,25 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(firing.finishedAt !== undefined && { finishedAt: firing.finishedAt }),
       ...(created.length > 0 && { created }),
       ...(firing.message !== undefined && { message: firing.message }),
-      ...(store.getRun(firing.id) && { runId: firing.id }),
+      ...(ran && { runId: firing.id }),
     }
   }
 
-  function describe(automation: StoredAutomation, slots: RunSlots | undefined): Automation {
-    const factory = factoryOf(automation)
-    const firings = saved.firings(automation.id)
+  function describe(
+    automation: StoredAutomation,
+    slots: RunSlots | undefined,
+    { factoryKey, firings, links }: AutomationRecord,
+  ): Automation {
     const last = firings.findLast((f) => f.state === 'ended' || f.state === 'skipped')
+    const lastRow = last && historyRows([last], links)[0]
     const place = (id: string) =>
       slots?.queue.find((q) => q.kind === 'automation' && q.runId === id)?.place ?? 0
-    const current = nowOf(previousRun(automation.id), place)
+    const current = nowOf(previousRun(automation.id, firings), place)
     const at = now()
     return {
       id: automation.id,
       factoryId: automation.factoryId,
-      factoryKey: factory?.key ?? '',
+      factoryKey,
       name: automation.name,
       prompt: automation.prompt,
       schedule: automation.schedule,
@@ -768,19 +809,55 @@ export function createAutomations(options: AutomationsOptions): Automations {
           ).map(iso)
         : [],
       ...(current && { now: current }),
-      ...(last && { last: historyRow(last) }),
-      failuresInARow: failuresInARow(automation.id),
+      ...(lastRow && { last: lastRow }),
+      failuresInARow: failuresInARow(automation.id, firings),
       totals: {
         runs: firings.filter((f) => f.state === 'started' || f.state === 'ended').length,
-        tasksCreated: saved.createdTasks(automation.id).length,
+        tasksCreated: links.length,
       },
     }
   }
 
-  function toRequest(id: string): AutomationRequest {
-    const comment = saved.comment(id)
-    const automation = comment && saved.get(comment.automationId)
-    if (!comment || !automation) throw new RequestError(404, `no request ${id}`)
+  async function described(
+    read: () => readonly StoredAutomation[],
+  ): Promise<{ automation: Automation; record: AutomationRecord }[]> {
+    const load = () => {
+      const automations = read()
+      return { automations, records: recordsOf(automations) }
+    }
+    let loaded = load()
+    const queued = loaded.records.flatMap(({ firings }, i) => {
+      const automation = loaded.automations[i]
+      const current = automation && previousRun(automation.id, firings)
+      return current && inQueue(current) ? [current.id] : []
+    })
+    let slots: RunSlots | undefined
+    if (queued.length > 0) {
+      const published = options.queue.publishedSlots?.()
+      const lists = (id: string) =>
+        published?.queue.some((q) => q.kind === 'automation' && q.runId === id) === true
+      if (queued.every(lists)) slots = published
+      else {
+        slots = await options.queue.slots().catch(() => undefined)
+        loaded = load()
+      }
+    }
+    return loaded.automations.flatMap((automation, i) => {
+      const record = loaded.records[i]
+      return record ? [{ automation: describe(automation, slots, record), record }] : []
+    })
+  }
+
+  async function describedOne(automation: StoredAutomation): Promise<Automation> {
+    const [found] = await described(() => [saved.get(automation.id) ?? automation])
+    if (!found) throw new RequestError(404, `no Automation “${automation.id}”`)
+    return found.automation
+  }
+
+  function toRequest(
+    comment: StoredAutomationComment,
+    automation: StoredAutomation,
+  ): AutomationRequest {
     return {
       id: comment.id,
       automationId: automation.id,
@@ -793,6 +870,13 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(comment.answer && { answer: comment.answer }),
       createdAt: comment.createdAt,
     }
+  }
+
+  function requestOf(id: string): AutomationRequest {
+    const comment = saved.comment(id)
+    const automation = comment && saved.get(comment.automationId)
+    if (!comment || !automation) throw new RequestError(404, `no request ${id}`)
+    return toRequest(comment, automation)
   }
 
   function scheduleError(schedule: AutomationSchedule, timeZone: string): void {
@@ -851,10 +935,6 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return firing
   }
 
-  async function slotsNow(): Promise<RunSlots | undefined> {
-    return options.queue.slots().catch(() => undefined)
-  }
-
   for (const firing of saved.firings()) {
     if (firing.state !== 'started' || firing.resume === 'queued') continue
     const run = store.getRun(firing.id)
@@ -882,25 +962,30 @@ export function createAutomations(options: AutomationsOptions): Automations {
       }
     },
     async list(caller, given) {
-      reconcileZones()
+      let reconciled: StoredAutomation[] | undefined = reconcileZones()
       const factory = readScope(caller, given)
       const inFactory = factory === undefined ? undefined : factoryByRef(factory)
-      const slots = await slotsNow()
-      return live()
-        .filter((a) => !inFactory || a.factoryId === inFactory.id)
-        .map((a) => describe(a, slots))
+      const shown = await described(() => {
+        const all = reconciled ?? live()
+        reconciled = undefined
+        return all.filter((a) => !inFactory || a.factoryId === inFactory.id)
+      })
+      return shown.map(({ automation }) => automation)
     },
     async detail(ref, caller, factory) {
-      const automation = find(ref, readScope(caller, factory))
-      const slots = await slotsNow()
-      const tasks = createdBy(automation.id)
+      const found = find(ref, readScope(caller, factory))
+      let first: StoredAutomation | undefined = found
+      const [shown] = await described(() => {
+        const automation = first ?? saved.get(found.id) ?? found
+        first = undefined
+        return [automation]
+      })
+      if (!shown) throw new RequestError(404, `no Automation “${ref}”`)
+      const { firings, links } = shown.record
       return {
-        automation: describe(automation, slots),
-        history: saved
-          .firings(automation.id)
-          .map((firing) => historyRow(firing, tasks))
-          .sort((a, b) => b.at.localeCompare(a.at)),
-        requests: saved.comments(automation.id).map((c) => toRequest(c.id)),
+        automation: shown.automation,
+        history: historyRows(firings, links).sort((a, b) => b.at.localeCompare(a.at)),
+        requests: saved.comments(found.id).map((c) => toRequest(c, found)),
       }
     },
     async create(input, caller) {
@@ -930,7 +1015,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       )
       changed()
       if (input.runNow === true) fireByHand(automation, 'run-now')
-      return describe(saved.get(automation.id) ?? automation, await slotsNow())
+      return describedOne(automation)
     },
     async edit(ref, input, caller, factory) {
       refuseRun(caller)
@@ -963,19 +1048,19 @@ export function createAutomations(options: AutomationsOptions): Automations {
         switchOn(automation, input.on)
       }
       changed()
-      return describe(saved.get(automation.id) ?? automation, await slotsNow())
+      return describedOne(automation)
     },
     async setOn(ref, on, caller, factory) {
       refuseRun(caller)
       const automation = find(ref, factory)
       if (automation.on !== on) switchOn(automation, on)
       changed()
-      return describe(saved.get(automation.id) ?? automation, await slotsNow())
+      return describedOne(automation)
     },
     async runNow(ref, caller, factory) {
       refuseRun(caller)
       const automation = find(ref, factory)
-      return historyRow(fireByHand(automation, 'run-now'))
+      return historyRowOf(fireByHand(automation, 'run-now'))
     },
     async retry(firingId, caller) {
       refuseRun(caller)
@@ -991,7 +1076,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       if (firing.retriedAt !== undefined) {
         throw new RequestError(409, `this Run was already retried at ${firing.retriedAt}`)
       }
-      return historyRow(fireByHand(automation, 'retry', firing.id))
+      return historyRowOf(fireByHand(automation, 'retry', firing.id))
     },
     async delete(ref, caller, factory) {
       refuseRun(caller)
@@ -1004,11 +1089,13 @@ export function createAutomations(options: AutomationsOptions): Automations {
       }
     },
     requests() {
-      const ids = new Set(live().map((a) => a.id))
-      return saved
-        .comments()
-        .filter((c) => ids.has(c.automationId) && c.kind === 'question' && c.answer === undefined)
-        .map((c) => toRequest(c.id))
+      const shown = new Map(live().map((a) => [a.id, a]))
+      return saved.comments().flatMap((c) => {
+        const automation = shown.get(c.automationId)
+        return automation && c.kind === 'question' && c.answer === undefined
+          ? [toRequest(c, automation)]
+          : []
+      })
     },
     comment(caller, { body, choices }) {
       const own = caller.kind === 'run' ? runOf(caller.runId) : undefined
@@ -1021,7 +1108,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         body,
         ...(choices && choices.length > 0 && { choices }),
       })
-      return toRequest(comment.id)
+      return toRequest(comment, own.automation)
     },
     async answer(id, { choice, text }) {
       const comment = saved.comment(id)
@@ -1047,7 +1134,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         throw error
       }
       saved.answerComment(id, answer)
-      return toRequest(id)
+      return requestOf(id)
     },
     runOf,
     check,

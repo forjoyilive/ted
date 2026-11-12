@@ -38,6 +38,7 @@ const demoLinear =
       )
     : undefined
 
+const asanaApi = tedEnv('TED_ASANA_API')
 const linearApi = demoLinear?.url || tedEnv('TED_LINEAR_API')
 
 let daemon: RunningDaemon | undefined
@@ -46,7 +47,8 @@ let stopping = false
 async function shutdown(): Promise<void> {
   if (stopping) return
   stopping = true
-  await daemon?.stop()
+  await daemon?.stop((step) => console.log(`stopping TED’s daemon: ${step}`))
+  console.log('TED’s daemon stopped')
   await demoLinear?.close()
   process.exit(0)
 }
@@ -67,6 +69,7 @@ try {
         simulators: { supported: true },
       }),
     onShutdown: () => void shutdown(),
+    stallProfiles: {},
     checkAgentsOnStart: true,
     ...(appToken !== undefined && { appToken }),
     ...(tedEnv('TED_STAY_AWAKE') !== 'off' && { holdAwake: holdAwakeWithOs() }),
@@ -81,6 +84,15 @@ try {
         openTerminal: (command: string) => appendFile(fixLog, `${command}\n`),
       }),
     },
+    ...(asanaApi && {
+      asana: {
+        oauthOrigin: asanaApi,
+        apiOrigin: asanaApi,
+        ...(tedEnv('TED_ASANA_CALLBACK_PORT') && {
+          callbackPort: Number(tedEnv('TED_ASANA_CALLBACK_PORT')),
+        }),
+      },
+    }),
     ...(linearApi && { linear: { apiUrl: linearApi } }),
     ...(Number(tedEnv('TED_NUDGE_AFTER_MS')) > 0 && {
       nudgeAfterMs: Number(tedEnv('TED_NUDGE_AFTER_MS')),

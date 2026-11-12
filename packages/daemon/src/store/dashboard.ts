@@ -7,6 +7,7 @@ import type {
 } from '@ted/protocol'
 import { type DashboardTaskFacts, factoryDashboard } from '../dashboard.ts'
 import type { FlowCheck, FlowJudgment } from '../dashboard-flow.ts'
+import { readDashboardTiming } from './dashboard-timing.ts'
 import { intervalBoundaries } from './interval-schema.ts'
 import {
   checkResults,
@@ -29,6 +30,7 @@ const historyNames = [
   'v2.ValidateJudged',
   'v1.TaskMovedToBacklog',
   'v1.TaskNeedsPlanning',
+  'v1.TaskQueued',
   'v1.TaskSentBack',
   'v2.TaskSentBack',
 ]
@@ -49,6 +51,7 @@ export function readFactoryDashboard(
   factoryId: string,
   range: DashboardRange,
   asOf: number,
+  sessionId: string,
 ): FactoryDashboard {
   const factory = store.query(queryDb(factories.where({ id: factoryId })))[0]
   const rows = store.query(
@@ -103,6 +106,9 @@ export function readFactoryDashboard(
       const data = JSON.parse(row.data) as Record<string, unknown>
       if (row.name.endsWith('TaskStageEntered')) {
         task.entries.push({ stage: String(data.stage), at: row.at, sequence: sequence(row.id) })
+      } else if (row.name === 'v1.TaskQueued') {
+        if (data.stage === 'intake')
+          task.transitions.push({ stage: 'intake', at: row.at, sequence: sequence(row.id) })
       } else if (row.name.endsWith('TaskMovedToBacklog') || row.name === 'v1.TaskNeedsPlanning') {
         task.transitions.push({ stage: 'backlog', at: row.at, sequence: sequence(row.id) })
       } else if (row.name.endsWith('TaskSentBack')) {
@@ -192,6 +198,26 @@ export function readFactoryDashboard(
         checks.get(row.checkRunId)?.states.push(row.state)
       }
     }
+  }
+  const lower = range === 'all' ? -Infinity : asOf - 2 * (range === '7d' ? 7 : 30) * 86_400_000
+  const selected = rows.filter((row) => {
+    const task = facts.get(row.id)
+    if (!task) return false
+    const start = task.transitions.find((e) => e.stage === 'intake')
+    if (!start || !(Date.parse(start.at) < asOf)) return false
+    const ends = [
+      ...task.entries.filter((e) => e.stage === 'done').map((e) => e.at),
+      ...task.archives,
+    ]
+      .map(Date.parse)
+      .filter((at) => Number.isFinite(at) && at >= Date.parse(start.at))
+    const end = ends.reduce((a, b) => Math.min(a, b), asOf)
+    return end > lower
+  })
+  const activity = readDashboardTiming(store, selected, new Date(asOf).toISOString(), sessionId)
+  for (const [id, task] of facts) {
+    const measured = activity.get(id)
+    if (measured) task.activity = measured
   }
   return factoryDashboard([...facts.values()], range, asOf)
 }

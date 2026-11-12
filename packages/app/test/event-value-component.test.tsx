@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { AgentHealth, Banner } from '@ted/protocol'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { useTaskChanges } from '../src/renderer/changes.ts'
 import { useLineComments } from '../src/renderer/components/LineComments.tsx'
@@ -150,7 +150,7 @@ test('Library event refresh preserves a draft until Discard reloads the current 
 
 function Changes({ t }: { t: ReturnType<typeof task> }) {
   const changes = useTaskChanges(t)
-  const comments = useLineComments(t.id)
+  const comments = useLineComments(t)
   return (
     <output>
       {changes?.repos.length ?? 'loading'} repos, {comments.length} comments
@@ -199,7 +199,7 @@ function Obligations() {
   )
 }
 
-test('validation obligations subscribe before the initial read can emit an update', async () => {
+test('an update during the first validation obligations read is followed by one more read', async () => {
   const first = deferred<import('@ted/protocol').ValidationObligations>()
   let reads = 0
   const api = bridge({
@@ -211,10 +211,61 @@ test('validation obligations subscribe before the initial read can emit an updat
       return { checkRuns: [], satisfied: true, cases: [], blockers: [] }
     },
   })
-  render(<Obligations />)
-  await screen.findByText('Satisfied')
+  render(
+    <>
+      <Obligations />
+      <Obligations />
+    </>,
+  )
+  await act(async () => api.emit({ type: 'task-updated', task: task() }))
+  expect(reads).toBe(1)
   await act(async () =>
     first.resolve({ checkRuns: [], satisfied: false, cases: [], blockers: ['Old read'] }),
   )
-  expect(screen.getByText('Satisfied')).toBeTruthy()
+  expect(await screen.findAllByText('Satisfied')).toHaveLength(2)
+  expect(reads).toBe(2)
+})
+
+test('Library Save loads no second view for its own event, and reloads after one for an outside edit', async () => {
+  const { LibraryPage } = await import('../src/renderer/settings/LibraryPage.tsx')
+  const { defaultMachineSettings } = await import('@ted/protocol/settings')
+  const { user } = await import('./support/component.ts')
+  const library = (version: string, gate: boolean) => ({
+    path: '/library',
+    version,
+    agents: [],
+    problems: [],
+    stages: [{ id: 'review', inOrder: true, enabled: true, gate, from: 'ted' }],
+  })
+  let onDisk = library('v1', true)
+  let saving = deferred<ReturnType<typeof library>>()
+  const api = bridge({ library: () => onDisk, saveLibrary: () => saving.promise })
+  const loads = () => api.request.mock.calls.filter(([name]) => name === 'library').length
+  render(<LibraryPage settings={defaultMachineSettings} dispatch={() => undefined} />)
+  const gate = await screen.findByRole('switch', { name: 'Review sign-off' })
+
+  await user().click(gate)
+  await user().click(screen.getByRole('button', { name: 'Save' }))
+  onDisk = library('v2', false)
+  await act(async () => {
+    api.emit({ type: 'library-changed', version: 'v2' })
+    saving.resolve(library('v2', false))
+  })
+  await act(async () => api.emit({ type: 'library-changed', version: 'v2' }))
+  expect(gate.getAttribute('aria-checked')).toBe('false')
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  expect(loads()).toBe(1)
+
+  saving = deferred()
+  await user().click(gate)
+  await user().click(screen.getByRole('button', { name: 'Save' }))
+  onDisk = library('v4', false)
+  await act(async () => {
+    api.emit({ type: 'library-changed', version: 'v3' })
+    api.emit({ type: 'library-changed', version: 'v4' })
+    saving.resolve(library('v3', true))
+  })
+  await waitFor(() => expect(gate.getAttribute('aria-checked')).toBe('false'))
+  expect(loads()).toBe(2)
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
 })

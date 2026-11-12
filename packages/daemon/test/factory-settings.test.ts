@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import type {
   Banner,
+  DaemonEvent,
   Factory,
   FactorySettingsChanges,
   FactorySettingsView,
@@ -12,11 +13,12 @@ import type {
   SaveSettingsResult,
   SettingsPreview,
 } from '@ted/protocol'
-import { settingsInput } from '@ted/protocol'
+import { readDaemonInfo, settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
+  appClient,
   commitToOrigin,
   makeOriginRepo,
   makeTempHome,
@@ -85,8 +87,19 @@ async function start(options: { workflow?: string | null; gh?: Record<string, un
     return res.body as T
   }
   const factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-  const settings = () => ok<FactorySettingsView>('GET', `/factories/${factory.id}/settings`)
+  const settings = (refresh?: 'first' | 'never') =>
+    ok<FactorySettingsView>(
+      'GET',
+      `/factories/${factory.id}/settings${refresh ? `?refresh=${refresh}` : ''}`,
+    )
   return { ...client, ok, factory, settings }
+}
+
+async function cloneHead(): Promise<string> {
+  const { stdout } = await run('git', ['rev-parse', 'origin/main'], {
+    cwd: path.join(home, 'repos', 'acme', 'widgets'),
+  })
+  return stdout.trim()
 }
 
 const apiPaths = {
@@ -403,8 +416,11 @@ describe('Factory settings', () => {
 
   test('a save refuses settings that changed on GitHub after the page loaded', async () => {
     const client = await start()
-    const view = await client.settings()
+    const view = await client.settings('never')
     await commitToOrigin(scratch, { '.ted/workflow.yaml': `${workflowYaml}# edited elsewhere\n` })
+    const fetched = await cloneHead()
+    expect((await client.settings('never')).version).toBe(view.version)
+    expect(await cloneHead()).toBe(fetched)
     const changes = edit(view, ([primary]) => {
       if (primary) primary.mergeMethod = 'merge'
     })
@@ -415,6 +431,17 @@ describe('Factory settings', () => {
     })
     expect(res.status).toBe(409)
     expect(res.body.error).toMatch(/changed on GitHub/)
+    expect(await cloneHead()).not.toBe(fetched)
+
+    const reopened = await client.settings()
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': `${workflowYaml}# edited again\n` })
+    const again = await client.call('POST', `/factories/${client.factory.id}/settings/save`, {
+      changes,
+      mode: 'merge',
+      version: reopened.version,
+    })
+    expect(again.status).toBe(409)
+    expect(again.body.error).toMatch(/changed on GitHub/)
   })
 
   test('saving is refused with the reason while GitHub is signed out', async () => {
@@ -511,7 +538,7 @@ describe('Factory settings', () => {
         '  - name: up\n    remote: ../..\nstages:',
       ),
     })
-    const traversal = await client.settings()
+    const traversal = await client.settings('first')
     expect(traversal.source).toBe('last-valid')
     expect(traversal.problems.map((p) => p.message)).toContain('`remote` must be a GitHub repo')
 
@@ -522,7 +549,7 @@ describe('Factory settings', () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': workflowYaml.replace('stages:', `${many}stages:`),
     })
-    const tooMany = await client.settings()
+    const tooMany = await client.settings('first')
     expect(tooMany.problems.map((p) => p.message)).toContain('a Factory has at most 10 repos')
     expect((await client.ok<Factory[]>('GET', '/factories'))[0]?.repos).toHaveLength(1)
   })
@@ -609,7 +636,22 @@ describe('Factory settings', () => {
 
   test('a broken .ted/workflow.yaml loads the last valid version, and saving replaces it', async () => {
     const client = await start()
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const events: DaemonEvent[] = []
+    const subscription = await appClient(info, daemon?.appToken).subscribe((e) => events.push(e))
     await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\norder: [work]\n' })
+    const unfetched = await client.settings()
+    expect(unfetched.source).toBe('file')
+    expect(unfetched.problems).toEqual([])
+    await waitUntil(
+      async () =>
+        events.some(
+          (e) => e.type === 'factory-settings-changed' && e.factoryId === client.factory.id,
+        ) || undefined,
+      'factory-settings-changed',
+    )
+    subscription.close()
     const view = await client.settings()
     expect(view.source).toBe('last-valid')
     expect(view.problems.map((p) => p.message)).toContain('`order` must start with `intake`')

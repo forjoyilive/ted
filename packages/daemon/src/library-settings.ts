@@ -31,6 +31,7 @@ import {
   contentVersion,
   readDefaultLayer,
   readLayerDirectory,
+  sameFiles,
   stageFileHash,
 } from './workflow/layers.ts'
 import { resolveWorkflow } from './workflow/resolve.ts'
@@ -48,6 +49,7 @@ export interface LibrarySettingsOptions {
   libraryDir: string
   installed: (agent: AgentKind) => boolean
   emit: (event: DaemonEvent) => void
+  saved?: (version: string) => void
 }
 
 interface Base {
@@ -57,6 +59,7 @@ interface Base {
   version: string
   problems: WorkflowProblem[]
   defaults: CheckedLayer
+  own: CheckedLayer
 }
 
 const knownFile = (file: string) =>
@@ -67,10 +70,18 @@ const library = (files: LayerFiles) => checkLayer({ kind: 'library', files })
 export function createLibrarySettings(options: LibrarySettingsOptions): LibrarySettings {
   const { store, libraryDir } = options
   let saving = false
+  let lastChecked: { files: LayerFiles; layer: CheckedLayer } | undefined
+
+  function check(files: LayerFiles): CheckedLayer {
+    if (!lastChecked || !sameFiles(lastChecked.files, files)) {
+      lastChecked = { files, layer: library(files) }
+    }
+    return lastChecked.layer
+  }
 
   async function load(): Promise<Base> {
     const current = (await readLayerDirectory(libraryDir)) ?? {}
-    const checked = library(current)
+    const checked = check(current)
     const files = checked.valid ? current : (store.lastValidWorkflowLayer('library')?.files ?? {})
     const workflowText = files['workflow.yaml']
     return {
@@ -80,6 +91,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       version: contentVersion(current),
       problems: checked.problems,
       defaults: await readDefaultLayer(),
+      own: checked.valid ? checked : library(files),
     }
   }
 
@@ -134,7 +146,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
   }
 
   function stageRows(base: Base): LibraryStageRow[] {
-    const own = library(base.files)
+    const { own } = base
     const defaults = resolveWorkflow([base.defaults])
     const full = resolveWorkflow([base.defaults, own])
     const drifts = findDrift([base.defaults], own)
@@ -178,9 +190,9 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
   }
 
   function agentRows(base: Base): LibraryAgentRow[] {
-    const own = library(base.files).settings
+    const own = base.own.settings
     const defaults = base.defaults.settings
-    const merged = resolveWorkflow([base.defaults, library(base.files)]).settings
+    const merged = resolveWorkflow([base.defaults, base.own]).settings
     const installed = {
       claude: options.installed('claude'),
       antigravity: options.installed('antigravity'),
@@ -219,8 +231,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
   }
 
   async function view(): Promise<LibraryView> {
-    await options.workflows.inherited()
-    const base = await load()
+    const [base] = await Promise.all([load(), options.workflows.inherited()])
     const problem = invalid(base)
     return {
       path: libraryDir,
@@ -288,7 +299,8 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
         saving = false
       }
       const saved = await view()
-      options.emit({ type: 'library-changed' })
+      options.saved?.(saved.version)
+      options.emit({ type: 'library-changed', version: saved.version })
       return saved
     },
   }

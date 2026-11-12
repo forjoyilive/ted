@@ -32,6 +32,52 @@ export const ctx = {
   cleanup: async () => {},
 }
 
+export interface MergeCleanupEvent {
+  step: string
+  state: 'start' | 'end' | 'failed'
+  elapsedMs: number
+}
+
+export async function cleanupMergeHarness(
+  report: (event: MergeCleanupEvent) => void = (event) =>
+    console.error('[merge-cleanup]', JSON.stringify(event)),
+): Promise<void> {
+  const { home, scratch, daemon, cleanup, ghState, ghLog } = ctx
+  if (!home) return
+  let active: { step: string; since: number } | undefined
+  const finish = (state: 'end' | 'failed') => {
+    if (active)
+      report({
+        step: active.step,
+        state,
+        elapsedMs: Math.round(performance.now() - active.since),
+      })
+    active = undefined
+  }
+  const begin = (step: string) => {
+    finish('end')
+    active = { step, since: performance.now() }
+    report({ step, state: 'start', elapsedMs: 0 })
+  }
+  try {
+    begin('daemon')
+    await daemon?.stop((step) => begin(`daemon.${step}`))
+    if (ctx.daemon === daemon) ctx.daemon = undefined
+    begin('run-hosts')
+    await killRunHosts(home)
+    if (process.env.TED_STUB_GH === ghState) delete process.env.TED_STUB_GH
+    if (process.env.TED_STUB_GH_LOG === ghLog) delete process.env.TED_STUB_GH_LOG
+    begin('home')
+    await cleanup()
+    begin('scratch')
+    await rm(scratch, { recursive: true, force: true })
+    finish('end')
+  } catch (error) {
+    finish('failed')
+    throw error
+  }
+}
+
 export function useMergeHarness(): void {
   beforeEach(async () => {
     const temp = await makeTempHome()
@@ -46,14 +92,10 @@ export function useMergeHarness(): void {
     process.env.TED_STUB_GH_LOG = ctx.ghLog
   })
 
-  afterEach(async () => {
-    await ctx.daemon?.stop()
-    ctx.daemon = undefined
-    await killRunHosts(ctx.home)
-    delete process.env.TED_STUB_GH
-    delete process.env.TED_STUB_GH_LOG
-    await ctx.cleanup()
-    await rm(ctx.scratch, { recursive: true, force: true })
+  afterEach(async (context) => {
+    await cleanupMergeHarness((event) =>
+      console.error('[merge-cleanup]', JSON.stringify({ test: context.task.name, ...event })),
+    )
   })
 }
 

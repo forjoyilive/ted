@@ -1,5 +1,6 @@
 import type { Task } from '@ted/protocol'
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { readableError, ted } from '../ted.ts'
@@ -18,6 +19,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
   const [title, setTitle] = useState(task.title)
   const [description, setDescription] = useState(task.description)
   const [busy, setBusy] = useState(false)
+  const saving = useRef(false)
   const [error, setError] = useState<string>()
 
   useEffect(() => {
@@ -31,7 +33,8 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
   const canSave = !busy && title.trim() !== '' && changed
 
   async function save() {
-    if (!canSave) return
+    if (!canSave || saving.current) return
+    saving.current = true
     setBusy(true)
     setError(undefined)
     try {
@@ -43,6 +46,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
     } catch (failure) {
       setError(readableError(failure))
     } finally {
+      saving.current = false
       setBusy(false)
     }
   }
@@ -65,7 +69,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        onClose()
+        if (!busy) onClose()
       }}
       onKeyDown={onKeyDown}
     >
@@ -73,9 +77,15 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
         <h2 id={headingId} className={styles.heading}>
           Edit {task.displayId}
         </h2>
-        <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
+        <ActionButton
+          type="button"
+          className={styles.close}
+          aria-label="Close"
+          disabled={busy}
+          onClick={onClose}
+        >
           <CloseIcon />
-        </button>
+        </ActionButton>
       </header>
       <input
         className={styles.title}
@@ -98,13 +108,16 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
       <footer className={styles.footer}>
         <span className={styles.note}>Each edit keeps the earlier versions. {note}</span>
         <span className={styles.spacer} />
-        <Button onClick={onClose}>Cancel</Button>
+        <Button disabled={busy} onClick={onClose}>
+          Cancel
+        </Button>
         <Button
           variant="primary"
           shortcut="⌘↵"
           aria-keyshortcuts="Meta+Enter"
           disabled={!canSave}
-          onClick={() => void save()}
+          pending={busy}
+          onClick={() => save()}
         >
           Save
         </Button>

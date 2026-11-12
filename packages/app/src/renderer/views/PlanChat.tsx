@@ -10,6 +10,7 @@ import type {
 } from '@ted/protocol'
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
@@ -105,9 +106,9 @@ function FromPlan({
   return (
     <p className={styles.paneText}>
       {'More from '}
-      <button type="button" className={styles.link} onClick={() => onOpenPlan(from.id)}>
+      <ActionButton type="button" className={styles.link} onClick={() => onOpenPlan(from.id)}>
         {from.title}
-      </button>
+      </ActionButton>
     </p>
   )
 }
@@ -166,9 +167,9 @@ export function LeadSelects({
 
 function Back({ onBack, label = '← Plans' }: { onBack: () => void; label?: string }) {
   return (
-    <button type="button" className={styles.back} onClick={onBack}>
+    <ActionButton type="button" className={styles.back} onClick={onBack}>
       {label}
-    </button>
+    </ActionButton>
   )
 }
 
@@ -269,7 +270,7 @@ function NewPlanChat({
             value={text}
             disabled={sending || cloning}
             onChange={(event) => setText(event.target.value)}
-            onKeyDown={sendOnEnter(() => void send())}
+            onKeyDown={sendOnEnter(() => send())}
           />
           {error !== undefined && (
             <p className={styles.error} role="alert">
@@ -282,7 +283,8 @@ function NewPlanChat({
               size="small"
               shortcut="↵"
               disabled={sending || cloning || text.trim() === ''}
-              onClick={() => void send()}
+              pending={sending}
+              onClick={() => send()}
             >
               Send
             </Button>
@@ -354,7 +356,7 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
   if (!editing) {
     return (
       <h1 className={styles.title}>
-        <button
+        <ActionButton
           type="button"
           className={styles.titleButton}
           title="Rename"
@@ -364,7 +366,7 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
           }}
         >
           {plan.title}
-        </button>
+        </ActionButton>
       </h1>
     )
   }
@@ -376,9 +378,9 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
         aria-label="Title"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        onBlur={() => void save()}
+        onBlur={() => save()}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') void save()
+          if (event.key === 'Enter') save()
           if (event.key === 'Escape') {
             setEditing(false)
             setValue(plan.title)
@@ -423,25 +425,25 @@ function MoreMenu({
       </Button>
       {open && !confirming && (
         <div className={styles.menu} role="menu">
-          <button
+          <ActionButton
             type="button"
             role="menuitem"
             className={styles.menuItem}
             onClick={() => {
               setOpen(false)
-              onRename()
+              return onRename()
             }}
           >
             Rename
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             role="menuitem"
             className={`${styles.menuItem} ${styles.danger}`}
             onClick={() => setConfirming(true)}
           >
             Delete…
-          </button>
+          </ActionButton>
         </div>
       )}
       {open && confirming && (
@@ -466,7 +468,7 @@ function MoreMenu({
             >
               Cancel
             </Button>
-            <Button size="small" variant="danger" onClick={() => void remove()}>
+            <Button size="small" variant="danger" onClick={() => remove()}>
               Delete
             </Button>
           </div>
@@ -485,9 +487,9 @@ function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
       {from.gone === 'deleted' ? (
         from.displayId
       ) : (
-        <button type="button" className={styles.link} onClick={() => onOpenTask(from.id)}>
+        <ActionButton type="button" className={styles.link} onClick={() => onOpenTask(from.id)}>
           {from.displayId}
-        </button>
+        </ActionButton>
       )}
       {` ${when(plan.createdAt)}`}
     </>
@@ -548,7 +550,7 @@ function PlanHeader({
           {[agentLabels[plan.agent], plan.model, plan.effort].filter(Boolean).join(' · ')}
         </span>
         {!ended && (
-          <Button size="small" disabled={stopping} onClick={() => void stop()}>
+          <Button size="small" disabled={stopping} onClick={() => stop()}>
             Stop
           </Button>
         )}
@@ -615,9 +617,9 @@ function OneLiner({
         <span className={styles.lineText}>{` · ${detail} · ${state}`}</span>
         <span className={styles.spacer} />
         {canShow && (
-          <button type="button" className={styles.link} onClick={() => setOpen(!open)}>
+          <ActionButton type="button" className={styles.link} onClick={() => setOpen(!open)}>
             {open ? 'Hide' : showLabel}
-          </button>
+          </ActionButton>
         )}
       </div>
       {open && request.kind === 'round' && request.answer?.kind === 'answered' && (
@@ -683,7 +685,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
             sending={sending}
             talking={false}
             onTalk={undefined}
-            onSend={(answer) => void send(answer)}
+            onSend={(answer) => send(answer)}
           />
           <p className={styles.talkHint}>Typing below talks it through with the planner.</p>
         </>
@@ -693,7 +695,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
           proposal={request.proposal}
           readOnly={false}
           sending={sending}
-          onSend={(answer) => void send(answer)}
+          onSend={(answer) => send(answer)}
         />
       )}
       {error !== undefined && (
@@ -779,7 +781,7 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
         </span>
       )}
       {failed ? (
-        <Button size="small" variant="primary" disabled={retrying} onClick={() => void retry()}>
+        <Button size="small" variant="primary" disabled={retrying} onClick={() => retry()}>
           Retry
         </Button>
       ) : (
@@ -914,14 +916,14 @@ function PlanPane({
           <ul className={styles.paneList}>
             {tasks.map((task) => (
               <li key={task.id}>
-                <button
+                <ActionButton
                   type="button"
                   className={styles.paneTask}
                   onClick={() => onOpenTask(task.id)}
                 >
                   <span className={styles.paneId}>{task.displayId}</span>
                   {task.title}
-                </button>
+                </ActionButton>
                 <span className={styles.paneMuted}>
                   {[
                     task.stage.charAt(0).toUpperCase() + task.stage.slice(1),
@@ -980,10 +982,10 @@ function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
           {from.title}
         </span>
       ) : (
-        <button type="button" className={styles.paneTask} onClick={() => onOpenTask(from.id)}>
+        <ActionButton type="button" className={styles.paneTask} onClick={() => onOpenTask(from.id)}>
           <span className={styles.paneId}>{from.displayId}</span>
           {from.title}
-        </button>
+        </ActionButton>
       )}
       {state.length > 0 && <span className={styles.paneMuted}>{state.join(' · ')}</span>}
     </div>

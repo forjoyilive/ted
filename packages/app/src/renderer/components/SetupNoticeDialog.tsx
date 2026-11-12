@@ -38,7 +38,7 @@ export function SetupNoticeDialog({
               <Button
                 onClick={() => {
                   onCancel()
-                  onOpenTask(notice.task)
+                  return onOpenTask(notice.task)
                 }}
               >
                 Open setup Task
@@ -47,7 +47,7 @@ export function SetupNoticeDialog({
               <Button
                 onClick={() => {
                   setError(undefined)
-                  ted.newSetupTask(task.factoryId).then(
+                  return ted.newSetupTask(task.factoryId).then(
                     (created) => {
                       onCancel()
                       onOpenTask(created)

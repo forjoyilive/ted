@@ -1,4 +1,5 @@
 import type { NewTaskDraft } from '@ted/protocol'
+import { agentKinds } from '@ted/protocol/run'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { cleanup } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
@@ -13,6 +14,7 @@ export function bridge(given: Record<string, Handler>) {
   const handlers: Record<string, Handler> = {
     getSettings: () => defaultMachineSettings,
     agentAvailability: () => [],
+    apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     getSideChat: () => null,
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
     ...given,
@@ -104,6 +106,6 @@ export function draftHandlers() {
       return { draft }
     },
     checkAgentHealth: () =>
-      ['claude', 'codex'].map((agent) => ({ agent, state: 'ready', version: '2.0.0' })),
+      agentKinds.map((agent) => ({ agent, state: 'ready', version: '2.0.0' })),
   }
 }

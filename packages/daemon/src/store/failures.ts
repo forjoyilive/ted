@@ -3,6 +3,7 @@ import type { FailureCase, FailureContext, ValidationProgress } from '@ted/proto
 import { events, failureCases, failureContexts, type schema, validationProgress } from './schema.ts'
 
 export type FailureChange =
+  | 'repair'
   | 'verified'
   | 'recorded'
   | 'assessed'
@@ -19,6 +20,8 @@ export function failureEvent(value: FailureCase, kind: FailureChange) {
     at: new Date().toISOString(),
   }
   switch (kind) {
+    case 'repair':
+      return events.failureRepairIncorporated(input)
     case 'verified':
       return events.failureVerified(input)
     case 'recorded':
@@ -41,6 +44,7 @@ export interface FailureStore {
   saveProgress(value: ValidationProgress): ValidationProgress
   list(taskId: string): FailureCase[]
   get(id: string): FailureCase | undefined
+  contexts(taskId: string): FailureContext[]
   context(id: string): FailureContext | undefined
   capture(value: FailureContext): FailureContext
   event(value: FailureCase, kind: FailureChange): ReturnType<typeof failureEvent>
@@ -65,6 +69,7 @@ export function createFailureStore({
     if (kind === 'recorded') {
       if (
         previous ||
+        value.repairProgress?.length ||
         value.verifications?.length ||
         value.assessments.length ||
         value.additions.length ||
@@ -91,6 +96,7 @@ export function createFailureStore({
           throw new Error('original failure evidence is immutable')
       }
       const changed = {
+        repair: 'repairProgress',
         verified: 'verifications',
         assessed: 'assessments',
         evidence: 'additions',
@@ -126,6 +132,10 @@ export function createFailureStore({
         .map((r) => JSON.parse(r.data) as FailureCase),
     get,
     event,
+    contexts: (taskId) =>
+      store
+        .query(queryDb(failureContexts.where({ taskId })))
+        .map((r) => JSON.parse(r.data) as FailureContext),
     context: (id) => {
       const row = store.query(queryDb(failureContexts.where({ id }))).at(0)
       return row ? (JSON.parse(row.data) as FailureContext) : undefined

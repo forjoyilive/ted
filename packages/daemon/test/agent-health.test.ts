@@ -2,7 +2,14 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type AgentHealth, type Banner, type Factory, type Task, tedPaths } from '@ted/protocol'
+import {
+  type AgentHealth,
+  antigravityPlanNotice,
+  type Banner,
+  type Factory,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -321,8 +328,25 @@ test('Antigravity ACP failures offer repair guidance instead of sign-in and reco
   const repaired = (await client.ok<AgentHealth[]>('POST', '/agents/health/check')).find(
     (h) => h.agent === 'antigravity',
   )
-  expect(repaired?.state).not.toBe('unavailable')
-  expect(repaired?.fix?.label).not.toBe('Update')
+  expect(repaired).toMatchObject({ state: 'unavailable', reason: antigravityPlanNotice })
+  expect(repaired?.fix).toBeUndefined()
+  expect((await agentBanner(client, 'antigravity'))?.action).toMatchObject({
+    opens: { kind: 'settings', section: 'agents' },
+  })
+  await client.ok('PATCH', '/settings', { antigravityPlanAccepted: true })
+  const accepted = await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.state === 'unavailable' ? undefined : health
+  }, 'Antigravity to be checked again once the Google plan is accepted')
+  expect(accepted.state).toBe('signed-out')
+  await client.ok('PATCH', '/settings', {
+    antigravityPlanAccepted: false,
+    billing: { claude: 'subscription', codex: 'subscription', antigravity: 'api-key' },
+  })
+  await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.reason?.includes('GEMINI_API_KEY') ? health : undefined
+  }, 'API-key billing to need a key, not the plan notice')
 })
 
 test('off agents skip routine checks and setup banners until re-enabled', async () => {

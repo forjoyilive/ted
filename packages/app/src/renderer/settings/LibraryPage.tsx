@@ -6,7 +6,8 @@ import type {
   StageId,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { Skeleton } from '../components/Loading.tsx'
@@ -63,7 +64,12 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   const [error, setError] = useState<string>()
   const [changedOnDisk, setChangedOnDisk] = useState(false)
   const [saving, setSaving] = useState(false)
-  const count = draft && loaded ? unsavedLibrary(draft, loaded) : 0
+  const savingNow = useRef(false)
+  const missed = useRef<(string | undefined)[]>([])
+  const count = useMemo(
+    () => (draft && loaded ? unsavedLibrary(draft, loaded) : 0),
+    [draft, loaded],
+  )
 
   const show = useCallback((next: LibraryView) => {
     const fresh = libraryDraft(next)
@@ -80,7 +86,16 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   const { update, refresh } = useEventValue<LibraryView | undefined>({
     initial: undefined,
     load: ted.library,
-    event: (event) => (event.type === 'library-changed' ? 'reload' : undefined),
+    event: (event) => {
+      if (event.type !== 'library-changed') return undefined
+      if (savingNow.current) {
+        missed.current.push(event.version)
+        return undefined
+      }
+      return event.version !== undefined && event.version === shown.current.version
+        ? undefined
+        : 'reload'
+    },
     changed: (next) => {
       if (!next || next.version === shown.current.version) return
       setError(undefined)
@@ -102,6 +117,8 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   async function save() {
     if (!draft || !loaded || !view) return
     setSaving(true)
+    savingNow.current = true
+    missed.current = []
     setError(undefined)
     try {
       const next = await ted.saveLibrary({
@@ -111,9 +128,15 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
       show(next)
       update(() => next)
       setEditing(undefined)
+      savingNow.current = false
+      if (missed.current.some((version) => version !== next.version)) await refresh()
     } catch (failure) {
-      setError(readableError(failure))
+      const message = readableError(failure)
+      savingNow.current = false
+      await refresh()
+      setError(message)
     } finally {
+      savingNow.current = false
       setSaving(false)
     }
   }
@@ -221,13 +244,13 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
           </section>
 
           <p className={styles.agentsLink}>
-            <button
+            <ActionButton
               type="button"
               className={base.link}
               onClick={() => dispatch({ type: 'open-settings', section: 'agents' })}
             >
               Task Lead, Reviewer and Planner are under Agents →
-            </button>
+            </ActionButton>
             <Help>
               Permissions, Checks, Apps and repos belong to each Factory, so they aren’t in the
               Library.
@@ -253,14 +276,14 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
               setEditing(undefined)
               setError(undefined)
               if (changedOnDisk)
-                void refresh().then((next) => {
+                return refresh().then((next) => {
                   if (next) show(next)
                 })
             }}
           >
             Discard
           </Button>
-          <Button size="small" variant="primary" disabled={saving} onClick={() => void save()}>
+          <Button size="small" variant="primary" disabled={saving} onClick={() => save()}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </footer>
@@ -445,6 +468,14 @@ function StageFile({
     ['preview', 'Preview'],
     ['compare', 'Compare with default'],
   ]
+  const defaultText = row.defaultText ?? ''
+  const compared = useMemo(
+    () =>
+      open && tab === 'compare' && text !== null && text !== defaultText
+        ? fileChange(name, defaultText, text)
+        : undefined,
+    [open, tab, text, defaultText, name],
+  )
   return (
     <div className={open ? sections.stageOpen : styles.fileBlock}>
       <div className={styles.fileRow}>
@@ -462,7 +493,7 @@ function StageFile({
             onClick={() => {
               onText(row.defaultText ?? '')
               setTab('edit')
-              onOpen(true)
+              return onOpen(true)
             }}
           >
             Edit in Library
@@ -476,7 +507,7 @@ function StageFile({
               size="small"
               onClick={() => {
                 onText(null)
-                onOpen(false)
+                return onOpen(false)
               }}
             >
               Reset to default
@@ -488,7 +519,7 @@ function StageFile({
         <div className={sections.fileEditor}>
           <div className={sections.tabs} role="tablist" aria-label={`${name} view`}>
             {tabs.map(([value, label]) => (
-              <button
+              <ActionButton
                 key={value}
                 type="button"
                 role="tab"
@@ -497,7 +528,7 @@ function StageFile({
                 onClick={() => setTab(value)}
               >
                 {label}
-              </button>
+              </ActionButton>
             ))}
           </div>
           {tab === 'edit' && (
@@ -520,13 +551,10 @@ function StageFile({
             </div>
           )}
           {tab === 'compare' &&
-            (text === (row.defaultText ?? '') ? (
-              <p className={base.caption}>Same as TED’s default.</p>
+            (compared ? (
+              <FileDiff file={compared} label={`${name} compared with TED’s default`} />
             ) : (
-              <FileDiff
-                file={fileChange(name, row.defaultText ?? '', text)}
-                label={`${name} compared with TED’s default`}
-              />
+              <p className={base.caption}>Same as TED’s default.</p>
             ))}
         </div>
       )}

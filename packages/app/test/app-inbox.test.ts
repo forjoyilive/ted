@@ -93,7 +93,10 @@ describe('Inbox and Gates', () => {
 
     const answered = thread.getByRole('region', { name: 'Design review, answered' }).first()
     await answered.getByText('You requested changes').waitFor()
-    await answered.getByText('“Split the sync step in two.”').waitFor()
+    await answered
+      .locator('blockquote')
+      .getByText('Split the sync step in two.', { exact: true })
+      .waitFor()
     await card.getByRole('button', { name: 'Approve' }).click()
 
     const details = window.getByRole('complementary', { name: 'Task details' })
@@ -275,8 +278,10 @@ describe('Inbox and Gates', () => {
       .getByRole('region', { name: 'A plan needs to settle' })
       .getByText('How conflicts are resolved')
       .waitFor()
-    expect(await ask.getByRole('button', { name: 'Plan in chat' }).isEnabled()).toBe(true)
-    await ask.getByRole('button', { name: 'Split it' }).click()
+    expect(await ask.getByRole('radio', { name: 'Plan in chat' }).isEnabled()).toBe(true)
+    await ask.getByRole('radio', { name: 'Split it' }).check()
+    expect(await ask.isVisible()).toBe(true)
+    await ask.getByRole('button', { name: 'Send', exact: true }).click()
 
     const row = inbox.getByRole('button').filter({ hasText: 'Offline editing for notes' })
     await row.waitFor({ timeout: 20_000 })
@@ -352,12 +357,12 @@ describe('Full Inbox', () => {
     await expect.poll(headlines).toHaveLength(3)
 
     await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
-    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
+    await window.getByRole('heading', { name: /notebook.*Dashboard/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
-    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
+    await window.getByRole('heading', { name: /notebook.*Dashboard/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window)
@@ -374,7 +379,9 @@ describe('Full Inbox', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Question', exact: true })
     await card.getByText('Urgent question?').waitFor()
-    await card.getByRole('button', { name: 'Yes' }).click()
+    await card.getByRole('radio', { name: 'Yes', exact: true }).check()
+    await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
+    await card.getByRole('button', { name: 'Send', exact: true }).click()
     await expect.poll(headlines).toEqual(['Low question?'])
     await expect.poll(() => row('Low question?').getAttribute('aria-current')).toBe('true')
     await card.getByText('Low question?').waitFor()
@@ -431,7 +438,10 @@ describe('Permission requests', () => {
 
     const denied = thread.getByRole('region', { name: 'Permission, answered' }).first()
     await denied.getByText('You denied').waitFor()
-    await denied.getByText('“Use npm, not an install script.”').waitFor()
+    await denied
+      .locator('blockquote')
+      .getByText('Use npm, not an install script.', { exact: true })
+      .waitFor()
     await denied
       .getByText(/\$ curl -s https:\/\/registry\.example\.dev\/install\.sh \| sh$/)
       .waitFor()

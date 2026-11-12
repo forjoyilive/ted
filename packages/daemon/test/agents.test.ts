@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
+import { antigravityPlanNotice } from '@ted/protocol'
 import { afterAll, describe, expect, test, vi } from 'vitest'
 import { parseStartSubAgentRequest } from '../../protocol/src/run-parsers.ts'
 import { antigravityAgent } from '../src/agents/antigravity.ts'
@@ -362,6 +363,22 @@ describe('usage, credentials and cost', () => {
       },
     })
     expect(codex.costOf([usage], 'gpt-5-mini')).toBeCloseTo(0.45)
+    expect(codex.costOf([usage], 'gpt-5')).toBeCloseTo(2.25)
+    expect(codex.costOf([usage], 'gpt-5.3-codex')).toBeCloseTo(3.15)
+    expect(codex.costOf([usage], 'gpt-6.1-sol')).toBeCloseTo(3)
+    expect(codex.costOf([usage], 'gpt-6-sol-2026-10-01')).toBeCloseTo(3)
+    expect(codex.costOf([usage], 'gpt-6-astra')).toBeCloseTo(15)
+    expect(codex.costOf([usage], 'a-model-ted-has-no-price-for')).toBeCloseTo(3)
+    const cached = line({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        tokenUsage: {
+          total: { inputTokens: 1_000_000, cachedInputTokens: 1_000_000, outputTokens: 0 },
+        },
+      },
+    })
+    expect(codex.costOf([cached], 'gpt-6.1-sol')).toBeCloseTo(0.1)
+    expect(codex.costOf([cached], 'gpt-5.5-pro')).toBeCloseTo(30)
   })
 
   test('under API key billing the key variables stay; under Subscription they go', () => {
@@ -802,10 +819,26 @@ test('Antigravity health checks capability and the non-secret sign-in marker wit
   if (!inspect) throw new Error('Missing health inspection')
   const home = await mkdtemp(path.join(tmpdir(), 'ted-agy-health-'))
   try {
-    const base = { binary: agent.binary, env: { ...process.env, HOME: home }, cwd: home }
+    const base = {
+      binary: agent.binary,
+      env: { ...process.env, HOME: home },
+      cwd: home,
+      planAccepted: true,
+    }
     await expect(inspect({ ...base, billing: 'subscription' })).resolves.toEqual({
       signedIn: false,
     })
+    await expect(
+      inspect({ ...base, billing: 'subscription', planAccepted: false }),
+    ).resolves.toEqual({ signedIn: false, problem: { reason: antigravityPlanNotice } })
+    await expect(
+      inspect({
+        ...base,
+        env: { ...base.env, GEMINI_API_KEY: 'stub-key' },
+        billing: 'api-key',
+        planAccepted: false,
+      }),
+    ).resolves.toMatchObject({ signedIn: true, billing: 'api-key' })
     const cache = path.join(home, '.gemini', 'antigravity-cli', 'cache')
     await mkdir(cache, { recursive: true })
     await writeFile(

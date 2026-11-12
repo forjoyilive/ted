@@ -339,3 +339,37 @@ test('a concurrent start either joins the refreshed confirmation or is refused b
     expect((await client.getRun(first.id)).run.state).toBe('finished')
   }
 })
+
+test('an answered idle Task waits for an off replacement agent instead of stopping its current Run', async () => {
+  const { client, info } = await start()
+  const origin = await makeOriginRepo(scratch)
+  await client.addFactory({ repo: origin, key: 'NB' })
+  const task = await client.createTask({
+    factory: 'NB',
+    title: JSON.stringify({ steps: [{ endTurn: true }] }),
+    lead: { agent: 'claude' },
+    start: true,
+  })
+  const leadId = await waitUntil(async () => (await taskOf(client, task.id)).leadRunId, 'Task Lead')
+  await waitUntil(async () => (await client.getRun(leadId)).run.state === 'idle', 'idle Task Lead')
+  await client.changeAgentAvailability({ agent: 'codex', enabled: false })
+  await client.setTaskLead(task.id, { agent: 'codex' })
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const lead = new DaemonClient(info, tokens.issue(leadId))
+  const question = await lead.postComment(task.id, {
+    body: 'Continue with this choice?',
+    choices: ['Go'],
+  })
+  await client.answerRequest(question.id, { action: 'answer', choice: 'Go', text: 'Go' })
+  await waitUntil(async () => {
+    const current = await taskOf(client, task.id)
+    return current.status?.kind === 'queued' && current.status.hold?.includes('off')
+  }, 'disabled replacement waiting')
+  expect((await client.getRun(leadId)).run.state).not.toBe('finished')
+  await client.changeAgentAvailability({ agent: 'codex', enabled: true })
+  const replacement = await waitUntil(async () => {
+    const current = await taskOf(client, task.id)
+    return current.leadRunId && current.leadRunId !== leadId ? current.leadRunId : undefined
+  }, 'enabled replacement Task Lead')
+  expect((await client.getRun(replacement)).run.agent).toBe('codex')
+})

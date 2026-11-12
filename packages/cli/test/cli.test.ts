@@ -308,7 +308,7 @@ describe('ted dev run', () => {
 
     const shown = await shownWhenFinished(id)
     const lines = shown.trim().split('\n')
-    expect(lines[0]).toBe(`Run ${id}  claude  finished`)
+    expect(lines[0]).toBe(`Run ${id.slice(0, 6)}  claude  finished`)
     expect(lines[1]).toMatch(/^Session [0-9a-f-]{36}$/)
     expect(lines).toContain('assistant: hi from the stub')
     expect(lines).toContain('system hook_started Stop')
@@ -323,7 +323,7 @@ describe('ted dev run', () => {
 
     const shown = await shownWhenFinished(id)
     const lines = shown.trim().split('\n')
-    expect(lines[0]).toBe(`Run ${id}  codex  finished`)
+    expect(lines[0]).toBe(`Run ${id.slice(0, 6)}  codex  finished`)
     expect(lines[1]).toMatch(/^Session 0199a000-/)
     expect(lines).toContain('item/completed: hi from Codex')
     expect(lines).toContain('turn/completed')
@@ -520,7 +520,7 @@ describe('ted automation', () => {
     )
     const history = (await ted(['automation', 'history', 'Sentry crash intake'])).stdout
     expect(history).toMatch(
-      / {2}Run now {2}No new Tasks {2}\(Run [0-9a-f-]{36}\)\n {4}No new crashes/,
+      / {2}Run now {2}No new Tasks {2}\(Run [0-9a-f]{6}\)\n {4}No new crashes/,
     )
 
     const shown = await ted(['automation', 'show', 'Sentry crash intake', '--factory', 'NB'])
@@ -867,18 +867,23 @@ test('failure commands capture context and record, inspect, assess and request a
   await writeFile(
     input,
     JSON.stringify({
-      source: { kind: 'finding', runId, finding: 'Extra test failure' },
+      source: { kind: 'finding', runId: runId.slice(0, 6), finding: 'Extra test failure' },
       evidence: 'The fixture service is unavailable.',
-      contextId: context.id,
+      contextId: context.reference,
     }),
   )
   const failure = await invoke(['record', '--file', input])
-  expect((await invoke(['show', failure.id])).source.finding).toBe('Extra test failure')
+  expect(failure.reference).toBe(failure.id.slice(0, 6))
+  expect(failure.source.runId).toBe(runId)
+  expect(failure.contextId).toBe(context.id)
+  expect(failure.contextReference).toBe(context.reference)
+  expect((await invoke(['show', failure.reference])).source.finding).toBe('Extra test failure')
+  expect((await invoke(['show', failure.id])).id).toBe(failure.id)
   await writeFile(
     input,
     JSON.stringify({ evidence: 'A targeted reproduction fails before changed code runs.' }),
   )
-  await invoke(['evidence', failure.id, '--file', input])
+  await invoke(['evidence', failure.reference, '--file', input])
   await writeFile(
     input,
     JSON.stringify({
@@ -886,8 +891,8 @@ test('failure commands capture context and record, inspect, assess and request a
       recommendation: 'Retry; the cause is not established.',
     }),
   )
-  await invoke(['assess', failure.id, '--file', input])
-  expect((await invoke(['ask', failure.id])).decisions).toHaveLength(1)
+  await invoke(['assess', failure.reference, '--file', input])
+  expect((await invoke(['ask', failure.reference])).decisions).toHaveLength(1)
   expect(await invoke(['list'])).toHaveLength(1)
   expect((await invoke(['obligations'])).satisfied).toBe(false)
 })

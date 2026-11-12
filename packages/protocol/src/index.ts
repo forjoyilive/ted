@@ -6,6 +6,7 @@ export {
   workRunning,
 } from './activity.ts'
 export * from './agent-availability.ts'
+export type * from './api-cost.ts'
 export {
   type AppCapture,
   type AppLog,
@@ -41,6 +42,7 @@ export {
   signRequest,
 } from './app-auth.ts'
 export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
+export { type AsanaConfiguration, type AsanaStatus, parseAsanaConfiguration } from './asana.ts'
 export type {
   AnswerAutomationRequest,
   Automation,
@@ -72,6 +74,13 @@ export {
   parseEditAutomationRequest,
   parseSchedulePreviewRequest,
 } from './automation-parsers.ts'
+export {
+  type AutopilotChoice,
+  autopilotEnabled,
+  parseSetTaskAutopilotRequest,
+  type SetTaskAutopilotRequest,
+  type TaskAutopilot,
+} from './autopilot.ts'
 export {
   type Banner,
   type BannerAction,
@@ -189,12 +198,17 @@ export type {
   DashboardTask,
   FactoryDashboard,
   FlowInterval,
+  FlowMeasuredInterval,
   FlowPeriod,
+  FlowReason,
+  FlowReasonId,
+  FlowReasonSample,
   FlowSendBack,
   FlowSendBackGroup,
   FlowStage,
   FlowStageSample,
   FlowTask,
+  FlowTestEvidence,
   FlowValidateOutcome,
   FlowValidateSample,
 } from './dashboard.ts'
@@ -213,6 +227,7 @@ export type {
   Diagnostics,
   LogText,
   ProcessInfo,
+  ProcessUsage,
   RunDiagnostics,
   TokenUse,
 } from './diagnostics.ts'
@@ -233,6 +248,7 @@ export {
   type ReservationId,
   type TaskAssignment,
 } from './execution.ts'
+export * from './execution-pairing.ts'
 export {
   type ExportFormat,
   type ExportRun,
@@ -359,6 +375,8 @@ export {
   agentHealthStates,
   agentProblem,
   agentShortNames,
+  antigravityPlanNotice,
+  antigravityTermsUrl,
   type Billing,
   billingNames,
   billings,

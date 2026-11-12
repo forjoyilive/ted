@@ -149,7 +149,7 @@ const reviewerPrompts = async (client: Client, task: Task) => {
 
 const counter =
   'f="stub-n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";'
-const runIdOf = 'grep -o "[0-9a-f-]\\{36\\}" | head -1'
+const runIdOf = 'grep -o "[0-9a-f]\\{6\\}" | head -1'
 const review = (prompt: string) =>
   `out=$(ted run start --reviewer --prompt-file ${prompt}); ted run wait "$(echo "$out" | ${runIdOf})";`
 const save = (file: string) =>
