@@ -1,4 +1,0 @@
-version: 1
-order: [intake, work, validate, review, merge]
-stages:
-  merge: { gate: true }
