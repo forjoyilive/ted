@@ -143,7 +143,10 @@ describe('setup Tasks', () => {
     await card
       .getByText('Left as TED’s defaults: agents, permissions Auto, 6 working Runs.')
       .waitFor()
-    await card.getByRole('button', { name: 'Approve' }).waitFor()
+    await thread
+      .getByRole('region', { name: 'Answer', exact: true })
+      .getByRole('button', { name: 'Approve' })
+      .waitFor()
     await thread.getByText('TED created this Task to set up this Factory').waitFor()
   }, 90_000)
 })

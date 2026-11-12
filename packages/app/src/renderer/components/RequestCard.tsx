@@ -9,7 +9,7 @@ import type {
   ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
 import {
@@ -389,10 +389,282 @@ function SimulatorRequest({
   )
 }
 
+function reasonChoicesOf(request: Comment): string[] {
+  return request.author.kind === 'ted' &&
+    request.choices?.includes(failureChoices.fixed) &&
+    request.choices.includes(failureChoices['no-longer-applicable'])
+    ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
+    : []
+}
+
+function hasChoices(request: Comment): boolean {
+  return request.kind === 'question' && (request.choices?.length ?? 0) > 0
+}
+
+function useSending(
+  request: Comment,
+  readOnly: boolean,
+  onOpenPlan: ((planId: string) => void) | undefined,
+) {
+  const sendingRef = useRef(false)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string>()
+
+  async function send(answer: AnswerRequest): Promise<boolean> {
+    if (sendingRef.current || readOnly) return false
+    sendingRef.current = true
+    setSending(true)
+    setError(undefined)
+    try {
+      const answered = await ted.answerRequest(request.id, answer)
+      if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
+        onOpenPlan?.(answered.answer.planId)
+      }
+      return true
+    } catch (failed) {
+      setError(readableError(failed))
+      return false
+    } finally {
+      sendingRef.current = false
+      setSending(false)
+    }
+  }
+
+  return { send, sending, setSending, error, setError }
+}
+
+export function RequestAnswer({
+  request,
+  task,
+  onOpenRun,
+  onOpenPlan,
+  lead,
+}: {
+  request: Comment
+  task: Task
+  onOpenRun?: ((runId: string) => void) | undefined
+  onOpenPlan?: ((planId: string) => void) | undefined
+  lead?: ReactNode
+}) {
+  const repairFormId = useId()
+  const [selection, setSelection] = useState<QuestionSelection>()
+  const [otherText, setOtherText] = useState('')
+  const [text, setText] = useState('')
+  const { send: post, sending, setSending, error } = useSending(request, false, onOpenPlan)
+  const typed = text.trim() !== ''
+  const simulators = useSimulators()
+  const [picked, setPicked] = useState<string>()
+  const offered = simulators?.booted ?? request.simulator?.booted ?? []
+  const chosen =
+    picked !== undefined && offered.some((b) => b.udid === picked && !b.recording)
+      ? picked
+      : firstChoice(offered)
+  const chosenOwner = offered.find((b) => b.udid === chosen)?.displayId
+
+  async function send(answer: AnswerRequest) {
+    if (await post(answer)) {
+      setText('')
+      setOtherText('')
+    }
+  }
+
+  const withText = typed ? { text } : {}
+  const reasonChoices = reasonChoicesOf(request)
+  const questionChoices = hasChoices(request)
+  const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
+  const other = selection && 'other' in selection
+  const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
+  const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
+  const answerText = questionChoices && other ? otherText : text
+  const ready = questionChoices
+    ? !repairing &&
+      (selectedChoice !== undefined ? !needsReason || typed : other && otherText.trim() !== '')
+    : typed
+
+  function sendAnswer() {
+    if (!ready || sending) return
+    void send(
+      request.gate
+        ? { action: 'request-changes', text }
+        : {
+            action: 'answer',
+            ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
+            ...(answerText.trim() !== '' && { text: answerText }),
+          },
+    )
+  }
+
+  return (
+    <>
+      {request.simulator && (
+        <SimulatorRequest request={request} readOnly={false} chosen={chosen} onChoose={setPicked} />
+      )}
+      {questionChoices && (
+        <QuestionChoices
+          choices={request.choices ?? []}
+          selection={selection}
+          onSelect={setSelection}
+          allowOther={!request.linearTeam}
+          disabled={sending}
+        />
+      )}
+      {!request.linearTeam && (
+        <textarea
+          className={styles.box}
+          data-answer-box
+          form={repairing ? repairFormId : undefined}
+          aria-label="Your answer"
+          placeholder={
+            request.simulator
+              ? 'Comment…'
+              : needsReason
+                ? 'Your reason…'
+                : request.permission
+                  ? 'Comment, or say why you’re denying…'
+                  : request.design
+                    ? 'Comment, or say what to change…'
+                    : questionChoices
+                      ? other
+                        ? 'Your answer…'
+                        : 'Add to this answer…'
+                      : 'Comment to the Task Lead…'
+          }
+          value={answerText}
+          disabled={sending}
+          onChange={(event) =>
+            questionChoices && other
+              ? setOtherText(event.target.value)
+              : setText(event.target.value)
+          }
+          onKeyDown={
+            request.permission || request.simulator
+              ? undefined
+              : (event) =>
+                  repairing
+                    ? sendOnEnter(
+                        () => event.currentTarget.form?.requestSubmit(),
+                        () => !sending,
+                      )(event)
+                    : sendOnEnter(sendAnswer, () => !!ready && !sending)(event)
+          }
+        />
+      )}
+      {needsReason && (
+        <p className={styles.caption}>Write a reason before sending this decision.</p>
+      )}
+      {questionChoices && request.choices?.includes('Wait for a repair Task') && (
+        <div hidden={!repairing}>
+          <FailureRepairForm
+            id={repairFormId}
+            active={repairing}
+            task={task}
+            request={request}
+            reason={text}
+            onCancel={() => setSelection(undefined)}
+            onSendingChange={setSending}
+          />
+        </div>
+      )}
+      {error !== undefined && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
+      <div className={styles.buttons}>
+        {lead}
+        {request.failed && onOpenRun && (
+          <button
+            type="button"
+            className={styles.openRun}
+            onClick={() => onOpenRun(request.failed?.runId ?? '')}
+          >
+            Open last Run
+          </button>
+        )}
+        {request.gate?.caption !== undefined &&
+          (request.stage === 'clarify' ? (
+            <span className={styles.caption}>{request.gate.caption}</span>
+          ) : (
+            <Help>{request.gate.caption}</Help>
+          ))}
+        {request.simulator ? (
+          <>
+            <Button disabled={sending} onClick={() => void send({ action: 'deny', ...withText })}>
+              Deny
+            </Button>
+            <Button
+              variant="primary"
+              disabled={sending || chosen === undefined}
+              onClick={() =>
+                void send({
+                  action: 'approve',
+                  ...(chosen !== undefined && { simulator: chosen }),
+                  ...withText,
+                })
+              }
+            >
+              {chosenOwner !== undefined ? `Shut down ${chosenOwner}’s and run` : 'Run'}
+            </Button>
+          </>
+        ) : request.permission ? (
+          <>
+            <Button disabled={sending} onClick={() => void send({ action: 'deny', ...withText })}>
+              Deny
+            </Button>
+            <Button
+              variant="primary"
+              arm="approve"
+              disabled={sending}
+              onClick={() => void send({ action: 'approve', ...withText })}
+            >
+              Approve
+            </Button>
+          </>
+        ) : request.gate ? (
+          <>
+            <Button
+              data-request-changes
+              disabled={sending || !typed}
+              onClick={() => void send({ action: 'request-changes', text })}
+            >
+              Request changes
+            </Button>
+            <Button
+              variant="primary"
+              arm="approve"
+              disabled={sending}
+              onClick={() => void send({ action: 'approve', ...withText })}
+            >
+              {request.gate.approveLabel}
+            </Button>
+          </>
+        ) : !repairing ? (
+          <>
+            {request.failed && (
+              <Help>
+                Choose Retry to start a fresh Task Lead Run from the brief, or Other answer to leave
+                a Comment for the next Run. Send confirms your choice.
+              </Help>
+            )}
+            <Button variant="primary" disabled={sending || !ready} onClick={sendAnswer}>
+              Send
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
+export function dockable(request: Comment): boolean {
+  return !request.round && !request.proposal
+}
+
 export function RequestCard({
   request,
   task,
   readOnly = false,
+  answerBelow = false,
   onOpenRun,
   onOpenTask,
   onOpenApp,
@@ -407,55 +679,22 @@ export function RequestCard({
   onOpenFile?: ((file: ChangedFile) => void) | undefined
   onAllChanges?: (() => void) | undefined
   readOnly?: boolean
+  answerBelow?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenTask?: ((id: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onOpenPlan?: ((planId: string) => void) | undefined
 }) {
   const now = useNow()
-  const repairFormId = useId()
-  const [selection, setSelection] = useState<QuestionSelection>()
-  const [otherText, setOtherText] = useState('')
-  const sendingRef = useRef(false)
-  const [text, setText] = useState('')
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string>()
+  const { send, sending, setSending, error, setError } = useSending(request, readOnly, onOpenPlan)
   const shown =
     request.permission && request.body.trim() === ''
       ? 'The agent didn’t provide an explanation for this request.'
       : summary(request)
-  const typed = text.trim() !== ''
   const [showingPrevious, setShowingPrevious] = useState(false)
-  const simulators = useSimulators()
-  const [picked, setPicked] = useState<string>()
-  const offered = simulators?.booted ?? request.simulator?.booted ?? []
-  const chosen =
-    picked !== undefined && offered.some((b) => b.udid === picked && !b.recording)
-      ? picked
-      : firstChoice(offered)
-  const chosenOwner = offered.find((b) => b.udid === chosen)?.displayId
   const changes = request.gate?.changes
   const rows = request.gate?.pullRequests
-
-  async function send(answer: AnswerRequest) {
-    if (sendingRef.current || readOnly) return
-    sendingRef.current = true
-    setSending(true)
-    setError(undefined)
-    try {
-      const answered = await ted.answerRequest(request.id, answer)
-      setText('')
-      setOtherText('')
-      if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
-        onOpenPlan?.(answered.answer.planId)
-      }
-    } catch (failed) {
-      setError(readableError(failed))
-    } finally {
-      sendingRef.current = false
-      setSending(false)
-    }
-  }
+  const below = answerBelow && !readOnly && dockable(request)
 
   async function talk() {
     setSending(true)
@@ -470,36 +709,7 @@ export function RequestCard({
     }
   }
 
-  const withText = typed ? { text } : {}
-  const reasonChoices: string[] =
-    request.author.kind === 'ted' &&
-    request.choices?.includes(failureChoices.fixed) &&
-    request.choices.includes(failureChoices['no-longer-applicable'])
-      ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
-      : []
-  const questionChoices = request.kind === 'question' && (request.choices?.length ?? 0) > 0
-  const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
-  const other = selection && 'other' in selection
-  const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
-  const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
-  const answerText = questionChoices && other ? otherText : text
-  const ready = questionChoices
-    ? !repairing &&
-      (selectedChoice !== undefined ? !needsReason || typed : other && otherText.trim() !== '')
-    : typed
-
-  function sendAnswer() {
-    if (!ready || sending || readOnly) return
-    void send(
-      request.gate
-        ? { action: 'request-changes', text }
-        : {
-            action: 'answer',
-            ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
-            ...(answerText.trim() !== '' && { text: answerText }),
-          },
-    )
-  }
+  const reasonChoices = reasonChoicesOf(request)
 
   return (
     <section
@@ -509,7 +719,8 @@ export function RequestCard({
         ...(readOnly ? [styles.readOnly] : []),
       ].join(' ')}
       aria-label={readOnly ? `${requestLabel(request)}, read-only` : requestLabel(request)}
-      data-request={!readOnly && request.answer === undefined ? request.id : undefined}
+      data-request={!readOnly && !below && request.answer === undefined ? request.id : undefined}
+      data-docked={below && request.answer === undefined ? request.id : undefined}
     >
       <div className={styles.headRow}>
         <CardHead request={request} task={task} now={now} />
@@ -627,175 +838,35 @@ export function RequestCard({
         </p>
       )}
       <PermissionCommand request={request} />
-      {request.simulator && (
+      {readOnly && request.simulator && (
         <SimulatorRequest
           request={request}
-          readOnly={readOnly}
-          chosen={chosen}
-          onChoose={setPicked}
+          readOnly
+          chosen={firstChoice(request.simulator.booted)}
+          onChoose={() => {}}
         />
       )}
-      {questionChoices && (
+      {readOnly && hasChoices(request) && (
         <QuestionChoices
           choices={request.choices ?? []}
-          selection={selection}
-          onSelect={setSelection}
+          selection={undefined}
+          onSelect={() => {}}
           allowOther={!request.linearTeam}
-          disabled={sending || readOnly}
+          disabled
         />
       )}
-      {!readOnly && !request.round && !request.proposal && (
-        <>
-          {!request.linearTeam && (
-            <textarea
-              className={styles.box}
-              data-answer-box
-              form={repairing ? repairFormId : undefined}
-              aria-label="Your answer"
-              placeholder={
-                request.simulator
-                  ? 'Comment…'
-                  : needsReason
-                    ? 'Your reason…'
-                    : request.permission
-                      ? 'Comment, or say why you’re denying…'
-                      : request.design
-                        ? 'Comment, or say what to change…'
-                        : questionChoices
-                          ? other
-                            ? 'Your answer…'
-                            : 'Add to this answer…'
-                          : 'Comment to the Task Lead…'
-              }
-              value={answerText}
-              disabled={sending}
-              onChange={(event) =>
-                questionChoices && other
-                  ? setOtherText(event.target.value)
-                  : setText(event.target.value)
-              }
-              onKeyDown={
-                request.permission || request.simulator
-                  ? undefined
-                  : (event) =>
-                      repairing
-                        ? sendOnEnter(
-                            () => event.currentTarget.form?.requestSubmit(),
-                            () => !sending,
-                          )(event)
-                        : sendOnEnter(sendAnswer, () => !!ready && !sending)(event)
-              }
-            />
-          )}
-          {needsReason && (
-            <p className={styles.caption}>Write a reason before sending this decision.</p>
-          )}
-          {questionChoices && request.choices?.includes('Wait for a repair Task') && (
-            <div hidden={!repairing}>
-              <FailureRepairForm
-                id={repairFormId}
-                active={repairing}
-                task={task}
-                request={request}
-                reason={text}
-                onCancel={() => setSelection(undefined)}
-                onSendingChange={setSending}
-              />
-            </div>
-          )}
-          {error !== undefined && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
-          <div className={styles.buttons}>
-            {request.failed && onOpenRun && (
-              <button
-                type="button"
-                className={styles.openRun}
-                onClick={() => onOpenRun(request.failed?.runId ?? '')}
-              >
-                Open last Run
-              </button>
-            )}
-            {request.gate?.caption !== undefined &&
-              (request.stage === 'clarify' ? (
-                <span className={styles.caption}>{request.gate.caption}</span>
-              ) : (
-                <Help>{request.gate.caption}</Help>
-              ))}
-            {request.simulator ? (
-              <>
-                <Button
-                  disabled={sending}
-                  onClick={() => void send({ action: 'deny', ...withText })}
-                >
-                  Deny
-                </Button>
-                <Button
-                  variant="primary"
-                  disabled={sending || chosen === undefined}
-                  onClick={() =>
-                    void send({
-                      action: 'approve',
-                      ...(chosen !== undefined && { simulator: chosen }),
-                      ...withText,
-                    })
-                  }
-                >
-                  {chosenOwner !== undefined ? `Shut down ${chosenOwner}’s and run` : 'Run'}
-                </Button>
-              </>
-            ) : request.permission ? (
-              <>
-                <Button
-                  disabled={sending}
-                  onClick={() => void send({ action: 'deny', ...withText })}
-                >
-                  Deny
-                </Button>
-                <Button
-                  variant="primary"
-                  arm="approve"
-                  disabled={sending}
-                  onClick={() => void send({ action: 'approve', ...withText })}
-                >
-                  Approve
-                </Button>
-              </>
-            ) : request.gate ? (
-              <>
-                <Button
-                  data-request-changes
-                  disabled={sending || !typed}
-                  onClick={() => void send({ action: 'request-changes', text })}
-                >
-                  Request changes
-                </Button>
-                <Button
-                  variant="primary"
-                  arm="approve"
-                  disabled={sending}
-                  onClick={() => void send({ action: 'approve', ...withText })}
-                >
-                  {request.gate.approveLabel}
-                </Button>
-              </>
-            ) : !repairing ? (
-              <>
-                {request.failed && (
-                  <Help>
-                    Choose Retry to start a fresh Task Lead Run from the brief, or Other answer to
-                    leave a Comment for the next Run. Send confirms your choice.
-                  </Help>
-                )}
-                <Button variant="primary" disabled={sending || !ready} onClick={sendAnswer}>
-                  Send
-                </Button>
-              </>
-            ) : null}
-          </div>
-        </>
+      {below ? (
+        <p className={styles.below}>Answer at the bottom of the Task ↓</p>
+      ) : (
+        !readOnly &&
+        dockable(request) && (
+          <RequestAnswer
+            request={request}
+            task={task}
+            onOpenRun={onOpenRun}
+            onOpenPlan={onOpenPlan}
+          />
+        )
       )}
     </section>
   )

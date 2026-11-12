@@ -90,7 +90,12 @@ function requestScope(scope: ParentNode): ParentNode | undefined {
     active?.closest('[data-request]') ??
     active?.closest('[data-chat-item]')?.querySelector('[data-request]')
   if (request instanceof HTMLElement && requests.includes(request)) return request
-  return requests.length === 0 ? scope : requests.length === 1 ? requests[0] : undefined
+  const docked = active?.closest('[data-chat-item]')?.querySelector<HTMLElement>('[data-docked]')
+    ?.dataset.docked
+  const dock = docked === undefined ? undefined : requests.find((r) => r.dataset.request === docked)
+  if (dock) return dock
+  const only = requests.length === 1 ? requests[0] : undefined
+  return requests.length === 0 ? scope : only?.dataset.others === undefined ? only : undefined
 }
 
 export function armable(scope: ParentNode, action: ArmAction): HTMLButtonElement | undefined {

@@ -387,3 +387,12 @@
 .removed {
   color: var(--diff-removed-count);
 }
+
+.below {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-12-5);
+}

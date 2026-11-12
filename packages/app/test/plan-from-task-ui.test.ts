@@ -105,7 +105,10 @@ describe('Plan in chat from a Task', () => {
     const ask = window
       .getByRole('region', { name: 'Task thread' })
       .getByRole('region', { name: 'Question', exact: true })
-    await ask.getByRole('textbox', { name: 'Your answer' }).fill(
+    const answer = window
+      .getByRole('region', { name: 'Task thread' })
+      .getByRole('region', { name: 'Answer', exact: true })
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill(
       JSON.stringify({
         steps: [{ run: ['ted', 'task', 'propose', '--file', proposal] }, { endTurn: true }],
       }),

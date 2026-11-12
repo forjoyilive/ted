@@ -399,6 +399,10 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+.threadComposer:has(> [data-request]) {
+  border-top-color: var(--status-waiting-fg);
+}
+
 .pinned {
   flex-shrink: 1;
   min-height: 0;
