@@ -460,3 +460,14 @@ export function selectionRange(
   const [from, to] = start < end ? [start, end] : [end, start]
   return ordered.slice(from, to + 1).map((t) => t.id)
 }
+
+export function columnSelection(
+  selected: readonly string[],
+  column: readonly Task[],
+  anchor: string | undefined,
+  target: string,
+): string[] {
+  if (anchor === undefined || !column.some((t) => t.id === anchor)) return toggled(selected, target)
+  const inColumn = new Set(column.map((t) => t.id))
+  return [...selected.filter((id) => !inColumn.has(id)), ...selectionRange(column, anchor, target)]
+}

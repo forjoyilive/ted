@@ -107,6 +107,7 @@ import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
 import { openSnoozeMenu, SnoozedContext } from './request-snooze.ts'
+import { clearSelection, toggleTargetSelection } from './selection.ts'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import {
@@ -188,6 +189,7 @@ function factoryBadges(
 function isTyping(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
+    !target.hasAttribute('data-selection-box') &&
     (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
   )
 }
@@ -433,9 +435,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       }
       if (settingsOpen) dispatch({ type: 'close-settings' })
       else if (navigation.taskId !== undefined) dispatch({ type: 'close-task' })
-      else return false
+      else return clearSelection()
       return true
     },
+    select: toggleTargetSelection,
     move: (direction) => panes.current !== null && moveFocus(panes.current, direction),
     snoozeRequest: () => {
       const row = panes.current ? snoozeTarget(panes.current) : undefined
@@ -839,6 +842,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             tasks={tasks}
             factories={factories}
             settings={settings}
+            slots={slots}
             onOpen={openTask}
             onOpenTask={openTaskByRef}
             onNewTask={() => openNewTask()}
@@ -878,6 +882,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               factoryId={screen.factoryId}
               factory={factory}
               queue={slots?.queue ?? []}
+              slots={slots}
+              settings={settings}
               filters={boardFilters[screen.factoryId] ?? {}}
               onFilters={(filters) =>
                 setBoardFilters((all) => ({ ...all, [screen.factoryId]: filters }))
@@ -905,6 +911,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               scope={screen.factoryId}
               breadcrumb="List"
               settings={settings}
+              slots={slots}
               onOpenTask={openTaskByRef}
               onPlan={openPlans}
             />
