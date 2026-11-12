@@ -4768,6 +4768,8 @@ export function createTasks(options: {
     }
     if (stoppingByHand.has(task.id))
       throw new RequestError(409, 'the Task is still stopping; try again')
+    if (store.tedStopPending(task.id))
+      throw new RequestError(409, 'Resume this Task or choose Restart before talking it through')
     if (task.stopped && store.taskStoppedByHuman(task.id) && !request.confirmResume)
       return { resumeRequired: true }
     if (availableTalkLead(task)) return bindRoundTalk(task, round)

@@ -405,7 +405,7 @@ describe('Talk it through', () => {
     )
   })
 
-  test('a Task stopped by TED starts directly for a talk without asking to resume', async () => {
+  test('a prepared Task starts directly for a talk without asking to resume', async () => {
     let client = await start()
     const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
       endTurn: true,
@@ -429,6 +429,54 @@ describe('Talk it through', () => {
       const round = (await comments(client, task)).find((c) => c.id === item.request.id)
       return round?.talk && round.talk.runId !== first ? round : undefined
     }, 'the automatically started Lead to receive the talk')
+  })
+
+  test('a talk leaves TED’s quit restart offer for the user to answer', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      advance,
+      few,
+      ask(client.storageFile),
+      { say: 'Waiting before quit' },
+      { waitFor: path.join(scratch, 'allow-after-quit') },
+      { endTurn: true },
+    )
+    const item = await openRound(client, 1)
+    await waitForReply(client, task, 'Waiting before quit')
+    const lead = await leadId(client, task)
+    await hostsStarted(home)
+    await client.ok('POST', '/shutdown')
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    const reopened = { ...client, ...connection() }
+    await waitUntil(
+      async () =>
+        (await reopened.ok<{ id: string }[]>('GET', '/ted-stops')).some((t) => t.id === task.id),
+      'the Task’s restart offer',
+    )
+    for (const confirmResume of [false, true]) {
+      expect(
+        await reopened.call('POST', `/comments/${item.request.id}/talk`, { confirmResume }),
+      ).toMatchObject({ status: 409, body: { error: expect.stringContaining('choose Restart') } })
+    }
+    const held = await getTask(reopened, task.id)
+    expect(held.leadRunId).toBe(lead)
+    expect(held.runs.every((run) => run.state === 'finished')).toBe(true)
+    expect(
+      (await comments(reopened, task)).find((c) => c.id === item.request.id)?.talkRequested,
+    ).toBeUndefined()
+    await writeFile(path.join(scratch, 'allow-after-quit'), '')
+    await reopened.ok('POST', '/ted-stops/answer', { restart: [task.id], leave: [] })
+    await waitUntil(
+      async () => (await getTask(reopened, task.id)).leadRunId !== lead,
+      'the user-approved fresh Lead',
+    )
+    await reopened.ok('POST', `/comments/${item.request.id}/talk`)
+    await waitUntil(async () => {
+      const round = (await comments(reopened, task)).find((c) => c.id === item.request.id)
+      return round?.talk?.notifiedAt && round.talk.runId !== lead
+    }, 'the user-approved Lead to receive the talk')
   })
 
   test('a queued talk survives a restart, starts once, and is cancelled by stopping or answering the round', async () => {
