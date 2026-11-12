@@ -1,5 +1,6 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import type { ApiCostReport } from './api-cost.ts'
 import type {
   AppCapture,
   AppLog,
@@ -18,6 +19,7 @@ import {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
+import type { AsanaConfiguration, AsanaStatus } from './asana.ts'
 import type {
   AnswerAutomationRequest,
   Automation,
@@ -31,6 +33,7 @@ import type {
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
+import type { SetTaskAutopilotRequest } from './autopilot.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type {
@@ -67,8 +70,15 @@ import type {
   RestoreBackupResult,
   ShutdownRequest,
 } from './data.ts'
-import type { Diagnostics, LogText } from './diagnostics.ts'
+import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type {
+  ApproveExecution,
+  ExecutionEndpoint,
+  ExecutionGrant,
+  ExecutionMachines,
+  ExecutionOffer,
+} from './execution-pairing.ts'
 import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
@@ -237,6 +247,28 @@ export class DaemonClient {
     this.#token = token
     this.#appKey = appKey
     this.#idleTimeoutMs = idleTimeoutMs
+  }
+
+  executionMachines(): Promise<ExecutionMachines> {
+    return this.#request('GET', '/execution/machines')
+  }
+  configureExecution(input: ExecutionEndpoint): Promise<ExecutionMachines> {
+    return this.#request('POST', '/execution/configure', input)
+  }
+  cancelExecutionEnrollment(): Promise<unknown> {
+    return this.#request('POST', '/execution/cancel-enrollment')
+  }
+  createExecutionEnrollment(): Promise<ExecutionOffer> {
+    return this.#request('POST', '/execution/enrollment')
+  }
+  approveExecution(input: ApproveExecution): Promise<ExecutionGrant> {
+    return this.#request('POST', '/execution/approve', input)
+  }
+  rejectExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/reject', input)
+  }
+  revokeExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/revoke', input)
   }
 
   async provesAppKey(): Promise<boolean> {
@@ -479,6 +511,18 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  setTaskAutopilot(ref: string, request: SetTaskAutopilotRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/autopilot`, request)
+  }
+
+  answerAutopilot(ref: string, id: string, request: AnswerRequest): Promise<Comment> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/autopilot/${encodeURIComponent(id)}`,
+      request,
+    )
   }
 
   taskGates(ref: string): Promise<TaskGates> {
@@ -1059,6 +1103,10 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics')
   }
 
+  getProcessUsage(): Promise<ProcessUsage> {
+    return this.#request('GET', '/diagnostics/usage')
+  }
+
   getReport(): Promise<{ text: string }> {
     return this.#request('GET', '/diagnostics/report')
   }
@@ -1095,6 +1143,10 @@ export class DaemonClient {
     return this.#request('GET', '/agents/health')
   }
 
+  apiCost(): Promise<ApiCostReport> {
+    return this.#request('GET', '/agents/api-cost')
+  }
+
   checkAgentHealth(): Promise<AgentHealth[]> {
     return this.#request('POST', '/agents/health/check')
   }
@@ -1126,6 +1178,28 @@ export class DaemonClient {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/linear-intake`, {
       scope,
     })
+  }
+
+  getAsana(): Promise<AsanaStatus> {
+    return this.#request('GET', '/integrations/asana')
+  }
+  configureAsana(input: AsanaConfiguration): Promise<AsanaStatus> {
+    return this.#request('PUT', '/integrations/asana/configuration', input)
+  }
+  connectAsana(): Promise<{ url: string }> {
+    return this.#request('POST', '/integrations/asana/connect')
+  }
+  cancelAsana(): Promise<AsanaStatus> {
+    return this.#request('POST', '/integrations/asana/cancel')
+  }
+  testAsana(): Promise<AsanaStatus> {
+    return this.#request('POST', '/integrations/asana/test')
+  }
+  disconnectAsana(): Promise<AsanaStatus> {
+    return this.#request('POST', '/integrations/asana/disconnect')
+  }
+  removeAsana(): Promise<AsanaStatus> {
+    return this.#request('DELETE', '/integrations/asana/configuration')
   }
 
   getLinear(): Promise<LinearStatus> {
@@ -1199,8 +1273,13 @@ export class DaemonClient {
     })
   }
 
-  factorySettings(factoryId: string): Promise<FactorySettingsView> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
+  factorySettings(
+    factoryId: string,
+    options: { refresh?: 'background' | 'first' | 'never' } = {},
+  ): Promise<FactorySettingsView> {
+    const { refresh = 'background' } = options
+    const query = refresh === 'background' ? '' : `?refresh=${refresh}`
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings${query}`)
   }
 
   previewFactorySettings(

@@ -114,6 +114,8 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
       limited: () => {},
     },
     local: async () => {},
+    beforeLeadStart: async () => undefined,
+    afterLeadStart: () => {},
     workflow: async () => resolution,
     entries: () => [
       { name: 'widgets', repo: 'acme/widgets', cloneUrl: '', primary: true, env: {}, copy: [] },
@@ -206,6 +208,56 @@ test('the selected revival keeps the Run and applies pending messages and flags'
   })
   expect(revive.mock.calls[0]?.[1].prompt).toContain('Use the approved approach')
   expect(lifecycle.reviveCandidates()).toEqual([])
+  lifecycle.close()
+})
+
+test('incorporation refreshes launch settings and the brief before delivery and fresh Checks', async () => {
+  const order: string[] = []
+  const refreshed = {
+    workflow: resolveWorkflow([]),
+    layers: [],
+  }
+  refreshed.workflow.settings.permissions = 'bypass'
+  const { lifecycle, runs } = harness({
+    local: async () => {
+      order.push('local')
+    },
+    beforeLeadStart: async () => {
+      order.push('incorporate')
+      store.writeBrief({ taskId, text: 'Repair incorporated; fresh Checks required.' })
+      return refreshed
+    },
+    defaultLead: (settings) => {
+      expect(settings).toBe(refreshed.workflow.settings)
+      return { agent: 'codex', model: 'refreshed-default' }
+    },
+    context: async (_task, current, resolution) => {
+      order.push('context')
+      expect(resolution).toBe(refreshed)
+      return {
+        prompt: store.latestBrief(current.id)?.text ?? '',
+        cwd: home,
+        waiting: { comments: [], answers: [] },
+        overnight: false,
+      }
+    },
+    launched: () => {
+      order.push('launched')
+    },
+    deliver: async () => {
+      order.push('delivered')
+    },
+    afterLeadStart: () => {
+      order.push('checks')
+    },
+  })
+  const start = vi.spyOn(runs, 'start')
+  await lifecycle.prepare(taskId, { kind: 'existing' })
+  expect(start.mock.calls[0]?.[0]).toMatchObject({
+    permissions: 'bypass',
+    prompt: 'Repair incorporated; fresh Checks required.',
+  })
+  expect(order).toEqual(['local', 'incorporate', 'context', 'launched', 'delivered', 'checks'])
   lifecycle.close()
 })
 
@@ -409,11 +461,18 @@ test('silence excludes health pauses and stops a Lead once after the fresh inter
   lifecycle.close()
 })
 
-test('idle-point changes wait for restart before delivering held messages', async () => {
+test('an answer arriving during restart waits for admission and wakes the queue afterward', async () => {
   startLead()
   store.setTaskLead(taskId, { agent: 'codex', model: 'new-model', effort: 'high' })
   store.holdLeadMessage(taskId, 'Start Design')
-  const { lifecycle, runs, sent } = harness()
+  let admitted = false
+  const wake = vi.fn()
+  const { lifecycle, runs, sent } = harness({
+    wake,
+    mayContinue: () =>
+      admitted ||
+      !store.getTask(taskId)?.pendingLeadMessages.some((message) => message.waitForSlot),
+  })
   let finish: (() => void) | undefined
   const restarted = new Promise<void>((resolve) => {
     finish = resolve
@@ -434,16 +493,44 @@ test('idle-point changes wait for restart before delivering held messages', asyn
   const applying = lifecycle.applyLead(taskId)
   await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(1))
   expect(sent).toEqual([])
+  store.holdLeadMessage(taskId, 'The user answered', true)
+  await lifecycle.applyLead(taskId)
+  expect(lifecycle.applying(taskId)).toBe(true)
+  expect(restart).toHaveBeenCalledTimes(1)
   if (!finish) throw new Error('restart did not start')
   finish()
   await applying
   expect(store.getRun('lead')).toMatchObject({ model: 'new-model', effort: 'high' })
   expect(restart).toHaveBeenCalledTimes(1)
-  expect(sent.map(({ text }) => text)).toEqual(['Start Design'])
+  expect(sent).toEqual([])
+  expect(lifecycle.applying(taskId)).toBe(false)
+  expect(wake).toHaveBeenCalledTimes(1)
+  admitted = true
+  await lifecycle.applyLead(taskId)
+  expect(sent.map(({ text }) => text)).toEqual(['Start Design', 'The user answered'])
   expect(store.getTask(taskId)).toMatchObject({
     pendingLeadMessages: [],
     leadRestartPending: false,
   })
+  lifecycle.close()
+})
+
+test('an answered Task keeps its durable message until the queue admits it', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  store.holdLeadMessage(taskId, 'The user answered the question', true)
+  let admitted = false
+  const { lifecycle, sent } = harness({ mayContinue: () => admitted })
+  await lifecycle.applyLead(taskId)
+  expect(sent).toEqual([])
+  expect(store.tasksWithQueuedContinuations()).toEqual([taskId])
+  expect(store.getTask(taskId)?.pendingLeadMessages).toMatchObject([
+    { text: 'The user answered the question', waitForSlot: true },
+  ])
+  admitted = true
+  await lifecycle.applyLead(taskId)
+  expect(sent.map(({ text }) => text)).toEqual(['The user answered the question'])
+  expect(store.tasksWithQueuedContinuations()).toEqual([])
   lifecycle.close()
 })
 

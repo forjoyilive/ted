@@ -121,8 +121,9 @@ roundTrip(P.parseAddFailureEvidenceRequest, { evidence: 'More evidence', context
 roundTrip(P.parseAssessFailureRequest, { assessment: 'regression', recommendation: 'Fix this' })
 roundTrip(P.parseResolveFailureRequest, {
   requestId: 'request',
-  resolution: 'fixed',
-  reason: 'Resolved',
+  resolution: 'repair',
+  reason: 'Wait for a focused repair',
+  repair: { kind: 'existing', taskId: 'repair-task' },
 })
 
 rejects(P.parseAppRef, {}, 'name the App')
@@ -291,4 +292,33 @@ test('Coordinator parent edits retain all fields and require an explicit parent 
   expect(() => P.parseCoordinatorAction({ ...input, parentId: undefined }, 'parent')).toThrow(
     'parentId',
   )
+})
+
+test('repair decisions parse existing selection and explicit new-Task approval', () => {
+  for (const repair of [
+    { kind: 'existing', taskId: 'repair-task' },
+    { kind: 'new', title: 'Repair export', description: 'Restore timezone labels', start: true },
+    { kind: 'new', title: 'Repair export', description: 'Restore timezone labels', start: false },
+  ]) {
+    const body = { requestId: 'decision', resolution: 'repair', repair }
+    expect(P.parseResolveFailureRequest(body)).toEqual(body)
+  }
+  for (const repair of [
+    undefined,
+    {},
+    { kind: 'existing', taskId: '' },
+    { kind: 'new', title: '', description: 'Evidence', start: true },
+    { kind: 'new', title: 'Repair', description: 'Evidence', start: 'yes' },
+  ]) {
+    expect(() =>
+      P.parseResolveFailureRequest({ requestId: 'decision', resolution: 'repair', repair }),
+    ).toThrow()
+  }
+  expect(() =>
+    P.parseResolveFailureRequest({
+      requestId: 'decision',
+      resolution: 'accepted',
+      repair: { kind: 'existing', taskId: 'task' },
+    }),
+  ).toThrow()
 })

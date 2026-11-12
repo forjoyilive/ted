@@ -140,7 +140,7 @@ describe('Task details in the app', () => {
     }
   })
 
-  test('a required Sign-off displays On while retaining a previously saved Off choice', async () => {
+  test('Grilling keeps a saved Clarify sign-off Off and editable', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const daemon = await daemonAsApp(home, env())
     await daemon.addFactory({ repo: origin, key: 'NB' })
@@ -160,10 +160,9 @@ describe('Task details in the app', () => {
     await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
     await daemon.setClarifyDepth(task.id, { depth: 'grilling' })
     await details.getByRole('button', { name: '1 overridden · Edit' }).click()
-    await expect(clarify.inputValue()).resolves.toBe('required')
-    await expect(clarify.isDisabled()).resolves.toBe(true)
-    await editor.getByText('Required at grilling depth', { exact: true }).waitFor()
-    await editor.getByText('Your Off choice applies when this sign-off is optional.').waitFor()
+    await expect(clarify.inputValue()).resolves.toBe('off')
+    await expect(clarify.isDisabled()).resolves.toBe(false)
+    expect(await editor.getByText('Required at grilling depth', { exact: true }).count()).toBe(0)
     expect((await daemon.taskGates(task.id)).overrides.clarify).toBe(false)
     if (process.env.TED_REQUIRED_GATE_SCREENSHOT) {
       if (app)
@@ -192,12 +191,17 @@ describe('Task details in the app', () => {
     await taskAtDesignGate()
     let window = await launch()
     const details = window.getByRole('complementary', { name: 'Task details' })
-    const brief = details.getByRole('region', { name: 'Task brief' })
-    await brief.getByText('Goal: Stop the TypeError in SearchPanel.').waitFor()
-    await brief.getByText('Next step: Your sign-off.').waitFor()
+    await details.getByRole('heading', { name: 'Task Details' }).waitFor()
+    expect(await details.getByRole('region', { name: 'Task brief' }).count()).toBe(0)
+    await window.getByRole('button', { name: 'Task actions' }).click()
+    await window.getByRole('menuitem', { name: 'Full brief' }).click()
+    const full = window.getByRole('region', { name: 'Full brief' })
+    await full.getByText('Stop the TypeError in SearchPanel.').waitFor()
+    await full.getByText('Your sign-off.', { exact: true }).waitFor()
+    await full.getByRole('button', { name: '← Task Lead' }).click()
     await expect
       .poll(() => details.getByRole('region').evaluateAll((els) => els.map((e) => e.ariaLabel)))
-      .toEqual(['Code', 'Changes', 'Files', 'Runs', 'Task brief'])
+      .toEqual(['Code', 'Changes', 'Files', 'Runs'])
 
     const runs = details.getByRole('region', { name: 'Runs' })
     await runs.getByRole('button', { name: /^Runs/ }).click()

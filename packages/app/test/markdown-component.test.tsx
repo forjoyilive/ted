@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 import { Markdown } from '../src/renderer/components/Markdown.tsx'
-import { bridge, required, user } from './support/component.ts'
+import { bridge, deferred, required, user } from './support/component.ts'
 
 test('renders nested Markdown and keeps fenced code literal and keyboard reachable', () => {
   const text = [
@@ -80,4 +80,37 @@ test('renders an unfinished streamed fence and updates it when the message compl
   view.rerender(<Markdown text={'Working…\n\n```ts\nconst x = "**raw**"\n```\n\n**Done**'} />)
   expect(screen.getByText('Done').tagName).toBe('STRONG')
   expect(required(view.container.querySelector('code')).textContent).toBe('const x = "**raw**"\n')
+})
+
+test('copies each block literally by keyboard and confirms only a successful copy', async () => {
+  const pending = deferred<void>()
+  const api = bridge({ copyText: () => pending.promise })
+  const view = render(
+    <Markdown text={'Inline `only`\n\n```sh\n  echo "**raw**"\n\necho done\n```\n\n    second'} />,
+  )
+  const buttons = screen.getAllByRole('button', { name: 'Copy code' })
+  expect(buttons).toHaveLength(2)
+  const first = required(buttons[0])
+  first.focus()
+  await user().keyboard('{Enter}')
+  expect(api.request).toHaveBeenCalledExactlyOnceWith('copyText', '  echo "**raw**"\n\necho done\n')
+  expect(first).toHaveProperty('disabled', true)
+  expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual(['', ''])
+  await act(async () => pending.resolve())
+  expect(first.title).toBe('Copied')
+  expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual(['Copied', ''])
+
+  api.handle('copyText', () => Promise.reject(new Error('Clipboard unavailable')))
+  await user().click(required(buttons[1]))
+  expect(api.request).toHaveBeenLastCalledWith('copyText', 'second\n')
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Clipboard unavailable')
+  expect(required(buttons[1]).title).toBe('Copy code')
+  api.handle('copyText', () => undefined)
+  await user().click(required(buttons[1]))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(required(buttons[1]).title).toBe('Copied')
+
+  view.rerender(<Markdown text={'```\nstreaming latest\n```'} />)
+  await user().click(screen.getByRole('button', { name: 'Copy code' }))
+  expect(api.request).toHaveBeenLastCalledWith('copyText', 'streaming latest\n')
 })

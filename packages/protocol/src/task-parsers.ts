@@ -7,6 +7,7 @@ import {
   type RunChecksRequest,
 } from './checks.ts'
 import { proposalCycle } from './proposal.ts'
+import { agentKindList } from './run.ts'
 import type {
   ArchiveTaskRequest,
   AttachmentRef,
@@ -96,7 +97,10 @@ export function parseSetTaskReposRequest(body: unknown): SetTaskReposRequest {
 export function parseTaskLead(body: unknown, name?: string): TaskLead {
   const { agent, ...rest } = agentChoice(body, name)
   if (agent === undefined) {
-    throw new HttpError(400, `${name === undefined ? '' : `${name}.`}agent must be claude or codex`)
+    throw new HttpError(
+      400,
+      `${name === undefined ? '' : `${name}.`}agent must be ${agentKindList}`,
+    )
   }
   const mode = (body as Record<string, unknown>).effortMode
   if (mode !== undefined && mode !== 'stage') throw new HttpError(400, 'effortMode must be stage')

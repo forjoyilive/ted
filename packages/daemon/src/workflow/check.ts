@@ -260,7 +260,10 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
   return settings
 
   function agentChoice(name: 'lead' | 'reviewer' | 'planner', value: Node | null) {
-    const agents = name === 'reviewer' ? ['codex', 'claude', 'same'] : ['claude', 'codex']
+    const agents =
+      name === 'reviewer'
+        ? ['codex', 'claude', 'antigravity', 'same']
+        : ['claude', 'codex', 'antigravity']
     const agentMessage = (path: string) =>
       `\`${path}\` must be ${agents.slice(0, -1).join(', ')} or ${agents.at(-1)}`
     if (isScalar(value)) {

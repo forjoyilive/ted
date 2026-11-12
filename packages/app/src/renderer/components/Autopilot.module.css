@@ -1,0 +1,15 @@
+.field {
+  display: grid;
+  gap: 6px;
+}
+.field small {
+  color: var(--text-tertiary);
+}
+.label {
+  color: var(--text-secondary);
+  background: var(--surface-neutral);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}

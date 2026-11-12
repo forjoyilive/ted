@@ -5,6 +5,7 @@ import type {
   ChatToolStatus,
   ConversationEntry,
   Effort,
+  FixCommand,
   PermissionMode,
   PlanWindow,
   RunProblem,
@@ -12,6 +13,7 @@ import type {
 } from '@ted/protocol'
 
 export interface AgentLaunch {
+  cwd?: string
   command: string
   args: string[]
   env: NodeJS.ProcessEnv
@@ -69,6 +71,7 @@ export interface TokenCount {
 }
 
 export interface AuthCheck {
+  problem?: { reason: string; fix?: FixCommand }
   signedIn: boolean
   account?: string
   billing?: Billing
@@ -82,6 +85,13 @@ export interface CredentialReport {
 }
 
 export interface AgentHealthSpec {
+  inspect?(options: {
+    binary: string
+    env: NodeJS.ProcessEnv
+    cwd: string
+    billing: Billing
+    planAccepted: boolean
+  }): Promise<AuthCheck>
   minimumVersion: string
   versionArgs: string[]
   authArgs: string[]
@@ -126,7 +136,7 @@ export interface Agent {
     model?: string
     effort?: Effort
     permissions: PermissionMode
-    tools?: 'none'
+    tools?: 'none' | 'isolated'
     billing?: Billing
   }): AgentLaunch
   message(text: string): string

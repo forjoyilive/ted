@@ -4,6 +4,7 @@ import { tedEnv } from '@ted/protocol'
 export class UsageError extends Error {}
 
 const flags = {
+  capacity: { type: 'string' },
   reset: { type: 'boolean' },
   approve: { type: 'boolean' },
   'request-changes': { type: 'boolean' },
@@ -98,6 +99,62 @@ function options(...names: (keyof Options)[]): ParseArgsOptionsConfig {
 }
 
 export const commands = [
+  {
+    name: 'autopilot answer',
+    handler: 'autopilotAnswer',
+    min: 1,
+    max: null,
+    help: '  ted autopilot answer <request-id> [--choice "<choice>"] "<decision and explanation>"\n                                             Answer an ordinary question on your own Task while Autopilot is on',
+    callers: 'Task Lead',
+    scope: 'task',
+    options: options('task', 'choice'),
+  },
+  {
+    name: 'execution serve',
+    handler: 'executionServe',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution serve    Run the isolated worker in the foreground',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution start',
+    handler: 'executionStart',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution start    Start or reconnect the isolated background worker',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution stop',
+    handler: 'executionStop',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution stop    Stop the worker service; retain pairing',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution status',
+    handler: 'executionStatus',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution status    Show worker identity and connection status',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution pair',
+    handler: 'executionPair',
+    min: 0,
+    max: 0,
+    options: options('capacity'),
+    help: '  ted execution pair [--capacity <1..64>]    Read pairing details from stdin; approval happens in the main TED app',
+    callers: 'Terminal',
+  },
+
   {
     name: 'failure list',
     handler: 'failureList',
@@ -393,7 +450,7 @@ export const commands = [
     handler: 'startSubAgent',
     min: 0,
     max: 0,
-    help: '  ted run start [--agent claude|codex] [--model <name>] [--effort <level>] --prompt-file <file>\n                [--name <name>] [--own-worktree]\n                                             Start a sub-agent on this Task (Task Lead only);\n                                             prints its Run ID\n  ted run start --reviewer --prompt-file <file>\n                                             Start the reviewer: TED picks its agent, model and\n                                             effort from the reviewer setting',
+    help: '  ted run start [--agent claude|codex|antigravity] [--model <name>] [--effort <level>] --prompt-file <file>\n                [--name <name>] [--own-worktree]\n                                             Start a sub-agent on this Task (Task Lead only);\n                                             prints its Run ID\n  ted run start --reviewer --prompt-file <file>\n                                             Start the reviewer: TED picks its agent, model and\n                                             effort from the reviewer setting',
     callers: 'Task Lead',
     options: options(
       'task',
@@ -823,7 +880,7 @@ export const commands = [
     handler: 'lead',
     min: 2,
     max: 2,
-    help: '  ted task lead <id> claude|codex [--model <name>] [--effort <level> | --stage-effort]\n                                             Set the Task Lead’s agent, model and effort',
+    help: '  ted task lead <id> claude|codex|antigravity [--model <name>] [--effort <level> | --stage-effort]\n                                             Set the Task Lead’s agent, model and effort',
     callers: 'Terminal or Task Lead',
     excludes: ['default-model'],
     options: options('model', 'effort', 'stage-effort'),
@@ -914,7 +971,7 @@ export const commands = [
     handler: 'automationCreate',
     min: 0,
     max: 0,
-    help: '  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|sentry|github|architecture] [--agent claude|codex]\n                [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)',
+    help: '  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|sentry|github|architecture] [--agent claude|codex|antigravity]\n                [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)',
     callers: 'TED app only',
     options: options(
       'factory',
@@ -933,7 +990,7 @@ export const commands = [
     handler: 'automationEdit',
     min: 1,
     max: 1,
-    help: '  ted automation edit <id> [--name <name>] [--schedule "<cron|RRULE>"]\n                [--prompt-file <file>] [--agent claude|codex] [--model <name>]\n                [--effort <level>] [--off]\n                                             Change an Automation',
+    help: '  ted automation edit <id> [--name <name>] [--schedule "<cron|RRULE>"]\n                [--prompt-file <file>] [--agent claude|codex|antigravity] [--model <name>]\n                [--effort <level>] [--off]\n                                             Change an Automation',
     callers: 'TED app only',
     options: options(
       'factory',

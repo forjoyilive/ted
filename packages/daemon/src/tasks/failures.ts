@@ -5,7 +5,7 @@ export const failedTitle = 'The Task Lead stopped twice in 30 minutes'
 
 export const retryChoice = 'Retry'
 
-const binaries: Record<AgentKind, string> = { claude: 'claude', codex: 'codex' }
+const binaries: Record<AgentKind, string> = { claude: 'claude', codex: 'codex', antigravity: 'agy' }
 
 export function endingReason(ending: RunEnding | undefined): string {
   if (ending?.how === 'lost') return 'stopped unexpectedly'

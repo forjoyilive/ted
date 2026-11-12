@@ -32,7 +32,7 @@ export function EditorRow({ settings }: { settings: MachineSettings }) {
 
   const save = (changes: Partial<MachineSettings>) => {
     setProblem(undefined)
-    ted.updateSettings(changes).catch((error: unknown) => setProblem(readableError(error)))
+    return ted.updateSettings(changes).catch((error: unknown) => setProblem(readableError(error)))
   }
 
   const detail =

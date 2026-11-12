@@ -83,7 +83,13 @@ async function startAgent(): Promise<Started> {
   const send = (line: string) => {
     if (agent.stdin.writable) agent.stdin.write(`${line}\n`)
   }
-  const driver = drive?.({ input: launch.input, send, stop: () => agent.kill('SIGTERM') })
+  const driver = drive?.({
+    input: launch.input,
+    cwd: launch.cwd,
+    send,
+    emit: (line) => write({ t: 'out', line, at: new Date().toISOString() }),
+    stop: () => agent.kill('SIGTERM'),
+  })
   if (!driver && launch.input !== '') send(launch.input)
 
   const stdout = createInterface({ input: agent.stdout, crlfDelay: Number.POSITIVE_INFINITY })

@@ -1,7 +1,8 @@
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { Worker } from 'node:worker_threads'
 import type { ProfileResult } from '@ted/protocol'
 import { displayPath } from './backups.ts'
 import { RequestError } from './errors.ts'
@@ -11,19 +12,35 @@ export interface CpuProfiler {
   close(): void
 }
 
+export interface StallProfiles {
+  stallMs?: number
+  startAfterMs?: number
+  tickMs?: number
+  log?: (line: string) => void
+}
+
 export const profilesKept = 5
 
 const samplingMicros = 1000
 const profileName = /^daemon-\d{8}-\d{6}\.cpuprofile$/
+const stallName = /^stall-\d{8}-\d{6}\.cpuprofile$/
+const stallSamplingMicros = 10_000
 
-export function createCpuProfiler(home: string): CpuProfiler {
+export function createCpuProfiler(home: string, stalls?: StallProfiles): CpuProfiler {
   let running: AbortController | undefined
+  let watch: ReturnType<typeof watchStalls> | undefined
+  try {
+    watch = stalls && watchStalls(home, stalls)
+  } catch (error) {
+    console.warn('the stall watch couldn’t start:', error)
+  }
   return {
     async record(seconds) {
       if (running) throw new RequestError(409, 'TED is already recording a CPU profile')
       const stop = new AbortController()
       running = stop
       try {
+        await watch?.pause()
         await profilesDir(home)
         const text = await sample(seconds, stop.signal)
         const name = `daemon-${stamp(new Date())}.cpuprofile`
@@ -36,10 +53,159 @@ export function createCpuProfiler(home: string): CpuProfiler {
         }
       } finally {
         running = undefined
+        watch?.resume()
       }
     },
     close() {
       running?.abort()
+      watch?.close()
+    },
+  }
+}
+
+// Plain JavaScript run in a worker thread, so it works from source and from the staged build.
+// It hears a beat from the daemon’s thread; when the beats stop it profiles that thread through
+// the inspector and, when they come back, posts the profile and how long they were missing.
+const watchdog = `
+const { parentPort, workerData } = require('node:worker_threads')
+const { Session } = require('node:inspector/promises')
+const { tickMs, startAfterMs, samplingMicros } = workerData
+let beat = Date.now()
+let tick = Date.now()
+let paused = false
+let session
+let busy = false
+let owesAck = false
+parentPort.on('message', (message) => {
+  if (message === 'beat') beat = Date.now()
+  else if (message === 'pause') {
+    paused = true
+    owesAck = true
+  } else if (message === 'resume') paused = false
+})
+async function start() {
+  const next = new Session()
+  next.connectToMainThread()
+  try {
+    await next.post('Profiler.enable')
+    await next.post('Profiler.setSamplingInterval', { interval: samplingMicros })
+    await next.post('Profiler.start')
+  } catch (error) {
+    next.disconnect()
+    throw error
+  }
+  session = next
+}
+async function stop(ms) {
+  const current = session
+  session = undefined
+  try {
+    const { profile } = await current.post('Profiler.stop')
+    parentPort.postMessage({ ms, profile: JSON.stringify(profile) })
+  } finally {
+    current.disconnect()
+  }
+}
+let since = 0
+const report = (error) => parentPort.postMessage({ error: String((error && error.message) || error) })
+setInterval(() => {
+  const now = Date.now()
+  const slept = now - tick > tickMs + 2000
+  tick = now
+  if (slept) beat = now
+  if (busy) return
+  const quiet = now - beat
+  if (!session && !paused && quiet >= startAfterMs) {
+    busy = true
+    since = beat
+    start().catch(report).finally(() => { busy = false })
+  } else if (session && (quiet < startAfterMs || paused)) {
+    busy = true
+    stop(slept || paused ? 0 : beat - since).catch(report).finally(() => { busy = false })
+  } else if (paused && owesAck) {
+    owesAck = false
+    parentPort.postMessage({ paused: true })
+  }
+}, tickMs)
+`
+
+interface Watched {
+  ms?: number
+  profile?: string
+  error?: string
+  paused?: boolean
+}
+
+// ADR 0124: when the daemon’s thread stops answering, a worker thread profiles it until it
+// answers again, and a stall of `stallMs` or more is saved. Nothing runs while the daemon
+// is healthy: keeping the profiler on all the time made CPU-bound work several times slower.
+function watchStalls(home: string, options: StallProfiles) {
+  const stallMs = options.stallMs ?? 5_000
+  const tickMs = options.tickMs ?? 250
+  const log = options.log ?? ((line: string) => console.warn(line))
+  let closed = false
+  let saving: Promise<void> = Promise.resolve()
+  const worker = new Worker(watchdog, {
+    eval: true,
+    workerData: {
+      tickMs,
+      startAfterMs: options.startAfterMs ?? 2_000,
+      samplingMicros: stallSamplingMicros,
+    },
+  })
+  let onPaused: (() => void) | undefined
+  worker.on('error', (error) => log(`the stall watch stopped: ${error.message}`))
+  worker.on('message', (message: Watched) => {
+    if (message.paused) {
+      onPaused?.()
+      return
+    }
+    if (closed) return
+    if (message.error !== undefined) {
+      log(`couldn’t profile a stall: ${message.error}`)
+      return
+    }
+    const { ms = 0, profile } = message
+    if (profile === undefined || ms < stallMs) return
+    saving = saving
+      .then(async () => {
+        if (closed) return
+        const dir = await profilesDir(home)
+        const name = `stall-${stamp(new Date())}.cpuprofile`
+        // Written under another name first: the daemon may exit in the middle of the write.
+        const partial = path.join(dir, 'stall.partial')
+        await unlink(partial).catch(() => undefined)
+        await save(partial, profile)
+        await rename(partial, path.join(dir, name))
+        await prune(dir, stallName)
+        log(
+          `event loop blocked for ${ms} ms; a CPU profile of it is in ${displayPath(path.join(home, 'logs', 'profiles', name))}`,
+        )
+      })
+      .catch((error: unknown) =>
+        log(`couldn’t save a stall’s profile: ${error instanceof Error ? error.message : error}`),
+      )
+  })
+  // After the listeners: adding one makes the worker keep the process alive again.
+  worker.unref()
+  const timer = setInterval(() => worker.postMessage('beat'), tickMs)
+  timer.unref()
+  return {
+    async pause() {
+      const stopped = new Promise<void>((resolve) => {
+        onPaused = resolve
+      })
+      worker.postMessage('pause')
+      await Promise.race([stopped, sleep(5_000, undefined, { ref: false })])
+      onPaused = undefined
+    },
+    resume() {
+      worker.postMessage('resume')
+    },
+    close() {
+      closed = true
+      clearInterval(timer)
+      void worker.terminate()
     },
   }
 }
@@ -112,8 +278,8 @@ async function save(file: string, text: string): Promise<void> {
   }
 }
 
-async function prune(dir: string): Promise<void> {
-  const names = (await readdir(dir)).filter((name) => profileName.test(name)).sort()
+async function prune(dir: string, pattern = profileName): Promise<void> {
+  const names = (await readdir(dir)).filter((name) => pattern.test(name)).sort()
   for (const name of names.slice(0, -profilesKept)) {
     const file = path.join(dir, name)
     const info = await lstat(file).catch(() => undefined)

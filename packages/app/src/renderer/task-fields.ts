@@ -26,11 +26,13 @@ export function clarifyDepthText(task: Pick<Task, 'clarifyDepth' | 'clarifyDepth
 export const agentLabels: Record<AgentKind, string> = {
   claude: 'Claude',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 }
 
 export const modelChoices: Record<AgentKind, readonly string[]> = {
   claude: ['opus', 'sonnet', 'haiku'],
   codex: [],
+  antigravity: [],
 }
 
 export function leadSummary(lead: TaskLead): string {

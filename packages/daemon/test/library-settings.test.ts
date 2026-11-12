@@ -154,6 +154,20 @@ describe('Library settings', () => {
       inherited: { layer: 'library', text: edited },
     })
     expect(settings.stages.find((s) => s.id === 'design')).toMatchObject({ gate: false })
+
+    const designGate = async () =>
+      (
+        await client.ok<FactorySettingsView>('GET', `/factories/${factory.id}/settings`)
+      ).stages.find((s) => s.id === 'design')?.gate
+    await client.save({ stages: { design: { gate: true } } }, after.version)
+    expect(await designGate()).toBe(true)
+    const written = await libraryFile('workflow.yaml')
+    expect(written).toContain('gate: true')
+    await writeFile(
+      path.join(libraryDir(), 'workflow.yaml'),
+      (written ?? '').replace('gate: true', 'gate: false'),
+    )
+    expect(await designGate()).toBe(false)
   })
 
   test('Reset to default deletes the Library copy and its based_on', async () => {
@@ -226,15 +240,23 @@ describe('Library settings', () => {
         'library-changed',
       )
       const broken = await client.view()
+      expect(events.filter((e) => e.type === 'library-changed')).toEqual([
+        { type: 'library-changed', version: broken.version },
+      ])
       expect(broken.invalid).toMatchObject({ file: 'workflow.yaml', line: expect.any(Number) })
       expect(broken.invalid?.lastValid?.version).toMatch(/^[0-9a-f]{7}$/)
       expect(broken.stages.find((s) => s.id === 'merge')).toMatchObject({ enabled: false })
 
+      events.length = 0
       const fixed = await client.save({ stages: { merge: { enabled: true } } }, broken.version)
       expect(fixed.invalid).toBeUndefined()
       expect(await libraryFile('workflow.yaml')).toBe(
         'version: 1\nstages:\n  merge:\n    enabled: true\n',
       )
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(events.filter((e) => e.type === 'library-changed')).toEqual([
+        { type: 'library-changed', version: fixed.version },
+      ])
     } finally {
       subscription.close()
     }

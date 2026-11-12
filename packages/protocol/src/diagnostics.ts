@@ -31,6 +31,11 @@ export interface Diagnostics {
   memory: { totalBytes: number; availableBytes: number }
 }
 
+export interface ProcessUsage {
+  cpuPercent: number
+  memoryBytes: number
+}
+
 export interface LogText {
   text: string
   truncated: boolean

@@ -38,6 +38,7 @@ const demoLinear =
       )
     : undefined
 
+const asanaApi = tedEnv('TED_ASANA_API')
 const linearApi = demoLinear?.url || tedEnv('TED_LINEAR_API')
 
 let daemon: RunningDaemon | undefined
@@ -53,6 +54,7 @@ async function shutdown(): Promise<void> {
 
 const claudeBin = tedEnv('TED_CLAUDE_BIN')
 const codexBin = tedEnv('TED_CODEX_BIN')
+const antigravityBin = tedEnv('TED_ANTIGRAVITY_BIN')
 const ghBin = tedEnv('TED_GH_BIN')
 const fixLog = tedEnv('TED_FIX_LOG')
 
@@ -66,11 +68,13 @@ try {
         simulators: { supported: true },
       }),
     onShutdown: () => void shutdown(),
+    stallProfiles: {},
     checkAgentsOnStart: true,
     ...(appToken !== undefined && { appToken }),
     ...(tedEnv('TED_STAY_AWAKE') !== 'off' && { holdAwake: holdAwakeWithOs() }),
     ...(claudeBin && { claudeBin }),
     ...(codexBin && { codexBin }),
+    ...(antigravityBin && { antigravityBin }),
     integrations: {
       checkOnStart: true,
       loginShell: tedEnv('TED_LOGIN_SHELL') !== 'off',
@@ -79,6 +83,15 @@ try {
         openTerminal: (command: string) => appendFile(fixLog, `${command}\n`),
       }),
     },
+    ...(asanaApi && {
+      asana: {
+        oauthOrigin: asanaApi,
+        apiOrigin: asanaApi,
+        ...(tedEnv('TED_ASANA_CALLBACK_PORT') && {
+          callbackPort: Number(tedEnv('TED_ASANA_CALLBACK_PORT')),
+        }),
+      },
+    }),
     ...(linearApi && { linear: { apiUrl: linearApi } }),
     ...(Number(tedEnv('TED_NUDGE_AFTER_MS')) > 0 && {
       nudgeAfterMs: Number(tedEnv('TED_NUDGE_AFTER_MS')),

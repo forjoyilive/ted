@@ -46,6 +46,21 @@ describe('queueOrder', () => {
     ])
   })
 
+  test('answered Tasks precede new Tasks and follow Priority then manual order', () => {
+    const order = queueOrder([
+      task('new-urgent', 'urgent', 0),
+      { ...task('answered-low', 'low', 1), kind: 'continuation' },
+      { ...task('answered-high-later', 'high', 9), kind: 'continuation' },
+      { ...task('answered-high-first', 'high', 3), kind: 'continuation' },
+    ])
+    expect(order.map((entry) => entry.id)).toEqual([
+      'answered-high-first',
+      'answered-high-later',
+      'answered-low',
+      'new-urgent',
+    ])
+  })
+
   test('entries of one class keep their rank order', () => {
     const order = queueOrder([
       { id: 'second', kind: 'automation', rank: 2 },

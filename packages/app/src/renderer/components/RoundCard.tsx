@@ -10,8 +10,10 @@ interface Draft {
   custom?: string
 }
 
-const recommendedDrafts = (round: Round): Draft[] =>
-  round.questions.map((q) => ({ answer: q.recommended, note: '' }))
+const initialDraft = (question: RoundQuestion): Draft => ({
+  answer: question.choices ? '' : question.recommended,
+  note: '',
+})
 
 function Tag({ changed, onReset }: { changed: boolean; onReset: () => void }) {
   if (!changed) return <span className={styles.tag}>Recommended</span>
@@ -145,7 +147,7 @@ export function RoundQuestions({
   onSend: (answer: AnswerRequest) => void
   onTalk: (() => void) | undefined
 }) {
-  const [drafts, setDrafts] = useState(() => recommendedDrafts(round))
+  const [drafts, setDrafts] = useState(() => round.questions.map(initialDraft))
   const update = (i: number, draft: Draft) =>
     setDrafts((all) => all.map((d, at) => (at === i ? draft : d)))
   const complete = drafts.every((d) => (d.other ? (d.custom ?? '') : d.answer).trim() !== '')
@@ -157,7 +159,7 @@ export function RoundQuestions({
             key={question.question}
             question={question}
             number={i + 1}
-            draft={drafts[i] ?? { answer: question.recommended, note: '' }}
+            draft={drafts[i] ?? initialDraft(question)}
             disabled={readOnly || sending}
             onChange={(draft) => update(i, draft)}
           />

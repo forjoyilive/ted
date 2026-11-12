@@ -479,7 +479,7 @@ describe('Validate rounds in a multi-repo Factory', () => {
     const findings = path.join(scratch, 'findings.md')
     await writeFile(findings, '1. The export button does nothing.\n')
     const count = path.join(scratch, 'lead-messages')
-    const review = `out=$(ted run start --reviewer --prompt-file "${prompt}"); ted run wait "$(echo "$out" | grep -o "[0-9a-f-]\\{36\\}" | head -1)";`
+    const review = `out=$(ted run start --reviewer --prompt-file "${prompt}"); ted run wait "$(echo "$out" | grep -o "[0-9a-f]\\{6\\}" | head -1)";`
     const each = {
       run: [
         'sh',

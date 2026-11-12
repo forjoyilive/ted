@@ -5,9 +5,11 @@ import {
   agentKinds,
   agentProblem,
   agentShortNames,
+  antigravityPlanNotice,
   bannerId,
   type DaemonEvent,
   type FixCommand,
+  type MachineSettings,
   offlineProblem,
   type PlanUsage,
   type PlanWindow,
@@ -33,6 +35,7 @@ export const fixWatchMs = 10 * 60 * 1000
 export const freshForMs = 30_000
 export const limitProbeMs = 15 * 60 * 1000
 const resetMarginMs = 5_000
+const usageAgeEveryMs = 60_000
 
 export interface AgentHealthMonitor {
   list(): AgentHealth[]
@@ -91,6 +94,16 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   let closed = false
 
   const emit = (event: DaemonEvent) => options.emit?.(event)
+  const announced = new Map<AgentKind, { shown: string; usageAt: number }>()
+  const shownAs = (health: AgentHealth) =>
+    JSON.stringify({ ...health, planUsage: health.planUsage && { ...health.planUsage, at: '' } })
+  const announce = (health: AgentHealth) => {
+    announced.set(health.agent, {
+      shown: shownAs(health),
+      usageAt: health.planUsage ? Date.parse(health.planUsage.at) : 0,
+    })
+    emit({ type: 'agent-health-changed', health })
+  }
   const billing = (kind: AgentKind) => store.settings().billing[kind]
 
   function fixFor(kind: AgentKind, state: AgentHealthState): FixCommand | undefined {
@@ -122,7 +135,16 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const found = { path: binary, ...(version !== undefined && { version }) }
     if (version !== undefined && compareVersions(version, spec.minimumVersion) < 0)
       return done('too-old', found)
-    const auth = spec.auth(await cli(spec.authArgs))
+    const auth = spec.inspect
+      ? await spec.inspect({
+          binary,
+          env,
+          cwd: home,
+          billing: billing(kind),
+          planAccepted: store.settings().antigravityPlanAccepted,
+        })
+      : spec.auth(await cli(spec.authArgs))
+    if (auth.problem) return done('unavailable', { ...found, ...auth.problem })
     if (!auth.signedIn) return done('signed-out', found)
     const account = { ...found, ...(auth.account !== undefined && { account: auth.account }) }
     if (auth.billing === 'api-key' && billing(kind) === 'subscription') {
@@ -146,8 +168,11 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
             : limit
               ? 'usage-limit'
               : 'ready'
-    const reason = pausedReason(kind, state, limit?.resetsAt, store.settings())
-    const fix = fixFor(kind, state)
+    const reason =
+      state === 'unavailable'
+        ? found.reason
+        : pausedReason(kind, state, limit?.resetsAt, store.settings())
+    const fix = state === 'unavailable' ? found.fix : fixFor(kind, state)
     const keySource = wrongKeys.get(kind)
     const plan = usage.get(kind)
     const { reason: _, fix: __, limitResetsAt: ___, keySource: ____, ...rest } = found
@@ -195,7 +220,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       severity: 'stops-work',
       text: `${health.reason}${count}`,
       action:
-        health.state === 'wrong-credential'
+        health.state === 'wrong-credential' || !health.fix
           ? { label: 'Fix', opens: { kind: 'settings', section: 'agents' } }
           : { label: 'Fix', section: 'agents' },
     })
@@ -227,7 +252,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     latest.set(kind, counted)
     showBanners(counted)
     showOffline()
-    emit({ type: 'agent-health-changed', health: counted })
+    announce(counted)
     if (counted.state === 'ready') {
       const held = store.heldRuns().some((h) => h.agent === kind)
       if (before?.state !== 'ready' || held) {
@@ -412,7 +437,12 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   interval.unref()
 
   let displayedAs = JSON.stringify([store.settings().timeFormat, store.settings().timeZone])
-  let billedAs = JSON.stringify(store.settings().billing)
+  const billed = (settings: MachineSettings) =>
+    JSON.stringify([settings.billing, settings.antigravityPlanAccepted])
+  let billedAs = billed(store.settings())
+  // Before the first check finishes, queued work asks the store whether a kind is paused.
+  if (billing('antigravity') === 'subscription' && !store.settings().antigravityPlanAccepted)
+    store.pauseAgent('antigravity', antigravityPlanNotice)
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'settings-changed') {
       const display = JSON.stringify([event.settings.timeFormat, event.settings.timeZone])
@@ -420,7 +450,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
         displayedAs = display
         for (const kind of agentKinds) publish(kind)
       }
-      const now = JSON.stringify(event.settings.billing)
+      const now = billed(event.settings)
       if (now === billedAs) return
       billedAs = now
       for (const kind of agentKinds) {
@@ -438,7 +468,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       latest.set(health.agent, counted)
       showBanners(counted)
       showOffline()
-      emit({ type: 'agent-health-changed', health: counted })
+      announce(counted)
     }
   })
 
@@ -499,7 +529,10 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       if (!known) return
       const updated = { ...known, planUsage: usage.get(kind) as PlanUsage }
       latest.set(kind, updated)
-      emit({ type: 'agent-health-changed', health: updated })
+      const last = announced.get(kind)
+      const aged = Date.parse(updated.planUsage.at) - (last?.usageAt ?? 0) >= usageAgeEveryMs
+      if (last?.shown === shownAs(updated) && !aged) return
+      announce(updated)
     },
     setOnline(online) {
       if (offline === !online || closed) return

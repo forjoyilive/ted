@@ -20,6 +20,7 @@ import {
   taskRow,
   ted,
 } from './app-harness.ts'
+import { observeStartup } from './startup-evidence.ts'
 
 setUpAppTests()
 
@@ -161,6 +162,7 @@ describe('running in the background', () => {
       args: [appDir, '--background'],
       env: env(),
     })
+    observeStartup(ctx.app, ctx.home)
     await expect.poll(() => readDaemonInfo(ctx.home), { timeout: 20_000 }).toBeDefined()
     await expect.poll(menuLabels).toEqual(expect.arrayContaining(['Quit TED completely']))
 

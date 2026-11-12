@@ -1,7 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type AgentHealth, type Banner, type Factory, type Task, tedPaths } from '@ted/protocol'
+import { fileURLToPath } from 'node:url'
+import {
+  type AgentHealth,
+  antigravityPlanNotice,
+  type Banner,
+  type Factory,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -43,11 +51,14 @@ const setStub = (
   state: { version?: string; signedIn?: boolean; authMethod?: string },
 ) => writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
-async function start(options: { codex?: boolean } = {}) {
+async function start(options: { codex?: boolean; antigravity?: boolean } = {}) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    antigravityBin: options.antigravity
+      ? fileURLToPath(new URL('./fixtures/stub-antigravity.ts', import.meta.url))
+      : path.join(scratch, 'no-agy-here'),
     codexBin: options.codex ? stubCodexPath : path.join(scratch, 'no-codex-here'),
     fixPollMs: 100,
     checkAgentsOnStart: true,
@@ -288,4 +299,52 @@ describe('Agent health', () => {
     expect(res.status).toBe(409)
     expect(opened).toEqual([])
   })
+})
+
+test('Antigravity ACP failures offer repair guidance instead of sign-in and recover after repair', async () => {
+  const state = path.join(home, 'stub-antigravity-health.json')
+  await writeFile(state, JSON.stringify({ help: 'Unrelated CLI help' }))
+  const client = await start({ antigravity: true })
+  const unsupported = await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.state === 'unavailable' ? health : undefined
+  }, 'ACP capability failure')
+  expect(unsupported.reason).toContain('does not advertise ACP support')
+  expect(unsupported.fix).toEqual({ label: 'Update', command: 'agy update' })
+  expect((await agentBanner(client, 'antigravity'))?.text).toContain('ACP support')
+  await writeFile(state, JSON.stringify({ code: 1 }))
+  const failed = (await client.ok<AgentHealth[]>('POST', '/agents/health/check')).find(
+    (h) => h.agent === 'antigravity',
+  )
+  expect(failed).toMatchObject({
+    state: 'unavailable',
+    reason: expect.stringContaining('ACP check failed'),
+  })
+  expect(failed?.fix).toBeUndefined()
+  expect((await agentBanner(client, 'antigravity'))?.action).toMatchObject({
+    opens: { kind: 'settings', section: 'agents' },
+  })
+  await writeFile(state, '{}')
+  const repaired = (await client.ok<AgentHealth[]>('POST', '/agents/health/check')).find(
+    (h) => h.agent === 'antigravity',
+  )
+  expect(repaired).toMatchObject({ state: 'unavailable', reason: antigravityPlanNotice })
+  expect(repaired?.fix).toBeUndefined()
+  expect((await agentBanner(client, 'antigravity'))?.action).toMatchObject({
+    opens: { kind: 'settings', section: 'agents' },
+  })
+  await client.ok('PATCH', '/settings', { antigravityPlanAccepted: true })
+  const accepted = await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.state === 'unavailable' ? undefined : health
+  }, 'Antigravity to be checked again once the Google plan is accepted')
+  expect(accepted.state).toBe('signed-out')
+  await client.ok('PATCH', '/settings', {
+    antigravityPlanAccepted: false,
+    billing: { claude: 'subscription', codex: 'subscription', antigravity: 'api-key' },
+  })
+  await waitUntil(async () => {
+    const health = await healthOf(client, 'antigravity')
+    return health?.reason?.includes('GEMINI_API_KEY') ? health : undefined
+  }, 'API-key billing to need a key, not the plan notice')
 })

@@ -4,6 +4,13 @@ import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
+import {
+  executionHome,
+  serveExecution,
+  startExecutionService,
+  stopExecutionService,
+  workerRequest,
+} from '@ted/daemon/execution'
 import { withDaemon as connectDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
@@ -56,6 +63,8 @@ import {
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
+import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
+import { matchReference, shortReference } from '@ted/protocol/reference'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
   type HandlerName,
@@ -225,7 +234,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (file === undefined)
       throw new UsageError('give the sub-agent’s instructions with --prompt-file <file>')
     if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-      throw new UsageError('--agent must be claude or codex')
+      throw new UsageError('--agent must be claude, codex or antigravity')
     }
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
       throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
@@ -244,8 +253,10 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       }),
     )
     const when = sub.state === 'queued' ? 'queued for a free slot' : 'started'
-    console.log(`Started sub-agent “${printable(sub.name)}” (Run ${sub.id}), ${when}.`)
-    console.log(`Run \`ted run wait ${sub.id}\` for its final message.`)
+    console.log(
+      `Started sub-agent “${printable(sub.name)}” (Run ${shortReference(sub.id)}), ${when}.`,
+    )
+    console.log(`Run \`ted run wait ${shortReference(sub.id)}\` for its final message.`)
   }
 
   async function waitForSubAgent(id: string): Promise<void> {
@@ -463,7 +474,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
 
   function formatRun({ run, conversation }: RunWithConversation): string {
     return [
-      `Run ${run.id}  ${run.agent}  ${run.state}${run.problem === 'model-unavailable' ? '  model unavailable' : ''}`,
+      `Run ${shortReference(run.id)}  ${run.agent}  ${run.state}${run.problem === 'model-unavailable' ? '  model unavailable' : ''}`,
       `Session ${run.sessionId ?? 'not known yet'}`,
       ...conversation.map((entry) => summarize(entry.line)),
     ].join('\n')
@@ -737,7 +748,32 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   ): Promise<void> {
     const ref = taskRef()
     console.log(
-      printable(JSON.stringify(await withDaemon(home, (client) => work(client, ref)), null, 2)),
+      printable(
+        JSON.stringify(
+          await withDaemon(home, (client) => work(client, ref)),
+          (_key, value: unknown) => {
+            if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+            const record = value as Record<string, unknown>
+            return {
+              ...record,
+              ...(typeof record.id === 'string' &&
+                ('source' in record || 'fingerprint' in record || 'disposition' in record) && {
+                  reference: shortReference(record.id),
+                }),
+              ...(typeof record.recordedBy === 'string' && {
+                recordedByReference: shortReference(record.recordedBy),
+              }),
+              ...(typeof record.runId === 'string' && {
+                runReference: shortReference(record.runId),
+              }),
+              ...(typeof record.contextId === 'string' && {
+                contextReference: shortReference(record.contextId),
+              }),
+            }
+          },
+          2,
+        ),
+      ),
     )
   }
 
@@ -766,13 +802,75 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
   }
 
+  function workerHome(): string {
+    if (
+      ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN'].some((name) =>
+        tedEnv(name, env),
+      )
+    )
+      throw new UsageError('Execution service control is not available inside a Run')
+    return executionHome(env)
+  }
+  async function workerOutput(operation: 'start' | 'status' | 'stop' | 'pair'): Promise<void> {
+    const root = workerHome()
+    let status: import('@ted/protocol').WorkerStatus
+    if (operation === 'start') {
+      await startExecutionService(root, env)
+      status = await workerRequest(root, 'start')
+    } else if (operation === 'pair') {
+      const details = (await readStdin()).trim()
+      const input = parseWorkerPairRequest({
+        details,
+        capacity: executionCapacity(Number(options.capacity ?? 2)),
+      })
+      await startExecutionService(root, env, undefined, { resume: false })
+      status = await workerRequest(root, 'pair', input)
+    } else if (operation === 'stop') {
+      await stopExecutionService(root)
+      status = {
+        state: 'stopped',
+        message: 'Execution service stopped; pairing retained.',
+        scopes: [],
+      }
+    } else status = await workerRequest(root, 'status')
+    console.log(JSON.stringify(status, null, 2))
+  }
   const handlers = {
+    executionStart: () => workerOutput('start'),
+    executionStop: () => workerOutput('stop'),
+    executionStatus: () => workerOutput('status'),
+    executionPair: () => workerOutput('pair'),
+    executionServe: async () => {
+      const service = await serveExecution(workerHome(), env)
+      const close = () => void service.close()
+      process.once('SIGTERM', close)
+      process.once('SIGINT', close)
+      try {
+        await service.worker.start()
+        console.log('Execution worker running; close with Ctrl-C.')
+        await service.closed
+      } finally {
+        process.removeListener('SIGTERM', close)
+        process.removeListener('SIGINT', close)
+        await service.close()
+      }
+    },
     failureList: () => failureResult((client, ref) => client.listFailures(ref)),
     failureContext: () => failureResult((client, ref) => client.captureFailureContext(ref)),
     failureObligations: () => failureResult((client, ref) => client.validationObligations(ref)),
     failureShow: () =>
       failureResult(async (client, ref) => {
-        const found = (await client.listFailures(ref)).find((value) => value.id === args[0])
+        const values = await client.listFailures(ref)
+        const match = matchReference(
+          args[0] ?? '',
+          values.map((value) => value.id),
+        )
+        if (match.kind === 'ambiguous')
+          throw new UsageError(
+            'More than one failure case matches. Use more characters or the full ID.',
+          )
+        const found =
+          match.kind === 'found' ? values.find((value) => value.id === match.id) : undefined
         if (!found) throw new UsageError('no such failure on this Task')
         return found
       }),
@@ -903,6 +1001,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           ? `Asked the human (request ${comment.id}). TED sends you their answer.`
           : 'Posted',
       )
+    },
+    autopilotAnswer: async () => {
+      const [id = '', ...words] = args
+      const text = words.join(' ') || (await readStdin())
+      if (!text.trim()) throw new UsageError('give a decision and explanation')
+      if ((options.choice?.length ?? 0) > 1) throw new UsageError('choose at most one answer')
+      await withDaemon(home, (client) =>
+        client.answerAutopilot(taskRef(), id, {
+          action: 'answer',
+          text,
+          ...(options.choice?.[0] !== undefined && { choice: options.choice[0] }),
+        }),
+      )
+      console.log('Autopilot answered the question')
     },
     comment: async () => {
       const ref = taskRef()
@@ -1099,7 +1211,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (text.trim() === '') throw new UsageError('give the message as text or on stdin')
       const sub = await withDaemon(home, (client) => client.sendSubAgent(id, text))
       console.log(
-        `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
+        `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${shortReference(sub.id)}\` for its answer.`,
       )
     },
     boundary: async () => {
@@ -1260,7 +1372,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (options['stage-effort'] && effort !== undefined)
         throw new UsageError('choose --stage-effort or --effort')
       if (!agentKinds.includes(agent as AgentKind))
-        throw new UsageError('agent must be claude or codex')
+        throw new UsageError('agent must be claude, codex or antigravity')
       if (effort !== undefined && !efforts.includes(effort as Effort)) {
         throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
       }

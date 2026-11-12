@@ -54,6 +54,7 @@ export function stubKeyring(file: string): Keyring {
   }
 }
 
-export default function createStubKeyring(): Keyring {
-  return stubKeyring(process.env.TED_STUB_KEYRING ?? stubKeyringFile(tedHome()))
+export default function createStubKeyring(account = 'linear-api-key'): Keyring {
+  const file = process.env.TED_STUB_KEYRING ?? stubKeyringFile(tedHome())
+  return stubKeyring(account === 'linear-api-key' ? file : `${file}.${account}`)
 }

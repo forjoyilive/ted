@@ -99,6 +99,7 @@ export const tasks = State.SQLite.table({
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
     gateOverrides: State.SQLite.text({ nullable: true }),
+    autopilotChoice: State.SQLite.text({ nullable: true }),
     changesSettings: State.SQLite.boolean({ default: false }),
     splitFrom: State.SQLite.text({ nullable: true }),
     needsPlanningAt: State.SQLite.text({ nullable: true }),
@@ -106,6 +107,11 @@ export const tasks = State.SQLite.table({
     setup: State.SQLite.boolean({ default: false }),
     createdAt: State.SQLite.text(),
   },
+})
+
+export const executionPairing = State.SQLite.table({
+  name: 'executionPairing',
+  columns: { id: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
 })
 
 export const executionMachine = State.SQLite.table({
@@ -428,6 +434,7 @@ export const comments = State.SQLite.table({
     taskId: State.SQLite.text(),
     kind: State.SQLite.text(),
     body: State.SQLite.text(),
+    autopilotAnswered: State.SQLite.boolean({ default: false }),
     authorKind: State.SQLite.text({ default: 'run' }),
     authorRunId: State.SQLite.text({ nullable: true }),
     stage: State.SQLite.text({ nullable: true }),
@@ -633,6 +640,20 @@ export const checkResults = State.SQLite.table({
     state: State.SQLite.text(),
     exitCode: State.SQLite.integer({ nullable: true }),
     durationMs: State.SQLite.integer({ nullable: true }),
+  },
+})
+
+export const runUsage = State.SQLite.table({
+  name: 'runUsage',
+  indexes: [{ name: 'idx_runUsage_at', columns: ['at'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    agent: State.SQLite.text(),
+    model: State.SQLite.text({ nullable: true }),
+    input: State.SQLite.integer(),
+    output: State.SQLite.integer(),
+    cost: State.SQLite.real({ nullable: true }),
+    at: State.SQLite.text(),
   },
 })
 
@@ -971,6 +992,18 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  executionControllerConfigured: Events.synced({
+    name: 'v1.ExecutionControllerConfigured',
+    schema: Schema.Struct({ data: Schema.String }),
+  }),
+  executionMachineApproved: Events.synced({
+    name: 'v1.ExecutionMachineApproved',
+    schema: Schema.Struct({ id: Schema.String, data: Schema.String }),
+  }),
+  executionMachineRevoked: Events.synced({
+    name: 'v1.ExecutionMachineRevoked',
+    schema: Schema.Struct({ id: Schema.String, data: Schema.String }),
+  }),
   testInvocationRecorded: Events.synced({
     name: 'v1.TestInvocationRecorded',
     schema: Schema.Struct({ id: Schema.String, taskId: Schema.String, data: Schema.String }),
@@ -1062,6 +1095,15 @@ export const events = {
   }),
   failureDecisionRequested: Events.synced({
     name: 'v1.FailureDecisionRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureRepairIncorporated: Events.synced({
+    name: 'v1.FailureRepairIncorporated',
     schema: Schema.Struct({
       id: Schema.String,
       taskId: Schema.String,
@@ -1337,6 +1379,14 @@ export const events = {
   taskFollowsUp: Events.synced({
     name: 'v1.TaskFollowsUp',
     schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskAutopilotChanged: Events.synced({
+    name: 'v1.TaskAutopilotChanged',
+    schema: Schema.Struct({ taskId: Schema.String, choice: Schema.String, at: Schema.String }),
+  }),
+  commentAnsweredByAutopilot: Events.synced({
+    name: 'v1.CommentAnsweredByAutopilot',
+    schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
   }),
   taskGatesChanged: Events.synced({
     name: 'v1.TaskGatesChanged',
@@ -2008,6 +2058,18 @@ export const events = {
   checksFinished: Events.synced({
     name: 'v1.ChecksFinished',
     schema: Schema.Struct({ checkRunId: Schema.String, outcome: Schema.String, at: Schema.String }),
+  }),
+  runUsageRecorded: Events.synced({
+    name: 'v1.RunUsageRecorded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      agent: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      input: Schema.Number,
+      output: Schema.Number,
+      cost: Schema.NullOr(Schema.Number),
+      at: Schema.String,
+    }),
   }),
   sendBackCountReset: Events.synced({
     name: 'v1.SendBackCountReset',
@@ -2998,6 +3060,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   }),
   'v1.TaskSnoozed': (args) => task(args, { until: args.until }),
   'v1.TaskSnoozeCleared': (args) => task(args),
+  'v1.TaskAutopilotChanged': (args) => task(args, { choice: args.choice }),
+  'v1.CommentAnsweredByAutopilot': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskGatesChanged': (args) => task(args, { overrides: args.overrides }),
   'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
@@ -3254,6 +3318,12 @@ const materializers = counted(
       ],
       'v1.FactoryCloned': ({ factoryId, at }) =>
         factories.update({ clonedAt: at }).where({ id: factoryId }),
+      'v1.ExecutionControllerConfigured': ({ data }) =>
+        executionPairing.insert({ id: 'controller', data }).onConflict('id', 'replace'),
+      'v1.ExecutionMachineApproved': ({ id, data }) =>
+        executionPairing.insert({ id, data }).onConflict('id', 'ignore'),
+      'v1.ExecutionMachineRevoked': ({ id, data }) =>
+        executionPairing.update({ data }).where({ id }),
       'v1.LocalMachineIdentified': ({ machineId }) =>
         executionMachine.insert({ id: 'local', machineId }).onConflict('id', 'ignore'),
       'v1.TaskExecutionAssigned': (assignment) =>
@@ -3372,6 +3442,10 @@ const materializers = counted(
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
+      'v1.TaskAutopilotChanged': ({ taskId, choice, at }) =>
+        tasks.update({ autopilotChoice: choice, changedAt: at }).where({ id: taskId }),
+      'v1.CommentAnsweredByAutopilot': ({ commentId }) =>
+        comments.update({ autopilotAnswered: true }).where({ id: commentId }),
       'v1.TaskGatesChanged': ({ taskId, overrides, at }) =>
         tasks.update({ gateOverrides: overrides, changedAt: at }).where({ id: taskId }),
       'v1.TaskGatesForced': ({ taskId, stages }) =>
@@ -3567,6 +3641,7 @@ const materializers = counted(
       'v1.FailureAssessed': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureEvidenceAdded': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureDecisionRequested': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureRepairIncorporated': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAcceptanceInvalidated': (row) =>
         failureCases.insert(row).onConflict('id', 'replace'),
@@ -3673,6 +3748,8 @@ const materializers = counted(
         checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'running' }),
       ],
       'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
+      'v1.RunUsageRecorded': ({ runId, ...usage }) =>
+        runUsage.insert({ id: runId, ...usage }).onConflict('id', 'replace'),
       'v1.RunStarted': (run) =>
         runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
       'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
@@ -4177,6 +4254,7 @@ const state = State.SQLite.makeState({
     factoryOrder,
     tasks,
     taskQueue,
+    executionPairing,
     executionMachine,
     executionAssignments,
     taskBlockers,
@@ -4206,6 +4284,7 @@ const state = State.SQLite.makeState({
     taskDescriptions,
     sendBacks,
     sendBackResets,
+    runUsage,
     checkRuns,
     testInvocations,
     checkResults,

@@ -71,6 +71,7 @@
   gap: 10px;
 }
 
+.bar,
 .short,
 .long,
 .medium,
@@ -132,6 +133,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .bar,
   .spinner,
   .short,
   .long,

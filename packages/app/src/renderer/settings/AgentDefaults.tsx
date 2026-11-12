@@ -70,7 +70,7 @@ export function AgentDefaults() {
           key={`${row.role}:${view.version}`}
           row={row}
           busy={busy}
-          onChange={(choice) => void save(row.role, choice)}
+          onChange={(choice) => save(row.role, choice)}
         />
       ))}
       {view?.invalid && (
@@ -100,11 +100,13 @@ function AgentDefault({
       ? [
           ['claude', 'Claude'],
           ['codex', 'Codex'],
+          ['antigravity', 'Antigravity'],
           ['same', 'Same as Task Lead'],
         ]
       : [
           ['claude', 'Claude'],
           ['codex', 'Codex'],
+          ['antigravity', 'Antigravity'],
         ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...shown, ...fields }

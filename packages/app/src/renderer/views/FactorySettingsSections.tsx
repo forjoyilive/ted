@@ -15,7 +15,8 @@ import type {
   StageId,
   StageRowView,
 } from '@ted/protocol'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
@@ -33,6 +34,7 @@ import {
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
 import { OvernightNotice } from '../overnight.tsx'
+import { usePendingAction } from '../pending-action.ts'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import styles from './FactorySettingsSections.module.css'
@@ -92,7 +94,7 @@ export function Toggle({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="switch"
       aria-label={label}
@@ -103,7 +105,7 @@ export function Toggle({
       onClick={() => onChange(!checked)}
     >
       <span className={styles.knob} />
-    </button>
+    </ActionButton>
   )
 }
 
@@ -208,7 +210,7 @@ export function InvalidNotice({
         <span className={styles.invalidTitle}>{invalid.file} has an error</span>
         <span className={base.spacer} />
         {invalid.url !== undefined && (
-          <Button size="small" onClick={() => void ted.openOnGitHub(invalid.url ?? '')}>
+          <Button size="small" onClick={() => ted.openOnGitHub(invalid.url ?? '')}>
             Open on GitHub
           </Button>
         )}
@@ -252,7 +254,7 @@ function SectionHeading({
   )
 }
 
-export function WorkflowSection({
+function WorkflowSectionView({
   view,
   draft,
   loaded,
@@ -472,33 +474,33 @@ function StageRow({
           {row.id === 'backlog' && <span className={styles.always}>Always first</span>}
           {row.id === 'done' && <span className={styles.always}>Always last</span>}
           {agent && file === null && row.inherited && (
-            <button
+            <ActionButton
               type="button"
               className={base.link}
               onClick={() => {
                 onFile(row.inherited?.text ?? '')
-                onEdit(true)
+                return onEdit(true)
               }}
             >
               Override
-            </button>
+            </ActionButton>
           )}
           {agent && file !== null && (
             <>
-              <button type="button" className={base.link} onClick={() => onEdit(!editing)}>
+              <ActionButton type="button" className={base.link} onClick={() => onEdit(!editing)}>
                 {editing ? 'Close file' : 'Edit file'}
-              </button>
+              </ActionButton>
               {row.inherited && (
-                <button
+                <ActionButton
                   type="button"
                   className={base.link}
                   onClick={() => {
                     onFile(null)
-                    onEdit(false)
+                    return onEdit(false)
                   }}
                 >
                   Reset to inherited
-                </button>
+                </ActionButton>
               )}
             </>
           )}
@@ -600,11 +602,7 @@ export function DriftNotice({
         </Button>
         {factoryId !== undefined && (
           <>
-            <Button
-              size="small"
-              disabled={busy || created !== undefined}
-              onClick={() => void merge()}
-            >
+            <Button size="small" disabled={busy || created !== undefined} onClick={() => merge()}>
               Merge with an agent
             </Button>
             <Help>
@@ -623,7 +621,7 @@ export function DriftNotice({
   )
 }
 
-export function ChecksSection({
+function ChecksSectionView({
   view,
   draft,
   tries,
@@ -634,6 +632,7 @@ export function ChecksSection({
   tries: CheckTry[]
   onDraft: Update
 }) {
+  const starting = usePendingAction(`check-try:${view.factoryId}`)
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState<string>()
   const [output, setOutput] = useState<string>()
@@ -659,161 +658,168 @@ export function ChecksSection({
       }),
     }))
 
-  async function runNow(check: CheckInput) {
-    setError(undefined)
-    try {
-      await ted.tryCheck(view.factoryId, {
-        name: check.name.trim(),
-        run: check.run.trim(),
-        ...(check.repo !== undefined && { repo: check.repo }),
-        ...(check.timeout !== undefined &&
-          check.timeout.trim() !== '' && { timeout: check.timeout.trim() }),
-      })
-      setNow(Date.now())
-    } catch (failure) {
-      setError(readableError(failure))
-    }
+  function runNow(check: CheckInput) {
+    return starting.run(async () => {
+      setError(undefined)
+      try {
+        await ted.tryCheck(view.factoryId, {
+          name: check.name.trim(),
+          run: check.run.trim(),
+          ...(check.repo !== undefined && { repo: check.repo }),
+          ...(check.timeout !== undefined &&
+            check.timeout.trim() !== '' && { timeout: check.timeout.trim() }),
+        })
+        setNow(Date.now())
+      } catch (failure) {
+        setError(readableError(failure))
+      }
+    })
   }
 
   return (
-    <section className={base.section} aria-labelledby="checks">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="checks">
       <SectionHeading
         id="checks"
         title="Checks"
         help="Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
       />
       <div className={styles.table}>
-        <div className={`${multiRepo ? styles.checkRowRepo : styles.checkRow} ${styles.headRow}`}>
-          <span>Name</span>
-          <span>Command</span>
-          {multiRepo && <span>Repo</span>}
-          <span>Timeout</span>
-          <span>Last run</span>
-          <span className={base.visuallyHidden}>Actions</span>
-        </div>
-        {draft.checks.map((check, index) => {
-          const last = tries.find((t) => t.name === check.name.trim())
-          const ready = check.name.trim() !== '' && check.run.trim() !== ''
-          return (
-            <div
-              key={keys.current[index]}
-              className={multiRepo ? styles.checkRowRepo : styles.checkRow}
-            >
-              <input
-                aria-label="Check name"
-                className={styles.cellInput}
-                placeholder="Name"
-                value={check.name}
-                onChange={(event) => setCheck(index, { name: event.target.value })}
-              />
-              <input
-                aria-label={`${check.name || 'Check'} command`}
-                className={`${styles.cellInput} ${base.mono}`}
-                placeholder="npm test"
-                value={check.run}
-                onChange={(event) => setCheck(index, { run: event.target.value })}
-              />
-              {multiRepo && (
-                <Select
-                  fullWidth
-                  aria-label={`${check.name || 'Check'} repo`}
-                  controlClassName={styles.cellSelect}
-                  value={check.repo ?? draft.repos[0]?.name ?? ''}
-                  onChange={(event) =>
-                    setCheck(index, {
-                      repo: event.target.value === draft.repos[0]?.name ? '' : event.target.value,
-                    })
-                  }
-                >
-                  {draft.repos.map((repo) => (
-                    <option key={repo.name} value={repo.name}>
-                      {repo.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
-              <input
-                aria-label={`${check.name || 'Check'} timeout`}
-                className={styles.cellInput}
-                placeholder="10m"
-                value={check.timeout ?? ''}
-                onChange={(event) => setCheck(index, { timeout: event.target.value })}
-              />
-              <span className={lastRunClass(last)}>
-                {last ? lastRunText(last, now) : <span className={styles.dash}>Never</span>}
-                {last && last.state !== 'running' && (
-                  <>
-                    {' · '}
-                    <button
-                      type="button"
-                      className={base.link}
-                      onClick={() =>
-                        void ted.checkTryOutput(view.factoryId, last.name).then(
-                          (shown) => setOutput(shown.text || 'No output.'),
-                          (failure: unknown) => setError(readableError(failure)),
-                        )
-                      }
-                    >
-                      Output
-                    </button>
-                  </>
-                )}
-              </span>
-              <span className={styles.actions}>
-                {last?.state === 'running' ? (
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      void ted
-                        .stopCheckTry(view.factoryId, last.name)
-                        .catch((failure: unknown) => setError(readableError(failure)))
+        <div className={styles.scrollTable}>
+          <div className={`${multiRepo ? styles.checkRowRepo : styles.checkRow} ${styles.headRow}`}>
+            <span>Name</span>
+            <span>Command</span>
+            {multiRepo && <span>Repo</span>}
+            <span>Timeout</span>
+            <span>Last run</span>
+            <span className={base.visuallyHidden}>Actions</span>
+          </div>
+          {draft.checks.map((check, index) => {
+            const last = tries.find((t) => t.name === check.name.trim())
+            const ready = check.name.trim() !== '' && check.run.trim() !== ''
+            return (
+              <div
+                key={keys.current[index]}
+                className={multiRepo ? styles.checkRowRepo : styles.checkRow}
+              >
+                <input
+                  aria-label="Check name"
+                  className={styles.cellInput}
+                  placeholder="Name"
+                  value={check.name}
+                  onChange={(event) => setCheck(index, { name: event.target.value })}
+                />
+                <input
+                  aria-label={`${check.name || 'Check'} command`}
+                  className={`${styles.cellInput} ${base.mono}`}
+                  placeholder="npm test"
+                  value={check.run}
+                  onChange={(event) => setCheck(index, { run: event.target.value })}
+                />
+                {multiRepo && (
+                  <Select
+                    fullWidth
+                    aria-label={`${check.name || 'Check'} repo`}
+                    controlClassName={styles.cellSelect}
+                    value={check.repo ?? draft.repos[0]?.name ?? ''}
+                    onChange={(event) =>
+                      setCheck(index, {
+                        repo: event.target.value === draft.repos[0]?.name ? '' : event.target.value,
+                      })
                     }
                   >
-                    Stop
-                  </Button>
-                ) : (
-                  <Button
-                    size="small"
-                    disabled={!ready || running}
-                    title={running ? 'Another Check is running.' : undefined}
-                    onClick={() => void runNow(check)}
-                  >
-                    Run now
-                  </Button>
+                    {draft.repos.map((repo) => (
+                      <option key={repo.name} value={repo.name}>
+                        {repo.name}
+                      </option>
+                    ))}
+                  </Select>
                 )}
-                <button
-                  type="button"
-                  className={base.iconButton}
-                  aria-label={`Remove ${check.name || 'this Check'}`}
-                  onClick={() => {
-                    keys.current.splice(index, 1)
-                    onDraft((d) => ({ ...d, checks: d.checks.filter((_, i) => i !== index) }))
-                  }}
-                >
-                  <CloseIcon size={12} />
-                </button>
-              </span>
-            </div>
-          )
-        })}
+                <input
+                  aria-label={`${check.name || 'Check'} timeout`}
+                  className={styles.cellInput}
+                  placeholder="10m"
+                  value={check.timeout ?? ''}
+                  onChange={(event) => setCheck(index, { timeout: event.target.value })}
+                />
+                <span className={lastRunClass(last)}>
+                  {last ? lastRunText(last, now) : <span className={styles.dash}>Never</span>}
+                  {last && last.state !== 'running' && (
+                    <>
+                      {' · '}
+                      <ActionButton
+                        type="button"
+                        className={base.link}
+                        onClick={() =>
+                          ted.checkTryOutput(view.factoryId, last.name).then(
+                            (shown) => setOutput(shown.text || 'No output.'),
+                            (failure: unknown) => setError(readableError(failure)),
+                          )
+                        }
+                      >
+                        Output
+                      </ActionButton>
+                    </>
+                  )}
+                </span>
+                <span className={styles.actions}>
+                  {last?.state === 'running' ? (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        ted
+                          .stopCheckTry(view.factoryId, last.name)
+                          .catch((failure: unknown) => setError(readableError(failure)))
+                      }
+                    >
+                      Stop
+                    </Button>
+                  ) : (
+                    <Button
+                      size="small"
+                      disabled={!ready || running || starting.pending}
+                      title={running ? 'Another Check is running.' : undefined}
+                      onClick={() => runNow(check)}
+                    >
+                      Run now
+                    </Button>
+                  )}
+                  <ActionButton
+                    type="button"
+                    className={base.iconButton}
+                    aria-label={`Remove ${check.name || 'this Check'}`}
+                    onClick={() => {
+                      keys.current.splice(index, 1)
+                      return onDraft((d) => ({
+                        ...d,
+                        checks: d.checks.filter((_, i) => i !== index),
+                      }))
+                    }}
+                  >
+                    <CloseIcon size={12} />
+                  </ActionButton>
+                </span>
+              </div>
+            )
+          })}
+        </div>
         <div className={styles.builtInRow}>
           <span>TED settings</span>
           <span className={styles.builtInText}>Built in.</span>
           <span className={base.spacer} />
-          <Help>
+          <Help align="end">
             Added at Validate when a Task changes .ted/. It checks the TED settings files, like ted
             workflow check.
           </Help>
         </div>
       </div>
       <div>
-        <button
+        <ActionButton
           type="button"
           className={base.link}
           onClick={() => onDraft((d) => ({ ...d, checks: [...d.checks, { name: '', run: '' }] }))}
         >
           + Add Check
-        </button>
+        </ActionButton>
       </div>
       {error !== undefined && (
         <p className={base.fieldError} role="alert">
@@ -863,7 +869,7 @@ function OutputDialog({ text, onClose }: { text: string; onClose: () => void }) 
   )
 }
 
-export function AgentsSection({
+function AgentsSectionView({
   view,
   draft,
   loaded,
@@ -877,13 +883,13 @@ export function AgentsSection({
   const set = (role: AgentRole, choice: AgentChoiceInput | null) =>
     onDraft((d) => ({ ...d, agents: { ...d.agents, [role]: choice } }))
   return (
-    <section className={base.section} aria-labelledby="agents">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="agents">
       <SectionHeading
         id="agents"
         title="Agents"
         help="Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
       />
-      <div className={styles.table}>
+      <div className={`${styles.table} ${styles.scrollTable}`}>
         {view.agents.map((row) => (
           <AgentRow
             key={row.role}
@@ -917,11 +923,13 @@ function AgentRow({
       ? [
           ['claude', 'Claude'],
           ['codex', 'Codex'],
+          ['antigravity', 'Antigravity'],
           ['same', 'Same as Task Lead'],
         ]
       : [
           ['claude', 'Claude'],
           ['codex', 'Codex'],
+          ['antigravity', 'Antigravity'],
         ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...(own ?? {}), ...fields }
@@ -982,33 +990,35 @@ function AgentRow({
       <FromChip layer={own ? 'factory' : row.inheritedFrom} />
       <span className={styles.actions}>
         {own ? (
-          <button type="button" className={base.link} onClick={() => onChange(null)}>
+          <ActionButton type="button" className={base.link} onClick={() => onChange(null)}>
             Reset to inherited
-          </button>
+          </ActionButton>
         ) : (
-          <button
+          <ActionButton
             type="button"
             className={base.link}
             onClick={() => onChange({ ...row.inherited })}
           >
             Override
-          </button>
+          </ActionButton>
         )}
       </span>
     </div>
   )
 }
 
-export function PermissionsSection({
+function PermissionsSectionView({
   view,
   draft,
   loaded,
   onDraft,
+  onMode,
 }: {
   view: FactorySettingsView
   draft: SettingsDraft
   loaded: SettingsDraft
   onDraft: Update
+  onMode?: (mode: FactorySettingsView['permissions']) => void
 }) {
   const id = useId()
   const { value: mode, update } = useEventValue({
@@ -1038,6 +1048,7 @@ export function PermissionsSection({
     try {
       const saved = await ted.setFactoryPermissions(view.factoryId, next, confirmed)
       setMode(saved.mode)
+      onMode?.(saved.mode)
       setConfirming(false)
     } catch (failure) {
       setError(readableError(failure))
@@ -1047,7 +1058,7 @@ export function PermissionsSection({
   }
   return (
     <>
-      <section className={base.section} aria-labelledby="permissions">
+      <section className={`${base.section} ${base.compactSection}`} aria-labelledby="permissions">
         <SectionHeading
           id="permissions"
           title="Permission mode"
@@ -1074,7 +1085,7 @@ export function PermissionsSection({
               Agents act without asking: they can run any command, change any file and use the
               network on {machine}. Agent-started Checks and Apps run outside TED’s sandbox.
             </p>
-            <Button disabled={busy} onClick={() => void save('auto')}>
+            <Button disabled={busy} onClick={() => save('auto')}>
               Use Auto
             </Button>
           </>
@@ -1141,7 +1152,7 @@ export function PermissionsSection({
               <Button
                 variant="primary"
                 disabled={busy || !confirmed}
-                onClick={() => void save('bypass')}
+                onClick={() => save('bypass')}
               >
                 Enable Bypass
               </Button>
@@ -1149,7 +1160,10 @@ export function PermissionsSection({
           </dialog>
         )}
       </section>
-      <section className={base.section} aria-labelledby={`${id}-limits`}>
+      <section
+        className={`${base.section} ${base.compactSection}`}
+        aria-labelledby={`${id}-limits`}
+      >
         <SectionHeading
           id={`${id}-limits`}
           title="Working Run limit"
@@ -1181,7 +1195,7 @@ export function PermissionsSection({
   )
 }
 
-export function NotesSection({
+function NotesSectionView({
   draft,
   loaded,
   onDraft,
@@ -1192,7 +1206,7 @@ export function NotesSection({
 }) {
   const [preview, setPreview] = useState(false)
   return (
-    <section className={base.section} aria-labelledby="notes">
+    <section className={`${base.section} ${base.wideSection}`} aria-labelledby="notes">
       <SectionHeading
         id="notes"
         title="Factory notes"
@@ -1201,7 +1215,7 @@ export function NotesSection({
       <div className={styles.notes}>
         <div className={styles.notesBar}>
           <div className={styles.tabs} role="tablist" aria-label="Factory notes view">
-            <button
+            <ActionButton
               type="button"
               role="tab"
               aria-selected={!preview}
@@ -1209,8 +1223,8 @@ export function NotesSection({
               onClick={() => setPreview(false)}
             >
               Edit
-            </button>
-            <button
+            </ActionButton>
+            <ActionButton
               type="button"
               role="tab"
               aria-selected={preview}
@@ -1218,7 +1232,7 @@ export function NotesSection({
               onClick={() => setPreview(true)}
             >
               Preview
-            </button>
+            </ActionButton>
           </div>
           <span className={base.spacer} />
           <span className={base.caption}>.ted/notes.md · Markdown</span>
@@ -1323,3 +1337,21 @@ function keyed<T>(items: readonly T[], name: (item: T) => string): { key: string
     return { key: `${base}#${n}`, item }
   })
 }
+
+function sameDraft<P extends { draft: SettingsDraft }>(...fields: (keyof SettingsDraft)[]) {
+  return (before: P, after: P) =>
+    (Object.keys(after) as (keyof P)[]).every((name) =>
+      name === 'draft'
+        ? fields.every((field) => before.draft[field] === after.draft[field])
+        : before[name] === after[name],
+    )
+}
+
+export const WorkflowSection = memo(
+  WorkflowSectionView,
+  sameDraft('stages', 'stageFiles', 'keepStageFiles'),
+)
+export const ChecksSection = memo(ChecksSectionView, sameDraft('checks', 'repos'))
+export const AgentsSection = memo(AgentsSectionView, sameDraft('agents'))
+export const PermissionsSection = memo(PermissionsSectionView, sameDraft('maxWorkingRuns'))
+export const NotesSection = memo(NotesSectionView, sameDraft('notes'))
