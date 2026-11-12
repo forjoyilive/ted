@@ -36,14 +36,33 @@ beforeAll(async () => {
   workload.once('exit', () => {
     if (!stopping) workloadFailed = true
   })
-  let ready = false
-  let output = ''
-  workload.stdout?.on('data', (chunk: Buffer) => {
-    output = (output + chunk.toString('utf8')).slice(-1024)
-    ready ||= output.includes('READY\n')
-  })
   workload.stderr?.resume()
-  await expect.poll(() => ready && !workloadFailed, { timeout: 20_000 }).toBe(true)
+  await new Promise<void>((resolve, reject) => {
+    let output = ''
+    const finish = (error?: Error) => {
+      clearTimeout(timer)
+      workload.stdout?.off('data', onData)
+      workload.off('error', onError)
+      workload.off('exit', onExit)
+      if (error) reject(error)
+      else resolve()
+    }
+    const onData = (chunk: Buffer) => {
+      output = (output + chunk.toString('utf8')).slice(-1024)
+      if (output.includes('READY\n')) {
+        finish(workloadFailed ? new Error('CPU workload failed before readiness') : undefined)
+      }
+    }
+    const onError = (error: Error) => finish(error)
+    const onExit = () => finish(new Error('CPU workload exited before readiness'))
+    const timer = setTimeout(
+      () => finish(new Error('CPU workload was not ready within 20 seconds')),
+      20_000,
+    )
+    workload.stdout?.on('data', onData)
+    workload.once('error', onError)
+    workload.once('exit', onExit)
+  })
 })
 
 afterAll(async () => {
