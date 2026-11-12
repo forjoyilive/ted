@@ -637,7 +637,7 @@ test('Task history formats agent and user Comments and still formats them after 
 
 test('Inbox reveals its request after delayed history and after other panes cover the thread', async () => {
   const a = appState()
-  const run: RunChat['run'] = {
+  const run: RunChat['run'] & { role: 'lead' } = {
     id: 'r1',
     name: 'Task Lead',
     role: 'lead',
