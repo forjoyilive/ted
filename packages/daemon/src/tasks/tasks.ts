@@ -190,6 +190,7 @@ import {
   tedSettingsCheck,
   touchesSettings,
 } from './checks.ts'
+import { coalesced } from './coalesced.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
@@ -6462,6 +6463,12 @@ export function createTasks(options: {
     }
   }
   refreshSnoozes()
+  const wakeSoon = coalesced(() => {
+    if (!closed) wake()
+  })
+  const reportSetupSoon = coalesced((factoryId: string) => {
+    if (!closed) reportSetup(factoryId)
+  })
   const stopPumping = store.subscribe((event) => {
     if (
       event.type === 'settings-changed' ||
@@ -6534,11 +6541,7 @@ export function createTasks(options: {
         if (!closed) inBackground('stop a blocked Task Lead', () => stopForBlockers(taskId))
       })
     }
-    if (event.type === 'task-updated' && event.task.stage === 'done') {
-      setImmediate(() => {
-        if (!closed) wake()
-      })
-    }
+    if (event.type === 'task-updated' && event.task.stage === 'done') wakeSoon()
     if (event.type === 'task-updated' && watch) {
       setImmediate(() => {
         if (!closed) watch.poke()
@@ -6556,10 +6559,7 @@ export function createTasks(options: {
       void pump()
     }
     if ((event.type === 'task-created' || event.type === 'task-updated') && event.task.setup) {
-      const { factoryId } = event.task
-      setImmediate(() => {
-        if (!closed) reportSetup(factoryId)
-      })
+      reportSetupSoon(event.task.factoryId)
     }
   })
   banners.onAction(setupProblem, async ({ factoryId }) => {
