@@ -46,3 +46,17 @@ Use **Sign in** under App Settings → Agents to sign in with the existing paid 
 Each new Run records its storage choice in `runs/<id>/codex-home`. Before its first turn, the Codex driver also records the thread ID under `codex/ted-sessions/`, so another Run resuming that session finds the same home. These files contain no credentials. Runs and sessions without these records keep using their original configured or default Codex home; their existing conversations are not moved or cleaned up. An already running host keeps its environment until its normal replacement.
 
 This separates local session storage from personal history. ChatGPT’s discovery behavior is external to TED and must be checked with the installed ChatGPT version; local storage tests alone do not establish what appears in Recents.
+
+## Execution worker storage
+
+`TED_EXECUTION_HOME` is a retained override for the isolated worker’s home. By default,
+TED derives an adjacent execution home from its edition and optional `TED_HOME`:
+`~/.ted-dev-execution` for TED Dev, `~/.ted-execution` for release, or
+`<TED_HOME>-execution` for an explicit independent home. It never reuses that
+installation’s `daemon.json`, keys, Factories or Run credentials. The worker receives
+an explicit allowlist of basic runtime/tool-discovery inputs, its execution-home
+path and process-cleanup markers; it does not inherit agent API keys, SSH agents or
+TED’s app/file/Run credentials. `TED_LAB_RUN` is a Dev-only owned-lab cleanup marker.
+`SHELL` is retained to discover the user’s login-shell tool paths. The discovered
+environment is filtered through the same worker allowlist before use, including
+for local agent-version probes.

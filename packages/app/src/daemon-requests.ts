@@ -5,6 +5,13 @@ type MethodName = {
 }[keyof DaemonClient]
 
 export const forwardedRequests = [
+  'cancelExecutionEnrollment',
+  'executionMachines',
+  'configureExecution',
+  'createExecutionEnrollment',
+  'approveExecution',
+  'rejectExecution',
+  'revokeExecution',
   'coordinator',
   'coordinatorChat',
   'coordinatorStatuses',

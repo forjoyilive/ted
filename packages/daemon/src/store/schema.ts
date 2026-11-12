@@ -109,6 +109,11 @@ export const tasks = State.SQLite.table({
   },
 })
 
+export const executionPairing = State.SQLite.table({
+  name: 'executionPairing',
+  columns: { id: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
+})
+
 export const executionMachine = State.SQLite.table({
   name: 'executionMachine',
   columns: {
@@ -977,6 +982,18 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  executionControllerConfigured: Events.synced({
+    name: 'v1.ExecutionControllerConfigured',
+    schema: Schema.Struct({ data: Schema.String }),
+  }),
+  executionMachineApproved: Events.synced({
+    name: 'v1.ExecutionMachineApproved',
+    schema: Schema.Struct({ id: Schema.String, data: Schema.String }),
+  }),
+  executionMachineRevoked: Events.synced({
+    name: 'v1.ExecutionMachineRevoked',
+    schema: Schema.Struct({ id: Schema.String, data: Schema.String }),
+  }),
   testInvocationRecorded: Events.synced({
     name: 'v1.TestInvocationRecorded',
     schema: Schema.Struct({ id: Schema.String, taskId: Schema.String, data: Schema.String }),
@@ -3283,6 +3300,12 @@ const materializers = counted(
       ],
       'v1.FactoryCloned': ({ factoryId, at }) =>
         factories.update({ clonedAt: at }).where({ id: factoryId }),
+      'v1.ExecutionControllerConfigured': ({ data }) =>
+        executionPairing.insert({ id: 'controller', data }).onConflict('id', 'replace'),
+      'v1.ExecutionMachineApproved': ({ id, data }) =>
+        executionPairing.insert({ id, data }).onConflict('id', 'ignore'),
+      'v1.ExecutionMachineRevoked': ({ id, data }) =>
+        executionPairing.update({ data }).where({ id }),
       'v1.LocalMachineIdentified': ({ machineId }) =>
         executionMachine.insert({ id: 'local', machineId }).onConflict('id', 'ignore'),
       'v1.TaskExecutionAssigned': (assignment) =>
@@ -4207,6 +4230,7 @@ const state = State.SQLite.makeState({
     factoryOrder,
     tasks,
     taskQueue,
+    executionPairing,
     executionMachine,
     executionAssignments,
     taskBlockers,

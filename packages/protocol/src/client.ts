@@ -72,6 +72,13 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type {
+  ApproveExecution,
+  ExecutionEndpoint,
+  ExecutionGrant,
+  ExecutionMachines,
+  ExecutionOffer,
+} from './execution-pairing.ts'
 import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
@@ -236,6 +243,28 @@ export class DaemonClient {
     this.#token = token
     this.#appKey = appKey
     this.#idleTimeoutMs = idleTimeoutMs
+  }
+
+  executionMachines(): Promise<ExecutionMachines> {
+    return this.#request('GET', '/execution/machines')
+  }
+  configureExecution(input: ExecutionEndpoint): Promise<ExecutionMachines> {
+    return this.#request('POST', '/execution/configure', input)
+  }
+  cancelExecutionEnrollment(): Promise<unknown> {
+    return this.#request('POST', '/execution/cancel-enrollment')
+  }
+  createExecutionEnrollment(): Promise<ExecutionOffer> {
+    return this.#request('POST', '/execution/enrollment')
+  }
+  approveExecution(input: ApproveExecution): Promise<ExecutionGrant> {
+    return this.#request('POST', '/execution/approve', input)
+  }
+  rejectExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/reject', input)
+  }
+  revokeExecution(input: { id: string }): Promise<unknown> {
+    return this.#request('POST', '/execution/revoke', input)
   }
 
   async provesAppKey(): Promise<boolean> {

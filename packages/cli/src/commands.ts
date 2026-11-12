@@ -4,6 +4,7 @@ import { tedEnv } from '@ted/protocol'
 export class UsageError extends Error {}
 
 const flags = {
+  capacity: { type: 'string' },
   reset: { type: 'boolean' },
   approve: { type: 'boolean' },
   'request-changes': { type: 'boolean' },
@@ -107,6 +108,52 @@ export const commands = [
     scope: 'task',
     options: options('task', 'choice'),
   },
+  {
+    name: 'execution serve',
+    handler: 'executionServe',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution serve    Run the isolated worker in the foreground',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution start',
+    handler: 'executionStart',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution start    Start or reconnect the isolated background worker',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution stop',
+    handler: 'executionStop',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution stop    Stop the worker service; retain pairing',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution status',
+    handler: 'executionStatus',
+    min: 0,
+    max: 0,
+    options: options(),
+    help: '  ted execution status    Show worker identity and connection status',
+    callers: 'Terminal',
+  },
+  {
+    name: 'execution pair',
+    handler: 'executionPair',
+    min: 0,
+    max: 0,
+    options: options('capacity'),
+    help: '  ted execution pair [--capacity <1..64>]    Read pairing details from stdin; approval happens in the main TED app',
+    callers: 'Terminal',
+  },
+
   {
     name: 'failure list',
     handler: 'failureList',

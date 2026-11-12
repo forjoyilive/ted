@@ -247,6 +247,7 @@ export {
   type ReservationId,
   type TaskAssignment,
 } from './execution.ts'
+export * from './execution-pairing.ts'
 export {
   type ExportFormat,
   type ExportRun,
