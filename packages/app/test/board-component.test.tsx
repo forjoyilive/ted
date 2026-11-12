@@ -443,6 +443,18 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
     [...document.querySelectorAll('article[data-selected]')].map((e) => e.getAttribute('data-task'))
 
   fireEvent.click(title('NB-1'), { metaKey: true })
+  fireEvent.click(screen.getByRole('button', { name: 'Start NB-2' }), { metaKey: true })
+  expect(picked()).toEqual(['NB-1', 'NB-2'])
+  expect(a.request.mock.calls.some(([name]) => name === 'startTask')).toBe(false)
+  const search = screen.getByRole('searchbox', { name: 'Filter by ID or title' })
+  fireEvent.change(search, { target: { value: 'Two' } })
+  expect(picked()).toEqual(['NB-2'])
+  fireEvent.change(search, { target: { value: '' } })
+  expect(picked()).toEqual(['NB-2'])
+  fireEvent.click(title('NB-2'), { metaKey: true })
+  expect(picked()).toEqual([])
+
+  fireEvent.click(title('NB-1'), { metaKey: true })
   fireEvent.click(title('NB-3'), { shiftKey: true })
   expect(picked()).toEqual(['NB-1', 'NB-2', 'NB-3'])
   fireEvent.click(title('NB-4'), { shiftKey: true })

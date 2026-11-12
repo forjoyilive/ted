@@ -590,13 +590,8 @@
   font-size: var(--text-12);
 }
 
-.moreMenu {
-  right: 0;
-  left: auto;
-}
-
-.dangerItem {
-  color: var(--status-destructive);
+.selecting .body {
+  padding-bottom: 140px;
 }
 
 .selectionControls {

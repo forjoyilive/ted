@@ -1,6 +1,6 @@
 import type { AutopilotChoice, MachineSettings, RunSlots, Task } from '@ted/protocol'
 import { priorities } from '@ted/protocol/task'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePendingAction } from '../pending-action.ts'
 import { startSplit, startWaitLine } from '../slots.ts'
 import { statusAction } from '../task-actions.ts'
@@ -11,6 +11,7 @@ import { ActionButton } from './ActionButton.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
+import { ContextMenu, MenuItems, type MenuPosition } from './ContextMenu.tsx'
 import { PriorityIcon } from './PriorityIcon.tsx'
 import { Select } from './Select.tsx'
 import { SnoozeTaskDialog } from './SnoozeTaskDialog.tsx'
@@ -56,7 +57,9 @@ export function SelectionBar({
   const [preparing, setPreparing] = useState(false)
   const [prepareError, setPrepareError] = useState<string>()
   const [closePullRequests, setClosePullRequests] = useState(true)
-  const [menu, setMenu] = useState<'priority' | 'more'>()
+  const [priorityOpen, setPriorityOpen] = useState(false)
+  const [moreAt, setMoreAt] = useState<MenuPosition>()
+  const moreWasOpen = useRef(false)
   const [snoozing, setSnoozing] = useState(false)
   const [deleting, setDeleting] = useState<'archive' | 'delete'>()
 
@@ -64,7 +67,8 @@ export function SelectionBar({
   useEffect(() => {
     if (!none) return
     setConfirmArchive(false)
-    setMenu(undefined)
+    setPriorityOpen(false)
+    setMoreAt(undefined)
   }, [none])
 
   const startable = chosen.filter((t) => t.stage === 'backlog' && !t.statuses.includes('blocked'))
@@ -196,12 +200,12 @@ export function SelectionBar({
             <div className={styles.menuAnchor}>
               <Button
                 aria-haspopup="menu"
-                aria-expanded={menu === 'priority'}
-                onClick={() => setMenu((m) => (m === 'priority' ? undefined : 'priority'))}
+                aria-expanded={priorityOpen}
+                onClick={() => setPriorityOpen((o) => !o)}
               >
                 Priority
               </Button>
-              {menu === 'priority' && (
+              {priorityOpen && (
                 <div
                   className={`${styles.menu} ${styles.upward}`}
                   role="menu"
@@ -215,7 +219,7 @@ export function SelectionBar({
                       className={styles.menuItem}
                       onClick={() =>
                         bulk((t) => ted.setPriority(t.id, priority), archivable)
-                          .then(() => setMenu(undefined))
+                          .then(() => setPriorityOpen(false))
                           .catch(report)
                       }
                     >
@@ -264,36 +268,26 @@ export function SelectionBar({
                 Archive
               </Button>
             )}
-            <div className={styles.menuAnchor}>
-              <Button
-                aria-label="More actions"
-                title="More actions"
-                aria-haspopup="menu"
-                aria-expanded={menu === 'more'}
-                onClick={() => setMenu((m) => (m === 'more' ? undefined : 'more'))}
-              >
-                <MoreIcon />
-              </Button>
-              {menu === 'more' && (
-                <div
-                  className={`${styles.menu} ${styles.upward} ${styles.moreMenu}`}
-                  role="menu"
-                  aria-label="More actions"
-                >
-                  <ActionButton
-                    type="button"
-                    role="menuitem"
-                    className={`${styles.menuItem} ${styles.dangerItem}`}
-                    onClick={() => {
-                      setMenu(undefined)
-                      setDeleting('delete')
-                    }}
-                  >
-                    <span className={styles.menuLabel}>Delete…</span>
-                  </ActionButton>
-                </div>
-              )}
-            </div>
+            <Button
+              aria-label="More actions"
+              title="More actions"
+              aria-haspopup="menu"
+              aria-expanded={moreAt !== undefined}
+              onPointerDown={() => {
+                moreWasOpen.current = moreAt !== undefined
+              }}
+              onClick={(event) => {
+                if (moreWasOpen.current) {
+                  moreWasOpen.current = false
+                  return
+                }
+                const box = event.currentTarget.getBoundingClientRect()
+                setPriorityOpen(false)
+                setMoreAt({ x: box.left, y: box.top - 48, trigger: event.currentTarget })
+              }}
+            >
+              <MoreIcon />
+            </Button>
             {waitLine !== undefined && (
               <span className={styles.selectionWait} role="status" data-wait-line>
                 {waitLine}
@@ -301,6 +295,17 @@ export function SelectionBar({
             )}
           </fieldset>
         </div>
+      )}
+      {moreAt && !none && (
+        <ContextMenu at={moreAt} label="More actions" onClose={() => setMoreAt(undefined)}>
+          <MenuItems
+            items={[{ label: 'Delete…', danger: true, action: () => setDeleting('delete') }]}
+            choose={(item) => {
+              setMoreAt(undefined)
+              item.action?.()
+            }}
+          />
+        </ContextMenu>
       )}
       {snoozing && snoozable[0] && (
         <SnoozeTaskDialog

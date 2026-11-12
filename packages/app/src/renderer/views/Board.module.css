@@ -331,6 +331,10 @@
   user-select: none;
 }
 
+.selecting {
+  padding-bottom: 140px;
+}
+
 .cardEnd {
   align-items: center;
   gap: 6px;

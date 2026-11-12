@@ -263,18 +263,29 @@ export function Board({
   const { selected, setSelected, anchor, setAnchor, toggle, clear } = useSelection(shown, factoryId)
   const chosen = shown.filter((t) => selected.includes(t.id))
 
-  function onCardClick(event: MouseEvent<HTMLElement>, task: Task, column: BoardColumn) {
-    const button = (event.target as HTMLElement).closest('button')
-    if (button && !button.hasAttribute('data-card-title')) return
+  const shownIds = shown.map((t) => t.id).join('\n')
+  useEffect(() => {
+    const ids = new Set(shownIds.split('\n'))
+    setSelected((current) => {
+      const kept = current.filter((id) => ids.has(id))
+      return kept.length === current.length ? current : kept
+    })
+  }, [shownIds, setSelected])
+
+  function selectOnModifiedClick(event: MouseEvent<HTMLElement>, task: Task, column: BoardColumn) {
     if (event.shiftKey) {
       const inColumn = anchor !== undefined && column.tasks.some((t) => t.id === anchor)
       setSelected(columnSelection(selected, column.tasks, anchor, task.id))
       if (!inColumn) setAnchor(task.id)
     } else if (event.metaKey || event.ctrlKey) toggle(task.id)
-    else if (button) {
-      clear()
-      onOpen(task)
-    }
+    else return
+    event.stopPropagation()
+  }
+
+  function onCardClick(event: MouseEvent<HTMLElement>, task: Task) {
+    if (!(event.target as HTMLElement).closest('button[data-card-title]')) return
+    clear()
+    onOpen(task)
   }
 
   const menuFor = (task: Task) =>
@@ -379,7 +390,8 @@ export function Board({
         {...selectionTarget(task.displayId)}
         tabIndex={-1}
         onKeyDown={(event) => openOnEnter(event, task)}
-        onClick={(event) => onCardClick(event, task, column)}
+        onClickCapture={(event) => selectOnModifiedClick(event, task, column)}
+        onClick={(event) => onCardClick(event, task)}
         className={[
           styles.card,
           dragging?.task.id === task.id ? styles.dragged : '',
@@ -440,7 +452,8 @@ export function Board({
         {...selectionTarget(task.displayId)}
         tabIndex={-1}
         onKeyDown={(event) => openOnEnter(event, task)}
-        onClick={(event) => onCardClick(event, task, column)}
+        onClickCapture={(event) => selectOnModifiedClick(event, task, column)}
+        onClick={(event) => onCardClick(event, task)}
         className={[styles.card, styles.doneCard, isSelected ? styles.selected : ''].join(' ')}
       >
         <button type="button" data-card-title className={`${styles.cardTitle} ${styles.doneTitle}`}>
@@ -552,7 +565,10 @@ export function Board({
         </span>
       </div>
       <div className={styles.boardArea}>
-        <div className={styles.board} data-rank-order>
+        <div
+          className={`${styles.board} ${chosen.length > 0 ? styles.selecting : ''}`}
+          data-rank-order
+        >
           {columns.map((column) => {
             const state = columnState(column)
             return (

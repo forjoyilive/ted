@@ -147,7 +147,11 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   const snooze = await screen.findByRole('dialog', { name: 'Snooze 2 Tasks' })
   await u.click(within(snooze).getByRole('button', { name: 'Cancel' }))
   await u.click(bar.getByRole('button', { name: 'More actions' }))
-  await u.click(bar.getByRole('menuitem', { name: 'Delete…' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'More actions' })).getByRole('menuitem', {
+      name: 'Delete…',
+    }),
+  )
   const confirm = await screen.findByRole('dialog', { name: 'Delete 2 Tasks?' })
   expect(a.request.mock.calls.some(([name]) => name === 'deleteTask')).toBe(false)
   await u.click(within(confirm).getByRole('button', { name: 'Delete 2 Tasks' }))
