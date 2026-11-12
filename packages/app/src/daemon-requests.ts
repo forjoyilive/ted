@@ -76,6 +76,8 @@ export const forwardedRequests = [
   'moveToBacklog',
   'stopTask',
   'resumeTask',
+  'tedStops',
+  'answerTedStops',
   'moveTask',
   'setPriority',
   'archiveTask',

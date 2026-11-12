@@ -45,6 +45,7 @@ import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
+import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
@@ -1059,6 +1060,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onOpenTask={openTask}
         />
       )}
+      <RestartStoppedDialog />
       {asking && (
         <SetupNoticeDialog
           task={asking.request.task}

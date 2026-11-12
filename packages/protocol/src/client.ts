@@ -156,6 +156,7 @@ import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AgentStageId,
   AnswerRequest,
+  AnswerTedStopsRequest,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
@@ -187,6 +188,7 @@ import type {
   TaskDefaults,
   TaskDraftState,
   TaskReposResult,
+  TedStoppedTask,
   ThreadEvent,
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
@@ -522,6 +524,14 @@ export class DaemonClient {
       ...(attachments !== undefined && attachments.length > 0 && { attachments }),
     }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
+  }
+
+  tedStops(): Promise<TedStoppedTask[]> {
+    return this.#request('GET', '/ted-stops')
+  }
+
+  answerTedStops(request: AnswerTedStopsRequest): Promise<TedStoppedTask[]> {
+    return this.#request('POST', '/ted-stops/answer', request)
   }
 
   cancelMerge(ref: string, comment: string, attachments?: AttachmentRef[]): Promise<Comment> {

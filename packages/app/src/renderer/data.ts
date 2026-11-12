@@ -31,6 +31,7 @@ import type {
   Task,
   TaskApp,
   TaskBrief,
+  TedStoppedTask,
   ThreadEvent,
   ValidationObligations,
 } from '@ted/protocol'
@@ -458,6 +459,16 @@ export function useSlots(): RunSlots | undefined {
     load: ted.getSlots,
     event: (event) => (event.type === 'slots-changed' ? () => event.slots : undefined),
   }).value
+}
+
+export function useTedStops(): TedStoppedTask[] {
+  return (
+    useReloading(
+      () => ted.tedStops(),
+      (event) => event.type === 'ted-stops-changed',
+      'ted-stops',
+    ) ?? []
+  )
 }
 
 export function useDrift(): DriftCounts | undefined {

@@ -435,6 +435,9 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'banner-raised') notifications.problem(event.banner)
   if (event.type === 'task-updated') notifications.merged(event.task)
+  if (event.type === 'ted-stops-changed') {
+    noteTedStops().catch((error: unknown) => console.error('reading stopped Tasks failed:', error))
+  }
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   if (state !== drawn || event.type === 'settings-changed') refresh()
@@ -815,6 +818,23 @@ async function loadState(): Promise<void> {
   state = { ...state, activity, banners, waiting: waiting.length }
   notifications.waiting(waiting)
   refresh()
+  await noteTedStops().catch((error: unknown) =>
+    console.error('reading stopped Tasks failed:', error),
+  )
+}
+
+let startedInBackground = false
+
+function windowHidden(): boolean {
+  if (hiddenWindow) return true
+  if (!window || window.isDestroyed()) return startedInBackground
+  return !window.isVisible()
+}
+
+async function noteTedStops(): Promise<void> {
+  if (!client) return
+  const stops = await client.tedStops()
+  notifications.tedStops(stops.length, windowHidden())
 }
 
 async function loadStateWhenReady(): Promise<void> {
@@ -842,6 +862,7 @@ async function start(): Promise<void> {
   loginItem = makeLoginItem()
   const background =
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
+  startedInBackground = background
   traceStartup(background ? 'background-mode' : 'window-mode')
   if (background) app.dock?.hide()
   if (tedEnv('TED_DEMO') === '1' && edition === 'dev') {

@@ -1231,6 +1231,19 @@ export const events = {
     name: 'v1.TaskResumed',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
+  taskStoppedByTed: Events.synced({
+    name: 'v1.TaskStoppedByTed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runId: Schema.String,
+      cause: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  tedStopAnswered: Events.synced({
+    name: 'v1.TedStopAnswered',
+    schema: Schema.Struct({ taskId: Schema.String, choice: Schema.String, at: Schema.String }),
+  }),
   taskLeadNudged: Events.synced({
     name: 'v1.TaskLeadNudged',
     schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
@@ -3038,6 +3051,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
   'v1.TaskResumedOvernight': (args) => task(args),
+  'v1.TaskStoppedByTed': (args) => task(args, { runId: args.runId, cause: args.cause }),
+  'v1.TedStopAnswered': (args) => task(args, { choice: args.choice }),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
   'v1.TaskLeadFailed': (args) =>
     task(args, {
@@ -3362,6 +3377,10 @@ const materializers = counted(
           .update({ stoppedAt: null, stoppedRuns: null, stoppedWhy: null, changedAt: at })
           .where({ id: taskId }),
       ],
+      'v1.TaskStoppedByTed': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.TedStopAnswered': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),

@@ -89,6 +89,7 @@ export interface RunManagerOptions {
 
 export interface RunObserver {
   finished?(run: Run, ending: { stopped: boolean; lastLines: string[] }): void
+  stoppedOutside?(run: Run): void
   authFailed?(run: Run): void
   accepted?(run: Run, texts: string[]): void
   boundary?(run: Run): void
@@ -177,6 +178,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const launchStops = new Map<string, AbortController>()
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
+  const stoppedOutsideUntold: string[] = []
   const outdated = new Set<string>()
   const replacing = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
@@ -439,6 +441,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const closedPermissions: string[] = []
     const accepted: string[] = []
     let exit: Extract<HostRecord, { t: 'exit' }> | undefined
+    let stateAtExit: RunState | undefined
     const startedWith = generation.count
     generation.readTo = batch.toOffset
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
@@ -486,12 +489,17 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         generation.sessionSeen = false
         generation.errors = []
       } else if (record.t === 'exit') {
+        stateAtExit = state
         state = 'finished'
         exit = record
       }
     }
     if (hostGone) state = 'finished'
     const run = store.getRun(runId)
+    const stoppedOutside =
+      exit?.stopped === true &&
+      !stopRequested.has(runId) &&
+      (stateAtExit ?? run?.state) === 'working'
     const askable = run?.taskId !== undefined
     const refused =
       state === 'finished' ? [] : prompts.filter((prompt) => !askable || prompt.refuse === true)
@@ -553,6 +561,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (authFailed) tell('authFailed', runId)
     if (state === 'finished') {
       heard.delete(runId)
+      if (stoppedOutside) {
+        // Runs that ended before the daemon started are read before any observer is added.
+        if ([...observers].some((observer) => observer.stoppedOutside)) {
+          tellObservers(runId, (observer, run) => observer.stoppedOutside?.(run))
+        } else stoppedOutsideUntold.push(runId)
+      }
       tell('finished', runId)
     }
     return state === 'finished'
@@ -1180,6 +1194,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     },
     observe(observer) {
       observers.add(observer)
+      if (!observer.stoppedOutside) return
+      for (const runId of stoppedOutsideUntold.splice(0)) {
+        const run = store.getRun(runId)
+        if (run) observer.stoppedOutside(run)
+      }
     },
     environment,
     async stopAll() {

@@ -622,6 +622,7 @@ export type { DesignFileSpec, LocalDesignReviewInput, SaveTaskDraftRequest } fro
 export {
   type AgentStageId,
   type AnswerRequest,
+  type AnswerTedStopsRequest,
   type ArchiveDoneResult,
   type ArchiveTaskRequest,
   type Attachment,
@@ -670,6 +671,7 @@ export {
   type MergeMethod,
   type MergeRow,
   type MoveTaskRequest,
+  maxTedStopAnswers,
   mergeMethods,
   type NewTaskDraft,
   type Outcome,
@@ -733,6 +735,7 @@ export {
   type TaskSource,
   type TaskStatus,
   type TaskStatusKind,
+  type TedStoppedTask,
   type ThreadEvent,
   type ThreadEventTone,
   type TrackStage,
@@ -765,6 +768,7 @@ export type {
 } from './task-intervals.ts'
 export {
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAttachmentRefs,
   parseBlockTaskRequest,

@@ -91,6 +91,7 @@ import {
   type TaskPullRequest,
   type TaskRepo,
   type TaskSource,
+  type TedStoppedTask,
   type TrackStage,
   validateFailureChoices,
   type WaitingRequest,
@@ -688,6 +689,9 @@ export interface TedStore extends TaskHistory {
   requeueAfterBlockers(taskId: string): Task
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
   resumeTask(taskId: string, options: { waitForBlockers: boolean; overnight?: boolean }): Task
+  taskStoppedByTed(taskId: string, runId: string, cause: 'quit' | 'ended-outside'): void
+  answerTedStop(taskId: string, choice: 'restart' | 'leave'): void
+  tedStops(): TedStoppedTask[]
   leadNudged(taskId: string, runId: string): void
   appStarted(input: {
     taskId: string
@@ -3431,6 +3435,35 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    taskStoppedByTed(taskId, runId, cause) {
+      commit(events.taskStoppedByTed({ taskId, runId, cause, at: new Date().toISOString() }))
+      emit({ type: 'ted-stops-changed' })
+    },
+    answerTedStop(taskId, choice) {
+      commit(events.tedStopAnswered({ taskId, choice, at: new Date().toISOString() }))
+      emit({ type: 'ted-stops-changed' })
+    },
+    tedStops() {
+      return listTasks().flatMap((task) => {
+        if (!task.canResume) return []
+        const last = logRows(task.id)
+          .filter((entry) => tedStopEntries.has(entry.name))
+          .toSorted((a, b) => sequence(a.id) - sequence(b.id))
+          .at(-1)
+        if (last?.name !== 'v1.TaskStoppedByTed') return []
+        if ((JSON.parse(last.data) as { runId?: string }).runId !== task.leadRunId) return []
+        return [
+          {
+            id: task.id,
+            displayId: task.displayId,
+            title: task.title,
+            stage: task.stage,
+            factoryId: task.factoryId,
+            stoppedAt: last.at,
+          },
+        ]
+      })
+    },
     leadNudged(taskId, runId) {
       commit(events.taskLeadNudged({ taskId, runId, at: new Date().toISOString() }))
       updatedTask(taskId)
@@ -5343,6 +5376,15 @@ export async function openStore({
     },
   }
 }
+
+const tedStopEntries = new Set([
+  'v1.TaskStoppedByTed',
+  'v1.TedStopAnswered',
+  'v1.TaskStopped',
+  'v1.TaskResumed',
+  'v1.TaskResumedOvernight',
+  'v1.TaskRetried',
+])
 
 function sequence(id: string): number {
   const [global = 0, client = 0] = id.split('.').map(Number)
