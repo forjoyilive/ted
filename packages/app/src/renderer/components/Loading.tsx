@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { Button } from './Button.tsx'
 import styles from './Loading.module.css'
 
@@ -19,6 +20,16 @@ export function Loading({
       <span className={styles.spinner} aria-hidden />
     </span>
   )
+}
+
+export function SkeletonBar({
+  width = '100%',
+  height = 12,
+}: {
+  width?: CSSProperties['width']
+  height?: number
+}) {
+  return <span className={styles.bar} style={{ width, height }} aria-hidden />
 }
 
 export function Skeleton({
@@ -58,9 +69,7 @@ export function LoadingError({ error, retry }: { error: string; retry: () => voi
   return (
     <div className={styles.error} role="alert">
       <span>{error}</span>
-      <Button size="small" onClick={retry}>
-        Try again
-      </Button>
+      <Button onClick={retry}>Try again</Button>
     </div>
   )
 }

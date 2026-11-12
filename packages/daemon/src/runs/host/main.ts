@@ -184,6 +184,7 @@ write({
   signal,
   ...(spawnError !== undefined && { error: spawnError }),
   ...(asked.stop && { stopped: true }),
+  at: new Date().toISOString(),
 })
 lock.release()
 process.exit(0)

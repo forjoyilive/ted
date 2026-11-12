@@ -23,6 +23,8 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
+import { AutopilotLabel } from '../components/Autopilot.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
@@ -151,12 +153,7 @@ export function MenuButton({
   const ref = usePopover(open, close)
   return (
     <div ref={ref} className={styles.menuAnchor}>
-      <Button
-        size="small"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
+      <Button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {icon}
         {label}
         {badge !== undefined && badge > 0 && <span className={styles.badge}>{badge}</span>}
@@ -181,11 +178,11 @@ function Submenu({
 }) {
   return (
     <div className={styles.submenuAnchor}>
-      <button type="button" role="menuitem" aria-haspopup="menu" className={styles.menuItem}>
+      <ActionButton type="button" role="menuitem" aria-haspopup="menu" className={styles.menuItem}>
         <span className={styles.menuLabel}>{label}</span>
         {hint !== undefined && <span className={styles.menuHint}>{hint}</span>}
         <ChevronIcon open={false} className={styles.menuChevron} />
-      </button>
+      </ActionButton>
       <div className={styles.submenu} role="menu" aria-label={label}>
         {children}
       </div>
@@ -209,7 +206,7 @@ function CheckItem({
   onChange: () => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="menuitemcheckbox"
       aria-checked={checked}
@@ -223,7 +220,7 @@ function CheckItem({
       {icon}
       <span className={styles.menuLabel}>{label}</span>
       {count !== undefined && <span className={styles.menuCount}>{count}</span>}
-    </button>
+    </ActionButton>
   )
 }
 
@@ -237,7 +234,7 @@ function RadioItem({
   onChange: () => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="menuitemradio"
       aria-checked={checked}
@@ -246,7 +243,7 @@ function RadioItem({
     >
       <span className={styles.menuLabel}>{label}</span>
       {checked && <span className={styles.menuTick}>✓</span>}
-    </button>
+    </ActionButton>
   )
 }
 
@@ -348,7 +345,7 @@ export function FilterMenu({
           <div className={styles.menuHeading}>Archived</div>
           <fieldset className={styles.segments} aria-label="Archived">
             {archivedFilters.map((value: ArchivedFilter) => (
-              <button
+              <ActionButton
                 key={value}
                 type="button"
                 role="menuitemradio"
@@ -356,11 +353,11 @@ export function FilterMenu({
                 className={styles.segment}
                 onClick={() => {
                   const { archived: _, ...rest } = filters
-                  onChange(value === 'hidden' ? rest : { ...rest, archived: value })
+                  return onChange(value === 'hidden' ? rest : { ...rest, archived: value })
                 }}
               >
                 {value.charAt(0).toUpperCase() + value.slice(1)}
-              </button>
+              </ActionButton>
             ))}
           </fieldset>
         </>
@@ -507,7 +504,7 @@ export function TaskList({
 
   const change = (next: ListView) => {
     setDraft({ scope, view: next })
-    saveListView(settings, scope, next).catch(report)
+    return saveListView(settings, scope, next).catch(report)
   }
   const changeFilters = (filters: ListFilters) => change({ ...view, filters })
 
@@ -626,6 +623,7 @@ export function TaskList({
         return (
           <span className={styles.titleCell}>
             <span className={styles.titleText}>{task.title}</span>
+            <AutopilotLabel task={task} />
             {task.archived && <span className={styles.archivedChip}>Archived</span>}
           </span>
         )
@@ -713,7 +711,7 @@ export function TaskList({
           if (select(task, event)) return
           setSelected([])
           setAnchor(task.id)
-          onOpen(task)
+          return onOpen(task)
         }}
         onKeyDown={(event) => onRowKeyDown(event, task)}
       >
@@ -778,14 +776,10 @@ export function TaskList({
     if (inScope.length === 0) {
       return (
         <EmptyState title="No Tasks yet">
-          <Button variant="primary" size="small" onClick={onNewTask}>
+          <Button variant="primary" onClick={onNewTask}>
             New Task
           </Button>
-          {onPlan && (
-            <Button size="small" onClick={onPlan}>
-              Plan
-            </Button>
-          )}
+          {onPlan && <Button onClick={onPlan}>Plan</Button>}
         </EmptyState>
       )
     }
@@ -795,10 +789,9 @@ export function TaskList({
     return (
       <EmptyState title="No Tasks match these filters">
         <Button
-          size="small"
           onClick={() => {
             setText('')
-            changeFilters({})
+            return changeFilters({})
           }}
         >
           Clear filters
@@ -838,12 +831,8 @@ export function TaskList({
         <MenuButton label="Display" icon={<DisplayIcon />}>
           {() => <DisplayMenu view={view} onChange={change} />}
         </MenuButton>
-        {onPlan && (
-          <Button size="small" onClick={onPlan}>
-            Plan
-          </Button>
-        )}
-        <Button size="small" variant="primary" onClick={onNewTask}>
+        {onPlan && <Button onClick={onPlan}>Plan</Button>}
+        <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
           New Task
         </Button>
@@ -882,14 +871,14 @@ export function TaskList({
         {chips.map((chip) => (
           <span key={chip.key} className={styles.chip}>
             {chip.label}
-            <button
+            <ActionButton
               type="button"
               className={styles.chipClear}
               aria-label={`Clear ${chip.label}`}
               onClick={() => changeFilters(chip.clear(view.filters))}
             >
               <CloseIcon size={10} />
-            </button>
+            </ActionButton>
           </span>
         ))}
         {queueMode && (
@@ -977,7 +966,7 @@ export function TaskList({
                             )
                           }}
                         />
-                        <button
+                        <ActionButton
                           type="button"
                           className={styles.groupHead}
                           aria-expanded={!closed}
@@ -991,7 +980,7 @@ export function TaskList({
                           <ChevronIcon open={!closed} />
                           <span className={styles.groupLabel}>{group.label}</span>
                           <span className={styles.groupCount}>{group.tasks.length}</span>
-                        </button>
+                        </ActionButton>
                       </th>
                     </tr>
                   )}
@@ -1003,11 +992,12 @@ export function TaskList({
         </div>
       )}
       <SelectionBar
+        scope={scope}
         chosen={chosen}
         allTasks={tasks}
         slots={slots}
         settings={settings}
-        onClear={() => setSelected([])}
+        onSelect={setSelected}
       />
     </section>
   )

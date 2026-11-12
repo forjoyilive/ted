@@ -156,6 +156,9 @@
   --weight-medium: 500;
   --weight-semibold: 600;
 
+  --button-height: calc(28px * var(--text-scale));
+  --button-height-small: calc(24px * var(--text-scale));
+
   --radius-control: 7px;
   --radius-tooltip: 6px;
   --radius-pill: 999px;

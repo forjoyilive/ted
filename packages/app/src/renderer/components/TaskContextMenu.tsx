@@ -2,10 +2,12 @@ import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
 import { useEffect, useState } from 'react'
+import { usePendingAction } from '../pending-action.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { plural } from '../words.ts'
+import { useEnabledAgents } from './AgentOptions.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
@@ -148,7 +150,7 @@ export function BulkConfirmDialog({
             <Button
               disabled={busy}
               variant={kind === 'delete' ? 'danger' : 'primary'}
-              onClick={() => void perform()}
+              onClick={() => perform()}
             >
               {kind === 'archive' ? 'Archive' : 'Delete'} {count}
             </Button>
@@ -170,6 +172,13 @@ function BulkTaskMenu({
   at: MenuPosition | undefined
   onClose: () => void
 }) {
+  const enabledAgents = useEnabledAgents()
+  const activity = usePendingAction(
+    `task-actions:${tasks
+      .map((t) => t.id)
+      .sort()
+      .join(',')}`,
+  )
   const [snoozing, setSnoozing] = useState(false)
   const [confirmation, setConfirmation] = useState<'archive' | 'delete'>()
   const [error, setError] = useState<string>()
@@ -220,13 +229,19 @@ function BulkTaskMenu({
     if (tasks.every((t) => t.stage !== 'done'))
       items.push({
         label: 'Task Lead',
-        items: agentKinds.map((agent) => ({
-          label: agentLabels[agent],
-          action: () =>
-            each((t) =>
-              t.lead?.agent === agent ? Promise.resolve() : ted.setTaskLead(t.id, { agent }),
-            ),
-        })),
+        items: agentKinds
+          .filter(
+            (agent) =>
+              enabledAgents.includes(agent) || tasks.every((task) => task.lead?.agent === agent),
+          )
+          .map((agent) => ({
+            label: `${agentLabels[agent]}${enabledAgents.includes(agent) ? '' : ' · Off — new Runs wait'}`,
+            disabled: !enabledAgents.includes(agent),
+            action: () =>
+              each((t) =>
+                t.lead?.agent === agent ? Promise.resolve() : ted.setTaskLead(t.id, { agent }),
+              ),
+          })),
       })
     if (tasks.every((t) => !clarifyIsOver(t.stage)))
       items.push({
@@ -248,15 +263,20 @@ function BulkTaskMenu({
   return (
     <>
       {at && (
-        <ContextMenu at={at} label={`${tasks.length} selected Tasks`} onClose={onClose}>
+        <ContextMenu
+          at={at}
+          label={`${tasks.length} selected Tasks`}
+          onClose={onClose}
+          pending={activity.pending}
+        >
           <MenuItems
             items={items}
             choose={(item) => {
-              onClose()
               setError(undefined)
-              Promise.resolve()
-                .then(() => item.action?.())
-                .catch((failure: unknown) => setError(readableError(failure)))
+              const result = activity.run(() => item.action?.())
+              if (result)
+                return result.then(onClose, (failure: unknown) => setError(readableError(failure)))
+              onClose()
             }}
           />
         </ContextMenu>

@@ -5,6 +5,7 @@ import type { ChangedFile } from '../changes.ts'
 import { useEventValue } from '../data.ts'
 import { useProfile } from '../profile.tsx'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import { rowKey } from './DiffTable.tsx'
 import type { DiffSeams } from './DiffViews.tsx'
@@ -158,20 +159,20 @@ function LineCommentCard({ comment, onEdit }: { comment: LineComment; onEdit: ()
         <span className={styles.spacer} />
         {draft && (
           <>
-            <button type="button" className={styles.link} onClick={onEdit}>
+            <ActionButton type="button" className={styles.link} onClick={onEdit}>
               Edit
-            </button>
-            <button
+            </ActionButton>
+            <ActionButton
               type="button"
               className={styles.link}
               onClick={() =>
-                void ted
+                ted
                   .deleteLineComment(comment.id)
                   .catch((failed: unknown) => setError(readableError(failed)))
               }
             >
               Delete
-            </button>
+            </ActionButton>
           </>
         )}
       </div>
@@ -227,7 +228,7 @@ function LineCommentEditor({
           if (event.key === 'Escape') onCancel()
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
-            void save()
+            save()
           }
         }}
       />
@@ -239,10 +240,8 @@ function LineCommentEditor({
       <div className={styles.editorRow}>
         <span className={styles.meta}>{label}</span>
         <span className={styles.spacer} />
-        <Button size="small" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button size="small" variant="primary" disabled={!ready} onClick={() => void save()}>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="primary" disabled={!ready} onClick={() => save()}>
           {saveLabel}
         </Button>
       </div>
@@ -293,23 +292,18 @@ export function DraftBar({
         </span>
       )}
       <span className={styles.spacer} />
-      <Button
-        size="small"
-        disabled={busy}
-        onClick={() => void run(() => ted.discardLineComments(taskId))}
-      >
+      <Button disabled={busy} onClick={() => run(() => ted.discardLineComments(taskId))}>
         Discard all
       </Button>
       {mode === 'request' ? (
-        <Button size="small" variant="primary" onClick={onBack}>
+        <Button variant="primary" onClick={onBack}>
           Back to sign-off
         </Button>
       ) : mode === 'none' ? (
         <Button
-          size="small"
           variant="primary"
           disabled={busy}
-          onClick={() => void run(() => ted.sendLineComments(taskId))}
+          onClick={() => run(() => ted.sendLineComments(taskId))}
         >
           Send to Task Lead
         </Button>
@@ -329,21 +323,21 @@ export function UnsentChip({
   if (drafts.length === 0) return null
   return (
     <div className={styles.chipWrap}>
-      <button
+      <ActionButton
         type="button"
         className={styles.chip}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
         {drafts.length} unsent line {drafts.length === 1 ? 'comment' : 'comments'}
-      </button>
+      </ActionButton>
       {open && (
         <ul className={styles.chipList} aria-label="Unsent line comments">
           {drafts.map((c) => (
             <li key={c.id}>
-              <button type="button" className={styles.lineLink} onClick={() => onOpen(c)}>
+              <ActionButton type="button" className={styles.lineLink} onClick={() => onOpen(c)}>
                 {c.path} · {lineLabel(c)}
-              </button>
+              </ActionButton>
               <span className={styles.preview}>{c.body}</span>
             </li>
           ))}
@@ -368,23 +362,23 @@ export function SentLineComments({
   const outdated = new Set(current.filter((c) => c.outdated).map((c) => c.id))
   return (
     <div className={styles.sent}>
-      <button
+      <ActionButton
         type="button"
         className={styles.disclosure}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
         {open ? '▾' : '▸'} {comments.length} line {comments.length === 1 ? 'comment' : 'comments'}
-      </button>
+      </ActionButton>
       {open && (
         <ul className={styles.sentList}>
           {comments.map((c) => (
             <li key={c.id}>
               <div className={styles.head}>
                 {c.taskId === taskId ? (
-                  <button type="button" className={styles.lineLink} onClick={() => onOpen(c)}>
+                  <ActionButton type="button" className={styles.lineLink} onClick={() => onOpen(c)}>
                     {c.path} · {lineLabel(c)}
-                  </button>
+                  </ActionButton>
                 ) : (
                   <span className={styles.meta}>
                     {c.path} · {lineLabel(c)}

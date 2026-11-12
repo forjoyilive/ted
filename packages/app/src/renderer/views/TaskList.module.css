@@ -598,3 +598,7 @@
 .dangerItem {
   color: var(--status-destructive);
 }
+
+.selectionControls {
+  display: contents;
+}

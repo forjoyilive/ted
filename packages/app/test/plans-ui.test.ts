@@ -146,12 +146,8 @@ describe('Planning chats', () => {
     await roundCard.getByRole('radio', { name: /The owner only/ }).check()
     await roundCard.getByRole('button', { name: 'Submit answers' }).click()
     await row.waitFor({ state: 'detached' })
-    await window
-      .getByRole('region', { name: 'Inbox' })
-      .getByRole('status')
-      .getByText('Answered Plan notebook sharing’s Clarify round')
-      .waitFor()
     await window.getByRole('region', { name: 'Nothing open' }).waitFor()
+    expect(await window.getByRole('region', { name: 'Inbox' }).getByRole('status').count()).toBe(0)
     await sidebar(window)
       .getByRole('button', { name: /^Plans/ })
       .click()

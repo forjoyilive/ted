@@ -534,3 +534,125 @@ describe('durable New Task drafts', () => {
     expect(await statusOf(client.taskDraft(factory.id))).toBe(404)
   })
 })
+
+describe('unsent message text', () => {
+  test('is kept per box across a restart and deleted with its request, Task and Factory', async () => {
+    const { client, factory } = await withFactory()
+    const file = await client.uploadAttachment(
+      { name: 'unsent.txt', mediaType: 'text/plain' },
+      bytes('unsent bytes'),
+    )
+    const task = await client.createTask({ factory: 'NB', title: 'Has unsent text', start: false })
+    const other = await client.createTask({ factory: 'NB', title: 'Other', start: false })
+    const comment = { kind: 'comment', id: task.id } as const
+    const kept = { text: 'Not sent yet', attachments: [file] }
+    expect(await client.saveMessageDraft(comment, kept)).toEqual({ draft: kept })
+    expect(
+      await client.saveMessageDraft(
+        { kind: 'follow-up', id: task.displayId },
+        { text: 'Later', attachments: [file], fields: '{"a":1}' },
+      ),
+    ).toEqual({ draft: { text: 'Later', attachments: [], fields: '{"a":1}' } })
+    await client.saveMessageDraft(
+      { kind: 'coordinator', id: factory.id },
+      { text: 'What next?', attachments: [] },
+    )
+    await client.saveMessageDraft(
+      { kind: 'new-plan', id: factory.id },
+      { text: 'Plan this', attachments: [] },
+    )
+    expect(await client.messageDraft({ kind: 'comment', id: other.id })).toEqual({ draft: null })
+    expect(await statusOf(client.messageDraft({ kind: 'settings' as 'comment', id: 'a' }))).toBe(
+      404,
+    )
+    expect(
+      await client.saveMessageDraft(
+        { kind: 'run', id: 'no-such-run' },
+        { text: 'x', attachments: [] },
+      ),
+    ).toEqual({ draft: null, refused: 'no such Run' })
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    expect(
+      (
+        await rawRequest(info.port, {
+          path: `/message-drafts/comment/${task.id}`,
+          headers: { authorization: `Bearer ${info.token}` },
+        })
+      ).status,
+    ).toBe(403)
+
+    await daemon?.stop()
+    daemon = undefined
+    const restarted = await start()
+    expect(await restarted.messageDraft(comment)).toEqual({ draft: kept })
+    expect(await restarted.messageDraft({ kind: 'follow-up', id: task.id })).toMatchObject({
+      draft: { text: 'Later' },
+    })
+    expect(
+      await restarted.saveMessageDraft(
+        { kind: 'follow-up', id: task.id },
+        { text: '', attachments: [] },
+      ),
+    ).toEqual({ draft: null })
+    expect(await restarted.messageDraft({ kind: 'follow-up', id: task.id })).toEqual({
+      draft: null,
+    })
+
+    const asking = await restarted.createTask({
+      factory: 'NB',
+      title: steps({ run: ['ted', 'comment', '--choice', 'Yes', '--choice', 'No', 'Go on?'] }),
+      start: true,
+    })
+    const question = await waitUntil(
+      async () => (await restarted.listComments(asking.id)).find((c) => c.kind === 'question'),
+      'the Task Lead’s question',
+    )
+    const request = { kind: 'request', id: question.id } as const
+    const answer = { text: 'Because', attachments: [], fields: '{"selection":{"choice":"Yes"}}' }
+    expect(await restarted.saveMessageDraft(request, answer)).toEqual({ draft: answer })
+    const lead = (await restarted.listTasks()).find((t) => t.id === asking.id)?.leadRunId ?? ''
+    const chat = { kind: 'run', id: lead } as const
+    await restarted.saveMessageDraft(chat, { text: 'To the Run', attachments: [] })
+    await restarted.answerRequest(question.id, { action: 'answer', choice: 'Yes' })
+    expect(await restarted.messageDraft(request)).toEqual({ draft: null })
+    expect(await restarted.saveMessageDraft(request, answer)).toEqual({
+      draft: null,
+      refused: 'this request is already answered',
+    })
+    expect(await restarted.messageDraft(chat)).toMatchObject({ draft: { text: 'To the Run' } })
+
+    await restarted.archiveTask(asking.id)
+    expect(await restarted.messageDraft(chat)).toEqual({ draft: null })
+    await restarted.archiveTask(task.id)
+    expect(await restarted.messageDraft(comment)).toEqual({ draft: null })
+    expect(await restarted.saveMessageDraft(comment, kept)).toEqual({
+      draft: null,
+      refused: 'an archived Task keeps no unsent text',
+    })
+    await restarted.unarchiveTask(task.id)
+    expect(await restarted.messageDraft(comment)).toEqual({ draft: null })
+
+    await restarted.saveMessageDraft(comment, kept)
+    const stored = path.join(tedPaths(home).attachments, `${file.hash}.txt`)
+    expect(await readFile(stored, 'utf8')).toBe('unsent bytes')
+    await restarted.deleteTask(task.id)
+    expect(await restarted.messageDraft(comment)).toEqual({ draft: null })
+    await waitUntil(
+      async () =>
+        (await readFile(stored).then(
+          () => false,
+          () => true,
+        )) || undefined,
+      'the deleted Task’s unsent file to be removed',
+    )
+
+    await restarted.removeFactory(factory.id, { key: 'NB', closePullRequests: false })
+    expect(await restarted.messageDraft({ kind: 'coordinator', id: factory.id })).toEqual({
+      draft: null,
+    })
+    expect(await restarted.messageDraft({ kind: 'new-plan', id: factory.id })).toEqual({
+      draft: null,
+    })
+  })
+})

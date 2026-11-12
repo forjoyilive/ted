@@ -133,13 +133,14 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
     fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
   const bar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
   expect(bar.getByText('2 selected')).toBeTruthy()
-  expect(bar.queryByRole('status')).toBeNull()
+  const waitLine = () => document.querySelector('[data-wait-line]')?.textContent
+  expect(waitLine()).toBeUndefined()
   await act(async () => a.emit({ type: 'slots-changed', slots: { ...a.state.slots, working: 2 } }))
-  expect(bar.getByRole('status').textContent).toBe('1 starts now, 1 waits for a Run slot')
+  expect(waitLine()).toBe('1 starts now, 1 waits for a Run slot')
   fireEvent.pointerMove(required(document.querySelector('[data-task="NB-2"] td:last-child')))
   fireEvent.keyDown(window, { key: 'x' })
   expect(bar.getByText('3 selected')).toBeTruthy()
-  expect(bar.getByRole('status').textContent).toBe('1 starts now, 2 wait for a Run slot')
+  expect(waitLine()).toBe('1 starts now, 2 wait for a Run slot')
   fireEvent.keyDown(window, { key: 'x' })
   expect(bar.getByText('2 selected')).toBeTruthy()
   await u.click(bar.getByRole('button', { name: 'Snooze' }))
@@ -369,7 +370,7 @@ test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume
   expect(bar().queryByRole('button', { name: 'Clear selection' })).toBeNull()
   await u.click(bar().getByRole('button', { name: 'Prepare through Design' }))
   const dialog = within(screen.getByRole('dialog'))
-  expect(dialog.getByText(/Overnight mode/)).toBeTruthy()
+  expect(dialog.getByText(/Autopilot/)).toBeTruthy()
   await u.click(dialog.getByRole('button', { name: 'Prepare 3 Tasks' }))
   for (const id of ['NB-1', 'NB-2', 'MS-1'])
     expect(a.request).toHaveBeenCalledWith('startTask', id, { prepare: true })
@@ -511,4 +512,38 @@ test('bulk Restart identifies a later Task failure and stops before the next Tas
   expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-1')
   expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-2')
   expect(a.request).not.toHaveBeenCalledWith('restartRun', 'lead-MS-1')
+})
+
+test('bulk Autopilot keeps successful changes and selects only failed Tasks for retry', async () => {
+  const a = await list()
+  const u = user()
+  const set = vi.fn(async (id: unknown) => {
+    if (id === 'NB-2') throw new Error('Could not save this Task')
+  })
+  a.handle('setTaskAutopilot', set)
+  for (const id of ['NB-1', 'NB-2', 'MS-1'])
+    fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
+  await u.selectOptions(screen.getByLabelText('Autopilot for selected Tasks'), 'on')
+  await screen.findByText(/NB-2: Could not save this Task/)
+  for (const id of ['NB-1', 'MS-1']) {
+    const saved = required(a.state.tasks.find((t) => t.id === id))
+    await a.emitTask({ ...saved, autopilot: { choice: 'on', enabled: true } })
+  }
+  expect(set.mock.calls.map(([id]) => id).sort()).toEqual(['MS-1', 'NB-1', 'NB-2'])
+  for (const id of ['NB-1', 'NB-2', 'MS-1'])
+    expect(a.request).toHaveBeenCalledWith('setTaskAutopilot', id, { choice: 'on' })
+  expect(screen.getByText('1 selected')).toBeTruthy()
+  expect(
+    within(required(document.querySelector('[data-task="NB-1"]'))).getByText('Autopilot on'),
+  ).toBeTruthy()
+  expect(
+    within(required(document.querySelector('[data-task="MS-1"]'))).getByText('Autopilot on'),
+  ).toBeTruthy()
+  expect(screen.getByRole('checkbox', { name: 'Select NB-2' })).toHaveProperty('checked', true)
+  expect(screen.getByRole('checkbox', { name: 'Select NB-1' })).toHaveProperty('checked', false)
+  set.mockClear()
+  a.handle('setTaskAutopilot', set.mockResolvedValue(undefined))
+  await u.selectOptions(screen.getByLabelText('Autopilot for selected Tasks'), 'on')
+  await screen.findByText(/Updated 1 Tasks/)
+  expect(set.mock.calls.map(([id]) => id)).toEqual(['NB-2'])
 })

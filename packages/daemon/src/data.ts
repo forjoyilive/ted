@@ -16,6 +16,7 @@ import type { Coordinators } from './coordinators/coordinators.ts'
 import type { DiskWatch } from './disk.ts'
 import type { Editors } from './editors.ts'
 import { RequestError } from './errors.ts'
+import type { ExecutionController } from './execution/controller.ts'
 import type { FactoryRemovals } from './factory-removal.ts'
 import type { FactorySettings } from './factory-settings.ts'
 import type { Factories } from './factory-setup.ts'
@@ -52,6 +53,8 @@ import { plural } from './text.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
+  agentAvailability: ReturnType<typeof import('./agent-availability.ts').createAgentAvailability>
+  execution: ExecutionController
   sideChats: SideChats
   store: TedStore
   automations: Automations

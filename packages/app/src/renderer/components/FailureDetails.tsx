@@ -1,5 +1,5 @@
 import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
-import { validationExecution } from '@ted/protocol/failures'
+import { ciFailureLabel, validationExecution } from '@ted/protocol/failures'
 import { shortReference } from '@ted/protocol/reference'
 import { useState } from 'react'
 import { useCheckRuns, useFailures, useTasks, useValidationObligations } from '../data.ts'
@@ -43,6 +43,7 @@ export function FailureDetails({
   noAccept?: boolean
   onOpenTask?: ((id: string) => void) | undefined
 }) {
+  const [open, setOpen] = useState(false)
   const request = requestId ? failure.decisions.find((d) => d.commentId === requestId) : undefined
   const assessment = request
     ? failure.assessments.find((a) => a.id === request.assessmentId)
@@ -68,19 +69,23 @@ export function FailureDetails({
           : failure.verifications?.length
             ? failure.verifications.at(-1)?.checkRunId
               ? 'verified by a later execution'
-              : 'verified with recorded evidence'
+              : failure.validation && failure.source.kind === 'github-ci'
+                ? 'closed by TED'
+                : 'verified with recorded evidence'
             : (decision?.resolution ?? 'unresolved')
   const contextId = requestId ? request?.contextId : failure.contextId
   const what =
     failure.source.kind === 'finding'
       ? failure.source.finding
       : failure.source.kind === 'github-ci'
-        ? `CI on ${failure.source.repo}#${failure.source.number}`
+        ? ciFailureLabel(failure.source)
         : `The ${failure.originalCheck?.name ?? 'Factory'} Check`
+  const additions = failure.additions.slice(0, requestId ? assessment?.evidenceCount : undefined)
+  const entries = 1 + additions.length
   return (
     <section className={styles.content} aria-label="Failure assessment and decision">
-      <h3 className={styles.sectionHeading}>Failed</h3>
-      <p className={styles.sectionBody}>{what}</p>
+      <h3 className={styles.sectionHeading}>What failed</h3>
+      <p className={styles.failedWhat}>{what}</p>
       <h3 className={styles.sectionHeading}>Task Lead’s assessment</h3>
       <p className={styles.sectionBody}>
         {assessment ? assessmentWords[assessment.assessment] : 'Investigation in progress'}
@@ -99,22 +104,26 @@ export function FailureDetails({
           Human decision: {decision.resolution} · {decision.reason}
         </p>
       )}
-      <details>
-        <summary className={styles.caption}>Evidence and history</summary>
+      <details className={styles.history} onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary>
+          {`${open ? 'Hide' : 'Show'} history · ${entries} evidence ${entries === 1 ? 'entry' : 'entries'}`}
+        </summary>
         <p className={styles.sectionBody}>
-          Failure <span title={failure.id}>{shortReference(failure.id)}</span> · {disposition}
+          Failure{' '}
+          <span className={styles.historyId} title={failure.id}>
+            {shortReference(failure.id)}
+          </span>{' '}
+          · {disposition}
         </p>
         <p className={styles.sectionBody}>{failure.evidence}</p>
-        {failure.additions
-          .slice(0, requestId ? assessment?.evidenceCount : undefined)
-          .map((addition) => (
-            <p
-              key={`${addition.runId}:${addition.at}:${addition.evidence}`}
-              className={styles.sectionBody}
-            >
-              {addition.evidence}
-            </p>
-          ))}
+        {additions.map((addition) => (
+          <p
+            key={`${addition.runId}:${addition.at}:${addition.evidence}`}
+            className={styles.sectionBody}
+          >
+            {addition.evidence}
+          </p>
+        ))}
         {!requestId &&
           failure.verifications?.map((verification) => (
             <p key={`${verification.at}:${verification.evidence}`} className={styles.sectionBody}>
@@ -123,14 +132,16 @@ export function FailureDetails({
           ))}
         <p className={styles.sectionBody}>
           Tested context:{' '}
-          <span title={contextId}>{contextId ? shortReference(contextId) : 'unknown'}</span>
+          <span className={styles.historyId} title={contextId}>
+            {contextId ? shortReference(contextId) : 'unknown'}
+          </span>
         </p>
       </details>
       <p className={styles.caption}>
         {noAccept
           ? failure.validation
             ? 'This failure can’t be accepted: TED can’t tie it to the Task’s code as it is now.'
-            : 'This failure can’t be accepted: TED can’t tie it to the Task’s code as it is now. If it still happens, write to the Task Lead instead of choosing.'
+            : 'This failure can’t be accepted: TED can’t tie it to the Task’s code as it is now. If it still happens, send a message to the Task Lead instead of choosing.'
           : 'Accepting covers only this failure. It doesn’t count as passed or approve a merge.'}
       </p>
     </section>

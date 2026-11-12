@@ -117,10 +117,13 @@ describe('Stop and Resume', () => {
     expect(await first.getAttribute('aria-describedby')).toBeTruthy()
     expect(
       await first.evaluate((item) => {
-        const label = item.firstElementChild!
-        const bubble = label.firstElementChild!.getBoundingClientRect()
+        const label = item.firstElementChild
+        const words = label?.firstChild
+        const tip = label?.firstElementChild
+        if (!words || !tip) throw new Error('Stop Task has no label and tooltip')
+        const bubble = tip.getBoundingClientRect()
         const range = document.createRange()
-        range.selectNodeContents(label.firstChild!)
+        range.selectNodeContents(words)
         const text = range.getBoundingClientRect()
         return Math.abs(bubble.y + bubble.height / 2 - (text.y + text.height / 2))
       }),
@@ -144,8 +147,9 @@ describe('Stop and Resume', () => {
 
     await header.getByText('Working', { exact: true }).waitFor()
     const client = await daemonClient()
-    const comments = await client.listComments('NB-1')
-    expect(comments.at(-1)?.delivered).toBeDefined()
+    await expect
+      .poll(async () => (await client.listComments('NB-1')).at(-1)?.delivered)
+      .toBeDefined()
   })
 })
 
@@ -181,14 +185,15 @@ describe('Failed', () => {
     await card.getByText('The Task Lead stopped twice in 30 minutes').waitFor()
     await card.getByText('claude exited with code 1').waitFor()
 
-    await card.getByRole('button', { name: 'Open last Run' }).click()
+    const answer = thread.getByRole('region', { name: 'Answer', exact: true })
+    await answer.getByRole('button', { name: 'Open last Run' }).click()
     await window.getByRole('region', { name: 'Run chat' }).getByText('Starting.').first().waitFor()
     await window.getByRole('tab', { name: 'Task Lead' }).click()
 
-    await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
-    await card.getByRole('radio', { name: 'Retry', exact: true }).check()
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
+    await answer.getByRole('radio', { name: 'Retry', exact: true }).check()
     expect((await client.listTasks())[0]?.status?.kind).toBe('failed')
-    await card.getByRole('button', { name: 'Send', exact: true }).click()
+    await answer.getByRole('button', { name: 'Send', exact: true }).click()
 
     await thread.getByText('You retried the Task').waitFor()
     const comments = await client.listComments('NB-1')

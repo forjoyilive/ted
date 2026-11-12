@@ -506,10 +506,8 @@ export function Board({
             />
           )}
         </MenuButton>
-        <Button size="small" onClick={onPlan}>
-          Plan
-        </Button>
-        <Button size="small" variant="primary" onClick={onNewTask}>
+        <Button onClick={onPlan}>Plan</Button>
+        <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
           New Task
         </Button>
@@ -595,11 +593,12 @@ export function Board({
           })}
         </div>
         <SelectionBar
+          scope={factoryId}
           chosen={chosen}
           allTasks={tasks}
           slots={slots}
           settings={settings}
-          onClear={clear}
+          onSelect={setSelected}
         />
         {empty === 'no-tasks' && (
           <div className={styles.emptyOverlay}>
@@ -608,12 +607,10 @@ export function Board({
               title="No Tasks yet"
               help="A Task is one piece of work that agents carry through this Factory’s Stages, from request to merge. Plan helps split a piece of work too big for one Task."
             >
-              <Button variant="primary" size="small" onClick={onNewTask}>
+              <Button variant="primary" onClick={onNewTask}>
                 New Task
               </Button>
-              <Button size="small" onClick={onPlan}>
-                Plan
-              </Button>
+              <Button onClick={onPlan}>Plan</Button>
             </EmptyState>
           </div>
         )}
@@ -621,7 +618,6 @@ export function Board({
           <div className={styles.emptyOverlay}>
             <EmptyState card title="No Tasks match these filters">
               <Button
-                size="small"
                 onClick={() => {
                   setText('')
                   onFilters({})

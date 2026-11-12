@@ -13,6 +13,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_STUB_GH: false,
   TED_STUB_XCRUN: false,
   TED_EDITOR_APP_DIRS: false,
+  TED_EXECUTION_HOME:
+    'Isolated execution-worker storage, separate from independent TED homes and credentials.',
   TED_EXIT_WITH_PID: false,
   TED_FACTORY: 'Factory context supplied to Planning and Automation Runs.',
   TED_FIX_LOG: false,
@@ -30,6 +32,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_LOGIN_ITEM_STATUS: false,
   TED_LOGIN_SHELL: false,
   TED_LOAD_FILE: false,
+  TED_LAB_RUN: false,
   TED_LOW_PRIORITY: false,
   TED_NOTIFY_LOG: false,
   TED_NOTIFY_STATUS: false,

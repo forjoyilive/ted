@@ -47,7 +47,8 @@ let stopping = false
 async function shutdown(): Promise<void> {
   if (stopping) return
   stopping = true
-  await daemon?.stop()
+  await daemon?.stop((step) => console.log(`stopping TED’s daemon: ${step}`))
+  console.log('TED’s daemon stopped')
   await demoLinear?.close()
   process.exit(0)
 }
