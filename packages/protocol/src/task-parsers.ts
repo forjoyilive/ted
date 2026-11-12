@@ -7,6 +7,7 @@ import {
   type RunChecksRequest,
 } from './checks.ts'
 import { proposalCycle } from './proposal.ts'
+import { agentKindList } from './run.ts'
 import type {
   ArchiveTaskRequest,
   AttachmentRef,
@@ -96,7 +97,7 @@ export function parseTaskLead(body: unknown, name?: string): TaskLead {
   if (agent === undefined) {
     throw new HttpError(
       400,
-      `${name === undefined ? '' : `${name}.`}agent must be claude, codex or antigravity`,
+      `${name === undefined ? '' : `${name}.`}agent must be ${agentKindList}`,
     )
   }
   const mode = (body as Record<string, unknown>).effortMode

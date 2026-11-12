@@ -103,7 +103,7 @@ test('the Coordinator shows its conversation in the Run chat, with TED’s conti
   const fromTed = within(chat).getByRole('button', { name: /From TED/ })
   expect(fromTed.textContent).toContain(continuation)
   expect(within(chat).getAllByText('Nabha Cosley')).toHaveLength(2)
-  const unsent = within(chat).getByText('Never mind that one.').closest('div')
+  const unsent = within(chat).getByText('Never mind that one.').closest('[data-queued]')
   expect(unsent?.textContent).toContain('Not sent')
   expect(within(chat).queryByRole('button', { name: 'Delete' })).toBeNull()
   expect(within(chat).getByRole('button', { name: 'Started NB-1 · Queued at Intake' })).toBeTruthy()
@@ -265,7 +265,7 @@ test('overnight mode is switched in Settings → General, not in the sidebar', a
 
 const notice = () => screen.queryByRole('status', { name: 'Overnight mode is on' })
 const noticeText =
-  '▲ Overnight mode is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you.'
+  '▲ Overnight mode is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks and Tasks that change a Factory’s settings still wait for you.'
 
 function overnight(on: boolean, view: React.ReactNode) {
   const openGeneral = vi.fn()

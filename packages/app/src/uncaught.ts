@@ -46,6 +46,16 @@ export function fileLog(file: string): (...args: unknown[]) => void {
   }
 }
 
+export function startupLog(file: string, enabled: boolean): (stage: string) => void {
+  const started = performance.now()
+  const write = fileLog(file)
+  let remaining = 48
+  return (stage) => {
+    if (!enabled || remaining-- <= 0) return
+    write(JSON.stringify({ pid: process.pid, ms: performance.now() - started, stage }))
+  }
+}
+
 export function ignoreBrokenPipes(
   streams: NodeJS.EventEmitter[],
   onBroken: (error: NodeJS.ErrnoException) => void,

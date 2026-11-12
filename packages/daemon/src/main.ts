@@ -67,6 +67,7 @@ try {
         simulators: { supported: true },
       }),
     onShutdown: () => void shutdown(),
+    stallProfiles: {},
     checkAgentsOnStart: true,
     ...(appToken !== undefined && { appToken }),
     ...(tedEnv('TED_STAY_AWAKE') !== 'off' && { holdAwake: holdAwakeWithOs() }),

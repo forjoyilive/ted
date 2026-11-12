@@ -350,6 +350,7 @@ describe('Offline', () => {
     expect(all.map((h) => [h.agent, h.state, h.reason])).toEqual([
       ['claude', 'offline', 'offline'],
       ['codex', 'offline', 'offline'],
+      ['antigravity', 'not-installed', 'Antigravity isn’t installed'],
     ])
     expect((await getTask(client, task.id))?.status).toEqual({ kind: 'paused', reason: 'offline' })
 
@@ -414,7 +415,11 @@ describe('Billing and credentials', () => {
       const settings = await client.ok<{ billing: Record<string, string> }>('PATCH', '/settings', {
         billing: { claude: 'api-key', codex: 'subscription' },
       })
-      expect(settings.billing).toEqual({ claude: 'api-key', codex: 'subscription' })
+      expect(settings.billing).toEqual({
+        claude: 'api-key',
+        codex: 'subscription',
+        antigravity: 'subscription',
+      })
       const keyed = await record(await startTask(client, steps({ say: 'two' }, { endTurn: true })))
       expect(keyed.ANTHROPIC_API_KEY).toBe('sk-ant-test')
       const codexEnv = await record(

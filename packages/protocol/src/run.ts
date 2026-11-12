@@ -11,6 +11,8 @@ export function runTokenFrom(env: NodeJS.ProcessEnv): string | undefined {
 
 export const agentKinds: readonly AgentKind[] = ['claude', 'codex', 'antigravity']
 
+export const agentKindList = `${agentKinds.slice(0, -1).join(', ')} or ${agentKinds.at(-1)}`
+
 export function chatToolPolicy(agent: AgentKind): 'none' | 'isolated' {
   return agent === 'antigravity' ? 'isolated' : 'none'
 }

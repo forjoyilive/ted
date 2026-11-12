@@ -284,23 +284,27 @@ describe('worktree setup outcomes', () => {
   })
 
   test('archiving during setup stops setup, starts no Task Lead and removes the worktree', async () => {
-    await workflow(`      setup: "while true; do sleep 0.05; done"\n`)
+    const setupStarted = path.join(worktreeOf(), 'stub-setup-started')
+    await workflow(`      setup: "touch stub-setup-started; while true; do sleep 0.05; done"\n`)
     const client = await startWithStub()
     await addFactory(client)
     const task = await createTask(client, steps({ endTurn: true }))
     await client.ok<Task>('POST', `/tasks/${task.id}/start`)
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.repos[0]?.setup?.state === 'running',
-      'setup to start',
-    )
+    await waitUntil(() => exists(setupStarted), 'the setup command to start')
 
     await client.ok<Task>('POST', `/tasks/${task.id}/archive`)
 
-    const archived = await waitUntil(async () => {
+    await waitUntil(async () => {
       const current = await getTask(client, task.id)
       return current?.repos[0]?.removed ? current : undefined
     }, 'the worktree to be removed')
-    expect(archived.leadRunId).toBeUndefined()
+    await waitUntil(
+      async () => (await client.ok<RunSlots>('GET', '/slots')).working === 0,
+      'the setup command to stop and release its slot',
+    )
+    const archived = await getTask(client, task.id)
+    expect(archived).toMatchObject({ archived: true, repos: [{ removed: true }] })
+    expect(archived?.leadRunId).toBeUndefined()
     expect(await exists(worktreeOf())).toBe(false)
     expect((await client.ok<{ working: number }>('GET', '/slots')).working).toBe(0)
   })
