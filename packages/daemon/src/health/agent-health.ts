@@ -33,6 +33,7 @@ export const fixWatchMs = 10 * 60 * 1000
 export const freshForMs = 30_000
 export const limitProbeMs = 15 * 60 * 1000
 const resetMarginMs = 5_000
+const usageAgeEveryMs = 60_000
 
 export interface AgentHealthMonitor {
   list(): AgentHealth[]
@@ -91,6 +92,16 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   let closed = false
 
   const emit = (event: DaemonEvent) => options.emit?.(event)
+  const announced = new Map<AgentKind, { shown: string; usageAt: number }>()
+  const shownAs = (health: AgentHealth) =>
+    JSON.stringify({ ...health, planUsage: health.planUsage && { ...health.planUsage, at: '' } })
+  const announce = (health: AgentHealth) => {
+    announced.set(health.agent, {
+      shown: shownAs(health),
+      usageAt: health.planUsage ? Date.parse(health.planUsage.at) : 0,
+    })
+    emit({ type: 'agent-health-changed', health })
+  }
   const billing = (kind: AgentKind) => store.settings().billing[kind]
 
   function fixFor(kind: AgentKind, state: AgentHealthState): FixCommand | undefined {
@@ -227,7 +238,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     latest.set(kind, counted)
     showBanners(counted)
     showOffline()
-    emit({ type: 'agent-health-changed', health: counted })
+    announce(counted)
     if (counted.state === 'ready') {
       const held = store.heldRuns().some((h) => h.agent === kind)
       if (before?.state !== 'ready' || held) {
@@ -438,7 +449,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       latest.set(health.agent, counted)
       showBanners(counted)
       showOffline()
-      emit({ type: 'agent-health-changed', health: counted })
+      announce(counted)
     }
   })
 
@@ -499,7 +510,10 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       if (!known) return
       const updated = { ...known, planUsage: usage.get(kind) as PlanUsage }
       latest.set(kind, updated)
-      emit({ type: 'agent-health-changed', health: updated })
+      const last = announced.get(kind)
+      const aged = Date.parse(updated.planUsage.at) - (last?.usageAt ?? 0) >= usageAgeEveryMs
+      if (last?.shown === shownAs(updated) && !aged) return
+      announce(updated)
     },
     setOnline(online) {
       if (offline === !online || closed) return
