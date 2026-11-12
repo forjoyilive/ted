@@ -89,7 +89,7 @@ export const defaultMachineSettings: MachineSettings = {
   notifySound: false,
   listViews: {},
   firstLaunchDone: false,
-  billing: { claude: 'subscription', codex: 'subscription' },
+  billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },
   editor: null,
   editorCommand: '',
   linearIntakeScopes: {},

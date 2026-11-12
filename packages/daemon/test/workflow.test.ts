@@ -426,8 +426,8 @@ describe('checking a layer', () => {
         ].join('\n'),
       }),
     ).toEqual([
-      'error .ted/workflow.yaml 1 16 `lead.agent` must be claude or codex',
-      'error .ted/workflow.yaml 2 11 `reviewer` must be codex, claude or same',
+      'error .ted/workflow.yaml 1 16 `lead.agent` must be claude, codex or antigravity',
+      'error .ted/workflow.yaml 2 11 `reviewer` must be codex, claude, antigravity or same',
       'error .ted/workflow.yaml 3 20 `planner.effort` must be one of low, medium, high, xhigh, max, ultra',
       'error .ted/workflow.yaml 4 14 `permissions` must be auto or bypass',
       'error .ted/workflow.yaml 5 19 `max_working_runs` must be a whole number above 0',

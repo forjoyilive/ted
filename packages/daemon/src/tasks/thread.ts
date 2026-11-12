@@ -35,7 +35,11 @@ const planEndLines: Record<string, string> = {
 
 export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
 
-const agentNames: Record<string, string> = { claude: 'Claude', codex: 'Codex' }
+const agentNames: Record<string, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  antigravity: 'Antigravity',
+}
 
 const skipReasons: Record<CopySkip['reason'], string> = {
   'no-local-folder': 'no local folder is set',

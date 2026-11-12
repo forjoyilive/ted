@@ -221,7 +221,13 @@ function DiagnosticsView({
                     <td className={styles.mono} title={run.runId}>
                       {shortId(run.runId)}
                     </td>
-                    <td>{run.agent === 'claude' ? 'Claude Code' : 'Codex'}</td>
+                    <td>
+                      {run.agent === 'claude'
+                        ? 'Claude Code'
+                        : run.agent === 'antigravity'
+                          ? 'Antigravity'
+                          : 'Codex'}
+                    </td>
                     <td>{run.state}</td>
                     <td className={styles.number}>
                       {run.state === 'finished' ? '–' : `${run.cpuPercent}%`}

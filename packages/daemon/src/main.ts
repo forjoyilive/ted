@@ -53,6 +53,7 @@ async function shutdown(): Promise<void> {
 
 const claudeBin = tedEnv('TED_CLAUDE_BIN')
 const codexBin = tedEnv('TED_CODEX_BIN')
+const antigravityBin = tedEnv('TED_ANTIGRAVITY_BIN')
 const ghBin = tedEnv('TED_GH_BIN')
 const fixLog = tedEnv('TED_FIX_LOG')
 
@@ -71,6 +72,7 @@ try {
     ...(tedEnv('TED_STAY_AWAKE') !== 'off' && { holdAwake: holdAwakeWithOs() }),
     ...(claudeBin && { claudeBin }),
     ...(codexBin && { codexBin }),
+    ...(antigravityBin && { antigravityBin }),
     integrations: {
       checkOnStart: true,
       loginShell: tedEnv('TED_LOGIN_SHELL') !== 'off',

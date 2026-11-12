@@ -6,6 +6,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_AUTOMATION: 'Automation context for CLI task creation.',
   TED_CLAUDE_BIN: false,
   TED_CODEX_BIN: false,
+  TED_ANTIGRAVITY_BIN: false,
+  TED_REAL_ANTIGRAVITY_BIN: false,
   TED_DEMO: false,
   TED_DEMO_STARTED: false,
   TED_STUB_GH: false,

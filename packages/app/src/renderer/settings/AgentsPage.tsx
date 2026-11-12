@@ -8,6 +8,7 @@ import {
   runsPaused,
 } from '@ted/protocol/health'
 import { useEffect, useId, useState } from 'react'
+import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
 import { Help } from '../components/Help.tsx'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
@@ -25,6 +26,7 @@ export const fixCheckEveryMs = 5_000
 const stateLabels: Record<AgentHealth['state'], string> = {
   ready: 'Ready',
   'not-installed': 'Not installed',
+  unavailable: 'Can’t run',
   'signed-out': 'Signed out',
   'too-old': 'Too old',
   'wrong-credential': 'Using an API key',
@@ -40,6 +42,7 @@ const windowNames: Record<PlanWindow['window'], string> = {
 const keyVariables: Record<AgentKind, string> = {
   claude: 'ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN',
   codex: 'CODEX_API_KEY and OPENAI_API_KEY',
+  antigravity: 'GEMINI_API_KEY and Google Cloud credentials',
 }
 
 export function stopsWork(health: AgentHealth): boolean {
@@ -157,6 +160,14 @@ function BillingChoice({
           </label>
         ))}
       </div>
+      {agent === 'antigravity' && <AntigravityChatWarning agent={agent} />}
+      {agent === 'antigravity' && (
+        <p className={styles.line}>
+          {billing === 'subscription'
+            ? 'Sign in with the Google account that has your Ultra plan.'
+            : 'Set GEMINI_API_KEY in your login-shell profile, then choose Check again. Requests are billed separately. TED never asks for or stores the key.'}
+        </p>
+      )}
     </div>
   )
 }
@@ -178,9 +189,11 @@ function PlanUsageSection({ health }: { health: AgentHealth }) {
         </div>
       ) : (
         <p className={styles.line}>
-          {health.agent === 'claude'
-            ? 'Shows once a Run has made a request.'
-            : 'Shows once a Run has started.'}
+          {health.agent === 'antigravity'
+            ? 'Usage figures are unavailable unless reported by Antigravity.'
+            : health.agent === 'claude'
+              ? 'Shows once a Run has made a request.'
+              : 'Shows once a Run has started.'}
         </p>
       )}
     </div>
@@ -218,7 +231,7 @@ function AgentCard({
     `minimum ${health.minimumVersion}`,
     ...(health.path !== undefined ? [health.path] : []),
   ].join(' · ')
-  const signedIn = !['not-installed', 'signed-out', 'too-old'].includes(health.state)
+  const signedIn = !['not-installed', 'signed-out', 'too-old', 'unavailable'].includes(health.state)
 
   return (
     <section
@@ -251,6 +264,7 @@ function AgentCard({
           {signedIn && health.account !== undefined && (
             <p className={styles.line}>{health.account}</p>
           )}
+          {health.state === 'unavailable' && <p className={styles.line}>{health.reason}</p>}
           {health.state === 'signed-out' && <p className={styles.line}>Not signed in.</p>}
           {health.state === 'too-old' && (
             <p className={styles.line}>
@@ -374,7 +388,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
       <SettingsGroup>
         <SettingRow
           title="Restart idle Runs onto new agent versions"
-          help="When Claude Code or Codex updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
+          help="When an agent updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
         >
           <Switch
             label="Restart idle Runs onto new agent versions"

@@ -1,3 +1,4 @@
+import type { RunChat } from './chat.ts'
 import type { AgentKind } from './run.ts'
 import type { AutomationSchedule } from './schedule.ts'
 import type { Effort, StageId } from './task.ts'
@@ -142,6 +143,7 @@ export interface DraftAutomationPromptRequest {
 }
 
 export interface AutomationPromptDraft {
+  chat?: RunChat
   id: string
   factoryId: string
   state: 'queued' | 'working' | 'ready' | 'failed' | 'canceled'

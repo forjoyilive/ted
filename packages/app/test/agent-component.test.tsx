@@ -64,3 +64,33 @@ test('restart idle Runs defaults on and sends the changed machine setting', asyn
   )
   expect(toggle.getAttribute('aria-checked')).toBe('false')
 })
+
+test('Antigravity shares agent health controls and saves its billing choice without replacing other agents', async () => {
+  const api = bridge({
+    agentHealth: () => [
+      {
+        ...signedOut,
+        agent: 'antigravity',
+        minimumVersion: '1.5.6',
+        version: '1.5.6',
+        pausedRuns: 0,
+        fix: { label: 'Sign in', command: 'agy acp --login' },
+      },
+    ],
+    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    updateSettings: vi.fn(),
+    copyText: vi.fn(),
+  })
+  render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const card = within(await screen.findByRole('region', { name: 'Antigravity' }))
+  expect(card.getByRole('button', { name: 'Sign in' })).toBeTruthy()
+  await user().click(card.getByRole('button', { name: 'Copy command' }))
+  expect(api.request).toHaveBeenCalledWith('copyText', 'agy acp --login')
+  await user().click(card.getByRole('radio', { name: 'API key' }))
+  expect(api.request).toHaveBeenCalledWith('updateSettings', {
+    billing: { ...defaultMachineSettings.billing, antigravity: 'api-key' },
+  })
+  expect(
+    card.getByText('Usage figures are unavailable unless reported by Antigravity.'),
+  ).toBeTruthy()
+})

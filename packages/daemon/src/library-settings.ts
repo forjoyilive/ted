@@ -183,6 +183,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     const merged = resolveWorkflow([base.defaults, library(base.files)]).settings
     const installed = {
       claude: options.installed('claude'),
+      antigravity: options.installed('antigravity'),
       codex: options.installed('codex'),
     }
     return agentRoles.map((role) => {

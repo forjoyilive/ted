@@ -2687,6 +2687,7 @@ export function createTasks(options: {
   const leadFrom = (settings?: WorkflowSettings) =>
     resolveAgentChoices(settings, {
       claude: agents.installed('claude'),
+      antigravity: agents.installed('antigravity'),
       codex: agents.installed('codex'),
     }).lead
 
@@ -6597,6 +6598,7 @@ export function createTasks(options: {
       const depth = resolution.workflow.settings.stages.clarify?.depth
       const choices = resolveAgentChoices(resolution.workflow.settings, {
         claude: agents.installed('claude'),
+        antigravity: agents.installed('antigravity'),
         codex: agents.installed('codex'),
       })
       return {

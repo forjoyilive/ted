@@ -230,7 +230,10 @@ describe('Codex Runs', () => {
   test('an unknown agent kind is refused', async () => {
     const client = await startWithStubs()
     const res = await client.call('POST', '/dev/runs', { prompt: 'x', cwd, agent: 'gemini' })
-    expect(res).toEqual({ status: 400, body: { error: 'agent must be claude or codex' } })
+    expect(res).toEqual({
+      status: 400,
+      body: { error: 'agent must be claude, codex or antigravity' },
+    })
   })
 })
 
