@@ -422,6 +422,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
       return
     }
+    const stoppedByTed = store.tedStopPending(task.id)
     const [checked] = await health.check([run.agent])
     if (checked?.state === 'ready' && signedOut === undefined) {
       const ended = store.getRun(run.id)?.ended
@@ -432,7 +433,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     }
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
-    if (now.waitsForBlockers || now.stopped) return
+    if (now.waitsForBlockers || now.stopped || stoppedByTed) return
     if (signedOut !== undefined) {
       const held = new Set(store.heldAnswers(task.id).map((c) => c.id))
       for (const comment of store.listComments(task.id)) {

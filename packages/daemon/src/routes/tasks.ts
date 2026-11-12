@@ -3,6 +3,7 @@ import {
   type NewTaskDraft,
   parseAddFailureEvidenceRequest,
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAssessFailureRequest,
   parseBlockTaskRequest,
@@ -45,6 +46,18 @@ import type {
 import { jsonRoute, type Route } from './route.ts'
 
 export const taskRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/ted-stops$/,
+    handle: async (_, { tasks }) => [200, tasks.tedStops()],
+  },
+  jsonRoute(parseAnswerTedStopsRequest, {
+    method: 'POST',
+    path: /^\/ted-stops\/answer$/,
+    async handle({ body }, { tasks }) {
+      return [200, await tasks.answerTedStops(body)]
+    },
+  }),
   jsonRoute(parseSetTaskAutopilotRequest, {
     method: 'PUT',
     path: /^\/tasks\/([^/]+)\/autopilot$/,

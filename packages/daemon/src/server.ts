@@ -111,7 +111,9 @@ const dataRoutes: Route<BaseOptions>[] = [
       }
       await settled(data)
       if (!keepRuns && data.status().state === 'ready') {
-        await (await data.services()).runs.stopAll()
+        const services = await data.services()
+        services.tasks.stoppingForQuit()
+        await services.runs.stopAll()
       }
       if (res.destroyed) setImmediate(onShutdown)
       else res.once('close', () => setImmediate(onShutdown))

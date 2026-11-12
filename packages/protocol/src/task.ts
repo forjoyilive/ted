@@ -427,6 +427,22 @@ export interface ResumeTaskRequest {
   attachments?: AttachmentRef[]
 }
 
+export interface TedStoppedTask {
+  id: string
+  displayId: string
+  title: string
+  stage: StageId
+  factoryId: string
+  stoppedAt: string
+}
+
+export const maxTedStopAnswers = 1000
+
+export interface AnswerTedStopsRequest {
+  restart: string[]
+  leave: string[]
+}
+
 export interface BlockTaskRequest {
   by: string
 }

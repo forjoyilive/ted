@@ -10,6 +10,8 @@ import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   commitToOrigin,
+  hostRecords,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -154,6 +156,9 @@ test('a Task interrupted by full quit can resume directly after reopening', asyn
   })
   expect(interrupted?.statuses).not.toContain('stopped')
   expect((await reopened.getRun(working.leadRunId ?? '')).run.state).toBe('finished')
+  expect((await reopened.call('GET', '/ted-stops')).body).toMatchObject([
+    { id: task.id, displayId: 'NB-1', stage: working.stage },
+  ])
 
   const resumed = await reopened.call('POST', `/tasks/${task.id}/resume`, {
     comment: 'Keep the unfinished work.',
@@ -172,6 +177,7 @@ test('a Task interrupted by full quit can resume directly after reopening', asyn
   )
   expect(latest).toMatchObject({ stage: working.stage, commentBox: 'live' })
   expect(latest).not.toHaveProperty('canResume', true)
+  expect((await reopened.call('GET', '/ted-stops')).body).toEqual([])
   expect(await stat(path.join(worktree, 'unfinished.txt'))).toBeDefined()
   const prompt = (await reopened.getRun(latest?.leadRunId ?? '')).run as { prompt?: string }
   expect(prompt.prompt).toContain('Pin notes to the top.')
@@ -229,8 +235,95 @@ test('interrupted Resume cannot bypass an unanswered request', async () => {
   const waiting = await getTask(client, task.id)
   expect(waiting).toMatchObject({ status: { kind: 'waiting-on-you' }, runs: [] })
   expect(waiting).not.toHaveProperty('canResume', true)
+  expect(await client.ok('GET', '/ted-stops')).toEqual([])
   expect((await client.call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(409)
   expect((await comments(client, task)).find((c) => c.kind === 'question')?.answer).toBeUndefined()
+})
+
+test('after a quit TED offers the Tasks that were working, restarts the chosen ones and leaves the rest', async () => {
+  const client = await startTed()
+  const restarted = await create(client, steps({ waitFor: '/never' }), { start: true })
+  const left = await create(client, steps({ waitFor: '/never' }), { start: true })
+  const byHand = await create(client, steps({ waitFor: '/never' }), { start: true })
+  const leads = new Map<string, string>()
+  for (const task of [restarted, left, byHand]) {
+    const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
+    leads.set(task.id, working.leadRunId ?? '')
+  }
+  await client.ok('POST', `/tasks/${byHand.id}/stop`)
+
+  const stubHealth = path.join(home, 'stub-claude.json')
+  await writeFile(stubHealth, JSON.stringify({ signedIn: false }))
+  await client.ok('POST', '/shutdown')
+  await daemon?.stop()
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const reopened = api(daemon.port, { appKey: daemon.appToken })
+  await writeFile(stubHealth, JSON.stringify({ signedIn: true }))
+  expect((await reopened.call('POST', '/agents/health/check')).status).toBeLessThan(300)
+  const offered = (await reopened.call('GET', '/ted-stops')).body as {
+    id: string
+    stoppedAt: string
+  }[]
+  expect(offered.map((t) => t.id).sort()).toEqual([restarted.id, left.id].sort())
+  const held = ((await reopened.call('GET', '/tasks')).body as Task[]).filter(
+    (t) => t.runs.length > 0 || t.statuses.includes('paused') || t.statuses.includes('queued'),
+  )
+  expect(held).toEqual([])
+
+  const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(leads.get(left.id) ?? '')
+  const answer = { restart: [restarted.id], leave: [left.id, byHand.id] }
+  expect((await api(daemon.port, token).call('POST', '/ted-stops/answer', answer)).status).toBe(403)
+  const answered = await reopened.call('POST', '/ted-stops/answer', answer)
+  expect(answered).toMatchObject({ status: 200, body: [] })
+
+  const tasks = async () => (await reopened.call('GET', '/tasks')).body as Task[]
+  await waitUntil(async () => {
+    const current = (await tasks()).find((t) => t.id === restarted.id)
+    return current?.runs[0]?.state === 'working' && current.leadRunId !== leads.get(restarted.id)
+  }, 'a fresh Task Lead for the restarted Task')
+  const after = await tasks()
+  expect(after.find((t) => t.id === left.id)).toMatchObject({ runs: [], canResume: true })
+  expect(after.find((t) => t.id === byHand.id)).toMatchObject({ status: { kind: 'stopped' } })
+  expect((await reopened.call('GET', '/ted-stops')).body).toEqual([])
+
+  const lines = async (id: string) =>
+    ((await reopened.call('GET', `/tasks/${id}/events`)).body as ThreadEvent[]).map((e) => e.text)
+  expect(await lines(left.id)).toEqual(
+    expect.arrayContaining(['TED stopped the Task Lead when it quit', 'You left the Task stopped']),
+  )
+  expect(await lines(restarted.id)).toEqual(
+    expect.arrayContaining(['TED stopped the Task Lead when it quit', 'You resumed the Task']),
+  )
+  expect(await lines(byHand.id)).not.toContain('TED stopped the Task Lead when it quit')
+  expect((await reopened.call('POST', `/tasks/${left.id}/resume`, {})).status).toBe(200)
+})
+
+test('a working Task Lead ended while the daemon was down is offered at the next start', async () => {
+  const client = await startTed()
+  const task = await create(client, steps({ waitFor: '/never' }), { start: true })
+  const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
+  const runId = working.leadRunId ?? ''
+  await hostsStarted(home)
+  await daemon?.stop()
+  const start = (await hostRecords(home, runId)).find((r) => r.t === 'start')
+  process.kill(Number(start?.hostPid), 'SIGTERM')
+  const exit = await waitUntil(
+    async () => (await hostRecords(home, runId)).find((r) => r.t === 'exit'),
+    'the host to exit',
+  )
+
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const reopened = api(daemon.port, { appKey: daemon.appToken })
+  const offered = await waitUntil(
+    async () =>
+      ((await reopened.call('GET', '/ted-stops')).body as { id: string; stoppedAt: string }[]).find(
+        (t) => t.id === task.id,
+      ),
+    'the Task to be offered',
+  )
+  expect(offered.stoppedAt).toBe(exit.at)
+  const events = (await reopened.call('GET', `/tasks/${task.id}/events`)).body as ThreadEvent[]
+  expect(events.map((e) => e.text)).toContain('The Task Lead was stopped when TED went down')
 })
 
 describe('Stop', () => {

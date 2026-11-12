@@ -5,6 +5,7 @@ import type {
   AgentKind,
   AgentStageId,
   AnswerRequest,
+  AnswerTedStopsRequest,
   AppCapture,
   AppLog,
   AppRef,
@@ -88,6 +89,7 @@ import type {
   TaskRepo,
   TaskReposResult,
   TaskSource,
+  TedStoppedTask,
   ThreadEvent,
   ValidateJudgments,
   ValidationObligations,
@@ -452,6 +454,9 @@ export interface Tasks {
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
+  stoppingForQuit(): void
+  tedStops(): TedStoppedTask[]
+  answerTedStops(request: AnswerTedStopsRequest): Promise<TedStoppedTask[]>
   move(ref: string, request: MoveTaskRequest): Task
   setTaskSnooze(ref: string, until: string | null): Task
   setPriority(ref: string, priority: Priority): Task
@@ -6357,6 +6362,53 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
+  function interrupted(task: StoredTask): boolean {
+    return (
+      task.canResume === true &&
+      canStartFresh(task) &&
+      !advancing.has(task.id) &&
+      !leadLifecycle.pendingRevive(task.id) &&
+      !leadLifecycle.recovering(task.leadRunId ?? '')
+    )
+  }
+
+  function workingLead(run: Run): StoredTask | undefined {
+    if (run.taskId === undefined || run.parentRunId !== undefined) return undefined
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return undefined
+    if (task.stage === 'backlog' || task.stage === 'done' || task.stage === 'merge') {
+      return undefined
+    }
+    return task
+  }
+
+  function stoppingForQuit(): void {
+    for (const run of store.listRuns()) {
+      if (run.state !== 'working') continue
+      const task = workingLead(run)
+      if (task) store.taskStoppedByTed(task.id, run.id, 'quit')
+    }
+  }
+
+  async function answerTedStops({
+    restart,
+    leave,
+  }: AnswerTedStopsRequest): Promise<TedStoppedTask[]> {
+    const offered = new Set(store.tedStops().map((task) => task.id))
+    for (const id of leave) {
+      if (offered.has(id)) store.answerTedStop(id, 'leave')
+    }
+    for (const id of restart) {
+      if (!offered.has(id)) continue
+      store.answerTedStop(id, 'restart')
+      const task = find(id)
+      if (!interrupted(task) || stoppingByHand.has(id)) continue
+      store.resumeTask(id, { waitForBlockers: unmergedBlockers(id).length > 0 })
+    }
+    await pump()
+    return store.tedStops()
+  }
+
   async function resumeByHand(
     ref: string,
     {
@@ -6366,13 +6418,7 @@ export function createTasks(options: {
     }: { comment?: string; attachments?: Attachment[]; sendDrafts?: boolean } = {},
   ): Promise<Task> {
     const task = live(ref)
-    const interrupted =
-      task.canResume &&
-      canStartFresh(task) &&
-      !advancing.has(task.id) &&
-      !leadLifecycle.pendingRevive(task.id) &&
-      !leadLifecycle.recovering(task.leadRunId ?? '')
-    if (!task.stopped && task.status?.kind !== 'failed' && !interrupted) {
+    if (!task.stopped && task.status?.kind !== 'failed' && !interrupted(task)) {
       throw new RequestError(409, `${task.displayId} isn’t stopped`)
     }
     if (stoppingByHand.has(task.id)) {
@@ -6577,6 +6623,10 @@ export function createTasks(options: {
         const now = store.getRun(run.id)
         if (now) watchIdle(now)
       })
+    },
+    stoppedOutside(run, at) {
+      const task = workingLead(run)
+      if (task) store.taskStoppedByTed(task.id, run.id, 'ended-outside', at)
     },
     finished: leadLifecycle.finished,
   })
@@ -7631,6 +7681,9 @@ export function createTasks(options: {
     start,
     stop: stopByHand,
     resume: resumeByHand,
+    stoppingForQuit,
+    tedStops: () => store.tedStops(),
+    answerTedStops,
 
     moveToBacklog(ref) {
       const task = find(ref)
