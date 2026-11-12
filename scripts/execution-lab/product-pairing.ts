@@ -5,6 +5,7 @@ import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
+import { redactSecrets } from '../../packages/daemon/src/redact.ts'
 import { FixtureMachine } from '../../packages/daemon/test/support/execution-fixture.ts'
 import {
   freeExecutionPort,
@@ -74,6 +75,7 @@ export async function productPairing(options: {
   const controller = new FixtureMachine(root, 'controller', 'daemon', path.basename(options.run))
   let workerStarted = false
   let relay: ExecutionRelay | undefined
+  let step = 'prepare the controller fixture'
   async function state(wanted: WorkerStatus['state']) {
     const until = Date.now() + 45_000
     while (Date.now() < until) {
@@ -96,6 +98,7 @@ export async function productPairing(options: {
   try {
     await controller.prepare()
     await controller.start(60_000)
+    step = 'add the synthetic Factory and open the listener'
     const factory = await controller.client.addFactory({ repo: controller.origin, key: 'LAB' })
     const local = await localRoute(options.remoteAddress)
     const { address } = local
@@ -103,6 +106,7 @@ export async function productPairing(options: {
     const listening = await controller.client.createExecutionEnrollment()
     if (options.commands) relay = await createExecutionRelay({ address, port: listening.port })
     const offer = { ...listening, port: relay?.port ?? listening.port }
+    step = 'start the execution service and refuse a wrong identity'
     await options.worker({ operation: 'start' })
     workerStarted = true
     await options.worker({
@@ -112,6 +116,7 @@ export async function productPairing(options: {
     const wrongIdentity = await state('refused')
     if (!wrongIdentity.status.message.includes('identity'))
       throw new Error('Wrong identity did not produce an identity refusal')
+    step = 'refuse an incompatible version'
     const incompatible = await options.worker({
       operation: 'attempt',
       pair: { details: JSON.stringify(offer), capacity: 2 },
@@ -124,6 +129,7 @@ export async function productPairing(options: {
       operation: 'pair',
       pair: { details: JSON.stringify(offer), capacity: 2 },
     })
+    step = 'pair and approve'
     const pending = await pendingPairing(controller)
     const beforeApproval = await state('pending')
     if (beforeApproval.status.publicKey !== pending.publicKey)
@@ -133,6 +139,7 @@ export async function productPairing(options: {
     )
     if (!scope) throw new Error('Missing approved synthetic repo')
     const grant = await controller.client.approveExecution({ id: pending.id, scopes: [scope] })
+    step = 'connect with the approved credential'
     const connected = await state('connected')
     if (
       connected.status.controllerPin !== offer.controllerPin ||
@@ -141,6 +148,7 @@ export async function productPairing(options: {
       !connected.status.readiness.sandbox.available
     )
       throw new Error('Connected identities or actual native readiness differ')
+    step = 'restart the execution service'
     await options.worker({ operation: 'restart' })
     const restarted = await state('connected')
     if (
@@ -157,8 +165,12 @@ export async function productPairing(options: {
           scope,
           factoryKey: factory.key,
           worker: options.worker,
+          step(name) {
+            step = name
+          },
         })
       : undefined
+    step = 'revoke the pairing'
     await controller.client.revokeExecution({ id: grant.id })
     await state('refused')
     if (
@@ -194,6 +206,16 @@ export async function productPairing(options: {
       taskExecution: false,
       relay: relay ? 'owned relay on the controller’s local address' : 'none',
     }
+  } catch (error) {
+    const output = redactSecrets(controller.diagnostic)
+      .replace(/[^\x20-\x7e\n]/g, ' ')
+      .slice(-2000)
+    throw new Error(
+      `Product checkpoint failed at step “${step}”: ${
+        error instanceof Error ? error.message : 'unknown error'
+      }\nController fixture output (last 2000 characters):\n${output}`,
+      { cause: error },
+    )
   } finally {
     await cleanup()
   }

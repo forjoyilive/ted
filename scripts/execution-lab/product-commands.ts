@@ -15,8 +15,10 @@ export async function productCommands(options: {
   scope: ExecutionScope
   factoryKey: string
   worker(action: ProductWorkerAction): Promise<Record<string, unknown>>
+  step?(name: string): void
 }) {
   const { controller, relay } = options
+  const step = options.step ?? (() => undefined)
   const scope = { factoryId: options.scope.factoryId, repo: options.scope.repo }
   async function until<T>(what: string, check: () => Promise<T | undefined>): Promise<T> {
     const deadline = Date.now() + 90_000
@@ -38,6 +40,7 @@ export async function productCommands(options: {
   const effects = async (operationId: string) =>
     (await options.worker({ operation: 'effects', operationId })).count as number
 
+  step('commands: create and assign a synthetic Task')
   const task = await controller.client.createTask({
     factory: options.factoryKey,
     title: 'Synthetic lab command Task',
@@ -47,12 +50,14 @@ export async function productCommands(options: {
     taskId: task.id,
     machineId: options.grantId,
   })
+  step('commands: issue a waiting dummy operation')
   const operationId = `op-${randomUUID()}`
   await controller.rpc({
     action: 'issue',
     input: { operationId, taskId: task.id, scope, input: { wait: true } },
   })
   await state(operationId, 'running')
+  step('commands: drop the acknowledgment of the result')
   relay.dropResponses(true)
   await options.worker({ operation: 'release', operationId })
   const recorded = await state(operationId, 'finished')
@@ -64,6 +69,7 @@ export async function productCommands(options: {
   if (unacknowledged !== 1) throw new Error('The dropped acknowledgment reached the execution Mac')
   if ((await effects(operationId)) !== 1) throw new Error('The dummy operation did not run once')
 
+  step('commands: cut the product connection and restart the execution service')
   relay.cut()
   await until('execution Mac to see the cut connection', async () =>
     (await status()).status.state === 'disconnected' ? true : undefined,
@@ -76,12 +82,14 @@ export async function productCommands(options: {
   })
   if (after.status.operations?.waiting !== 1)
     throw new Error('The execution service lost its unconfirmed result across a restart')
+  step('commands: restart the controller')
   const controllerBefore = controller.pid
   await controller.kill()
   await controller.start(60_000)
   if (controller.pid === controllerBefore) throw new Error('The controller did not restart')
   if ((await row(operationId))?.state !== 'finished')
     throw new Error('The controller lost its recorded result across a restart')
+  step('commands: reconnect and confirm the result')
   relay.dropResponses(false)
   relay.restore()
   await until('acknowledgment after reconnecting', async () =>
@@ -92,6 +100,7 @@ export async function productCommands(options: {
   if (JSON.stringify(await row(operationId)) !== JSON.stringify(recorded))
     throw new Error('The recorded result changed after the duplicate report')
 
+  step('commands: refuse a stale-generation command')
   const { operationId: _, assignedAt: __, ...ref } = assignment
   const newer: ExecutionCommand = {
     operationId: executionIds.operation(`op-${randomUUID()}`),
