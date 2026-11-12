@@ -104,6 +104,8 @@ export const forwardedRequests = [
   'taskFile',
   'taskChanges',
   'pullRequestChanges',
+  'taskCommits',
+  'commitChanges',
   'fileDiffs',
   'lineComments',
   'draftLineComment',

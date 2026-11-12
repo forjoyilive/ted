@@ -1,4 +1,4 @@
-import type { FileDiff, LineSide, TaskChanges } from '@ted/protocol'
+import type { CommitChanges, FileDiff, LineSide, TaskChanges, TaskCommit } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import {
   type ChangedFile,
@@ -6,8 +6,9 @@ import {
   type PullRequestChangesState,
   splitPath,
 } from '../changes.ts'
+import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
-import { formatTime } from '../time.ts'
+import { formatDate, formatTime } from '../time.ts'
 import { Button } from './Button.tsx'
 import { ChangeList, DiffCounts } from './ChangesSection.tsx'
 import { FileDiffBody, type Gutter, type RowExtra } from './DiffTable.tsx'
@@ -373,4 +374,85 @@ function RepoDiffs({
       </article>
     )
   })
+}
+
+export function CommitView({
+  taskId,
+  commit,
+  onBack,
+  backLabel = '← Task Lead',
+}: {
+  taskId: string
+  commit: TaskCommit
+  onBack: () => void
+  backLabel?: string
+}) {
+  const { epoch } = useConnection()
+  const key = `${taskId}\0${commit.commit}\0${epoch}`
+  const [state, setState] = useState<{ key: string; changes?: CommitChanges; error?: string }>()
+  useEffect(() => {
+    let live = true
+    void ted.commitChanges(taskId, commit.commit).then(
+      (changes) => {
+        if (live) setState({ key, changes })
+      },
+      (error: unknown) => {
+        if (live) setState({ key, error: readableError(error) })
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [taskId, commit.commit, key])
+  const { changes, error } = state?.key === key ? state : {}
+  const count = changes?.files.length ?? 0
+  return (
+    <section className={styles.pane} aria-label="Commit">
+      <header className={styles.header}>
+        <button type="button" className={styles.back} onClick={onBack}>
+          {backLabel}
+        </button>
+        <div className={styles.titleRow}>
+          <h2 className={styles.allTitle}>
+            {changes?.subject || `Commit ${commit.commit.slice(0, 8)}`}
+          </h2>
+          <span className={styles.repoChip}>{commit.repo}</span>
+        </div>
+        {changes && (
+          <p className={styles.against}>
+            {changes.commit.slice(0, 8)} · {changes.author} ·{' '}
+            {!Number.isNaN(Date.parse(changes.date)) &&
+              `${formatDate(changes.date, {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })} · `}
+            {count === 1 ? '1 file' : `${count} files`} · Read-only
+            {changes.merge && ' · Merge commit, shown against its first parent'}
+            {changes.limited && ' · Showing the first 200 files only'}
+          </p>
+        )}
+      </header>
+      <div className={styles.body}>
+        {error !== undefined && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
+        {!changes && error === undefined && <Loading label="Loading commit…" />}
+        {changes && count === 0 && <p className={styles.note}>This commit changes no files.</p>}
+        {changes?.diffs.map((diff) => (
+          <article key={diff.path} className={styles.fileDiff}>
+            <header className={styles.fileHeader}>
+              <h3 className={styles.fileTitle}>{diff.path}</h3>
+              <DiffCounts added={diff.added} removed={diff.removed} />
+            </header>
+            <FileDiffBody diff={diff} />
+          </article>
+        ))}
+      </div>
+    </section>
+  )
 }

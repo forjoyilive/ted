@@ -10,7 +10,6 @@ import type {
   Task,
   TaskChanges,
   TaskEnding,
-  TaskFileRef,
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
@@ -35,7 +34,7 @@ import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
-import { AllChanges, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
+import { AllChanges, CommitView, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
@@ -54,6 +53,7 @@ import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { PeerMessage } from '../components/PeerMessage.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
+import { TaskReferences } from '../components/References.tsx'
 import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
 import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
@@ -92,6 +92,7 @@ import {
   type MiddlePaneState,
   middlePane,
   middlePaneStep,
+  type ShownFile,
 } from '../middle-pane.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, headline, requestLabel, useNow } from '../requests.ts'
@@ -302,22 +303,16 @@ export function TaskPanes({
   const [quickTask, setQuickTask] = useState<string>()
   const browse = useCallback(() => setBrowsing(true), [])
   const fileList = useTaskFiles(task, browsing || quickTask === task.id)
-  const showQuick = () => {
-    setBrowsing(true)
-    setQuickTask(task.id)
-  }
+  const showQuick = () => setQuickTask(task.id)
   useEffect(() => {
     const take = () => {
-      if (takeFileRequest(task.id)) {
-        setBrowsing(true)
-        setQuickTask(task.id)
-      }
+      if (takeFileRequest(task.id)) setQuickTask(task.id)
     }
     take()
     window.addEventListener(quickOpenEvent, take)
     return () => window.removeEventListener(quickOpenEvent, take)
   }, [task.id])
-  const inspectFile = (file: TaskFileRef) => {
+  const inspectFile = (file: ShownFile) => {
     setQuickTask(undefined)
     go({ kind: 'file', file })
   }
@@ -409,7 +404,15 @@ export function TaskPanes({
     drafts.filter((d) => d.repo === file.repo && d.path === file.path).length
   const { covered, shell: shellRepo } = pane
   return (
-    <>
+    <TaskReferences
+      taskId={task.id}
+      files={fileList.files}
+      onWantFiles={browse}
+      hasTask={(id) => id !== task.displayId && tasks.some((t) => t.displayId === id)}
+      onOpenTask={onOpenTask}
+      onOpenFile={(file, line) => inspectFile({ ...file, ...(line !== undefined && { line }) })}
+      onOpenCommit={(commit) => go({ kind: 'commit', commit })}
+    >
       {quickTask === task.id && (
         <QuickOpen
           key={task.id}
@@ -422,13 +425,24 @@ export function TaskPanes({
       )}
       {pane.file && (
         <FileView
-          key={`${task.id}:${pane.file.repo}:${pane.file.path}`}
+          key={`${task.id}:${pane.file.repo}:${pane.file.path}:${pane.file.line ?? ''}`}
           taskId={task.id}
           file={pane.file}
           backLabel={
             state.changes?.taskId === task.id || state.brief === task.id ? '← Back' : '← Task Lead'
           }
           onBack={() => go({ kind: 'file', file: undefined })}
+        />
+      )}
+      {pane.commit && (
+        <CommitView
+          key={`${task.id}:${pane.commit.commit}`}
+          taskId={task.id}
+          commit={pane.commit}
+          backLabel={
+            state.changes?.taskId === task.id || state.brief === task.id ? '← Back' : '← Task Lead'
+          }
+          onBack={() => go({ kind: 'commit', commit: undefined })}
         />
       )}
       {all && (
@@ -532,7 +546,7 @@ export function TaskPanes({
           />
         }
       />
-    </>
+    </TaskReferences>
   )
 }
 

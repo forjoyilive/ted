@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { PullRequestChanges, TaskChanges, TaskFiles, TaskRepo } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { usePullRequestChanges } from '../src/renderer/changes.ts'
 import { CommentFiles } from '../src/renderer/components/CommentFiles.tsx'
@@ -12,7 +12,7 @@ import { Viewer } from '../src/renderer/components/Viewer.tsx'
 import { ConnectionContext } from '../src/renderer/data.ts'
 import { useTaskFiles } from '../src/renderer/files.ts'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, user } from './support/component.ts'
+import { bridge, deferred, required, user } from './support/component.ts'
 import { comment, task } from './support/fixtures.ts'
 
 const repo: TaskRepo = {
@@ -675,4 +675,83 @@ test('PR snapshots clear on reconnect and ignore an earlier Task’s reply', asy
   await act(async () => reconnect.resolve(prChanges))
   await screen.findByText('pushed.ts')
   expect(a.request.mock.calls.filter(([name]) => name === 'pullRequestChanges')).toHaveLength(3)
+})
+
+test('a commit, a Task ID and a worktree path in a Task’s messages are links, and nothing else is', async () => {
+  const head = `195e5ce2${'0'.repeat(32)}`
+  const a = appState()
+  a.state.tasks = [
+    task({ repos: [repo], stage: 'work' }),
+    task({ id: 'NB-2', displayId: 'NB-2', number: 2, title: 'Other Task' }),
+  ]
+  a.handle('listComments', () => [
+    comment({
+      id: 'c1',
+      kind: 'note',
+      author: { kind: 'human' },
+      body: 'Fixed in `195e5ce2` for NB-2 and NB-1. See src/hello.ts:2, not tmp/session-78452.txt or `0badc0de`.\n\n```\n195e5ce2 README.md\n```',
+    }),
+    comment({ id: 'c2', kind: 'note', body: 'On 195e5ce2 the Check failed. NB-9 is unknown.' }),
+  ])
+  a.handle('taskFiles', () => ({
+    taskId: 'NB-1',
+    repos: [{ repo: 'web', paths: ['src/hello.ts', 'README.md'], partial: false }],
+  }))
+  a.handle('taskFile', () => ({ kind: 'text', text: 'first\nsecond\nthird' }))
+  a.handle('taskCommits', (_task, ids) =>
+    (ids as string[]).includes('195e5ce2') ? [{ id: '195e5ce2', repo: 'web', commit: head }] : [],
+  )
+  a.handle('commitChanges', () => ({
+    repo: 'web',
+    commit: head,
+    subject: 'Resolve the conflict',
+    author: 'Task Lead',
+    date: '2026-11-10T21:41:00.000Z',
+    files: [{ path: 'README.md', added: 1, removed: 0, uncommitted: false }],
+    diffs: [
+      {
+        repo: 'web',
+        path: 'README.md',
+        head,
+        mergeBase: 'b'.repeat(40),
+        added: 1,
+        removed: 0,
+        uncommitted: false,
+        hunks: [{ header: '@@ -0,0 +1 @@', rows: [{ kind: 'added', text: 'resolved', new: 1 }] }],
+      },
+    ],
+  }))
+  a.mount()
+  const nav = await screen.findByRole('navigation', { name: 'Sidebar' })
+  await user().click(within(nav).getByRole('button', { name: 'All Tasks' }))
+  await user().click(await screen.findByRole('row', { name: /NB-1/ }))
+  const thread = () => screen.getByRole('region', { name: 'Task thread' })
+  await screen.findByRole('region', { name: 'Task thread' })
+
+  await waitFor(() =>
+    expect(
+      [...thread().querySelectorAll('[data-reference]')].map((link) => link.textContent),
+    ).toEqual(['195e5ce2', 'NB-2', 'src/hello.ts:2', '195e5ce2']),
+  )
+  const commits = within(thread()).getAllByRole('button', { name: '195e5ce2' })
+  expect(commits[0]?.querySelector('code')).toBeTruthy()
+  expect(
+    a.request.mock.calls.flatMap(([name, , ids]) => (name === 'taskCommits' ? ids : [])),
+  ).toEqual(['195e5ce2', '0badc0de'])
+
+  await user().click(required(commits[1]))
+  const commit = await screen.findByRole('region', { name: 'Commit' })
+  expect(await within(commit).findByRole('heading', { name: 'Resolve the conflict' })).toBeTruthy()
+  expect(within(commit).getByText('resolved')).toBeTruthy()
+  expect(a.request).toHaveBeenCalledWith('commitChanges', 'NB-1', head)
+  await user().click(within(commit).getByRole('button', { name: '← Task Lead' }))
+  expect(screen.queryByRole('region', { name: 'Commit' })).toBeNull()
+
+  await user().click(within(thread()).getByRole('button', { name: 'src/hello.ts:2' }))
+  const file = await screen.findByRole('region', { name: 'File contents' })
+  expect((await within(file).findByText('second')).closest('[data-target]')).toBeTruthy()
+  await user().click(within(file).getByRole('button', { name: '← Task Lead' }))
+
+  await user().click(within(thread()).getByRole('button', { name: 'NB-2' }))
+  expect(await screen.findByRole('heading', { name: 'Other Task' })).toBeTruthy()
 })

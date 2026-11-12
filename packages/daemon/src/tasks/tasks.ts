@@ -25,6 +25,7 @@ import type {
   ClarifyDepth,
   Comment,
   CommentAnswer,
+  CommitChanges,
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -79,6 +80,7 @@ import type {
   TaskApp,
   TaskBrief,
   TaskChanges,
+  TaskCommit,
   TaskDefaults,
   TaskFileContent,
   TaskFiles,
@@ -176,7 +178,7 @@ import {
   noConflictFound,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
-import { fileDiffs, taskChanges } from './changes.ts'
+import { commitChanges, fileDiffs, taskChanges, taskCommits } from './changes.ts'
 import type { CheckSlots } from './check-slots.ts'
 import {
   type CheckRunnerResult,
@@ -498,6 +500,8 @@ export interface Tasks {
   files(ref: string): Promise<TaskFiles>
   file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
+  commits(ref: string, ids: readonly string[]): Promise<TaskCommit[]>
+  commitChanges(ref: string, id: string): Promise<CommitChanges>
   lineComments(ref: string): Promise<LineComment[]>
   draftLineComment(ref: string, request: DraftLineCommentRequest): Promise<LineComment>
   editLineComment(id: string, body: string): LineComment
@@ -8148,6 +8152,23 @@ export function createTasks(options: {
     async file(ref, name, relative) {
       const { fileScope } = await this.worktreeAccess(ref, name)
       return readTaskFile(fileScope, relative)
+    },
+
+    async commits(ref, ids) {
+      return taskCommits(
+        find(ref).repos.filter((r) => !r.removed),
+        ids,
+      )
+    },
+
+    async commitChanges(ref, id) {
+      const task = find(ref)
+      const changes = await commitChanges(
+        task.repos.filter((r) => !r.removed),
+        id,
+      )
+      if (!changes) throw new RequestError(404, `${task.displayId}’s repos have no such commit`)
+      return changes
     },
 
     async fileDiffs(ref, name, file) {
