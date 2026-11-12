@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest'
 import type { MenuCommand } from '../src/background.ts'
 import { createNotifications, foldWindowMs, type NoticeToShow } from '../src/notifications.ts'
 import { initialNavigation, navigate } from '../src/renderer/navigation.ts'
+import { tedStopsText } from '../src/renderer/ted-stops.ts'
 
 const request = (id: string, extra: Partial<WaitingRequest> = {}): WaitingRequest =>
   ({
@@ -286,6 +287,46 @@ describe('Task merged notifications', () => {
     })
     switchOff.notifications.merged(merged)
     expect(switchOff.shown).toEqual([])
+  })
+})
+
+describe('Tasks stopped when TED quit', () => {
+  test('notify once while the window is hidden, and again only after the question was answered', () => {
+    const { notifications, shown, opened } = harness()
+    notifications.tedStops(2, false)
+    expect(shown).toEqual([])
+
+    notifications.tedStops(2, true)
+    notifications.tedStops(2, true)
+    expect(shown.map((s) => s.notice.body)).toEqual([
+      '2 Tasks were working when TED quit. Open TED to restart them.',
+    ])
+    shown[0]?.open()
+    expect(opened).toEqual([{ kind: 'open-ted' }])
+
+    notifications.tedStops(0, true)
+    notifications.tedStops(1, true)
+    expect(shown.at(-1)?.notice.body).toBe(
+      '1 Task was working when TED quit. Open TED to restart it.',
+    )
+    expect(shown).toHaveLength(2)
+  })
+
+  test('the dialog names the count, the button and what happens to the rest', () => {
+    const all = tedStopsText({ count: 5, picked: 5, stoppedAt: '07:14', freeSlots: 4 })
+    expect(all.heading).toBe('5 Tasks were working when TED quit')
+    expect(all.lead).toContain('TED stopped their Task Leads at 07:14.')
+    expect(all.restart).toBe('Restart all 5')
+    expect(all.note).toBe('Tasks start in queue order as working slots free up.')
+
+    const some = tedStopsText({ count: 5, picked: 3, stoppedAt: '07:14', freeSlots: 4 })
+    expect(some.restart).toBe('Restart 3 Tasks')
+    expect(some.note).toBe('2 stay stopped.')
+
+    const one = tedStopsText({ count: 1, picked: 1, stoppedAt: '07:14', freeSlots: 4 })
+    expect(one.heading).toBe('1 Task was working when TED quit')
+    expect(one.restart).toBe('Restart')
+    expect(one.note).toBeUndefined()
   })
 })
 

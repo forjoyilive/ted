@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export * from './agent-availability.ts'
 export type * from './api-cost.ts'
 export {
   type AppCapture,
@@ -73,6 +74,13 @@ export {
   parseEditAutomationRequest,
   parseSchedulePreviewRequest,
 } from './automation-parsers.ts'
+export {
+  type AutopilotChoice,
+  autopilotEnabled,
+  parseSetTaskAutopilotRequest,
+  type SetTaskAutopilotRequest,
+  type TaskAutopilot,
+} from './autopilot.ts'
 export {
   type Banner,
   type BannerAction,
@@ -240,6 +248,7 @@ export {
   type ReservationId,
   type TaskAssignment,
 } from './execution.ts'
+export * from './execution-pairing.ts'
 export {
   type ExportFormat,
   type ExportRun,
@@ -358,7 +367,12 @@ export {
   parseVerifyFailureRequest,
 } from './failure-parsers.ts'
 export type * from './failures.ts'
-export { failureChoices, validateFailureChoices, validationExecution } from './failures.ts'
+export {
+  ciFailureLabel,
+  failureChoices,
+  validateFailureChoices,
+  validationExecution,
+} from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
@@ -444,6 +458,19 @@ export {
   listSorts,
   type StatusFilter,
 } from './list-view.ts'
+export {
+  emptyMessageDraft,
+  type MessageBox,
+  type MessageBoxKind,
+  type MessageDraft,
+  type MessageDraftState,
+  maxMessageDraftFields,
+  maxMessageDraftText,
+  messageBoxKinds,
+  parseMessageBox,
+  parseSaveMessageDraftRequest,
+  type SaveMessageDraftRequest,
+} from './message-draft.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
@@ -618,6 +645,7 @@ export type { DesignFileSpec, LocalDesignReviewInput, SaveTaskDraftRequest } fro
 export {
   type AgentStageId,
   type AnswerRequest,
+  type AnswerTedStopsRequest,
   type ArchiveDoneResult,
   type ArchiveTaskRequest,
   type Attachment,
@@ -666,6 +694,7 @@ export {
   type MergeMethod,
   type MergeRow,
   type MoveTaskRequest,
+  maxTedStopAnswers,
   mergeMethods,
   type NewTaskDraft,
   type Outcome,
@@ -729,6 +758,7 @@ export {
   type TaskSource,
   type TaskStatus,
   type TaskStatusKind,
+  type TedStoppedTask,
   type ThreadEvent,
   type ThreadEventTone,
   type TrackStage,
@@ -761,6 +791,7 @@ export type {
 } from './task-intervals.ts'
 export {
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAttachmentRefs,
   parseBlockTaskRequest,

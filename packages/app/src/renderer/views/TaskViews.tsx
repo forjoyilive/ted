@@ -39,11 +39,11 @@ function SetupRow({ factoryId, repo }: { factoryId: string; repo: RepoSetup }) {
         {failed && (
           <>
             {repo.suggestSetupGit && (
-              <Button size="small" onClick={() => void ted.runFix({ fix: 'gh-setup-git' })}>
+              <Button size="small" onClick={() => ted.runFix({ fix: 'gh-setup-git' })}>
                 Fix
               </Button>
             )}
-            <Button size="small" onClick={() => void ted.retryClone(factoryId)}>
+            <Button size="small" onClick={() => ted.retryClone(factoryId)}>
               Retry
             </Button>
           </>

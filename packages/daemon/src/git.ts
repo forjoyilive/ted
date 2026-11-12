@@ -141,7 +141,45 @@ export async function addWorktree(
   repo: string,
   input: { path: string; branch: string; from: string },
 ): Promise<void> {
+  await git(repo, 'worktree', 'prune')
   await git(repo, 'worktree', 'add', '--no-track', '-b', input.branch, input.path, input.from)
+}
+
+export interface ListedWorktree {
+  path: string
+  head?: string
+  branch?: string
+  locked: boolean
+}
+
+export async function listWorktrees(repo: string): Promise<ListedWorktree[]> {
+  const out = await git(repo, 'worktree', 'list', '--porcelain', '-z')
+  const listed: ListedWorktree[] = []
+  let current: ListedWorktree | undefined
+  for (const field of out.split('\0')) {
+    const space = field.indexOf(' ')
+    const name = space === -1 ? field : field.slice(0, space)
+    const value = space === -1 ? '' : field.slice(space + 1)
+    if (name === 'worktree') {
+      current = { path: value, locked: false }
+      listed.push(current)
+    } else if (!current) continue
+    else if (name === 'HEAD') current.head = value
+    else if (name === 'branch') current.branch = value.replace(/^refs\/heads\//, '')
+    else if (name === 'locked') current.locked = true
+  }
+  return listed
+}
+
+export async function hasLocalBranch(repo: string, branch: string): Promise<boolean> {
+  return git(repo, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`).then(
+    () => true,
+    () => false,
+  )
+}
+
+export async function deleteBranchAt(repo: string, branch: string, tip: string): Promise<void> {
+  await git(repo, '-c', 'core.hooksPath=/dev/null', 'update-ref', '-d', `refs/heads/${branch}`, tip)
 }
 
 export async function restoreWorktree(
@@ -217,9 +255,10 @@ export async function commitsAhead(worktree: string, base: string): Promise<numb
 export async function pushBranch(
   worktree: string,
   branch: string,
-  options: { url: string; expected?: string; timeoutMs?: number },
+  options: { url: string; expected?: string; commit?: string; timeoutMs?: number },
 ): Promise<string> {
-  const commit = await git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+  const commit =
+    options.commit ?? (await git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}'))
   const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
   const objects = path.join(path.resolve(worktree, common), 'objects')
   const ref = `refs/heads/${branch}`

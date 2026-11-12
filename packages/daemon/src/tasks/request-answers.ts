@@ -17,6 +17,7 @@ import type { StoredTask, TedStore } from '../store/index.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/workflow.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
+import { answerMessage } from './answer-message.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
 import { mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
@@ -93,7 +94,10 @@ export interface RequestAnswerPort {
   firstLine(text: string): string
 }
 
-export function createRequestAnswers(port: RequestAnswerPort) {
+export function createRequestAnswers(
+  port: RequestAnswerPort,
+  automatic?: { guard(comment: Comment): Promise<void> },
+) {
   const {
     store,
     untilFree,
@@ -137,7 +141,17 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     comment: Comment,
     answer: CommentAnswer,
     lineComments?: readonly string[],
-  ) => answerTaskRequest(store, task, comment, answer, lineComments)
+    queueAnswer = false,
+  ) =>
+    answerTaskRequest(
+      store,
+      task,
+      comment,
+      answer,
+      lineComments,
+      automatic !== undefined,
+      queueAnswer,
+    )
   const linearArchiveChoice = 'Archive'
   const nudgeAgainChoice = 'Nudge again'
   const useDefaultChoice = 'Use the default model'
@@ -476,13 +490,17 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         throw new RequestError(409, 'this request was replaced by a newer one')
       }
       if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      if (automatic) await automatic.guard(comment)
       const answered = answerRequest(task, comment, {
         kind: 'answered',
         at: new Date().toISOString(),
         answers,
         ...(mark !== undefined && { text: mark }),
       })
-      const message = roundAnswerMessage(comment, answers, find(task.id).clarifyDepth)
+      const message = roundAnswerMessage(comment, answers, find(task.id).clarifyDepth).replaceAll(
+        'The human',
+        automatic ? 'Autopilot' : 'The human',
+      )
       await deliverAnswer(task, comment, mark === undefined ? message : `${mark}\n\n${message}`)
       return answered
     })
@@ -538,6 +556,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     if (!comment) throw new RequestError(404, `no Comment ${id}`)
     if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
     const task = find(comment.taskId)
+    if (automatic) await automatic.guard(comment)
     const failure = failures.findDecision(id)
     if (comment.purpose?.kind === 'failure') {
       if (!failure) throw new RequestError(409, 'this failure decision can’t be answered')
@@ -677,6 +696,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
         if (now.preparation === 'preparing') checkPreparationWorkflow(resolution.workflow)
         await requireObligations(now, next)
+        if (automatic) await automatic.guard(comment)
         const answered = answerRequest(task, comment, {
           kind: 'approved',
           at,
@@ -686,8 +706,8 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         if (!liveLead(now)) store.holdAnswer(comment.id)
         const approved =
           text === ''
-            ? `The human approved the ${gateName(comment)}.`
-            : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+            ? `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)}.`
+            : `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)} and added:\n\n${text}\n\n`
         if (now.stage === 'merge') {
           startMerging(find(task.id), resolution.workflow)
           watchMerge(task.id)
@@ -710,6 +730,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         )
         return answered
       }
+      if (automatic) await automatic.guard(comment)
       const choice = request.choice
       if (comment.purpose?.kind === 'send-back') {
         const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
@@ -765,20 +786,12 @@ export function createRequestAnswers(port: RequestAnswerPort) {
           ...(text !== '' && { text }),
         },
         text !== '' && !aboutModel && sendDrafts ? drafts(task.id) : undefined,
+        !aboutModel,
       )
       if (aboutModel) return answered
       const lines = linesText(answered)
-      await deliverAnswer(
-        task,
-        comment,
-        [
-          `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
-          ...(choice !== undefined ? [choice] : []),
-          ...(text !== '' ? [text] : []),
-          ...(lines !== undefined ? [lines] : []),
-        ].join('\n\n'),
-      )
-      return answered
+      await deliverAnswer(task, comment, answerMessage(answered, lines))
+      return store.getComment(comment.id) ?? answered
     })
   }
 
@@ -835,8 +848,10 @@ export function answerTaskRequest(
   comment: Comment,
   answer: CommentAnswer,
   lineComments?: readonly string[],
+  autopilot = false,
+  queueAnswer = false,
 ): Comment {
-  const answered = store.answerComment(comment.id, answer, lineComments)
+  const answered = store.answerComment(comment.id, answer, lineComments, autopilot, queueAnswer)
   if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
   return answered
 }

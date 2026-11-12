@@ -33,10 +33,12 @@ import { appRoutes } from './routes/apps.ts'
 import { automationRoutes } from './routes/automations.ts'
 import { browserRoutes } from './routes/browser.ts'
 import { coordinatorRoutes } from './routes/coordinators.ts'
+import { executionRoutes } from './routes/execution.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { libraryRoutes } from './routes/library.ts'
 import { machineRoutes } from './routes/machine.ts'
+import { messageDraftRoutes } from './routes/message-drafts.ts'
 import { peerRoutes } from './routes/peers.ts'
 import { planRoutes } from './routes/plans.ts'
 import {
@@ -110,7 +112,9 @@ const dataRoutes: Route<BaseOptions>[] = [
       }
       await settled(data)
       if (!keepRuns && data.status().state === 'ready') {
-        await (await data.services()).runs.stopAll()
+        const services = await data.services()
+        services.tasks.stoppingForQuit()
+        await services.runs.stopAll()
       }
       if (res.destroyed) setImmediate(onShutdown)
       else res.once('close', () => setImmediate(onShutdown))
@@ -172,6 +176,7 @@ const routes: Route[] = [
   ...browserRoutes,
   ...factoryRoutes,
   ...machineRoutes,
+  ...executionRoutes,
   ...libraryRoutes,
   ...integrationRoutes,
   ...runRoutes,
@@ -179,6 +184,7 @@ const routes: Route[] = [
   ...planRoutes,
   ...coordinatorRoutes,
   ...searchRoutes,
+  ...messageDraftRoutes,
 ]
 
 const drainTimeoutMs = 10_000

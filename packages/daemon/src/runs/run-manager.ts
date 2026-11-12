@@ -31,6 +31,7 @@ import type {
 } from '@ted/protocol'
 import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
 import { chatToolPolicy } from '@ted/protocol/run'
+import { AgentDisabledError } from '../agent-eligibility.ts'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -89,6 +90,7 @@ export interface RunManagerOptions {
 
 export interface RunObserver {
   finished?(run: Run, ending: { stopped: boolean; lastLines: string[] }): void
+  stoppedOutside?(run: Run, at: string | undefined): void
   authFailed?(run: Run): void
   accepted?(run: Run, texts: string[]): void
   boundary?(run: Run): void
@@ -102,6 +104,7 @@ export interface RunObserver {
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   agent: AgentKind
+  onStarting?: () => void
   prompt: string
   cwd: string
   taskId?: string
@@ -123,6 +126,7 @@ export interface ReviveRunInput {
 
 export interface RunManager {
   output: RunOutputReader
+  serializeStarts<T>(work: () => T | Promise<T>): Promise<T>
   start(input: StartRunInput): Promise<Run>
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
@@ -177,6 +181,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const launchStops = new Map<string, AbortController>()
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
+  const stoppedOutsideUntold: { runId: string; at: string | undefined }[] = []
   const outdated = new Set<string>()
   const replacing = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
@@ -439,6 +444,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const closedPermissions: string[] = []
     const accepted: string[] = []
     let exit: Extract<HostRecord, { t: 'exit' }> | undefined
+    let stateAtExit: RunState | undefined
     const startedWith = generation.count
     generation.readTo = batch.toOffset
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
@@ -486,12 +492,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         generation.sessionSeen = false
         generation.errors = []
       } else if (record.t === 'exit') {
+        stateAtExit = state
         state = 'finished'
         exit = record
       }
     }
     if (hostGone) state = 'finished'
     const run = store.getRun(runId)
+    const outputAtBefore = store.lastOutputAt(runId)
+    const stoppedOutside =
+      exit?.stopped === true &&
+      !stopRequested.has(runId) &&
+      (stateAtExit ?? run?.state) === 'working'
     const askable = run?.taskId !== undefined
     const refused =
       state === 'finished' ? [] : prompts.filter((prompt) => !askable || prompt.refuse === true)
@@ -553,6 +565,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (authFailed) tell('authFailed', runId)
     if (state === 'finished') {
       heard.delete(runId)
+      if (stoppedOutside) {
+        const at = exit?.at ?? lastAt ?? outputAtBefore
+        // Runs that ended before the daemon started are read before any observer is added.
+        if ([...observers].some((observer) => observer.stoppedOutside)) {
+          tellObservers(runId, (observer, run) => observer.stoppedOutside?.(run, at))
+        } else stoppedOutsideUntold.push({ runId, at })
+      }
       tell('finished', runId)
     }
     return state === 'finished'
@@ -815,10 +834,19 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
+  let starts: Promise<unknown> = Promise.resolve()
+  function serializeStarts<T>(work: () => T | Promise<T>): Promise<T> {
+    const next = starts.then(work)
+    starts = next.catch(() => undefined)
+    return next
+  }
+
   const manager: RunManager = {
+    serializeStarts,
     output,
     async start({
       agent: kind,
+      onStarting,
       prompt,
       cwd,
       taskId,
@@ -832,63 +860,72 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       permissions = 'auto',
       messageIds,
     }) {
-      refuseWhileShuttingDown()
-      const agent = agents.get(kind)
-      const release = await acquireRunPermissions(store, { taskId })
-      let handedOff = false
-      try {
-        const runDir = path.join(runsDir, id)
-        await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
-        permissions = runPermissions(store, { taskId })
-        const launch = agent.launch({
-          prompt,
-          runDir,
-          env: runEnv(id, env),
-          ...(resume !== undefined && { resume }),
-          ...(model !== undefined && { model }),
-          ...(effort !== undefined && { effort }),
-          permissions,
-          ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
-            tools: chatToolPolicy(kind),
-          }),
-          billing: launchBilling(kind),
-        })
-        await writeLaunch(
-          runDir,
-          cwd,
-          launch,
-          permissions,
-          undefined,
-          messageIds && { ids: messageIds, text: prompt },
-        )
-        await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
-
+      return serializeStarts(async () => {
         refuseWhileShuttingDown()
-        const run = store.startRun({
-          id,
-          agent: agent.kind,
-          ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
-          prompt,
-          cwd: launch.cwd ?? cwd,
-          ...(taskId !== undefined && { taskId }),
-          ...(model !== undefined && { model }),
-          ...(effort !== undefined && { effort }),
-          ...(parentRunId !== undefined && { parentRunId }),
-          ...(name !== undefined && { name }),
-          permissions,
-        })
-        const host = spawnHost(runDir, launch.env)
-        follow(id)
-        handedOff = true
-        void waitForStart(id, 0, () => {
-          killSpawnedHostGroup(host)
-        })
-          .catch((error: unknown) => console.error('The Run host did not start:', error))
-          .finally(release)
-        return run
-      } finally {
-        if (!handedOff) release()
-      }
+        if (!store.settings().enabledAgents.includes(kind)) throw new AgentDisabledError(kind)
+        if (taskId && store.getTask(taskId)?.stopped)
+          throw new Error('The Task was stopped before this Run could start')
+        const agent = agents.get(kind)
+        const release = await acquireRunPermissions(store, { taskId })
+        let handedOff = false
+        try {
+          const runDir = path.join(runsDir, id)
+          await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
+          permissions = runPermissions(store, { taskId })
+          const launch = agent.launch({
+            prompt,
+            runDir,
+            env: runEnv(id, env),
+            ...(resume !== undefined && { resume }),
+            ...(model !== undefined && { model }),
+            ...(effort !== undefined && { effort }),
+            permissions,
+            ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
+              tools: chatToolPolicy(kind),
+            }),
+            billing: launchBilling(kind),
+          })
+          await writeLaunch(
+            runDir,
+            cwd,
+            launch,
+            permissions,
+            undefined,
+            messageIds && { ids: messageIds, text: prompt },
+          )
+          await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
+
+          refuseWhileShuttingDown()
+          if (taskId && store.getTask(taskId)?.stopped)
+            throw new Error('The Task was stopped before this Run could start')
+          // Record the owner only after admission, so a refused start stays queued.
+          onStarting?.()
+          const run = store.startRun({
+            id,
+            agent: agent.kind,
+            ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
+            prompt,
+            cwd: launch.cwd ?? cwd,
+            ...(taskId !== undefined && { taskId }),
+            ...(model !== undefined && { model }),
+            ...(effort !== undefined && { effort }),
+            ...(parentRunId !== undefined && { parentRunId }),
+            ...(name !== undefined && { name }),
+            permissions,
+          })
+          const host = spawnHost(runDir, launch.env)
+          follow(id)
+          handedOff = true
+          void waitForStart(id, 0, () => {
+            killSpawnedHostGroup(host)
+          })
+            .catch((error: unknown) => console.error('The Run host did not start:', error))
+            .finally(release)
+          return run
+        } finally {
+          if (!handedOff) release()
+        }
+      })
     },
     async revive(runId, { prompt, env = {}, messageIds, flags }) {
       refuseWhileShuttingDown()
@@ -1180,6 +1217,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     },
     observe(observer) {
       observers.add(observer)
+      if (!observer.stoppedOutside) return
+      for (const { runId, at } of stoppedOutsideUntold.splice(0)) {
+        const run = store.getRun(runId)
+        if (run) observer.stoppedOutside(run, at)
+      }
     },
     environment,
     async stopAll() {

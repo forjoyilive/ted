@@ -35,6 +35,7 @@
     "./plan": "./src/plan.ts",
     "./export-file": "./src/export-file.ts",
     "./reference": "./src/reference.ts",
+    "./execution-pairing": "./src/execution-pairing.ts",
     "./waiting": "./src/waiting.ts"
   }
 }

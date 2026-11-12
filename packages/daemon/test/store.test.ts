@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { agentStageIds, type DaemonEvent } from '@ted/protocol'
+import { agentStageIds, type DaemonEvent, type Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { eventlogFile } from '../src/store/files.ts'
 import { openStore } from '../src/store/index.ts'
@@ -133,6 +133,44 @@ describe('TedStore', () => {
       expect(store.activity().runs).toMatchObject({ working: 0, active: 1 })
       store.recordRunOutput('run-1', { toOffset: 2, state: 'finished' })
       expect(store.activity().runs.active).toBe(0)
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('an event a listener causes reaches later listeners after the event it answers', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const first = await store.createTask({ title: 'First' })
+      const second = await store.createTask({ title: 'Second' })
+      store.queueTask(first.id, 'intake')
+      store.queueTask(second.id, 'intake')
+      const places = (ids: string[]) =>
+        store.setQueueActivity({
+          taskPlaces: ids.map((id, index) => ({ id, place: index + 1 })),
+          queuedTasks: [],
+          queuedRuns: [],
+          startingRuns: [],
+          startingTasks: [],
+        })
+      places([first.id, second.id])
+      let moved = false
+      store.subscribe((event) => {
+        if (moved || event.type !== 'task-updated' || event.task.id !== second.id) return
+        moved = true
+        places([second.id, first.id])
+      })
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+      store.rankTask(second.id, first.rank - 1, second.priority)
+      expect(
+        seen.flatMap((event) =>
+          event.type === 'task-updated' && event.task.id === second.id ? [event.task.status] : [],
+        ),
+      ).toEqual([
+        { kind: 'queued', place: 2 },
+        { kind: 'queued', place: 1 },
+      ])
     } finally {
       await store.close()
     }
@@ -647,6 +685,40 @@ describe('TedStore', () => {
       expect(store.tasksIn(new Set(ids))).toEqual(list)
       const few = new Set([blocked.id, working.id, queued.id])
       expect(store.tasksIn(few)).toEqual(list.filter((t) => few.has(t.id)))
+
+      let builds = store.taskBuilds()
+      expect(store.taskOutlines().map((t) => t.id)).toEqual(ids)
+      expect(store.factoryOfTask(working.id)).toBe(working.factoryId)
+      expect(store.sourcedTaskIds()).toEqual([working.id])
+      expect(
+        store
+          .commentTexts()
+          .map((c) => c.body)
+          .sort(),
+      ).toEqual(['And this?', 'Which one?'])
+      expect(store.listAnsweredRequests('2026-01-01', new Set(['approved']))).toEqual([])
+      expect(
+        store.listAnsweredRequests('2026-01-01', new Set(['answered'])).map((c) => c.id),
+      ).toEqual([answered.id])
+      expect(store.taskBuilds()).toBe(builds)
+
+      const updated: Task[] = []
+      const version = store.taskVersion()
+      const unsubscribe = store.subscribe((event) => {
+        if (event.type === 'task-updated') updated.push(event.task)
+      })
+      builds = store.taskBuilds()
+      store.setQueueActivity({
+        taskPlaces: ids.map((id, index) => ({ id, place: index + 1 })),
+        queuedTasks: [],
+        queuedRuns: [],
+        startingRuns: [],
+        startingTasks: [],
+      })
+      unsubscribe()
+      expect(store.taskBuilds() - builds).toBe(ids.length)
+      expect(store.taskVersion()).toBeGreaterThan(version)
+      expect(updated).toEqual(ids.map((id) => store.tasksIn(new Set([id])).at(0)))
     } finally {
       await store.close()
     }

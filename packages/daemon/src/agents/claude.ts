@@ -50,6 +50,7 @@ interface RateLimitInfo {
   resetsAt?: unknown
   rateLimitType?: unknown
   utilization?: unknown
+  unifiedWindows?: unknown
 }
 
 function rateLimitInfo(message: ClaudeLine | undefined): RateLimitInfo | undefined {
@@ -378,22 +379,33 @@ export function claudeAgent(binary: string): Agent {
     },
     planUsageFrom(line) {
       const info = rateLimitInfo(parse(line))
-      const window = typeof info?.rateLimitType === 'string' && planWindowByType[info.rateLimitType]
-      if (!info || !window) return undefined
-      const percent =
-        typeof info.utilization === 'number'
-          ? info.utilization * 100
-          : info.status === 'rejected'
-            ? 100
-            : undefined
-      if (percent === undefined) return undefined
-      const resetsAt = fromEpoch(info.resetsAt)
-      const shown: PlanWindow = {
-        window,
-        percent: Math.min(100, Math.max(0, percent)),
-        ...(resetsAt !== undefined && { resetsAt }),
+      if (!info) return undefined
+      const shown = new Map<PlanWindowKind, PlanWindow>()
+      const add = (type: unknown, from: RateLimitInfo) => {
+        const window = typeof type === 'string' ? planWindowByType[type] : undefined
+        if (!window) return
+        const percent =
+          typeof from.utilization === 'number'
+            ? from.utilization * 100
+            : from.status === 'rejected'
+              ? 100
+              : undefined
+        if (percent === undefined) return
+        const resetsAt = fromEpoch(from.resetsAt)
+        shown.set(window, {
+          window,
+          percent: Math.min(100, Math.max(0, percent)),
+          ...(resetsAt !== undefined && { resetsAt }),
+        })
       }
-      return [shown]
+      const nested = info.unifiedWindows
+      if (typeof nested === 'object' && nested !== null) {
+        for (const [type, value] of Object.entries(nested)) {
+          if (typeof value === 'object' && value !== null) add(type, value as RateLimitInfo)
+        }
+      }
+      add(info.rateLimitType, info)
+      return shown.size > 0 ? [...shown.values()] : undefined
     },
     costOf,
     costLine: (line) => reportedCost(line) !== undefined,

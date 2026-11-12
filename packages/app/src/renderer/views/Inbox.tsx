@@ -404,20 +404,12 @@ function InboxEmptyState({
 }) {
   const button = {
     'new-task': (
-      <Button variant="primary" size="small" onClick={onNewTask}>
+      <Button variant="primary" onClick={onNewTask}>
         New Task
       </Button>
     ),
-    'show-answered': (
-      <Button size="small" onClick={onShowAnswered}>
-        Show answered
-      </Button>
-    ),
-    'show-all-factories': (
-      <Button size="small" onClick={onShowAllFactories}>
-        Show all Factories
-      </Button>
-    ),
+    'show-answered': <Button onClick={onShowAnswered}>Show answered</Button>,
+    'show-all-factories': <Button onClick={onShowAllFactories}>Show all Factories</Button>,
   }
   return empty.action === undefined ? (
     <EmptyState title={empty.title} />

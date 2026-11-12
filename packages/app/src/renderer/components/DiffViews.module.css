@@ -85,8 +85,8 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: var(--button-height-small);
+  height: var(--button-height-small);
   padding: 0;
   border: 1px solid var(--border-control);
   border-radius: 6px;

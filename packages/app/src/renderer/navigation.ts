@@ -2,6 +2,7 @@ import type { DashboardViewState } from './dashboard.ts'
 export const settingsSectionIds = [
   'general',
   'notifications',
+  'machines',
   'agents',
   'limits',
   'integrations',

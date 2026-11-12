@@ -399,6 +399,14 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+.threadComposer:has(> [data-request]) {
+  flex-shrink: 1;
+  min-height: 0;
+  max-height: 60%;
+  overflow-y: auto;
+  border-top-color: var(--status-waiting-fg);
+}
+
 .pinned {
   flex-shrink: 1;
   min-height: 0;

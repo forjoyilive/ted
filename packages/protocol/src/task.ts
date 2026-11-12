@@ -68,7 +68,7 @@ export interface TaskDefaults {
   clarifyDepth: ClarifyDepth
 }
 
-export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in'
+export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in' | 'rerun' | 'required-check'
 
 export const taskStatusKinds = [
   'failed',
@@ -194,6 +194,7 @@ export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest 
 
 export interface Task {
   snoozedUntil?: string
+  autopilot?: import('./autopilot.ts').TaskAutopilot
   gateOverrides?: import('./task-gates.ts').TaskGateOverrides
   id: string
   factoryId: string
@@ -426,6 +427,22 @@ export interface ResumeTaskRequest {
   attachments?: AttachmentRef[]
 }
 
+export interface TedStoppedTask {
+  id: string
+  displayId: string
+  title: string
+  stage: StageId
+  factoryId: string
+  stoppedAt: string
+}
+
+export const maxTedStopAnswers = 1000
+
+export interface AnswerTedStopsRequest {
+  restart: string[]
+  leave: string[]
+}
+
 export interface BlockTaskRequest {
   by: string
 }
@@ -586,6 +603,7 @@ export type RequestPurpose =
     }
 
 export interface Comment {
+  autopilotAnswered?: boolean
   peer?: { sender?: string; text: string }
   purpose?: RequestPurpose
   id: string
@@ -605,6 +623,7 @@ export interface Comment {
   permission?: PermissionAsk
   simulator?: SimulatorAsk
   answer?: CommentAnswer
+  answerDelivery?: { queuedAt: string; sent?: { runId: string; at: string } }
   delivered?: { runId: string; at: string }
   readAt?: string
   failed?: { runId: string }

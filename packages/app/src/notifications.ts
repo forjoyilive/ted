@@ -12,6 +12,7 @@ import {
   mergedNotice,
   type ProblemNotice,
   problemNotice,
+  tedStopsNotice,
 } from './background.ts'
 
 export interface ShownNotice {
@@ -46,6 +47,7 @@ export interface Notifications {
   waiting(requests: readonly WaitingRequest[]): void
   problem(banner: Banner): void
   merged(task: Task): void
+  tedStops(count: number, windowHidden: boolean): void
   forget(): void
 }
 
@@ -56,6 +58,7 @@ export function createNotifications(options: NotificationsOptions): Notification
   const merged = new Set<string>()
   let recent: { at: number; shown?: ShownNotice }[] = []
   let folded: ShownNotice | undefined
+  let stopsNotified = false
 
   const display = (notice: ProblemNotice) =>
     notifier.show({ title: notice.title, body: notice.body, silent: !settings().notifySound }, () =>
@@ -103,6 +106,15 @@ export function createNotifications(options: NotificationsOptions): Notification
       if (!current.notifyTaskMerged || !mayNotify()) return
       if (!factoryNotifications(current, task.factoryId).taskMerged) return
       send(notice)
+    },
+    tedStops(count, windowHidden) {
+      if (count === 0) {
+        stopsNotified = false
+        return
+      }
+      if (!windowHidden || stopsNotified || !mayNotify()) return
+      stopsNotified = true
+      send(tedStopsNotice(count))
     },
     forget() {
       seen = undefined

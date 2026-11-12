@@ -544,6 +544,7 @@ describe('Tokens, dollars, plan usage and retries', () => {
       sent.push(JSON.stringify({ ...event.health, planUsage: usage && { ...usage, at: '' } }))
     })
     const resetsAt = Math.floor(Date.now() / 1000) + 3600
+    const weekResetsAt = resetsAt + 86_400
     const fiveHour = limitEvent('allowed_warning', {
       resetsAt,
       rateLimitType: 'five_hour',
@@ -553,7 +554,18 @@ describe('Tokens, dollars, plan usage and retries', () => {
       client,
       steps(
         fiveHour,
-        limitEvent('allowed', { rateLimitType: 'seven_day', utilization: 0.41 }),
+        limitEvent('allowed', {
+          resetsAt: weekResetsAt,
+          rateLimitType: 'seven_day',
+          unifiedWindows: {
+            seven_day: { utilization: 0.41, resetsAt: weekResetsAt, status: 'allowed' },
+            seven_day_overage_included: {
+              utilization: 0.66,
+              resetsAt: weekResetsAt,
+              status: 'allowed',
+            },
+          },
+        }),
         { lines: 1, everyMs: 300 },
         fiveHour,
         { lines: 1, everyMs: 300 },
@@ -583,9 +595,10 @@ describe('Tokens, dollars, plan usage and retries', () => {
       from: 'run',
       windows: [
         { window: 'five-hour', percent: 87, resetsAt: new Date(resetsAt * 1000).toISOString() },
-        { window: 'weekly', percent: 41 },
+        { window: 'weekly', percent: 41, resetsAt: new Date(weekResetsAt * 1000).toISOString() },
       ],
     })
+    expect(health.planUsage?.windows).toHaveLength(2)
   })
 
   test('Check again refreshes Codex usage to zero without a new Run', async () => {

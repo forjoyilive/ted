@@ -138,13 +138,7 @@ export function AutomationPromptDraft({
   return (
     <>
       <div className={styles.draftActions}>
-        <Button
-          variant="quiet"
-          size="small"
-          disabled={busy}
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-        >
+        <Button variant="quiet" disabled={busy} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide drafting' : 'Draft with AI'}
         </Button>
         {applied && (
@@ -172,22 +166,14 @@ export function AutomationPromptDraft({
             Uses the agent selected below. Includes your current Prompt when drafting a revision.
           </span>
           <div className={styles.draftActions}>
-            <Button
-              size="small"
-              disabled={busy || !request.trim() || !factory}
-              onClick={() => void generate()}
-            >
+            <Button disabled={busy || !request.trim() || !factory} onClick={() => generate()}>
               {job?.state === 'failed' || error
                 ? 'Try again'
                 : job?.state === 'ready'
                   ? 'Generate again'
                   : 'Generate draft'}
             </Button>
-            {busy && (
-              <Button size="small" onClick={() => void cancel()}>
-                Cancel drafting
-              </Button>
-            )}
+            {busy && <Button onClick={() => cancel()}>Cancel drafting</Button>}
             <span className={styles.note} role="status">
               {status}
             </span>
@@ -219,7 +205,6 @@ export function AutomationPromptDraft({
               <div className={styles.draftActions}>
                 <Button
                   variant="primary"
-                  size="small"
                   disabled={busy || !suggestion.trim()}
                   onClick={() => {
                     onApply(suggestion)
@@ -231,7 +216,6 @@ export function AutomationPromptDraft({
                   Use draft
                 </Button>
                 <Button
-                  size="small"
                   onClick={() => {
                     setJob(undefined)
                     setSuggestion('')
