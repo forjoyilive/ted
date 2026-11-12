@@ -10,6 +10,9 @@ export async function executionStartupGate(parent: string) {
   await writeFile(
     shell,
     `#!/bin/sh
+if [ "$#" -ne 4 ] || [ "$1" != "-l" ] || [ "$2" != "-i" ] || [ "$3" != "-c" ]; then
+  exec /bin/sh "$@"
+fi
 gate=${quoted}
 if [ -z "$TED_HOME" ] && [ -f "$gate/hold" ]; then
   printf '%s\\n' "$PPID" > "$gate/started"

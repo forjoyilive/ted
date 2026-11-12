@@ -234,6 +234,9 @@ describe('in-app updates', () => {
         window.evaluate(() => globalThis.window.ted.request('openWorker')),
       ).rejects.toThrow('Worker is stopping')
       expect(isAlive(info.pid)).toBe(true)
+      expect(await client.call('GET', '/update/work')).toMatchObject({
+        body: { checks: 1, merges: 0 },
+      })
       await writeFile(checkRelease, '')
       await exited
       await starting
