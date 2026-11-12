@@ -242,13 +242,13 @@ test('chat edits synchronize with the still-mounted thread before submission', a
   await u.type(screen.getByLabelText('Add to answer 1'), 'Thread note.')
   view.rerender(cards(true))
   const chat = within(screen.getByTestId('chat'))
-  await u.click(chat.getByRole('radio', { name: 'Keep both' }))
+  await u.click(chat.getByRole('radio', { name: /Keep both/ }))
   await u.clear(chat.getByLabelText('Add to answer 1'))
   await u.type(chat.getByLabelText('Add to answer 1'), 'Agreed in chat.')
   await u.clear(chat.getByLabelText('Answer 2'))
   await u.type(chat.getByLabelText('Answer 2'), 'Keep every edit.')
   view.rerender(cards(false))
-  expect((screen.getByRole('radio', { name: 'Keep both' }) as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
   expect((screen.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
     'Agreed in chat.',
   )

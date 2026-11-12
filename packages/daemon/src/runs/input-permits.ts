@@ -13,7 +13,13 @@ import path from 'node:path'
 
 function permitFile(runDir: string, id: string, state: 'pending' | 'consumed'): string {
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('invalid input permit')
-  const directory = path.join(runDir, 'input-permits')
+  const name = path.basename(runDir)
+  if (!/^[a-f0-9-]{36}$/.test(name)) throw new Error('invalid Run directory')
+  const root = realpathSync(path.dirname(runDir))
+  const expected = path.join(root, name)
+  if (!lstatSync(runDir).isDirectory() || realpathSync(runDir) !== expected)
+    throw new Error('input permits must use a plain Run directory')
+  const directory = path.join(expected, 'input-permits')
   try {
     if (
       !lstatSync(directory).isDirectory() ||

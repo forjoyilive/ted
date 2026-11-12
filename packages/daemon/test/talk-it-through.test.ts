@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -13,6 +14,7 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { revokeInput } from '../src/runs/input-permits.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import {
@@ -28,16 +30,25 @@ import {
   waitUntil,
 } from './helpers.ts'
 
-const transport = vi.hoisted(() => ({ loseCheckpoint: false, accepted: false }))
+const transport = vi.hoisted(() => ({
+  loseCheckpoint: false,
+  accepted: false,
+  ackMs: undefined as number | undefined,
+  beforeDispatch: undefined as (() => Promise<void>) | undefined,
+}))
 vi.mock('../src/runs/run-manager.ts', async (original) => {
   const module = await original<typeof import('../src/runs/run-manager.ts')>()
   return {
     ...module,
     startRunManager: async (...args: Parameters<typeof module.startRunManager>) => {
-      const runs = await module.startRunManager(...args)
+      const runs = await module.startRunManager({
+        ...args[0],
+        ...(transport.ackMs !== undefined && { inputAckMs: transport.ackMs }),
+      })
       return {
         ...runs,
         dispatch: async (...input: Parameters<typeof runs.dispatch>) => {
+          if (input[4]?.revocable) await transport.beforeDispatch?.()
           const delivered = await runs.dispatch(...input)
           if (delivered && transport.loseCheckpoint) {
             transport.accepted = true
@@ -65,6 +76,8 @@ beforeEach(async () => {
 afterEach(async () => {
   transport.loseCheckpoint = false
   transport.accepted = false
+  transport.beforeDispatch = undefined
+  transport.ackMs = undefined
   await daemon?.stop()
   daemon = undefined
   await killRunHosts(home)
@@ -685,6 +698,157 @@ describe('Talk it through', () => {
       'one admitted notification',
     )
     expect((await getTask(client, task.id)).leadRunId).toBe(lead)
+  })
+
+  test('consumption without agent acknowledgement retains admission across daemon restart', async () => {
+    transport.ackMs = 1000
+    let client = await start()
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const gate = path.join(scratch, 'acknowledge-talk')
+    const task = await startTask(
+      client,
+      advance,
+      few,
+      ask(client.storageFile),
+      reply,
+      { readNextAfter: gate },
+      { endTurn: true },
+    )
+    const item = await openRound(client, 1)
+    const lead = await leadId(client, task)
+    await waitUntil(async () => (await client.getRun(lead)).run.state === 'idle', 'idle Lead')
+    await client.ok('POST', `/comments/${item.request.id}/talk`)
+    const permits = path.join(home, 'runs', lead, 'input-permits')
+    await waitUntil(
+      async () => (await readdir(permits).catch(() => [])).some((f) => f.endsWith('.consumed')),
+      'host consumption without agent receipt',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 1250))
+    const blocker = await startTask(
+      client,
+      { waitFor: path.join(scratch, 'never-ack-slot') },
+      { endTurn: true },
+    )
+    const checkHeld = async () => {
+      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      expect(round?.talkRequested).toBe(true)
+      expect(round?.talk?.notifiedAt).toBeUndefined()
+      expect((await getTask(client, blocker.id)).runs).toHaveLength(0)
+      expect((await client.ok<RunSlots>('GET', '/slots')).working).toBe(1)
+    }
+    await checkHeld()
+    await hostsStarted(home)
+    await daemon?.stop()
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    client = { ...client, ...connection() }
+    await waitUntil(
+      async () => (await client.ok<RunSlots>('GET', '/slots')).working === 1,
+      'recovered continuation admission',
+    )
+    await checkHeld()
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ resumeInputWaitsFor: gate, resumeSteps: [{ endTurn: true }] }),
+    )
+    await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', model: 'synthetic-fast' })
+    await waitUntil(
+      async () => (await client.getRun(lead)).run.model === 'synthetic-fast',
+      'agent restart before acknowledgement',
+    )
+    await checkHeld()
+    await writeFile(gate, '')
+    await waitUntil(
+      async () =>
+        (await comments(client, task)).find((c) => c.id === item.request.id)?.talk?.notifiedAt,
+      'agent acknowledgement',
+    )
+    expect(
+      (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1')),
+    ).toHaveLength(1)
+    expect((await readdir(permits)).filter((f) => f.endsWith('.consumed'))).toHaveLength(2)
+    await waitUntil(
+      async () => (await getTask(client, blocker.id)).runs.some((r) => r.state === 'working'),
+      'slot released after acknowledgement',
+    )
+  })
+
+  test('a working Lead that settles before dispatch waits for continuation admission', async () => {
+    let free = 500e9
+    const client = await start({ disk: { freeBytes: async () => free, checkEveryMs: 20 } })
+    const finish = path.join(scratch, 'finish-working')
+    const task = await startTask(
+      client,
+      advance,
+      few,
+      ask(client.storageFile),
+      reply,
+      { say: 'Still working' },
+      { waitFor: finish },
+      { endTurn: true },
+    )
+    const item = await openRound(client, 1)
+    await waitForReply(client, task, 'Still working')
+    const lead = await leadId(client, task)
+    let entered = false
+    let release = () => {}
+    const paused = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    transport.beforeDispatch = async () => {
+      entered = true
+      await paused
+    }
+    const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(lead)
+    const runClient = api(daemon!.port, token)
+    await client.ok('POST', `/comments/${item.request.id}/talk`)
+    const boundary = runClient.call('POST', `/runs/${lead}/boundary`)
+    try {
+      await waitUntil(() => entered, 'dispatch paused before its eligibility check')
+      free = 100e6
+      await waitUntil(
+        async () =>
+          (await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'disk-full'),
+        'disk hold',
+      )
+      await writeFile(finish, '')
+      await waitUntil(
+        async () => (await client.getRun(lead)).run.state === 'idle',
+        'captured working Run to become idle',
+      )
+    } finally {
+      transport.beforeDispatch = undefined
+      release()
+    }
+    expect((await boundary).status).toBe(200)
+    const held = (await comments(client, task)).find((c) => c.id === item.request.id)
+    expect(held?.talkRequested).toBe(true)
+    expect(held?.talk?.notifiedAt).toBeUndefined()
+    expect(
+      (await userMessages(client, task)).some((m) => m.includes('wants to talk Round 1')),
+    ).toBe(false)
+    free = 500e9
+    await waitUntil(
+      async () =>
+        (await comments(client, task)).find((c) => c.id === item.request.id)?.talk?.notifiedAt,
+      'admitted idle talk after recovery',
+    )
+    expect(
+      (await userMessages(client, task)).filter((m) => m.includes('wants to talk Round 1')),
+    ).toHaveLength(1)
+  })
+
+  test('revoking a round input refuses a symlinked Run directory and preserves its target', async () => {
+    const external = path.join(scratch, 'external-run')
+    await mkdir(path.join(external, 'input-permits'), { recursive: true })
+    const permit = randomUUID()
+    const target = path.join(external, 'input-permits', `${permit}.pending`)
+    await writeFile(target, 'external data')
+    const runs = path.join(home, 'runs')
+    await mkdir(runs, { recursive: true })
+    const linked = path.join(runs, randomUUID())
+    await symlink(external, linked)
+    expect(() => revokeInput(linked, permit)).toThrow('plain Run directory')
+    expect(await readFile(target, 'utf8')).toBe('external data')
   })
 
   test('a restart after host acknowledgement replays the checkpoint without delivering the talk twice', async () => {

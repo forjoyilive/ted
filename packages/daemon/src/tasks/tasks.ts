@@ -1287,7 +1287,10 @@ export function createTasks(options: {
         if (
           !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
           !queuedAnswers(id).length &&
-          !store.listComments(id).some((comment) => comment.talkRequested && !comment.answer)
+          !(
+            availableTalkLead(task) &&
+            store.listComments(id).some((comment) => comment.talkRequested && !comment.answer)
+          )
         )
           return []
         const run = liveLeadOf(store, task)
@@ -1371,7 +1374,7 @@ export function createTasks(options: {
                     .some(({ messageId }) => id === undefined || id === messageId)
                 )
               },
-              { revocable: true },
+              { revocable: true, signal: stopping.signal },
             )
             if (accepted) {
               for (const { messageId, round } of store.pendingRoundTalks(talking.id)) {
@@ -6381,8 +6384,9 @@ export function createTasks(options: {
   options.steering.addSource({
     acknowledged: true,
     revocable: true,
+    signal: stopping.signal,
     pending(run) {
-      if (run.state !== 'working' || continuing.has(run.taskId ?? '')) return []
+      if (store.getRun(run.id)?.state !== 'working' || continuing.has(run.taskId ?? '')) return []
       const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!task || stoppingByHand.has(task.id) || availableTalkLead(task)?.id !== run.id) return []
       return store.pendingRoundTalks(run.id).map(({ messageId, round }) => ({

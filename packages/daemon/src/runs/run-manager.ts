@@ -134,7 +134,7 @@ export interface RunManager {
     messages: readonly { id: string; text: string }[],
     steer: boolean,
     canDispatch: (messageId?: string) => boolean,
-    options?: { revocable: boolean },
+    options?: { revocable: boolean; signal?: AbortSignal },
   ): Promise<boolean>
   retainRevocableInputs(runId: string, ids: readonly string[]): void
   inputDispatched(runId: string, messageId: string): boolean
@@ -784,11 +784,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     record: QueuedInput,
     records: readonly QueuedInput[],
   ): boolean {
-    if (record.permit) return inputConsumed(path.join(runsDir, runId), record.permit)
+    if (record.permit && !inputConsumed(path.join(runsDir, runId), record.permit)) return false
     const run = store.getRun(runId)
     if (!run) return false
     const siblings = records.filter(
-      (r) => r.text === record.text && r.outputFrom === record.outputFrom,
+      (r) =>
+        r.text === record.text &&
+        r.outputFrom === record.outputFrom &&
+        (!r.permit || inputConsumed(path.join(runsDir, runId), r.permit)),
     )
     const required = siblings.indexOf(record) + 1
     const { chat } = parsedOutput(output, agents, run)
@@ -1020,6 +1023,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     },
     lastHeard: (runId) => heard.get(runId),
     async dispatch(runId, messages, steer, canDispatch, options) {
+      if (options?.signal?.aborted) return false
       const runDir = path.join(runsDir, runId)
       const run = store.getRun(runId)
       if (!run || run.state === 'finished') throw new Error(`no live Run ${runId}`)
@@ -1048,7 +1052,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         (record) =>
           accepted(record) ||
           (record.forGeneration === generation &&
-            (!record.permit || inputPending(runDir, record.permit))),
+            (!record.permit ||
+              inputPending(runDir, record.permit) ||
+              inputConsumed(runDir, record.permit))),
       )
       const missing = messages.filter(
         (message) =>
@@ -1098,15 +1104,31 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           if (
             relevant.some(
               (record) =>
-                record.permit && !accepted(record) && !inputPending(runDir, record.permit),
+                record.permit &&
+                !accepted(record) &&
+                !inputPending(runDir, record.permit) &&
+                !inputConsumed(runDir, record.permit),
             )
           )
             return false
         }
-        if (waited >= inputAckMs || store.getRun(runId)?.state === 'finished')
+        if (closed || options?.signal?.aborted) return false
+        const currentGeneration = generations.get(runId)
+        if (
+          options?.revocable &&
+          currentGeneration &&
+          currentGeneration.count + startsFrom(files.log, currentGeneration.readTo) > generation
+        )
+          return manager.dispatch(runId, messages, steer, canDispatch, options)
+        const consumed = () =>
+          relevant.some((record) => record.permit && inputConsumed(runDir, record.permit))
+        if (waited >= inputAckMs && options?.revocable && !consumed())
+          for (const record of relevant) if (record.permit) revokeInput(runDir, record.permit)
+        if ((!consumed() && waited >= inputAckMs) || store.getRun(runId)?.state === 'finished') {
           throw new Error(
             'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
           )
+        }
         await sleep(pollMs)
       }
       return true

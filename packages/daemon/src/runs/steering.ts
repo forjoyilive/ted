@@ -10,6 +10,7 @@ import type { RunManager } from './run-manager.ts'
 export interface SteeringSource {
   acknowledged?: true
   revocable?: true
+  signal?: AbortSignal
   pending(run: Run): { id: string; text: string; at: string }[]
   delivered(run: Run, ids: string[]): void
 }
@@ -191,7 +192,7 @@ export function createSteering(options: {
           (id) =>
             options.canDeliver(run.id, admitted) &&
             source.pending(run).some((message) => id === undefined || message.id === id),
-          { revocable: source.revocable === true },
+          { revocable: source.revocable === true, signal: source.signal },
         )
       ) {
         source.delivered(
