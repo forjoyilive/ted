@@ -30,7 +30,7 @@ export function FileView({
       const call = ++latest
       setContent(undefined)
       setError(undefined)
-      void ted.taskFile(taskId, file.repo, file.path).then(
+      return ted.taskFile(taskId, file.repo, file.path).then(
         (loaded) => {
           if (current && call === latest) setContent(loaded)
         },
@@ -59,24 +59,26 @@ export function FileView({
   return (
     <section className={styles.pane} aria-label="File contents">
       <header className={styles.header}>
-        <Button variant="quiet" size="small" onClick={onBack}>
+        <Button variant="quiet" onClick={onBack}>
           {backLabel}
         </Button>
         <div className={styles.toolbar}>
           <span className={styles.path}>
             {file.repo} / {file.path}
           </span>
-          <Button size="small" variant="quiet" onClick={() => setRevision((r) => r + 1)}>
+          <Button variant="quiet" onClick={() => setRevision((r) => r + 1)}>
             Refresh
           </Button>
           <Button
-            size="small"
             variant="quiet"
             disabled={content?.kind !== 'text'}
             onClick={() => {
-              void openInEditor({ taskId, repo: file.repo, file: file.path, snapshot: true }).catch(
-                (failure: unknown) => setError(readableError(failure)),
-              )
+              return openInEditor({
+                taskId,
+                repo: file.repo,
+                file: file.path,
+                snapshot: true,
+              }).catch((failure: unknown) => setError(readableError(failure)))
             }}
           >
             Open snapshot

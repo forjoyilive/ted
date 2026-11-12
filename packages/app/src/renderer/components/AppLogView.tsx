@@ -46,29 +46,20 @@ function LogHeader({ task, app }: { task: Task; app: TaskApp }) {
       <span className={styles.logStatus}>{logStatus(app, now)}</span>
       <span className={styles.logActions}>
         {app.kind === 'web' && (
-          <Button
-            size="small"
-            disabled={actions.busy || app.state !== 'running'}
-            onClick={actions.preview}
-          >
+          <Button disabled={actions.busy || app.state !== 'running'} onClick={actions.preview}>
             Preview <OpenIcon />
           </Button>
         )}
         {actions.live ? (
-          <Button size="small" disabled={actions.busy} onClick={actions.stop}>
+          <Button disabled={actions.busy} onClick={actions.stop}>
             Stop
           </Button>
         ) : (
-          <Button
-            size="small"
-            disabled={actions.busy || !actions.runnable}
-            onClick={() => actions.start()}
-          >
+          <Button disabled={actions.busy || !actions.runnable} onClick={() => actions.start()}>
             Run
           </Button>
         )}
         <Button
-          size="small"
           disabled={actions.busy || !actions.live || !actions.runnable}
           onClick={actions.restart}
         >

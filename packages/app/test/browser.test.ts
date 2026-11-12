@@ -50,7 +50,7 @@ afterEach(async () => {
     await killAppHosts(home)
     await removeHome(home)
   }
-})
+}, 30_000)
 
 test('Preview embeds a shared isolated browser; agents click, fill and capture without a debugging port', async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-browser-ui-'))

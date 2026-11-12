@@ -56,6 +56,7 @@ import {
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
+import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
 import { matchReference, shortReference } from '@ted/protocol/reference'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
@@ -794,7 +795,63 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
   }
 
+  // Imported only here: the module reaches node:sqlite, whose warning would be on every command.
+  const execution = () => import('@ted/daemon/execution')
+  async function workerHome(): Promise<string> {
+    if (
+      ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN'].some((name) =>
+        tedEnv(name, env),
+      )
+    )
+      throw new UsageError('Execution service control is not available inside a Run')
+    return (await execution()).executionHome(env)
+  }
+  async function workerOutput(operation: 'start' | 'status' | 'stop' | 'pair'): Promise<void> {
+    const root = await workerHome()
+    const { startExecutionService, stopExecutionService, workerRequest } = await execution()
+    let status: import('@ted/protocol').WorkerStatus
+    if (operation === 'start') {
+      await startExecutionService(root, env)
+      status = await workerRequest(root, 'start')
+    } else if (operation === 'pair') {
+      const details = (await readStdin()).trim()
+      const input = parseWorkerPairRequest({
+        details,
+        capacity: executionCapacity(Number(options.capacity ?? 2)),
+      })
+      await startExecutionService(root, env, undefined, { resume: false })
+      status = await workerRequest(root, 'pair', input)
+    } else if (operation === 'stop') {
+      await stopExecutionService(root)
+      status = {
+        state: 'stopped',
+        message: 'Execution service stopped; pairing retained.',
+        scopes: [],
+      }
+    } else status = await workerRequest(root, 'status')
+    console.log(JSON.stringify(status, null, 2))
+  }
   const handlers = {
+    executionStart: () => workerOutput('start'),
+    executionStop: () => workerOutput('stop'),
+    executionStatus: () => workerOutput('status'),
+    executionPair: () => workerOutput('pair'),
+    executionServe: async () => {
+      const { serveExecution } = await execution()
+      const service = await serveExecution(await workerHome(), env)
+      const close = () => void service.close()
+      process.once('SIGTERM', close)
+      process.once('SIGINT', close)
+      try {
+        await service.worker.start()
+        console.log('Execution worker running; close with Ctrl-C.')
+        await service.closed
+      } finally {
+        process.removeListener('SIGTERM', close)
+        process.removeListener('SIGINT', close)
+        await service.close()
+      }
+    },
     failureList: () => failureResult((client, ref) => client.listFailures(ref)),
     failureContext: () => failureResult((client, ref) => client.captureFailureContext(ref)),
     failureObligations: () => failureResult((client, ref) => client.validationObligations(ref)),

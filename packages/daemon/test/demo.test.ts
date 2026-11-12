@@ -1,10 +1,10 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { readDaemonInfo } from '@ted/protocol'
+import { type CheckRun, readDaemonInfo } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
 import { demoEnvironment, seedDemoFromCli, until } from '../src/dev/demo.ts'
-import { verifyDemo } from '../src/dev/scenarios.ts'
+import { demoCheckProblem, verifyDemo } from '../src/dev/scenarios.ts'
 import { superviseDaemon } from '../src/launch.ts'
 import { killAppHosts, killRunHosts, stopDaemonIn } from './helpers.ts'
 
@@ -20,6 +20,23 @@ afterEach(async () => {
   }
   for (const key of Object.keys(process.env)) delete process.env[key]
   Object.assign(process.env, original)
+})
+
+test('seeding names a Check run TED could not finish', () => {
+  const run = (id: string, outcome?: CheckRun['outcome']): CheckRun => ({
+    id,
+    taskId: 'task',
+    trigger: 'hand-off',
+    stage: 'work',
+    startedAt: '2025-01-02T12:00:00.000Z',
+    checks: [],
+    ...(outcome && { outcome }),
+  })
+  expect(demoCheckProblem([run('a', 'passed'), run('b')])).toBeUndefined()
+  expect(demoCheckProblem([run('a', 'passed'), run('b', 'interrupted')])).toContain(
+    'Check run b was interrupted',
+  )
+  expect(demoCheckProblem([run('a', 'failed')])).toContain('Demo Check failed')
 })
 
 test('seeds a complete demo using public flows', async () => {

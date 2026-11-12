@@ -102,11 +102,15 @@ describe('setup Tasks', () => {
       title: JSON.stringify({ steps: [{ everyMessage: each }, ...each] }),
     })
     await client.startTask(setup.id)
-    const clarify = await waitUntil(
-      async () => (await client.listInbox()).find((i) => i.request.stage === 'clarify'),
-      'the Clarify sign-off',
+    await waitUntil(
+      async () => (await client.listInbox()).find((i) => i.request.stage === 'design'),
+      'the Design sign-off',
     )
-    await client.answerRequest(clarify.request.id, { action: 'approve' })
+    expect(
+      (await client.listComments(setup.id)).some(
+        (c) => c.kind === 'signoff' && c.stage === 'clarify',
+      ),
+    ).toBe(false)
 
     await openAllTasks(window)
     await taskRow(window, 'WD-1').click()
@@ -119,7 +123,8 @@ describe('setup Tasks', () => {
         'The Design and Review sign-offs are always on for a setup Task. Tasks started before it merges use TED’s defaults.',
       )
       .waitFor()
-    await expect(details.locator(':scope > *').first().textContent()).resolves.toContain(
+    await expect(details.locator(':scope > *').first().textContent()).resolves.toBe('Task Details')
+    await expect(details.locator(':scope > *').nth(1).textContent()).resolves.toContain(
       'always on for a setup Task',
     )
     await thread.getByText('Tutorial', { exact: true }).first().waitFor()

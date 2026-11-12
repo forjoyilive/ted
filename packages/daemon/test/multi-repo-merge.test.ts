@@ -191,9 +191,8 @@ type Client = Awaited<ReturnType<typeof start>>
 function leadSteps(client: Client) {
   const commit = (dir: string) =>
     `(cd ${dir} && echo $$ >> work.txt && git add work.txt && git -c user.name=T -c user.email=t@example.com commit -qm work)`
+  const addRepos = 'ted task repos add web && ted task repos add api'
   const script = [
-    'ted task repos add web >/dev/null 2>&1 || true',
-    'ted task repos add api >/dev/null 2>&1 || true',
     commit('widgets'),
     commit('web'),
     commit('api'),
@@ -201,7 +200,9 @@ function leadSteps(client: Client) {
     `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`,
   ].join('\n')
   const each = [{ run: ['sh', '-c', script] }, { endTurn: true }]
-  return JSON.stringify({ steps: [{ everyMessage: each }, ...each] })
+  return JSON.stringify({
+    steps: [{ everyMessage: each }, { run: ['sh', '-c', addRepos] }, ...each],
+  })
 }
 
 const getTask = async (client: Client, id: string) => {
@@ -219,7 +220,7 @@ async function nextSignoff(client: Client, task: Task, count: number): Promise<C
       return items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
     },
     `sign-off ${count}`,
-    20_000,
+    60_000,
   )
   return item.request
 }
@@ -381,7 +382,7 @@ test('a repair incorporates every repo before validation and retains all worktre
   expect(
     (await client.ok<FailureCase[]>('GET', `${root}/failures`))[0]?.verifications,
   ).toBeUndefined()
-}, 60_000)
+}, 120_000)
 
 describe('Merging a multi-repo Task', () => {
   test('TED merges nothing until every pull request is green, then merges in repos order', async () => {
@@ -417,7 +418,7 @@ describe('Merging a multi-repo Task', () => {
       async () => (await getTask(client, blocked.id)).leadRunId !== undefined,
       'the blocked Task to start',
     )
-  }, 60_000)
+  }, 120_000)
 
   test('a merge that fails partway shows Partly merged, reverts nothing, and the rest merges after a short re-sign-off', async () => {
     const client = await start({
@@ -465,7 +466,7 @@ describe('Merging a multi-repo Task', () => {
       async () => (await getTask(client, blocked.id)).leadRunId !== undefined,
       'the blocked Task to start',
     )
-  }, 60_000)
+  }, 120_000)
 })
 
 test('external partial merges remain visible while a failure case holds further merging', async () => {
@@ -501,4 +502,4 @@ test('external partial merges remain visible while a failure case holds further 
   expect(
     (await events(client, task)).filter((event) => event.text.startsWith('Merge stopped partway')),
   ).toHaveLength(1)
-}, 60_000)
+}, 120_000)

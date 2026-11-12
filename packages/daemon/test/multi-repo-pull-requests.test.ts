@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -56,7 +56,8 @@ async function repoWith(name: string, commits: number): Promise<PullRequestTarge
   }
 }
 
-function fakeStore(names: string[]) {
+function fakeStore(names: string[], onReconciled?: () => void, onRead?: () => void) {
+  const reconciled: { name: string; recorded: string; remote: string }[] = []
   const repos = new Map<string, TaskRepo>(
     names.map((name) => [
       name,
@@ -75,11 +76,24 @@ function fakeStore(names: string[]) {
     if (repo) repos.set(name, { ...repo, ...fields })
   }
   const store = {
-    getTask: () => ({ repos: [...repos.values()] }),
+    getTask: () => {
+      onRead?.()
+      return { repos: [...repos.values()] }
+    },
     branchPushed: (_: string, name: string, push: Omit<NonNullable<TaskRepo['pushed']>, 'at'>) =>
       change(name, { pushed: { ...push, at: 'now' } }),
     branchPushFailed: (_: string, name: string, message: string) =>
       change(name, { pushFailed: { message, at: 'now' } }),
+    pushRecordReconciled: (
+      _: string,
+      name: string,
+      found: { recorded: string; remote: string },
+    ) => {
+      reconciled.push({ name, ...found })
+      const pushed = repos.get(name)?.pushed
+      if (pushed) change(name, { pushed: { ...pushed, commit: found.remote } })
+      onReconciled?.()
+    },
     pullRequestOpened: (
       _: string,
       name: string,
@@ -91,7 +105,32 @@ function fakeStore(names: string[]) {
     },
     pullRequestClosed: () => undefined,
   }
-  return { store: store as unknown as TedStore, repos }
+  return { store: store as unknown as TedStore, repos, reconciled }
+}
+
+const branch = 'ted/nb-1-notes'
+
+async function commitIn(folder: string, file: string): Promise<string> {
+  await writeFile(path.join(folder, file), file)
+  await run('git', ['add', '-A'], { cwd: folder, env })
+  await run('git', ['commit', '-m', file], { cwd: folder, env })
+  return (await run('git', ['rev-parse', 'HEAD'], { cwd: folder })).stdout.trim()
+}
+
+async function remoteTip(name: string): Promise<string> {
+  const out = await run('git', ['rev-parse', `refs/heads/${branch}`], {
+    cwd: path.join(dir, `${name}.git`),
+  })
+  return out.stdout.trim()
+}
+
+async function otherClone(name: string): Promise<string> {
+  const other = path.join(dir, `${name}-other`)
+  await run('git', ['clone', '--branch', branch, path.join(dir, `${name}.git`), other], {
+    cwd: dir,
+    env,
+  })
+  return other
 }
 
 function fakeGh() {
@@ -212,4 +251,104 @@ test('TED pushes to the Factory’s URL and ignores the repo’s own git config'
   expect(pushed.stdout.trim()).toBe(repos.get('api')?.pushed?.commit)
   await expect(run('git', ['--git-dir', elsewhere, 'rev-parse', 'HEAD'])).rejects.toThrow()
   await expect(run('test', ['-e', marker])).rejects.toThrow()
+})
+
+test('a remote branch ahead of TED’s recorded push is pushed past when the pushed commit includes it', async () => {
+  const api = await repoWith('api', 1)
+  const { store, repos, reconciled } = fakeStore(['api'])
+  const prs = createPullRequests({ store, gh: fakeGh().gh })
+  const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
+  await prs.push(task, [api], 'first')
+
+  const landed = await commitIn(api.worktree, 'landed.txt')
+  await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
+  await prs.push(task, [api], 'again')
+
+  expect(repos.get('api')?.pushFailed).toBeUndefined()
+  expect(repos.get('api')?.pushed?.commit).toBe(landed)
+
+  await commitIn(api.worktree, 'unrecorded.txt')
+  await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
+  const unrecorded = await remoteTip('api')
+  const head = await commitIn(api.worktree, 'reviewed.txt')
+  await prs.push(task, [api], 'again')
+
+  expect(repos.get('api')?.pushFailed).toBeUndefined()
+  expect(repos.get('api')?.pushed?.commit).toBe(head)
+  expect(await remoteTip('api')).toBe(head)
+  expect(reconciled.at(-1)).toEqual({ name: 'api', recorded: landed, remote: unrecorded })
+})
+
+test('a remote branch with commits the pushed commit lacks is refused and left as it is', async () => {
+  const api = await repoWith('api', 1)
+  const { store, repos, reconciled } = fakeStore(['api'])
+  const prs = createPullRequests({ store, gh: fakeGh().gh })
+  const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
+  await prs.push(task, [api], 'first')
+  const recorded = repos.get('api')?.pushed?.commit
+
+  const other = await otherClone('api')
+  const foreign = await commitIn(other, 'foreign.txt')
+  await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: other, env })
+  const head = await commitIn(api.worktree, 'mine.txt')
+  await prs.push(task, [api], 'again')
+
+  const message = repos.get('api')?.pushFailed?.message ?? ''
+  expect(message).toContain(foreign.slice(0, 8))
+  expect(message).toContain(head.slice(0, 8))
+  expect(message).toContain('does not include')
+  expect(await remoteTip('api')).toBe(foreign)
+  expect(repos.get('api')?.pushed?.commit).toBe(recorded)
+  expect(reconciled).toEqual([])
+})
+
+test('a remote branch that moves again while TED recovers is not overwritten', async () => {
+  const api = await repoWith('api', 1)
+  const { store, repos, reconciled } = fakeStore(['api'], () => {
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: other, env })
+    git('commit', '--allow-empty', '-m', 'during')
+    git('push', api.url, `HEAD:refs/heads/${branch}`)
+  })
+  const prs = createPullRequests({ store, gh: fakeGh().gh })
+  const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
+  await prs.push(task, [api], 'first')
+
+  const ahead = await commitIn(api.worktree, 'ahead.txt')
+  await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
+  const other = await otherClone('api')
+  await commitIn(api.worktree, 'reviewed.txt')
+  await prs.push(task, [api], 'again')
+
+  expect(reconciled).toHaveLength(1)
+  expect(repos.get('api')?.pushFailed?.message).toContain('git push failed')
+  expect(repos.get('api')?.pushed?.commit).toBe(ahead)
+  const during = await run('git', ['rev-parse', 'HEAD'], { cwd: other })
+  expect(during.stdout.trim()).not.toBe(ahead)
+  expect(await remoteTip('api')).toBe(during.stdout.trim())
+})
+
+test('a worktree that gains a commit during a push gets only the commit TED read first pushed', async () => {
+  const api = await repoWith('api', 1)
+  let reads = Number.NEGATIVE_INFINITY
+  const { store, repos, reconciled } = fakeStore(['api'], undefined, () => {
+    if (++reads !== 2) return
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: api.worktree, env })
+    git('commit', '--allow-empty', '-m', 'later')
+  })
+  const prs = createPullRequests({ store, gh: fakeGh().gh })
+  const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
+  await prs.push(task, [api], 'first')
+
+  await commitIn(api.worktree, 'ahead.txt')
+  await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
+  const read = await commitIn(api.worktree, 'reviewed.txt')
+  reads = 0
+  await prs.push(task, [api], 'again')
+
+  const later = await run('git', ['rev-parse', 'HEAD'], { cwd: api.worktree })
+  expect(later.stdout.trim()).not.toBe(read)
+  expect(reconciled).toHaveLength(1)
+  expect(repos.get('api')?.pushFailed).toBeUndefined()
+  expect(repos.get('api')?.pushed?.commit).toBe(read)
+  expect(await remoteTip('api')).toBe(read)
 })

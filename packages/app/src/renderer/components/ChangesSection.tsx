@@ -65,16 +65,11 @@ export function ChangesSection({
       {onSource && (
         <>
           <fieldset className={styles.sources} aria-label="Changes source">
-            <Button
-              size="small"
-              aria-pressed={source === 'local'}
-              onClick={() => onSource('local')}
-            >
+            <Button aria-pressed={source === 'local'} onClick={() => onSource('local')}>
               Local changes
             </Button>
             {hasPullRequest && (
               <Button
-                size="small"
                 aria-pressed={source === 'pull-request'}
                 onClick={() => onSource('pull-request')}
               >
@@ -88,7 +83,7 @@ export function ChangesSection({
               : 'Only changes pushed to the PR.'}
           </p>
           {source === 'pull-request' && (
-            <Button size="small" onClick={refresh}>
+            <Button onClick={refresh}>
               {changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
             </Button>
           )}
