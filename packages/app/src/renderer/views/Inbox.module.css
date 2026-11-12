@@ -201,7 +201,7 @@
   display: none;
   align-items: center;
   gap: 5px;
-  min-height: 24px;
+  height: var(--button-height-small);
   padding: 0 7px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
@@ -217,9 +217,9 @@
   display: inline-flex;
 }
 
-.item:hover .age,
-.item:focus-within .age,
-.row[aria-current] .age {
+.item:has(.snooze):hover .age,
+.item:has(.snooze):focus-within .age,
+.item:has(.snooze) .row[aria-current] .age {
   visibility: hidden;
 }
 
