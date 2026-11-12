@@ -44,6 +44,7 @@ export interface FailureStore {
   saveProgress(value: ValidationProgress): ValidationProgress
   list(taskId: string): FailureCase[]
   get(id: string): FailureCase | undefined
+  contexts(taskId: string): FailureContext[]
   context(id: string): FailureContext | undefined
   capture(value: FailureContext): FailureContext
   event(value: FailureCase, kind: FailureChange): ReturnType<typeof failureEvent>
@@ -131,6 +132,10 @@ export function createFailureStore({
         .map((r) => JSON.parse(r.data) as FailureCase),
     get,
     event,
+    contexts: (taskId) =>
+      store
+        .query(queryDb(failureContexts.where({ taskId })))
+        .map((r) => JSON.parse(r.data) as FailureContext),
     context: (id) => {
       const row = store.query(queryDb(failureContexts.where({ id }))).at(0)
       return row ? (JSON.parse(row.data) as FailureContext) : undefined

@@ -146,7 +146,7 @@ async function promptFile(name: string, ...list: unknown[]) {
   return file
 }
 
-const runIdOf = 'grep -o "[0-9a-f-]\\{36\\}" | head -1'
+const runIdOf = 'grep -o "[0-9a-f]\\{6\\}" | head -1'
 const startAndWait = (args: string) =>
   `out=$(ted run start ${args}) || exit $?; echo "$out" | head -1; ted run wait "$(echo "$out" | ${runIdOf})"`
 
@@ -259,7 +259,7 @@ describe('the reviewer', () => {
         20_000,
       )
       expect(results[2]?.stdout).toMatch(
-        /^Started sub-agent “Reviewer · Validate” \(Run [0-9a-f-]{36}\), queued for a free slot\./,
+        /^Started sub-agent “Reviewer · Validate” \(Run [0-9a-f]{6}\), queued for a free slot\./,
       )
       expect(results[3]).toMatchObject({ code: 1 })
       expect(results[3]?.stderr).toContain('come from the `reviewer` setting')

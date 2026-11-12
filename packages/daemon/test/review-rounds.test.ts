@@ -122,7 +122,7 @@ const reviewerPrompts = async (client: Client, task: Task) => {
 }
 
 const counter = 'f="n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";'
-const runIdOf = 'grep -o "[0-9a-f-]\\{36\\}" | head -1'
+const runIdOf = 'grep -o "[0-9a-f]\\{6\\}" | head -1'
 const review = (prompt: string) =>
   `out=$(ted run start --reviewer --prompt-file ${prompt}); ted run wait "$(echo "$out" | ${runIdOf})";`
 const commit = (file: string) =>
@@ -134,7 +134,7 @@ const late = (out: string) =>
 async function expectRefusedAfterReview(out: string) {
   const refused = await readFile(out, 'utf8')
   expect(refused).toMatch(
-    /NB-1’s code changed after this Validate visit’s reviewer \(Run [0-9a-f-]{36}\)/,
+    /NB-1’s code changed after this Validate visit’s reviewer \(Run [0-9a-f]{6}\)/,
   )
   expect(refused).toMatch(
     /- widgets: the reviewer read [0-9a-f]{40}, and HEAD is now [0-9a-f]{40}\./,

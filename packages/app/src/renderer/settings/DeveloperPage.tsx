@@ -1,4 +1,5 @@
 import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
@@ -54,7 +55,6 @@ function usePolled<T>(load: () => Promise<T>) {
 const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(0)} MB`
 const gigabytes = (bytes: number) => `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 const tokens = (count: number) => count.toLocaleString('en-US')
-const shortId = (id: string) => id.slice(0, 8)
 
 function useCopyReport() {
   const [status, setStatus] = useState<string>()
@@ -168,7 +168,7 @@ function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
 }
 
 function owner(process: ProcessInfo): string {
-  return process.owner === 'daemon' ? 'Daemon' : `Run ${shortId(process.owner.runId)}`
+  return process.owner === 'daemon' ? 'Daemon' : `Run ${shortReference(process.owner.runId)}`
 }
 
 function DiagnosticsView({
@@ -219,7 +219,7 @@ function DiagnosticsView({
                 {diagnostics?.runs.map((run) => (
                   <tr key={run.runId}>
                     <td className={styles.mono} title={run.runId}>
-                      {shortId(run.runId)}
+                      {shortReference(run.runId)}
                     </td>
                     <td>
                       {run.agent === 'claude'
@@ -297,7 +297,7 @@ function LogViewer({ runs }: { runs: string[] }) {
 
   const options = [
     { value: daemonLog, label: 'Daemon log' },
-    ...runs.map((runId) => ({ value: runId, label: `Run ${shortId(runId)} raw output` })),
+    ...runs.map((runId) => ({ value: runId, label: `Run ${shortReference(runId)} raw output` })),
   ]
 
   return (
