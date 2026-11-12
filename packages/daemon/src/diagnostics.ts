@@ -7,6 +7,7 @@ import {
   type Diagnostics,
   type LogText,
   type ProcessInfo,
+  type ProcessUsage,
   type Run,
   type RunDiagnostics,
   type TokenUse,
@@ -15,7 +16,9 @@ import {
 import type { Agents } from './agents/index.ts'
 import { redactSecrets } from './redact.ts'
 import { runFiles } from './runs/host-files.ts'
+import { parsedOutput } from './runs/parsed-output.ts'
 import { type RunManager, startRecord } from './runs/run-manager.ts'
+import type { RunOutputReader } from './runs/run-output.ts'
 import type { TedStore } from './store/index.ts'
 
 const execFileAsync = promisify(execFile)
@@ -79,31 +82,48 @@ async function availableMemory(): Promise<number> {
   return os.freemem()
 }
 
-function tokenUse(sources: DiagnosticsSources, run: Run): TokenUse {
-  const agent = sources.agents.get(run.agent)
-  let added: TokenUse = { input: 0, output: 0 }
-  let latestTotal: TokenUse | undefined
-  for (const { line } of sources.runs.output.entries(run.id)) {
-    const count = agent.tokensFrom(line)
-    if (!count) continue
-    if (count.total) latestTotal = { input: count.input, output: count.output }
-    else added = { input: added.input + count.input, output: added.output + count.output }
-  }
-  return latestTotal ?? added
-}
+const finishedTokens = new WeakMap<
+  RunOutputReader,
+  Map<string, { stamp: string; tokens: TokenUse }>
+>()
 
-export async function collectDiagnostics(sources: DiagnosticsSources): Promise<Diagnostics> {
-  const all = sources.store.listRuns()
-  const recent = new Set(all.slice(-runsShown))
-  const runs = all.filter((run) => run.state !== 'finished' || recent.has(run)).reverse()
-  const hosts = new Map<number, string>()
+function tokenUse(sources: DiagnosticsSources, runs: Run[]): Map<string, TokenUse> {
+  const { output } = sources.runs
+  const read = (run: Run) => parsedOutput(output, sources.agents, run).tokenUse()
+  const kept = finishedTokens.get(output) ?? new Map<string, { stamp: string; tokens: TokenUse }>()
+  finishedTokens.set(output, kept)
+  const shown = new Set(runs.map((run) => run.id))
+  for (const id of kept.keys()) if (!shown.has(id)) kept.delete(id)
+
+  const tokens = new Map<string, TokenUse>()
+  for (const run of runs) {
+    if (run.state !== 'finished') continue
+    const stamp = output.stamp(run.id)
+    let held = kept.get(run.id)
+    if (held?.stamp !== stamp) {
+      held = { stamp, tokens: read(run) }
+      kept.set(run.id, held)
+    }
+    tokens.set(run.id, held.tokens)
+  }
   for (const run of runs) {
     if (run.state === 'finished') continue
-    const start = await startRecord(path.join(sources.home, 'runs', run.id))
-    if (start) hosts.set(start.hostPid, run.id)
+    kept.delete(run.id)
+    tokens.set(run.id, read(run))
   }
+  return tokens
+}
 
-  const rows = await processes()
+async function ownedProcesses(home: string, live: Run[]): Promise<ProcessInfo[]> {
+  const [starts, rows] = await Promise.all([
+    Promise.all(live.map((run) => startRecord(path.join(home, 'runs', run.id)))),
+    processes(),
+  ])
+  const hosts = new Map<number, string>()
+  starts.forEach((start, index) => {
+    const run = live[index]
+    if (start && run) hosts.set(start.hostPid, run.id)
+  })
   const byPid = new Map(rows.map((row) => [row.pid, row]))
   const ownerOf = (pid: number): ProcessInfo['owner'] | undefined => {
     const seen = new Set<number>()
@@ -116,11 +136,35 @@ export async function collectDiagnostics(sources: DiagnosticsSources): Promise<D
     }
     return undefined
   }
-  const owned: ProcessInfo[] = rows.flatMap((row) => {
+  return rows.flatMap((row) => {
     if (row.ppid === process.pid && row.command === 'ps') return []
     const owner = ownerOf(row.pid)
     return owner === undefined ? [] : [{ ...row, owner }]
   })
+}
+
+export async function processUsage(
+  sources: Pick<DiagnosticsSources, 'home' | 'store'>,
+): Promise<ProcessUsage> {
+  const owned = await ownedProcesses(sources.home, sources.store.liveRuns())
+  return {
+    cpuPercent: owned.reduce((sum, p) => sum + p.cpuPercent, 0),
+    memoryBytes: owned.reduce((sum, p) => sum + p.memoryBytes, 0),
+  }
+}
+
+export async function collectDiagnostics(sources: DiagnosticsSources): Promise<Diagnostics> {
+  const all = sources.store.listRuns()
+  const recent = new Set(all.slice(-runsShown))
+  const runs = all.filter((run) => run.state !== 'finished' || recent.has(run)).reverse()
+  const [owned, availableBytes] = await Promise.all([
+    ownedProcesses(
+      sources.home,
+      runs.filter((run) => run.state !== 'finished'),
+    ),
+    availableMemory(),
+  ])
+  const tokens = tokenUse(sources, runs)
 
   const runDiagnostics: RunDiagnostics[] = runs.map((run) => {
     const mine = owned.filter((p) => typeof p.owner === 'object' && p.owner.runId === run.id)
@@ -132,14 +176,14 @@ export async function collectDiagnostics(sources: DiagnosticsSources): Promise<D
       startedAt: run.startedAt,
       cpuPercent: Math.round(mine.reduce((sum, p) => sum + p.cpuPercent, 0) * 10) / 10,
       memoryBytes: mine.reduce((sum, p) => sum + p.memoryBytes, 0),
-      tokens: tokenUse(sources, run),
+      tokens: tokens.get(run.id) ?? { input: 0, output: 0 },
     }
   })
 
   return {
     runs: runDiagnostics,
     processes: owned,
-    memory: { totalBytes: os.totalmem(), availableBytes: await availableMemory() },
+    memory: { totalBytes: os.totalmem(), availableBytes },
   }
 }
 

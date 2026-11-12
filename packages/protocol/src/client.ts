@@ -67,7 +67,7 @@ import type {
   RestoreBackupResult,
   ShutdownRequest,
 } from './data.ts'
-import type { Diagnostics, LogText } from './diagnostics.ts'
+import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { FactoryExport } from './export.ts'
 import type {
@@ -1041,6 +1041,10 @@ export class DaemonClient {
 
   getDiagnostics(): Promise<Diagnostics> {
     return this.#request('GET', '/diagnostics')
+  }
+
+  getProcessUsage(): Promise<ProcessUsage> {
+    return this.#request('GET', '/diagnostics/usage')
   }
 
   getReport(): Promise<{ text: string }> {
