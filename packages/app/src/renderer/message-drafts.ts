@@ -3,52 +3,26 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   type DraftContent,
   emptyDraftContent,
-  messageDraftSession,
-  messageDraftStorageKey,
+  messageDraftSessions,
 } from './message-draft-session.ts'
 import { ted } from './ted.ts'
 
-type Session = ReturnType<typeof messageDraftSession>
+const sessions = messageDraftSessions({
+  storage: {
+    getItem: (key) => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+    removeItem: (key) => localStorage.removeItem(key),
+    get length() {
+      return localStorage.length
+    },
+    key: (index) => localStorage.key(index),
+  },
+  read: (box) => ted.messageDraft(box),
+  save: (box, draft) => ted.saveMessageDraft(box, draft),
+  failed: (error) => console.warn('couldn’t keep unsent text:', error),
+})
 
-interface Shared {
-  session: Session
-  listeners: Set<(content: DraftContent) => void>
-  users: number
-}
-
-const shared = new Map<string, Shared>()
-
-function join(box: MessageBox, listener: (content: DraftContent) => void): () => void {
-  const key = messageDraftStorageKey(box)
-  let entry = shared.get(key)
-  if (!entry) {
-    const listeners = new Set<(content: DraftContent) => void>()
-    const session = messageDraftSession(box, {
-      storage: localStorage,
-      read: () => ted.messageDraft(box),
-      save: (draft) => ted.saveMessageDraft(box, draft),
-      changed: (content) => {
-        for (const each of listeners) each(content)
-      },
-      failed: (error) => console.warn('couldn’t keep unsent text:', error),
-    })
-    entry = { session, listeners, users: 0 }
-    shared.set(key, entry)
-    void session.load()
-  } else {
-    listener(entry.session.get())
-  }
-  const joined = entry
-  joined.listeners.add(listener)
-  joined.users += 1
-  return () => {
-    joined.listeners.delete(listener)
-    joined.users -= 1
-    if (joined.users > 0) return
-    if (shared.get(key) === joined) shared.delete(key)
-    void joined.session.flush()
-  }
-}
+export const recoverMessageDrafts = (): Promise<void> => sessions.recover()
 
 export interface MessageDraftHandle {
   text: string
@@ -68,23 +42,21 @@ export function useMessageDraft(box: MessageBox | undefined): MessageDraftHandle
   useEffect(() => {
     setContent(emptyDraftContent())
     if (kind === undefined || id === undefined) return
-    return join({ kind, id }, setContent)
+    return sessions.join({ kind, id }, setContent)
   }, [kind, id])
 
   const update = useCallback(
     (next: (content: DraftContent) => DraftContent) => {
-      const entry =
-        kind !== undefined && id !== undefined && shared.get(messageDraftStorageKey({ kind, id }))
-      if (entry) entry.session.update(next)
+      const session = kind !== undefined && id !== undefined && sessions.find({ kind, id })
+      if (session) session.update(next)
       else setContent(next)
     },
     [kind, id],
   )
 
   const clear = useCallback(() => {
-    const entry =
-      kind !== undefined && id !== undefined && shared.get(messageDraftStorageKey({ kind, id }))
-    if (entry) void entry.session.clear()
+    const session = kind !== undefined && id !== undefined && sessions.find({ kind, id })
+    if (session) void session.clear()
     else setContent(emptyDraftContent())
   }, [kind, id])
 

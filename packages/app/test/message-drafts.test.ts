@@ -1,6 +1,6 @@
-import type { MessageDraft, MessageDraftState } from '@ted/protocol'
+import type { MessageBox, MessageDraft, MessageDraftState } from '@ted/protocol'
 import { describe, expect, test, vi } from 'vitest'
-import { messageDraftSession } from '../src/renderer/message-draft-session.ts'
+import { messageDraftSession, messageDraftSessions } from '../src/renderer/message-draft-session.ts'
 
 function memoryStorage() {
   const values = new Map<string, string>()
@@ -12,6 +12,10 @@ function memoryStorage() {
     removeItem: (key: string) => {
       values.delete(key)
     },
+    get length() {
+      return values.size
+    },
+    key: (index: number) => [...values.keys()][index] ?? null,
   }
 }
 
@@ -163,5 +167,87 @@ describe('unsent message text', () => {
     const session2 = messageDraftSession(box, broken)
     expect((await session2.load()).text).toBe('')
     expect(broken.failed).toHaveBeenCalledOnce()
+  })
+
+  test('a box reopened while a save is in flight keeps one queue, so sent text is not saved again', async () => {
+    const setup = options()
+    const first = Promise.withResolvers<MessageDraftState>()
+    const save = vi
+      .fn(async (_box: MessageBox, draft: MessageDraft): Promise<MessageDraftState> => ({ draft }))
+      .mockImplementationOnce(() => first.promise)
+    const sessions = messageDraftSessions({
+      storage: setup.storage,
+      read: setup.read,
+      save,
+      failed: setup.failed,
+      delayMs: 60_000,
+    })
+    const seen = vi.fn()
+    const leave = sessions.join(box, seen)
+    await vi.waitFor(() => expect(seen).toHaveBeenCalled())
+    const session = sessions.find(box)
+    session?.update((c) => ({ ...c, text: 'A' }))
+    void session?.flush()
+    session?.update((c) => ({ ...c, text: 'AB' }))
+    leave()
+
+    const again = vi.fn()
+    const leaveAgain = sessions.join(box, again)
+    expect(sessions.find(box)).toBe(session)
+    expect(again).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'AB' }))
+    const cleared = sessions.find(box)?.clear()
+    first.resolve({ draft: null })
+    await cleared
+    expect(save.mock.calls.map(([, draft]) => draft.text)).toEqual(['A', ''])
+    expect(setup.storage.getItem(key)).toBeNull()
+    leaveAgain()
+    await vi.waitFor(() => expect(sessions.find(box)).toBeUndefined())
+  })
+
+  test('at start, leftover local copies go to the daemon and are removed, also when refused', async () => {
+    const setup = options()
+    const answer = 'ted.messageDraft.v1.request.c.1'
+    const chat = 'ted.messageDraft.v1.run.r1'
+    const offline = 'ted.messageDraft.v1.coordinator.f1'
+    setup.storage.setItem(key, JSON.stringify({ text: 'Left by a quit', attachments: [] }))
+    setup.storage.setItem(
+      answer,
+      JSON.stringify({ text: 'Answer', attachments: [], fields: '{"a":1}' }),
+    )
+    setup.storage.setItem(chat, 'not json')
+    setup.storage.setItem(offline, JSON.stringify({ text: 'Later', attachments: [] }))
+    setup.storage.setItem('ted.other', 'keep')
+    const save = vi.fn(
+      async (asked: MessageBox, draft: MessageDraft): Promise<MessageDraftState> => {
+        if (asked.kind === 'coordinator') throw new Error('offline')
+        return asked.kind === 'request'
+          ? { draft: null, refused: 'this request is already answered' }
+          : { draft }
+      },
+    )
+    const sessions = messageDraftSessions({
+      storage: setup.storage,
+      read: setup.read,
+      save,
+      failed: setup.failed,
+    })
+    await sessions.recover()
+    expect(save.mock.calls).toEqual([
+      [box, { text: 'Left by a quit', attachments: [] }],
+      [
+        { kind: 'request', id: 'c.1' },
+        { text: 'Answer', attachments: [], fields: '{"a":1}' },
+      ],
+      [
+        { kind: 'coordinator', id: 'f1' },
+        { text: 'Later', attachments: [] },
+      ],
+    ])
+    expect(setup.storage.getItem(key)).toBeNull()
+    expect(setup.storage.getItem(answer)).toBeNull()
+    expect(setup.storage.getItem(chat)).toBeNull()
+    expect(setup.storage.getItem(offline)).toContain('Later')
+    expect(setup.failed).toHaveBeenCalledOnce()
+    expect(setup.storage.getItem('ted.other')).toBe('keep')
   })
 })

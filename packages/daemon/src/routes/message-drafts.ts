@@ -89,6 +89,10 @@ export const messageDraftRoutes: Route[] = [
     path,
     handle: async ({ body, params: [kind = '', id = ''] }, { store, attachments }) => {
       const asked = parseMessageBox(kind, id)
+      const files =
+        asked.kind === 'comment'
+          ? await Promise.all(body.attachments.map((file) => attachments.find(file)))
+          : []
       let found: Owner
       try {
         found = messageDraftOwner(store, asked)
@@ -98,11 +102,10 @@ export const messageDraftRoutes: Route[] = [
         return [200, refused]
       }
       const { box, ...owner } = found
-      const files = await Promise.all(body.attachments.map((file) => attachments.find(file)))
       const state: MessageDraftState = {
         draft: store.saveMessageDraft(box, owner, {
           text: body.text,
-          attachments: box.kind === 'comment' ? files : [],
+          attachments: files,
           ...(body.fields !== undefined && { fields: body.fields }),
         }),
       }

@@ -5653,13 +5653,14 @@ export function createTasks(options: {
     try {
       options.planning?.()?.taskGone(task.id, 'deleted')
       settleDependents(task.id, blocked, 'deleted')
+      const unsentFiles = store.messageDraftFiles(task.id)
       if (!find(task.id).archived) archiveNow(find(task.id), false)
       await clearing(task.id)
       await pullRequestQueue.get(task.id)
       const last = find(task.id)
       await lifecycle.cleanFolders(await execution.local(task.id))
       const runIds = store.taskRunList(task.id).map((r) => r.id)
-      const files = [...store.taskFiles(task.id), ...store.messageDraftFiles(task.id)]
+      const files = [...store.taskFiles(task.id), ...unsentFiles]
       failures.forget(task.id)
       store.deleteTask(task.id)
       await store.persisted()

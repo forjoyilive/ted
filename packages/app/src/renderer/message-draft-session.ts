@@ -8,16 +8,19 @@ export interface DraftContent {
 
 export const emptyDraftContent = (): DraftContent => ({ text: '', attachments: [], fields: {} })
 
-interface DraftStorage {
+export interface DraftStorage {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
   removeItem(key: string): void
+  readonly length: number
+  key(index: number): string | null
 }
 
 export const messageDraftDelayMs = 500
 
-export const messageDraftStorageKey = (box: MessageBox) =>
-  `ted.messageDraft.v1.${box.kind}.${box.id}`
+const storagePrefix = 'ted.messageDraft.v1.'
+
+export const messageDraftStorageKey = (box: MessageBox) => `${storagePrefix}${box.kind}.${box.id}`
 
 function toDraft(content: DraftContent): MessageDraft {
   const fields = Object.fromEntries(
@@ -158,6 +161,91 @@ export function messageDraftSession(
     async flush() {
       if (dirty) await persist()
       else if (saving) await saving
+    },
+  }
+}
+
+type Session = ReturnType<typeof messageDraftSession>
+
+interface Shared {
+  session: Session
+  listeners: Set<(content: DraftContent) => void>
+  users: number
+}
+
+export function messageDraftSessions(options: {
+  storage: DraftStorage
+  read(box: MessageBox): Promise<MessageDraftState>
+  save(box: MessageBox, draft: MessageDraft): Promise<MessageDraftState>
+  failed(error: unknown): void
+  delayMs?: number
+}) {
+  const shared = new Map<string, Shared>()
+
+  return {
+    find: (box: MessageBox): Session | undefined =>
+      shared.get(messageDraftStorageKey(box))?.session,
+    join(box: MessageBox, listener: (content: DraftContent) => void): () => void {
+      const key = messageDraftStorageKey(box)
+      let entry = shared.get(key)
+      if (entry) {
+        listener(entry.session.get())
+      } else {
+        const listeners = new Set<(content: DraftContent) => void>()
+        const session = messageDraftSession(box, {
+          storage: options.storage,
+          read: () => options.read(box),
+          save: (draft) => options.save(box, draft),
+          changed: (content) => {
+            for (const each of listeners) each(content)
+          },
+          failed: options.failed,
+          ...(options.delayMs !== undefined && { delayMs: options.delayMs }),
+        })
+        entry = { session, listeners, users: 0 }
+        shared.set(key, entry)
+        void session.load()
+      }
+      const joined = entry
+      joined.listeners.add(listener)
+      joined.users += 1
+      return () => {
+        joined.listeners.delete(listener)
+        joined.users -= 1
+        if (joined.users > 0) return
+        void joined.session.flush().then(() => {
+          if (joined.users === 0 && shared.get(key) === joined) shared.delete(key)
+        })
+      }
+    },
+    async recover(): Promise<void> {
+      const keys: string[] = []
+      for (let i = 0; i < options.storage.length; i++) {
+        const key = options.storage.key(i)
+        if (key?.startsWith(storagePrefix)) keys.push(key)
+      }
+      for (const key of keys) {
+        if (shared.has(key)) continue
+        try {
+          const stored = options.storage.getItem(key)
+          if (stored === null) continue
+          const [kind = '', ...rest] = key.slice(storagePrefix.length).split('.')
+          let content: DraftContent | undefined
+          try {
+            content = fromDraft(JSON.parse(stored))
+          } catch {
+            content = undefined
+          }
+          if (content) {
+            const box = { kind: kind as MessageBox['kind'], id: rest.join('.') }
+            await options.save(box, toDraft(content))
+          }
+          if (!shared.has(key) && options.storage.getItem(key) === stored)
+            options.storage.removeItem(key)
+        } catch (error) {
+          options.failed(error)
+        }
+      }
     },
   }
 }
