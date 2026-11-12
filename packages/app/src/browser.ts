@@ -569,6 +569,8 @@ export function createTaskBrowsers(
     hide,
     async state(taskId: string) {
       const page = pages.get(taskId)
+      if (!page?.ready && running.has(taskId))
+        return { url: '', text: 'Opening…', opening: true as const }
       if (!page) return { url: '', text: 'Open a running web App' }
       await valid(taskId, page.app)
       return {
