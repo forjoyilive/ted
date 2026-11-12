@@ -222,6 +222,7 @@ export const executionManifest: { version: 1; scenarios: ExecutionScenario[] } =
         'command-stop-ack',
         'command-disconnected-hold',
         'command-controller-restart',
+        'command-reconnect-after-drops',
         'command-worker-restart',
         'command-uncertain-held',
         'command-stale-refused',

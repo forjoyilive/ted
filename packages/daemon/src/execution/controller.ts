@@ -206,40 +206,49 @@ export function createExecutionController(options: {
     if (!presented) throw new RequestError(403, 'Execution certificate has no approved grant')
     current(presented.id)
     const abort = new AbortController()
+    let release: (() => void) | undefined
     if (syncing) {
       const open = syncs.get(presented.id) ?? 0
       if (open >= 3) throw new RequestError(429, 'Too many execution connections')
       syncs.set(presented.id, open + 1)
-      res.once('close', () => {
-        abort.abort()
+      res.once('close', () => abort.abort())
+      release = () => {
         const left = (syncs.get(presented.id) ?? 1) - 1
         if (left > 0) syncs.set(presented.id, left)
         else syncs.delete(presented.id)
-      })
+      }
     }
-    const input = syncing
-      ? parseExecutionSyncRequest(await body(req, executionLimits.syncRequestBytes))
-      : parseExecutionHeartbeat(await body(req))
-    requireExecutionCompatibility(input)
-    let grant = current(input.grantId)
-    if (grant.certificateId !== presentedId || grant.publicKey !== certificatePin(cert))
-      throw new RequestError(403, 'Execution identity does not match this grant')
-    if (!(await scopesExist(grant.scopes)))
-      throw new RequestError(403, 'Approved Factory or repo is no longer available; pair again')
-    grant = current(input.grantId)
-    if (closed) throw new RequestError(503, 'Execution listener is closing')
-    if ('session' in input) {
-      if (!commands) throw new RequestError(404, 'No such execution operation')
-      const reply = await commands.sync(grant, input, abort.signal)
-      current(grant.id)
-      answer(res, 200, reply)
-      return
+    let grant: ExecutionGrant
+    let readiness: ExecutionReadiness
+    try {
+      const input = syncing
+        ? parseExecutionSyncRequest(await body(req, executionLimits.syncRequestBytes))
+        : parseExecutionHeartbeat(await body(req))
+      requireExecutionCompatibility(input)
+      grant = current(input.grantId)
+      if (grant.certificateId !== presentedId || grant.publicKey !== certificatePin(cert))
+        throw new RequestError(403, 'Execution identity does not match this grant')
+      if (!(await scopesExist(grant.scopes)))
+        throw new RequestError(403, 'Approved Factory or repo is no longer available; pair again')
+      grant = current(input.grantId)
+      if (closed) throw new RequestError(503, 'Execution listener is closing')
+      if ('session' in input) {
+        if (!commands) throw new RequestError(404, 'No such execution operation')
+        const reply = await commands.sync(grant, input, abort.signal)
+        current(grant.id)
+        answer(res, 200, reply)
+        return
+      }
+      readiness = input.readiness
+    } finally {
+      release?.()
     }
+    if (res.destroyed || req.socket.destroyed) return
     const active = sessions.get(grant.id) ?? new Set<ServerResponse>()
     if (active.size >= 2) throw new RequestError(429, 'Too many execution connections')
     active.add(res)
     sessions.set(grant.id, active)
-    snapshots.set(grant.id, input.readiness)
+    snapshots.set(grant.id, readiness)
     lastSeen.set(grant.id, now())
     const timer = setTimeout(() => {
       try {

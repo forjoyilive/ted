@@ -17,8 +17,10 @@ import {
 } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { createExecutionCommands } from '../src/execution/commands.ts'
+import { readPrivate } from '../src/execution/files.ts'
 import { createExecutionOperations } from '../src/execution/operations.ts'
 import { machineOperationsText, workerOperationsText } from '../src/execution/status-text.ts'
+import { executionRequest } from '../src/execution/transport.ts'
 import type { StoredOperation } from '../src/store/execution-operations.ts'
 import { openStore } from '../src/store/index.ts'
 import { createTaskExecution } from '../src/tasks/execution.ts'
@@ -205,6 +207,30 @@ test('a dummy operation runs once through lost messages, restarts of either serv
       crashAfterResultSaved: 'confirmed after restart',
       countEach: 1,
     })
+
+    await worker.request('stop')
+    const saved = JSON.parse(await readPrivate(worker.home, 'pairing.json')) as {
+      endpoint: { address: string; port: number; controllerPin: string }
+      credential: { grantId: string; certificate: string }
+    }
+    const key = await readPrivate(worker.home, 'worker-key.pem')
+    const beat = {
+      ...executionHello(),
+      grantId: saved.credential.grantId,
+      readiness: (await worker.request('status')).readiness,
+    }
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const dropped = new AbortController()
+      await executionRequest(saved.endpoint, '/heartbeat', beat, {
+        key,
+        cert: saved.credential.certificate,
+        signal: dropped.signal,
+        onVerified: () => setTimeout(() => dropped.abort(), attempt % 6),
+      }).catch(() => undefined)
+    }
+    await worker.request('start')
+    await worker.state('connected')
+    await observe('command-reconnect-after-drops', { droppedHeartbeats: 12, reconnected: true })
 
     const crashWorker = async (point: string, taskId: string, input: ProbeInput = {}) => {
       await worker.close()
