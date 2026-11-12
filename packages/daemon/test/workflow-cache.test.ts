@@ -81,7 +81,7 @@ process.exit(result.status ?? 1)
     '.ted/workflow.yaml': 'version: 1\norder: [intake, design, work]\n',
   })
   await writeFile(failure, '')
-  await client.factorySettings(factory.id)
+  await client.factorySettings(factory.id, { refresh: 'first' })
   expect(
     (await client.factoryBoard(factory.id)).stages.some((stage) => stage.id === 'design'),
   ).toBe(true)

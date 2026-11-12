@@ -5,6 +5,7 @@ import { contentVersion, readLayerDirectory } from './workflow/layers.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface LibraryWatch {
+  saw(version: string): void
   close(): void
 }
 
@@ -46,6 +47,9 @@ export async function watchLibrary(options: {
     console.error('couldn’t watch the Library:', error)
   }
   return {
+    saw(version) {
+      seen = version
+    },
     close() {
       closed = true
       clearTimeout(timer)

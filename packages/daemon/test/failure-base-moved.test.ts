@@ -73,7 +73,7 @@ async function setup() {
     })
   const moveBase = async () => {
     await commitToOrigin(ctx.scratch, { [`base-${Date.now()}.txt`]: 'Someone else’s work\n' })
-    await client.ok('GET', `/factories/${current.factoryId}/settings`)
+    await client.ok('GET', `/factories/${current.factoryId}/settings?refresh=first`)
     const moved = await capture()
     expect(moved.repos[0]?.base).not.toBe(context.repos[0]?.base)
     expect(moved.repos[0]?.head).toBe(context.repos[0]?.head)

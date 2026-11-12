@@ -271,7 +271,7 @@ test('a binary change, a new HEAD, changed Check definitions and a changed Check
     '.ted/workflow.yaml':
       'version: 1\norder: [intake, work, merge]\nstages:\n  validate:\n    checks:\n      - { name: Verify, run: "echo changed", timeout: 2m }\n',
   })
-  await s.client.ok('GET', `/factories/${s.task.factoryId}/settings`)
+  await s.client.ok('GET', `/factories/${s.task.factoryId}/settings?refresh=first`)
   const changed = await s.capture()
   expect(changed.repos[0]?.tree).toBe(context.repos[0]?.tree)
   expect(changed.repos[0]?.tree).toBe(moved.repos[0]?.tree)

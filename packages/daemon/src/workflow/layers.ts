@@ -7,8 +7,42 @@ import { type CheckedLayer, checkLayer, type LayerFiles } from './check.ts'
 
 export const defaultsDir = fileURLToPath(new URL('./defaults/', import.meta.url))
 
+let defaultLayer: Promise<CheckedLayer> | undefined
+
+export function sharedDefaultLayer(): Promise<CheckedLayer> {
+  if (!defaultLayer) {
+    const read = readLayerDirectory(defaultsDir).then((files) =>
+      checkLayer({ kind: 'ted', files: files ?? {} }),
+    )
+    defaultLayer = read
+    read.catch(() => {
+      if (defaultLayer === read) defaultLayer = undefined
+    })
+  }
+  return defaultLayer
+}
+
 export async function readDefaultLayer(): Promise<CheckedLayer> {
-  return checkLayer({ kind: 'ted', files: (await readLayerDirectory(defaultsDir)) ?? {} })
+  return copyLayer(await sharedDefaultLayer())
+}
+
+export function copyLayer(layer: CheckedLayer): CheckedLayer {
+  return {
+    ...layer,
+    files: { ...layer.files },
+    settings: structuredClone(layer.settings),
+    stageFiles: { ...layer.stageFiles },
+    problems: layer.problems.map((problem) => ({ ...problem })),
+  }
+}
+
+export function sameFiles(a: LayerFiles, b: LayerFiles): boolean {
+  if (a === b) return true
+  const names = Object.keys(a)
+  return (
+    names.length === Object.keys(b).length &&
+    names.every((name) => name in b && a[name] === b[name])
+  )
 }
 
 export async function readLayerDirectory(dir: string): Promise<LayerFiles | undefined> {
@@ -17,17 +51,17 @@ export async function readLayerDirectory(dir: string): Promise<LayerFiles | unde
     throw error
   })
   if (!top) return undefined
+  const named = ['workflow.yaml', 'notes.md'].filter((name) => top.includes(name))
+  const stages = top.includes('stages')
+    ? await readdir(path.join(dir, 'stages')).catch(() => undefined)
+    : undefined
+  const staged = (stages ?? []).sort().map((name) => `stages/${name}`)
+  const names = [...named, ...staged]
+  const texts = await Promise.all(names.map((name) => readOrNull(path.join(dir, name))))
   const files: LayerFiles = {}
-  for (const name of ['workflow.yaml', 'notes.md']) {
-    if (top.includes(name)) files[name] = await readOrNull(path.join(dir, name))
-  }
-  if (top.includes('stages')) {
-    const stages = await readdir(path.join(dir, 'stages')).catch(() => undefined)
-    if (!stages) files.stages = null
-    for (const name of (stages ?? []).sort()) {
-      files[`stages/${name}`] = await readOrNull(path.join(dir, 'stages', name))
-    }
-  }
+  for (const [i, name] of named.entries()) files[name] = texts[i] ?? null
+  if (top.includes('stages') && !stages) files.stages = null
+  for (const [i, name] of staged.entries()) files[name] = texts[named.length + i] ?? null
   return files
 }
 
@@ -36,17 +70,32 @@ export async function readGitLayer(
   ref: string,
 ): Promise<{ files: LayerFiles; version: string } | undefined> {
   if (!(await git.hasCommits(repo))) return undefined
-  const version = await git.revParse(repo, ref)
-  const paths = await git.listFiles(repo, version, '.ted')
+  return readGitLayerAt(repo, await git.revParse(repo, ref))
+}
+
+const blobsAtOnce = 8
+
+export async function readGitLayerAt(
+  repo: string,
+  commit: string,
+): Promise<{ files: LayerFiles; version: string } | undefined> {
+  const paths = await git.listFiles(repo, commit, '.ted')
   const wanted = paths.filter(
     (p) => p === '.ted/workflow.yaml' || p === '.ted/notes.md' || /^\.ted\/stages\/[^/]+$/.test(p),
   )
   if (paths.length === 0) return undefined
-  const files: LayerFiles = {}
-  for (const file of wanted) {
-    files[file.slice('.ted/'.length)] = await git.showFile(repo, version, file).catch(() => null)
+  const texts: (string | null)[] = new Array(wanted.length).fill(null)
+  let next = 0
+  const worker = async () => {
+    while (next < wanted.length) {
+      const i = next++
+      texts[i] = await git.showFile(repo, commit, wanted[i] as string).catch(() => null)
+    }
   }
-  return { files, version: version.slice(0, 7) }
+  await Promise.all(Array.from({ length: Math.min(blobsAtOnce, wanted.length) }, worker))
+  const files: LayerFiles = {}
+  for (const [i, file] of wanted.entries()) files[file.slice('.ted/'.length)] = texts[i] ?? null
+  return { files, version: commit.slice(0, 7) }
 }
 
 export function stageFileHash(text: string): string {
