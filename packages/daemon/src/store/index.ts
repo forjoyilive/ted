@@ -689,7 +689,13 @@ export interface TedStore extends TaskHistory {
   requeueAfterBlockers(taskId: string): Task
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
   resumeTask(taskId: string, options: { waitForBlockers: boolean; overnight?: boolean }): Task
-  taskStoppedByTed(taskId: string, runId: string, cause: 'quit' | 'ended-outside'): void
+  taskStoppedByTed(
+    taskId: string,
+    runId: string,
+    cause: 'quit' | 'ended-outside',
+    at?: string,
+  ): void
+  tedStopPending(taskId: string): boolean
   answerTedStop(taskId: string, choice: 'restart' | 'leave'): void
   tedStops(): TedStoppedTask[]
   leadNudged(taskId: string, runId: string): void
@@ -2473,6 +2479,15 @@ export async function openStore({
   const logRows = (taskId: string) =>
     store.query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
 
+  const pendingTedStop = (taskId: string, leadRunId: string | undefined): string | undefined => {
+    const last = logRows(taskId)
+      .filter((entry) => tedStopEntries.has(entry.name))
+      .toSorted((a, b) => sequence(a.id) - sequence(b.id))
+      .at(-1)
+    if (last?.name !== 'v1.TaskStoppedByTed' || leadRunId === undefined) return undefined
+    return (JSON.parse(last.data) as { runId?: string }).runId === leadRunId ? last.at : undefined
+  }
+
   const linearRecord = (taskId: string): LinearSyncRecord => linearRecordFrom(logRows(taskId))
 
   const linearRecordFrom = (log: readonly (typeof taskLog.Type)[]): LinearSyncRecord => {
@@ -3435,9 +3450,13 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
-    taskStoppedByTed(taskId, runId, cause) {
-      commit(events.taskStoppedByTed({ taskId, runId, cause, at: new Date().toISOString() }))
+    taskStoppedByTed(taskId, runId, cause, at = new Date().toISOString()) {
+      commit(events.taskStoppedByTed({ taskId, runId, cause, at }))
       emit({ type: 'ted-stops-changed' })
+    },
+    tedStopPending(taskId) {
+      const lead = taskRuns(taskId).find((run) => run.parentRunId === null)
+      return pendingTedStop(taskId, lead?.id) !== undefined
     },
     answerTedStop(taskId, choice) {
       commit(events.tedStopAnswered({ taskId, choice, at: new Date().toISOString() }))
@@ -3446,12 +3465,8 @@ export async function openStore({
     tedStops() {
       return listTasks().flatMap((task) => {
         if (!task.canResume) return []
-        const last = logRows(task.id)
-          .filter((entry) => tedStopEntries.has(entry.name))
-          .toSorted((a, b) => sequence(a.id) - sequence(b.id))
-          .at(-1)
-        if (last?.name !== 'v1.TaskStoppedByTed') return []
-        if ((JSON.parse(last.data) as { runId?: string }).runId !== task.leadRunId) return []
+        const stoppedAt = pendingTedStop(task.id, task.leadRunId)
+        if (stoppedAt === undefined) return []
         return [
           {
             id: task.id,
@@ -3459,7 +3474,7 @@ export async function openStore({
             title: task.title,
             stage: task.stage,
             factoryId: task.factoryId,
-            stoppedAt: last.at,
+            stoppedAt,
           },
         ]
       })

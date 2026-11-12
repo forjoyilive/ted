@@ -462,13 +462,18 @@ export function useSlots(): RunSlots | undefined {
 }
 
 export function useTedStops(): TedStoppedTask[] {
-  return (
+  const listed = useRef<ReadonlySet<string>>(new Set())
+  const stops =
     useReloading(
       () => ted.tedStops(),
-      (event) => event.type === 'ted-stops-changed',
+      (event) =>
+        event.type === 'ted-stops-changed' ||
+        (event.type === 'task-updated' && listed.current.has(event.task.id)) ||
+        (event.type === 'task-deleted' && listed.current.has(event.taskId)),
       'ted-stops',
     ) ?? []
-  )
+  listed.current = new Set(stops.map((task) => task.id))
+  return stops
 }
 
 export function useDrift(): DriftCounts | undefined {

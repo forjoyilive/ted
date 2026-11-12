@@ -6021,7 +6021,9 @@ export function createTasks(options: {
     if (run.taskId === undefined || run.parentRunId !== undefined) return undefined
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return undefined
-    if (task.stage === 'backlog' || task.stage === 'done') return undefined
+    if (task.stage === 'backlog' || task.stage === 'done' || task.stage === 'merge') {
+      return undefined
+    }
     return task
   }
 
@@ -6262,9 +6264,9 @@ export function createTasks(options: {
         if (now) watchIdle(now)
       })
     },
-    stoppedOutside(run) {
+    stoppedOutside(run, at) {
       const task = workingLead(run)
-      if (task) store.taskStoppedByTed(task.id, run.id, 'ended-outside')
+      if (task) store.taskStoppedByTed(task.id, run.id, 'ended-outside', at)
     },
     finished: leadLifecycle.finished,
   })

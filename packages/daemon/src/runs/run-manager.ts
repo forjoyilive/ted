@@ -89,7 +89,7 @@ export interface RunManagerOptions {
 
 export interface RunObserver {
   finished?(run: Run, ending: { stopped: boolean; lastLines: string[] }): void
-  stoppedOutside?(run: Run): void
+  stoppedOutside?(run: Run, at: string | undefined): void
   authFailed?(run: Run): void
   accepted?(run: Run, texts: string[]): void
   boundary?(run: Run): void
@@ -178,7 +178,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const launchStops = new Map<string, AbortController>()
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
-  const stoppedOutsideUntold: string[] = []
+  const stoppedOutsideUntold: { runId: string; at: string | undefined }[] = []
   const outdated = new Set<string>()
   const replacing = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
@@ -496,6 +496,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
     if (hostGone) state = 'finished'
     const run = store.getRun(runId)
+    const outputAtBefore = store.lastOutputAt(runId)
     const stoppedOutside =
       exit?.stopped === true &&
       !stopRequested.has(runId) &&
@@ -562,10 +563,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (state === 'finished') {
       heard.delete(runId)
       if (stoppedOutside) {
+        const at = exit?.at ?? lastAt ?? outputAtBefore
         // Runs that ended before the daemon started are read before any observer is added.
         if ([...observers].some((observer) => observer.stoppedOutside)) {
-          tellObservers(runId, (observer, run) => observer.stoppedOutside?.(run))
-        } else stoppedOutsideUntold.push(runId)
+          tellObservers(runId, (observer, run) => observer.stoppedOutside?.(run, at))
+        } else stoppedOutsideUntold.push({ runId, at })
       }
       tell('finished', runId)
     }
@@ -1195,9 +1197,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     observe(observer) {
       observers.add(observer)
       if (!observer.stoppedOutside) return
-      for (const runId of stoppedOutsideUntold.splice(0)) {
+      for (const { runId, at } of stoppedOutsideUntold.splice(0)) {
         const run = store.getRun(runId)
-        if (run) observer.stoppedOutside(run)
+        if (run) observer.stoppedOutside(run, at)
       }
     },
     environment,

@@ -421,7 +421,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     }
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
-    if (now.waitsForBlockers || now.stopped) return
+    if (now.waitsForBlockers || now.stopped || store.tedStopPending(task.id)) return
     if (signedOut !== undefined) {
       const held = new Set(store.heldAnswers(task.id).map((c) => c.id))
       for (const comment of store.listComments(task.id)) {

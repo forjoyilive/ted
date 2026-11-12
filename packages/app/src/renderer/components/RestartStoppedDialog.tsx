@@ -10,8 +10,10 @@ import { Button } from './Button.tsx'
 import styles from './RestartStoppedDialog.module.css'
 
 export function RestartStoppedDialog() {
-  const stops = useTedStops()
+  const offered = useTedStops()
   const slots = useSlots()
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set())
+  const stops = offered.filter((task) => !answered.has(task.id))
   const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -34,12 +36,19 @@ export function RestartStoppedDialog() {
     setBusy(true)
     setError(undefined)
     const restarting = new Set(restart)
+    const asked = stops.map((task) => task.id)
     ted
       .answerTedStops({
         restart: [...restarting],
-        leave: stops.filter((task) => !restarting.has(task.id)).map((task) => task.id),
+        leave: asked.filter((id) => !restarting.has(id)),
       })
-      .catch((failure: unknown) => setError(readableError(failure)))
+      .then(
+        (left) => {
+          const still = new Set(left.map((task) => task.id))
+          setAnswered((before) => new Set([...before, ...asked.filter((id) => !still.has(id))]))
+        },
+        (failure: unknown) => setError(readableError(failure)),
+      )
       .finally(() => setBusy(false))
   }
   const toggle = (id: string, on: boolean) => {

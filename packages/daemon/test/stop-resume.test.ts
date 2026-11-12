@@ -252,12 +252,23 @@ test('after a quit TED offers the Tasks that were working, restarts the chosen o
   }
   await client.ok('POST', `/tasks/${byHand.id}/stop`)
 
+  const stubHealth = path.join(home, 'stub-claude.json')
+  await writeFile(stubHealth, JSON.stringify({ signedIn: false }))
   await client.ok('POST', '/shutdown')
   await daemon?.stop()
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const reopened = api(daemon.port, { appKey: daemon.appToken })
-  const offered = (await reopened.call('GET', '/ted-stops')).body as { id: string }[]
+  await writeFile(stubHealth, JSON.stringify({ signedIn: true }))
+  expect((await reopened.call('POST', '/agents/health/check')).status).toBeLessThan(300)
+  const offered = (await reopened.call('GET', '/ted-stops')).body as {
+    id: string
+    stoppedAt: string
+  }[]
   expect(offered.map((t) => t.id).sort()).toEqual([restarted.id, left.id].sort())
+  const held = ((await reopened.call('GET', '/tasks')).body as Task[]).filter(
+    (t) => t.runs.length > 0 || t.statuses.includes('paused') || t.statuses.includes('queued'),
+  )
+  expect(held).toEqual([])
 
   const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(leads.get(left.id) ?? '')
   const answer = { restart: [restarted.id], leave: [left.id, byHand.id] }
@@ -296,20 +307,21 @@ test('a working Task Lead ended while the daemon was down is offered at the next
   await daemon?.stop()
   const start = (await hostRecords(home, runId)).find((r) => r.t === 'start')
   process.kill(Number(start?.hostPid), 'SIGTERM')
-  await waitUntil(
-    async () => (await hostRecords(home, runId)).some((r) => r.t === 'exit'),
+  const exit = await waitUntil(
+    async () => (await hostRecords(home, runId)).find((r) => r.t === 'exit'),
     'the host to exit',
   )
 
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const reopened = api(daemon.port, { appKey: daemon.appToken })
-  await waitUntil(
+  const offered = await waitUntil(
     async () =>
-      ((await reopened.call('GET', '/ted-stops')).body as { id: string }[]).some(
+      ((await reopened.call('GET', '/ted-stops')).body as { id: string; stoppedAt: string }[]).find(
         (t) => t.id === task.id,
       ),
     'the Task to be offered',
   )
+  expect(offered.stoppedAt).toBe(exit.at)
   const events = (await reopened.call('GET', `/tasks/${task.id}/events`)).body as ThreadEvent[]
   expect(events.map((e) => e.text)).toContain('The Task Lead was stopped when TED went down')
 })

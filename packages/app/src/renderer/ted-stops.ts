@@ -1,5 +1,3 @@
-import { plural } from './words.ts'
-
 export interface TedStopsText {
   heading: string
   lead: string
@@ -18,21 +16,21 @@ export function tedStopsText({
   stoppedAt: string
   freeSlots: number
 }): TedStopsText {
+  const one = count === 1
   const left = count - picked
   const queue =
     picked > freeSlots ? 'Tasks start in queue order as working slots free up.' : undefined
   const stays =
-    left > 0 && picked > 0 ? `${left} ${plural(left, 'stays', 'stay')} stopped.` : undefined
+    left > 0 && picked > 0 ? `${left} ${left === 1 ? 'stays' : 'stay'} stopped.` : undefined
   const note = [queue, stays].filter((part) => part !== undefined).join(' ')
   return {
-    heading: `${count} ${plural(count, 'Task was', 'Tasks were')} working when TED quit`,
-    lead: `TED stopped ${plural(count, 'its Task Lead', 'their Task Leads')} at ${stoppedAt}. Restart ${plural(count, 'it', 'them')} now, or leave ${plural(count, 'it', 'them')} stopped and resume ${plural(count, 'it', 'each one')} later from the Task.`,
-    restart:
-      count === 1
-        ? 'Restart'
-        : picked === count
-          ? `Restart all ${count}`
-          : `Restart ${picked} ${plural(picked, 'Task')}`,
+    heading: `${count} ${one ? 'Task was' : 'Tasks were'} working when TED quit`,
+    lead: `TED stopped ${one ? 'its Task Lead' : 'their Task Leads'} at ${stoppedAt}. Restart ${one ? 'it' : 'them'} now, or leave ${one ? 'it' : 'them'} stopped and resume ${one ? 'it' : 'each one'} later from the Task.`,
+    restart: one
+      ? 'Restart'
+      : picked === count
+        ? `Restart all ${count}`
+        : `Restart ${picked} ${picked === 1 ? 'Task' : 'Tasks'}`,
     note: note === '' ? undefined : note,
   }
 }
