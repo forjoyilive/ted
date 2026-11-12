@@ -462,7 +462,7 @@ test('detail totals distinguish unavailable prior and Stage history from measure
   await user().click(within(dialog).getByRole('button', { name: 'Close Flow sample' }))
   await user().click(screen.getByRole('tab', { name: 'Stages' }))
   expect(screen.getByText(/Total and distribution unavailable/)).toBeTruthy()
-  await user().click(screen.getByRole('button', { name: 'Work', exact: true }))
+  await user().click(screen.getByRole('button', { name: /^Work$/ }))
   dialog = screen.getByRole('dialog')
   expect(
     within(dialog).getByText('Total Task-hours').parentElement?.querySelector('strong')
