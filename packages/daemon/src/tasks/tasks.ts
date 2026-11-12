@@ -572,6 +572,7 @@ export function createTasks(options: {
   clock?: Clock
   nudgeAfterMs?: number
   mergePollMs?: number
+  githubReadBurst?: number
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
@@ -859,6 +860,7 @@ export function createTasks(options: {
       gh: options.gh,
       clock,
       everyMs: mergePollMs,
+      ...(options.githubReadBurst !== undefined && { urgentBurst: options.githubReadBurst }),
       refs: watchedPullRequests,
       onRead: reactToGitHub,
       inBackground: (what, work) => inBackground(what, work),
