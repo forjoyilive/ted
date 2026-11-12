@@ -110,12 +110,16 @@
 }
 
 .body .title {
+  flex-shrink: 0;
   -webkit-line-clamp: 1;
 }
 
-.canvas .placed .title {
-  flex: 1;
-  -webkit-line-clamp: 2;
+.status {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-height: 52px;
+  overflow: hidden;
 }
 
 .stage {

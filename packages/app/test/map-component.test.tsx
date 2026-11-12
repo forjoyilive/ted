@@ -65,6 +65,10 @@ test('blockerMap lays chains out left to right and leaves out what holds nothing
     'f1',
   )
   expect(done).toMatchObject({ cards: [], links: [], unlinked: [] })
+
+  const cycle = blockerMap([nb(1, { blockedBy: ['NB-2'] }), nb(2, { blockedBy: ['NB-1'] })], 'f1')
+  expect(cycle.cards.map((c) => c.task.id).sort()).toEqual(['NB-1', 'NB-2'])
+  expect(cycle.links.length).toBe(2)
 })
 
 test('linkRefusal says why a link can’t be added', () => {
@@ -89,6 +93,8 @@ test('Map sits under Tasks, removes a blocker from its line and adds one by drag
   a.handle('unblockTask', () => nb(3, { blockedBy: ['MS-1'] }))
   a.handle('blockTask', () => nb(3))
   const mounted = a.mount()
+  const calls = (name: string) =>
+    a.request.mock.calls.filter((call) => call[0] === name).map((call) => call.slice(1))
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
   const nav = within(screen.getByRole('navigation', { name: 'Sidebar' }))
@@ -124,20 +130,40 @@ test('Map sits under Tasks, removes a blocker from its line and adds one by drag
     name: 'Drag to the Task that should wait for NB-4',
   })
   fireEvent.pointerDown(handle, { button: 0, clientX: 10, clientY: 10 })
-  fireEvent.pointerEnter(main.getByRole('article', { name: 'NB-1 Task 1' }))
+  fireEvent.pointerMove(main.getByRole('article', { name: 'NB-1 Task 1' }))
   expect(main.getByText('NB-1 is done')).toBeTruthy()
   fireEvent.pointerUp(window)
-  expect(a.request).not.toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-4')
+  expect(main.queryByText('NB-1 is done')).toBeNull()
 
   fireEvent.pointerDown(handle, { button: 0, clientX: 10, clientY: 10 })
-  fireEvent.pointerEnter(main.getByRole('article', { name: 'NB-3 Task 3' }))
+  expect(main.getByText('Drop on the Task that should wait for NB-4')).toBeTruthy()
+  fireEvent.pointerMove(side.getByRole('article', { name: 'NB-4 Task 4' }))
+  expect(main.getByText('NB-4 can’t block itself')).toBeTruthy()
+  fireEvent.pointerUp(window)
+  expect(calls('blockTask')).toEqual([['NB-3', 'NB-2']])
+
+  fireEvent.pointerDown(handle, { button: 0, clientX: 10, clientY: 10 })
+  fireEvent.pointerMove(main.getByRole('article', { name: 'NB-3 Task 3' }))
   expect(main.getByText('NB-3 will wait for NB-4')).toBeTruthy()
   fireEvent.pointerUp(window)
-  expect(a.request).toHaveBeenCalledWith('blockTask', 'NB-3', 'NB-4')
+  expect(calls('blockTask')).toEqual([
+    ['NB-3', 'NB-2'],
+    ['NB-3', 'NB-4'],
+  ])
+  expect(calls('unblockTask')).toEqual([['NB-3', 'NB-2']])
   expect(await main.findByText('NB-3 now waits for NB-4')).toBeTruthy()
 
   await a.emitTask(nb(3, { blockedBy: ['NB-2', 'MS-1', 'NB-4'] }))
   expect(shown()).toContain('NB-4')
   expect(document.querySelectorAll('[data-link]').length).toBe(4)
+
+  fireEvent.pointerDown(
+    main.getByRole('button', { name: 'Drag to the Task that should wait for NB-4' }),
+    { button: 0, clientX: 10, clientY: 10 },
+  )
+  fireEvent.pointerMove(main.getByRole('article', { name: 'NB-2 Task 2' }))
+  expect(main.getByText('NB-2 will wait for NB-4')).toBeTruthy()
   mounted.unmount()
+  fireEvent.pointerUp(window)
+  expect(calls('blockTask').length).toBe(2)
 })

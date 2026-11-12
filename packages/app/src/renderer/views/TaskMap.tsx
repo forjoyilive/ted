@@ -24,7 +24,7 @@ import { factoryName } from './TaskViews.tsx'
 import views from './views.module.css'
 
 const cardWidth = 232
-const cardHeight = 108
+const cardHeight = 128
 const columnGap = 84
 const rowGap = 18
 const edge = 28
@@ -136,20 +136,13 @@ export function TaskMap({
       live.current = undefined
       setDragState(undefined)
     }
-    const cancel = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      stop()
-    }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', end)
     window.addEventListener('pointercancel', stop)
-    window.addEventListener('keydown', cancel, true)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
       window.removeEventListener('pointercancel', stop)
-      window.removeEventListener('keydown', cancel, true)
     }
   }, [dragging])
 
@@ -162,8 +155,9 @@ export function TaskMap({
   function card(task: Task, at?: CSSProperties) {
     const other = task.factoryId !== factoryId
     const done = task.stage === 'done'
-    const refused = drag?.over?.id === task.id && refusal(drag.from, task) !== undefined
-    const target = drag?.over?.id === task.id && !refused
+    const source = drag?.from.id === task.id
+    const refused = !source && drag?.over?.id === task.id && refusal(drag.from, task) !== undefined
+    const target = !source && drag?.over?.id === task.id && !refused
     return (
       <article
         key={task.id}
@@ -174,8 +168,8 @@ export function TaskMap({
         tabIndex={-1}
         style={at}
         onKeyDown={(event) => openOnEnter(event, task)}
-        onPointerEnter={() =>
-          setDrag((d) => (d && d.from.id !== task.id ? { ...d, over: task } : d))
+        onPointerMove={() =>
+          setDrag((d) => (d && d.over?.id !== task.id ? { ...d, over: task } : d))
         }
         onPointerLeave={() =>
           setDrag((d) => {
@@ -192,7 +186,7 @@ export function TaskMap({
           other ? styles.other : '',
           target ? styles.target : '',
           refused ? styles.refused : '',
-          drag?.from.id === task.id ? styles.source : '',
+          source ? styles.source : '',
         ].join(' ')}
       >
         <span className={boardStyles.cardTop}>
@@ -206,11 +200,16 @@ export function TaskMap({
         <button
           type="button"
           className={`${boardStyles.cardTitle} ${styles.title}`}
+          title={task.title}
           onClick={() => onOpen(task)}
         >
           {task.title}
         </button>
-        {!done && <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />}
+        {!done && (
+          <span className={styles.status}>
+            <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
+          </span>
+        )}
         {!other && (
           <button
             type="button"
