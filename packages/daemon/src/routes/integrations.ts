@@ -15,6 +15,11 @@ export const integrationRoutes: Route[] = [
     handle: async (_, { health }) => [200, health.list()],
   },
   {
+    method: 'GET',
+    path: /^\/agents\/api-cost$/,
+    handle: async (_, { store }) => [200, store.apiCost(30)],
+  },
+  {
     method: 'POST',
     path: /^\/agents\/health\/check$/,
     handle: async (_, { health }) => [200, await health.check(agentKinds, { reloadEnv: true })],

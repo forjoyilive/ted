@@ -325,6 +325,31 @@ export function createConversations(options: {
 
   const steering = options.steering
 
+  // ADR 0126: a Run’s output is deleted a while after its Task is done, so what it used is
+  // saved when it ends. After the commit that ended it, not inside it.
+  runs.observe({
+    finished(run) {
+      setImmediate(() => {
+        try {
+          const parsed = parsedOutput(runs.output, agents, run)
+          const { input, output } = parsed.tokenUse()
+          const cost = parsed.cost(run.model)
+          if (input + output === 0 && cost === undefined) return
+          store.recordRunUsage({
+            runId: run.id,
+            agent: run.agent,
+            ...(run.model !== undefined && { model: run.model }),
+            input,
+            output,
+            ...(cost !== undefined && { cost }),
+          })
+        } catch (error) {
+          console.error(`couldn’t save what Run ${run.id} used:`, error)
+        }
+      })
+    },
+  })
+
   const usageOf = (run: Run): Usage => {
     const read = () => parsedOutput(runs.output, agents, run)
     if (run.state !== 'finished') {

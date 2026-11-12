@@ -313,7 +313,11 @@ test('an empty successful agent read ends the initial loading state', async () =
   const { AgentsPage } = await import('../src/renderer/settings/AgentsPage.tsx')
   const { defaultMachineSettings } = await import('@ted/protocol/settings')
   const pending = deferred<never[]>()
-  bridge({ agentHealth: () => pending.promise, library: () => ({ agents: [], version: 'v1' }) })
+  bridge({
+    agentHealth: () => pending.promise,
+    apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
+    library: () => ({ agents: [], version: 'v1' }),
+  })
   render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.getByRole('status', { name: 'Checking your agents…' })).toBeTruthy()
   await act(async () => pending.resolve([]))
