@@ -90,6 +90,7 @@ export interface AgentHealthSpec {
     env: NodeJS.ProcessEnv
     cwd: string
     billing: Billing
+    planAccepted: boolean
   }): Promise<AuthCheck>
   minimumVersion: string
   versionArgs: string[]

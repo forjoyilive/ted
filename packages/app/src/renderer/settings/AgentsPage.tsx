@@ -1,6 +1,7 @@
 import type { AgentHealth, AgentKind, Billing, PlanUsage, PlanWindow } from '@ted/protocol'
 import {
   agentDisplayNames,
+  antigravityTermsUrl,
   billingNames,
   billings,
   planWarnPercent,
@@ -127,10 +128,14 @@ function BillingChoice({
   agent,
   billing,
   onChange,
+  planAccepted,
+  onAcceptPlan,
 }: {
   agent: AgentKind
   billing: Billing
   onChange: (billing: Billing) => void
+  planAccepted: boolean
+  onAcceptPlan: () => void
 }) {
   const name = useId()
   return (
@@ -161,6 +166,20 @@ function BillingChoice({
         ))}
       </div>
       {agent === 'antigravity' && <AntigravityChatWarning agent={agent} />}
+      {agent === 'antigravity' && billing === 'subscription' && (
+        <div className={styles.planNotice} role="note" aria-label="Google’s terms">
+          <p className={styles.line}>
+            Google’s terms say that using Antigravity through other software, such as TED, on a
+            Google plan can get your account suspended. Google recommends an API key for this. Read
+            them at {antigravityTermsUrl.replace('https://', '')}.
+          </p>
+          {planAccepted ? (
+            <p className={styles.line}>You chose to use your Google plan anyway.</p>
+          ) : (
+            <Button onClick={onAcceptPlan}>Use my Google plan anyway</Button>
+          )}
+        </div>
+      )}
       {agent === 'antigravity' && (
         <p className={styles.line}>
           {billing === 'subscription'
@@ -207,6 +226,8 @@ function AgentCard({
   onFix,
   onCheck,
   onBilling,
+  planAccepted,
+  onAcceptPlan,
   checking,
   error,
 }: {
@@ -216,6 +237,8 @@ function AgentCard({
   onFix: () => void
   onCheck: () => void
   onBilling: (billing: Billing) => void
+  planAccepted: boolean
+  onAcceptPlan: () => void
   checking: boolean
   error: string | undefined
 }) {
@@ -303,7 +326,13 @@ function AgentCard({
           {error !== undefined && <p className={`${styles.line} ${styles.error}`}>{error}</p>}
         </div>
       </div>
-      <BillingChoice agent={health.agent} billing={billing} onChange={onBilling} />
+      <BillingChoice
+        agent={health.agent}
+        billing={billing}
+        onChange={onBilling}
+        planAccepted={planAccepted}
+        onAcceptPlan={onAcceptPlan}
+      />
       <PlanUsageSection health={health} />
     </section>
   )
@@ -380,6 +409,12 @@ export function AgentsPage({ settings }: SettingsPageProps) {
             onFix={() => void fix(h.agent)}
             onCheck={() => void check()}
             onBilling={(billing) => chooseBilling(h.agent, billing)}
+            planAccepted={settings.antigravityPlanAccepted}
+            onAcceptPlan={() =>
+              void ted
+                .updateSettings({ antigravityPlanAccepted: true })
+                .catch((error: unknown) => console.error(error))
+            }
             checking={checking}
             error={errors[h.agent]}
           />

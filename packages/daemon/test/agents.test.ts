@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
+import { antigravityPlanNotice } from '@ted/protocol'
 import { afterAll, describe, expect, test, vi } from 'vitest'
 import { parseStartSubAgentRequest } from '../../protocol/src/run-parsers.ts'
 import { antigravityAgent } from '../src/agents/antigravity.ts'
@@ -802,10 +803,26 @@ test('Antigravity health checks capability and the non-secret sign-in marker wit
   if (!inspect) throw new Error('Missing health inspection')
   const home = await mkdtemp(path.join(tmpdir(), 'ted-agy-health-'))
   try {
-    const base = { binary: agent.binary, env: { ...process.env, HOME: home }, cwd: home }
+    const base = {
+      binary: agent.binary,
+      env: { ...process.env, HOME: home },
+      cwd: home,
+      planAccepted: true,
+    }
     await expect(inspect({ ...base, billing: 'subscription' })).resolves.toEqual({
       signedIn: false,
     })
+    await expect(
+      inspect({ ...base, billing: 'subscription', planAccepted: false }),
+    ).resolves.toEqual({ signedIn: false, problem: { reason: antigravityPlanNotice } })
+    await expect(
+      inspect({
+        ...base,
+        env: { ...base.env, GEMINI_API_KEY: 'stub-key' },
+        billing: 'api-key',
+        planAccepted: false,
+      }),
+    ).resolves.toMatchObject({ signedIn: true, billing: 'api-key' })
     const cache = path.join(home, '.gemini', 'antigravity-cli', 'cache')
     await mkdir(cache, { recursive: true })
     await writeFile(

@@ -94,3 +94,39 @@ test('Antigravity shares agent health controls and saves its billing choice with
     card.getByText('Usage figures are unavailable unless reported by Antigravity.'),
   ).toBeTruthy()
 })
+
+test('Antigravity on a Google plan shows Google’s terms and saves the choice to use the plan anyway', async () => {
+  const antigravity = { ...signedOut, agent: 'antigravity' as const, pausedRuns: 0 }
+  const api = bridge({
+    agentHealth: () => [antigravity],
+    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    updateSettings: vi.fn(),
+  })
+  const view = render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const card = within(await screen.findByRole('region', { name: 'Antigravity' }))
+  const notice = within(card.getByRole('note', { name: 'Google’s terms' }))
+  expect(notice.getByText(/can get your account suspended/)).toBeTruthy()
+  expect(notice.getByText(/antigravity\.google\/terms/)).toBeTruthy()
+  await user().click(notice.getByRole('button', { name: 'Use my Google plan anyway' }))
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { antigravityPlanAccepted: true })
+
+  view.rerender(
+    <AgentsPage
+      settings={{ ...defaultMachineSettings, antigravityPlanAccepted: true }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(screen.queryByRole('button', { name: 'Use my Google plan anyway' })).toBeNull()
+  expect(screen.getByText('You chose to use your Google plan anyway.')).toBeTruthy()
+
+  view.rerender(
+    <AgentsPage
+      settings={{
+        ...defaultMachineSettings,
+        billing: { ...defaultMachineSettings.billing, antigravity: 'api-key' },
+      }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(screen.queryByRole('note', { name: 'Google’s terms' })).toBeNull()
+})
