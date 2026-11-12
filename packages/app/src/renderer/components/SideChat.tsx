@@ -125,7 +125,7 @@ function RunSideChat({
                 ×
               </Button>
             </header>
-            {side && <AntigravityChatWarning agent={side.chat.run.agent} />}
+            {side?.chat && <AntigravityChatWarning agent={side.chat.run.agent} />}
             {side && (
               <div className={styles.notice}>
                 <div>Conversation snapshot · {clockTime(side.snapshotAt)}</div>

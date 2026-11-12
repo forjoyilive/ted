@@ -18,6 +18,17 @@ const source: RunChat = {
   },
   items: [{ kind: 'agent', id: 's', text: 'Original work continues.' }],
 }
+const sideChat: RunChat = {
+  run: {
+    ...source.run,
+    id: 'side',
+    name: 'Side chat',
+    role: 'side-chat',
+    state: 'idle',
+    current: false,
+  },
+  items: [{ kind: 'agent', id: 'a', text: 'Snapshot answer.' }],
+}
 const side: SideChat = {
   id: 'side',
   sourceRunId: 'source',
@@ -25,17 +36,7 @@ const side: SideChat = {
   state: 'ready',
   truncated: true,
   available: true,
-  chat: {
-    run: {
-      ...source.run,
-      id: 'side',
-      name: 'Side chat',
-      role: 'side-chat',
-      state: 'idle',
-      current: false,
-    },
-    items: [{ kind: 'agent', id: 'a', text: 'Snapshot answer.' }],
-  },
+  chat: sideChat,
 }
 
 test('opens and reopens a separate exchange and sends only to side-chat controls', async () => {
@@ -99,7 +100,7 @@ test('does not offer side chats for sub-agents', async () => {
 test('Antigravity shows the approved tool explanation only in its help bubble, including reopened chats', async () => {
   const antigravitySide: SideChat = {
     ...side,
-    chat: { ...side.chat, run: { ...side.chat.run, agent: 'antigravity' } },
+    chat: { ...sideChat, run: { ...sideChat.run, agent: 'antigravity' } },
   }
   bridge({
     getRunChat: () => source,
@@ -163,7 +164,7 @@ test('Automation drafting shows native tool activity with the shared conversatio
       state: 'ready',
       prompt: 'Suggested instructions.',
       chat: {
-        run: { ...side.chat.run, agent: 'antigravity' },
+        run: { ...sideChat.run, agent: 'antigravity' },
         items: [
           {
             kind: 'tool',
