@@ -2391,6 +2391,7 @@ export function createTasks(options: {
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
         let urgent = true
+        let busy = 0
         while (!closed) {
           if (!watched(store.getTask(taskId))) return
           await pullRequestQueue.get(taskId)
@@ -2408,9 +2409,14 @@ export function createTasks(options: {
             })
           }
           if (next === 'done') return
-          urgent = next === 'busy'
+          busy = next === 'busy' ? busy + 1 : 0
+          // A Task that stays busy is tried again a little later each time and, after the
+          // third try, with the next scheduled read, so it can’t ask GitHub in a tight loop.
+          urgent = busy > 0 && busy <= 3
           if (next === 'busy' || read === undefined) {
-            await clockWait(clock, next === 'busy' ? 100 : mergePollMs, stopping.signal)
+            const wait =
+              next === 'busy' ? Math.min(100 * 2 ** (busy - 1), mergePollMs) : mergePollMs
+            await clockWait(clock, wait, stopping.signal)
           }
         }
       } finally {
