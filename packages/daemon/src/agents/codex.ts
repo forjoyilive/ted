@@ -30,6 +30,7 @@ const sandbox: Record<PermissionMode, string[]> = {
   auto: [
     'sandbox_mode="workspace-write"',
     'approval_policy="on-request"',
+    'approvals_reviewer="auto_review"',
     'sandbox_workspace_write.network_access=true',
   ],
   bypass: ['sandbox_mode="danger-full-access"', 'approval_policy="never"'],
