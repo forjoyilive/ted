@@ -9,6 +9,7 @@ import {
   ctx,
   daemonClient,
   launchApp,
+  openFactoryView,
   setUpAppTests,
   sidebar,
   ted,
@@ -124,7 +125,7 @@ describe('Board', () => {
   }
 
   async function openBoard(window: Page) {
-    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await openFactoryView(window, 'widgets', 'Board')
     const board = window.getByRole('region', { name: 'widgets' })
     await board.getByRole('region', { name: 'Backlog' }).waitFor()
     return board

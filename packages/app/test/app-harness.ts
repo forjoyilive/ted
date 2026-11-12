@@ -17,6 +17,7 @@ import {
   removeHome,
   spawnDaemonProcess,
   stopDaemonIn,
+  stubCodexPath,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
@@ -63,6 +64,8 @@ export const env = () => ({
   TED_HOME: ctx.home,
   TED_IDLE_EXIT_MS: '30000',
   TED_CLAUDE_BIN: stubClaudePath,
+  TED_CODEX_BIN: stubCodexPath,
+  TED_ANTIGRAVITY_BIN: path.join(ctx.home, 'no-antigravity-here'),
   TED_HIDDEN_WINDOW: '1',
   ...ctx.extraEnv,
 })
@@ -87,6 +90,15 @@ export async function openSettings(window: Page): Promise<void> {
     .last()
     .click()
   await settingsNav(window).waitFor()
+}
+
+export async function openFactoryView(
+  window: Page,
+  factory: string,
+  view: 'Dashboard' | 'Coordinator' | 'Board' | 'List' | 'Plans' | 'Automations',
+): Promise<void> {
+  await sidebar(window).getByRole('button', { name: factory, exact: true }).click()
+  await sidebar(window).getByRole('button', { name: view, exact: true }).click()
 }
 
 export const onePixelPng =
