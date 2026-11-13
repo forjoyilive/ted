@@ -433,10 +433,12 @@ export interface TaskHierarchyPreview {
 
 export interface UnarchiveTaskRequest {
   unlinkParent?: boolean
+  children?: 'restore'
   hierarchyRevision?: string
 }
 
 export interface ArchiveTaskRequest {
+  children?: 'archive' | 'detach'
   hierarchyRevision?: string
   closePullRequests?: boolean
   blocked?: BlockedChoice
@@ -454,6 +456,7 @@ export interface NewTaskDraft {
   description: string
   priority: Priority
   blockedBy: string[]
+  parent?: string | undefined
   attachments: Attachment[]
   start: boolean
   moreOpen: boolean
@@ -483,6 +486,7 @@ export interface CreateTaskRequest {
   clarifyDepth?: ClarifyDepth
   lead?: TaskLead
   blockedBy?: string[]
+  parent?: string
   attachments?: AttachmentRef[]
   source?: string
   sentryId?: string

@@ -115,7 +115,7 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
   }
   const request = body as Record<keyof CreateTaskRequest, unknown>
   const text = (
-    name: 'title' | 'description' | 'factory' | 'source' | 'followUp' | 'draftRevision',
+    name: 'title' | 'description' | 'factory' | 'source' | 'followUp' | 'draftRevision' | 'parent',
   ) => {
     const value = request[name]
     if (value === undefined) return undefined
@@ -140,6 +140,7 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
   const factory = text('factory')
   const source = sourceUrl(text('source'))
   const followUp = text('followUp')?.trim() || undefined
+  const parent = text('parent')?.trim() || undefined
   const sentryId = sentryShortId(request.sentryId, source)
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
@@ -161,6 +162,7 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
     ...(clarifyDepth !== undefined && { clarifyDepth }),
     ...(lead !== undefined && { lead }),
     ...(blockedBy !== undefined && { blockedBy }),
+    ...(parent !== undefined && { parent }),
     ...(attached.length > 0 && { attachments: attached }),
     ...(source !== undefined && { source }),
     ...(followUp !== undefined && { followUp }),
@@ -801,6 +803,7 @@ export function parseSaveTaskDraftRequest(body: unknown): SaveTaskDraftRequest {
     ...(clarifyDepth && { clarifyDepth }),
     ...(value.lead !== undefined && { lead: parseTaskLead(value.lead, 'lead') }),
     ...(value.source !== undefined && { source: sourceUrl(text('source')) }),
+    ...(value.parent !== undefined && { parent: text('parent') }),
   }
 }
 
@@ -926,8 +929,11 @@ export function parseUnarchiveTaskRequest(value: unknown): UnarchiveTaskRequest 
   const body = bodyObject(value ?? {})
   if (body.unlinkParent !== undefined && typeof body.unlinkParent !== 'boolean')
     throw new HttpError(400, 'unlinkParent must be true or false')
+  if (body.children !== undefined && body.children !== 'restore')
+    throw new HttpError(400, 'children must be restore')
   return {
     ...(body.unlinkParent !== undefined && { unlinkParent: body.unlinkParent }),
+    ...(body.children === 'restore' && { children: body.children }),
     ...(body.hierarchyRevision !== undefined && {
       hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
     }),
@@ -953,8 +959,12 @@ export function parseArchiveTaskRequest(value: unknown): ArchiveTaskRequest {
   if (close !== undefined && typeof close !== 'boolean') {
     throw new HttpError(400, 'closePullRequests must be true or false')
   }
+  const children = body?.children
+  if (children !== undefined && children !== 'archive' && children !== 'detach')
+    throw new HttpError(400, 'children must be archive or detach')
   return {
     closePullRequests: close === true,
+    ...(children !== undefined && { children }),
     blocked: blockedChoice(body),
     ...(body?.hierarchyRevision !== undefined && {
       hierarchyRevision: hierarchyRevision(body.hierarchyRevision),

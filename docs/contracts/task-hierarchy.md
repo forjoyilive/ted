@@ -30,9 +30,17 @@ ted coordinator parent <child> <parent|none> --operation <id> --version <child-v
 
 The Coordinator must act on the user’s request. The daemon checks its Factory scope, the child version, the hierarchy revision and the same safety rules as the app. Its durable receipt records the result and supports retrying the same operation ID. Coordinator archive/delete authority is not added.
 
+## Create
+
+`createTask({ parent })` creates a Task already linked under a parent, in one commit, after the same checks as `setTaskParent`: same Factory, a parent in a safe state and no cycle with the new Task's blockers. Only app-authenticated requests may pass `parent`.
+
+## Task Lead context
+
+A Task Lead's prompt names its parent, its parent's other children and its own children, with IDs, states and titles as fenced data. A parent's Lead does only the integration and final work left after its children merge; a child's Lead stays within its own Task. A working Lead whose parent or children change gets a TED note with the new list.
+
 ## Archive, restore and delete
 
-Archiving a parent archives every descendant. First read `taskHierarchyPreview`; pass its revision as `archiveTask(ref, { hierarchyRevision, closePullRequests?, blocked? })`. A parent with descendants refuses an unconfirmed or stale request. The future controls must show the affected Tasks and warn before sending this confirmation. `blocked` continues to affect manual dependents only. Archiving an unmerged child preserves its parent link and merge history while waiving its hierarchy dependency, subject to its parent’s safe-edit rules.
+Archiving a parent archives every descendant. First read `taskHierarchyPreview`; pass its revision as `archiveTask(ref, { hierarchyRevision, closePullRequests?, blocked?, children? })`. A parent with descendants refuses an unconfirmed or stale request. `children: 'detach'` archives only the parent and detaches its direct children, whose own subtrees stay under them. An archive that takes descendants records them in one `v1.TaskTreeArchived` event, so `unarchiveTask(ref, { children: 'restore' })` can bring back the Tasks archived together with that parent, parents before children, without restoring a descendant archived on its own earlier. The future controls must show the affected Tasks and warn before sending this confirmation. `blocked` continues to affect manual dependents only. Archiving an unmerged child preserves its parent link and merge history while waiving its hierarchy dependency, subject to its parent’s safe-edit rules.
 
 `unarchiveTask(ref)` restores only the selected Task. Restoring an unmerged child while retaining its parent reapplies the hierarchy dependency and requires a safe parent state. Restore an archived parent first, or stop a working parent first. `unarchiveTask(ref, { unlinkParent: true, hierarchyRevision })` explicitly unlinks and restores the child as independent work. It preserves the child’s history and may remove an archived child’s link to a Done parent without reopening that parent. It does not silently unlink a child or interrupt a working parent. A merged child creates no renewed dependency.
 
