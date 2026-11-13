@@ -3,14 +3,19 @@ import type {
   Factory,
   InboxItem,
   MachineSettings,
+  Plan,
   PlanInboxItem,
+  Task,
 } from '@ted/protocol'
 import { factoryNotifications } from '@ted/protocol/settings'
 import { Fragment, type ReactNode, useContext, useLayoutEffect, useRef, useState } from 'react'
+import dialogStyles from '../components/ArchiveDialogs.module.css'
+import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import {
   buttonPosition,
   contextMenu,
+  type MenuAction,
   type MenuPosition,
   useActionMenu,
 } from '../components/ContextMenu.tsx'
@@ -18,6 +23,7 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { BellOffIcon, ChevronIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { TaskDialog, type TaskDialogKind } from '../components/TaskActions.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import {
   type Grouped,
@@ -31,10 +37,10 @@ import {
 } from '../inbox.ts'
 import { useInboxGrouping } from '../inbox-grouping.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
-import { inboxLabel } from '../plans.ts'
+import { inboxLabel, planEnded } from '../plans.ts'
 import { openSnoozeMenu, SnoozedContext, snoozeTime } from '../request-snooze.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
-import { onRequestAnswered, ted } from '../ted.ts'
+import { onRequestAnswered, readableError, ted } from '../ted.ts'
 import styles from './Inbox.module.css'
 import { FilterIcon, MenuButton } from './TaskList.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
@@ -88,10 +94,31 @@ export function Inbox({
   const [showSnoozed, setShowSnoozed] = useState(false)
   const snoozeMenu = (requestId: string, at: MenuPosition) =>
     openSnoozeMenu({ requestId, at, snoozedUntil: snoozed.get(requestId) })
-  const requestMenu = (id: string, label: string, body: string, open: (() => void) | undefined) =>
+  const [taskDialog, setTaskDialog] = useState<{ task: Task; kind: TaskDialogKind }>()
+  const [deletingPlan, setDeletingPlan] = useState<Plan>()
+  const dialogTask =
+    taskDialog &&
+    ([...items, ...answered].find((i) => i.task.id === taskDialog.task.id)?.task ?? taskDialog.task)
+  const taskActions = (task: Task): MenuAction[] => [
+    ...(!task.archived && task.preparation === 'ready'
+      ? [{ label: 'Stop Task', action: () => ted.stopTask(task.id) }]
+      : []),
+    {
+      label: 'Copy Task ID',
+      action: () => navigator.clipboard.writeText(task.displayId),
+    },
+    ...(task.archived
+      ? []
+      : [{ label: 'Archive…', action: () => setTaskDialog({ task, kind: 'archive' }) }]),
+    { label: 'Delete…', danger: true, action: () => setTaskDialog({ task, kind: 'delete' }) },
+  ]
+  const planActions = (plan: Plan): MenuAction[] => [
+    ...(planEnded(plan) ? [] : [{ label: 'Stop plan', action: () => ted.stopPlan(plan.id) }]),
+    { label: 'Delete plan…', danger: true, action: () => setDeletingPlan(plan) },
+  ]
+  const requestMenu = (id: string, label: string, body: string, more: MenuAction[] = []) =>
     contextMenu((at) =>
       actions.open(at, label, [
-        { label: 'Open request', disabled: !open, action: open },
         ...(showAnswered
           ? []
           : [
@@ -104,6 +131,7 @@ export function Inbox({
                 : []),
             ]),
         { label: 'Copy message text', action: () => navigator.clipboard.writeText(body) },
+        ...more.map((item, index) => (index === 0 ? { ...item, divider: true } : item)),
       ]),
     )
   const now = useNow()
@@ -270,7 +298,7 @@ export function Inbox({
             request.id,
             request.title ?? 'Planning request',
             request.body || request.title || '',
-            onOpenPlan ? () => onOpenPlan(item) : undefined,
+            planActions(plan),
           )}
           onClick={() => onOpenPlan?.(item)}
         >
@@ -308,7 +336,7 @@ export function Inbox({
             request.id,
             `${task.displayId} · ${headline(request)}`,
             request.body || request.title || '',
-            () => onOpen(item),
+            taskActions(task),
           )}
           onClick={() => onOpen(item)}
         >
@@ -344,12 +372,7 @@ export function Inbox({
         aria-current={question.id === selected ? 'true' : undefined}
         data-nav-item
         data-snooze-request={question.id}
-        {...requestMenu(
-          question.id,
-          question.automationName,
-          question.body,
-          onOpenQuestion ? () => onOpenQuestion(question) : undefined,
-        )}
+        {...requestMenu(question.id, question.automationName, question.body)}
         onClick={() => onOpenQuestion?.(question)}
       >
         <span className={styles.top}>
@@ -381,6 +404,16 @@ export function Inbox({
   return (
     <>
       {actions.menu}
+      {taskDialog && dialogTask && (
+        <TaskDialog
+          task={dialogTask}
+          kind={taskDialog.kind}
+          onKind={(kind) => setTaskDialog(kind === undefined ? undefined : { ...taskDialog, kind })}
+        />
+      )}
+      {deletingPlan && (
+        <DeletePlanDialog plan={deletingPlan} onClose={() => setDeletingPlan(undefined)} />
+      )}
       <section className={`${views.pane} ${views.listPane}`} aria-label="Inbox" data-fixed-pane>
         <header className={styles.header}>
           <div className={styles.titleRow}>
@@ -611,5 +644,54 @@ function InboxEmptyState({
     <EmptyState title={empty.title} />
   ) : (
     <EmptyState title={empty.title}>{button[empty.action]}</EmptyState>
+  )
+}
+
+function DeletePlanDialog({ plan, onClose }: { plan: Plan; onClose: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const remove = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ted.deletePlan(plan.id)
+      onClose()
+    } catch (failure) {
+      setError(readableError(failure))
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog
+      onClose={() => {
+        if (!busy) onClose()
+      }}
+    >
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={dialogStyles.heading}>
+            Delete this planning chat?
+          </h2>
+          <p className={dialogStyles.body}>
+            {planEnded(plan)
+              ? `Delete ${plan.title} and its conversation? Tasks it created stay.`
+              : `Stop the planner and delete ${plan.title} and its conversation? Tasks it created stay.`}
+          </p>
+          {error && (
+            <p role="alert" className={dialogStyles.error}>
+              {error}
+            </p>
+          )}
+          <div className={dialogStyles.buttons}>
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button disabled={busy} variant="danger" onClick={() => remove()}>
+              Delete
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
   )
 }
