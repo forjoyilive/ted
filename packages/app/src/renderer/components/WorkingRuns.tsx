@@ -1,4 +1,5 @@
-import type { Factory, FactorySlots, RunSlots, SlotHolder } from '@ted/protocol'
+import type { ChatKind, Factory, FactorySlots, RunSlots, SlotHolder } from '@ted/protocol'
+import { isChat } from '@ted/protocol/slots'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
 import { slotCount } from '../slots.ts'
 import { priorityLabels } from '../task-fields.ts'
@@ -113,6 +114,20 @@ export function WorkingRunsPopover({
     return own ? `${name(factoryId)} ${own.working} of ${own.cap}` : name(factoryId)
   }
   const empty = slots.holders.length === 0 && slots.queue.length === 0
+  const working = slots.holders.filter((h) => !isChat(h.kind))
+  const chats = slots.holders.filter((h): h is Extract<SlotHolder, { kind: ChatKind }> =>
+    isChat(h.kind),
+  )
+  const lead = (holder: Exclude<SlotHolder, { kind: 'task' }>) =>
+    holder.kind === 'planning'
+      ? 'Plan'
+      : holder.kind === 'automation-draft'
+        ? 'Draft'
+        : holder.kind === 'side-chat'
+          ? 'Chat'
+          : holder.kind === 'coordinator'
+            ? 'Coord'
+            : 'Auto'
 
   return (
     <div ref={ref} className={styles.popover} role="dialog" aria-labelledby={titleId}>
@@ -129,23 +144,13 @@ export function WorkingRunsPopover({
         <p className={styles.empty}>No Runs working. Nothing queued.</p>
       ) : (
         <div className={styles.body}>
-          {slots.holders.length > 0 && (
+          {working.length > 0 && (
             <Group label="Working">
-              {slots.holders.map((holder) =>
+              {working.map((holder) =>
                 holder.kind !== 'task' ? (
                   <Row
                     key={holder.runId}
-                    lead={
-                      holder.kind === 'planning'
-                        ? 'Plan'
-                        : holder.kind === 'automation-draft'
-                          ? 'Draft'
-                          : holder.kind === 'side-chat'
-                            ? 'Chat'
-                            : holder.kind === 'coordinator'
-                              ? 'Coord'
-                              : 'Auto'
-                    }
+                    lead={lead(holder)}
                     title={holder.name}
                     detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
                     trailing={slotCount(holder.runs)}
@@ -162,11 +167,28 @@ export function WorkingRunsPopover({
               )}
             </Group>
           )}
+          {chats.length > 0 && (
+            <Group
+              label="Chats"
+              count={chats.length}
+              help="Chats start as soon as you send a message. They don’t use a slot, so Tasks never wait for them."
+            >
+              {chats.map((holder) => (
+                <Row
+                  key={holder.runId}
+                  lead={lead(holder)}
+                  title={holder.name}
+                  detail={`${name(holder.factoryId)} · ${holderRuns(holder)}`}
+                  trailing="No slot"
+                />
+              ))}
+            </Group>
+          )}
           {slots.queue.length > 0 && (
             <Group
               label="Queued"
               count={slots.queue.length}
-              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Planning and Coordinator Runs, Automation drafts, Automation Runs, then Tasks by Priority and rank."
+              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Automation drafts, Automation Runs, then Tasks by Priority and rank. A chat waits here only while the disk is full or its agent can’t run."
             >
               {slots.queue.map((entry) =>
                 entry.kind === 'sub-agent' ? (

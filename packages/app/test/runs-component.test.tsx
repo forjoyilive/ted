@@ -21,6 +21,7 @@ function working(a: ReturnType<typeof appState>) {
         subAgents: 0,
         settingUp: false,
       },
+      { kind: 'coordinator', runId: 'c1', factoryId: 'f1', name: 'Coordinator', runs: 1 },
     ],
     queue: [
       {
@@ -50,6 +51,11 @@ test('live slot updates populate Working Runs and Open in List opens the queue',
     within(d.getByRole('region', { name: 'Working' })).getByText('NB-1', { exact: true }),
   ).toBeTruthy()
   expect(d.getByText('widgets 1 of 1 · Task Lead')).toBeTruthy()
+  const chats = within(d.getByRole('region', { name: 'Chats' }))
+  expect(chats.getByText('Coordinator', { exact: true })).toBeTruthy()
+  expect(chats.getByText('widgets · Coordinator Run')).toBeTruthy()
+  expect(chats.getByText('No slot')).toBeTruthy()
+  expect(within(d.getByRole('region', { name: 'Working' })).queryByText('Coord')).toBeNull()
   expect(d.getByText('NB-2 · Second Task')).toBeTruthy()
   expect(d.getByText('1st')).toBeTruthy()
   expect(d.getByText('widgets · None')).toBeTruthy()

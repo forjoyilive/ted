@@ -642,8 +642,8 @@ export {
   type SideChat,
   type SideChatMessageRequest,
 } from './side-chat.ts'
-export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
-export { busyHold } from './slots.ts'
+export type { ChatKind, FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
+export { busyHold, chatKinds, isChat } from './slots.ts'
 export {
   type ProfileRequest,
   type ProfileResult,

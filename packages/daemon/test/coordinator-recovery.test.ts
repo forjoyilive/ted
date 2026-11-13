@@ -395,24 +395,16 @@ test('Factory removal blocks new chats throughout cleanup and rejects an in-flig
 
 test('Stop preserves all unstarted human messages across restart without dispatching them later', async () => {
   const s = await setup()
-  await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
-  const task = await s.call<Task>('POST', '/tasks', {
-    factory: 'NB',
-    title: JSON.stringify({
-      steps: [{ waitFor: path.join(scratch, 'task-end') }, { endTurn: true }],
-    }),
-  })
-  await s.call('POST', `/tasks/${task.id}/start`)
-  await waitUntil(async () => {
-    const tasks = await s.call<Task[]>('GET', '/tasks')
-    return tasks.find((t) => t.id === task.id)?.leadRunId !== undefined
-  }, 'Task to hold slot')
+  await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+  await s.call('POST', '/agents/health/check')
   const c = await s.message([{ say: 'Canceled original' }, { endTurn: true }])
   await s.call('POST', `${s.base}/messages`, { text: 'Another canceled instruction' })
   expect(c.started).toBe(false)
   await s.call('POST', `${s.base}/stop`)
   expect((await s.chat()).unsentMessages).toHaveLength(2)
+  await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
   await s.restart()
+  await s.call('POST', '/agents/health/check')
   const reopened = await s.chat()
   expect(reopened.status).toBe('ready')
   expect(reopened.unsentMessages.map((m) => m.text).join('\n')).toContain('Canceled original')
@@ -420,7 +412,6 @@ test('Stop preserves all unstarted human messages across restart without dispatc
     'Another canceled instruction',
   )
   await s.message([{ say: 'Fresh authorized answer' }, { endTurn: true }])
-  await writeFile(path.join(scratch, 'task-end'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'fresh response')
   const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
   expect(chat.items.some((i) => i.kind === 'agent' && i.text === 'Fresh authorized answer')).toBe(
@@ -578,7 +569,7 @@ test('restart after input acceptance recovers the delivery without replaying an 
   expect(records.filter((r) => r.deliveryIds?.includes(pending.id))).toHaveLength(1)
 })
 
-test('boundary delivery retains admission across settlement while other work waits', async () => {
+test('boundary delivery survives settlement, and a Task starts while the Coordinator works', async () => {
   const s = await setup()
   await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
   const c = await s.message([{ waitFor: path.join(scratch, 'settle') }, { endTurn: true }])
@@ -609,24 +600,19 @@ test('boundary delivery retains admission across settlement while other work wai
   })
   await s.call('POST', `/tasks/${other.id}/start`)
   expect((await s.chat()).status).toBe('working')
-  expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(1)
-  expect(
-    (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId,
-  ).toBeUndefined()
-  gate.release()
-  await boundary
-  expect(pauses.dispatchPhase).toBe('working')
-  expect(
-    (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId,
-  ).toBeUndefined()
-  await writeFile(path.join(scratch, 'followup-end'), '')
-  await waitUntil(async () => (await s.chat()).status === 'ready', 'follow-up settlement')
   await waitUntil(
     async () =>
       (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId !==
       undefined,
-    'waiting Task admitted',
+    'Task started beside the Coordinator',
   )
+  expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(1)
+  gate.release()
+  await boundary
+  expect(pauses.dispatchPhase).toBe('working')
+  await writeFile(path.join(scratch, 'followup-end'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'follow-up settlement')
+  await writeFile(path.join(scratch, 'other-end'), '')
 })
 
 test.each(['initial', 'revival'] as const)(
@@ -675,25 +661,14 @@ test.each(['claude', 'codex'] as const)(
   '%s acknowledges identical queued requests separately',
   async (agent) => {
     const s = await setup()
-    await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
     const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
       agent,
       text: JSON.stringify({ steps: [{ say: 'Initial answer' }, { endTurn: true }] }),
     })
     await waitUntil(async () => (await s.chat()).status === 'ready', 'initial answer')
-    const other = await s.call<Task>('POST', '/tasks', {
-      factory: 'NB',
-      title: JSON.stringify({
-        steps: [{ waitFor: path.join(scratch, 'other-end') }, { endTurn: true }],
-      }),
-    })
-    await s.call('POST', `/tasks/${other.id}/start`)
-    await waitUntil(
-      async () =>
-        (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId !==
-        undefined,
-      'occupied slot',
-    )
+    const health = path.join(home, `stub-${agent}.json`)
+    await writeFile(health, JSON.stringify({ signedIn: false }))
+    await s.call('POST', '/agents/health/check')
     const text = JSON.stringify({
       steps: [{ say: 'Repeated request answered' }, { endTurn: true }],
     })
@@ -701,8 +676,9 @@ test.each(['claude', 'codex'] as const)(
       s.call('POST', `${s.base}/messages`, { text }),
       s.call('POST', `${s.base}/messages`, { text }),
     ])
-    expect((await s.chat()).status).toBe('queued')
-    await s.call('PATCH', '/settings', { maxWorkingRuns: 2 })
+    expect((await s.chat()).status).toBe('paused')
+    await writeFile(health, JSON.stringify({ signedIn: true }))
+    await s.call('POST', '/agents/health/check')
     await waitUntil(async () => (await s.chat()).status === 'ready', 'both requests answered')
     const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
     expect(
@@ -711,7 +687,7 @@ test.each(['claude', 'codex'] as const)(
     expect(
       chat.items.filter((i) => i.kind === 'human' && i.text === text && i.sent === true),
     ).toHaveLength(2)
-    expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(1)
+    expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(0)
   },
 )
 
@@ -729,36 +705,6 @@ test('cancel refuses a queued-looking message whose input has already dispatched
   const result = await s.request('DELETE', `/runs/${c.runId}/messages/${message.id}`)
   expect(result.status).toBe(409)
   gate.release()
-})
-
-test('delivery failure cannot release a slot while its Coordinator Run still works', async () => {
-  const s = await setup()
-  await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
-  const c = await s.message([{ waitFor: path.join(scratch, 'coordinator-end') }, { endTurn: true }])
-  await waitUntil(async () => (await s.chat()).started, 'Coordinator Run')
-  const other = await s.call<Task>('POST', '/tasks', {
-    factory: 'NB',
-    title: JSON.stringify({
-      steps: [{ waitFor: path.join(scratch, 'other-end') }, { endTurn: true }],
-    }),
-  })
-  await s.call('POST', `/tasks/${other.id}/start`)
-  pauses.dispatch = async () => {
-    throw Error('simulated delivery failure while Working')
-  }
-  await s.call('POST', `${s.base}/messages`, { text: 'Correct the pending response' })
-  if (!daemon) throw Error('missing daemon')
-  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
-  await api(daemon.port, tokens.issue(c.runId)).call('POST', `/runs/${c.runId}/boundary`)
-  await waitUntil(async () => (await s.chat()).status === 'failed', 'delivery failure')
-  await waitUntil(async () => {
-    const state = (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).run.state
-    const task = (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)
-    return state === 'finished' || task?.leadRunId !== undefined
-  }, 'slot resolution')
-  const active = (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).run.state
-  const task = (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)
-  expect(active === 'working' && task?.leadRunId !== undefined).toBe(false)
 })
 
 test('Coordinator refuses reversed current neighbours rather than claiming an impossible move', async () => {
@@ -977,23 +923,11 @@ test('Queued Work and Intake Tasks share the same Coordinator waiting group', as
 
 test('admitted Codex follow-ups wait without failing a slow healthy response', async () => {
   const s = await setup({ inputAckMs: 3_000 })
-  await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
   const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
     agent: 'codex',
     text: JSON.stringify({ steps: [{ endTurn: true }] }),
   })
   await waitUntil(async () => (await s.chat()).status === 'ready', 'initial idle Coordinator')
-  const task = await s.call<Task>('POST', '/tasks', {
-    factory: 'NB',
-    title: JSON.stringify({
-      steps: [{ waitFor: path.join(scratch, 'capacity-end') }, { endTurn: true }],
-    }),
-  })
-  await s.call('POST', `/tasks/${task.id}/start`)
-  await waitUntil(
-    async () => (await s.call<RunSlots>('GET', '/slots')).working === 1,
-    'capacity filled',
-  )
   const first = JSON.stringify({
     steps: [
       { say: 'First admitted follow-up' },
@@ -1006,8 +940,6 @@ test('admitted Codex follow-ups wait without failing a slow healthy response', a
   })
   await s.call('POST', `${s.base}/messages`, { text: first })
   await s.call('POST', `${s.base}/messages`, { text: second })
-  expect((await s.chat()).status).toBe('queued')
-  await writeFile(path.join(scratch, 'capacity-end'), '')
   await waitUntil(
     async () =>
       (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.some(
@@ -1029,7 +961,7 @@ test('admitted Codex follow-ups wait without failing a slow healthy response', a
   expect(input).not.toContain('Second admitted follow-up')
   expect(input).not.toContain('Canceled later follow-up')
   const slots = await s.call<RunSlots>('GET', '/slots')
-  expect(slots.working).toBe(1)
+  expect(slots.working).toBe(0)
   expect(slots.holders.some((h) => h.kind === 'coordinator' && h.runId === c.runId)).toBe(true)
   await writeFile(path.join(scratch, 'first-response-end'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'both follow-ups settled')

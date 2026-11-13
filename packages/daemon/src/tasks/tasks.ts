@@ -111,6 +111,7 @@ import {
   briefHeadings,
   clarifyDepths,
   clarifyIsOver,
+  isChat,
   parseLinearUrl,
   type ResetRefusal,
   resetRefusal,
@@ -1307,21 +1308,22 @@ export function createTasks(options: {
       byFactory[task.factoryId] = (byFactory[task.factoryId] ?? 0) + slots
     }
     const others = sources.flatMap((source) => source.holders())
-    for (const { factoryId, runs } of others) {
+    const counted = others.filter((h) => !isChat(h.kind))
+    for (const { factoryId, runs } of counted) {
       byFactory[factoryId] = (byFactory[factoryId] ?? 0) + runs
     }
     const capsNow: Record<string, number | undefined> = {}
     for (const id of new Set([
       ...factoryIds,
       ...holders.map((h) => h.task.factoryId),
-      ...others.map((h) => h.factoryId),
+      ...counted.map((h) => h.factoryId),
     ])) {
       capsNow[id] = await capOf(id)
     }
     const use: SlotUse = {
       limit: store.settings().maxWorkingRuns,
       working:
-        holders.reduce((sum, h) => sum + h.slots, 0) + others.reduce((sum, h) => sum + h.runs, 0),
+        holders.reduce((sum, h) => sum + h.slots, 0) + counted.reduce((sum, h) => sum + h.runs, 0),
       byFactory,
       caps: capsNow,
       handoffs: slotHandoffs(

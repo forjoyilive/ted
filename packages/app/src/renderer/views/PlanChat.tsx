@@ -878,8 +878,7 @@ function QueuedChat({ plan }: { plan: Plan }) {
         </div>
         <p className={styles.waitNote}>
           {plan.status === 'queued'
-            ? (plan.paused ??
-              'Your message is kept. The planner starts when a working slot frees up.')
+            ? (plan.paused ?? 'Your message is kept. The planner is starting.')
             : plan.status === 'paused'
               ? `The planner is paused: ${plan.paused ?? 'usage limit'}.`
               : 'The planner didn’t start.'}

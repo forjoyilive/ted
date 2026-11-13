@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -122,19 +122,11 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
       new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
     ),
   }
+  await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
   const client = await daemonAsApp(home, env)
   const origin = await makeOriginRepo(path.join(home, 'origin'))
   const factory = await client.addFactory({ repo: origin, key: 'NB' })
-  await client.updateSettings({ maxWorkingRuns: 1 })
-  const task = await client.createTask({
-    factory: 'NB',
-    title: JSON.stringify({ steps: [{ waitFor: path.join(home, 'task-end') }, { endTurn: true }] }),
-  })
-  await client.startTask(task.id)
-  await waitUntil(
-    async () => (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId !== undefined,
-    'Task slot',
-  )
+  await client.checkAgentHealth()
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env })
   const window = await loadedWindow(app)
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
