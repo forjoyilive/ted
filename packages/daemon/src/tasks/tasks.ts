@@ -7134,9 +7134,9 @@ export function createTasks(options: {
     if (deleting.has(id)) {
       throw new RequestError(409, `${task.displayId} is being deleted or reset`)
     }
-    deleting.add(id)
-    try {
-      await holding(task, async () => {
+    await holding(task, async () => {
+      deleting.add(id)
+      try {
         if (!task.stopped) store.stopTask(id, { runs: task.runs.length, why: 'human' })
         dropWaitingMove(id)
         await mergeWatcher.settled(id)
@@ -7177,10 +7177,10 @@ export function createTasks(options: {
         store.resetTask(id)
         await store.persisted()
         await removeFiles(last, runIds, files)
-      })
-    } finally {
-      deleting.delete(id)
-    }
+      } finally {
+        deleting.delete(id)
+      }
+    })
     if (task.setup) reportSetup(task.factoryId)
     if (await queueStart(id, undefined, false, true)) {
       await pump()
