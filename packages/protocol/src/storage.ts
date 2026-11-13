@@ -8,6 +8,8 @@ export const diskLimits = {
 
 export const diskFullHold = 'disk full'
 
+export const storageKeptForMs = 10 * 60_000
+
 export const storageCategories = [
   { id: 'worktrees', label: 'Worktrees' },
   { id: 'simulators', label: 'Simulators' },

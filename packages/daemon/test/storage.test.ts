@@ -1,11 +1,17 @@
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type Factory, type StorageSummary, type Task, tedPaths } from '@ted/protocol'
+import {
+  type Factory,
+  type StorageSummary,
+  storageKeptForMs,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { excludeFromTimeMachine } from '../src/disk.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { createStorage, storageKeptForMs } from '../src/storage.ts'
+import { createStorage } from '../src/storage.ts'
 import type { TedStore } from '../src/store/index.ts'
 import {
   api,
@@ -143,11 +149,17 @@ describe('Settings → Storage', () => {
   test('keeps the measurement until the page goes unviewed for 10 minutes, Refresh or clone removal', async () => {
     let clock = Date.parse('2026-11-13T10:00:00.000Z')
     let freeBytes = 5e9
+    let diskGate: Promise<void> | undefined
     const minutes = (n: number) => n * 60_000
     const storage = createStorage({
       home,
       store: { listFactories: () => [], listTasks: () => [] } as unknown as TedStore,
-      disk: { check: async () => ({ freeBytes, held: false }) } as never,
+      disk: {
+        check: async () => {
+          await diskGate
+          return { freeBytes, held: false }
+        },
+      } as never,
       data: { summary: async () => ({ backups: [] }) } as never,
       volumeName: async () => 'Macintosh HD',
       now: () => clock,
@@ -177,7 +189,15 @@ describe('Settings → Storage', () => {
 
     clock += minutes(1)
     await storage.removeUnusedClones()
-    expect(await measuredAt()).not.toBe(third)
+    const fourth = await measuredAt()
+    expect(fourth).not.toBe(third)
+
+    const opened = Promise.withResolvers<void>()
+    diskGate = opened.promise
+    const during = storage.summary()
+    await storage.removeUnusedClones()
+    opened.resolve()
+    expect(await during).toMatchObject({ measuredAt: fourth, categories: expect.any(Array) })
   })
 
   test('worktrees, clones, simulators and scratch worktrees are kept out of Time Machine', async () => {

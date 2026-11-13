@@ -5,6 +5,7 @@ import {
   type StorageCategoryId,
   type StorageSummary,
   storageCategories,
+  storageKeptForMs,
   tedPaths,
   type WorktreeUse,
 } from '@ted/protocol'
@@ -24,7 +25,6 @@ const largestShown = 10
 const safeSegment = /^[A-Za-z0-9_.-]+$/
 const walkers = 32
 const partialClone = /\.partial-[0-9a-f]+$/
-export const storageKeptForMs = 10 * 60_000
 
 export function createStorage(options: {
   home: string
@@ -168,8 +168,9 @@ export function createStorage(options: {
         return remeasure()
       }
       if (measuring) return measuring
+      const kept = saved
       const reading = await disk.check()
-      return { ...saved, freeBytes: reading?.freeBytes ?? saved.freeBytes }
+      return { ...kept, freeBytes: reading?.freeBytes ?? kept.freeBytes }
     },
     viewed() {
       viewedAt = now()

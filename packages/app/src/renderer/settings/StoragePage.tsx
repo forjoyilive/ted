@@ -1,7 +1,7 @@
 import type { StorageSummary, StoredBackup } from '@ted/protocol'
 import { runOutputDayLimits } from '@ted/protocol/settings'
-import { formatBytes } from '@ted/protocol/storage'
-import { useCallback, useEffect, useState } from 'react'
+import { formatBytes, storageKeptForMs } from '@ted/protocol/storage'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
@@ -50,9 +50,16 @@ function backupTitle(backup: StoredBackup): string {
   }
 }
 
+let lastShown: { storage: StorageSummary; leftAt: number } | undefined
+
+function shownAgain(): StorageSummary | undefined {
+  if (!lastShown || Date.now() - lastShown.leftAt > storageKeptForMs) return undefined
+  return lastShown.storage
+}
+
 export function StoragePage({ settings, dispatch }: SettingsPageProps) {
   const { epoch } = useConnection()
-  const [storage, setStorage] = useState<StorageSummary>()
+  const [storage, setStorage] = useState<StorageSummary | undefined>(shownAgain)
   const [error, setError] = useState<string>()
   const [removing, setRemoving] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -72,7 +79,16 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
     void load()
   }, [epoch, load])
 
-  useEffect(() => () => void ted.storageViewed().catch(() => undefined), [])
+  const latest = useRef(storage)
+  latest.current = storage
+
+  useEffect(
+    () => () => {
+      if (latest.current) lastShown = { storage: latest.current, leftAt: Date.now() }
+      void ted.storageViewed().catch(() => undefined)
+    },
+    [],
+  )
 
   const refresh = async () => {
     setRefreshing(true)

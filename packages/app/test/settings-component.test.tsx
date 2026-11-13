@@ -172,6 +172,28 @@ test('Storage sets how long Run output is kept and measures again only on Refres
   expect(viewed).not.toHaveBeenCalled()
   unmount()
   expect(viewed).toHaveBeenCalledOnce()
+
+  const summary = await api.request('getStorage', { refresh: false })
+  const answer = deferred<unknown>()
+  api.handle('getStorage', () => answer.promise)
+  const again = render(<StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  expect(screen.getByText('Conversations and logs')).toBeTruthy()
+  expect(screen.queryByText('Measuring…')).toBeNull()
+  answer.resolve(summary)
+  await screen.findByText(/· Measured 3m ago$/)
+  again.unmount()
+
+  const later = deferred<unknown>()
+  api.handle('getStorage', () => later.promise)
+  const leftAt = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(leftAt + 11 * 60_000)
+  const stale = render(<StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  expect(screen.getByText('Measuring…')).toBeTruthy()
+  expect(screen.queryByText('Conversations and logs')).toBeNull()
+  later.resolve(summary)
+  await screen.findByText('Conversations and logs')
+  stale.unmount()
+  clock.mockRestore()
 })
 
 test('login approval opens the fixed system-settings bridge action', async () => {
