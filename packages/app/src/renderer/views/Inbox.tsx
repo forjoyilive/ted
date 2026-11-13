@@ -28,6 +28,7 @@ import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import {
   type Grouped,
   groupInbox,
+  type InboxOrder,
   inboxChips,
   inboxGroupingLabels,
   inboxGroupings,
@@ -239,8 +240,10 @@ export function Inbox({
     ? []
     : allRows
         .filter((row) => snoozed.has(row.request.id))
-        .sort((a, b) =>
-          (snoozed.get(a.request.id) ?? '').localeCompare(snoozed.get(b.request.id) ?? ''),
+        .sort(
+          (a, b) =>
+            (view.order.oldestFirst ? -1 : 1) *
+            (snoozed.get(a.request.id) ?? '').localeCompare(snoozed.get(b.request.id) ?? ''),
         )
   const uncounted = showAnswered
     ? []
@@ -253,7 +256,7 @@ export function Inbox({
               : row.item.factoryId,
         )
         .filter(quiet)
-  const groups = groupInbox(rows, view.grouping, now)
+  const groups = groupInbox(rows, view.grouping, now, view.order)
   const ordered = groups.flatMap((group) => group.rows)
   const visible = groups.flatMap((group) => (view.collapsed(group.key) ? [] : group.rows))
   const shownSnoozed = showSnoozed ? snoozedRows : []
@@ -389,13 +392,28 @@ export function Inbox({
     )
   }
 
+  const orderChoice = (label: string, on: boolean, change: Partial<InboxOrder>) => (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={on}
+      className={styles.choice}
+      onClick={() => view.setOrder(change)}
+    >
+      <span className={styles.choiceLabel}>{label}</span>
+      {on && <span className={styles.tick}>✓</span>}
+    </button>
+  )
+
   const active = [
     ...(view.grouping === 'none' ? [] : [`Grouped by ${inboxGroupingLabels[view.grouping]}`]),
+    ...(view.grouping !== 'none' && view.order.groupsReversed ? ['Groups descending'] : []),
+    ...(view.order.oldestFirst ? ['Oldest first'] : []),
     ...(factoryId === undefined ? [] : [factoryName(factories, factoryId)]),
     ...(showAnswered ? ['Answered'] : []),
   ]
   const clear = () => {
-    view.setGrouping('none')
+    view.reset()
     if (onClearFilters) return onClearFilters()
     if (factoryId !== undefined) onFilter(undefined)
     if (showAnswered) onShowAnswered(false)
@@ -439,6 +457,20 @@ export function Inbox({
                         {view.grouping === grouping && <span className={styles.tick}>✓</span>}
                       </button>
                     ))}
+                    {view.grouping !== 'none' && (
+                      <>
+                        <div className={styles.panelHeading}>Groups</div>
+                        {orderChoice('Ascending', !view.order.groupsReversed, {
+                          groupsReversed: false,
+                        })}
+                        {orderChoice('Descending', view.order.groupsReversed, {
+                          groupsReversed: true,
+                        })}
+                      </>
+                    )}
+                    <div className={styles.panelHeading}>Requests</div>
+                    {orderChoice('Newest first', !view.order.oldestFirst, { oldestFirst: false })}
+                    {orderChoice('Oldest first', view.order.oldestFirst, { oldestFirst: true })}
                     {manyFactories && (
                       <>
                         <div className={styles.panelHeading}>Factory</div>

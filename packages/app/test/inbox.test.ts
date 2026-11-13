@@ -143,6 +143,35 @@ describe('Group by', () => {
     expect(groups.map((group) => group.old)).toEqual([undefined, undefined, true])
   })
 
+  test('Descending reverses the groups but keeps No Stage last; Oldest first reverses the rows', () => {
+    const rows = [
+      row('plan', {}),
+      row('review', { stage: 'review' }),
+      row('clarify2', { stage: 'clarify' }),
+      row('clarify1', { stage: 'clarify' }),
+    ]
+    expect(
+      shape(groupInbox(rows, 'stage', now, { groupsReversed: true, oldestFirst: false })),
+    ).toEqual([
+      ['Review', ['review']],
+      ['Clarify', ['clarify2', 'clarify1']],
+      ['No Stage', ['plan']],
+    ])
+    expect(
+      shape(groupInbox(rows, 'stage', now, { groupsReversed: false, oldestFirst: true })),
+    ).toEqual([
+      ['Clarify', ['clarify1', 'clarify2']],
+      ['Review', ['review']],
+      ['No Stage', ['plan']],
+    ])
+    expect(
+      shape(groupInbox(rows, 'kind', now, { groupsReversed: true, oldestFirst: true })),
+    ).toEqual([['Questions', ['clarify1', 'clarify2', 'review', 'plan']]])
+    expect(
+      shape(groupInbox(rows, 'none', now, { groupsReversed: true, oldestFirst: true })),
+    ).toEqual([['', ['clarify1', 'clarify2', 'review', 'plan']]])
+  })
+
   test('Stage follows the Workflow’s order and puts requests without a Stage last', () => {
     const rows = [
       row('plan', {}),

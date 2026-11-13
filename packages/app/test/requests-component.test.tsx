@@ -819,7 +819,7 @@ test('a Factory with Inbox items off has its requests marked as not counted', as
   expect(onOpenNotifications).toHaveBeenCalledOnce()
 })
 
-test('Filter holds Group by, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
+test('Filter holds Group by, the order choices, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
   const props = inboxProps()
   const question = {
     task: task(),
@@ -872,6 +872,12 @@ test('Filter holds Group by, the Factory chips and Answered; headings count, col
     ])
     expect(headlines()).toEqual(['Run the build', 'A question?'])
     expect(screen.getByText('Grouped by Kind')).toBeTruthy()
+    await user().click(within(menu).getByRole('menuitemradio', { name: /^Descending/ }))
+    expect(headings().map(([text]) => text)).toEqual(['Questions1', 'Blocking a Run1'])
+    expect(screen.getByText('Grouped by Kind · Groups descending')).toBeTruthy()
+    await user().click(within(menu).getByRole('menuitemradio', { name: /^Ascending/ }))
+    await user().click(within(menu).getByRole('menuitemradio', { name: /^Oldest first/ }))
+    expect(screen.getByText('Grouped by Kind · Oldest first')).toBeTruthy()
 
     await user().click(screen.getByRole('button', { name: /^Blocking a Run/ }))
     expect(headings()).toEqual([
@@ -895,9 +901,15 @@ test('Filter holds Group by, the Factory chips and Answered; headings count, col
       ['Questions1', 'true'],
     ])
 
+    expect(screen.getByText('Grouped by Kind · Oldest first')).toBeTruthy()
+
     await user().click(screen.getByRole('button', { name: 'Clear' }))
     expect(all.onClearFilters).toHaveBeenCalledOnce()
     expect(again()).toEqual([])
+    expect([...document.querySelectorAll('[data-headline]')].map((el) => el.textContent)).toEqual([
+      'A question?',
+      'Run the build',
+    ])
     expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
   } finally {
     localStorage.removeItem('ted.inbox.grouping')
