@@ -110,7 +110,7 @@ describe('navigation', () => {
     expect(state.taskId).toBeUndefined()
   })
 
-  test('Settings opens over where the human was, on General the first time', () => {
+  test('Settings opens over where the human was, on General', () => {
     const before = after(
       { type: 'open-factory', factoryId: 'nb' },
       { type: 'open-task', taskId: 't1', factoryId: 'nb' },
@@ -122,15 +122,21 @@ describe('navigation', () => {
     expect(navigate(settings, { type: 'close-settings' })).toEqual(before)
   })
 
-  test('Settings reopens on the last section the human looked at', () => {
-    const state = after(
+  test('Settings opens on General again after the human left another section', () => {
+    const inDeveloper = after(
       { type: 'open-settings' },
+      { type: 'open-settings', section: 'developer' },
+    )
+    expect(navigate(inDeveloper, { type: 'open-settings' }).settings).toEqual({
+      section: 'developer',
+    })
+
+    const reopened = after(
       { type: 'open-settings', section: 'developer' },
       { type: 'close-settings' },
       { type: 'open-settings' },
     )
-
-    expect(state.settings).toEqual({ section: 'developer' })
+    expect(reopened.settings).toEqual({ section: 'general' })
   })
 
   test('a Factory row in Settings leaves Settings for that Factory’s settings page', () => {

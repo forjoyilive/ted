@@ -53,7 +53,6 @@ export interface Navigation {
   lastViews: Readonly<Record<string, FactoryView>>
   lastTaskViews: Readonly<Record<string, (typeof taskViews)[number]>>
   settings?: { section: SettingsSectionId }
-  lastSettingsSection: SettingsSectionId
 }
 
 export type NavigationAction =
@@ -81,7 +80,6 @@ export const initialNavigation: Navigation = {
   screen: { kind: 'inbox' },
   lastViews: {},
   lastTaskViews: {},
-  lastSettingsSection: 'general',
 }
 
 export function navigate(state: Navigation, action: NavigationAction): Navigation {
@@ -194,8 +192,8 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       return navigate(rest, { type: 'open-automation', automationId: automation.id, factoryId })
     }
     case 'open-settings': {
-      const section = action.section ?? state.settings?.section ?? state.lastSettingsSection
-      return { ...state, settings: { section }, lastSettingsSection: section }
+      const section = action.section ?? state.settings?.section ?? 'general'
+      return { ...state, settings: { section } }
     }
     case 'close-settings': {
       const { settings: _, ...rest } = state
