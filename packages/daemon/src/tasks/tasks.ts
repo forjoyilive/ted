@@ -2335,7 +2335,7 @@ export function createTasks(options: {
           if (step !== 'move') continue
           await worktreeFileScope(worktreesDir, target.worktree)
           if ((await git.headCommit(target.worktree)) !== head) continue
-          await git.moveBranchTo(target.worktree, tip)
+          if (!(await git.moveBranchTo(target.worktree, tip, head))) continue
           baseTips.set(baseTipKey(task.id, target.name), tip)
           moved.push({ repo: target.name, base: clean(target.base, 200), from: head, to: tip })
         } catch (error) {
@@ -3449,7 +3449,10 @@ export function createTasks(options: {
     local: (id) => execution.local(id),
     beforeLeadStart: async (id) =>
       (await incorporateRepairs(find(id))) ? taskWorkflow(find(id), { fetch: false }) : undefined,
-    afterLeadStart: scheduleRepairChecks,
+    afterLeadStart: (id) => {
+      baseNotes.delete(id)
+      scheduleRepairChecks(id)
+    },
     workflow: (task) => taskWorkflow(task, { fetch: false }),
     entries: (task, resolution) => factoryRepos(resolution.workflow, factoryOf(task)),
     defaultLead: leadFrom,
@@ -3848,7 +3851,6 @@ export function createTasks(options: {
     const overnightMode = taskAutopilot(task)
     const pending = current.pendingLeadMessages
     const baseNote = baseNotes.get(task.id)
-    baseNotes.delete(task.id)
     const round =
       resumeSession === undefined && current.stage === 'validate'
         ? await validateRound(current, resolution.workflow)

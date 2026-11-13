@@ -816,7 +816,11 @@ export async function prepareIncorporation(
   return { head, commit }
 }
 
-export async function moveBranchTo(worktree: string, commit: string): Promise<void> {
+export async function moveBranchTo(
+  worktree: string,
+  commit: string,
+  from?: string,
+): Promise<boolean> {
   const keys = await git(worktree, 'config', '--name-only', '--get-regexp', '^filter\\.').catch(
     () => '',
   )
@@ -831,18 +835,27 @@ export async function moveBranchTo(worktree: string, commit: string): Promise<vo
     '-c',
     `filter.${name}.required=false`,
   ])
-  await git(
-    worktree,
-    ...noHooks,
-    ...noFilters,
-    '-c',
-    'core.hooksPath=/dev/null',
-    '-c',
-    'submodule.recurse=false',
-    'reset',
-    '--keep',
-    commit,
-  )
+  const reset = (to: string) =>
+    git(
+      worktree,
+      '--no-replace-objects',
+      `--work-tree=${path.resolve(worktree)}`,
+      ...noHooks,
+      ...noFilters,
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      'submodule.recurse=false',
+      'reset',
+      '--keep',
+      to,
+    )
+  await reset(commit)
+  if (from === undefined) return true
+  const before = await git(worktree, '--no-replace-objects', 'rev-parse', '--verify', 'HEAD@{1}')
+  if (before === from) return true
+  await reset(before)
+  return false
 }
 
 export async function addScratchWorktree(
