@@ -151,7 +151,7 @@ describe('watching free disk space', () => {
     )
   })
 
-  test('a Task Lead’s agent change waits for the hold to lift before starting a new Run', async () => {
+  test('a Task Lead’s agent change can’t start a new Run until the hold lifts', async () => {
     const client = await start()
     const created = await client.ok<Task>('POST', '/tasks', {
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
@@ -173,10 +173,14 @@ describe('watching free disk space', () => {
       },
     ])
     await client.ok<Task>('PUT', `/tasks/${created.id}/lead`, { agent: 'codex' })
+    const refused = await client.call('POST', `/tasks/${created.id}/lead/restart`)
+    expect(refused.status).toBe(409)
     await new Promise((resolve) => setTimeout(resolve, 500))
     expect((await getTask(client, created.id)).leadRunId).toBe(first.leadRunId)
 
     free = 50e9
+    await bannersBecome(client, [])
+    await client.ok('POST', `/tasks/${created.id}/lead/restart`)
     const moved = await waitUntil(async () => {
       const task = await getTask(client, created.id)
       return task.leadRunId !== first.leadRunId ? task : undefined
