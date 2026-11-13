@@ -105,7 +105,7 @@ test('the Apps section runs a Web App, shows its log in the middle pane, and sto
 
   const status = section.getByText(/^localhost:\d+$/)
   await status.waitFor()
-  await section.getByText('Apps · 1 running').waitFor()
+  await section.getByText('1 running', { exact: true }).waitFor()
   const port = (await status.textContent())?.split(':')[1]
   await section.getByRole('button', { name: /^Web/ }).click()
   const log = window.getByRole('region', { name: 'Web log' })

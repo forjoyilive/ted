@@ -130,7 +130,7 @@ describe('Line comments', () => {
     await card.getByText(profile.name, { exact: true }).waitFor()
     await card.getByText('· draft · line 3').waitFor()
     await card.getByText('Keep it lower case.').waitFor()
-    await changes.getByRole('heading', { name: 'Changes · 3 files · 1 draft' }).waitFor()
+    await changes.getByText('3 files · 1 draft', { exact: true }).waitFor()
     const bar = diff.getByRole('region', { name: 'Draft line comments' })
     await bar.getByText('1 draft comment on 1 file').waitFor()
 

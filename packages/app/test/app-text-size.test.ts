@@ -96,10 +96,12 @@ test('large app text fits settings controls, Task lists, details and a new Task 
   await window.getByRole('region', { name: 'Task thread' }).waitFor()
   const details = window.getByRole('complementary', { name: 'Task details' })
   expect(
-    await details
-      .locator('dl')
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length),
-  ).toBe(1)
+    await details.locator('dl').evaluate((el) => {
+      const label = el.querySelector('dt')?.getBoundingClientRect()
+      const value = el.querySelector('dd')?.getBoundingClientRect()
+      return label !== undefined && value !== undefined && value.top >= label.bottom
+    }),
+  ).toBe(true)
   const overflow = await details
     .locator('dd')
     .evaluateAll((items) =>

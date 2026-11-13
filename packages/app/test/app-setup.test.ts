@@ -115,7 +115,7 @@ describe('setup Tasks', () => {
     await openAllTasks(window)
     await taskRow(window, 'WD-1').click()
     const thread = window.getByRole('region', { name: 'Task thread' })
-    await thread.getByText(/WD-1\s+·\s+Created by TED/).waitFor()
+    await thread.getByText(/WD-1\s+·\s+Brief\s+·\s+Created by TED/).waitFor()
     await thread.getByText('Setup', { exact: true }).waitFor()
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details

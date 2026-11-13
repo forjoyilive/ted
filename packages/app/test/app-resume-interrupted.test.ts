@@ -44,6 +44,9 @@ describe('Resume after a full quit', () => {
 
       window = await launchApp()
       client = await daemonClient()
+      const offer = window.getByRole('dialog', { name: '1 Task was working when TED quit' })
+      await offer.getByRole('button', { name: 'Leave stopped' }).click()
+      await offer.waitFor({ state: 'detached' })
       await openAllTasks(window)
       await taskRow(window, 'NB-1').click()
       const thread = window.getByRole('region', { name: 'Task thread' })

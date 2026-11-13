@@ -131,6 +131,9 @@ describe('New Task dialog', () => {
     await open.getByLabel('Priority').selectOption('high')
     await open.getByLabel('Start now').uncheck()
     await open.getByText('Waits in Backlog until you start it').waitFor()
+    await expect
+      .poll(() => open.getByRole('button', { name: 'Create', exact: true }).isEnabled())
+      .toBe(true)
     await window.keyboard.press('Meta+Enter')
 
     await open.waitFor({ state: 'detached' })
@@ -141,7 +144,7 @@ describe('New Task dialog', () => {
     expect(await tasks()).toMatchObject([
       {
         title: 'Search ignores accents',
-        description: 'Search ignores accents\nTyping cafe finds Café.',
+        description: 'Typing cafe finds Café.',
         priority: 'high',
         stage: 'backlog',
       },

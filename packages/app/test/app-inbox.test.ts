@@ -100,7 +100,7 @@ describe('Inbox and Gates', () => {
     ).toEqual(['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)'])
     const answer = thread.getByRole('region', { name: 'Answer', exact: true })
     await expectActionsInsideCard(window, answer, ['Request changes', 'Approve'])
-    await thread.getByText('Waiting on you', { exact: true }).waitFor()
+    await thread.getByRole('button', { name: /^Jump to Design review/ }).waitFor()
     expect(await answer.getByRole('button', { name: 'Request changes' }).isDisabled()).toBe(true)
     const enterMark = async () =>
       Object.fromEntries(

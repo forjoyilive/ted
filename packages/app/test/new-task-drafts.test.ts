@@ -179,7 +179,7 @@ describe('New Task drafts', () => {
     await form(window).getByRole('button', { name: 'Create', exact: true }).click()
     await form(window).waitFor({ state: 'detached' })
     expect((await client.taskDraft(second.id)).draft).toBeNull()
-    expect((await client.listTasks()).some((t) => t.description === 'Site draft')).toBe(true)
+    expect((await client.listTasks()).some((t) => t.title === 'Site draft')).toBe(true)
 
     await openFactoryView(window, 'notebook', 'Dashboard')
     await open(window)
@@ -283,13 +283,12 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     await form(window).getByRole('button', { name: 'Create', exact: true }).click()
     await form(window).waitFor({ state: 'detached' })
     const task = (await (await daemonClient()).listTasks()).find(
-      (task) => task.description === 'Keep my Task when the installed agents change',
+      (task) => task.title === 'Keep my Task when the installed agents change',
     )
     expect(task?.lead).toMatchObject({ agent: 'codex', effortMode: 'stage' })
     expect(
-      (await restarted.listTasks()).find(
-        (task) => task.description === 'Another Task after Create more',
-      )?.lead,
+      (await restarted.listTasks()).find((task) => task.title === 'Another Task after Create more')
+        ?.lead,
     ).toMatchObject({ agent: 'codex', effortMode: 'stage' })
     if (!task) throw new Error('Created Task missing')
     await restarted.startTask(task.displayId)

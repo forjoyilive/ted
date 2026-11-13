@@ -100,6 +100,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .getByRole('button', { name: 'All Tasks' })
     .click()
   await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
+  await window.getByRole('tab', { name: 'Apps' }).click()
   await window.getByRole('button', { name: 'Preview Web', exact: true }).click()
   const panel = window.getByRole('region', { name: 'Task browser' })
   await panel
@@ -237,6 +238,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     Buffer.from([137, 80, 78, 71]),
   )
   await panel.getByRole('button', { name: '← Task Lead' }).click()
+  await window.getByRole('tab', { name: 'Apps' }).click()
   await window.getByRole('button', { name: 'Preview Web', exact: true }).click()
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   expect((await command({ action: 'snapshot' })).text).toContain('Clicked')

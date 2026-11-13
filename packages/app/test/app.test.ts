@@ -556,7 +556,11 @@ describe('TED app', () => {
     await expect.poll(gap).toBeLessThan(2)
     await jump.waitFor({ state: 'detached' })
 
-    await window.getByRole('tab', { name: /Task Lead/ }).click()
+    await window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('button', { name: /Task Lead/ })
+      .click()
+    await window.getByRole('region', { name: 'Run chat' }).waitFor()
     await window.getByRole('tab', { name: 'Task Lead' }).click()
     await scroller.getByText('The newest note').waitFor()
     await expect.poll(gap).toBeLessThan(2)

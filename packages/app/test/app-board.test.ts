@@ -336,8 +336,8 @@ describe('Board', () => {
     await thread.getByRole('button', { name: 'Comment only' }).waitFor()
     await thread.getByRole('button', { name: 'Follow up' }).click()
 
-    await thread.getByText(/NB-2\s+·\s+Follow-up to NB-1/).waitFor()
-    await thread.getByRole('button', { name: 'NB-1' }).click()
+    await thread.getByText(/NB-2\s+·\s+Brief\s+·\s+Follow-up to NB-1/).waitFor()
+    await thread.locator('header').getByRole('button', { name: 'NB-1' }).click()
     await thread.getByText('You followed up in NB-2').waitFor()
 
     await thread.getByRole('button', { name: 'Task actions' }).click()
@@ -345,6 +345,6 @@ describe('Board', () => {
     const dialog = window.getByRole('dialog', { name: 'Follow up NB-1?' })
     await dialog.getByRole('textbox').fill(forever())
     await dialog.getByRole('button', { name: 'Follow up' }).click()
-    await thread.getByText(/NB-3\s+·\s+Follow-up to NB-1/).waitFor()
+    await thread.getByText(/NB-3\s+·\s+Brief\s+·\s+Follow-up to NB-1/).waitFor()
   })
 })
