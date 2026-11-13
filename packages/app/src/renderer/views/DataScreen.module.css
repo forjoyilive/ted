@@ -130,14 +130,15 @@
 }
 
 .secondary {
-  border-color: var(--border-strong);
+  border-color: var(--border-control);
   background: var(--surface-pane);
   color: var(--text-primary);
 }
 
 .primary:disabled,
 .secondary:disabled {
-  opacity: 0.6;
+  background: var(--surface-neutral);
+  color: var(--text-faint);
 }
 
 .primary:focus-visible,

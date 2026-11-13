@@ -237,7 +237,7 @@
   justify-content: center;
   height: var(--button-height);
   padding: 0 12px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
   background: var(--surface-card);
   color: var(--text-primary);
@@ -252,6 +252,8 @@
 }
 
 .button:disabled {
+  border-color: var(--border-control);
+  background: var(--surface-neutral);
   color: var(--text-faint);
 }
 
@@ -275,7 +277,7 @@
 .select {
   box-sizing: border-box;
   padding: 4px 8px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
   background: var(--surface-card);
   color: var(--text-primary);
@@ -292,7 +294,7 @@
   padding: 0;
   border: none;
   border-radius: var(--radius-pill);
-  background: var(--border-strong);
+  background: var(--border-control);
   transition: background-color 120ms;
 }
 
@@ -417,7 +419,7 @@
   display: flex;
   align-items: stretch;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
   background: var(--surface-card);
 }

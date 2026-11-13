@@ -118,6 +118,7 @@ describe('theme tokens', () => {
           '--event-neutral',
           '--priority-none',
           '--agent-ring-paused',
+          '--agent-ring-idle',
         ],
         3,
       ),
@@ -175,6 +176,50 @@ describe('theme tokens', () => {
       '--agent-mark-strong',
     ]) {
       expect(defined.has(name), name).toBe(true)
+    }
+  })
+})
+
+describe('disabled and control styles', () => {
+  test('no disabled state fades a control with opacity', async () => {
+    const faded = (await sources())
+      .filter(({ file }) => file.endsWith('.css'))
+      .flatMap(({ file, text }) =>
+        [...text.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+          .filter((m) => /disabled/.test(m[1] ?? '') && /(^|\n)\s*opacity:/.test(m[2] ?? ''))
+          .map((m) => `${path.relative(rendererDir, file)} ${(m[1] ?? '').trim()}`),
+      )
+
+    expect(faded).toEqual([])
+  })
+
+  test('inputs, selects, buttons and switches are outlined with the control border', async () => {
+    const controls: [file: string, selector: string][] = [
+      ['settings/editor.module.css', '.field'],
+      ['settings/linear.module.css', '.field'],
+      ['settings/settings.module.css', '.button'],
+      ['settings/settings.module.css', '.select'],
+      ['settings/settings.module.css', '.stepper'],
+      ['settings/settings.module.css', '.switch'],
+      ['components/SettingsSearch.module.css', '.input'],
+      ['components/Sidebar.module.css', '.search'],
+      ['views/Inbox.module.css', '.chip'],
+      ['views/FactorySettings.module.css', '.timeoutInput'],
+      ['views/FactorySettingsSections.module.css', '.switch'],
+      ['views/Automations.module.css', '.switch'],
+      ['views/TaskList.module.css', '.search'],
+      ['views/DataScreen.module.css', '.secondary'],
+    ]
+
+    for (const [file, selector] of controls) {
+      const text = await readFile(path.join(rendererDir, file), 'utf8')
+      const bodies = [...text.matchAll(/(?:^|\n)([^{}\n]+) \{([^}]*)\}/g)]
+        .filter((m) => m[1] === selector)
+        .map((m) => m[2] ?? '')
+      expect(
+        bodies.some((body) => body.includes('var(--border-control)')),
+        `${file} ${selector}`,
+      ).toBe(true)
     }
   })
 })

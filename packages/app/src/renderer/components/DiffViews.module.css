@@ -96,7 +96,7 @@
 }
 
 .step:disabled {
-  opacity: 0.4;
+  color: var(--text-faint);
   cursor: default;
 }
 

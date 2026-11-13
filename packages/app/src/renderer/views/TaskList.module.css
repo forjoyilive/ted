@@ -164,7 +164,8 @@
 }
 
 .menuItem:disabled .checked {
-  opacity: 0.45;
+  border-color: var(--text-faint);
+  background: var(--text-faint);
 }
 
 .segments {
@@ -214,7 +215,7 @@
   width: 280px;
   height: 28px;
   padding: 0 10px;
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   color: var(--text-muted);
 }
@@ -398,7 +399,7 @@
 }
 
 .none {
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 .titleCell {

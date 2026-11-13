@@ -50,10 +50,10 @@
 
 ::highlight(ted-find) {
   background-color: var(--find-match);
-  color: inherit;
+  color: var(--text-primary);
 }
 
 ::highlight(ted-find-current) {
   background-color: var(--find-current);
-  color: inherit;
+  color: var(--text-primary);
 }

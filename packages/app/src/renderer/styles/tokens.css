@@ -86,8 +86,8 @@
   --agent-ring-bg: light-dark(#ffffff, #1c1c1b);
   --agent-ring-working: light-dark(#4d59cf, #7682f0);
   --agent-ring-waiting: light-dark(#b86e12, #e3a04a);
-  --agent-ring-idle: light-dark(#d6d5d0, #55544f);
-  --agent-ring-paused: light-dark(#8b8983, #76756e);
+  --agent-ring-idle: light-dark(#898883, #777671);
+  --agent-ring-paused: light-dark(#6c6b65, #96948d);
   --agent-ring-failed: light-dark(#c0392b, #f0705f);
   --agent-mark: light-dark(#53524d, #d4d2cb);
   --agent-mark-strong: light-dark(#1c1c1a, #ecebe6);
