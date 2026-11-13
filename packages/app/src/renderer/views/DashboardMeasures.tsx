@@ -7,6 +7,12 @@ export const hours = (ms: number | null) =>
       ? '<0.01h'
       : `${Number((ms / 3_600_000).toFixed(2))}h`
 
+export const share = (ms: number | null, totalMs: number) => {
+  if (ms === null || totalMs <= 0) return '—'
+  const percent = (ms / totalMs) * 100
+  return percent > 0 && percent < 1 ? '<1%' : `${Math.round(percent)}%`
+}
+
 export function TimingChange({
   current,
   previous,

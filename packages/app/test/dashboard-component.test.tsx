@@ -251,6 +251,8 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   await user().click(await screen.findByRole('tab', { name: 'Stages' }))
   const region = await screen.findByRole('region', { name: 'Elapsed time by Stage' })
   expect(within(region).getByText('14h')).toBeTruthy()
+  expect(within(region).getByText('100%')).toBeTruthy()
+  expect(within(region).getByText('Share')).toBeTruthy()
   const opener = within(region).getByRole('button', { name: '2 Tasks' })
   await user().click(opener)
   let sample = screen.getByRole('dialog')
@@ -525,4 +527,13 @@ test('percentage changes preserve sign/color and zero/missing baselines without 
   expect(screen.getByText('No baseline')).toBeTruthy()
   view.rerender(<TimingChange current={1} previous={null} />)
   expect(screen.getByText('Unavailable')).toBeTruthy()
+})
+
+test('a Stage share is a whole-number percentage of all Stage time', async () => {
+  const { share } = await import('../src/renderer/views/DashboardMeasures.tsx')
+  expect(share(489.75, 1387.34)).toBe('35%')
+  expect(share(3, 1000)).toBe('<1%')
+  expect(share(0, 1000)).toBe('0%')
+  expect(share(null, 1000)).toBe('—')
+  expect(share(0, 0)).toBe('—')
 })
