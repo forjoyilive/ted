@@ -314,8 +314,8 @@ function NewTaskForm({
   }, [factory, ready, session])
 
   useEffect(() => {
-    if (ready && defaultsReady && !busy) descriptionField.current?.focus()
-  }, [ready, defaultsReady, busy])
+    if (ready && !busy) descriptionField.current?.focus()
+  }, [ready, busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
   const fetching = source !== undefined && source.lookup === undefined
@@ -541,7 +541,7 @@ function NewTaskForm({
         </ActionButton>
       </header>
 
-      <fieldset disabled={!ready || !defaultsReady || busy} className={styles.fields}>
+      <fieldset disabled={!ready || busy} className={styles.fields}>
         <input
           className={styles.title}
           aria-label="Title"
@@ -572,11 +572,16 @@ function NewTaskForm({
           )}
         </div>
 
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: The attach button inside is the keyboard path; this widens the click target. */}
         <fieldset
           className={styles.attachments}
           aria-label="Attachments"
           onDragOver={(event) => event.preventDefault()}
           onDrop={onDrop}
+          onClick={(event) => {
+            if (event.target instanceof Element && event.target.closest('button, input')) return
+            if (uploading === 0) fileInput.current?.click()
+          }}
         >
           <PaperclipIcon className={styles.clip} />
           {attachments.map((a) => (

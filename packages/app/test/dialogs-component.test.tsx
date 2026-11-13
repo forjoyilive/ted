@@ -7,6 +7,12 @@ import { TaskLeadField } from '../src/renderer/views/TaskLeadField.tsx'
 import { bridge, deferred, draftHandlers, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
+async function formReady() {
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /^More/ }).textContent).toContain('Task Lead'),
+  )
+}
+
 async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
   const created = vi.fn(() => task())
   const api = bridge({
@@ -24,7 +30,7 @@ async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
       onClose={close}
     />,
   )
-  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  await formReady()
   return { api, created, close }
 }
 
@@ -143,7 +149,7 @@ test('a blocker from another Factory is sent with its waiting explanation', asyn
     />,
   )
   const u = user()
-  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  await formReady()
   await u.click(screen.getByRole('button', { name: 'Add blocker' }))
   await u.type(screen.getByLabelText('Find a Task'), 'crash')
   await u.click(screen.getByRole('option', { name: /DEV-1/ }))
@@ -212,7 +218,7 @@ test('a pending create disables submission and an error preserves the draft', as
     createTask: () => pending.promise,
   })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
-  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  await formReady()
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Keep this' } })
   await user().click(screen.getByRole('button', { name: 'Create' }))
   expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
@@ -251,6 +257,24 @@ test('files dropped while the draft loads are attached once it has loaded', asyn
     expect.any(Uint8Array),
   )
   expect(screen.queryByText('Attaching…')).toBeNull()
+})
+
+test('the attach box opens the file picker from anywhere on it before agent health returns', async () => {
+  const health = deferred<never>()
+  bridge({
+    ...draftHandlers(),
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
+    checkAgentHealth: () => health.promise,
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  const picker = vi.spyOn(screen.getByLabelText('Attach files'), 'click')
+  const u = user()
+  await u.click(screen.getByRole('group', { name: 'Attachments' }))
+  expect(picker).toHaveBeenCalledOnce()
+  await u.click(screen.getByRole('button', { name: 'Drop files here, or click to attach' }))
+  expect(picker).toHaveBeenCalledTimes(2)
+  expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
 test('Model unavailable offers the default model and sends the human’s choice', async () => {
@@ -326,9 +350,7 @@ test.each(['stage', 'high', ''] as const)(
     })
     render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={() => {}} />)
     const u = user()
-    await waitFor(() =>
-      expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false),
-    )
+    await formReady()
     await u.click(screen.getByRole('button', { name: /^More/ }))
     await waitFor(() =>
       expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex'),
