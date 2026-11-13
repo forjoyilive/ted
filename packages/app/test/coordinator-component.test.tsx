@@ -247,7 +247,19 @@ test('New conversation saves the conversation under Earlier, where it opens read
   await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
   expect(deleted).not.toHaveBeenCalled()
 
-  await user().click(within(earlier).getByRole('button', { name: 'Continue' }))
+  await user().click(within(list).getByRole('button', { name: 'New conversation' }))
+  expect(
+    await within(await screen.findByRole('region', { name: 'Coordinator' })).findByText(
+      'What needs your attention in widgets?',
+    ),
+  ).toBeTruthy()
+  expect(reset).toHaveBeenCalledTimes(1)
+  await user().click(within(list).getByRole('button', { name: /What should we work on next\?/ }))
+  await user().click(
+    within(
+      await screen.findByRole('region', { name: 'Earlier Coordinator conversation' }),
+    ).getByRole('button', { name: 'Continue' }),
+  )
   await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('f1', 'c1'))
   await act(async () => {
     a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
@@ -274,15 +286,35 @@ test('New conversation saves the conversation under Earlier, where it opens read
   await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('f1', 'c1'))
 })
 
-test('New conversation asks first while the Coordinator is working', async () => {
+test('New conversation asks first while the Coordinator is working, from an earlier conversation too', async () => {
   const { a, shown, open } = withCoordinator()
   shown.coordinator = coordinator({ status: 'working' })
+  const summary = {
+    id: 'c1',
+    title: 'Archive what merged',
+    startedAt: createdAt,
+    endedAt: createdAt,
+    taskCount: 0,
+  }
+  shown.earlier = [summary]
+  a.handle('coordinatorConversation', () => ({
+    ...summary,
+    factoryId: 'f1',
+    lead: { agent: 'claude' },
+    runIds: ['r0'],
+    receipts: [],
+    confirmations: [],
+    tasks: [],
+  }))
+  a.handle('coordinatorConversationChat', () => conversation())
   const reset = vi.fn(() => null)
   a.handle('resetCoordinator', reset)
   a.mount()
   await open()
   const list = screen.getByRole('region', { name: 'Coordinator conversations' })
-  await user().click(await within(list).findByRole('button', { name: 'New conversation' }))
+  await user().click(await within(list).findByRole('button', { name: /Archive what merged/ }))
+  await screen.findByRole('region', { name: 'Earlier Coordinator conversation' })
+  await user().click(within(list).getByRole('button', { name: 'New conversation' }))
   const dialog = await screen.findByRole('dialog')
   expect(dialog.textContent).toContain('Stop the Coordinator and start a new conversation?')
   await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))

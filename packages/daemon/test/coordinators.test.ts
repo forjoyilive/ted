@@ -174,10 +174,10 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   })
   expect(again.runId).toBe(c.runId)
   expect((await s.chat()).tasks.map((t) => t.id)).toEqual([
-    task.id,
-    badge.id,
-    shelved.id,
     symbols.id,
+    shelved.id,
+    badge.id,
+    task.id,
   ])
 })
 

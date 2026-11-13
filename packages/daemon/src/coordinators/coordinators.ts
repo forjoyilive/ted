@@ -179,9 +179,10 @@ export function createCoordinators(options: {
   const stopping = new Set<string>()
   const removing = new Set<string>()
   const resetting = new Set<string>()
+  const changing = new Map<string, Promise<void>>()
   const held = (id: string) => removing.has(id) || resetting.has(id)
   const notResetting = (id: string) => {
-    if (resetting.has(id))
+    if (resetting.has(id) || changing.has(id))
       throw new RequestError(409, 'The Coordinator is being reset; send the message again')
   }
   const chains = new Map<string, Promise<unknown>>()
@@ -307,7 +308,13 @@ export function createCoordinators(options: {
     queued: () =>
       saved
         .list()
-        .filter((c) => c.phase === 'queued' && !launching.has(c.factoryId) && !held(c.factoryId))
+        .filter(
+          (c) =>
+            c.phase === 'queued' &&
+            !launching.has(c.factoryId) &&
+            !held(c.factoryId) &&
+            !changing.has(c.factoryId),
+        )
         .map((c) => ({ id: c.factoryId, factoryId: c.factoryId, kind: 'coordinator', rank: 0 })),
     runnable: (id) => {
       const c = saved.get(id)
@@ -613,6 +620,8 @@ export function createCoordinators(options: {
     )
       throw new RequestError(403, 'This is not the active Coordinator Run')
     requireFactory(c.factoryId)
+    if (changing.has(c.factoryId))
+      throw new RequestError(409, 'The human is starting a new Coordinator conversation')
     return c
   }
   function target(c: StoredCoordinator, ref: string): Task {
@@ -968,24 +977,34 @@ export function createCoordinators(options: {
       if (snoozed.has(asked.id)) store.snoozeRequest(asked.id, null)
   }
   async function exclusive(id: string, work: () => Promise<void>): Promise<void> {
-    if (resetting.has(id))
+    if (changing.has(id))
       throw new RequestError(409, 'The Coordinator is already changing conversations')
-    resetting.add(id)
+    let finished = () => {}
+    changing.set(
+      id,
+      new Promise<void>((resolve) => {
+        finished = resolve
+      }),
+    )
     try {
       await work()
     } finally {
       resetting.delete(id)
+      changing.delete(id)
+      finished()
       if (!closed) pump()
     }
   }
   async function shelve(id: string, restore?: SavedCoordinatorConversation): Promise<void> {
     const c = saved.get(id)
     if (!c) {
-      if (restore) saved.restore(restore)
+      if (restore && !removing.has(id) && !closed) saved.restore(restore)
       await store.persisted()
       return
     }
     await settle(c)
+    if (removing.has(id) || closed) return
+    resetting.add(id)
     const latest = saved.get(id) ?? c
     clearSnoozes(latest)
     const started = latest.runIds.filter((runId) => store.getRun(runId) !== undefined)
@@ -1085,6 +1104,7 @@ export function createCoordinators(options: {
       if (!c || c.runId !== runId)
         throw new RequestError(409, 'This Coordinator Run was replaced; open the current chat')
       requireFactory(c.factoryId)
+      notResetting(c.factoryId)
       if (stopping.has(c.factoryId)) throw new RequestError(409, 'The Coordinator is stopping')
       if (text.trim() === '' || text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
@@ -1746,6 +1766,7 @@ export function createCoordinators(options: {
     },
     answerConfirmation(factoryId, id, answer) {
       requireChat(factoryId)
+      notResetting(factoryId)
       return serial(factoryId, async () => {
         const c = requireChat(factoryId)
         const asked = (c.confirmations ?? []).find((x) => x.id === id)
@@ -1881,6 +1902,7 @@ export function createCoordinators(options: {
       return () => removing.delete(id)
     },
     async removeFactory(id) {
+      await changing.get(id)
       try {
         const c = saved.get(id)
         if (c) {

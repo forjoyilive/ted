@@ -115,7 +115,11 @@ export function CoordinatorView({
   }
   const status = coordinator?.status ?? 'ready'
   const busyNow = status === 'working' || status === 'queued' || status === 'paused'
-  const startNew = () => (busyNow ? setResetting(true) : void reset())
+  const startNew = () => {
+    if (!coordinator) setShown(undefined)
+    else if (busyNow) setResetting(true)
+    else void reset()
+  }
   const chip = coordinatorStatus[status]
   const list = (
     <section
@@ -126,7 +130,11 @@ export function CoordinatorView({
       <header className={styles.listHeader}>
         <h1 className={views.listTitle}>Coordinator</h1>
         <span className={styles.spacer} />
-        <Button variant="primary" disabled={busy || !coordinator} onClick={startNew}>
+        <Button
+          variant="primary"
+          disabled={busy || (!coordinator && shown === undefined)}
+          onClick={startNew}
+        >
           New conversation
         </Button>
       </header>
@@ -162,6 +170,34 @@ export function CoordinatorView({
         )}
       </div>
     </section>
+  )
+  const resetDialog = resetting && (
+    <Dialog onClose={() => !busy && setResetting(false)}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={dialogs.heading}>
+            Stop the Coordinator and start a new conversation?
+          </h2>
+          <p className={dialogs.body}>
+            The Coordinator stops its current reply, and messages it hasn’t read are dropped. This
+            conversation is saved under Earlier, so you can open or continue it later.
+          </p>
+          {error !== undefined && (
+            <p className={dialogs.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={dialogs.buttons}>
+            <Button disabled={busy} onClick={() => setResetting(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={busy} onClick={() => reset()}>
+              Stop and start new
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
   )
   const deleteDialog = deleting && (
     <Dialog onClose={() => !busy && setDeleting(undefined)}>
@@ -218,12 +254,14 @@ export function CoordinatorView({
           }}
         />
         {deleteDialog}
+        {resetDialog}
       </>
     )
   return (
     <>
       {list}
       {deleteDialog}
+      {resetDialog}
       <section className={views.pane} aria-label="Coordinator">
         <header className={styles.header}>
           <div className={styles.titleRow}>
@@ -306,34 +344,6 @@ export function CoordinatorView({
           />
         )}
       </section>
-      {resetting && (
-        <Dialog onClose={() => !busy && setResetting(false)}>
-          {(headingId) => (
-            <>
-              <h2 id={headingId} className={dialogs.heading}>
-                Stop the Coordinator and start a new conversation?
-              </h2>
-              <p className={dialogs.body}>
-                The Coordinator stops its current reply, and messages it hasn’t read are dropped.
-                This conversation is saved under Earlier, so you can open or continue it later.
-              </p>
-              {error !== undefined && (
-                <p className={dialogs.error} role="alert">
-                  {error}
-                </p>
-              )}
-              <div className={dialogs.buttons}>
-                <Button disabled={busy} onClick={() => setResetting(false)}>
-                  Cancel
-                </Button>
-                <Button variant="primary" disabled={busy} onClick={() => reset()}>
-                  Stop and start new
-                </Button>
-              </div>
-            </>
-          )}
-        </Dialog>
-      )}
       <CoordinatorDetails tasks={coordinator?.tasks ?? []} onOpenTask={onOpenTask} />
     </>
   )
