@@ -1,9 +1,10 @@
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { access, appendFile, mkdir, open, readdir, rm, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, mkdir, open, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import {
   DaemonClient,
   type DaemonEvent,
@@ -24,6 +25,7 @@ import { nodeEntry } from './node-entry.ts'
 export { watchExitWith } from './exit-with.ts'
 export { crashReport } from './logs.ts'
 
+const execFileAsync = promisify(execFile)
 const startTimeoutMs = 2 * 60_000
 const retryDelayMs = 100
 
@@ -35,25 +37,49 @@ export class DaemonDidNotStartError extends Error {}
 export class TedQuitError extends Error {
   constructor() {
     super(
-      'TED was quit, so it can’t take this command. Stop working; TED offers to restart this Run when the user opens it again.',
+      'TED was quit, so it can’t take this command. Open TED to start it again; a Run stopped by the quit is offered a restart then.',
     )
   }
 }
 
 export async function markQuit(home: string): Promise<void> {
   await mkdir(home, { recursive: true, mode: 0o700 })
-  await writeFile(tedPaths(home).quitMark, `${new Date().toISOString()}\n`, { mode: 0o600 })
+  await clearQuit(home)
+  await writeFile(tedPaths(home).quitMark, `${new Date().toISOString()}\n`, {
+    mode: 0o600,
+    flag: 'wx',
+  })
 }
 
 export async function quitMarked(home: string): Promise<boolean> {
-  return access(tedPaths(home).quitMark).then(
-    () => true,
+  return lstat(tedPaths(home).quitMark).then(
+    (stats) => stats.isFile(),
     () => false,
   )
 }
 
-async function clearQuit(home: string): Promise<void> {
-  await rm(tedPaths(home).quitMark, { force: true })
+export async function clearQuit(home: string): Promise<void> {
+  const mark = tedPaths(home).quitMark
+  const stats = await lstat(mark).catch(() => undefined)
+  if (stats) await rm(mark, { force: true, recursive: stats.isDirectory() })
+}
+
+async function plainEntry(file: string, kind: 'file' | 'directory'): Promise<boolean> {
+  const stats = await lstat(file).catch(() => undefined)
+  return kind === 'file' ? stats?.isFile() === true : stats?.isDirectory() === true
+}
+
+async function processGroups(pids: number[]): Promise<Map<number, number>> {
+  if (pids.length === 0) return new Map()
+  const { stdout } = await execFileAsync('ps', ['-o', 'pid=,pgid=', '-p', pids.join(',')]).catch(
+    (error: { stdout?: string }) => ({ stdout: error.stdout ?? '' }),
+  )
+  const groups = new Map<number, number>()
+  for (const line of stdout.split('\n')) {
+    const [pid, pgid] = line.trim().split(/\s+/).map(Number)
+    if (Number.isInteger(pid) && Number.isInteger(pgid)) groups.set(pid as number, pgid as number)
+  }
+  return groups
 }
 
 export async function stopTedProcesses(
@@ -62,25 +88,43 @@ export async function stopTedProcesses(
 ): Promise<void> {
   const { lockHolders } = await import('./lock.ts')
   const paths = tedPaths(home)
-  const runs = await readdir(paths.runs).catch(() => [])
-  const locks = [paths.daemonLock, ...runs.map((run) => path.join(paths.runs, run, 'host.lock'))]
-  const holders = async () =>
-    (await lockHolders(...locks)).filter((pid) => pid > 1 && pid !== process.pid)
-  const signalAll = (pids: number[], name: NodeJS.Signals) => {
-    for (const pid of pids) {
-      try {
-        process.kill(pid, name)
-      } catch {}
+  const locks: string[] = []
+  if (await plainEntry(paths.daemonLock, 'file')) locks.push(paths.daemonLock)
+  if (await plainEntry(paths.runs, 'directory')) {
+    for (const run of await readdir(paths.runs).catch(() => [])) {
+      const lock = path.join(paths.runs, run, 'host.lock')
+      if ((await plainEntry(path.dirname(lock), 'directory')) && (await plainEntry(lock, 'file'))) {
+        locks.push(lock)
+      }
     }
   }
-  signalAll(await holders(), 'SIGTERM')
+  const holders = (await lockHolders(...locks)).filter((pid) => pid > 1 && pid !== process.pid)
+  const groups = await processGroups([...holders, process.pid])
+  const own = groups.get(process.pid)
+  const targets = [
+    ...new Set(
+      holders.map((pid) => {
+        const group = groups.get(pid)
+        return group === pid && group !== own ? -pid : pid
+      }),
+    ),
+  ]
+  const signal = (target: number, name: NodeJS.Signals | 0): boolean => {
+    try {
+      process.kill(target, name)
+      return true
+    } catch {
+      return false
+    }
+  }
+  for (const target of targets) signal(target, 'SIGTERM')
   const deadline = Date.now() + graceMs
-  let left = await holders()
+  let left = targets.filter((target) => signal(target, 0))
   while (left.length > 0 && Date.now() < deadline) {
     await sleep(pollMs)
-    left = await holders()
+    left = left.filter((target) => signal(target, 0))
   }
-  signalAll(left, 'SIGKILL')
+  for (const target of left) signal(target, 'SIGKILL')
 }
 
 export async function withDaemon<T>(
@@ -92,7 +136,6 @@ export async function withDaemon<T>(
   const deadline = Date.now() + timeoutMs
   const { appToken } = options
   let child: ChildProcess | undefined
-  const fromRun = runTokenFrom(process.env) !== undefined
   for (;;) {
     const info = await readDaemonInfo(home)
     if (info) {
@@ -110,8 +153,7 @@ export async function withDaemon<T>(
       }
     }
     if (!child) {
-      if (fromRun && (await quitMarked(home))) throw new TedQuitError()
-      if (!fromRun) await clearQuit(home)
+      if (await quitMarked(home)) throw new TedQuitError()
       child = await startDaemon(home, appToken)
     } else if (exited(child)) {
       if (child.exitCode === tedQuitExitCode) throw new TedQuitError()
@@ -184,7 +226,8 @@ async function askToStop(home: string, info: DaemonInfo): Promise<boolean> {
 async function terminateLockHolder(home: string, pid: number): Promise<boolean> {
   if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false
   const { lockHolders } = await import('./lock.ts')
-  if (!(await lockHolders(tedPaths(home).daemonLock)).includes(pid)) return false
+  if (!(await lockHolders(tedPaths(home).daemonLock).catch((): number[] => [])).includes(pid))
+    return false
   try {
     process.kill(pid, 'SIGTERM')
     return true

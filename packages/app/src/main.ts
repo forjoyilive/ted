@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { executionHome } from '@ted/daemon/execution'
 import {
+  clearQuit,
   crashReport,
   type DaemonConnection,
   type DaemonSupervisor,
@@ -963,6 +964,7 @@ async function start(): Promise<void> {
       throw new Error('Prepare the demo home with pnpm app --demo first.')
   }
   traceStartup('daemon-connect-start')
+  await clearQuit(tedHome())
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
     ...(testAppToken && { appToken: testAppToken }),
