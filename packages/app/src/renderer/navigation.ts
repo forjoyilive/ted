@@ -18,9 +18,16 @@ export type FactoryView =
   | 'coordinator'
   | 'board'
   | 'list'
+  | 'map'
   | 'plans'
   | 'automations'
   | 'settings'
+
+export const taskViews = ['board', 'list', 'map'] as const satisfies readonly FactoryView[]
+
+export function isTaskView(view: FactoryView): view is (typeof taskViews)[number] {
+  return (taskViews as readonly FactoryView[]).includes(view)
+}
 
 export type Screen =
   | { kind: 'inbox'; factoryId?: string; answered?: boolean }
@@ -36,6 +43,7 @@ export interface Navigation {
   planFrom?: string
   lastFactoryId?: string
   lastViews: Readonly<Record<string, FactoryView>>
+  lastTaskViews: Readonly<Record<string, (typeof taskViews)[number]>>
   settings?: { section: SettingsSectionId }
   lastSettingsSection: SettingsSectionId
 }
@@ -44,6 +52,7 @@ export type NavigationAction =
   | { type: 'open'; screen: Screen }
   | { type: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { type: 'open-factory'; factoryId: string }
+  | { type: 'open-tasks'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
   | { type: 'open-plan'; factoryId: string; planId?: string; from?: string; requestId?: string }
   | { type: 'close-task' }
@@ -63,6 +72,7 @@ export const newPlan = 'new'
 export const initialNavigation: Navigation = {
   screen: { kind: 'inbox' },
   lastViews: {},
+  lastTaskViews: {},
   lastSettingsSection: 'general',
 }
 
@@ -85,10 +95,20 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         screen: action.screen,
         lastFactoryId: factoryId,
         lastViews: { ...state.lastViews, [factoryId]: view },
+        ...(isTaskView(view) && {
+          lastTaskViews: { ...state.lastTaskViews, [factoryId]: view },
+        }),
       }
     }
     case 'open-factory': {
       const view = state.lastViews[action.factoryId] ?? 'dashboard'
+      return navigate(state, {
+        type: 'open',
+        screen: { kind: 'factory', factoryId: action.factoryId, view },
+      })
+    }
+    case 'open-tasks': {
+      const view = state.lastTaskViews[action.factoryId] ?? 'board'
       return navigate(state, {
         type: 'open',
         screen: { kind: 'factory', factoryId: action.factoryId, view },
@@ -241,6 +261,9 @@ function goTo(state: Navigation, place: Place): Navigation {
     ...(screen.kind === 'factory' && {
       lastFactoryId: screen.factoryId,
       lastViews: { ...state.lastViews, [screen.factoryId]: screen.view },
+      ...(isTaskView(screen.view) && {
+        lastTaskViews: { ...state.lastTaskViews, [screen.factoryId]: screen.view },
+      }),
     }),
   }
 }
@@ -269,6 +292,7 @@ export function backLink(state: Navigation): string | undefined {
   if (screen.kind === 'factory' && screen.view === 'dashboard') return '← Dashboard'
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'
   if (screen.kind === 'factory' && screen.view === 'list') return '← List'
+  if (screen.kind === 'factory' && screen.view === 'map') return '← Map'
   if (screen.kind === 'factory' && screen.view === 'coordinator') return '← Coordinator'
   return undefined
 }

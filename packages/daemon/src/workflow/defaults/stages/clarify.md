@@ -32,11 +32,11 @@ Read the Task, its sources and the relevant code before asking. Use the repo to 
    - **None** when nothing is unclear. Record the result in the Task brief as described below, then run `ted outcome advance`.
    - **Few** when a handful of simple questions would settle it. Ask them all in one round.
    - **Grilling** when the Task hides real decisions. Use `grilling` (or `batch-grill-me`) if the skill is available to your agent; otherwise follow the rounds below. Ask in rounds until nothing is left open.
-3. Ask a round with `ted ask --round <file>`. The file is JSON: a short `title`, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text. For example:
+3. Ask a round with `ted ask --round <file>`. The file is JSON: a short `title` that names the topic and doesn’t say how many questions there are, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text. For example:
 
    ```json
    {
-     "title": "Conflicts and sync · 2 questions",
+     "title": "Conflicts and sync",
      "summary": "Each question has my recommended answer filled in.",
      "questions": [
        {

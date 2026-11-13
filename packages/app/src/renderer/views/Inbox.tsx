@@ -6,7 +6,7 @@ import type {
   PlanInboxItem,
 } from '@ted/protocol'
 import { factoryNotifications } from '@ted/protocol/settings'
-import { type ReactNode, useContext, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useContext, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import {
   buttonPosition,
@@ -16,16 +16,27 @@ import {
 } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
-import { BellOffIcon } from '../components/icons.tsx'
+import { BellOffIcon, ChevronIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
-import { inboxChips, inFactory, nextSelection } from '../inbox.ts'
+import {
+  type Grouped,
+  groupInbox,
+  inboxChips,
+  inboxGroupingLabels,
+  inboxGroupings,
+  inFactory,
+  nextSelection,
+  requestKind,
+} from '../inbox.ts'
+import { useInboxGrouping } from '../inbox-grouping.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
 import { inboxLabel } from '../plans.ts'
 import { openSnoozeMenu, SnoozedContext, snoozeTime } from '../request-snooze.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
 import { onRequestAnswered, ted } from '../ted.ts'
 import styles from './Inbox.module.css'
+import { FilterIcon, MenuButton } from './TaskList.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import views from './views.module.css'
 
@@ -45,6 +56,7 @@ export function Inbox({
   onOpenPlan,
   onFilter,
   onShowAnswered,
+  onClearFilters,
   onNewTask,
   onOpenNotifications,
   settings,
@@ -65,11 +77,13 @@ export function Inbox({
   onOpenPlan?: (item: PlanInboxItem) => void
   onFilter: (factoryId: string | undefined) => void
   onShowAnswered: (show: boolean) => void
+  onClearFilters?: () => void
   onNewTask: () => void
   onOpenNotifications?: () => void
   settings?: MachineSettings | undefined
   children?: ReactNode
 }) {
+  const view = useInboxGrouping(showAnswered ? 'answered' : 'waiting')
   const snoozed = useContext(SnoozedContext)
   const [showSnoozed, setShowSnoozed] = useState(false)
   const snoozeMenu = (requestId: string, at: MenuPosition) =>
@@ -162,6 +176,11 @@ export function Inbox({
     kind: 'task' as const,
     item,
     request: item.request,
+    grouped: {
+      kind: requestKind(item.request),
+      at: (showAnswered ? item.request.answer?.at : undefined) ?? item.request.createdAt,
+      stage: item.request.stage ?? item.task.stage,
+    } satisfies Grouped,
     open: () => onOpen(item),
   }))
   const allRows = showAnswered
@@ -171,6 +190,7 @@ export function Inbox({
           kind: 'plan' as const,
           item,
           request: item.request,
+          grouped: { kind: 'question', at: item.request.createdAt } satisfies Grouped,
           open: () => onOpenPlan?.(item),
         })),
         ...taskRows,
@@ -178,6 +198,7 @@ export function Inbox({
           kind: 'automation' as const,
           item,
           request: item,
+          grouped: { kind: 'question', at: item.createdAt } satisfies Grouped,
           open: () => onOpenQuestion?.(item),
         })),
       ].sort(
@@ -204,12 +225,20 @@ export function Inbox({
               : row.item.factoryId,
         )
         .filter(quiet)
-  const selectable = showSnoozed ? [...rows, ...snoozedRows] : rows
-  const before = useRef(selectable)
-  const next = showAnswered ? undefined : nextSelection(before.current, selectable, selected)
+  const groups = groupInbox(rows, view.grouping, now)
+  const ordered = groups.flatMap((group) => group.rows)
+  const visible = groups.flatMap((group) => (view.collapsed(group.key) ? [] : group.rows))
+  const shownSnoozed = showSnoozed ? snoozedRows : []
+  const selectable = [...visible, ...shownSnoozed]
+  const all = [...ordered, ...shownSnoozed]
+  const before = useRef(all)
+  const next =
+    showAnswered || ordered.some((row) => row.request.id === selected)
+      ? undefined
+      : nextSelection(before.current, selectable, selected)
   useLayoutEffect(() => {
     if (showAnswered) return
-    before.current = selectable
+    before.current = all
     if (next === null) onClear()
     else next?.open()
   })
@@ -220,7 +249,8 @@ export function Inbox({
       <span className={styles.until}>Returns {snoozeTime(at)}</span>
     )
   }
-  const rowButton = (row: (typeof allRows)[number]) => {
+  const rowButton = (row: (typeof allRows)[number], old = false) => {
+    const ageClass = old ? `${styles.age} ${styles.old}` : styles.age
     if (row.kind === 'plan') {
       const item = row.item
       const { request, plan } = item
@@ -247,7 +277,7 @@ export function Inbox({
           <span className={styles.top}>
             <span className={styles.kind}>{inboxLabel(request)}</span>
             {mark(plan.factoryId)}
-            <span className={styles.age}>{age(request.createdAt, now)}</span>
+            <span className={ageClass}>{age(request.createdAt, now)}</span>
           </span>
           <span data-headline className={`${styles.headline} ${styles.unread}`}>
             {request.title ?? ''}
@@ -288,7 +318,7 @@ export function Inbox({
               {requestLabel(request)}
             </span>
             {mark(task.factoryId)}
-            <span className={styles.age}>{age(request.answer?.at ?? request.createdAt, now)}</span>
+            <span className={ageClass}>{age(request.answer?.at ?? request.createdAt, now)}</span>
           </span>
           <span
             data-headline
@@ -325,7 +355,7 @@ export function Inbox({
         <span className={styles.top}>
           <span className={styles.kind}>Question</span>
           {mark(question.factoryId)}
-          <span className={styles.age}>{age(question.createdAt, now)}</span>
+          <span className={ageClass}>{age(question.createdAt, now)}</span>
         </span>
         <span data-headline className={`${styles.headline} ${styles.unread}`}>
           {question.body.split('\n')[0]}
@@ -334,6 +364,18 @@ export function Inbox({
         {until(row.request.id)}
       </button>
     )
+  }
+
+  const active = [
+    ...(view.grouping === 'none' ? [] : [`Grouped by ${inboxGroupingLabels[view.grouping]}`]),
+    ...(factoryId === undefined ? [] : [factoryName(factories, factoryId)]),
+    ...(showAnswered ? ['Answered'] : []),
+  ]
+  const clear = () => {
+    view.setGrouping('none')
+    if (onClearFilters) return onClearFilters()
+    if (factoryId !== undefined) onFilter(undefined)
+    if (showAnswered) onShowAnswered(false)
   }
 
   return (
@@ -346,38 +388,74 @@ export function Inbox({
             <Help>
               Questions and sign-offs from agents that need your answer, from every Factory.
             </Help>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={showAnswered}
-              className={styles.answeredSwitch}
-              onClick={() => onShowAnswered(!showAnswered)}
-            >
-              <span className={styles.track} aria-hidden>
-                <span className={styles.knob} />
-              </span>
-              Answered
-            </button>
+            <div className={styles.filter}>
+              <MenuButton label="Filter" icon={<FilterIcon />} badge={active.length}>
+                {() => (
+                  <>
+                    <div className={styles.panelHeading}>Group by</div>
+                    {inboxGroupings.map((grouping) => (
+                      <button
+                        key={grouping}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={view.grouping === grouping}
+                        className={styles.choice}
+                        onClick={() => view.setGrouping(grouping)}
+                      >
+                        <span className={styles.choiceLabel}>{inboxGroupingLabels[grouping]}</span>
+                        {view.grouping === grouping && <span className={styles.tick}>✓</span>}
+                      </button>
+                    ))}
+                    {manyFactories && (
+                      <>
+                        <div className={styles.panelHeading}>Factory</div>
+                        <div className={styles.chips}>
+                          {inboxChips(
+                            awake(pending, (item) => item.request.id),
+                            factories,
+                            awake(pendingQuestions, (question) => question.id),
+                            awake(pendingPlans, (item) => item.request.id),
+                          ).map((chip) => (
+                            <button
+                              key={chip.factoryId ?? 'all'}
+                              type="button"
+                              className={styles.chip}
+                              aria-pressed={chip.factoryId === factoryId}
+                              onClick={() => onFilter(chip.factoryId)}
+                            >
+                              {chip.factoryId !== undefined && quiet(chip.factoryId) && (
+                                <BellOffIcon />
+                              )}
+                              {chip.label} <span className={styles.chipCount}>{chip.count}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    <div className={styles.panelHeading}>Show</div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={showAnswered}
+                      className={styles.answeredSwitch}
+                      onClick={() => onShowAnswered(!showAnswered)}
+                    >
+                      <span className={styles.track} aria-hidden>
+                        <span className={styles.knob} />
+                      </span>
+                      Answered
+                    </button>
+                  </>
+                )}
+              </MenuButton>
+            </div>
           </div>
-          {manyFactories && (
-            <div className={styles.chips}>
-              {inboxChips(
-                awake(pending, (item) => item.request.id),
-                factories,
-                awake(pendingQuestions, (question) => question.id),
-                awake(pendingPlans, (item) => item.request.id),
-              ).map((chip) => (
-                <button
-                  key={chip.factoryId ?? 'all'}
-                  type="button"
-                  className={styles.chip}
-                  aria-pressed={chip.factoryId === factoryId}
-                  onClick={() => onFilter(chip.factoryId)}
-                >
-                  {chip.factoryId !== undefined && quiet(chip.factoryId) && <BellOffIcon />}
-                  {chip.label} <span className={styles.chipCount}>{chip.count}</span>
-                </button>
-              ))}
+          {active.length > 0 && (
+            <div className={styles.summary}>
+              <span className={styles.summaryText}>{active.join(' · ')}</span>
+              <button type="button" className={styles.clear} onClick={clear}>
+                Clear
+              </button>
             </div>
           )}
         </header>
@@ -412,24 +490,46 @@ export function Inbox({
           />
         ) : (
           <ul className={styles.rows}>
-            {rows.map((row) => (
-              <li key={row.request.id} className={styles.item}>
-                {rowButton(row)}
-                {!showAnswered && (
-                  <button
-                    type="button"
-                    className={styles.snooze}
-                    title="Snooze (H)"
-                    aria-label="Snooze"
-                    onClick={(event) =>
-                      snoozeMenu(row.request.id, buttonPosition(event.currentTarget))
-                    }
-                  >
-                    Snooze <span className={styles.key}>H</span>
-                  </button>
-                )}
-              </li>
-            ))}
+            {groups.map((group) => {
+              const closed = view.collapsed(group.key)
+              return (
+                <Fragment key={group.key}>
+                  {view.grouping !== 'none' && (
+                    <li className={styles.groupItem}>
+                      <button
+                        type="button"
+                        className={styles.groupHead}
+                        aria-expanded={!closed}
+                        onClick={() => view.setCollapsed(group.key, !closed)}
+                      >
+                        <ChevronIcon open={!closed} />
+                        <span className={styles.groupLabel}>{group.label}</span>
+                        <span className={styles.groupCount}>{group.rows.length}</span>
+                      </button>
+                    </li>
+                  )}
+                  {!closed &&
+                    group.rows.map((row) => (
+                      <li key={row.request.id} className={styles.item}>
+                        {rowButton(row, group.old === true && !showAnswered)}
+                        {!showAnswered && (
+                          <button
+                            type="button"
+                            className={styles.snooze}
+                            title="Snooze (H)"
+                            aria-label="Snooze"
+                            onClick={(event) =>
+                              snoozeMenu(row.request.id, buttonPosition(event.currentTarget))
+                            }
+                          >
+                            Snooze <span className={styles.key}>H</span>
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                </Fragment>
+              )
+            })}
             {snoozedRows.length > 0 && (
               <li>
                 <button

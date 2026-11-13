@@ -844,6 +844,10 @@ export interface TedStore extends TaskHistory {
   listSendBacks(taskId: string): SendBack[]
   recordBaseConflict(taskId: string, conflict: FoundConflict): BaseConflictFound
   baseConflicts(taskId?: string): BaseConflictFound[]
+  baseAdopted(
+    taskId: string,
+    moved: readonly { repo: string; base: string; from: string; to: string }[],
+  ): void
   declareSeverity(input: {
     taskId: string
     runId: string
@@ -4743,6 +4747,12 @@ export async function openStore({
           ),
         )
         .map(toBaseConflict),
+    baseAdopted(taskId, moved) {
+      if (moved.length === 0) return
+      const at = new Date().toISOString()
+      commit(...moved.map((row) => events.baseBranchAdopted({ taskId, ...row, at })))
+      updatedTask(taskId)
+    },
     listSendBacks(taskId) {
       const declared = store.query(
         queryDb(severityDeclarations.where({ taskId }).orderBy('at', 'asc')),

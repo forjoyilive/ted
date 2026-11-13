@@ -563,7 +563,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
   await user().click(screen.getByRole('button', { name: 'Show answered' }))
   expect(props.onShowAnswered).toHaveBeenCalledWith(true)
   view.rerender(<Inbox {...props} factoryId="f1" />)
-  expect(screen.getByText(/widgets/)).toBeTruthy()
+  expect(screen.getAllByText(/widgets/)).toHaveLength(2)
   await user().click(screen.getByRole('button', { name: 'Show all Factories' }))
   expect(props.onFilter).toHaveBeenCalledWith(undefined)
 })
@@ -602,6 +602,91 @@ test('a Factory with Inbox items off has its requests marked as not counted', as
   expect(screen.getByText(/1 not counted or notified: Inbox items are off for/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Change' }))
   expect(onOpenNotifications).toHaveBeenCalledOnce()
+})
+
+test('Filter holds Group by, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
+  const props = inboxProps()
+  const question = {
+    task: task(),
+    request: comment({ id: 'q', body: 'A question?', createdAt: '2026-11-09T13:00:00Z' }),
+  }
+  const permission = {
+    task: task(),
+    request: comment({
+      id: 'perm',
+      kind: 'permission',
+      body: 'Run the build',
+      permission: { command: 'pnpm build' },
+      createdAt: '2026-11-09T12:00:00Z',
+    }),
+  }
+  const all = {
+    ...props,
+    items: [question, permission],
+    factories: [factory(), factory({ id: 'f2', name: 'Other' })],
+    onClearFilters: vi.fn(),
+  }
+  try {
+    const view = render(<Inbox {...all} />)
+    const headlines = () =>
+      [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
+    const headings = () =>
+      [...view.container.querySelectorAll('ul [aria-expanded]')].map((el) => [
+        el.textContent,
+        el.getAttribute('aria-expanded'),
+      ])
+    expect(headlines()).toEqual(['A question?', 'Run the build'])
+    expect(headings()).toEqual([])
+    expect(screen.queryByRole('switch', { name: 'Answered' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
+
+    await user().click(screen.getByRole('button', { name: /^Filter/ }))
+    const menu = screen.getByRole('menu', { name: 'Filter' })
+    expect(
+      within(menu).getByRole('menuitemradio', { name: /^None/ }).getAttribute('aria-checked'),
+    ).toBe('true')
+    await user().click(within(menu).getByRole('button', { name: 'Other 0' }))
+    expect(props.onFilter).toHaveBeenCalledWith('f2')
+    await user().click(within(menu).getByRole('switch', { name: 'Answered' }))
+    expect(props.onShowAnswered).toHaveBeenCalledWith(true)
+
+    await user().click(within(menu).getByRole('menuitemradio', { name: /^Kind/ }))
+    expect(headings()).toEqual([
+      ['Blocking a Run1', 'true'],
+      ['Questions1', 'true'],
+    ])
+    expect(headlines()).toEqual(['Run the build', 'A question?'])
+    expect(screen.getByText('Grouped by Kind')).toBeTruthy()
+
+    await user().click(screen.getByRole('button', { name: /^Blocking a Run/ }))
+    expect(headings()).toEqual([
+      ['Blocking a Run1', 'false'],
+      ['Questions1', 'true'],
+    ])
+    expect(headlines()).toEqual(['A question?'])
+    view.rerender(<Inbox {...all} selected="perm" />)
+    expect(props.onOpen).not.toHaveBeenCalled()
+    expect(props.onClear).not.toHaveBeenCalled()
+
+    view.unmount()
+    render(<Inbox {...all} />)
+    const again = () =>
+      [...document.querySelectorAll('ul [aria-expanded]')].map((el) => [
+        el.textContent,
+        el.getAttribute('aria-expanded'),
+      ])
+    expect(again()).toEqual([
+      ['Blocking a Run1', 'false'],
+      ['Questions1', 'true'],
+    ])
+
+    await user().click(screen.getByRole('button', { name: 'Clear' }))
+    expect(all.onClearFilters).toHaveBeenCalledOnce()
+    expect(again()).toEqual([])
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
+  } finally {
+    localStorage.removeItem('ted.inbox.grouping')
+  }
 })
 
 test('Inbox interleaves request types newest first, filters without reordering, and selects the next visible row', async () => {

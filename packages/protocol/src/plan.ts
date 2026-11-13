@@ -101,10 +101,7 @@ export function planTitle(message: string): string {
 }
 
 export function planRequestLabel(request: PlanRequest): string {
-  if (request.kind === 'round') {
-    const count = request.round?.questions.length ?? 0
-    return `Round ${request.round?.number ?? ''} · ${count} ${count === 1 ? 'question' : 'questions'}`
-  }
+  if (request.kind === 'round') return `Round ${request.round?.number ?? ''}`
   if (request.kind === 'proposal') {
     const count = request.proposal?.rows.length ?? 0
     return `Proposal · ${count} ${count === 1 ? 'Task' : 'Tasks'}`
