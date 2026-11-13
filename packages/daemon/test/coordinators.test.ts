@@ -443,7 +443,13 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect(await taskById(createReceipt.taskId ?? '')).toBeUndefined()
   expect((await taskById(d.id))?.archived).toBeFalsy()
   expect((await s.client.call('POST', answer(askedAD.id), { decision: 'cancel' })).status).toBe(409)
-  expect((await run.call('POST', '/coordinator/delete', adInput)).body).toEqual(deleteAD.body)
+  expect((await run.call('POST', '/coordinator/delete', adInput)).body).toMatchObject({
+    confirmation: { id: askedAD.id, waiting: false },
+    receipts: [
+      { operation: 'delete', taskId: a.id },
+      { operation: 'delete', taskId: f.id },
+    ],
+  })
 
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {
