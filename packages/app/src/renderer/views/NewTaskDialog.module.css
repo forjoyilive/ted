@@ -269,22 +269,6 @@
   color: var(--text-caption);
 }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 2px 4px 2px 8px;
-  border-radius: 6px;
-  background: var(--surface-inset);
-  font-size: var(--text-12-5);
-}
-
-.chipMeta {
-  color: var(--text-caption);
-  font-size: var(--text-12);
-}
-
 .chipRemove {
   display: inline-flex;
   padding: 2px;

@@ -158,6 +158,19 @@ export function PaperclipIcon({ className }: IconProps) {
   )
 }
 
+export function FileIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="20" height="24" viewBox="0 0 20 24" fill="none" aria-hidden>
+      <path
+        d="M3 1.5H12L17 6.5V22.5H3Z M12 1.5V6.5H17"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        stroke="currentColor"
+      />
+    </svg>
+  )
+}
+
 export function RestartIcon({ className }: IconProps) {
   return (
     <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>

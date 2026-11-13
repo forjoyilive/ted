@@ -49,6 +49,7 @@ export function Viewer({
       onClick={onClick}
       onCancel={(event) => {
         event.preventDefault()
+        event.stopPropagation()
         onClose()
       }}
     >
