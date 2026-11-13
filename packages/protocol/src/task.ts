@@ -812,6 +812,8 @@ export interface CancelMergeRequest {
   attachments?: AttachmentRef[]
 }
 
+export type MarkDoneRequest = Record<string, never>
+
 export interface PermissionAsk {
   command: string
   details?: string

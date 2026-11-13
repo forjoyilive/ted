@@ -23,6 +23,7 @@ export const forwardedRequests = [
   'listComments',
   'postComment',
   'cancelMerge',
+  'markDone',
   'markCommentsRead',
   'listThreadEvents',
   'listInbox',
