@@ -12,6 +12,7 @@ import { loadedWindow } from './first-window.ts'
 import { cleanupCoordinator } from './support/coordinator-cleanup.ts'
 import { resolveElectron } from './support/electron-installation.ts'
 
+const longReply = Array.from({ length: 40 }, (_, n) => `Point ${n + 1} to weigh.`)
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = resolveElectron()
 let home: string
@@ -29,7 +30,7 @@ afterEach(async ({ task }) => {
   )
 })
 
-test('Coordinator opens from the sidebar, sends, shows receipts and keeps its whole conversation when reopened and after a new Run', async () => {
+test('Coordinator opens from the sidebar, sends, shows receipts and keeps its whole conversation and scroll position when reopened and after a new Run', async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-coordinator-ui-'))
   const env = {
     ...process.env,
@@ -55,7 +56,10 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   const input = pane.getByRole('textbox', { name: 'Message to the Coordinator' })
   await input.fill(
     JSON.stringify({
-      steps: [{ say: 'Here is what needs attention.' }, { waitFor: path.join(home, 'finish') }],
+      steps: [
+        { say: ['Here is what needs attention.', ...longReply].join('\n\n') },
+        { waitFor: path.join(home, 'finish') },
+      ],
     }),
   )
   await pane.getByRole('button', { name: 'Send', exact: true }).click()
@@ -80,7 +84,8 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
       })
     ).status,
   ).toBe(200)
-  await pane.getByRole('button', { name: /Started NB-/ }).waitFor()
+  await pane.getByText(/Started NB-/).waitFor()
+  await pane.getByRole('button', { name: /^Open NB-/ }).waitFor()
   const details = window.getByRole('complementary', { name: 'Coordinator details' })
   await details.getByRole('button', { name: /Discuss priorities/ }).waitFor()
   await window.screenshot({
@@ -90,7 +95,7 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
   await entry.click()
   await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
-  await pane.getByRole('button', { name: /Started NB-/ }).waitFor()
+  await pane.getByText(/Started NB-/).waitFor()
   expect(((await client.coordinator(factory.id)) as Coordinator).runId).toBe(c.runId)
   await pane.getByRole('button', { name: 'Stop the turn', exact: true }).click()
   await waitUntil(
@@ -100,6 +105,11 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
     'stopped Coordinator',
   )
   await entry.getByRole('img', { name: 'Working' }).waitFor({ state: 'detached' })
+  const scroller = pane.locator('[data-scroller]')
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event('scroll'))
+  })
   await pane
     .getByRole('textbox', { name: 'Message to the Coordinator' })
     .fill(JSON.stringify({ steps: [{ say: 'Picking up where we were.' }, { endTurn: true }] }))
@@ -108,8 +118,9 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   expect(((await client.coordinator(factory.id)) as Coordinator).runId).not.toBe(c.runId)
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
   await entry.click()
-  await pane.getByText('Picking up where we were.', { exact: true }).waitFor()
-  await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
+  await pane.getByText('Picking up where we were.', { exact: true }).waitFor({ state: 'attached' })
+  await pane.getByText(/^Here is what needs attention\./).waitFor()
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBeLessThan(5)
 })
 
 test('Stop keeps unstarted messages visible as Not sent when the Coordinator is reopened', async () => {
