@@ -267,10 +267,9 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   expect(within(dock).getByText(second.body)).toBeTruthy()
   expect(within(dock).getByText('2 of 2')).toBeTruthy()
   await user().type(within(dock).getByRole('textbox', { name: 'Your answer' }), 'Keep retrying')
-  const jumps = within(thread).getByRole('navigation', { name: 'Requests waiting for you' })
-  const firstJump = within(jumps).getByRole('button', { name: /Where should sync status show/ })
-  const secondJump = within(jumps).getByRole('button', { name: /Can the queue retry offline/ })
-  await user().click(firstJump)
+  const firstJump = () => jumpTo(thread, /Where should sync status show/)
+  const secondJump = () => jumpTo(thread, /Can the queue retry offline/)
+  await firstJump()
   expect(document.activeElement?.contains(firstCard)).toBe(true)
   expect(within(dock).getByText(first.body)).toBeTruthy()
   expect(
@@ -278,14 +277,14 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   ).toBe('')
   await user().click(within(inbox).getByText(second.body))
   expect(document.activeElement?.contains(secondCard)).toBe(true)
-  await user().click(secondJump)
+  await secondJump()
   expect(document.activeElement?.contains(secondCard)).toBe(true)
   expect(
     (within(dock).getByRole('textbox', { name: 'Your answer' }) as HTMLTextAreaElement).value,
   ).toBe('Keep retrying')
   const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
   scrollIntoView.mockClear()
-  await user().click(secondJump)
+  await secondJump()
   const target = required(secondCard.closest('[data-chat-item]'))
   expect(document.activeElement).toBe(target)
   expect(scrollIntoView.mock.contexts).toContain(target)
@@ -302,7 +301,7 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
     `Not answering Question: ${first.body}`,
   )
   expect(within(thread).getByRole('textbox', { name: 'Comment' })).toBeTruthy()
-  await user().click(firstJump)
+  await firstJump()
   expect(within(thread).queryByRole('note', { name: 'Open request' })).toBeNull()
   expect(within(dock).getByDisplayValue('Keep the header draft')).toBeTruthy()
   await user().click(within(dock).getByRole('button', { name: 'Comment without answering' }))
@@ -315,7 +314,7 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   await user().click(within(thread).getByRole('button', { name: 'Back to the answer' }))
   await user().click(within(thread).getByRole('button', { name: 'Work, now' }))
   expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
-  await user().click(firstJump)
+  await firstJump()
   expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(2)
   expect(within(thread).queryByText('Showing Work only ·')).toBeNull()
   expect(within(dock).getByDisplayValue('Keep the header draft')).toBeTruthy()
@@ -458,10 +457,8 @@ test.each(['response-first', 'event-first'] as const)(
     const inbox = await screen.findByRole('region', { name: 'Inbox' })
     await user().click(await within(inbox).findByText('Keep the settings?'))
     const thread = await screen.findByRole('region', { name: 'Task thread' })
-    const chips = await within(thread).findByRole('navigation', {
-      name: 'Requests waiting for you',
-    })
-    await user().click(within(chips).getByRole('button', { name: /^Jump to Permission/ }))
+    await within(thread).findByRole('button', { name: '2 waiting on you ▾' })
+    await jumpTo(thread, /^Jump to Permission/)
     expect(
       required(within(inbox).getByText('Build the preview?').closest('button')).getAttribute(
         'aria-current',
@@ -782,22 +779,20 @@ test('request shortcuts target the focused request and do not guess between open
   await u.keyboard('a{Enter}')
   expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
   const dock = within(thread).getByRole('region', { name: 'Answer' })
-  const jump = within(thread).getByRole('button', { name: 'Jump to Permission: Second command' })
-  await u.click(jump)
+  const jump = () => jumpTo(thread, 'Jump to Permission: Second command')
+  await jump()
   await u.keyboard('r')
   const answer = within(dock).getByRole('textbox', { name: 'Your answer' })
   expect(document.activeElement).toBe(answer)
   await u.type(answer, 'Allow this one')
-  await u.click(jump)
+  await jump()
   await u.keyboard('a{Enter}')
   expect(a.request).toHaveBeenCalledWith('answerRequest', second.id, {
     action: 'approve',
     text: 'Allow this one',
   })
   expect(a.request.mock.calls.filter(([name]) => name === 'answerRequest')).toHaveLength(1)
-  await u.click(
-    within(thread).getByRole('button', { name: 'Jump to Design review: Review the draft' }),
-  )
+  await jumpTo(thread, 'Jump to Design review: Review the draft')
   await u.keyboard('{Shift>}r{/Shift}')
   expect(document.activeElement).toBe(within(dock).getByRole('textbox', { name: 'Your answer' }))
   await u.click(within(dock).getByRole('button', { name: 'Comment without answering' }))
@@ -805,3 +800,8 @@ test('request shortcuts target the focused request and do not guess between open
   await u.keyboard('r')
   expect(document.activeElement).not.toBe(thread.querySelector('textarea[data-comment-box]'))
 })
+
+async function jumpTo(thread: HTMLElement, name: string | RegExp) {
+  await user().click(within(thread).getByRole('button', { name: /waiting on you/ }))
+  await user().click(screen.getByRole('menuitem', { name }))
+}

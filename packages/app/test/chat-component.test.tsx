@@ -209,7 +209,7 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
   await u.click(within(screen.getByRole('main')).getByText('Sync notes'))
-  expect(screen.getAllByRole('tab', { name: 'Task Lead' })).toHaveLength(1)
+  expect(screen.queryAllByRole('tab', { name: 'Task Lead' })).toHaveLength(0)
   const chat = within(await screen.findByRole('region', { name: 'Task thread' }))
   await chat.findByText('Current work.')
   expect(chat.queryByRole('button', { name: 'Restart' })).toBeNull()

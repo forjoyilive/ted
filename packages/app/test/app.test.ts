@@ -493,12 +493,11 @@ describe('TED app', () => {
     reached('second-launch-loaded')
     await openAllTasks(window)
     await taskRow(window, 'NB-1').click()
-    await window.getByRole('tab', { name: /Task Lead/ }).click()
     await window
       .getByRole('region', { name: 'Run chat' })
       .getByText('Pinned notes now sort first.')
       .waitFor()
-    expect(await window.getByRole('tab', { name: 'Task Lead', exact: true }).count()).toBe(1)
+    expect(await window.getByRole('tab', { name: 'Task Lead', exact: true }).count()).toBe(0)
     expect(await window.getByRole('tab', { name: 'Thread', exact: true }).count()).toBe(0)
   }, 90_000)
 
