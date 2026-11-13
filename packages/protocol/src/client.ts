@@ -602,6 +602,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/use-default-model`)
   }
 
+  restartTaskLead(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/restart`)
+  }
+
   moveToBacklog(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
   }

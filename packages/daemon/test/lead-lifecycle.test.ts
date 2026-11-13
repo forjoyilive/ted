@@ -6,7 +6,11 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
 import { createRunOutput } from '../src/runs/run-output.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
-import { createLeadLifecycle, type LeadLifecycleOptions } from '../src/tasks/lead-lifecycle.ts'
+import {
+  createLeadLifecycle,
+  type LeadLifecycleOptions,
+  restartedMessage,
+} from '../src/tasks/lead-lifecycle.ts'
 import { resolveWorkflow } from '../src/workflow/resolve.ts'
 import { ManualClock } from './support/manual-clock.ts'
 
@@ -100,6 +104,9 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
       stop: async (id) => {
         stopped.push(id)
       },
+      interrupt: async (id) => {
+        store.recordRunOutput(id, { toOffset: store.runReadOffset(id) + 1, state: 'idle' })
+      },
     },
     health: {
       ready: async () => true,
@@ -133,6 +140,7 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
     deliver: async () => {},
     editedSince: () => [],
     freshRunNote: () => store.latestBrief(taskId)?.text ?? 'Pick up this Task',
+    agentChangeNote: async (_task, run, agent) => `Switched from ${run.agent} to ${agent}`,
     failedSetupReports: async () => [],
     setUp: async (task, steps) => {
       for (const { repo, setup } of steps) {
@@ -487,7 +495,7 @@ test('an answer arriving during restart waits for admission and wakes the queue 
     expect(store.getTask(taskId)?.leadRestartPending).toBe(false)
     return dispatch(...args)
   })
-  await lifecycle.applyLead(taskId)
+  await lifecycle.applyLead(taskId, { restart: true })
   expect(restart).not.toHaveBeenCalled()
   store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
   const applying = lifecycle.applyLead(taskId)
@@ -512,6 +520,39 @@ test('an answer arriving during restart waits for admission and wakes the queue 
     pendingLeadMessages: [],
     leadRestartPending: false,
   })
+  lifecycle.close()
+})
+
+test('a saved Task Lead change waits for Restart now, which interrupts a working turn', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  store.setTaskLead(taskId, { agent: 'codex', model: 'new-model', effort: 'high' })
+  store.holdLeadMessage(taskId, 'The user answered')
+  const { lifecycle, runs, sent } = harness()
+  const restart = vi.spyOn(runs, 'restart')
+  await lifecycle.applyLead(taskId)
+  expect(restart).not.toHaveBeenCalled()
+  expect(sent.map(({ text }) => text)).toEqual(['The user answered'])
+  store.recordRunOutput('lead', { toOffset: 2, state: 'working' })
+  await lifecycle.restartNow(taskId)
+  expect(restart).toHaveBeenCalledTimes(1)
+  expect(store.getRun('lead')).toMatchObject({ model: 'new-model', effort: 'high' })
+  expect(sent.at(-1)?.text).toBe(restartedMessage)
+  await expect(lifecycle.restartNow(taskId)).rejects.toThrow('already uses these settings')
+  lifecycle.close()
+})
+
+test('Restart now after an Agent change starts a new Run with the carried conversation', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  store.setTaskLead(taskId, { agent: 'claude' })
+  const { lifecycle, starts, stopped } = harness()
+  await lifecycle.applyLead(taskId)
+  expect(starts).toEqual([])
+  await lifecycle.restartNow(taskId)
+  expect(stopped).toEqual(['lead'])
+  expect(store.getRun('fresh-0')).toMatchObject({ agent: 'claude' })
+  expect(store.getRun('fresh-0')?.prompt).toContain('Switched from codex to claude')
   lifecycle.close()
 })
 

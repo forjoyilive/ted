@@ -306,7 +306,7 @@
 .details {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
-  row-gap: 8px;
+  row-gap: 16px;
   margin: 0;
   font-size: var(--text-13);
 }
@@ -581,11 +581,12 @@
 @container task-details (width < 14em) {
   .details {
     grid-template-columns: minmax(0, 1fr);
+    row-gap: 4px;
   }
 
   .details dd {
     min-width: 0;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
   }
 
   .details button {

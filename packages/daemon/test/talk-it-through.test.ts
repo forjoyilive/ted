@@ -591,6 +591,7 @@ describe('Talk it through', () => {
       JSON.stringify({ resumeInputWaitsFor: inputReady, resumeSteps: [{ endTurn: true }] }),
     )
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', model: 'unavailable-9' })
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     await client.ok('POST', `/runs/${lead}/messages`, { text: 'Continue on the selected model.' })
     await waitUntil(
       async () =>
@@ -860,6 +861,7 @@ describe('Talk it through', () => {
     )
     const starts = (await hostRecords(home, lead)).filter((record) => record.t === 'start').length
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', model: 'synthetic-fast' })
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     await waitUntil(
       async () => (await client.getRun(lead)).run.model === 'synthetic-fast',
       'agent restart before acknowledgement',
