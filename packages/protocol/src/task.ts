@@ -488,6 +488,7 @@ export interface CreateTaskRequest {
   sentryId?: string
   followUp?: string
   start?: boolean
+  startInBackground?: boolean
 }
 
 export interface ResumeTaskRequest {

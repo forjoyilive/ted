@@ -153,6 +153,9 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
   if (request.start !== undefined && typeof request.start !== 'boolean') {
     throw new HttpError(400, 'start must be true or false')
   }
+  if (request.startInBackground !== undefined && typeof request.startInBackground !== 'boolean') {
+    throw new HttpError(400, 'startInBackground must be true or false')
+  }
   return {
     ...(draftRevision !== undefined && { draftRevision }),
     ...(title !== undefined && { title }),
@@ -167,6 +170,9 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
     ...(followUp !== undefined && { followUp }),
     ...(sentryId !== undefined && { sentryId }),
     ...(request.start !== undefined && { start: request.start }),
+    ...(request.startInBackground !== undefined && {
+      startInBackground: request.startInBackground,
+    }),
   }
 }
 

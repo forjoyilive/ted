@@ -76,6 +76,7 @@ roundTrip(P.parseCreateTaskRequest, {
   sentryId: 'APP-1',
   followUp: 'TED-1',
   start: true,
+  startInBackground: true,
 })
 roundTrip(P.parseSaveTaskDraftRequest, {
   revision: 'rev',
@@ -205,6 +206,11 @@ roundTrip(P.parseLocalDesignReviewInput, {
 })
 
 rejects(P.parseCreateTaskRequest, { start: 'yes' }, 'start must be true or false')
+rejects(
+  P.parseCreateTaskRequest,
+  { startInBackground: 'yes' },
+  'startInBackground must be true or false',
+)
 rejects(P.parseTaskLead, { agent: 'other' }, 'agent must be claude, codex or antigravity')
 rejects(
   P.parseReportOutcomeRequest,
