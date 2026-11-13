@@ -346,6 +346,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   async function watchOnlyCycle(
     taskId: string,
     read: PullRequestRead | undefined,
+    { markWaiting = true }: { markWaiting?: boolean } = {},
   ): Promise<MergeCycle> {
     const task = find(taskId)
     const open = task.repos.filter(
@@ -388,7 +389,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         continue
       }
       left++
-      if (task.stage === 'merge') setWait(taskId, target.name, 'merge')
+      if (markWaiting && task.stage === 'merge') setWait(taskId, target.name, 'merge')
     }
     if (left > 0) return 'wait'
     return task.stage === 'merge' ? finishMerge(taskId) : 'done'
@@ -405,7 +406,10 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const resolution = await port.resolve(task)
     const mode = mergeMode(store, task, resolution.workflow)
     if (mode === undefined) return 'done'
-    if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
+    if (mode === 'canceled') {
+      if ((await turnOffAutoMerge(taskId)).length > 0) return 'wait'
+      return watchOnlyCycle(taskId, read, { markWaiting: false })
+    }
     if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
     if (mode !== 'off' && read && port.ciFailures) {
       await port.ciFailures(taskId, read)
