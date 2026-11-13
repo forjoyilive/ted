@@ -1,0 +1,106 @@
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--accent-default);
+  color: var(--text-primary);
+}
+
+.tab:focus-visible {
+  border-radius: var(--radius-control);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.count {
+  position: absolute;
+  top: 4px;
+  left: 25px;
+  min-width: 15px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-selected);
+  color: var(--text-secondary);
+  font-size: var(--text-10);
+  font-weight: var(--weight-medium);
+  line-height: 13px;
+  text-align: center;
+}
+
+.working {
+  position: absolute;
+  top: 9px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--agent-ring-working);
+  box-shadow: 0 0 0 2px var(--surface-app);
+}
+
+.tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 10;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-tooltip);
+  background: var(--surface-inverse);
+  color: var(--text-on-inverse);
+  font-size: var(--text-12);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+  box-shadow: 0 4px 6px var(--shadow-popover);
+}
+
+.tab[data-first] .tip {
+  left: 0;
+  transform: none;
+}
+
+.tab:last-child .tip {
+  right: 0;
+  left: auto;
+  transform: none;
+}
+
+.shortcut {
+  color: var(--text-on-inverse-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+}
+
+.tab:hover .tip,
+.tab:focus-visible .tip {
+  display: inline-flex;
+}

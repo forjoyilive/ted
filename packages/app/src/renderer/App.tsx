@@ -10,6 +10,7 @@ import type {
 import { simulatorsLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
+import { factoryNotifications } from '@ted/protocol/settings'
 import {
   type ReactNode,
   useCallback,
@@ -109,6 +110,7 @@ import { openSnoozeMenu, SnoozedContext } from './request-snooze.ts'
 import { clearSelection, toggleTargetSelection } from './selection.ts'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { searchFactory as settingsSearchFactory } from './settings-search.ts'
 import {
   type SetupNotice,
   type SetupNoticeRequest,
@@ -132,6 +134,7 @@ import { Stub } from './views/OtherViews.tsx'
 import { PlanChatView } from './views/PlanChat.tsx'
 import { PlansList } from './views/PlansList.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
+import { TaskMap } from './views/TaskMap.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
@@ -195,6 +198,7 @@ function isTyping(target: EventTarget | null): boolean {
 
 const allowedInSettings = new Set([
   'search',
+  'filter',
   'settings',
   'close',
   'back',
@@ -205,6 +209,7 @@ const allowedInSettings = new Set([
   'go-to-all-tasks',
   'go-to-board',
   'go-to-list',
+  'go-to-map',
   'go-to-plans',
 ])
 
@@ -327,7 +332,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       planInbox.filter((item) => !snoozed.has(item.request.id)),
     ),
   )) {
-    waiting[factoryId] = { waiting: count }
+    waiting[factoryId] = {
+      waiting: count,
+      ...(settings && !factoryNotifications(settings, factoryId).inboxItems && { uncounted: true }),
+    }
   }
   for (const automation of allAutomations ?? []) {
     if (automation.last?.result.kind !== 'failed') continue
@@ -471,6 +479,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return true
     },
   }
+
+  const searchFactory = settingsSearchFactory(factories, currentFactoryId(navigation, tasks))
 
   const commandContext: CommandContext = {
     task: settingsOpen ? undefined : task,
@@ -794,6 +804,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           factoryId={screen.factoryId}
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
+          settings={settings}
+          onOpenNotifications={() => dispatch({ type: 'open-settings', section: 'notifications' })}
           selected={navigation.requestId}
           onClear={() => dispatch({ type: 'open', screen })}
           onOpen={({ request, task: on }) =>
@@ -912,6 +924,21 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             />
           )
         }
+        if (screen.view === 'map') {
+          return (
+            <TaskMap
+              title={name}
+              factoryId={screen.factoryId}
+              tasks={tasks}
+              factories={factories}
+              banners={view.banners}
+              onOpen={openTask}
+              onOpenTask={openTaskByRef}
+              onNewTask={() => openNewTask()}
+              onPlan={openPlans}
+            />
+          )
+        }
         if (screen.view === 'settings' && factory) {
           return (
             <FactorySettings
@@ -924,6 +951,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               }
               onRemoveFactory={() => setRemoving(factory)}
               onOpenTask={openTask}
+              dispatch={dispatch}
             />
           )
         }
@@ -1166,6 +1194,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               section={navigation.settings.section}
               settings={settings}
               factories={factories}
+              searchFactory={searchFactory}
               inboxCount={inboxCount}
               stopsWork={{
                 ...sectionsStoppingWork(banners),

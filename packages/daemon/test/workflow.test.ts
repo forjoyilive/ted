@@ -24,6 +24,7 @@ describe('TED defaults', () => {
       expect(prompt).toContain(
         'Plain language must preserve technical meaning, risks and uncertainty.',
       )
+      expect(prompt).toContain('session numbers, process IDs, log file names')
     }
   })
 
@@ -52,6 +53,14 @@ describe('TED defaults', () => {
       expect(workflow.stageFile(id)).toMatchObject({ layer: 'ted', path: `stages/${id}.md` })
       expect(workflow.stageFile(id)?.text).toMatch(/^# /)
     }
+  })
+
+  test('tell Clarify to ask every question that is ready in one round', async () => {
+    const text = resolveWorkflow([await defaults()]).stageFile('clarify')?.text ?? ''
+
+    expect(text).toContain('Put every question you can ask now in the round')
+    expect(text).not.toContain('a handful')
+    expect(text).not.toMatch(/"title": "[^"]*· \d+ questions"/)
   })
 
   test('put Gates on Design and Review, Merge on with no Gate, and max_back 3 except Validate 5', async () => {

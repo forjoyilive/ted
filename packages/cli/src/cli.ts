@@ -939,6 +939,24 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     export: async () => {
       console.log(await exportCommand(home, options))
     },
+    coordinatorParent: async () => {
+      const { operation, version } = options
+      const revision = options['hierarchy-revision']
+      if (!operation || !version || !revision)
+        throw new UsageError('operation, version and hierarchy-revision are required')
+      console.log(
+        JSON.stringify(
+          await withDaemon(home, (client) =>
+            client.coordinatorAct(args[0] ?? '', 'parent', {
+              operation,
+              version,
+              parentId: args[1] === 'none' ? null : (args[1] ?? ''),
+              hierarchyRevision: revision,
+            }),
+          ),
+        ),
+      )
+    },
     coordinatorResume: async () => {
       if (!options.operation || !options.version)
         throw new UsageError('operation and version are required')

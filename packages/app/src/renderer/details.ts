@@ -1,33 +1,38 @@
 import type { Comment, RunSummary, Task, TaskBrief } from '@ted/protocol'
-import { useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { stageName } from './list-view.ts'
 import { ago, briefSections } from './requests.ts'
 import { activeSubAgentCount, activeSubAgentLabel } from './sub-agents.ts'
 
-export type DetailsSectionId = 'code' | 'files' | 'changes' | 'runs' | 'apps' | 'brief'
+export const detailsTabs = ['details', 'code', 'changes', 'files', 'runs', 'apps'] as const
 
-const collapsedKey = 'ted.taskDetails.collapsed'
+export type DetailsTabId = (typeof detailsTabs)[number]
 
-function readCollapsed(): string[] {
-  try {
-    const stored: unknown = JSON.parse(localStorage.getItem(collapsedKey) ?? '[]')
-    return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : []
-  } catch {
-    return []
-  }
+export const detailsTabNames: Record<DetailsTabId, string> = {
+  details: 'Details',
+  code: 'Code',
+  changes: 'Changes',
+  files: 'Files',
+  runs: 'Runs',
+  apps: 'Apps',
 }
 
-export function useCollapsed(id: DetailsSectionId): [boolean, () => void] {
-  const [collapsed, setCollapsed] = useState(() => readCollapsed().includes(id))
-  const toggle = () => {
-    const next = !collapsed
-    setCollapsed(next)
-    try {
-      const others = readCollapsed().filter((other) => other !== id)
-      localStorage.setItem(collapsedKey, JSON.stringify(next ? [...others, id] : others))
-    } catch {}
-  }
-  return [collapsed, toggle]
+let shownTab: DetailsTabId = 'details'
+const tabListeners = new Set<() => void>()
+
+export function showDetailsTab(id: DetailsTabId): void {
+  if (id === shownTab) return
+  shownTab = id
+  for (const listener of tabListeners) listener()
+}
+
+function subscribeTab(listener: () => void): () => void {
+  tabListeners.add(listener)
+  return () => tabListeners.delete(listener)
+}
+
+export function useDetailsTab(): DetailsTabId {
+  return useSyncExternalStore(subscribeTab, () => shownTab)
 }
 
 export function briefPart(text: string, heading: string): string | undefined {

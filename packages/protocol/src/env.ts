@@ -13,6 +13,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_STUB_GH: false,
   TED_STUB_XCRUN: false,
   TED_EDITOR_APP_DIRS: false,
+  TED_EXECUTION_CRASH_AT: false,
   TED_EXECUTION_HOME:
     'Isolated execution-worker storage, separate from independent TED homes and credentials.',
   TED_EXIT_WITH_PID: false,

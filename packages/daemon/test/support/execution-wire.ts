@@ -1,4 +1,5 @@
-import type { AssignTaskExecution, TaskAssignment } from '@ted/protocol'
+import type { AssignTaskExecution, ExecutionCommand, TaskAssignment } from '@ted/protocol'
+import type { IssueExecution } from '../../src/execution/commands.ts'
 
 export interface FixtureControl {
   executionClockOffsetMs?: number
@@ -25,6 +26,12 @@ export type FixtureCommand =
   | { action: 'local'; taskId: string }
   | { action: 'require'; assignment: TaskAssignment }
   | { action: 'replay' }
+  | { action: 'assign-remote'; taskId: string; machineId: string }
+  | { action: 'issue'; input: IssueExecution }
+  | { action: 'inject'; command: ExecutionCommand }
+  | { action: 'stop-operation'; id: string }
+  | { action: 'operation'; id: string }
+  | { action: 'operations'; taskId: string }
 
 export interface FixtureReady {
   port: number

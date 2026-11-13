@@ -194,20 +194,6 @@ function BulkTaskMenu({
     items.push({ label: action.label, action: () => each((t) => runStatusAction(action.kind, t)) })
   if (active && tasks.every((t) => t.preparation === 'ready'))
     items.push({ label: 'Stop Task', action: () => each((t) => ted.stopTask(t.id)) })
-  const leads = tasks.map((t) =>
-    t.runs.find((run) => run.id === t.leadRunId && run.role === 'lead'),
-  )
-  if (active && leads.every((lead) => lead !== undefined && lead.state !== 'finished'))
-    items.push({
-      label: 'Restart',
-      disabled: leads.some((lead) => lead?.state === 'working'),
-      action: () =>
-        each((task) => {
-          const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
-          if (!lead) throw new Error('No Task Lead Run is available to restart.')
-          return ted.restartRun(lead.id)
-        }),
-    })
   if (active && tasks.every((t) => t.stage === 'backlog' && !t.setup)) {
     items.push({ label: 'Snooze…', action: () => setSnoozing(true) })
     if (tasks.every((t) => t.snoozedUntil))

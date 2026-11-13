@@ -40,8 +40,8 @@ describe('planning chat text', () => {
     expect(planTitle('x'.repeat(80))).toHaveLength(60)
   })
 
-  test('Inbox rows read Plan · Round 2 · 3 questions and Plan · Proposal · 5 Tasks', () => {
-    expect(inboxLabel(round)).toBe('Plan · Round 2 · 3 questions')
+  test('Inbox rows read Plan · Round 2 and Plan · Proposal · 5 Tasks', () => {
+    expect(inboxLabel(round)).toBe('Plan · Round 2')
     const rows = Array.from({ length: 5 }, (_, i) => ({
       title: `T${i}`,
       scope: 's',
@@ -105,9 +105,7 @@ describe('Plans list', () => {
   })
 
   test('the status detail says what the chat waits on', () => {
-    expect(planDetailLine(plan({ status: 'waiting', waitingOn: 'Round 2 · 3 questions' }))).toBe(
-      'Round 2 · 3 questions',
-    )
+    expect(planDetailLine(plan({ status: 'waiting', waitingOn: 'Round 2' }))).toBe('Round 2')
     expect(planDetailLine(plan({ status: 'idle' }))).toBe('Your turn to write')
     expect(planDetailLine(plan({ status: 'finished' }))).toBeUndefined()
   })

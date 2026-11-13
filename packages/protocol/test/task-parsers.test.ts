@@ -104,8 +104,16 @@ roundTrip(P.parseFollowUpRequest, { comment: 'Next', attachments: [file] })
 roundTrip(P.parseMoveTaskRequest, { after: 'TED-1', before: 'TED-3' })
 roundTrip(P.parseSetPriorityRequest, { priority: 'high' })
 roundTrip(P.parseEditTaskRequest, { title: 'Title', description: 'Details' })
-roundTrip(P.parseArchiveTaskRequest, { closePullRequests: true, blocked: 'keep' })
-roundTrip(P.parseDeleteTaskRequest, { blocked: 'unblock' })
+roundTrip(P.parseArchiveTaskRequest, {
+  closePullRequests: true,
+  blocked: 'keep',
+  hierarchyRevision: 'a'.repeat(64),
+})
+roundTrip(P.parseDeleteTaskRequest, {
+  blocked: 'unblock',
+  children: 'delete',
+  hierarchyRevision: 'a'.repeat(64),
+})
 roundTrip(P.parseBlockTaskRequest, { by: 'TED-1' })
 roundTrip(P.parseSetTaskReposRequest, { set: ['ted'], confirm: true })
 roundTrip(P.parseSetTaskReposRequest, { add: ['ted'] })
@@ -128,6 +136,9 @@ variants(P.parsePostCommentRequest, [
 roundTrip(P.parseCancelMergeRequest, { comment: 'Change this', attachments: [file] })
 roundTrip(P.parseWriteBriefRequest, { text: 'Brief\n' })
 roundTrip(P.parseCloseRoundRequest, { summary: 'Agreed' })
+roundTrip(P.parseTalkThroughRequest, { confirmResume: true })
+variants(P.parseTalkThroughRequest, [{}, { confirmResume: false }])
+rejects(P.parseTalkThroughRequest, { confirmResume: 'yes' }, 'confirmResume must be a boolean')
 roundTrip(P.parseSetActivityRequest, { text: 'Working' })
 roundTrip(P.parseRunChecksRequest, { name: 'Typecheck' })
 roundTrip(P.parseDesignReviewInput, design)
@@ -282,4 +293,20 @@ test('start requests preserve the normal default and validate preparation intent
   expect(P.parseStartTaskRequest({ prepare: true })).toEqual({ prepare: true })
   expect(P.parseStartTaskRequest({ prepare: false })).toEqual({ prepare: false })
   expect(() => P.parseStartTaskRequest({ prepare: 'yes' })).toThrow('prepare')
+})
+
+roundTrip(P.parseSetTaskParentRequest, { parentId: 'TED-1', revision: 'a'.repeat(64) })
+roundTrip(P.parseUnarchiveTaskRequest, { unlinkParent: true, hierarchyRevision: 'a'.repeat(64) })
+rejects(P.parseSetTaskParentRequest, { parentId: 'TED-1' }, 'hierarchyRevision')
+rejects(P.parseSetTaskParentRequest, { revision: 'a'.repeat(64) }, 'parentId')
+rejects(P.parseSetTaskParentRequest, { parentId: [], revision: 'a'.repeat(64) }, 'parentId')
+rejects(P.parseUnarchiveTaskRequest, { unlinkParent: 'yes' }, 'unlinkParent')
+rejects(P.parseArchiveTaskRequest, { hierarchyRevision: 'old' }, 'hierarchyRevision')
+rejects(P.parseDeleteTaskRequest, { children: 'cancel' }, 'children')
+test('unlinking requires an explicit null parent; ordinary restoration needs no options', () => {
+  expect(P.parseSetTaskParentRequest({ parentId: null, revision: 'b'.repeat(64) })).toEqual({
+    parentId: null,
+    revision: 'b'.repeat(64),
+  })
+  expect(P.parseUnarchiveTaskRequest({})).toEqual({})
 })

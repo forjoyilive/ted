@@ -42,11 +42,13 @@ import type { SetTaskAutopilotRequest } from './autopilot.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type {
+  CommitChanges,
   DraftLineCommentRequest,
   FileDiff,
   LineComment,
   PullRequestChanges,
   TaskChanges,
+  TaskCommit,
 } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type {
@@ -95,6 +97,7 @@ import type {
   ReorderFactoriesRequest,
   RepoCheck,
   RepoRemoval,
+  SetFactoryNotificationsRequest,
 } from './factory.ts'
 import type {
   CheckTry,
@@ -195,14 +198,20 @@ import type {
   SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
+  SetTaskParentRequest,
   SetTaskReposRequest,
+  TalkThroughRequest,
+  TalkThroughResult,
   Task,
   TaskBrief,
   TaskDefaults,
   TaskDraftState,
+  TaskHierarchy,
+  TaskHierarchyPreview,
   TaskReposResult,
   TedStoppedTask,
   ThreadEvent,
+  UnarchiveTaskRequest,
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
@@ -628,8 +637,24 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/linear-sync`)
   }
 
-  unarchiveTask(ref: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/unarchive`, {})
+  taskHierarchy(ref: string): Promise<TaskHierarchy> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/hierarchy`)
+  }
+
+  taskHierarchyPreview(ref: string): Promise<TaskHierarchyPreview> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/hierarchy/preview`)
+  }
+
+  setTaskParent(ref: string, request: SetTaskParentRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/parent`, request)
+  }
+
+  unarchiveTask(ref: string, request: UnarchiveTaskRequest = {}): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/unarchive`, request)
+  }
+
+  resetTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/reset`, {})
   }
 
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {
@@ -810,8 +835,8 @@ export class DaemonClient {
     return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
   }
 
-  talkThrough(commentId: string): Promise<Comment> {
-    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/talk`)
+  talkThrough(commentId: string, request: TalkThroughRequest = {}): Promise<TalkThroughResult> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/talk`, request)
   }
 
   doneTalking(commentId: string): Promise<Comment> {
@@ -983,6 +1008,20 @@ export class DaemonClient {
     return this.#request(
       'GET',
       `/tasks/${encodeURIComponent(ref)}/pull-request-changes/${encodeURIComponent(repo)}`,
+    )
+  }
+
+  taskCommits(ref: string, ids: readonly string[]): Promise<TaskCommit[]> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/commits?${new URLSearchParams({ ids: ids.join(',') })}`,
+    )
+  }
+
+  commitChanges(ref: string, commit: string): Promise<CommitChanges> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/commits/${encodeURIComponent(commit)}`,
     )
   }
 
@@ -1286,6 +1325,13 @@ export class DaemonClient {
 
   createFactory(input: CreateFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/factories', input)
+  }
+
+  setFactoryNotifications(
+    factoryId: string,
+    change: SetFactoryNotificationsRequest,
+  ): Promise<MachineSettings> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/notifications`, change)
   }
 
   setFactoryPermissions(

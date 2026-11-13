@@ -229,6 +229,8 @@ export interface Task {
   lead?: TaskLead
   stageEffort?: Effort
   blockedBy: string[]
+  parentId?: string
+  childIds?: string[]
   attachments: Attachment[]
   source?: TaskSource
   linearSync?: 'on' | 'ask'
@@ -237,6 +239,7 @@ export interface Task {
   leadRunId?: string
   rank: number
   status?: TaskStatus
+  statusWithoutBlocker?: TaskStatus
   preparation?: 'preparing' | 'ready'
   statuses: TaskStatusKind[]
   markers: TaskMarker[]
@@ -258,6 +261,26 @@ export interface Task {
   startedAt?: string
   updatedAt: string
   archived?: TaskArchive
+}
+
+export type ResetRefusal = 'archived' | 'done' | 'merged' | 'not-started'
+
+export function resetRefusal(
+  task: Pick<Task, 'archived' | 'stage' | 'statuses' | 'merged' | 'repos' | 'runs'>,
+): ResetRefusal | undefined {
+  if (task.archived) return 'archived'
+  if (task.stage === 'done') return 'done'
+  if (
+    task.merged ||
+    task.statuses.includes('partly-merged') ||
+    task.repos.some((r) => r.pullRequest?.state === 'merged')
+  ) {
+    return 'merged'
+  }
+  if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) {
+    return 'not-started'
+  }
+  return undefined
 }
 
 export interface TaskLink {
@@ -392,12 +415,36 @@ export const blockedChoices = ['unblock', 'keep'] as const
 
 export type BlockedChoice = (typeof blockedChoices)[number]
 
+export interface TaskHierarchy {
+  parentId: string | null
+  childIds: string[]
+  revision: string
+}
+
+export interface SetTaskParentRequest {
+  parentId: string | null
+  revision: string
+}
+
+export interface TaskHierarchyPreview {
+  revision: string
+  descendants: (TaskLink & { title: string })[]
+}
+
+export interface UnarchiveTaskRequest {
+  unlinkParent?: boolean
+  hierarchyRevision?: string
+}
+
 export interface ArchiveTaskRequest {
+  hierarchyRevision?: string
   closePullRequests?: boolean
   blocked?: BlockedChoice
 }
 
 export interface DeleteTaskRequest {
+  children?: 'delete' | 'unparent'
+  hierarchyRevision?: string
   blocked?: BlockedChoice
 }
 
@@ -559,9 +606,16 @@ export interface RoundAnswer {
   changed: boolean
 }
 
+export interface TalkThroughRequest {
+  confirmResume?: boolean
+}
+
+export type TalkThroughResult = Comment | { resumeRequired: true }
+
 export interface RoundTalk {
   runId: string
   startedAt: string
+  notifiedAt?: string
   doneAt?: string
 }
 
@@ -637,6 +691,7 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
+  talkRequested?: true
   talk?: RoundTalk
   proposal?: Proposal
   sizeCheck?: SizeCheck

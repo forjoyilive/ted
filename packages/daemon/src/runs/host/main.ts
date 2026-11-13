@@ -15,6 +15,7 @@ import {
   readGenerationLine,
   runFiles,
 } from '../host-files.ts'
+import { consumeInput } from '../input-permits.ts'
 import { checkLaunchAuthority } from '../launch-authority.ts'
 
 const runDir = process.argv[2]
@@ -141,6 +142,7 @@ const forwardInput = () => {
       for (const raw of lines) {
         const tagged = readGenerationLine(raw)
         if (tagged && tagged.forGeneration !== generation) continue
+        if (tagged?.permit && !consumeInput(runDir, tagged.permit)) continue
         const line = tagged ? tagged.line : raw
         if (driver?.onInput) driver.onInput(line)
         else send(line)

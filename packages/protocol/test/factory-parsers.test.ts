@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import * as P from '../src/index.ts'
-import { rejects, roundTrip } from './parser-cases.ts'
+import { rejects, roundTrip, variant } from './parser-cases.ts'
 
 const repos = [
   {
@@ -172,6 +172,19 @@ test('Stage effort keeps null and rejects effort on a nonworking Stage', () => {
   )
 })
 
+roundTrip(P.parseSetFactoryNotificationsRequest, { inboxItems: false, taskMerged: true })
+variant(P.parseSetFactoryNotificationsRequest, { taskMerged: false })
+rejects(P.parseSetFactoryNotificationsRequest, {}, 'give inboxItems or taskMerged')
+rejects(
+  P.parseSetFactoryNotificationsRequest,
+  { inboxItems: 'no' },
+  'inboxItems must be true or false',
+)
+rejects(
+  P.parseSetFactoryNotificationsRequest,
+  { taskMerged: 1 },
+  'taskMerged must be true or false',
+)
 roundTrip(P.parseSetFactoryPermissionsRequest, { mode: 'bypass', confirmBypass: true })
 roundTrip(P.parseSetFactoryPermissionsRequest, { mode: 'auto', confirmBypass: false })
 test('permission confirmation is optional for Auto', () => {

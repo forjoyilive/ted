@@ -1,13 +1,15 @@
 import type { Factory, Task } from '@ted/protocol'
-import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
+import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import type { ArmAction } from './armed.ts'
 import {
   archiveTaskEvent,
   deleteTaskEvent,
   followUpTaskEvent,
+  resetTaskEvent,
 } from './components/ArchiveDialogs.tsx'
 import { snoozeTaskEvent } from './components/SnoozeTaskDialog.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
+import { detailsTabNames, detailsTabs, showDetailsTab } from './details.ts'
 import { openInEditor } from './editor.ts'
 import { openTaskFiles } from './files.ts'
 import type { Direction } from './key-targets.ts'
@@ -120,6 +122,14 @@ export const globalCommands: readonly Command[] = [
     scope: 'global',
     shortcuts: keysFor('go-to-list'),
     run: goToView('list'),
+  },
+  {
+    id: 'go-to-map',
+    label: 'Go to Map',
+    scope: 'global',
+    keywords: 'blockers blocked by dependencies',
+    shortcuts: keysFor('go-to-map'),
+    run: goToView('map'),
   },
   {
     id: 'go-to-plans',
@@ -277,6 +287,21 @@ export function taskCommands(task: Task): Command[] {
       run: () => taskEvent(pickBlockerEvent, task),
     })
   }
+  for (const tab of detailsTabs) {
+    list.push({
+      id: `details-tab-${tab}`,
+      label: `Show the ${detailsTabNames[tab]} tab`,
+      scope: 'task',
+      shortcuts: keysFor(`details-tab-${tab}`),
+      keywords: 'task details sidebar tab',
+      run: ({ task: open, dispatch }) => {
+        if (open?.id !== task.id) {
+          dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+        }
+        showDetailsTab(tab)
+      },
+    })
+  }
   if (hasWorktree(task)) {
     list.push({
       id: 'quick-open',
@@ -322,6 +347,16 @@ export function taskCommands(task: Task): Command[] {
       shortcuts: keysFor('edit'),
       run: () => taskEvent(editTaskEvent, task),
     },
+    ...(resetRefusal(task) === undefined
+      ? [
+          {
+            id: 'reset',
+            label: 'Reset…',
+            scope: 'task' as const,
+            run: () => taskEvent(resetTaskEvent, task),
+          },
+        ]
+      : []),
     {
       id: 'archive',
       label: 'Archive…',

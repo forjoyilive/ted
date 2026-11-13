@@ -33,7 +33,8 @@ const planEndLines: Record<string, string> = {
     'Planning chat deleted without approval. TED told the Task Lead to ask its size question again.',
 }
 
-export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
+export const nudgeMessage =
+  'Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them, so TED will ask them why you stopped.'
 
 const agentNames: Record<string, string> = {
   claude: 'Claude',
@@ -220,10 +221,14 @@ export function threadEvents(
     })
 
   const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
-  for (const entry of log) {
+  const reset = log.findLastIndex((entry) => entry.name === 'v1.TaskReset')
+  for (const entry of reset < 0 ? log : log.slice(reset)) {
     const { data } = entry
     const who = data.runId ? 'Task Lead' : 'You'
     switch (entry.name) {
+      case 'v1.TaskReset':
+        add(entry, 'edit', 'Task was reset')
+        break
       case 'v1.TaskCreated':
       case 'v2.TaskCreated':
         add(
@@ -558,6 +563,9 @@ export function threadEvents(
             `TED kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
           )
         }
+        break
+      case 'v1.BaseBranchAdopted':
+        add(entry, 'quiet', `TED moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
       case 'v1.LoopCheckStarted':
         add(

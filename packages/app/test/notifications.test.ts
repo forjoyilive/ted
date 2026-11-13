@@ -210,6 +210,16 @@ describe('Inbox item notifications', () => {
     expect(loud.shown[0]?.notice.silent).toBe(false)
   })
 
+  test('an uncounted request never notifies, not even once its Factory counts again', () => {
+    const { notifications, shown } = harness()
+    notifications.waiting([])
+    notifications.waiting([request('quiet', { uncounted: true }), request('a')])
+    expect(shown.map((s) => s.notice.body)).toEqual(['Question: Question a'])
+
+    notifications.waiting([request('quiet'), request('a')])
+    expect(shown).toHaveLength(1)
+  })
+
   test('after a reconnect, the waiting requests are taken as already seen', () => {
     const { notifications, shown } = harness()
     notifications.waiting([])
@@ -260,10 +270,32 @@ describe('Task merged notifications', () => {
   })
 
   test('when on, notify once per Task', () => {
-    const { notifications, shown } = harness({ settings: { notifyTaskMerged: true } })
+    const { notifications, shown } = harness({
+      settings: {
+        notifyTaskMerged: true,
+        factoryNotifications: { nb: { inboxItems: true, taskMerged: true } },
+      },
+    })
     notifications.merged(merged)
     notifications.merged(merged)
     expect(shown.map((s) => s.notice.title)).toEqual(['NB-3 merged'])
+  })
+
+  test('need both the app-wide switch and the Task’s Factory to be on', () => {
+    const otherFactory = harness({
+      settings: {
+        notifyTaskMerged: true,
+        factoryNotifications: { other: { inboxItems: true, taskMerged: true } },
+      },
+    })
+    otherFactory.notifications.merged(merged)
+    expect(otherFactory.shown).toEqual([])
+
+    const switchOff = harness({
+      settings: { factoryNotifications: { nb: { inboxItems: true, taskMerged: true } } },
+    })
+    switchOff.notifications.merged(merged)
+    expect(switchOff.shown).toEqual([])
   })
 })
 

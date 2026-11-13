@@ -5,7 +5,7 @@ A Run’s chat (spec 7.3, 10.6) is a list of items the daemon builds on request 
 - **Times come from the host.** The host now adds `at` to each `out` record in `host.log` (a new field, ADR 0013), and the daemon stores it with `v2.RunOutputRead`. Output from an older host gets the time the daemon read it.
 - **Live updates.** Every commit of new Conversation lines emits the new `run-output` live update; an open chat reloads on it.
 - **Messages typed into a chat** go through `POST /runs/:id/messages`, which writes them to the Run with `RunManager.send` and records `v1.RunMessageSent`. They are not Comments. When the Run is its Task’s current Task Lead, the event also writes a thread line, “You steered the Task Lead in its Conversation”, with a **View message** link; the line holds the Run’s ID, never the text.
-- **Restart** (`POST /runs/:id/restart`) is refused while the Run works. On an idle or waiting Run it restarts the agent in the same host with the Run’s own flags, resuming the same session (ADR 0027), so it stays the same Run.
+- **Restart** (`POST /runs/:id/restart`) is refused while the Run works. On an idle or waiting Run it restarts the agent in the same host with the Run’s own flags, resuming the same session (ADR 0027), so it stays the same Run. The app no longer has a button for it (ADR 0130-the-app-has-no-restart-button-for-runs).
 - **Stop Run** (`POST /runs/:id/stop`) is refused for a Task’s current Task Lead, which is stopped with its Task.
 - **Tabs** are stored per Task with `v1.ConversationTabOpened` and `v1.ConversationTabClosed`, and every Task carries its `tabs`, so they survive restarts and the app keeps no state of its own (ADR 0011). Which tab is showing is not stored.
 - All these routes are closed to Run tokens (ADR 0015).

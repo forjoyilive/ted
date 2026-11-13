@@ -1,7 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { DaemonEvent, WaitingRequest } from '@ted/protocol'
+import {
+  countWaiting,
+  type DaemonEvent,
+  factoryNotifications,
+  firstFactoryNotifications,
+  type WaitingRequest,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { openStore, type TedStore } from '../src/store/index.ts'
 
@@ -126,6 +132,57 @@ describe('waiting Inbox requests', () => {
     await expect.poll(() => seen.length).toBe(4)
     expect(seen[3]).toEqual([])
     expect(store.waiting()).toEqual([])
+  })
+
+  test('a Factory with Inbox items off keeps its requests in the list, marked uncounted', async () => {
+    const seen = inboxEvents()
+    const task = await store.createTask({ title: 'Fix login' })
+    const question = store.postComment({
+      taskId: task.id,
+      body: 'Which page?',
+      author: run,
+      kind: 'question',
+    })
+    await expect.poll(() => seen.length).toBe(1)
+    expect(countWaiting(store.waiting())).toBe(1)
+
+    store.updateSettings({
+      factoryNotifications: { [task.factoryId]: { inboxItems: false, taskMerged: false } },
+    })
+    await expect.poll(() => seen.length).toBe(2)
+    expect(seen[1]).toMatchObject([{ id: question.id, uncounted: true }])
+    expect(countWaiting(store.waiting())).toBe(0)
+
+    store.updateSettings({
+      factoryNotifications: { [task.factoryId]: { inboxItems: true, taskMerged: false } },
+    })
+    expect(store.waiting()[0]).not.toHaveProperty('uncounted')
+  })
+
+  test('a Factory added after the first open keeps its defaults across a restart', async () => {
+    const factory = store.addFactory({
+      key: 'NB',
+      name: 'notebook',
+      repo: 'kriya/notebook',
+      cloneUrl: 'https://example.invalid/notebook.git',
+      defaultBranch: 'main',
+    })
+    store.updateSettings({ notifyTaskMerged: true })
+    await store.close()
+    store = await openStore({ directory: dir })
+    expect(store.settings().factoryNotifications).toEqual({})
+    expect(factoryNotifications(store.settings(), factory.id)).toEqual({
+      inboxItems: true,
+      taskMerged: false,
+    })
+  })
+
+  test('at the update, existing Factories take the app-wide Task merged value', () => {
+    expect(firstFactoryNotifications(['a', 'b'], true)).toEqual({
+      a: { inboxItems: true, taskMerged: true },
+      b: { inboxItems: true, taskMerged: true },
+    })
+    expect(firstFactoryNotifications(['a', 'b'], false)).toEqual({})
   })
 
   test('an archived Task’s requests aren’t waiting', async () => {

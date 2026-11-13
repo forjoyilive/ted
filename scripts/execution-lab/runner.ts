@@ -208,10 +208,10 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
   if (
     options.action === 'acceptance' &&
     (options.scenarios.length !== 1 ||
-      !['lab-access', 'product-pairing'].includes(options.scenarios[0] ?? ''))
+      !['lab-access', 'product-pairing', 'product-commands'].includes(options.scenarios[0] ?? ''))
   )
     throw new Error(
-      'acceptance selects only lab-access or product-pairing; use --action scenario for other implementation scenarios',
+      'acceptance selects only lab-access, product-pairing or product-commands; use --action scenario for other implementation scenarios',
     )
   const id = options.runId ?? randomUUID()
   if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('invalid run id')
@@ -407,11 +407,14 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
           await step(host, 'stop')
         }
       }
-      if (options.action === 'acceptance' && selected.includes('product-pairing')) {
+      const product = (['product-pairing', 'product-commands'] as const).find((name) =>
+        selected.includes(name),
+      )
+      if (options.action === 'acceptance' && product) {
         const controller = config.hosts[0],
           executor = config.hosts[1]
         const result = {
-          id: 'product-pairing',
+          id: product,
           evidence: 'actual two-Mac execution' as const,
           scope: 'production behavior',
           command: replay,
@@ -425,6 +428,9 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
             'two-mac-worker-restart',
             'two-mac-peer-refusal',
             'two-mac-revocation',
+            ...(product === 'product-commands'
+              ? ['two-mac-command-once', 'two-mac-service-restarts', 'two-mac-stale-refused']
+              : []),
           ],
           observed: [] as unknown[],
           result: 'fail' as 'pass' | 'fail',
@@ -447,6 +453,7 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
         const observations = await productPairing({
           run: path.join(controller.root, 'runs', id),
           remoteAddress: executor.address,
+          commands: product === 'product-commands',
           worker: (product: unknown) =>
             callHost(
               config,
@@ -462,7 +469,7 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
             ),
         })
         if (!result.expected.every((invariant) => observations.invariants.includes(invariant)))
-          throw new Error('Product pairing evidence is incomplete')
+          throw new Error('Product evidence is incomplete')
         result.observed.push({
           ...observations,
           hosts: preflight.map((host) => ({ machineId: host.machineId, hostname: host.hostname })),

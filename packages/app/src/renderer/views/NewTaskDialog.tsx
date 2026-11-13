@@ -29,6 +29,7 @@ import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { setupNotice, setupNoticeText } from '../setup-notice.ts'
 import { emptyTaskDraft, taskDraftSession } from '../task-draft.ts'
@@ -37,7 +38,6 @@ import {
   clarifyDepthLabels,
   formatSize,
   leadSummary,
-  modelChoices,
   priorityLabels,
 } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -969,13 +969,6 @@ export function LeadFields({
   label?: string
   help?: string
 }) {
-  const models = [
-    ...new Set([
-      ...modelChoices[lead.agent],
-      ...(factoryLead?.agent === lead.agent && factoryLead.model ? [factoryLead.model] : []),
-      ...(lead.model ? [lead.model] : []),
-    ]),
-  ]
   const set = (agent: AgentKind, model: string, effort: string) =>
     onChange({
       agent,
@@ -1012,25 +1005,16 @@ export function LeadFields({
         >
           <AgentOptions current={lead.agent} />
         </Select>
-        <Select
+        <ModelSelect
           aria-label="Model"
           id={`${id}-model`}
+          agent={lead.agent}
+          extra={[factoryLead?.agent === lead.agent ? factoryLead.model : undefined]}
           value={lead.model ?? ''}
-          onChange={(event) =>
-            set(
-              lead.agent,
-              event.target.value,
-              lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''),
-            )
+          onChange={(model) =>
+            set(lead.agent, model, lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''))
           }
-        >
-          <option value="">Default model</option>
-          {models.map((model) => (
-            <option key={model} value={model}>
-              {model}
-            </option>
-          ))}
-        </Select>
+        />
         <Select
           aria-label="Effort"
           value={lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? '')}

@@ -86,8 +86,16 @@ describe('the shortcut sheet', () => {
     expect(press('b')).toMatchObject({ id: 'go-to-board' })
     expect(press('g')).toBe('pending')
     expect(press('d')).toMatchObject({ id: 'go-to-dashboard' })
+    expect(press('g')).toBe('pending')
+    expect(press('m')).toMatchObject({ id: 'go-to-map' })
     expect(press('[', { metaKey: true })).toMatchObject({ id: 'back' })
     expect(press('Enter')).toMatchObject({ id: 'open' })
+    expect(
+      sequences.feed(
+        { key: '£', code: 'Digit3', metaKey: false, ctrlKey: false, altKey: true, shiftKey: false },
+        0,
+      ),
+    ).toMatchObject({ id: 'details-tab-changes' })
     expect(press('h')).toMatchObject({ id: 'snooze-request' })
     expect(press('ArrowLeft')).toMatchObject({ id: 'column-left' })
   })
