@@ -1,3 +1,7 @@
+.round {
+  display: contents;
+}
+
 .questions {
   display: flex;
   flex-direction: column;

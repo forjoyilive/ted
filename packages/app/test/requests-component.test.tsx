@@ -211,8 +211,11 @@ test('rounds require explicit choices and keep written recommendations prefilled
   })
 })
 
-test('Submit answers preserves changed choices, written answers and added notes', async () => {
-  const { answer } = requestApi()
+test('⌘↵ from anywhere in a round, its buttons included, submits changed choices, written answers and added notes', async () => {
+  const api = requestApi()
+  const { answer } = api
+  const talk = vi.fn()
+  api.handle('talkThrough', talk)
   render(
     <RequestCard request={comment({ kind: 'round', round })} task={task()} onOpenRun={vi.fn()} />,
   )
@@ -221,7 +224,12 @@ test('Submit answers preserves changed choices, written answers and added notes'
   await u.type(screen.getByLabelText('Add to answer 1'), 'Clashes are rare.')
   await u.clear(screen.getByLabelText('Answer 2'))
   await u.type(screen.getByLabelText('Answer 2'), 'Keep both versions.')
-  await u.click(screen.getByRole('button', { name: 'Submit answers' }))
+  expect(
+    screen.getByRole('button', { name: 'Submit answers' }).querySelector('kbd')?.textContent,
+  ).toBe('⌘↵')
+  screen.getByRole('button', { name: 'Talk it through' }).focus()
+  await u.keyboard('{Meta>}{Enter}{/Meta}')
+  expect(talk).not.toHaveBeenCalled()
   expect(answer).toHaveBeenCalledWith('c1', {
     action: 'answer-round',
     answers: [

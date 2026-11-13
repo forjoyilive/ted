@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest'
-import { type EnterPress, enterAction, sendOnEnter } from '../src/renderer/composer-keys.ts'
+import {
+  type EnterPress,
+  enterAction,
+  sendOnEnter,
+  signOffEnter,
+} from '../src/renderer/composer-keys.ts'
 
 const press = (mods: Partial<EnterPress> = {}): EnterPress => ({
   key: 'Enter',
@@ -77,5 +82,10 @@ describe('composer keys', () => {
     )
     handler(keyDown('').event as never)
     expect(sent).toEqual([false])
+  })
+
+  test('on a sign-off, ↵ approves an empty box and requests changes once text is typed', () => {
+    expect(signOffEnter(false)).toBe('approve')
+    expect(signOffEnter(true)).toBe('request-changes')
   })
 })

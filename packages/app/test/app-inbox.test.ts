@@ -42,7 +42,7 @@ async function expectActionsInsideCard(window: Page, card: Locator, names: strin
 }
 
 describe('Inbox and Gates', () => {
-  test('a design review waits in the Inbox; Request changes keeps the Stage and Approve moves on', async () => {
+  test('a design review waits in the Inbox; ↵ requests changes once text is typed and approves an empty box', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     const briefFile = path.join(ctx.home, 'brief.md')
     await writeFile(
@@ -102,8 +102,23 @@ describe('Inbox and Gates', () => {
     await expectActionsInsideCard(window, answer, ['Request changes', 'Approve'])
     await thread.getByText('Waiting on you', { exact: true }).waitFor()
     expect(await answer.getByRole('button', { name: 'Request changes' }).isDisabled()).toBe(true)
-    await answer.getByRole('textbox', { name: 'Your answer' }).fill('Split the sync step in two.')
-    await answer.getByRole('button', { name: 'Request changes' }).click()
+    const enterMark = async () =>
+      Object.fromEntries(
+        await Promise.all(
+          ['Request changes', 'Approve'].map(async (name) => [
+            name,
+            await answer
+              .getByRole('button', { name, exact: true })
+              .locator('kbd')
+              .allTextContents(),
+          ]),
+        ),
+      )
+    expect(await enterMark()).toEqual({ 'Request changes': [], Approve: ['↵'] })
+    const box = answer.getByRole('textbox', { name: 'Your answer' })
+    await box.fill('Split the sync step in two.')
+    expect(await enterMark()).toEqual({ 'Request changes': ['↵'], Approve: [] })
+    await box.press('Enter')
 
     const answered = thread.getByRole('region', { name: 'Design review, answered' }).first()
     await answered.getByText('You requested changes').waitFor()
@@ -112,7 +127,8 @@ describe('Inbox and Gates', () => {
       .getByText('Split the sync step in two.', { exact: true })
       .waitFor()
     await card.getByText('Answer at the bottom of the Task ↓').waitFor()
-    await answer.getByRole('button', { name: 'Approve' }).click()
+    await expect.poll(enterMark).toEqual({ 'Request changes': [], Approve: ['↵'] })
+    await box.press('Enter')
 
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details.getByText('Review', { exact: true }).waitFor()

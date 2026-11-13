@@ -35,7 +35,7 @@ export function Button({
       {...props}
     >
       {children}
-      {shortcut !== undefined && (
+      {shortcut !== undefined && !props.disabled && !isArmed && (
         <kbd className={styles.shortcut} aria-hidden>
           {shortcut}
         </kbd>
