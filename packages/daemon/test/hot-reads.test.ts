@@ -83,7 +83,11 @@ async function seed(store: TedStore, cwd: string) {
       for (let m = 0; m < messagesPerRun; m++) {
         store.recordRunMessage({ runId: run.id, text: `Message ${m}`, lead: true })
       }
-      store.failRun(run.id, 'stopped')
+      store.recordRunOutput(run.id, {
+        toOffset: 0,
+        state: 'finished',
+        ending: { how: 'exited', errorLines: [], at: new Date().toISOString() },
+      })
     }
     store.changeStage(id, 'done')
   }
