@@ -221,11 +221,11 @@ export function createWorkflows(options: {
         return undefined
       })
       pending = { key, read }
-      if (store.getFactory(factory.id)) factoryRefs.set(factory.id, pending)
       const forget = () => {
         if (factoryRefs.get(factory.id)?.read === read) factoryRefs.delete(factory.id)
       }
       void read.then(forget, forget)
+      if (store.getFactory(factory.id)) factoryRefs.set(factory.id, pending)
     }
     const commit = await pending.read
     if (!commit) return undefined
@@ -233,13 +233,13 @@ export function createWorkflows(options: {
     if (!cached || cached.commit !== commit) {
       const read = readGitLayerAt(clone, commit)
       cached = { commit, read }
-      if (store.getFactory(factory.id)) factoryFiles.set(factory.id, cached)
       const forget = () => {
         if (factoryFiles.get(factory.id)?.read === read) factoryFiles.delete(factory.id)
       }
       void read.then((layer) => {
         if (layer && Object.values(layer.files).some((text) => text === null)) forget()
       }, forget)
+      if (store.getFactory(factory.id)) factoryFiles.set(factory.id, cached)
     }
     return { commit, layer: await cached.read }
   }
