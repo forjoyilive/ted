@@ -343,6 +343,14 @@ describe('selection', () => {
       priority: 'none' as const,
     }
     expect(startSplit(slots({ queued: 1, queue: [queued] }), three)).toEqual({ now: 1, wait: 2 })
+    const chat = {
+      kind: 'coordinator' as const,
+      place: 1,
+      runId: 'c1',
+      factoryId: 'nb',
+      name: 'Coordinator',
+    }
+    expect(startSplit(slots({ queued: 1, queue: [chat] }), three)).toEqual({ now: 2, wait: 1 })
 
     expect(startWaitLine({ now: 3, wait: 0 })).toBeUndefined()
     expect(startWaitLine({ now: 2, wait: 3 })).toBe('2 start now, 3 wait for a Run slot')

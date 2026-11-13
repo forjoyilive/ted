@@ -404,6 +404,7 @@ test('Stop preserves all unstarted human messages across restart without dispatc
   expect((await s.chat()).unsentMessages).toHaveLength(2)
   await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
   await s.restart()
+  await s.call('POST', '/agents/health/check')
   const reopened = await s.chat()
   expect(reopened.status).toBe('ready')
   expect(reopened.unsentMessages.map((m) => m.text).join('\n')).toContain('Canceled original')
