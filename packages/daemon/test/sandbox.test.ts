@@ -66,20 +66,48 @@ const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote
 const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
 
 describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
+  let saves: string
+  beforeEach(async () => {
+    const { stdout } = await execFileAsync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'])
+    saves = path.join(await realpath(stdout.trim()), 'TemporaryItems')
+  })
+
   test('a sandboxed command writes its worktree, its own temp folder and the Task’s caches', async () => {
     await writeFile(path.join(clone, 'HEAD'), 'ref')
+    const id = randomUUID()
+    const xcodeSave = path.join(saves, `NSIRD_SWBBuildService_${id}`)
+    const otherSave = path.join(saves, `NSIRD_TextEdit_${id}`)
+    const looseSave = path.join(saves, `ted-${id}`)
+    await mkdir(otherSave, { recursive: true })
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'a.txt')),
         'echo x > "$TMPDIR/b.txt" && echo wrote',
         'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
+        'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && echo wrote',
+        `mkdir '${xcodeSave}' && ${tryWrite(path.join(xcodeSave, 'x'))}`,
+        tryWrite(path.join(otherSave, 'x')),
+        tryWrite(looseSave),
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 4)).toEqual(['wrote', 'wrote', 'wrote', 'read'])
+    expect(result.stdout.split('\n').slice(0, 8)).toEqual([
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'refused',
+      'refused',
+      'read',
+    ])
     expect(await readFile(path.join(worktree, 'a.txt'), 'utf8')).toBe('x\n')
+    const cache = await realpath(scope().cache)
+    expect(await readFile(path.join(cache, 'xcode', 'DerivedData', 'd'), 'utf8')).toBe('x\n')
     expect(result.stdout).toContain(path.basename(tmp))
+    for (const dir of [xcodeSave, otherSave, looseSave])
+      await rm(dir, { recursive: true, force: true })
   })
 
   test('git reads the worktree through the Task’s clone', async () => {
@@ -149,9 +177,10 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         [
           `launchctl submit -l ${label} -- /usr/bin/touch '${marker}' 2>/dev/null && echo submitted || echo refused`,
           `defaults write ${label} k v 2>/dev/null && echo written || echo refused`,
+          'open -g -a Finder 2>/dev/null && echo opened || echo refused',
         ].join('; '),
       )
-      expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused'])
+      expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'refused'])
     } finally {
       await execFileAsync('launchctl', ['remove', label]).catch(() => undefined)
       await execFileAsync('defaults', ['delete', label]).catch(() => undefined)

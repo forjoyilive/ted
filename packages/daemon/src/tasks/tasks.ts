@@ -882,6 +882,7 @@ export function createTasks(options: {
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
+      cache: sandboxScope(task).cache,
       ...(!bypass && {
         sandbox: sandboxScope(task),
         outsideSandbox: store.settings().appsOutsideSandbox[task.factoryId] ?? [],

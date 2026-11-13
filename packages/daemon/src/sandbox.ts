@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, lstat, mkdir, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -19,6 +19,29 @@ export interface Sandboxed {
 export interface Sandbox {
   problem(): Promise<string | undefined>
   wrap(argv: readonly [string, ...string[]], scope: SandboxScope): Promise<Sandboxed>
+  buildCaches(cache: string): Promise<Record<string, string>>
+}
+
+const buildFolders = {
+  TED_DERIVED_DATA: 'DerivedData',
+  TED_SWIFTPM_CACHE: 'swiftpm',
+  CLANG_MODULE_CACHE_PATH: 'ModuleCache',
+}
+
+export function buildCacheEnv(cache: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(buildFolders).map(([name, dir]) => [name, path.join(cache, 'xcode', dir)]),
+  )
+}
+
+async function makeBuildCaches(
+  home: string,
+  given: string,
+  cache: string,
+): Promise<Record<string, string>> {
+  const env = buildCacheEnv(cache)
+  for (const dir of Object.values(env)) await plainFolder(home, given, dir, true)
+  return env
 }
 
 export class SandboxUnavailable extends Error {}
@@ -33,6 +56,7 @@ export function createSandbox(options: {
 }): Sandbox {
   const platform = options.platform ?? process.platform
   let ready: string | undefined
+  let saves: Promise<string | undefined> | undefined
 
   async function program(): Promise<string | undefined> {
     if (options.program !== undefined) return options.program
@@ -72,6 +96,13 @@ export function createSandbox(options: {
       const why = await problem()
       if (why !== undefined || ready === undefined) throw new SandboxUnavailable(why)
       const paths = await sandboxPaths(platform, options.tedHome, scope)
+      if (platform === 'darwin') {
+        saves ??= savesFolder()
+        const found = await saves
+        if (found !== undefined && !inside(found, paths.tedHome) && !inside(paths.tedHome, found)) {
+          paths.saves = found
+        }
+      }
       const env = options.env()
       const cache = (name: string) => path.join(paths.cache, name)
       const added: Record<string, string> = {
@@ -86,10 +117,16 @@ export function createSandbox(options: {
         PIP_CACHE_DIR: cache('pip'),
         GOCACHE: cache('go-build'),
         GOMODCACHE: cache('go-mod'),
+        ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
       return platform === 'darwin'
         ? { argv: [ready, ...seatbeltArgs(paths), ...argv], env: added }
         : { argv: [ready, ...bwrapArgs(paths, env), '--', ...argv], env: added }
+    },
+    async buildCaches(cache) {
+      const home = await real(options.tedHome)
+      const given = path.resolve(options.tedHome)
+      return makeBuildCaches(home, given, await plainFolder(home, given, cache, true))
     },
   }
 }
@@ -101,6 +138,25 @@ interface SandboxPaths {
   cache: string
   tedHome: string
   sharedTmp?: string
+  saves?: string
+}
+
+const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService'
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function savesFolder(): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], (error, stdout) => {
+      const dir = stdout.trim()
+      if (error || !dir.startsWith('/')) return resolve(undefined)
+      real(dir).then((found) =>
+        resolve(/["\n\r]/.test(found) ? undefined : path.join(found, 'TemporaryItems')),
+      )
+    })
+  })
 }
 
 async function sandboxPaths(
@@ -154,8 +210,12 @@ function seatbeltArgs(paths: SandboxPaths): string[] {
     `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome])})`,
     `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
     `(allow file-write* ${param('W', own)})`,
+    ...(paths.saves === undefined
+      ? []
+      : [`(allow file-write* (regex #"^${escapeRegex(paths.saves)}/NSIRD_(${xcodeSavers})_"))`]),
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
+    '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
     '(deny user-preference-write)',
   ].join('\n')
   return [...params, '-p', profile]
