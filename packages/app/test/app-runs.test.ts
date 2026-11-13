@@ -141,11 +141,16 @@ describe('Stop and Resume', () => {
           [box.left + 1, box.bottom - 1],
           [box.right - 1, box.bottom - 1],
         ]
+        const style = (element as HTMLElement).style
+        const pointerEvents = style.pointerEvents
+        style.pointerEvents = 'auto'
+        const visible = corners.every(([x, y]) => {
+          const hit = document.elementFromPoint(x ?? 0, y ?? 0)
+          return hit === element || element.contains(hit)
+        })
+        style.pointerEvents = pointerEvents
         return {
-          visible: corners.every(([x, y]) => {
-            const hit = document.elementFromPoint(x ?? 0, y ?? 0)
-            return hit === element || element.contains(hit)
-          }),
+          visible,
           besideMenu: !!menu && (box.right <= menu.left || box.left >= menu.right),
         }
       }),
