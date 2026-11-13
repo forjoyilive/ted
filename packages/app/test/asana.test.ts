@@ -110,6 +110,11 @@ test('private configuration stays in main; browser authorization, identity, test
   ])
   expect(imported.filter((t) => t.parentId === root?.id)).toHaveLength(2)
   expect(root?.source?.asana).toMatchObject({ gid: '501', completed: false })
+  await openSettings(window)
+  await window
+    .getByRole('navigation', { name: 'Settings' })
+    .getByRole('button', { name: 'Integrations', exact: true })
+    .click()
   const renderer = await window.evaluate(() => ({
     text: document.body.innerHTML,
     local: { ...localStorage },

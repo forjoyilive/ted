@@ -110,7 +110,7 @@ export function planAsanaImport(input: {
     creates.push({ node: root })
   }
   const listFailed = (node: AsanaNode, at: ParentRef) => {
-    if (node.childrenUnreadable === undefined) return
+    if (node.childrenUnreadable === undefined || node.unreadable !== undefined) return
     hold(at, {
       gid: node.gid,
       name: `Subtasks of ${node.name}`,

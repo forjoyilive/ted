@@ -138,7 +138,10 @@ test('the planner creates unfinished items, keeps completed ones as context and 
     node('7', 1, '1'),
     node('8', 1, '1'),
     node('9', 1, '1'),
-    node('10', 1, '1', { unreadable: 'Asana didn’t let TED read it (no access)' }),
+    node('10', 1, '1', {
+      unreadable: 'Asana didn’t let TED read it (no access)',
+      childrenUnreadable: 'Asana didn’t let TED read it (no access)',
+    }),
     node('11', 2, '10'),
   ])
   const result = plan(tree, [
