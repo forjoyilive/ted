@@ -116,7 +116,7 @@ export function waitingText(task: Task, progress: ChildProgress, stage: (t: Task
   const count = progress.holding.length
   if (count === 0 || task.archived || task.stage === 'done') return undefined
   return {
-    lead: `Waiting for ${count} ${count === 1 ? 'child' : 'children'}:`,
+    lead: `${task.stage === 'backlog' ? 'Will wait for' : 'Waiting for'} ${count} ${count === 1 ? 'child' : 'children'}:`,
     tasks: progress.holding.map((t) => ({ task: t, stage: stage(t) })),
     tail: `${task.displayId} does its own remaining work when they merge.`,
   }

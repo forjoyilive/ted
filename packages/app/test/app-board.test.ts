@@ -16,6 +16,7 @@ import {
   twoFactories,
   waitFor,
 } from './app-harness.ts'
+import { appLoaded } from './first-window.ts'
 
 setUpAppTests()
 
@@ -267,6 +268,44 @@ describe('Board', () => {
       .dragTo(backlog.locator('[data-task="NB-1"]'), { targetPosition: { x: 40, y: 4 } })
     await waitFor(async () => (await cardIds(backlog)).join() === 'NB-2,NB-1,NB-3')
     expect((await client.listTasks()).find((t) => t.displayId === 'NB-2')?.priority).toBe('high')
+
+    await backlog.locator('[data-task="NB-1"] [data-card-title]').click()
+    const details = window.getByLabel('Task details')
+    const children = details.getByRole('region', { name: 'Children' })
+    await children.getByRole('button', { name: 'Create child' }).click()
+    const dialog = window.getByRole('dialog')
+    await dialog
+      .getByText('NB-1 waits for this Task to merge before it does its own remaining work.')
+      .waitFor()
+    await dialog.getByLabel('Title').fill('Offline badge')
+    await dialog.getByLabel('Start now').uncheck()
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+    await children.locator('[data-task="NB-4"]').waitFor()
+    await children.getByRole('button', { name: 'Add existing Task' }).click()
+    await children.getByLabel('Find a Task to add').fill('Note history')
+    await children.getByLabel('Find a Task to add').press('Enter')
+    await children.locator('[data-task="NB-3"]').waitFor()
+    await children.getByText('Will wait for 2 children:', { exact: false }).waitFor()
+    const tasks = await client.listTasks()
+    const id = (displayId: string) => tasks.find((t) => t.displayId === displayId)?.id
+    expect(tasks.find((t) => t.displayId === 'NB-4')?.parentId).toBe(id('NB-1'))
+    expect(tasks.find((t) => t.displayId === 'NB-3')?.parentId).toBe(id('NB-1'))
+
+    await children.locator('[data-task="NB-4"]').click()
+    await window
+      .getByRole('region', { name: 'Task thread' })
+      .getByText('Offline badge')
+      .first()
+      .waitFor()
+    await details.getByRole('button', { name: /NB-1/ }).waitFor()
+
+    await window.reload()
+    await appLoaded(window)
+    const again = await openBoard(window)
+    await again.locator('[data-task="NB-1"] [data-card-title]').click()
+    const reloaded = window.getByLabel('Task details').getByRole('region', { name: 'Children' })
+    await reloaded.locator('[data-task="NB-3"]').waitFor()
+    await reloaded.locator('[data-task="NB-4"]').waitFor()
   })
 
   const toDone = JSON.stringify({
