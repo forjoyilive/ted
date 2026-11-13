@@ -2772,6 +2772,17 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  baseBranchAdopted: Events.synced({
+    name: 'v1.BaseBranchAdopted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      base: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   p1OnlyReviewRecorded: Events.synced({
     name: 'v1.SeverityRuleReviewRecorded',
     schema: Schema.Struct({
@@ -3235,6 +3246,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       fileCount: args.fileCount,
       sendBackId: args.sendBackId,
     }),
+  'v1.BaseBranchAdopted': (args) => task(args, { repo: args.repo, base: args.base }),
   'v1.SendBackSeverityDeclared': (args) =>
     task(args, { runId: args.runId, round: args.round, severity: args.severity }),
   'v1.SeverityRuleReviewRecorded': (args) =>
@@ -3527,6 +3539,8 @@ const materializers = counted(
       'v1.GateRequestedFor': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateApprovalBound': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.BaseBranchAdopted': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateKeptOvernight': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),

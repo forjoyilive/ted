@@ -26,6 +26,7 @@ import type {
   ClarifyDepth,
   Comment,
   CommentAnswer,
+  CommitChanges,
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -83,6 +84,7 @@ import type {
   TaskApp,
   TaskBrief,
   TaskChanges,
+  TaskCommit,
   TaskDefaults,
   TaskFileContent,
   TaskFiles,
@@ -184,7 +186,7 @@ import {
   noConflictFound,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
-import { fileDiffs, taskChanges } from './changes.ts'
+import { commitChanges, fileDiffs, taskChanges, taskCommits } from './changes.ts'
 import type { CheckSlots } from './check-slots.ts'
 import {
   type CheckRunnerResult,
@@ -206,6 +208,7 @@ import {
   unscoped,
   withoutCheckName,
 } from './ci-failures.ts'
+import { coalesced } from './coalesced.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
@@ -241,6 +244,7 @@ import {
   byHuman,
   waiting as waitingItems,
 } from './inbox.ts'
+import { type AdoptedBase, baseStep, firstWorkEntry, latestBaseNote } from './latest-base.ts'
 import {
   atIdlePoint,
   continueMessage,
@@ -526,6 +530,8 @@ export interface Tasks {
   files(ref: string): Promise<TaskFiles>
   file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
+  commits(ref: string, ids: readonly string[]): Promise<TaskCommit[]>
+  commitChanges(ref: string, id: string): Promise<CommitChanges>
   lineComments(ref: string): Promise<LineComment[]>
   draftLineComment(ref: string, request: DraftLineCommentRequest): Promise<LineComment>
   editLineComment(id: string, body: string): LineComment
@@ -2341,6 +2347,7 @@ export function createTasks(options: {
   const manyRepos = (task: StoredTask) => task.repos.filter((r) => !r.removed).length > 1
 
   const baseTips = new Map<string, string>()
+  const baseNotes = new Map<string, string>()
   const baseTipKey = (taskId: string, repo: string) => `${taskId}\n${repo}`
 
   function foundConflict(task: StoredTask, conflict: BaseConflict): FoundConflict {
@@ -2383,6 +2390,73 @@ export function createTasks(options: {
       }
     }
     return undefined
+  }
+
+  async function adoptLatestBase(task: StoredTask): Promise<string | undefined> {
+    const moved: AdoptedBase[] = []
+    try {
+      await execution.local(task.id)
+      const factory = factoryOf(task)
+      const { workflow } = await taskWorkflow(find(task.id), { fetch: false })
+      const entries = factoryRepos(workflow, factory)
+      for (const target of await pullRequestTargets(task)) {
+        try {
+          const repo = task.repos.find((r) => r.name === target.name)
+          const entry = repo && repoEntry(entries, repo)
+          if (!repo || !entry || repo.pullRequest !== undefined) continue
+          await worktreeFileScope(worktreesDir, target.worktree)
+          const head = await git.headCommit(target.worktree)
+          const tracked = () =>
+            git.revParse(target.worktree, `origin/${target.base}`).catch(() => undefined)
+          const known = await tracked()
+          const tip = await git.fetchBranch(target.worktree, {
+            url: target.url,
+            branch: target.base,
+            haves: [head, ...(known === undefined ? [] : [known])],
+            timeoutMs: baseCheckTimeoutMs,
+          })
+          if (tip === head) continue
+          const headInTip = await git.isAncestor(target.worktree, head, tip)
+          const inClone = async () => {
+            const at = await tracked()
+            return (
+              at !== undefined && (at === tip || (await git.isAncestor(target.worktree, tip, at)))
+            )
+          }
+          let tipInClone = headInTip && (await inClone())
+          if (headInTip && !tipInClone) {
+            await git.fetch(await cloneFor(task, factory, entry), baseCheckTimeoutMs)
+            tipInClone = await inClone()
+          }
+          const step = baseStep({ head, tip, headInTip, tipInClone })
+          if (step === 'clone-behind') {
+            console.error(
+              `left ${task.displayId}’s ${target.name} where it was: TED’s clone doesn’t have the latest ${redactSecrets(clean(target.base, 200))}`,
+            )
+          }
+          if (step !== 'move') continue
+          await worktreeFileScope(worktreesDir, target.worktree)
+          if ((await git.headCommit(target.worktree)) !== head) continue
+          if (!(await git.moveBranchTo(target.worktree, tip, head))) continue
+          baseTips.set(baseTipKey(task.id, target.name), tip)
+          moved.push({ repo: target.name, base: clean(target.base, 200), from: head, to: tip })
+        } catch (error) {
+          console.error(
+            `couldn’t move ${task.displayId}’s ${target.name} to the latest ${redactSecrets(clean(target.base, 200))}:`,
+            redactSecrets(textOf(error)),
+          )
+        }
+      }
+      if (moved.length === 0) return undefined
+      store.baseAdopted(task.id, moved)
+      return latestBaseNote(moved, manyRepos(task))
+    } catch (error) {
+      console.error(
+        `couldn’t move ${task.displayId} to the latest base branch:`,
+        redactSecrets(textOf(error)),
+      )
+      return moved.length > 0 ? latestBaseNote(moved, manyRepos(task)) : undefined
+    }
   }
 
   function pullRequestTask(task: StoredTask): PullRequestTask {
@@ -3477,7 +3551,10 @@ export function createTasks(options: {
     local: (id) => execution.local(id),
     beforeLeadStart: async (id) =>
       (await incorporateRepairs(find(id))) ? taskWorkflow(find(id), { fetch: false }) : undefined,
-    afterLeadStart: scheduleRepairChecks,
+    afterLeadStart: (id) => {
+      baseNotes.delete(id)
+      scheduleRepairChecks(id)
+    },
     workflow: (task) => taskWorkflow(task, { fetch: false }),
     entries: (task, resolution) => factoryRepos(resolution.workflow, factoryOf(task)),
     defaultLead: leadFrom,
@@ -3880,6 +3957,7 @@ export function createTasks(options: {
     if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
     const overnightMode = taskAutopilot(task)
     const pending = current.pendingLeadMessages
+    const baseNote = baseNotes.get(task.id)
     const round =
       resumeSession === undefined && current.stage === 'validate'
         ? await validateRound(current, resolution.workflow)
@@ -3908,6 +3986,7 @@ export function createTasks(options: {
             ...(note !== undefined ? [note] : []),
           ]
         : [continueMessage, ...editedSince(current)]),
+      ...(baseNote !== undefined ? [baseNote] : []),
       ...(since !== undefined ? [since] : []),
       ...(resumeSession !== undefined && movedByApproval(current, waiting.answers)
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
@@ -4932,6 +5011,9 @@ export function createTasks(options: {
       )
         throw new RequestError(409, 'Preparation must stop before Work')
     }
+    const baseNote = firstWorkEntry(next, store.listStageEntries(task.id))
+      ? await adoptLatestBase(task)
+      : undefined
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (task.stage === 'merge' && next !== 'done') {
       for (const repo of task.repos) {
@@ -4953,8 +5035,13 @@ export function createTasks(options: {
         validation.enter(task.id, message, checked),
       )
     } else if (message !== undefined) {
-      await deliver(task, message, waitForSlot)
-    }
+      const told = await deliver(
+        task,
+        baseNote === undefined ? message : `${message}\n\n${baseNote}`,
+        waitForSlot,
+      )
+      if (!told && baseNote !== undefined) baseNotes.set(task.id, baseNote)
+    } else if (baseNote !== undefined) baseNotes.set(task.id, baseNote)
     if (next === 'merge') {
       const { workflow } = await gateWorkflow(find(task.id), { fetch: false })
       if (tedMerges(moved, workflow)) startMerging(moved, workflow)
@@ -6137,6 +6224,10 @@ export function createTasks(options: {
     const task = find(taskId)
     const factory = factoryOf(task)
     if (task.repos.some((r) => !r.removed)) {
+      if (task.stage === 'work' && store.heldBeforeWork(task.id)) {
+        const note = await adoptLatestBase(task)
+        if (note !== undefined) baseNotes.set(task.id, note)
+      }
       await leadLifecycle.prepare(task.id, { kind: 'existing' })
       store.dequeue(task.id)
       if (store.freshRunRequest(task.id)?.kind === 'github') {
@@ -7079,6 +7170,12 @@ export function createTasks(options: {
   }
   store.returnDueRequests(snoozeNow())
   refreshSnoozes()
+  const wakeSoon = coalesced(() => {
+    if (!closed) wake()
+  })
+  const reportSetupSoon = coalesced((factoryId: string) => {
+    if (!closed) reportSetup(factoryId)
+  })
   const stopPumping = store.subscribe((event) => {
     if (
       event.type === 'comment-updated' ||
@@ -7173,11 +7270,7 @@ export function createTasks(options: {
         if (!closed) inBackground('stop a blocked Task Lead', () => stopForBlockers(taskId))
       })
     }
-    if (event.type === 'task-updated' && event.task.stage === 'done') {
-      setImmediate(() => {
-        if (!closed) wake()
-      })
-    }
+    if (event.type === 'task-updated' && event.task.stage === 'done') wakeSoon()
     if (event.type === 'task-updated' && watch) {
       setImmediate(() => {
         if (!closed) watch.poke()
@@ -7195,10 +7288,7 @@ export function createTasks(options: {
       void pump()
     }
     if ((event.type === 'task-created' || event.type === 'task-updated') && event.task.setup) {
-      const { factoryId } = event.task
-      setImmediate(() => {
-        if (!closed) reportSetup(factoryId)
-      })
+      reportSetupSoon(event.task.factoryId)
     }
   })
   banners.onAction(setupProblem, async ({ factoryId }) => {
@@ -8854,6 +8944,23 @@ export function createTasks(options: {
     async file(ref, name, relative) {
       const { fileScope } = await this.worktreeAccess(ref, name)
       return readTaskFile(fileScope, relative)
+    },
+
+    async commits(ref, ids) {
+      return taskCommits(
+        find(ref).repos.filter((r) => !r.removed),
+        ids,
+      )
+    },
+
+    async commitChanges(ref, id) {
+      const task = find(ref)
+      const changes = await commitChanges(
+        task.repos.filter((r) => !r.removed),
+        id,
+      )
+      if (!changes) throw new RequestError(404, `${task.displayId}’s repos have no such commit`)
+      return changes
     },
 
     async fileDiffs(ref, name, file) {

@@ -122,6 +122,7 @@ test('an Inbox row snoozes from its button with the exact time shown; snoozed ro
   const u = user()
   expect(screen.getByText('Which page?')).toBeTruthy()
   expect(screen.queryByText('Which button?')).toBeNull()
+  await u.click(screen.getByRole('button', { name: /^Filter/ }))
   expect(screen.getByRole('button', { name: /^All/ }).textContent).toBe('All 1')
 
   const group = screen.getByRole('button', { name: /Snoozed/ })

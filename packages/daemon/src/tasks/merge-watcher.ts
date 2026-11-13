@@ -90,6 +90,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   const rebaseAsked = new Map<string, { from: string; to: string }>()
   const autoMergeTried = new Set<string>()
   const inFlight = new Map<string, Promise<MergeCycle>>()
+  const held = new Map<string, string>()
   const visitStart = (task: Task) =>
     store.listStageEntries(task.id).findLast((e) => e.stage === task.stage)?.at ?? ''
   const needsSignOff = (target: MergeWork, why: string) =>
@@ -107,6 +108,33 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const repo = find(taskId).repos.find((r) => r.name === name)
     if (repo?.pullRequest && repo.pullRequest.waiting !== on) {
       store.pullRequestWaiting(taskId, name, on)
+    }
+  }
+
+  function clearSignIn(taskId: string, read: PullRequestRead | undefined): void {
+    if (!read) return
+    for (const repo of store.getTask(taskId)?.repos ?? []) {
+      const pr = repo.pullRequest
+      if (
+        pr?.waiting === 'sign-in' &&
+        pr.state !== 'merged' &&
+        read.pulls.has(`${taskId}:${repo.name}`)
+      )
+        store.pullRequestWaiting(taskId, repo.name, undefined)
+    }
+  }
+
+  async function obligations(taskId: string, read?: PullRequestRead): Promise<void> {
+    try {
+      await requireObligations(find(taskId), read)
+      held.delete(taskId)
+    } catch (error) {
+      const why = redactSecrets(textOf(error))
+      if (held.get(taskId) !== why) {
+        held.set(taskId, why)
+        console.error(`${store.getTask(taskId)?.displayId ?? taskId}’s merge is waiting: ${why}`)
+      }
+      throw error
     }
   }
 
@@ -174,13 +202,14 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (!method || autoMergeTried.has(key)) return
     try {
       await holding(find(task.id), async () => {
-        await requireObligations(find(task.id))
+        await obligations(task.id)
         autoMergeTried.add(key)
         await mergePullRequest(gh, target, method, { auto: true })
         store.autoMergeEnabled(task.id, target.name, { method, requested: target.method })
         await store.persisted()
       })
     } catch (error) {
+      if (error instanceof RequestError && error.status === 409) return
       console.error(
         `couldn’t turn on auto-merge for ${target.repo}#${target.number}:`,
         redactSecrets(textOf(error)),
@@ -344,7 +373,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     try {
       remote = remoteOf(taskId, targets, read)
     } catch (error) {
-      if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+      if (needsSignIn(error)) {
         if (task.stage === 'merge') {
           for (const target of targets) setWait(taskId, target.name, 'sign-in')
         }
@@ -408,7 +437,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       try {
         await holding(task, async () => {
           read = await port.read()
-          await requireObligations(find(task.id), read)
+          await obligations(taskId, read)
         })
       } catch {
         return 'wait'
@@ -436,7 +465,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     try {
       remote = remoteOf(taskId, targets, read)
     } catch (error) {
-      if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+      if (needsSignIn(error)) {
         for (const target of targets) setWait(taskId, target.name, 'sign-in')
       }
       throw error
@@ -500,7 +529,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
           if (rebaseAsked.get(key)?.from !== target.expectedHead) {
             try {
               const to = await holding(find(taskId), async () => {
-                await requireObligations(find(taskId))
+                await obligations(taskId)
                 return rebasePullRequest(gh, pr)
               })
               if (to !== undefined) rebaseAsked.set(key, { from: target.expectedHead, to })
@@ -577,12 +606,12 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       }
       try {
         await holding(find(taskId), async () => {
-          await requireObligations(find(taskId))
+          await obligations(taskId)
           await mergePullRequest(gh, target, method, { auto: false })
         })
       } catch (error) {
         if (error instanceof RequestError && error.status === 409) throw error
-        if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+        if (needsSignIn(error)) {
           setWait(taskId, target.name, 'sign-in')
           throw error
         }
@@ -618,7 +647,19 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   return {
     cycle(taskId: string, read: PullRequestRead | undefined): Promise<MergeCycle> {
       if (inFlight.has(taskId)) return Promise.resolve('busy')
-      const cycle = Promise.resolve().then(() => mergeCycle(taskId, read))
+      const cycle = Promise.resolve()
+        .then(() => mergeCycle(taskId, read))
+        .then(
+          (next) => {
+            if (next === 'done') held.delete(taskId)
+            clearSignIn(taskId, read)
+            return next
+          },
+          (error: unknown) => {
+            if (!needsSignIn(error)) clearSignIn(taskId, read)
+            throw error
+          },
+        )
       inFlight.set(taskId, cycle)
       return cycle.finally(() => inFlight.delete(taskId))
     },
@@ -633,6 +674,8 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   }
 }
 
+const needsSignIn = (error: unknown) =>
+  error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')
 const textOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 const latest = (a: string, b: string) => (a > b ? a : b)
 

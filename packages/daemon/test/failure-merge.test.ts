@@ -159,7 +159,7 @@ test('acceptance, obligations and Gate approval each verify worktree edits made 
   }
 }, 90_000)
 
-test('opening a case disables TED auto-merge; external merges remain factual and cannot finish the Task', async () => {
+test('opening a case disables TED auto-merge and a good read clears an earlier sign-in wait; external merges remain factual and cannot finish the Task', async () => {
   const client = await start({
     files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
     merge: {
@@ -174,11 +174,16 @@ test('opening a case disables TED auto-merge; external merges remain factual and
     const t = await getTask(client, task.id)
     return t.repos[0]?.pullRequest?.autoMerge ? t : undefined
   }, 'TED auto-merge')
+  const waitingOn = async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.waiting
+  await writeFile(ctx.ghState, JSON.stringify({ ...(await readGh()), api: { result: 'auth' } }))
+  await waitUntil(async () => (await waitingOn()) === 'sign-in', 'the sign-in wait')
   const { post } = await leadFor(task.id, pending.leadRunId ?? '')
   await post('/failures', {
     source: { kind: 'finding', runId: pending.leadRunId, finding: 'Do not merge yet' },
     evidence: 'Explicit hold',
   })
+  await writeFile(ctx.ghState, JSON.stringify({ ...(await readGh()), api: undefined }))
+  await waitUntil(async () => (await waitingOn()) !== 'sign-in', 'the sign-in wait to clear')
   expect((await readGh()).merge.autoMerge).toBeUndefined()
   expect((await merges()).some((args) => args.includes('--disable-auto'))).toBe(true)
   await setGh({ merged: true })

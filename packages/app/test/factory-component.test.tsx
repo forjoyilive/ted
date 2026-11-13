@@ -381,6 +381,17 @@ test('Agent defaults save a Library override and reset it to the TED default', a
     version: 'v1',
   })
   expect(screen.getByText('Library', { exact: true })).toBeTruthy()
+  await user().selectOptions(screen.getByRole('combobox', { name: 'Reviewer model' }), 'Other…')
+  await user().type(screen.getByRole('textbox', { name: 'Reviewer model' }), 'gpt-5.5{Enter}')
+  expect(api.request).toHaveBeenLastCalledWith('saveLibrary', {
+    changes: { agents: { reviewer: { agent: 'codex', effort: 'high', model: 'gpt-5.5' } } },
+    version: 'v2',
+  })
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('combobox', { name: 'Reviewer model' }) as HTMLSelectElement).value,
+    ).toBe('gpt-5.5'),
+  )
   await user().click(screen.getByRole('button', { name: 'Reset to TED default' }))
   expect(api.request).toHaveBeenLastCalledWith('saveLibrary', {
     changes: { agents: { reviewer: null } },
@@ -639,7 +650,7 @@ test('failed agent-default saves keep their error after refreshing the controls'
   )
   await waitFor(() =>
     expect(
-      (screen.getByRole('textbox', { name: 'Reviewer model' }) as HTMLInputElement).value,
+      (screen.getByRole('combobox', { name: 'Reviewer model' }) as HTMLSelectElement).value,
     ).toBe('fresh'),
   )
   expect(screen.getByText('The Library changed on disk. Try again.')).toBeTruthy()

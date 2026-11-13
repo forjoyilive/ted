@@ -136,7 +136,7 @@ describe('Planning chats', () => {
     const row = window
       .getByRole('region', { name: 'Inbox' })
       .getByRole('button')
-      .filter({ hasText: 'Plan · Round 1 · 1 question' })
+      .filter({ hasText: 'Plan · Round 1' })
     await row.waitFor()
     expect(await row.textContent()).toContain('Plan notebook sharing')
     await row.click()

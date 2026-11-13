@@ -1,6 +1,14 @@
-import type { AutomationRequest, Factory, InboxItem } from '@ted/protocol'
+import type { AutomationRequest, Comment, Factory, InboxItem } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { inboxChips, inFactory, nextSelection, waitingByFactory } from '../src/renderer/inbox.ts'
+import {
+  type Grouped,
+  groupInbox,
+  inboxChips,
+  inFactory,
+  nextSelection,
+  requestKind,
+  waitingByFactory,
+} from '../src/renderer/inbox.ts'
 
 const item = (id: string, factoryId = 'nb') =>
   ({ request: { id }, task: { id: `t-${id}`, factoryId } }) as unknown as InboxItem
@@ -64,5 +72,89 @@ describe('after answering', () => {
     expect(nextSelection(before, before, 'b')).toBeUndefined()
     expect(nextSelection(before, [item('a')], undefined)).toBeUndefined()
     expect(nextSelection(before, [item('a')], 'elsewhere')).toBeUndefined()
+  })
+})
+
+describe('Group by', () => {
+  const now = new Date(2026, 10, 12, 15, 0).getTime()
+  const at = (daysAgo: number, hour: number) =>
+    new Date(2026, 10, 12 - daysAgo, hour, 0).toISOString()
+  const row = (id: string, grouped: Partial<Grouped>) => ({
+    id,
+    grouped: { kind: 'question', at: at(0, 9), ...grouped } satisfies Grouped,
+  })
+  const shape = (groups: ReturnType<typeof groupInbox<ReturnType<typeof row>>>) =>
+    groups.map((group) => [group.label, group.rows.map((r) => r.id)])
+
+  test('None keeps the rows as one unnamed group, and an empty Inbox has no group', () => {
+    const rows = [row('a', {}), row('b', { kind: 'signoff' })]
+    expect(shape(groupInbox(rows, 'none', now))).toEqual([['', ['a', 'b']]])
+    expect(groupInbox([], 'none', now)).toEqual([])
+    expect(groupInbox([], 'kind', now)).toEqual([])
+  })
+
+  test('a request’s kind comes from what it asks for', () => {
+    const kind = (request: Partial<Comment>) => requestKind({ kind: 'question', ...request })
+    expect(kind({ kind: 'permission' })).toBe('blocking')
+    expect(kind({ kind: 'permission', purpose: { kind: 'simulator' } })).toBe('blocking')
+    expect(kind({ failed: { runId: 'r1' } })).toBe('blocking')
+    expect(kind({ purpose: { kind: 'failure' } })).toBe('blocking')
+    expect(kind({ purpose: { kind: 'failed-run' } })).toBe('blocking')
+    expect(kind({ kind: 'signoff' })).toBe('signoff')
+    expect(kind({ kind: 'review' })).toBe('signoff')
+    expect(kind({ purpose: { kind: 'gate' } })).toBe('signoff')
+    for (const purpose of ['question', 'round', 'proposal', 'size-check', 'linear-team'] as const) {
+      expect(kind({ purpose: { kind: purpose } })).toBe('question')
+    }
+    expect(kind({ kind: 'round' })).toBe('question')
+    expect(kind({ kind: 'proposal' })).toBe('question')
+  })
+
+  test('Kind puts Blocking a Run first, keeps each group’s order and hides empty headings', () => {
+    const rows = [
+      row('q1', {}),
+      row('s1', { kind: 'signoff' }),
+      row('b1', { kind: 'blocking' }),
+      row('q2', {}),
+    ]
+    expect(shape(groupInbox(rows, 'kind', now))).toEqual([
+      ['Blocking a Run', ['b1']],
+      ['Questions', ['q1', 'q2']],
+      ['Sign-offs', ['s1']],
+    ])
+    expect(shape(groupInbox([row('s1', { kind: 'signoff' })], 'kind', now))).toEqual([
+      ['Sign-offs', ['s1']],
+    ])
+  })
+
+  test('Age splits at the start of today and six days before it, and marks only Older', () => {
+    const rows = [
+      row('midnight', { at: at(0, 0) }),
+      row('yesterday', { at: at(1, 23) }),
+      row('six', { at: at(6, 0) }),
+      row('seven', { at: at(7, 23) }),
+    ]
+    const groups = groupInbox(rows, 'age', now)
+    expect(shape(groups)).toEqual([
+      ['Today', ['midnight']],
+      ['Earlier this week', ['yesterday', 'six']],
+      ['Older', ['seven']],
+    ])
+    expect(groups.map((group) => group.old)).toEqual([undefined, undefined, true])
+  })
+
+  test('Stage follows the Workflow’s order and puts requests without a Stage last', () => {
+    const rows = [
+      row('plan', {}),
+      row('review', { stage: 'review' }),
+      row('clarify', { stage: 'clarify' }),
+      row('work', { stage: 'work' }),
+    ]
+    expect(shape(groupInbox(rows, 'stage', now))).toEqual([
+      ['Clarify', ['clarify']],
+      ['Work', ['work']],
+      ['Review', ['review']],
+      ['No Stage', ['plan']],
+    ])
   })
 })
