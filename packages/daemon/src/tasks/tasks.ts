@@ -3470,12 +3470,12 @@ export function createTasks(options: {
     const id = find(ref).id
     return checksFirst(
       id,
-      () => markDoneNow(id),
+      () => markDoneNow(id, by),
       () => publicTask(id),
     )
   }
 
-  async function markDoneNow(id: string): Promise<Task> {
+  async function markDoneNow(id: string, by: 'human' | 'lead' | 'coordinator'): Promise<Task> {
     await untilFree(id)
     await mergeWatcher.settled(id)
     const task = find(id)
