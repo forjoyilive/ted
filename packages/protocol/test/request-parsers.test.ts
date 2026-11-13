@@ -136,6 +136,12 @@ test('parseCoordinatorConfirmationAnswer keeps every field', () => {
     },
   }
   expect(P.parseCoordinatorConfirmationAnswer(body)).toEqual(body)
+  expect(
+    P.parseCoordinatorConfirmationAnswer({
+      decision: 'confirm',
+      choices: { 'TED-1': { closePullRequests: false } },
+    }),
+  ).toEqual({ decision: 'confirm', choices: { 'TED-1': { closePullRequests: false } } })
   expect(P.parseCoordinatorConfirmationAnswer({ decision: 'cancel' })).toEqual({
     decision: 'cancel',
   })

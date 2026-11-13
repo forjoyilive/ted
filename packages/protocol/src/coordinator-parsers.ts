@@ -271,7 +271,10 @@ export function parseCoordinatorConfirmationAnswer(value: unknown): CoordinatorC
     const entry = bodyObject(raw, 'choice')
     const { children } = entry
     const kind = children === 'delete' || children === 'unparent' ? 'delete' : 'archive'
-    choices[id] = removalChoices(entry, kind)
+    choices[id] = {
+      ...removalChoices(entry, kind),
+      ...(entry.closePullRequests === false && { closePullRequests: false }),
+    }
   }
   return { decision: body.decision, choices }
 }

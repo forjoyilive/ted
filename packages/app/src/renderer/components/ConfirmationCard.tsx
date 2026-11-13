@@ -102,7 +102,10 @@ function CardTask({
             {task.working && (
               <p>{`${id}’s Task Lead is working. ${kind === 'archive' ? 'Archiving' : 'Deleting'} stops its Run.`}</p>
             )}
-            {task.pullRequests.length > 0 && (
+            {task.pullRequests.length > 0 && kind === 'delete' && (
+              <p>{`${id} has ${task.pullRequests.length === 1 ? 'an open pull request' : 'open pull requests'}: ${prs}. Deleting leaves ${task.pullRequests.length === 1 ? 'it' : 'them'} open on GitHub.`}</p>
+            )}
+            {task.pullRequests.length > 0 && kind === 'archive' && (
               <label className={dialogs.check}>
                 <input
                   type="checkbox"

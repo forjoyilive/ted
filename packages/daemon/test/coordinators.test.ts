@@ -336,7 +336,17 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   const askedB = (archiveB.body as { confirmation: { id: string; waiting: boolean } }).confirmation
   expect(askedB.waiting).toBe(true)
   expect((await taskById(b.id))?.archived).toBeFalsy()
-  const deleteAD = await removal('delete', [a.id, d.id], { children: 'delete' })
+  const f = await s.task('F')
+  await removal('archive', [f.id])
+  expect((await taskById(f.id))?.archived).toBeTruthy()
+  const adInput = {
+    operation: 'delete-adf',
+    tasks: await Promise.all(
+      [a.id, d.id, f.id].map(async (id) => ({ id, version: (await read(id)).version })),
+    ),
+    children: 'delete',
+  }
+  const deleteAD = await run.call('POST', '/coordinator/delete', adInput)
   const askedAD = (deleteAD.body as { confirmation: { id: string } }).confirmation
   const cards = (await s.chat()).confirmations
   expect(cards.find((c) => c.id === askedB.id)).toMatchObject({
@@ -348,18 +358,38 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     tasks: [
       { id: a.id, children: 'delete', descendants: [{ id: createReceipt.taskId }] },
       { id: d.id, descendants: [] },
+      { id: f.id },
     ],
   })
   const waiting = await s.ok<WaitingRequest[]>('GET', '/inbox/waiting')
   expect(waiting.filter((w) => w.source === 'coordinator')).toMatchObject([
     { id: askedB.id, headline: `Archive ${b.displayId}?` },
-    { id: askedAD.id, headline: `Delete 2 Tasks? ${a.displayId}, ${d.displayId}` },
+    {
+      id: askedAD.id,
+      headline: `Delete 3 Tasks? ${a.displayId}, ${d.displayId}, ${f.displayId}`,
+    },
   ])
   const answer = (id: string) => `${s.base}/confirmations/${id}`
   expect((await run.call('POST', answer(askedB.id), { decision: 'confirm' })).status).toBe(403)
   await s.ok('POST', answer(askedB.id), { decision: 'cancel' })
   expect((await taskById(b.id))?.archived).toBeFalsy()
   expect(await s.waitingIds()).not.toContain(askedB.id)
+
+  const c = await taskById(createReceipt.taskId ?? '')
+  if (!c) throw new Error('missing C')
+  const cascade = await removal('delete', [a.id, c.id], { children: 'delete' }, 'delete-ac')
+  const askedAC = (cascade.body as { confirmation: { id: string } }).confirmation
+  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [c.id] })
+  const refusedAC = await s.ok<Coordinator>('POST', answer(askedAC.id), { decision: 'confirm' })
+  expect(refusedAC.confirmations.find((x) => x.id === askedAC.id)?.tasks).toMatchObject([
+    {
+      id: a.id,
+      result: { done: false, text: expect.stringContaining(`${c.displayId}, which is under it`) },
+    },
+    { id: c.id, result: { done: false, text: expect.stringContaining('the Tasks it blocks') } },
+  ])
+  expect(await taskById(a.id)).toBeDefined()
+  expect(await taskById(c.id)).toBeDefined()
 
   await s.ok('POST', '/tasks', { factory: 'NB', title: 'E', blockedBy: [d.id] })
   const answered = await s.ok<Coordinator>('POST', answer(askedAD.id), {
@@ -376,15 +406,15 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
           text: expect.stringContaining('the Tasks it blocks changed after this card was shown'),
         },
       },
+      { id: f.id, result: { done: true } },
     ],
   })
+  expect(await taskById(f.id)).toBeUndefined()
   expect(await taskById(a.id)).toBeUndefined()
   expect(await taskById(createReceipt.taskId ?? '')).toBeUndefined()
   expect((await taskById(d.id))?.archived).toBeFalsy()
   expect((await s.client.call('POST', answer(askedAD.id), { decision: 'cancel' })).status).toBe(409)
-  expect((await removal('delete', [a.id, d.id], { children: 'delete' })).body).toEqual(
-    deleteAD.body,
-  )
+  expect((await run.call('POST', '/coordinator/delete', adInput)).body).toEqual(deleteAD.body)
 
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {

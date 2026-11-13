@@ -777,14 +777,11 @@ export function createCoordinators(options: {
         return child && (kind === 'delete' || !child.archived) ? [ref(child)] : []
       }),
       blockedTasks: all.filter((t) => !t.archived && t.blockedBy.includes(task.id)).map(ref),
-      pullRequests:
-        kind === 'archive'
-          ? task.repos.flatMap((r) =>
-              r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
-                ? [{ repo: r.name, number: r.pullRequest.number }]
-                : [],
-            )
+      pullRequests: task.repos.flatMap((r) =>
+        r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
+          ? [{ repo: r.name, number: r.pullRequest.number }]
           : [],
+      ),
       working: task.runs.some((r) => r.role === 'lead' && r.state !== 'finished'),
     }
   }
@@ -833,7 +830,8 @@ export function createCoordinators(options: {
     choices: CoordinatorConfirmationTask | CoordinatorRemoval,
     receiptId: string,
     fingerprint: string,
-  ): Promise<{ receipt: CoordinatorReceipt; done: boolean }> {
+    guard?: () => string | undefined,
+  ): Promise<{ receipt: CoordinatorReceipt; done: boolean; refusal?: string }> {
     const receipt: CoordinatorReceipt = {
       id: receiptId,
       operation: kind,
@@ -847,7 +845,11 @@ export function createCoordinators(options: {
     save({ ...opened, receipts: [...opened.receipts, receipt] })
     await store.persisted()
     let done = false
+    let refusal: string | undefined
     try {
+      const current = store.getTask(task.id)
+      refusal = current ? guard?.() : `${task.displayId} no longer exists`
+      if (refusal) throw new Error(refusal)
       const family = tasks.hierarchyPreview(task.id)
       if (kind === 'unarchive') {
         const result = await tasks.unarchive(task.id, {
@@ -888,7 +890,7 @@ export function createCoordinators(options: {
     const latest = requireChat(factoryId)
     save({ ...latest, receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)) })
     await store.persisted()
-    return { receipt, done }
+    return { receipt, done, ...(refusal !== undefined && { refusal }) }
   }
   function serial<T>(factoryId: string, work: () => Promise<T>): Promise<T> {
     const next = (chains.get(factoryId) ?? Promise.resolve()).catch(() => {}).then(work)
@@ -1548,7 +1550,7 @@ export function createCoordinators(options: {
               409,
               `${task.displayId} changed; read its current state before deciding again`,
             )
-          if (kind === 'unarchive' ? !task.archived : task.archived)
+          if (kind === 'unarchive' ? !task.archived : kind === 'archive' && task.archived)
             throw new RequestError(
               409,
               `${task.displayId} ${task.archived ? 'is already archived' : 'isn’t archived'}`,
@@ -1600,6 +1602,15 @@ export function createCoordinators(options: {
             input,
             `${prefix}${task.id}`,
             fingerprint,
+            kind === 'archive'
+              ? () => {
+                  const latest = store.getTask(task.id)
+                  if (!latest || latest.archived) return `${task.displayId} was archived meanwhile`
+                  return warns(confirmationFacts(latest, 'archive'))
+                    ? `${task.displayId} changed and now needs the human’s confirmation; read it again and ask again`
+                    : undefined
+                }
+              : undefined,
           )
           receipts.push(receipt)
         }
@@ -1639,34 +1650,64 @@ export function createCoordinators(options: {
         await store.persisted()
         if (answer.decision === 'cancel') return publicChat(requireChat(factoryId))
         const verb = asked.kind === 'archive' ? 'archived' : 'deleted'
-        for (const [i, card] of cards.entries()) {
+        const together = asked.kind === 'archive' ? 'archive' : 'delete'
+        const sweeps = (card: CoordinatorConfirmationTask) =>
+          (card.children ?? (asked.kind === 'archive' ? 'archive' : 'unparent')) === together
+        const ownChange = (card: CoordinatorConfirmationTask) => {
           const task = store.getTask(card.id)
+          if (!task || task.factoryId !== factoryId) return `${card.displayId} no longer exists`
+          return whatChanged(card, task, asked.kind)
+        }
+        const refusal = (card: CoordinatorConfirmationTask) => {
+          const own = ownChange(card)
+          if (own || !sweeps(card)) return own
+          for (const other of cards) {
+            if (other.id === card.id || !card.descendants.some((d) => d.id === other.id)) continue
+            const why = ownChange(other)
+            if (why) return `${other.displayId}, which is under it, changed: ${why}`
+          }
+          return undefined
+        }
+        const refused = (why: string) => ({
+          done: false,
+          text: `Not ${verb}: ${why} after this card was shown. Ask the Coordinator again if you still want it ${verb}.`,
+        })
+        const order = [...cards.keys()].sort(
+          (a, b) => (cards[b]?.descendants.length ?? 0) - (cards[a]?.descendants.length ?? 0),
+        )
+        for (const i of order) {
+          const card = cards[i]
+          if (!card) continue
+          const holder = cards.find(
+            (c) =>
+              c.id !== card.id &&
+              c.result?.done === true &&
+              sweeps(c) &&
+              c.descendants.some((d) => d.id === card.id),
+          )
           let result: { done: boolean; text: string }
-          const parent = cards
-            .slice(0, i)
-            .find((c) => c.children === 'delete' && c.descendants.some((d) => d.id === card.id))
-          if (!task && parent?.result?.done) {
-            result = { done: true, text: `Deleted with ${parent.displayId}` }
-          } else if (!task || task.factoryId !== factoryId) {
-            result = { done: false, text: `${card.displayId} no longer exists` }
-          } else {
-            const changed = whatChanged(card, task, asked.kind)
-            if (changed) {
-              result = {
-                done: false,
-                text: `Not ${verb}: ${changed} after this card was shown. Ask the Coordinator again if you still want it ${verb}.`,
-              }
-            } else {
-              const { receipt, done } = await perform(
-                factoryId,
-                asked.kind,
-                task,
-                card,
-                `${asked.operation}:${task.id}`,
-                asked.fingerprint,
-              )
-              result = { done, text: receipt.text }
+          const why = holder ? undefined : refusal(card)
+          const task = store.getTask(card.id)
+          if (holder) {
+            result = {
+              done: true,
+              text: `${asked.kind === 'archive' ? 'Archived' : 'Deleted'} with ${holder.displayId}`,
             }
+          } else if (why || !task) {
+            result = refused(why ?? `${card.displayId} no longer exists`)
+          } else {
+            const done = await perform(
+              factoryId,
+              asked.kind,
+              task,
+              card,
+              `${asked.operation}:${task.id}`,
+              asked.fingerprint,
+              () => refusal(card),
+            )
+            result = done.refusal
+              ? refused(done.refusal)
+              : { done: done.done, text: done.receipt.text }
           }
           cards[i] = { ...card, result }
           update({ ...answered, tasks: [...cards] })

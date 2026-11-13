@@ -86,6 +86,7 @@ function withCoordinator() {
   a.handle('coordinatorChat', () => shown.chat)
   a.handle('coordinatorStatuses', () => shown.statuses)
   a.handle('taskDefaults', () => ({ lead: { agent: 'claude' }, planner: { agent: 'claude' } }))
+  a.handle('tedStops', () => [])
   const open = async () => {
     await user().click(await screen.findByRole('button', { name: 'widgets' }))
     await user().click(within(nav()).getByRole('button', { name: /^Coordinator/ }))
