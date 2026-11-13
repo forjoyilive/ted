@@ -966,6 +966,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               onRemoveFactory={() => setRemoving(factory)}
               onOpenTask={openTask}
               dispatch={dispatch}
+              section={screen.section}
             />
           )
         }

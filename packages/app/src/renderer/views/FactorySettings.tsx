@@ -43,12 +43,13 @@ import {
   settingsChanges,
   settingsDraft,
   unsavedChanges,
+  unsavedSections,
   unsavedSummary,
 } from '../factory-settings.ts'
 import type { NavigationAction } from '../navigation.ts'
 import { usePendingAction } from '../pending-action.ts'
 import { useShownSetting } from '../setting-focus.ts'
-import { factorySections, type SettingId } from '../settings-search.ts'
+import { type FactorySectionId, factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
 import styles from './FactorySettings.module.css'
@@ -83,10 +84,21 @@ interface FactorySettingsProps {
   onRemoveFactory: () => void
   onOpenTask: (task: Task) => void
   dispatch: (action: NavigationAction) => void
+  section?: FactorySectionId | undefined
 }
+
+const repoSections: ReadonlySet<FactorySectionId> = new Set([
+  'repos',
+  'workflow',
+  'checks',
+  'agents',
+  'permissions',
+  'notes',
+])
 
 export function FactorySettings({
   factory,
+  section = 'general',
   banners,
   onOpenFactory,
   onOpenGitHubSettings,
@@ -295,8 +307,11 @@ export function FactorySettings({
   }
 
   useShownSetting(scroller, 'factory')
-  const scrollTo = (id: string) =>
-    scroller.current?.querySelector(`#${id}`)?.scrollIntoView({ block: 'start' })
+  const edited = useMemo(
+    () => (base && draft ? unsavedSections(draft, base.draft) : new Set<FactorySectionId>()),
+    [draft, base],
+  )
+  const inRepo = repoSections.has(section)
 
   return (
     <section className={views.pane} aria-label={`${factory.name} settings`}>
@@ -325,22 +340,37 @@ export function FactorySettings({
       </header>
       {banners}
       <div className={styles.page}>
-        <nav className={styles.nav} aria-label="Jump to a section">
+        <nav className={styles.nav} aria-label="Factory settings">
           <SettingsSearch factory={factory} dispatch={dispatch}>
             {factorySections.map(([id, label]) => (
-              <ActionButton
+              <button
                 key={id}
                 type="button"
                 className={styles.navItem}
-                onClick={() => scrollTo(id)}
+                onClick={() => {
+                  if (scroller.current) scroller.current.scrollTop = 0
+                  dispatch({
+                    type: 'open',
+                    screen: {
+                      kind: 'factory',
+                      factoryId: factory.id,
+                      view: 'settings',
+                      section: id,
+                    },
+                  })
+                }}
+                {...(id === section && { 'aria-current': 'page' as const })}
               >
-                {label}
+                <span className={styles.navLabel}>{label}</span>
+                {edited.has(id) && (
+                  <span className={styles.unsavedDot} role="img" aria-label="Unsaved changes" />
+                )}
                 {id === 'workflow' && drifted > 0 && (
                   <span className={styles.navCount} title="Inherited Stage files that changed">
                     {drifted}
                   </span>
                 )}
-              </ActionButton>
+              </button>
             ))}
           </SettingsSearch>
         </nav>
@@ -362,7 +392,7 @@ export function FactorySettings({
             )}
             <fieldset className={styles.settingsFields} disabled={merging}>
               <legend className={styles.visuallyHidden}>Factory settings</legend>
-              {view && (
+              {inRepo && view && (
                 <div className={`${styles.repoGuide} ${styles.wideSection}`}>
                   <strong>How repo settings are saved</strong>
                   <p>
@@ -372,20 +402,22 @@ export function FactorySettings({
                   </p>
                 </div>
               )}
-              {view?.invalid && <InvalidNotice invalid={view.invalid} />}
-              <GeneralSection factory={factory} />
-              <LinearIntakeSection key={factory.id} factoryId={factory.id} />
-              {!view && !loadError && (
+              {inRepo && view?.invalid && <InvalidNotice invalid={view.invalid} />}
+              {section === 'general' && <GeneralSection factory={factory} />}
+              {section === 'linear-intake' && (
+                <LinearIntakeSection key={factory.id} factoryId={factory.id} />
+              )}
+              {inRepo && !view && !loadError && (
                 <div className={styles.wideSection}>
                   <Skeleton shape="settings" label="Loading Factory settings…" />
                 </div>
               )}
-              {loadError !== undefined && (
+              {inRepo && loadError !== undefined && (
                 <p className={styles.loadError} role="alert">
                   {loadError}
                 </p>
               )}
-              {view && draft && base && (
+              {section === 'repos' && view && draft && base && (
                 <ReposSection
                   disabled={merging}
                   view={view}
@@ -405,26 +437,41 @@ export function FactorySettings({
               )}
               {view && draft && base && (
                 <>
-                  <WorkflowSection
-                    view={view}
-                    draft={draft}
-                    loaded={base.draft}
-                    onDraft={onDraft}
-                  />
-                  <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
-                  <AgentsSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
-                  <PermissionsSection
-                    view={view}
-                    draft={draft}
-                    loaded={base.draft}
-                    onDraft={onDraft}
-                    onMode={onMode}
-                  />
-                  <NotificationsSection factoryId={factory.id} />
-                  <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
+                  {section === 'workflow' && (
+                    <WorkflowSection
+                      view={view}
+                      draft={draft}
+                      loaded={base.draft}
+                      onDraft={onDraft}
+                    />
+                  )}
+                  {section === 'checks' && (
+                    <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
+                  )}
+                  {section === 'agents' && (
+                    <AgentsSection
+                      view={view}
+                      draft={draft}
+                      loaded={base.draft}
+                      onDraft={onDraft}
+                    />
+                  )}
+                  {section === 'permissions' && (
+                    <PermissionsSection
+                      view={view}
+                      draft={draft}
+                      loaded={base.draft}
+                      onDraft={onDraft}
+                      onMode={onMode}
+                    />
+                  )}
+                  {section === 'notes' && (
+                    <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
+                  )}
                 </>
               )}
-              <DangerZoneSection onRemove={onRemoveFactory} />
+              {section === 'notifications' && <NotificationsSection factoryId={factory.id} />}
+              {section === 'danger-zone' && <DangerZoneSection onRemove={onRemoveFactory} />}
             </fieldset>
           </div>
         </div>

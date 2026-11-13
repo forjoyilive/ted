@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings, type FactorySettingsView } from '@ted/protocol'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { expect, test, vi } from 'vitest'
 import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDialog.tsx'
+import type { FactorySectionId } from '../src/renderer/settings-search.ts'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
@@ -20,6 +22,41 @@ function props() {
   }
 }
 
+function Paged({
+  section: first,
+  ...p
+}: ReturnType<typeof props> & { section?: FactorySectionId }) {
+  const [section, setSection] = useState(first)
+  return (
+    <FactorySettings
+      {...p}
+      section={section}
+      dispatch={(action) => {
+        p.dispatch(action)
+        if (action.type === 'open' && action.screen.kind === 'factory') {
+          setSection(action.screen.section)
+        }
+      }}
+    />
+  )
+}
+
+function pageList() {
+  return within(screen.getByRole('navigation', { name: 'Factory settings' }))
+}
+
+function pageRow(name: string) {
+  return pageList().getByRole('button', { name: new RegExp(`^${name}`) })
+}
+
+async function page(name: string) {
+  await user().click(pageRow(name))
+}
+
+function unsavedOn(name: string) {
+  return within(pageRow(name)).queryByRole('img', { name: 'Unsaved changes' }) !== null
+}
+
 function open(extra: Record<string, (...args: unknown[]) => unknown> = {}) {
   const api = bridge({
     getSettings: () => defaultMachineSettings,
@@ -29,18 +66,23 @@ function open(extra: Record<string, (...args: unknown[]) => unknown> = {}) {
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
     ...extra,
   })
-  render(<FactorySettings {...props()} />)
+  render(<Paged {...props()} />)
   return api
 }
 
-test('pending repo settings follow available General and Linear intake sections', async () => {
+test('General shows at once and alone, and a repo page waits for the repo settings', async () => {
   const pending = deferred<FactorySettingsView>()
   const api = open({ factorySettings: () => pending.promise })
-  const loading = screen.getByRole('status', { name: 'Loading Factory settings…' })
-  for (const name of ['General', 'Linear intake']) {
-    const section = screen.getByRole('region', { name })
-    expect(section.compareDocumentPosition(loading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  }
+  expect(screen.getByRole('region', { name: 'General' })).toBeTruthy()
+  expect(pageRow('General').getAttribute('aria-current')).toBe('page')
+  expect(screen.queryByRole('region', { name: 'Linear intake' })).toBeNull()
+  expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
+  expect(screen.queryByText('How repo settings are saved')).toBeNull()
+  await page('Repos')
+  expect(pageRow('Repos').getAttribute('aria-current')).toBe('page')
+  expect(pageRow('General').hasAttribute('aria-current')).toBe(false)
+  expect(screen.queryByRole('region', { name: 'General' })).toBeNull()
+  expect(screen.getByRole('status', { name: 'Loading Factory settings…' })).toBeTruthy()
   expect(screen.queryByRole('region', { name: 'Repos' })).toBeNull()
   await act(async () => pending.resolve(settingsView()))
   expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
@@ -79,7 +121,7 @@ test('automatic Backlog starting disables during save and keeps its value on err
   expect(toggle.getAttribute('aria-checked')).toBe('false')
 })
 
-test('Workflow and notes stay staged while confirmed permissions save locally', async () => {
+test('Workflow and notes stay staged across pages while confirmed permissions save locally', async () => {
   let permissions: 'auto' | 'bypass' = 'auto'
   const save = vi.fn(() => ({
     merged: true,
@@ -110,14 +152,21 @@ test('Workflow and notes stay staged while confirmed permissions save locally', 
     saveFactorySettings: save,
   })
   const u = user()
+  await page('Workflow')
   const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
   expect(gate.getAttribute('aria-checked')).toBe('true')
   expect((screen.getByRole('switch', { name: 'Work on' }) as HTMLButtonElement).disabled).toBe(true)
   await u.click(gate)
   expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
+  expect(unsavedOn('Workflow')).toBe(true)
+  await page('Checks')
+  expect(screen.queryByRole('switch', { name: 'Design sign-off' })).toBeNull()
+  expect(screen.getByText('How repo settings are saved')).toBeTruthy()
   expect(
     (screen.getByRole('textbox', { name: 'Typecheck command' }) as HTMLInputElement).value,
   ).toBe('npm run typecheck')
+  expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
+  await page('Permissions')
   await u.click(screen.getByRole('button', { name: 'Enable Bypass…' }))
   const confirmation = screen.getByRole('dialog', { name: 'Enable Bypass on this computer?' })
   const enable = within(confirmation).getByRole('button', { name: 'Enable Bypass' })
@@ -128,8 +177,15 @@ test('Workflow and notes stay staged while confirmed permissions save locally', 
   expect(save).not.toHaveBeenCalled()
   expect(screen.getByText('Bypass is on.')).toBeTruthy()
   expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
+  expect(unsavedOn('Permissions')).toBe(false)
+  await page('Factory notes')
   await u.type(screen.getByRole('textbox', { name: 'Factory notes' }), '# Notebook')
   expect(screen.getByText('2 unsaved changes to 2 files in .ted/')).toBeTruthy()
+  expect(['Workflow', 'Checks', 'Factory notes'].map(unsavedOn)).toEqual([true, false, true])
+  await page('Workflow')
+  expect(screen.getByRole('switch', { name: 'Design sign-off' }).getAttribute('aria-checked')).toBe(
+    'false',
+  )
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
   for (const name of ['Changes to .ted/notes.md', 'Changes to .ted/workflow.yaml'])
@@ -172,25 +228,33 @@ test('repo settings explain saving and let the user retry merging without losing
     openOnGitHub: vi.fn(),
   })
   const u = user()
-  const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
+  await page('Repos')
+  await screen.findByRole('region', { name: 'Repos' })
   expect(screen.getByText('How repo settings are saved')).toBeTruthy()
   expect(screen.queryByText('Saved to the repo · pull request')).toBeNull()
-  const repos = within(screen.getByRole('region', { name: 'Repos' }))
-  const order = () => repos.getAllByRole('article').map((row) => row.getAttribute('aria-label'))
+  const order = () =>
+    within(screen.getByRole('region', { name: 'Repos' }))
+      .getAllByRole('article')
+      .map((row) => row.getAttribute('aria-label'))
   const drag = () => {
+    const shown = within(screen.getByRole('region', { name: 'Repos' }))
     fireEvent.dragStart(
-      within(repos.getByRole('article', { name: 'acme/api' })).getByRole('img', {
+      within(shown.getByRole('article', { name: 'acme/api' })).getByRole('img', {
         name: 'Drag to reorder',
       }),
       { dataTransfer: { effectAllowed: '' } },
     )
-    fireEvent.drop(repos.getByRole('article', { name: 'acme/web' }))
+    fireEvent.drop(shown.getByRole('article', { name: 'acme/web' }))
   }
   drag()
   expect(order()).toEqual(['acme/widgets', 'acme/web', 'acme/api'])
+  expect(unsavedOn('Repos')).toBe(true)
   await u.click(screen.getByRole('button', { name: 'Discard' }))
   expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])
+  expect(unsavedOn('Repos')).toBe(false)
 
+  await page('Workflow')
+  const gate = screen.getByRole('switch', { name: 'Design sign-off' })
   await u.click(gate)
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
@@ -218,16 +282,20 @@ test('repo settings explain saving and let the user retry merging without losing
     true,
   )
   expect(gate.closest('fieldset')?.disabled).toBe(true)
+  await page('Repos')
   drag()
   expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])
+  for (const handle of within(screen.getByRole('region', { name: 'Repos' })).getAllByRole('img', {
+    name: 'Drag to reorder',
+  })) {
+    expect(handle.getAttribute('draggable')).toBe('false')
+  }
+  await page('Checks')
   const command = screen.getByRole('textbox', { name: 'Typecheck command' })
   const savedCommand = (command as HTMLInputElement).value
   fireEvent.change(command, { target: { value: 'must not become a draft' } })
   expect(command).toHaveProperty('value', savedCommand)
   expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
-  for (const handle of repos.getAllByRole('img', { name: 'Drag to reorder' })) {
-    expect(handle.getAttribute('draggable')).toBe('false')
-  }
 
   expect(api.request).toHaveBeenCalledWith('mergeFactorySettings', 'f1', {
     receipt: result.receipt,
@@ -403,6 +471,7 @@ test('Agent defaults save a Library override and reset it to the TED default', a
 
 test('repo setup edits show Edited and unsaved counts, and Discard restores loaded values', async () => {
   open()
+  await page('Repos')
   const command = (await screen.findByRole('textbox', {
     name: /^Setup command/,
   })) as HTMLInputElement
@@ -433,7 +502,7 @@ test('repo removal refuses open Tasks and stages an unused repo removal until Sa
     homeFolder: () => '/test',
     repoRemoval: () => ({ repo: 'acme/api', name: 'api', openTasks }),
   })
-  render(<FactorySettings {...props()} />)
+  render(<Paged {...props()} section="repos" />)
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'More for acme/api' }))
   await u.click(screen.getByRole('menuitem', { name: /^Remove from Factory/ }))
@@ -488,7 +557,11 @@ test('Factory drift counts lead to Keep mine staging the actual parent draft', a
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
   const settings = await screen.findByRole('button', { name: /^Settings\s*1$/ })
   await u.click(settings)
-  expect((await screen.findByRole('button', { name: /^Workflow\s*1$/ })).textContent).toContain('1')
+  expect((await screen.findByRole('region', { name: 'General' })).textContent).toBeTruthy()
+  expect(pageRow('General').getAttribute('aria-current')).toBe('page')
+  const workflow = await screen.findByRole('button', { name: /^Workflow\s*1$/ })
+  expect(workflow.textContent).toContain('1')
+  await u.click(workflow)
   await u.click(
     within(await screen.findByRole('region', { name: 'Review drift' })).getByRole('button', {
       name: 'Keep mine',
@@ -600,6 +673,7 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
 test('permission mode survives Check updates after enabling Bypass', async () => {
   const api = open({ setFactoryPermissions: (_id, mode) => ({ mode }) })
   const u = user()
+  await page('Permissions')
   await u.click(await screen.findByRole('button', { name: 'Enable Bypass…' }))
   const confirmation = screen.getByRole('dialog', { name: 'Enable Bypass on this computer?' })
   await u.click(within(confirmation).getByRole('checkbox'))
@@ -681,6 +755,7 @@ test('a drift reload during save completion still resets the saved draft', async
     }),
   })
   const u = user()
+  await page('Workflow')
   await u.click(await screen.findByRole('switch', { name: 'Design sign-off' }))
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
@@ -725,6 +800,7 @@ test('the page loads once on open, shows a remote change when it has no edits an
   })
   act(() => api.emit({ type: 'drift-changed', drift: { factories: { f1: 0 }, library: 0 } }))
   await act(async () => first.resolve(settingsView()))
+  await page('Factory notes')
   const notes = (await screen.findByRole('textbox', {
     name: 'Factory notes',
   })) as HTMLTextAreaElement
@@ -765,9 +841,9 @@ test('Factory settings search finds both kinds of setting and marks one on this 
     homeFolder: () => '/test',
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
   })
-  render(<FactorySettings {...p} />)
-  await screen.findByRole('heading', { name: 'Workflow' })
-  const nav = within(screen.getByRole('navigation', { name: 'Jump to a section' }))
+  render(<Paged {...p} />)
+  await screen.findByRole('region', { name: 'General' })
+  const nav = pageList()
   const field = nav.getByRole<HTMLInputElement>('combobox', { name: 'Search settings' })
 
   fireEvent.change(field, { target: { value: 'awake' } })
@@ -782,10 +858,16 @@ test('Factory settings search finds both kinds of setting and marks one on this 
   await user().click(option)
   expect(p.dispatch).toHaveBeenLastCalledWith({
     type: 'open',
-    screen: { kind: 'factory', factoryId: 'f1', view: 'settings' },
+    screen: { kind: 'factory', factoryId: 'f1', view: 'settings', section: 'repos' },
   })
-  const row = document.querySelector('[data-setting="factory.repos.worktree.teardown"]')
-  await waitFor(() => expect(row?.hasAttribute('data-found')).toBe(true))
+  expect(pageRow('Repos').getAttribute('aria-current')).toBe('page')
+  await waitFor(() =>
+    expect(
+      document
+        .querySelector('[data-setting="factory.repos.worktree.teardown"]')
+        ?.hasAttribute('data-found'),
+    ).toBe(true),
+  )
 
   field.focus()
   await user().keyboard('{Escape}')

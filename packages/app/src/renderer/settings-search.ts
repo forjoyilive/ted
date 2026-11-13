@@ -26,6 +26,13 @@ export const factorySections = [
   ['danger-zone', 'Danger zone'],
 ] as const
 
+export type FactorySectionId = (typeof factorySections)[number][0]
+
+export function factorySectionOf(id: SettingId): FactorySectionId {
+  const section = id.split('.')[1]
+  return factorySections.find(([key]) => key === section)?.[0] ?? 'general'
+}
+
 export type SettingsPlatform = 'mac' | 'linux' | 'other'
 
 interface Entry {
@@ -356,7 +363,7 @@ export function parentSetting(id: string): SettingId | undefined {
 
 export type SettingTarget =
   | { kind: 'app'; section: SettingsSectionId }
-  | { kind: 'factory'; factoryId: string }
+  | { kind: 'factory'; factoryId: string; section: FactorySectionId }
 
 export interface SettingHit {
   id: SettingId
@@ -445,7 +452,7 @@ export function findSettings(
         target:
           place.kind === 'app'
             ? { kind: 'app', section: place.section as SettingsSectionId }
-            : { kind: 'factory', factoryId: factory?.id ?? '' },
+            : { kind: 'factory', factoryId: factory?.id ?? '', section: factorySectionOf(id) },
       },
     })
   }

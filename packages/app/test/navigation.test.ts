@@ -198,6 +198,22 @@ describe('back and forward (⌘[ and ⌘])', () => {
     return actions.reduce(withHistory, startHistory(initialNavigation))
   }
 
+  test('Factory settings pages are places, and opening the Factory again starts on General', () => {
+    const settings = { kind: 'factory', factoryId: 'nb', view: 'settings' } as const
+    const state = walk(
+      { type: 'open', screen: settings },
+      { type: 'open', screen: { ...settings, section: 'checks' } },
+      { type: 'open', screen: { ...settings, section: 'notes' } },
+      { type: 'back' },
+    )
+    expect(state.now.screen).toEqual({ ...settings, section: 'checks' })
+    const again = withHistory(withHistory(state, { type: 'open', screen: { kind: 'inbox' } }), {
+      type: 'open-factory',
+      factoryId: 'nb',
+    })
+    expect(again.now.screen).toEqual(settings)
+  })
+
   test('back returns to each earlier place in turn, and forward retraces them', () => {
     const state = walk(
       { type: 'open', screen: { kind: 'all-tasks' } },

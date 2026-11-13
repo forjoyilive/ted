@@ -71,12 +71,13 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
     id: 'factory.repos.worktree.teardown',
     name: 'Teardown command',
     where: 'widgets › Settings › Repos',
-    target: { kind: 'factory', factoryId: 'f1' },
+    target: { kind: 'factory', factoryId: 'f1', section: 'repos' },
   })
   expect(find('danger')[0]).toMatchObject({ name: 'Danger zone', where: 'widgets › Settings' })
   expect(find('working run limit')[0]).toMatchObject({
     id: 'factory.permissions.working-run-limit',
     where: 'widgets › Settings › Permissions',
+    target: { section: 'permissions' },
   })
   expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions'])
   expect(find('deletes its tasks').map((hit) => hit.id)).toEqual(['factory.danger-zone.remove'])
