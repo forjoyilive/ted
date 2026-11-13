@@ -629,8 +629,8 @@ export function TaskThread({
     shownRun !== undefined &&
     shownRun !== task.leadRunId &&
     !earlier.some((run) => run.id === shownRun)
-  const commentDrop = useRef<(files: File[]) => unknown>(undefined)
-  const drop = useFileDrop(() => commentDrop.current)
+  const commentDrop = useRef<() => ((files: File[]) => unknown) | undefined>(undefined)
+  const drop = useFileDrop(() => commentDrop.current?.())
   const commentList = useCommentList(task.id)
   const eventList = useThreadEventList(task.id)
   const checkList = useCheckRunList(task.id)

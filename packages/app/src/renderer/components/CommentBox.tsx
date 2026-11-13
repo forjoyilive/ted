@@ -35,7 +35,7 @@ export function CommentBox({
   run?: RunSummary | undefined
   hasLineComments?: boolean
   onFollowedUp?: (followUp: Task) => void
-  dropInto?: RefObject<((files: File[]) => unknown) | undefined>
+  dropInto?: RefObject<(() => ((files: File[]) => unknown) | undefined) | undefined>
 }) {
   const state = task.commentBox
   const draft = useMessageDraft(state === 'archived' ? undefined : { kind: 'comment', id: task.id })
@@ -47,6 +47,7 @@ export function CommentBox({
   const [error, setError] = useState<string>()
   const [uploading, setUploading] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
+  const composer = useRef<HTMLFieldSetElement>(null)
   const direct =
     state === 'live' &&
     run !== undefined &&
@@ -64,7 +65,7 @@ export function CommentBox({
 
   useEffect(() => {
     if (!dropInto || state === 'archived') return
-    dropInto.current = attach
+    dropInto.current = () => (composer.current?.closest('[hidden]') ? undefined : attach)
     return () => {
       dropInto.current = undefined
     }
@@ -146,7 +147,7 @@ export function CommentBox({
   }
 
   return (
-    <fieldset className={styles.composer} data-state={state}>
+    <fieldset ref={composer} className={styles.composer} data-state={state}>
       {cancels && (
         <p className={styles.mergeNote}>
           The merge is pending. Posting a Comment cancels TED’s merge and counts as Request changes.
