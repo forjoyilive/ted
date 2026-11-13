@@ -654,3 +654,7 @@
   min-width: 0;
   min-height: min(50vh, 320px);
 }
+
+.statusRow > :first-child {
+  margin-right: 0;
+}

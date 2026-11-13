@@ -23,6 +23,7 @@ import {
   useTaskChanges,
 } from '../changes.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
+import { AnswerPill } from '../components/AnswerPill.tsx'
 import { AppLogView } from '../components/AppLogView.tsx'
 import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
 import { AutopilotField } from '../components/Autopilot.tsx'
@@ -59,7 +60,6 @@ import { QuickOpen } from '../components/QuickOpen.tsx'
 import { TaskReferences } from '../components/References.tsx'
 import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
 import { RequestDock } from '../components/RequestDock.tsx'
-import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
 import { RunsSection, runIconState } from '../components/RunsSection.tsx'
@@ -110,6 +110,7 @@ import {
   formatSize,
   leadSummary,
   priorityLabels,
+  withoutStageName,
 } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
@@ -697,6 +698,7 @@ export function TaskThread({
   const activity = mergedLine(task, now) ?? task.activity
   const jumpToRequest = (id: string) => {
     if (shownRun !== undefined) onShowRun(undefined)
+    if (shownApp !== undefined) onCloseApp?.()
     setConversationReveal(undefined)
     setFilter(undefined)
     setReveal({ id })
@@ -704,6 +706,11 @@ export function TaskThread({
     setCommenting(undefined)
     inbox?.select(id)
   }
+  const openJumps = open.map((request) => ({
+    id: request.id,
+    label: requestLabel(request),
+    title: headline(request),
+  }))
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
 
   const renderItem = (item: ThreadItem) => {
@@ -829,55 +836,15 @@ export function TaskThread({
           {...contextMenu((at) => openTaskActions(at, [task.id]))}
         >
           <div className={styles.headerRow}>
-            <span className={styles.taskMeta}>
-              {`${task.displayId}  ·  `}
-              {task.followUpOf ? (
-                <>
-                  {'Follow-up to '}
-                  <ActionButton
-                    type="button"
-                    className={styles.metaLink}
-                    onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
-                  >
-                    {task.followUpOf.displayId}
-                  </ActionButton>
-                </>
-              ) : task.setup ? (
-                'Created by TED'
-              ) : task.splitFrom ? (
-                <>
-                  {'Split from '}
-                  <ActionButton
-                    type="button"
-                    className={styles.metaLink}
-                    onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
-                  >
-                    {task.splitFrom.displayId}
-                  </ActionButton>
-                </>
-              ) : task.fromPlan?.deleted ? (
-                'From a deleted planning chat'
-              ) : task.fromPlan ? (
-                <>
-                  {'From planning chat '}
-                  <ActionButton
-                    type="button"
-                    className={styles.metaLink}
-                    onClick={() => task.fromPlan && onOpenPlan(task.fromPlan.id)}
-                  >
-                    {task.fromPlan.title}
-                  </ActionButton>
-                </>
-              ) : (
-                'Created by you'
-              )}
-            </span>
-            {task.setup && <span className={styles.setupTag}>Setup</span>}
-            <RunIcons runs={task.runs} />
-          </div>
-          <div className={styles.headerRow}>
             <h1 className={styles.taskTitle}>{task.title}</h1>
-            <TaskStatusChips task={task} onOpenTask={onOpenTask} detailed />
+            <TaskStatusChips
+              task={task}
+              onOpenTask={onOpenTask}
+              detailed
+              tall
+              hideWaiting={openJumps.length > 0}
+            />
+            <AnswerPill requests={openJumps} onJump={jumpToRequest} />
             {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
               <Button
                 variant="primary"
@@ -916,7 +883,49 @@ export function TaskThread({
             />
           </div>
           <TaskDescription task={task} />
-          <div className={styles.headerRow}>
+          <div className={`${styles.headerRow} ${styles.statusRow}`}>
+            <span className={styles.taskMeta}>
+              {task.displayId}
+              {task.followUpOf ? (
+                <>
+                  {'  ·  Follow-up to '}
+                  <ActionButton
+                    type="button"
+                    className={styles.metaLink}
+                    onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
+                  >
+                    {task.followUpOf.displayId}
+                  </ActionButton>
+                </>
+              ) : task.setup ? (
+                '  ·  Created by TED'
+              ) : task.splitFrom ? (
+                <>
+                  {'  ·  Split from '}
+                  <ActionButton
+                    type="button"
+                    className={styles.metaLink}
+                    onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
+                  >
+                    {task.splitFrom.displayId}
+                  </ActionButton>
+                </>
+              ) : task.fromPlan?.deleted ? (
+                '  ·  From a deleted planning chat'
+              ) : task.fromPlan ? (
+                <>
+                  {'  ·  From planning chat '}
+                  <ActionButton
+                    type="button"
+                    className={styles.metaLink}
+                    onClick={() => task.fromPlan && onOpenPlan(task.fromPlan.id)}
+                  >
+                    {task.fromPlan.title}
+                  </ActionButton>
+                </>
+              ) : null}
+            </span>
+            {task.setup && <span className={styles.setupTag}>Setup</span>}
             <StageTrack
               track={task.track}
               selected={stage}
@@ -926,8 +935,13 @@ export function TaskThread({
             {task.archived ? (
               <span className={styles.activity}>· {archivedFrom(task.archived.ended)}</span>
             ) : (
-              activity !== undefined && <span className={styles.activity}>· {activity}</span>
+              activity !== undefined && (
+                <span className={styles.activity}>
+                  · {withoutStageName(activity, stageName(task.stage))}
+                </span>
+              )
             )}
+            <RunIcons runs={task.runs} />
           </div>
         </header>
         <TaskConversationTabs
@@ -998,14 +1012,6 @@ export function TaskThread({
                 </ActionButton>
               </p>
             )}
-            <RequestJumpBar
-              requests={open.map((request) => ({
-                id: request.id,
-                label: requestLabel(request),
-                title: headline(request),
-              }))}
-              onJump={jumpToRequest}
-            />
             <TaskDiscussion
               taskId={task.id}
               leadRunId={task.leadRunId}

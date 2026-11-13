@@ -105,30 +105,40 @@ function Glyph({ glyph }: { glyph: StatusGlyph }) {
   }
 }
 
+export function statusChipClass(tone: StatusTone, tall = false): string {
+  return [styles.chip, styles[tone], tall && styles.tall].filter(Boolean).join(' ')
+}
+
+export function StatusGlyphIcon({ glyph }: { glyph: StatusGlyph }) {
+  return (
+    <svg
+      className={glyph === 'working' ? `${styles.glyph} ${styles.spinning}` : styles.glyph}
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      aria-hidden
+    >
+      <Glyph glyph={glyph} />
+    </svg>
+  )
+}
+
 export function StatusChip({
   tone,
   glyph,
   children,
   title,
+  tall = false,
 }: {
   tone: StatusTone
   glyph?: StatusGlyph
   children: ReactNode
   title?: string
+  tall?: boolean
 }) {
   return (
-    <span className={`${styles.chip} ${styles[tone]}`} title={title}>
-      {glyph && (
-        <svg
-          className={glyph === 'working' ? `${styles.glyph} ${styles.spinning}` : styles.glyph}
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          aria-hidden
-        >
-          <Glyph glyph={glyph} />
-        </svg>
-      )}
+    <span className={statusChipClass(tone, tall)} title={title}>
+      {glyph && <StatusGlyphIcon glyph={glyph} />}
       {children}
     </span>
   )
