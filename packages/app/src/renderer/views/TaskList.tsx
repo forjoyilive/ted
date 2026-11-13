@@ -92,6 +92,11 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   started: '56px',
 }
 
+export function idColumnWidth(tasks: readonly Pick<Task, 'displayId'>[]): string {
+  const longest = Math.max(0, ...tasks.map((t) => t.displayId.length))
+  return `max(${columnWidths.id}, calc(${longest + 2} * 0.65 * var(--text-14)))`
+}
+
 const sortHints: Partial<Record<ListSort, string>> = { manual: 'Priority, then rank' }
 
 export function saveListView(
@@ -540,7 +545,9 @@ export function TaskList({
   const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : rowsOf(g).map((r) => r.task)))
   const grid = [
     '24px',
-    ...[...(queueMode ? (['queue'] as const) : []), ...columns].map((c) => columnWidths[c]),
+    ...[...(queueMode ? (['queue'] as const) : []), ...columns].map((c) =>
+      c === 'id' ? idColumnWidth(tasks) : columnWidths[c],
+    ),
   ].join(' ')
   const chips = filterChips(view.filters, factories)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
