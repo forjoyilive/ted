@@ -660,7 +660,7 @@ export function createCoordinators(options: {
     input: CoordinatorAction,
   ): { asked: Comment; answer: AnswerRequest } {
     const asked = store.getComment(input.request ?? '')
-    if (!asked || asked.taskId !== task.id)
+    if (!asked || asked.taskId !== task.id || asked.held)
       throw new RequestError(
         409,
         `${task.displayId} has no request with that ID; read the Task again`,

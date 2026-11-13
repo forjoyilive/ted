@@ -5099,6 +5099,7 @@ export function createTasks(options: {
       task.waitsForBlockers ||
       task.stage === 'done' ||
       !current ||
+      current.held ||
       !ordinaryAutopilotRequest(current)
     )
       throw new RequestError(409, 'Autopilot cannot answer this request')
@@ -9603,7 +9604,7 @@ export function createTasks(options: {
       const task = find(ref)
       const unread = store
         .listComments(task.id)
-        .filter((c) => c.author.kind !== 'human' && c.readAt === undefined)
+        .filter((c) => c.author.kind !== 'human' && c.readAt === undefined && !c.held)
       store.commentsRead(unread.map((c) => c.id))
       return unread.length
     },

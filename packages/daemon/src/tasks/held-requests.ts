@@ -42,7 +42,6 @@ export function createHeldRequests(
   runs.observe({
     settled: (run) => releaseFor(run.id),
     finished: (run) => releaseFor(run.id),
-    stoppedOutside: (run) => releaseFor(run.id),
   })
   sweep()
   const timer = setInterval(sweep, options.checkEveryMs ?? 10_000)
