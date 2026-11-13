@@ -3874,6 +3874,9 @@ export function createTasks(options: {
     if (input.addToTree === true && caller.kind !== 'app') {
       throw new RequestError(403, 'only the app can add children to an existing tree')
     }
+    if (input.draftRevision !== undefined && caller.kind !== 'app') {
+      throw new RequestError(403, 'only the app can consume a New Task draft')
+    }
     const automation = automationCaller(caller)
     if (automation && input.factory !== undefined && input.factory !== automation.factoryKey) {
       throw new RequestError(
@@ -4059,6 +4062,7 @@ export function createTasks(options: {
             ]
           : []),
       ],
+      ...(input.draftRevision !== undefined && { draftRevision: input.draftRevision }),
       ...(closing && {
         closing: {
           commentId: closing.commentId,

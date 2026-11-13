@@ -93,6 +93,7 @@ export interface AsanaImportRequest {
   start?: boolean
   addToTree?: boolean
   dryRun?: boolean
+  draftRevision?: string
 }
 
 export interface AsanaImportResult {
@@ -113,6 +114,12 @@ export function parseAsanaImportRequest(value: unknown): AsanaImportRequest {
   if (body.priority !== undefined && !(priorities as readonly unknown[]).includes(body.priority)) {
     throw new RequestValidationError(400, 'priority must be none, low, medium, high or urgent')
   }
+  if (
+    body.draftRevision !== undefined &&
+    (typeof body.draftRevision !== 'string' || !/^[\w-]{1,100}$/.test(body.draftRevision))
+  ) {
+    throw new RequestValidationError(400, 'draftRevision must be a draft revision')
+  }
   for (const flag of ['start', 'addToTree', 'dryRun'] as const) {
     if (body[flag] !== undefined && typeof body[flag] !== 'boolean') {
       throw new RequestValidationError(400, `${flag} must be true or false`)
@@ -125,6 +132,7 @@ export function parseAsanaImportRequest(value: unknown): AsanaImportRequest {
     ...(body.start !== undefined && { start: body.start as boolean }),
     ...(body.addToTree !== undefined && { addToTree: body.addToTree as boolean }),
     ...(body.dryRun !== undefined && { dryRun: body.dryRun as boolean }),
+    ...(body.draftRevision !== undefined && { draftRevision: body.draftRevision as string }),
   }
 }
 

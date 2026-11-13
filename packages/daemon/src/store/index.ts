@@ -384,6 +384,7 @@ export interface NewTaskTree {
   links: readonly { taskId: string; parent: TreeRef }[]
   comments: readonly (Omit<NewComment, 'taskId'> & { task: TreeRef })[]
   closing?: { commentId: string; answer: CommentAnswer }
+  draftRevision?: string
 }
 
 export interface NewTask {
@@ -3487,7 +3488,8 @@ export async function openStore({
       if (parentId !== undefined && taskRow(parentId)) updatedTask(parentId)
       return task
     },
-    createTaskTree({ factoryId, tasks: planned, links, comments: posted, closing }) {
+    createTaskTree({ factoryId, tasks: planned, links, comments: posted, closing, draftRevision }) {
+      const currentDraft = draftRevision ? taskDraft(factoryId).draft : null
       const inFactory = store.query(queryDb(tasks.where({ factoryId })))
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
       const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
@@ -3550,6 +3552,19 @@ export async function openStore({
         commentPosted({ ...comment, taskId: idOf(task) }, at),
       )
       commit(
+        ...(draftRevision
+          ? [
+              events.taskDraftConsumed({
+                factoryId,
+                revision: draftRevision,
+                draft:
+                  currentDraft && currentDraft.revision !== draftRevision
+                    ? JSON.stringify(currentDraft)
+                    : null,
+                at,
+              }),
+            ]
+          : []),
         ...created,
         ...linked,
         ...comments.flatMap(({ event, attached }) => [event, ...attached]),
