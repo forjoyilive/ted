@@ -66,6 +66,8 @@ A conversation could only be stopped, and the Run that replaces a stopped one is
 
 To group stuck Tasks it needs each Task’s open requests. `ted coordinator tasks` now returns, per Task, up to 5 open requests (ID, kind, who asked, Stage, title, the first 1,000 characters of the text, choices, when it was asked, and whether the Coordinator may answer it), a count of any more, and the current time, so it can tell how long each has waited. `ted coordinator task` returns up to 20 the same way, whatever page of Comments is asked for. Both stay inside the nonce-delimited untrusted context.
 
+The list read every Task, Done and archived ones included, 30 to a page, so in a Factory with history the Coordinator paged through finished work to find open Tasks (TED-269). `ted coordinator tasks` now leaves out Done and archived Tasks unless it passes `--all`, holds 100 Tasks to a page, and takes `--stage` and `--status` (each repeatable), `--waiting` (Tasks with open requests) and `--search` (title text or a Task ID); filters combine. Each answer adds `matching`, the count of Tasks that match, and `stageCounts`, the Factory’s Tasks per Stage whatever the filters (with `--all`, Done too and an `archived` count). The query has one parser, `parseCoordinatorTaskQuery`, which the route and the CLI share; unknown or repeated single filters are refused.
+
 ## One conversation in the Run chat
 
 The Coordinator screen first drew each Run in its own chat, with earlier Runs folded away under “Earlier conversation”, and had its own composer. Stop and a paused agent both end the Run, so the next message started a new Run and the conversation looked gone (KRI-278).

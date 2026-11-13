@@ -68,7 +68,9 @@ import type {
   CoordinatorOperation,
   CoordinatorReceipt,
   CoordinatorStatus,
+  CoordinatorTaskQuery,
 } from './coordinator.ts'
+import { coordinatorTaskSearch } from './coordinator-parsers.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type { DashboardRange, FactoryDashboard } from './dashboard.ts'
 import type {
@@ -416,8 +418,8 @@ export class DaemonClient {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
   }
 
-  coordinatorTasks(offset = 0): Promise<{ context: string }> {
-    return this.#request('GET', `/coordinator/tasks?offset=${offset}`)
+  coordinatorTasks(query: CoordinatorTaskQuery = {}): Promise<{ context: string }> {
+    return this.#request('GET', `/coordinator/tasks${coordinatorTaskSearch(query)}`)
   }
 
   coordinatorTask(id: string, offset = 0): Promise<{ context: string }> {

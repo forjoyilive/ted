@@ -9,6 +9,8 @@ import {
   type CoordinatorReceipt,
   type CoordinatorRequest,
   type CoordinatorTask,
+  type CoordinatorTaskList,
+  coordinatorTaskSearch,
   type Factory,
   type LineComment,
   type RunChat,
@@ -131,6 +133,34 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   expect(conversation.run.prompt).toContain('## Write clearly for the user')
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
+  const badge = await s.task('Offline badge')
+  const shelved = await s.task('Shelved idea')
+  await s.ok('POST', `/tasks/${shelved.id}/archive`)
+  const tasksWhere = async (query: string) =>
+    unpack<CoordinatorTaskList>((await run.call('GET', `/coordinator/tasks${query}`)).body)
+  expect(await tasksWhere('')).toMatchObject({
+    tasks: [{ id: task.id }, { id: badge.id }],
+    matching: 2,
+    stageCounts: { backlog: 2 },
+  })
+  expect(await tasksWhere('?all=1')).toMatchObject({ matching: 3, archived: 1 })
+  expect((await tasksWhere('?search=OFFLINE')).tasks.map((t) => t.id)).toEqual([badge.id])
+  expect(
+    (await tasksWhere(`?search=${encodeURIComponent(badge.displayId)}`)).tasks.map((t) => t.id),
+  ).toEqual([badge.id])
+  expect(await tasksWhere('?stage=work&stage=review')).toMatchObject({
+    tasks: [],
+    stageCounts: { backlog: 2 },
+  })
+  expect((await tasksWhere('?status=working')).matching).toBe(0)
+  expect((await tasksWhere('?waiting=1')).matching).toBe(0)
+  expect((await run.call('GET', '/coordinator/tasks?stage=nowhere')).status).toBe(400)
+  const symbols = await s.task('Sync & retry C++ at 100%')
+  expect(
+    (await tasksWhere(coordinatorTaskSearch({ search: '& retry C++ at 100%' }))).tasks.map(
+      (t) => t.id,
+    ),
+  ).toEqual([symbols.id])
   expect((await run.call('GET', `/coordinator/tasks/${other.id}`)).status).toBe(404)
   await s.ok('POST', `/tasks/${task.id}/comments`, { body: 'Fresh context from the human' })
   const read = unpack<CoordinatorTask>(
@@ -141,7 +171,12 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
     text: 'Compare these Tasks',
   })
   expect(again.runId).toBe(c.runId)
-  expect((await s.chat()).tasks.map((t) => t.id)).toEqual([task.id])
+  expect((await s.chat()).tasks.map((t) => t.id)).toEqual([
+    task.id,
+    badge.id,
+    shelved.id,
+    symbols.id,
+  ])
 })
 
 test('Coordinator tokens cannot use generic reads, mutations, or human-only actions', async () => {

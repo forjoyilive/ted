@@ -13,8 +13,11 @@ import type {
   CoordinatorRequest,
   CoordinatorStatus,
   CoordinatorTask,
+  CoordinatorTaskList,
+  CoordinatorTaskQuery,
   CoordinatorTaskSummary,
   RunMessage,
+  StageId,
   Task,
 } from '@ted/protocol'
 import { priorities } from '@ted/protocol'
@@ -38,7 +41,7 @@ Help the human compare Tasks and choose next work. Each Task has its own Task Le
 ${writingGuidance}
 
 Use only these TED commands, which return JSON:
-- ted coordinator tasks [--offset <n>]: current Tasks, paged, each with its status and up to 5 open requests (ID, kind, who asked, question text, choices, when it was asked, and whether you may answer it). now is the current time.
+- ted coordinator tasks [--stage <Stage>]… [--status <status>]… [--waiting] [--search <text>] [--all] [--offset <n>]: current Tasks, 100 per page, each with its status and up to 5 open requests (ID, kind, who asked, question text, choices, when it was asked, and whether you may answer it). Done and archived Tasks are left out unless you add --all. --stage and --status can repeat and match any of their values; --waiting keeps Tasks with open requests; --search matches title text or a Task ID. Filters combine. matching is how many Tasks match, stageCounts counts the Factory’s Tasks per Stage whatever the filters, and now is the current time. Ask with filters rather than paging through every Task.
 - ted coordinator task <id> [--offset <n>]: current Task, latest brief, its open requests, paged Comments and a version.
 - ted coordinator start <id> --operation <unique-id> --version <version>
 - ted coordinator move <id> --after <id> / --before <id> --operation <unique-id> --version <version> --neighbours <JSON mapping neighbour IDs to versions>
@@ -102,6 +105,8 @@ export function coordinatorTurn(messages: readonly RunMessage[]): string {
   return mixed ? withMessages('', messages).prompt.trim() : messages.map((m) => m.text).join('\n\n')
 }
 
+export const coordinatorPageSize = 100
+
 export interface Coordinators {
   get(factoryId: string): Coordinator | null
   statuses(): CoordinatorStatus[]
@@ -109,10 +114,7 @@ export interface Coordinators {
   send(runId: string, text: string): Promise<RunMessage>
   stop(factoryId: string): Promise<Coordinator>
   retry(factoryId: string): Promise<Coordinator>
-  list(
-    caller: Caller,
-    offset: number,
-  ): { now: string; tasks: CoordinatorTaskSummary[]; nextOffset?: number }
+  list(caller: Caller, query: CoordinatorTaskQuery): CoordinatorTaskList
   task(caller: Caller, ref: string, offset: number): CoordinatorTask
   act(
     caller: Caller,
@@ -900,17 +902,55 @@ export function createCoordinators(options: {
       pump()
       return publicChat(requireChat(id))
     },
-    list(caller, offset) {
+    list(caller, query) {
       const c = actor(caller)
-      const all = store.taskOutlines().filter((t) => t.factoryId === c.factoryId)
-      const shown = store.tasksIn(new Set(all.slice(offset, offset + 30).map((t) => t.id)))
-      touch(
-        c,
-        shown.map((t) => t.id),
-      )
+      const offset = query.offset ?? 0
+      const factory = store.taskOutlines().filter((t) => t.factoryId === c.factoryId)
       const open = Map.groupBy(
         store.listOpenRequests().filter((r) => r.kind !== 'note'),
         (r) => r.taskId,
+      )
+      const stageCounts: Partial<Record<StageId, number>> = {}
+      let archivedCount = 0
+      for (const t of factory) {
+        if (t.archived) archivedCount++
+        else if (query.all || t.stage !== 'done')
+          stageCounts[t.stage] = (stageCounts[t.stage] ?? 0) + 1
+      }
+      const outlined = factory.filter(
+        (t) =>
+          (query.all || (!t.archived && t.stage !== 'done')) &&
+          (!query.stages || query.stages.includes(t.stage)) &&
+          (!query.waiting || open.has(t.id)),
+      )
+      let matched: { id: string; task?: Task }[] = outlined
+      if (query.statuses || query.search) {
+        const full = new Map(
+          store.tasksIn(new Set(outlined.map((t) => t.id))).map((t) => [t.id, t]),
+        )
+        const text = query.search?.toLowerCase()
+        matched = outlined.flatMap((t) => {
+          const task = full.get(t.id)
+          if (!task) return []
+          if (query.statuses && !(task.status && query.statuses.includes(task.status.kind)))
+            return []
+          if (
+            text !== undefined &&
+            !task.title.toLowerCase().includes(text) &&
+            task.displayId.toLowerCase() !== text
+          )
+            return []
+          return [{ id: t.id, task }]
+        })
+      }
+      const page = matched.slice(offset, offset + coordinatorPageSize)
+      const loaded = new Map(
+        store.tasksIn(new Set(page.filter((t) => !t.task).map((t) => t.id))).map((t) => [t.id, t]),
+      )
+      const shown = page.flatMap((t) => t.task ?? loaded.get(t.id) ?? [])
+      touch(
+        c,
+        shown.map((t) => t.id),
       )
       return {
         now: new Date().toISOString(),
@@ -927,7 +967,7 @@ export function createCoordinators(options: {
             parentId,
             childIds,
             archived,
-          }) => ({
+          }): CoordinatorTaskSummary => ({
             id,
             displayId,
             title,
@@ -942,7 +982,12 @@ export function createCoordinators(options: {
             ...(open.has(id) && openRequests(open.get(id) ?? [], 5)),
           }),
         ),
-        ...(offset + 30 < all.length && { nextOffset: offset + 30 }),
+        matching: matched.length,
+        stageCounts,
+        ...(query.all && archivedCount > 0 && { archived: archivedCount }),
+        ...(offset + coordinatorPageSize < matched.length && {
+          nextOffset: offset + coordinatorPageSize,
+        }),
       }
     },
     task(caller, ref, offset) {

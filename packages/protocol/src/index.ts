@@ -196,12 +196,16 @@ export type {
   CoordinatorRequest,
   CoordinatorStatus,
   CoordinatorTask,
+  CoordinatorTaskList,
+  CoordinatorTaskQuery,
   CoordinatorTaskSummary,
 } from './coordinator.ts'
 export {
+  coordinatorTaskSearch,
   parseCoordinatorAction,
   parseCoordinatorCreate,
   parseCoordinatorMessage,
+  parseCoordinatorTaskQuery,
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {

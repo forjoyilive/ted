@@ -14,6 +14,7 @@ import {
   type BrowserRequest,
   type ClarifyDepth,
   type CoordinatorAction,
+  type CoordinatorTaskQuery,
   DaemonClient,
   DaemonUnreachableError,
   type DeclaredSendBackCause,
@@ -36,6 +37,7 @@ import {
   parseAssessFailureRequest,
   parseBrowserRequest,
   parseCoordinatorCreate,
+  parseCoordinatorTaskQuery,
   parseDesignReviewInput,
   parseLinearUrl,
   parseLocalDesignReviewInput,
@@ -1501,8 +1503,22 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
     },
     coordinatorTasks: async () => {
-      const page = offset()
-      console.log(JSON.stringify(await withDaemon(home, (client) => client.coordinatorTasks(page))))
+      const params = new URLSearchParams({ offset: String(offset()) })
+      if (options.all) params.set('all', '1')
+      for (const stage of options.stage ?? []) params.append('stage', stage)
+      for (const status of options.status ?? []) params.append('status', status)
+      if (options.waiting) params.set('waiting', '1')
+      if (options.search !== undefined) params.set('search', options.search)
+      let query: CoordinatorTaskQuery
+      try {
+        query = parseCoordinatorTaskQuery(params.toString())
+      } catch (error) {
+        if (error instanceof RequestValidationError) throw new UsageError(error.message)
+        throw error
+      }
+      console.log(
+        JSON.stringify(await withDaemon(home, (client) => client.coordinatorTasks(query))),
+      )
     },
     coordinatorTask: async () => {
       const page = offset()

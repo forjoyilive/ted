@@ -3,8 +3,15 @@ import type {
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
+  CoordinatorTaskQuery,
 } from './coordinator.ts'
-import type { RoundAnswerInput } from './task.ts'
+import {
+  agentStageIds,
+  type RoundAnswerInput,
+  type StageId,
+  type TaskStatusKind,
+  taskStatusKinds,
+} from './task.ts'
 import { parseCreateTaskRequest, parseSetTaskParentRequest } from './task-parsers.ts'
 import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
@@ -193,4 +200,58 @@ export function parseCoordinatorMessage(value: unknown): CoordinatorMessage {
   const body = bodyObject(value)
   if (typeof body.text !== 'string') throw new HttpError(400, 'text is required')
   return { text: body.text, ...agentChoice(body) }
+}
+
+const queryStages: readonly string[] = ['backlog', ...agentStageIds, 'done']
+const queryStatuses: readonly string[] = taskStatusKinds
+const queryKeys = new Set(['offset', 'all', 'stage', 'status', 'waiting', 'search'])
+const maxSearchLength = 200
+
+export function parseCoordinatorTaskQuery(search: string): CoordinatorTaskQuery {
+  const params = new URLSearchParams(search)
+  for (const key of params.keys())
+    if (!queryKeys.has(key)) throw new HttpError(400, `unknown Task list filter ${key}`)
+  for (const key of ['offset', 'all', 'waiting', 'search'])
+    if (params.getAll(key).length > 1) throw new HttpError(400, `${key} may be given once`)
+  const query: CoordinatorTaskQuery = {}
+  const offset = params.get('offset')
+  if (offset !== null) {
+    if (!/^\d{1,8}$/.test(offset)) throw new HttpError(400, 'offset must be a whole number')
+    query.offset = Number(offset)
+  }
+  for (const flag of ['all', 'waiting'] as const) {
+    const value = params.get(flag)
+    if (value === null) continue
+    if (value !== '1') throw new HttpError(400, `${flag} takes no value`)
+    query[flag] = true
+  }
+  const stages = [...new Set(params.getAll('stage'))]
+  for (const stage of stages)
+    if (!queryStages.includes(stage))
+      throw new HttpError(400, `unknown Stage ${stage}; use one of ${queryStages.join(', ')}`)
+  if (stages.length > 0) query.stages = stages as StageId[]
+  const statuses = [...new Set(params.getAll('status'))]
+  for (const status of statuses)
+    if (!queryStatuses.includes(status))
+      throw new HttpError(400, `unknown status ${status}; use one of ${queryStatuses.join(', ')}`)
+  if (statuses.length > 0) query.statuses = statuses as TaskStatusKind[]
+  const text = params.get('search')?.trim()
+  if (text !== undefined && text !== '') {
+    if (text.length > maxSearchLength)
+      throw new HttpError(400, `search is limited to ${maxSearchLength} characters`)
+    query.search = text
+  }
+  return query
+}
+
+export function coordinatorTaskSearch(query: CoordinatorTaskQuery): string {
+  const params = new URLSearchParams()
+  if (query.offset) params.set('offset', String(query.offset))
+  if (query.all) params.set('all', '1')
+  for (const stage of query.stages ?? []) params.append('stage', stage)
+  for (const status of query.statuses ?? []) params.append('status', status)
+  if (query.waiting) params.set('waiting', '1')
+  if (query.search) params.set('search', query.search)
+  const text = params.toString()
+  return text === '' ? '' : `?${text}`
 }
