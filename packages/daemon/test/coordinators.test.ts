@@ -496,11 +496,21 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
         )
         .digest('hex'),
     }
+    const at = new Date().toISOString()
     store.coordinators.save({
       ...saved,
       receipts: [
         ...saved.receipts.map((r) => (r.id === legacyReceipt.id ? legacyReceipt : r)),
         crashed,
+      ],
+      unsentMessages: [
+        {
+          id: 'legacy-ted',
+          runId: saved.runId,
+          text: 'Continue the interrupted response using fresh facts. Do not repeat completed actions.',
+          at,
+        },
+        { id: 'legacy-human', runId: saved.runId, text: 'Hold NB-2 for now.', at },
       ],
     })
     await store.persisted()
@@ -512,6 +522,10 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect(((await client.call('GET', s.base)).body as Coordinator).receipts).toContainEqual(
     legacyReceipt,
   )
+  const unsent = ((await client.call('GET', `${s.base}/chat`)).body as RunChat).items.filter(
+    (item) => item.kind === 'human' && item.unsent === true,
+  )
+  expect(unsent.map((item) => item.id)).toEqual(['legacy-human'])
   expect(
     (
       await client.call('POST', `${s.base}/messages`, {

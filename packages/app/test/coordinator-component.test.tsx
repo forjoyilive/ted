@@ -95,20 +95,27 @@ function withCoordinator() {
   return { a, shown, open }
 }
 
-test('the Coordinator shows its conversation in the Run chat, with TED’s continuation as From TED', async () => {
+test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, TED’s continuation and receipts as event lines', async () => {
   const { a, open } = withCoordinator()
   a.mount()
   const pane = await open()
   const chat = await within(pane).findByRole('region', { name: 'Run chat' })
   expect(within(chat).getByText('Start with NB-1.')).toBeTruthy()
   expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
-  const fromTed = within(chat).getByRole('button', { name: /From TED/ })
-  expect(fromTed.textContent).toContain(continuation)
+  const fromTed = within(chat).getByText(`From TED · ${continuation}`)
+  expect(fromTed.closest('li')).toBeTruthy()
+  expect(within(chat).queryByRole('button', { name: /From TED/ })).toBeNull()
   expect(within(chat).getAllByText('Nabha Cosley')).toHaveLength(2)
+  expect(within(chat).getAllByText(/to the Coordinator/)).toHaveLength(2)
+  expect(within(chat).queryByText(/to this Run only/)).toBeNull()
   const unsent = within(chat).getByText('Never mind that one.').closest('[data-queued]')
   expect(unsent?.textContent).toContain('Not sent')
   expect(within(chat).queryByRole('button', { name: 'Delete' })).toBeNull()
-  expect(within(chat).getByRole('button', { name: 'Started NB-1 · Queued at Intake' })).toBeTruthy()
+  const receipt = within(chat)
+    .getByText(/Started NB-1 · Queued at Intake/)
+    .closest('li')
+  expect(receipt).toBeTruthy()
+  expect(within(receipt as HTMLElement).getByRole('button', { name: 'Open Task' })).toBeTruthy()
   expect(within(pane).queryByText('Earlier conversation')).toBeNull()
   expect(within(pane).queryByRole('button', { name: 'Stop response' })).toBeNull()
 })

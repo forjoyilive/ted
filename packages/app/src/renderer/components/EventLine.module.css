@@ -2,7 +2,6 @@
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 8px;
-  margin-left: -14px;
 }
 
 .dot {

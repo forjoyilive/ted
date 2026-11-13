@@ -12,6 +12,8 @@ import {
 import type { AgentChatEntry, Agents } from '../agents/index.ts'
 import type { Coordinators } from '../coordinators/coordinators.ts'
 import {
+  continueAfterPause,
+  continueAfterRetry,
   coordinatorFromTed,
   coordinatorOpening,
   coordinatorTurn,
@@ -42,6 +44,12 @@ export interface Conversations {
   stop(runId: string): Promise<RunSummary>
   openTab(ref: string, runId: string): Task
   closeTab(ref: string, runId: string): Task
+}
+
+const tedTexts = new Set([continueAfterPause, continueAfterRetry])
+
+function tedWritten(message: RunMessage): boolean {
+  return message.from === 'ted' || tedTexts.has(message.text.trim())
 }
 
 const lineCount = (text: string) => (text === '' ? 0 : text.split('\n').length)
@@ -481,7 +489,7 @@ export function createConversations(options: {
       for (const id of c.runIds) {
         if (!started.includes(id)) {
           for (const message of store.runMessages(id)) {
-            if (message.queued !== true || message.from === 'ted') continue
+            if (message.queued !== true || tedWritten(message)) continue
             const { text, at } = message
             items.push({ kind: 'human', id: message.id, text, at, sent: false, queued: true })
           }
@@ -506,14 +514,16 @@ export function createConversations(options: {
       }
       items = mergeByTime(
         items,
-        (c.unsentMessages ?? []).map(({ id, text, at }) => ({
-          kind: 'human',
-          id,
-          text,
-          at,
-          sent: false,
-          unsent: true,
-        })),
+        (c.unsentMessages ?? [])
+          .filter((message) => !tedWritten(message))
+          .map(({ id, text, at }) => ({
+            kind: 'human',
+            id,
+            text,
+            at,
+            sent: false,
+            unsent: true,
+          })),
       )
       return {
         run: run ?? {
