@@ -178,6 +178,8 @@ test('Task menu stops the Task and has no Restart for an idle Lead', async () =>
   render(<TaskActionsMenu task={current} />)
   const u = user()
   await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  expect(screen.queryByRole('menuitem', { name: /^History/ })).toBeNull()
+  expect(screen.queryByRole('menuitem', { name: /Side chat/ })).toBeNull()
   expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
   await u.click(screen.getByRole('menuitem', { name: /Stop Task/ }))
   expect(api.request).toHaveBeenCalledWith('stopTask', current.id)
@@ -217,9 +219,11 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   await u.click(details.getByRole('tab', { name: 'Runs' }))
   expect(await details.findByText('Claude · claude-test · default effort')).toBeTruthy()
   expect(details.getByText('12k tokens')).toBeTruthy()
-  await u.click(chat.getByRole('button', { name: /^History/ }))
+  expect(chat.queryByRole('button', { name: /^History/ })).toBeNull()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: 'History · 1' }))
   await u.click(
-    within(screen.getByRole('region', { name: 'Conversation history' })).getByRole('button', {
+    within(screen.getByRole('menu', { name: /^History/ })).getByRole('menuitem', {
       name: /Earlier conversation/,
     }),
   )
