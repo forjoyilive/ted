@@ -660,7 +660,8 @@ function NewTaskForm({
           onClick={(event) => {
             if (
               event.target instanceof Element &&
-              event.target.closest('button, input, dialog, [data-attachment]')
+              (event.target.closest('button, input, [data-attachment]') ||
+                event.target.closest('dialog') !== dialog.current)
             )
               return
             if (uploading === 0) fileInput.current?.click()

@@ -149,6 +149,10 @@ describe('New Task dialog', () => {
   })
 
   test('attachments dropped or picked are stored and shown on the Task', async () => {
+    const pixel = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    )
     const window = await withFactory()
     await window.keyboard.press('Meta+N')
     const open = dialog(window)
@@ -165,12 +169,21 @@ describe('New Task dialog', () => {
     const tiles = open.getByRole('list', { name: 'Attached files' })
     await tiles.getByRole('button', { name: 'Remove notes.txt' }).waitFor()
     expect(await tiles.locator('[data-attachment="notes.txt"]').textContent()).toContain('TXT')
-    await open.getByLabel('Attach files').setInputFiles([
-      { name: 'cafe.png', mimeType: 'image/png', buffer: Buffer.from('png') },
-      { name: 'map.png', mimeType: 'image/png', buffer: Buffer.from('map') },
+    const [chooser] = await Promise.all([
+      window.waitForEvent('filechooser'),
+      open.getByRole('group', { name: 'Attachments' }).click({ position: { x: 4, y: 20 } }),
     ])
-    await tiles.locator('img[alt="map.png"]').waitFor()
-    await tiles.locator('img[alt="cafe.png"]').waitFor()
+    await chooser.setFiles([
+      { name: 'cafe.png', mimeType: 'image/png', buffer: pixel },
+      { name: 'map.png', mimeType: 'image/png', buffer: pixel },
+    ])
+    for (const name of ['cafe.png', 'map.png']) {
+      await expect
+        .poll(() =>
+          tiles.locator(`img[alt="${name}"]`).evaluate((i: HTMLImageElement) => i.naturalWidth),
+        )
+        .toBe(1)
+    }
 
     await tiles.getByRole('button', { name: 'View cafe.png' }).click()
     await window.getByRole('dialog', { name: 'cafe.png' }).waitFor()
@@ -202,7 +215,7 @@ describe('New Task dialog', () => {
     await thread.getByLabel('Choose files to attach').setInputFiles({
       name: 'reply.png',
       mimeType: 'image/png',
-      buffer: Buffer.from('reply'),
+      buffer: pixel,
     })
     await thread
       .getByRole('list', { name: 'Attached files' })
