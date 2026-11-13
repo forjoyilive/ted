@@ -94,7 +94,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
 
 export function idColumnWidth(tasks: readonly Pick<Task, 'displayId'>[]): string {
   const longest = Math.max(0, ...tasks.map((t) => t.displayId.length))
-  return `max(${columnWidths.id}, ${longest + 2}ch)`
+  return `max(${columnWidths.id}, calc(${longest + 2} * 0.65 * var(--text-14)))`
 }
 
 const sortHints: Partial<Record<ListSort, string>> = { manual: 'Priority, then rank' }

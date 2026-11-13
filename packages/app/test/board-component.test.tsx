@@ -574,7 +574,10 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
   expect(await screen.findByRole('region', { name: 'Task thread' })).toBeTruthy()
 })
 
-test('List ID column grows to fit the longest ID', () => {
-  expect(idColumnWidth([])).toBe('max(56px, 2ch)')
-  expect(idColumnWidth([{ displayId: 'TED-9' }, { displayId: 'TED-1000' }])).toBe('max(56px, 10ch)')
+test('List ID column grows to fit the longest ID, the same width in the header and the rows', () => {
+  expect(idColumnWidth([{ displayId: 'TED-1000' }])).not.toMatch(/\d(ch|em|ex)\b/)
+  expect(idColumnWidth([])).toBe('max(56px, calc(2 * 0.65 * var(--text-14)))')
+  expect(idColumnWidth([{ displayId: 'TED-9' }, { displayId: 'TED-1000' }])).toBe(
+    'max(56px, calc(10 * 0.65 * var(--text-14)))',
+  )
 })
