@@ -187,6 +187,7 @@ import type {
   EditTaskRequest,
   FollowUpRequest,
   InboxItem,
+  MarkDoneRequest,
   MoveTaskRequest,
   OutcomeResult,
   PostCommentRequest,
@@ -592,6 +593,11 @@ export class DaemonClient {
       ...(attachments !== undefined && attachments.length > 0 && { attachments }),
     }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cancel-merge`, body)
+  }
+
+  markDone(ref: string): Promise<Task> {
+    const body: MarkDoneRequest = {}
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/mark-done`, body)
   }
 
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {

@@ -536,6 +536,20 @@ export function TaskActionsMenu({
               <hr className={styles.separator} />
             </>
           )}
+          {task.stage === 'merge' && (
+            <>
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                title="For pull requests you merged on GitHub yourself. TED checks that each one merged before it moves the Task to Done."
+                onClick={() => act(() => ted.markDone(task.id))}
+              >
+                <span className={styles.label}>Mark as Done</span>
+              </ActionButton>
+              <hr className={styles.separator} />
+            </>
+          )}
           <Submenu label="Priority" hint={priorityLabels[task.priority]}>
             {priorities.map((priority) => (
               <Choice

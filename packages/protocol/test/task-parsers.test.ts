@@ -134,6 +134,13 @@ variants(P.parsePostCommentRequest, [
   { body: 'Files', attachments: [file] },
 ])
 roundTrip(P.parseCancelMergeRequest, { comment: 'Change this', attachments: [file] })
+roundTrip(P.parseMarkDoneRequest, {})
+test('parseMarkDoneRequest accepts an empty body', () => {
+  expect(P.parseMarkDoneRequest(undefined)).toEqual({})
+  expect(P.parseMarkDoneRequest(null)).toEqual({})
+})
+rejects(P.parseMarkDoneRequest, { force: true }, 'marking a Task done takes no fields')
+rejects(P.parseMarkDoneRequest, [], 'marking a Task done takes no fields')
 roundTrip(P.parseWriteBriefRequest, { text: 'Brief\n' })
 roundTrip(P.parseCloseRoundRequest, { summary: 'Agreed' })
 roundTrip(P.parseTalkThroughRequest, { confirmResume: true })

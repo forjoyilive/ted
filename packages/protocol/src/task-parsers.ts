@@ -37,6 +37,7 @@ import {
   clarifyDepths,
   type EditTaskRequest,
   type FollowUpRequest,
+  type MarkDoneRequest,
   maxTedStopAnswers,
   type NewTaskDraft,
   type PostCommentRequest,
@@ -1059,6 +1060,14 @@ export function parseCancelMergeRequest(value: unknown): CancelMergeRequest {
   if (text === '') throw new HttpError(400, 'comment is required')
   const files = parseAttachmentRefs(body?.attachments)
   return { comment: text, ...(files.length > 0 && { attachments: files }) }
+}
+
+export function parseMarkDoneRequest(value: unknown): MarkDoneRequest {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 0) {
+    throw new HttpError(400, 'marking a Task done takes no fields')
+  }
+  return {}
 }
 
 export function parseSetClarifyDepthRequest(value: unknown): SetClarifyDepthRequest {

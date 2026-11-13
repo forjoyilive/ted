@@ -377,6 +377,9 @@ describe('Sending after sign-off', () => {
       },
     })
     const { task, signoff } = await toSignoff(client)
+    const early = await client.call('POST', `/tasks/${task.id}/mark-done`)
+    expect(early.status).toBe(409)
+    expect(JSON.stringify(early.body)).toContain('isn’t at Merge')
     await approve(client, signoff)
     const pending = await waitUntil(async () => {
       const current = await getTask(client, task.id)
@@ -427,13 +430,26 @@ describe('Sending after sign-off', () => {
     const again = await client.call('POST', `/tasks/${task.id}/cancel-merge`, { comment: 'Again.' })
     expect(again.status).toBe(409)
 
+    for (const caller of [api(port, runToken), api(port, await tokenFor(ctx.home))]) {
+      const refused = await caller.call('POST', `/tasks/${task.id}/mark-done`)
+      expect(refused.status).toBeGreaterThanOrEqual(401)
+      expect(refused.status).toBeLessThan(500)
+    }
+    const open = await client.call('POST', `/tasks/${task.id}/mark-done`)
+    expect(open.status).toBe(409)
+    expect(JSON.stringify(open.body)).toContain('acme/widgets#7 is still open on GitHub')
+    const unchanged = await getTask(client, task.id)
+    expect(unchanged.stage).toBe('merge')
+    expect(unchanged.repos[0]?.pullRequest?.state).not.toBe('merged')
+
     await setGh({ merged: true })
-    const finished = await waitUntil(async () => {
-      clock.advance(100)
-      const current = await getTask(client, task.id)
-      return current.stage === 'done' ? current : undefined
-    }, 'the merge on GitHub to finish the Task')
-    expect(finished.repos[0]?.pullRequest?.state).toBe('merged')
+    const marked = await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)
+    expect(marked.stage).toBe('done')
+    expect(marked.repos[0]?.pullRequest?.state).toBe('merged')
+    expect(await lines(client, task)).toContain(
+      'You marked the Task done after its pull requests merged on GitHub',
+    )
+    expect((await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)).stage).toBe('done')
   })
 })
 

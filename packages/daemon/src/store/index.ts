@@ -660,6 +660,7 @@ export interface TedStore extends TaskHistory {
   gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
   gateKeptOvernight(taskId: string, stage: AgentStageId, reason: 'settings' | 'unreadable'): void
   mergeCanceled(taskId: string, commentId: string): void
+  taskMarkedDone(taskId: string): void
   mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
@@ -4270,6 +4271,10 @@ export async function openStore({
     },
     mergeCanceled(taskId, commentId) {
       commit(events.mergeCanceled({ taskId, commentId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    taskMarkedDone(taskId) {
+      commit(events.taskMarkedDone({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     mergePending(taskId) {

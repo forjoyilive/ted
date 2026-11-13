@@ -461,6 +461,7 @@ export interface Tasks {
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
+  markDone(ref: string): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
   setUpFactory(factoryId: string): Promise<Task | undefined>
   newSetupTask(factoryId: string): Promise<Task>
@@ -3287,6 +3288,69 @@ export function createTasks(options: {
       )
     }
     return store.getComment(posted.id) ?? posted
+  }
+
+  async function markDone(ref: string): Promise<Task> {
+    const id = find(ref).id
+    await untilFree(id)
+    await mergeWatcher.settled(id)
+    const task = find(id)
+    if (task.stage === 'done' && store.isMerged(id)) return publicTask(id)
+    const notAtMerge = (t: StoredTask) =>
+      new RequestError(409, `${t.displayId} isn’t at Merge, so it can’t be marked done`)
+    if (task.stage !== 'merge' || task.archived) throw notAtMerge(task)
+    return holding(task, async () => {
+      if (!watch) {
+        throw new RequestError(
+          409,
+          `TED can’t read GitHub, so it can’t check that ${task.displayId}’s pull requests merged`,
+        )
+      }
+      const read = await watch.next({ now: true })
+      const before = find(id)
+      if (before.stage !== 'merge' || before.archived) throw notAtMerge(before)
+      if (!before.repos.some((r) => !r.removed && r.pullRequest !== undefined)) {
+        throw new RequestError(409, `${before.displayId} has no pull request to check on GitHub`)
+      }
+      const unmerged = (t: StoredTask) =>
+        t.repos.flatMap((r) =>
+          !r.removed && r.pullRequest !== undefined && r.pullRequest.state !== 'merged'
+            ? [{ name: r.name, where: `${r.repo}#${r.pullRequest.number}` }]
+            : [],
+        )
+      const verified = new Set<string>()
+      for (const { name, where } of unmerged(before)) {
+        const key = `${id}:${name}`
+        const host = read.hostOf.get(key)
+        const remote = read.pulls.get(key)
+        if ((host !== undefined && read.failed.has(host)) || !remote) {
+          throw new RequestError(409, `TED couldn’t read ${where} from GitHub; try again`)
+        }
+        if (remote.state === 'CLOSED') {
+          throw new RequestError(409, `${where} was closed on GitHub without merging`)
+        }
+        if (remote.state !== 'MERGED') {
+          throw new RequestError(409, `${where} is still open on GitHub`)
+        }
+        verified.add(`${name}:${where}`)
+      }
+      await requireObligations(before, read, 'done')
+      const resolution = await taskWorkflow(find(id), { fetch: false })
+      const current = find(id)
+      if (current.stage !== 'merge' || current.archived) throw notAtMerge(current)
+      const left = unmerged(current)
+      const changed = left.find(({ name, where }) => !verified.has(`${name}:${where}`))
+      if (changed) {
+        throw new RequestError(409, `${changed.where} changed while TED read GitHub; try again`)
+      }
+      store.taskMarkedDone(id)
+      for (const { name } of left) {
+        store.pullRequestMerged(id, name, { noCi: false, byTed: false })
+      }
+      await move(find(id), resolution, 'done', undefined)
+      await store.persisted()
+      return publicTask(id)
+    })
   }
 
   const leadFrom = (settings?: WorkflowSettings) =>
@@ -9311,6 +9375,7 @@ export function createTasks(options: {
 
     useDefaultModel,
     cancelMerge,
+    markDone,
 
     setRepos,
 
