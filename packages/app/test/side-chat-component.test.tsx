@@ -78,7 +78,7 @@ test('opens and reopens a separate exchange and sends only to side-chat controls
   await act(async () => {})
   fireEvent.change(question, { target: { value: 'Why this approach?' } })
   await user().click(within(panel).getByRole('button', { name: 'Send' }))
-  expect(await within(panel).findByText(/Waiting for a working slot/)).toBeTruthy()
+  expect(await within(panel).findByText(/Starting\. The original Run continues/)).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('sendSideChat', 'source', 'Why this approach?')
   await user().click(within(panel).getByRole('button', { name: 'Stop reply' }))
   await user().click(await within(panel).findByRole('button', { name: 'Retry' }))

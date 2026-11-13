@@ -183,7 +183,7 @@ test('refuses unsupported Runs and file-token writes', async () => {
   ).toBe(403)
 })
 
-test('queues every side turn, releases its slot on stop, retries and refuses tool attempts', async () => {
+test('starts side turns outside the slot limit, stops, retries and refuses tool attempts', async () => {
   const client = await start()
   await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
   await client.ok('POST', '/dev/factories', { repo: origin, key: 'NB' })
@@ -204,7 +204,7 @@ test('queues every side turn, releases its slot on stop, retries and refuses too
   const first = `/runs/${sources[0]}/side-chat`
   const second = `/runs/${sources[1]}/side-chat`
   const one = await client.ok<SideChat>('POST', first)
-  const two = await client.ok<SideChat>('POST', second)
+  await client.ok<SideChat>('POST', second)
   const signal = path.join(scratch, 'answer-now')
   await client.ok('POST', `${first}/messages`, {
     text: JSON.stringify({
@@ -218,18 +218,22 @@ test('queues every side turn, releases its slot on stop, retries and refuses too
   await client.ok('POST', `${second}/messages`, {
     text: JSON.stringify({ steps: [{ say: 'Second reply' }, { endTurn: true }] }),
   })
-  expect((await client.ok<SideChat>('GET', second)).state).toBe('queued')
-  await expect
-    .poll(() => client.ok<import('@ted/protocol').Activity>('GET', '/activity'))
-    .toMatchObject({ runs: { queued: 1 } })
-  expect((await client.call('POST', `${second}/messages`, { text: 'extra' })).status).toBe(409)
-  const slots = await client.ok<import('@ted/protocol').RunSlots>('GET', '/slots')
-  expect(slots.holders.some((h) => h.kind === 'side-chat' && h.runId === one.id)).toBe(true)
-  expect(slots.queue.some((q) => q.kind === 'side-chat' && q.runId === two.id)).toBe(true)
-  await client.ok('POST', `${first}/stop`)
   await waitUntil(
     async () => ((await client.ok<SideChat>('GET', second)).state === 'ready' ? true : undefined),
-    'second reply',
+    'second reply while the first works',
+  )
+  const slots = await client.ok<import('@ted/protocol').RunSlots>('GET', '/slots')
+  expect(slots).toMatchObject({ limit: 1, working: 0, queued: 0 })
+  expect(slots.holders.some((h) => h.kind === 'side-chat' && h.runId === one.id)).toBe(true)
+  await client.ok('POST', `${first}/stop`)
+  await waitUntil(
+    async () =>
+      (await client.ok<import('@ted/protocol').RunSlots>('GET', '/slots')).holders.some(
+        (h) => h.kind === 'side-chat' && h.runId === one.id,
+      )
+        ? undefined
+        : true,
+    'stopped side chat to leave the slots view',
   )
   await writeFile(signal, '')
   await client.ok('POST', `${first}/retry`)

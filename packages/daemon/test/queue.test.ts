@@ -199,16 +199,40 @@ describe('startsNow with a slot handoff', () => {
   })
 })
 
-test('Coordinator turns share the Planning tier and respect Factory caps', () => {
+describe('chats', () => {
   const ordered = queueOrder([
+    task('a', 'high', 1),
     { id: 'plan', kind: 'planning', rank: 2, factoryId: 'nb' },
     { id: 'coordinator', kind: 'coordinator', rank: 1, factoryId: 'nb' },
+    { id: 'side-chat', kind: 'side-chat', rank: 3, factoryId: 'nb' },
     { id: 'auto', kind: 'automation', rank: 0, factoryId: 'other' },
   ])
-  expect(ordered.map((e) => e.id)).toEqual(['coordinator', 'plan', 'auto'])
-  expect(
-    startsNow(ordered, { limit: 3, working: 0, byFactory: {}, caps: { nb: 1 } }).map((e) => e.id),
-  ).toEqual(['coordinator', 'auto'])
+
+  test('share the Planning tier', () => {
+    expect(ordered.map((e) => e.id)).toEqual(['coordinator', 'plan', 'side-chat', 'auto', 'a'])
+  })
+
+  test.each([
+    { name: 'a full machine', use: { limit: 1, working: 3, byFactory: {}, caps: {} } },
+    {
+      name: 'a Factory at its cap',
+      use: { limit: 6, working: 1, byFactory: { nb: 1 }, caps: { nb: 1 } },
+    },
+    {
+      name: 'a busy computer',
+      use: { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: true },
+    },
+  ])('start with $name', ({ use }) => {
+    expect(startsNow(ordered, use).map((e) => e.id)).toEqual(
+      expect.arrayContaining(['coordinator', 'plan', 'side-chat']),
+    )
+  })
+
+  test('take no slot from the work after them', () => {
+    expect(
+      startsNow(ordered, { limit: 2, working: 0, byFactory: {}, caps: { nb: 1 } }).map((e) => e.id),
+    ).toEqual(['coordinator', 'plan', 'side-chat', 'auto', 'a'])
+  })
 })
 
 describe('heldForLoad', () => {

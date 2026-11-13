@@ -170,9 +170,7 @@ function RunSideChat({
               </p>
             )}
             {side?.state === 'queued' && (
-              <p className={styles.notice}>
-                Waiting for a working slot. The original Run continues.
-              </p>
+              <p className={styles.notice}>Starting. The original Run continues.</p>
             )}
             {side?.chat && (
               <ChatSection
