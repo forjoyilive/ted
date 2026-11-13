@@ -16,6 +16,7 @@ import {
   daemonClient,
   githubReady,
   launchApp,
+  openFactoryView,
   setUpAppTests,
   sidebar,
   twoFactories,
@@ -110,7 +111,7 @@ describe('New Task drafts', () => {
     await closeApp(ctx.app)
     ctx.app = undefined
     window = await launchApp()
-    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await openFactoryView(window, 'notebook', 'Dashboard')
     await open(window)
     expect(await form(window).getByLabel('Title', { exact: true }).inputValue()).toBe(
       'Keep my unfinished Task',
@@ -180,7 +181,7 @@ describe('New Task drafts', () => {
     expect((await client.taskDraft(second.id)).draft).toBeNull()
     expect((await client.listTasks()).some((t) => t.description === 'Site draft')).toBe(true)
 
-    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await openFactoryView(window, 'notebook', 'Dashboard')
     await open(window)
     await form(window)
       .getByLabel('Description', { exact: true })
@@ -237,7 +238,7 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     )
     ctx.extraEnv.TED_CODEX_BIN = delayedCodex
     window = await launchApp()
-    await sidebar(window).getByRole('button', { name: 'widgets', exact: true }).click()
+    await openFactoryView(window, 'widgets', 'Dashboard')
     const restarted = await daemonClient()
     await waitUntil(async () => {
       const health = await restarted.agentHealth()

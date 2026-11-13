@@ -98,6 +98,7 @@ test('Map sits under Tasks, removes a blocker from its line and adds one by drag
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
   const nav = within(screen.getByRole('navigation', { name: 'Sidebar' }))
+  await u.click(nav.getByRole('button', { name: 'Task views' }))
   await u.click(nav.getByRole('button', { name: 'List' }))
   await u.click(nav.getByRole('button', { name: 'Dashboard' }))
   await u.click(nav.getByRole('button', { name: 'Tasks' }))

@@ -321,6 +321,14 @@
   padding-left: 44px;
 }
 
+.tasksRow {
+  position: relative;
+}
+
+.tasksCaret {
+  left: 6px;
+}
+
 .addFactory {
   color: var(--text-muted);
   font-size: var(--text-13);

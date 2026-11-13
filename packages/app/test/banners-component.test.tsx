@@ -28,6 +28,11 @@ test('Factory warnings show only on their Factory pages and dismiss through the 
   await screen.findByText(warning.text)
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'List',
     }),
   )
@@ -196,6 +201,11 @@ test('App removes the initial setup panel after clone Retry recovers', async () 
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Board',
     }),
   )
@@ -229,6 +239,11 @@ test('App shows a global agent Fix banner, the paused Board status and clears th
   const problems = await screen.findByRole('region', { name: 'Problems' })
   expect(within(problems).getByRole('button', { name: 'Fix' })).toBeTruthy()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Board',

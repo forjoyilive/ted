@@ -99,8 +99,18 @@ export async function openFactoryView(
   factory: string,
   view: 'Dashboard' | 'Coordinator' | 'Board' | 'List' | 'Plans' | 'Automations',
 ): Promise<void> {
-  await sidebar(window).getByRole('button', { name: factory, exact: true }).click()
-  await sidebar(window).getByRole('button', { name: view, exact: true }).click()
+  const row = sidebar(window).getByRole('article', { name: factory, exact: true })
+  const group = row.locator('..')
+  if (
+    (await row.getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')) === 'false'
+  ) {
+    await row.getByRole('button', { name: factory, exact: true }).click()
+  }
+  if (view === 'Board' || view === 'List') {
+    const taskViews = group.getByRole('button', { name: 'Task views' })
+    if ((await taskViews.getAttribute('aria-expanded')) === 'false') await taskViews.click()
+  }
+  await group.getByRole('button', { name: view, exact: true }).click()
 }
 
 export const onePixelPng =

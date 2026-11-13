@@ -86,6 +86,7 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   await window.screenshot({
     path: path.join(process.cwd(), 'node_modules/.cache/ted-40/coordinator-implemented.png'),
   })
+  await sidebar.getByRole('button', { name: 'Task views' }).click()
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
   await entry.click()
   await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
@@ -143,6 +144,7 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
     .getByText('Compare the release Tasks before starting anything.', { exact: true })
     .waitFor()
   expect((await client.coordinator(factory.id))?.started).toBe(false)
+  await sidebar.getByRole('button', { name: 'Task views' }).click()
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
   await sidebar.getByRole('button', { name: /^Coordinator/ }).click()
   await pane.getByText('Not sent', { exact: true }).waitFor()

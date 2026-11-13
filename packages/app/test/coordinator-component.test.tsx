@@ -189,6 +189,7 @@ test('leaving the Coordinator and coming back shows the same conversation', asyn
   a.mount()
   const pane = await open()
   await within(pane).findByText('Start with NB-1.')
+  await user().click(within(nav()).getByRole('button', { name: 'Task views' }))
   await user().click(within(nav()).getByRole('button', { name: 'Board' }))
   expect(screen.queryByText('Start with NB-1.')).toBeNull()
   await user().click(within(nav()).getByRole('button', { name: /^Coordinator/ }))
@@ -217,16 +218,17 @@ test('a new Coordinator starts from the same composer', async () => {
   )
 })
 
-test('the sidebar lists Coordinator above Board and shows Working only while it works', async () => {
+test('the sidebar lists Coordinator above Tasks and shows Working only while it works', async () => {
   const { a, shown } = withCoordinator()
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
   const names = within(nav())
     .getAllByRole('button')
     .map((button) => button.textContent)
+    .filter(Boolean)
   expect(names.indexOf('Coordinator')).toBeGreaterThan(-1)
   expect(names.indexOf('Dashboard')).toBe(names.indexOf('Coordinator') - 1)
-  expect(names.indexOf('Coordinator')).toBe(names.indexOf('Board') - 1)
+  expect(names.indexOf('Coordinator')).toBe(names.indexOf('Tasks') - 1)
   const row = () => within(nav()).getByRole('button', { name: /^Coordinator/ })
   expect(within(row()).queryByRole('img')).toBeNull()
   await act(async () => {

@@ -137,10 +137,12 @@ const factoryViews: { view: FactoryView | 'tasks'; label: string; nested?: true 
 const coordinatorMarks = { working: 'Working', queued: 'Queued', paused: 'Paused' }
 
 const openFactoriesKey = 'ted.sidebar.factoriesOpen'
+const openTaskViewsKey = 'ted.sidebar.tasksOpen'
+const taskViews: readonly FactoryView[] = ['board', 'list', 'map']
 
-function readOpenFactories(): Record<string, boolean> {
+function readOpenRecord(key: string): Record<string, boolean> {
   try {
-    const stored: unknown = JSON.parse(localStorage.getItem(openFactoriesKey) ?? '{}')
+    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? '{}')
     if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return {}
     return Object.fromEntries(
       Object.entries(stored).filter(([, open]) => typeof open === 'boolean'),
@@ -150,16 +152,22 @@ function readOpenFactories(): Record<string, boolean> {
   }
 }
 
-function useOpenFactories(): [Record<string, boolean>, (factoryId: string, open: boolean) => void] {
-  const [openFactories, setOpenFactories] = useState(readOpenFactories)
+function useOpenRecord(
+  key: string,
+): [Record<string, boolean>, (factoryId: string, open: boolean) => void] {
+  const [record, setRecord] = useState(() => readOpenRecord(key))
   const setOpen = (factoryId: string, open: boolean) => {
-    const next = { ...readOpenFactories(), [factoryId]: open }
-    setOpenFactories(next)
+    const next = { ...readOpenRecord(key), [factoryId]: open }
+    setRecord(next)
     try {
-      localStorage.setItem(openFactoriesKey, JSON.stringify(next))
+      localStorage.setItem(key, JSON.stringify(next))
     } catch {}
   }
-  return [openFactories, setOpen]
+  return [record, setOpen]
+}
+
+function taskViewFactory(screen: Screen): string | undefined {
+  return screen.kind === 'factory' && taskViews.includes(screen.view) ? screen.factoryId : undefined
 }
 
 function sameScreen(a: Screen, b: Screen): boolean {
@@ -194,7 +202,13 @@ export function Sidebar({
   const [dragging, setDragging] = useState<number>()
   const [dropAt, setDropAt] = useState<number>()
   const [orderError, setOrderError] = useState<string>()
-  const [openFactories, setFactoryOpen] = useOpenFactories()
+  const [openFactories, setFactoryOpen] = useOpenRecord(openFactoriesKey)
+  const [openTaskViews, setTaskViewsOpen] = useOpenRecord(openTaskViewsKey)
+  const onTaskViewsOf = taskViewFactory(navigation.screen)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: opens only when arriving at a Task view
+  useEffect(() => {
+    if (onTaskViewsOf !== undefined) setTaskViewsOpen(onTaskViewsOf, true)
+  }, [onTaskViewsOf])
   const reorder = (ids: string[] | undefined) => {
     if (!ids) return
     setOrderError(undefined)
@@ -307,7 +321,8 @@ export function Sidebar({
                     type="button"
                     className={`${styles.row} ${styles.factoryName} ${isCurrent ? styles.strong : ''} ${waiting > 0 ? styles.counted : styles.withMore}`}
                     onClick={() => {
-                      if (!expanded) setFactoryOpen(factory.id, true)
+                      if (expanded) return setFactoryOpen(factory.id, false)
+                      setFactoryOpen(factory.id, true)
                       return dispatch({ type: 'open-factory', factoryId: factory.id })
                     }}
                   >
@@ -353,16 +368,34 @@ export function Sidebar({
               )}
               {expanded &&
                 factoryViews.map(({ view, label, nested }) => {
+                  const taskViewsOpen = openTaskViews[factory.id] ?? false
+                  if (nested && !taskViewsOpen) return null
                   if (view === 'tasks') {
                     return (
-                      <button
-                        key={view}
-                        type="button"
-                        className={`${styles.row} ${styles.sub}`}
-                        onClick={() => dispatch({ type: 'open-tasks', factoryId: factory.id })}
-                      >
-                        <span className={styles.label}>{label}</span>
-                      </button>
+                      <div key={view} className={styles.tasksRow}>
+                        <ActionButton
+                          type="button"
+                          className={`${styles.caret} ${styles.tasksCaret}`}
+                          aria-label="Task views"
+                          aria-expanded={taskViewsOpen}
+                          onClick={() => setTaskViewsOpen(factory.id, !taskViewsOpen)}
+                        >
+                          <ChevronIcon
+                            open
+                            className={`${styles.chevron} ${taskViewsOpen ? '' : styles.chevronClosed}`}
+                          />
+                        </ActionButton>
+                        <button
+                          type="button"
+                          className={`${styles.row} ${styles.sub}`}
+                          onClick={() => {
+                            setTaskViewsOpen(factory.id, true)
+                            dispatch({ type: 'open-tasks', factoryId: factory.id })
+                          }}
+                        >
+                          <span className={styles.label}>{label}</span>
+                        </button>
+                      </div>
                     )
                   }
                   const screen: Screen = { kind: 'factory', factoryId: factory.id, view }

@@ -84,6 +84,11 @@ test('All Tasks and Factory List counts follow search, filters and live Task upd
   await u.click(screen.getByRole('button', { name: 'widgets' }))
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'List',
     }),
   )

@@ -137,20 +137,58 @@ test('a slow resource reading does not overlap or restart polling after leaving 
   }
 })
 
-test('Factories open Dashboard and expose their Views; All Tasks preserves expansion', async () => {
+test('Factories open Dashboard with Board, List and Map folded under Tasks; All Tasks preserves expansion', async () => {
   const a = appState()
-  a.mount()
+  const first = a.mount()
   const u = user()
+  const shown = (name: string) => within(nav()).queryByRole('button', { name }) !== null
+  const taskViews = () => within(nav()).getByRole('button', { name: 'Task views' })
+  const factoryViews = () => within(nav()).getByRole('button', { name: 'Views' })
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
-  for (const name of ['Dashboard', 'Board', 'List', 'Plans', 'Automations'])
-    expect(within(nav()).getByRole('button', { name })).toBeTruthy()
+  for (const name of ['Dashboard', 'Tasks', 'Plans', 'Automations']) expect(shown(name)).toBe(true)
+  expect(['Board', 'List', 'Map'].filter(shown)).toEqual([])
+  expect(taskViews().getAttribute('aria-expanded')).toBe('false')
   expect(
     within(nav()).getByRole('button', { name: 'Dashboard' }).getAttribute('aria-current'),
   ).toBe('page')
-  await u.click(within(nav()).getByRole('button', { name: 'All Tasks' }))
-  expect(within(nav()).getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')).toBe(
-    'true',
+
+  await u.click(taskViews())
+  expect(['Board', 'List', 'Map'].filter(shown)).toEqual(['Board', 'List', 'Map'])
+  await screen.findByRole('heading', { name: /widgets.*Dashboard/, level: 1 })
+  await u.click(taskViews())
+  expect(['Board', 'List', 'Map'].filter(shown)).toEqual([])
+
+  await u.click(within(nav()).getByRole('button', { name: 'Tasks' }))
+  await screen.findByRole('heading', { name: /widgets.*Board/, level: 1 })
+  expect(taskViews().getAttribute('aria-expanded')).toBe('true')
+  await u.click(within(nav()).getByRole('button', { name: 'List' }))
+  await u.click(taskViews())
+  await u.click(within(nav()).getByRole('button', { name: 'Dashboard' }))
+  expect(shown('Board')).toBe(false)
+  fireEvent.keyDown(window, { key: 'g' })
+  fireEvent.keyDown(window, { key: 'm' })
+  await screen.findByRole('heading', { name: /widgets.*Map/, level: 1 })
+  expect(within(nav()).getByRole('button', { name: 'Map' }).getAttribute('aria-current')).toBe(
+    'page',
   )
+
+  await u.click(taskViews())
+  first.unmount()
+  a.mount()
+  await screen.findByRole('article', { name: 'widgets' })
+  expect(taskViews().getAttribute('aria-expanded')).toBe('false')
+  await u.click(taskViews())
+
+  await u.click(within(nav()).getByRole('button', { name: 'All Tasks' }))
+  expect(factoryViews().getAttribute('aria-expanded')).toBe('true')
+  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  expect(factoryViews().getAttribute('aria-expanded')).toBe('false')
+  expect(shown('Tasks')).toBe(false)
+  await screen.findByRole('heading', { name: 'All Tasks', level: 1 })
+  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  expect(factoryViews().getAttribute('aria-expanded')).toBe('true')
+  expect(taskViews().getAttribute('aria-expanded')).toBe('true')
+  await screen.findByRole('heading', { name: /widgets.*Dashboard/, level: 1 })
 })
 
 test('a live Factory event updates the sidebar', async () => {
@@ -248,6 +286,7 @@ test('view headers open New Task without a duplicate sidebar button', async () =
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
   expect(within(nav()).queryByRole('button', { name: 'New Task' })).toBeNull()
+  await u.click(within(nav()).getByRole('button', { name: 'Tasks' }))
   for (const view of ['Board', 'List']) {
     await u.click(within(nav()).getByRole('button', { name: view }))
     const header = required(screen.getByRole('main').querySelector('header'))

@@ -282,6 +282,11 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Board',
@@ -501,6 +506,11 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Board',

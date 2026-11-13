@@ -80,6 +80,11 @@ test('Factory caps appear in Board and List headers only when working', async ()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Board',
     }),
   )
