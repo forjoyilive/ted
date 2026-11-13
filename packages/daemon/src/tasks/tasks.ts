@@ -532,6 +532,11 @@ export interface Tasks {
   coordinatorTell(ref: string, body: string): Promise<Comment>
   coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
   coordinatorResume(ref: string, comment?: string): Promise<Task>
+  coordinatorCreate(
+    factoryId: string,
+    input: Omit<CreateTaskInput, 'factory' | 'coordinatorOperation'>,
+    operation: string,
+  ): Promise<Task>
   isFailureDecision(commentId: string): boolean
   talkThrough(commentId: string, request: TalkThroughRequest): Promise<TalkThroughResult>
   doneTalking(commentId: string): Promise<Comment>
@@ -9155,6 +9160,15 @@ export function createTasks(options: {
 
     coordinatorResume: (ref, comment) =>
       resumeByHand(ref, { ...(comment !== undefined && { comment }), sendDrafts: false }),
+
+    coordinatorCreate(factoryId, input, operation) {
+      const factory = store.getFactory(factoryId)
+      if (!factory) throw new RequestError(404, 'no such Factory')
+      return this.create(
+        { ...input, factory: factory.key, coordinatorOperation: operation },
+        { kind: 'file' },
+      )
+    },
 
     async coordinatorTell(ref, body) {
       const task = find(ref)

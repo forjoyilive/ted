@@ -35,6 +35,7 @@ import {
   parseAddFailureEvidenceRequest,
   parseAssessFailureRequest,
   parseBrowserRequest,
+  parseCoordinatorCreate,
   parseDesignReviewInput,
   parseLinearUrl,
   parseLocalDesignReviewInput,
@@ -1510,6 +1511,48 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           await withDaemon(home, (client) => client.coordinatorTask(args[0] ?? '', page)),
         ),
       )
+    },
+    coordinatorCreate: async () => {
+      const { operation } = options
+      if (!operation) throw new UsageError('operation is required')
+      const typed = options.description === '-' ? await readStdin() : (options.description ?? '')
+      const neighbours = jsonOption('neighbours')
+      const lead =
+        options.agent !== undefined
+          ? {
+              agent: options.agent,
+              ...(options.model !== undefined && { model: options.model }),
+              ...(options.effort !== undefined && { effort: options.effort }),
+            }
+          : undefined
+      if (lead === undefined && (options.model !== undefined || options.effort !== undefined))
+        throw new UsageError('--model and --effort need --agent')
+      const input = {
+        operation,
+        title: args.join(' '),
+        ...(typed.trim() !== '' && { description: typed }),
+        ...(options.parent !== undefined && { parentId: options.parent }),
+        ...(options['blocked-by'] !== undefined && { blockedBy: options['blocked-by'] }),
+        ...(options.source !== undefined && { source: options.source }),
+        ...(options.priority !== undefined && { priority: options.priority }),
+        ...(options['clarify-depth'] !== undefined && {
+          clarifyDepth: options['clarify-depth'],
+        }),
+        ...(lead !== undefined && { lead }),
+        ...(options.after !== undefined && { after: options.after }),
+        ...(options.before !== undefined && { before: options.before }),
+        ...(neighbours !== undefined && { neighbours }),
+        ...(options.start && { start: true }),
+      }
+      let parsed: ReturnType<typeof parseCoordinatorCreate>
+      try {
+        parsed = parseCoordinatorCreate(input)
+      } catch (error) {
+        if (error instanceof RequestValidationError) throw new UsageError(error.message)
+        throw error
+      }
+      const receipt = await withDaemon(home, (client) => client.coordinatorCreate(parsed))
+      console.log(JSON.stringify(receipt))
     },
     coordinatorStart: async () => coordinatorAct('start'),
     coordinatorMove: async () => coordinatorAct('move'),

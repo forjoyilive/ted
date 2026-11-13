@@ -938,7 +938,8 @@ function automationWatch<T>(shown: (value: T) => AutomationsShown) {
         if (
           task.createdBy === 'human' ||
           task.createdBy === 'planning' ||
-          task.createdBy === 'setup'
+          task.createdBy === 'setup' ||
+          task.createdBy === 'coordinator'
         ) {
           return false
         }

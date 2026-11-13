@@ -91,6 +91,7 @@ export const createdByKinds = [
   'split',
   'follow-up',
   'setup',
+  'coordinator',
 ] as const
 
 export type CreatedBy = (typeof createdByKinds)[number]

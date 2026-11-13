@@ -16,4 +16,5 @@
 .dot { width: 5px; height: 5px; border-radius: var(--radius-pill); background: var(--event-neutral); flex-shrink: 0; }
 .eventText { flex: 1; border: 0; background: var(--surface-pane); color: var(--text-tertiary); font: inherit; text-align: left; padding: 0; cursor: pointer; }
 .eventText:hover { color: var(--text-primary); }
+.eventPlain { flex: 1; color: var(--text-tertiary); }
 .eventTime { color: var(--text-muted); font-size: var(--text-10); white-space: nowrap; }

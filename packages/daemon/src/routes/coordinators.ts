@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { CoordinatorOperation } from '@ted/protocol'
 import {
   type CoordinatorAction,
+  type CoordinatorCreate,
   parseCoordinatorAction,
+  parseCoordinatorCreate,
   parseCoordinatorMessage,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -79,6 +81,14 @@ export const coordinatorRoutes: Route[] = [
       context(coordinators.task(caller, ref, offset(page))),
     ],
   },
+  jsonRoute(parseCoordinatorCreate, {
+    method: 'POST',
+    path: /^\/coordinator\/tasks$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [201, await coordinators.create(caller, redactedCreate(body))]
+    },
+  }),
   jsonRoute(
     (value, { params: [, kind = ''] }) =>
       parseCoordinatorAction(value, kind as CoordinatorOperation),
@@ -107,5 +117,13 @@ function redactedAction(action: CoordinatorAction): CoordinatorAction {
         ...(note !== undefined && { note: redactSecrets(note) }),
       })),
     }),
+  }
+}
+
+function redactedCreate(input: CoordinatorCreate): CoordinatorCreate {
+  return {
+    ...input,
+    title: redactSecrets(input.title),
+    ...(input.description !== undefined && { description: redactSecrets(input.description) }),
   }
 }

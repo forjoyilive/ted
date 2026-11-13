@@ -116,6 +116,7 @@ export const tasks = State.SQLite.table({
     needsPlanningAt: State.SQLite.text({ nullable: true }),
     partlyMergedAt: State.SQLite.text({ nullable: true }),
     setup: State.SQLite.boolean({ default: false }),
+    coordinatorOperation: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -3066,6 +3067,15 @@ export const events = {
     name: 'v1.SetupTaskCreated',
     schema: Schema.Struct({ taskId: Schema.String, factoryId: Schema.String, at: Schema.String }),
   }),
+  taskCreatedByCoordinator: Events.synced({
+    name: 'v1.TaskCreatedByCoordinator',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      factoryId: Schema.String,
+      operation: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   commentMarkedTutorial: Events.synced({
     name: 'v1.CommentMarkedTutorial',
     schema: Schema.Struct({ commentId: Schema.String }),
@@ -3715,6 +3725,8 @@ const materializers = counted(
           .insert({ id: `${commentId}:${hash}:${name}`, commentId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
       'v1.SetupTaskCreated': ({ taskId }) => tasks.update({ setup: true }).where({ id: taskId }),
+      'v1.TaskCreatedByCoordinator': ({ taskId, operation }) =>
+        tasks.update({ coordinatorOperation: operation }).where({ id: taskId }),
       'v1.CommentMarkedTutorial': ({ commentId }) =>
         comments.update({ tutorial: true }).where({ id: commentId }),
       'v1.CommentLinearTeamAsked': ({ commentId, key, name }) =>

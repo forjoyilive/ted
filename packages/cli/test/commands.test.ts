@@ -319,6 +319,7 @@ describe('commands merged from the latest base', () => {
       UsageError,
     )
     expect(helpText()).toContain('ted coordinator resume')
+    expect(helpText()).toContain('ted coordinator create')
     expect(helpText()).toContain('--recommended')
   })
 
@@ -447,6 +448,46 @@ describe('commands merged from the latest base', () => {
           stdin: async () => '  Keep going  ',
         }),
       ).toBe(0)
+      expect(
+        await runCli(
+          [
+            'coordinator',
+            'create',
+            '--operation',
+            'op',
+            '--description',
+            '-',
+            '--parent',
+            'NB-1',
+            '--blocked-by',
+            'NB-2',
+            '--blocked-by',
+            'NB-3',
+            '--priority',
+            'high',
+            '--agent',
+            'codex',
+            '--effort',
+            'high',
+            '--start',
+            'Offline',
+            'badge',
+          ],
+          { ...runtime, stdin: async () => ' Show a badge. ' },
+        ),
+      ).toBe(0)
+      expect(
+        await runCli(
+          ['coordinator', 'create', '--operation', 'op', '--effort', 'high', 'T'],
+          runtime,
+        ),
+      ).toBe(2)
+      expect(
+        await runCli(
+          ['coordinator', 'create', '--operation', 'op', '--priority', 'big', 'T'],
+          runtime,
+        ),
+      ).toBe(2)
       expect(requests.slice(4)).toEqual([
         { url: '/peers?offset=3', body: undefined },
         { url: '/peers/inbox?offset=4', body: undefined },
@@ -464,6 +505,19 @@ describe('commands merged from the latest base', () => {
         {
           url: '/coordinator/tasks/NB-1/tell',
           body: { operation: 'op', version: 'version', message: 'Keep going' },
+        },
+        {
+          url: '/coordinator/tasks',
+          body: {
+            operation: 'op',
+            title: 'Offline badge',
+            description: 'Show a badge.',
+            parentId: 'NB-1',
+            blockedBy: ['NB-2', 'NB-3'],
+            priority: 'high',
+            lead: { agent: 'codex', effort: 'high' },
+            start: true,
+          },
         },
       ])
     } finally {

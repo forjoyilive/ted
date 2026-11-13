@@ -63,6 +63,7 @@ import type { CommandLineStatus } from './command-line.ts'
 import type {
   Coordinator,
   CoordinatorAction,
+  CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
   CoordinatorReceipt,
@@ -421,6 +422,10 @@ export class DaemonClient {
 
   coordinatorTask(id: string, offset = 0): Promise<{ context: string }> {
     return this.#request('GET', `/coordinator/tasks/${encodeURIComponent(id)}?offset=${offset}`)
+  }
+
+  coordinatorCreate(input: CoordinatorCreate): Promise<CoordinatorReceipt> {
+    return this.#request('POST', '/coordinator/tasks', input)
   }
 
   coordinatorAct(
