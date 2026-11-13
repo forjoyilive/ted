@@ -573,6 +573,44 @@
   font-size: var(--text-17);
 }
 
+.stageRows {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto;
+}
+
+.stageRows > .timingRow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  column-gap: 0;
+}
+
+.stageRows > .timingRow > :nth-child(n + 3) {
+  padding-left: 12px;
+  text-align: right;
+}
+
+.stageRows > .timingRow > :nth-child(3) {
+  padding-left: 20px;
+}
+
+.stageNumber {
+  padding-left: 16px;
+  font-size: var(--text-17);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stageRows > .stageColumns {
+  padding: 0 0 4px;
+  font-size: var(--text-11);
+  color: var(--text-caption);
+}
+
+.stageColumns .stageNumber {
+  font-size: var(--text-11);
+}
+
 .timingChange {
   font-size: var(--text-11);
   color: var(--text-caption);
