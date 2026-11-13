@@ -196,6 +196,7 @@ describe('the folders a sandbox opens', () => {
       env: () => process.env,
       platform: 'linux',
       program: '/usr/bin/true',
+      unixSockets: async () => '',
     })
     await rename(worktree, `${worktree}.bak`)
     await symlink(tedHome, worktree)
@@ -208,6 +209,7 @@ describe('the folders a sandbox opens', () => {
       env: () => process.env,
       platform: 'linux',
       program: '/usr/bin/true',
+      unixSockets: async () => '',
     })
     const both = await Promise.all([1, 2].map(() => sandbox.wrap(['/bin/sh', '-c'], scope())))
     expect(both).toHaveLength(2)
@@ -219,6 +221,7 @@ describe('the folders a sandbox opens', () => {
       env: () => process.env,
       platform: 'linux',
       program: '/usr/bin/true',
+      unixSockets: async () => '',
     })
     const taskFolder = path.dirname(worktree)
     await expect(
@@ -235,6 +238,7 @@ describe('the folders a sandbox opens', () => {
       env: () => process.env,
       platform: 'linux',
       program: '/usr/bin/true',
+      unixSockets: async () => '',
     })
     await expect(
       sandbox.wrap(['/bin/sh', '-c'], { ...scope(), writable: [outside] }),
@@ -247,6 +251,7 @@ describe('the folders a sandbox opens', () => {
       env: () => ({ PATH: '/usr/bin:/bin' }),
       platform: 'linux',
       program: '/usr/bin/true',
+      unixSockets: async () => '',
     })
     const { argv } = await sandbox.wrap(['/bin/sh', '-c'], scope())
     const home = await realpath(tedHome)
@@ -316,7 +321,7 @@ describe('the folders a sandbox opens', () => {
     },
   )
 
-  test('on Linux, a sandbox that can’t list the machine’s sockets refuses to run', async () => {
+  test('on Linux, a sandbox that can’t list the machine’s sockets is a problem and refuses to run', async () => {
     const sandbox = createSandbox({
       tedHome,
       env: () => ({ PATH: '/usr/bin:/bin' }),
@@ -324,9 +329,29 @@ describe('the folders a sandbox opens', () => {
       program: '/usr/bin/true',
       unixSockets: () => Promise.reject(new Error('EACCES')),
     })
+    expect(await sandbox.problem()).toMatch(/couldn’t list this machine’s Unix sockets/)
     await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(
       /couldn’t list this machine’s Unix sockets/,
     )
+  })
+
+  test('on Linux, a socket in a clone is covered even when TED_HOME sits in the runtime folder', async () => {
+    const inClone = path.join(clone, 'c.s')
+    const server = await listen(inClone)
+    try {
+      const sandbox = createSandbox({
+        tedHome,
+        env: () => ({ PATH: '/usr/bin:/bin', XDG_RUNTIME_DIR: path.dirname(tedHome) }),
+        platform: 'linux',
+        program: '/usr/bin/true',
+        unixSockets: async () =>
+          `Num       RefCount Protocol Flags    Type St Inode Path\n0000000000000000: 00000002 00000000 00010000 0001 01 1000 ${inClone}`,
+      })
+      const { argv } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+      expect(argv[argv.lastIndexOf('/dev/null') + 1]).toBe(await realpath(inClone))
+    } finally {
+      server.close()
+    }
   })
 
   test('on Linux with --bind-fd, bwrap gets each folder as an open descriptor', async () => {
@@ -365,7 +390,7 @@ describe('the folders a sandbox opens', () => {
           '0000000000000000: 00000002 00000000 00010000 0001 01 25 relative.sock',
         ].join('\n'),
       ),
-    ).toEqual(['/run/docker.sock', '/home/a b/agent.sock', '/home/u/svc/c.sock'])
+    ).toEqual(['/run/docker.sock', '/home/a b/agent.sock', '/home/u/svc//./c.sock'])
   })
 })
 

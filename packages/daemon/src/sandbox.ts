@@ -49,7 +49,26 @@ export function createSandbox(options: {
     return onPath('bwrap', options.env().PATH)
   }
 
+  async function socketTable(): Promise<string> {
+    return (options.unixSockets ?? (() => readFile('/proc/net/unix', 'utf8')))().catch(
+      (error: unknown) => {
+        throw new SandboxUnavailable(
+          `TED couldn’t list this machine’s Unix sockets, so it can’t sandbox Checks and Apps or worktree setup and teardown: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      },
+    )
+  }
+
   async function problem(): Promise<string | undefined> {
+    const why = await setUp()
+    if (why !== undefined || platform !== 'linux') return why
+    return socketTable().then(
+      () => undefined,
+      (error: Error) => error.message,
+    )
+  }
+
+  async function setUp(): Promise<string | undefined> {
     if (ready !== undefined) return undefined
     if (platform !== 'darwin' && platform !== 'linux') {
       return `TED can’t sandbox commands on ${platform}`
@@ -113,13 +132,7 @@ export function createSandbox(options: {
           close: async () => {},
         }
       }
-      const table = await (
-        options.unixSockets ?? (() => readFile('/proc/net/unix', 'utf8'))
-      )().catch((error: unknown) => {
-        throw new SandboxUnavailable(
-          `TED couldn’t list this machine’s Unix sockets: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
+      const table = await socketTable()
       const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
       const handles: FileHandle[] = []
@@ -326,8 +339,8 @@ async function linuxSockets(
   ]
   const own = [...paths.writable, paths.tmp, paths.cache]
   const hidden = (file: string) =>
-    covered.some((dir) => inside(dir, file)) ||
-    (inside(paths.tedHome, file) && !paths.readable.some((dir) => inside(dir, file)))
+    !paths.readable.some((dir) => inside(dir, file)) &&
+    (covered.some((dir) => inside(dir, file)) || inside(paths.tedHome, file))
   const socketAt = async (file: string) =>
     (await lstat(file).catch(() => undefined))?.isSocket() === true
 
@@ -353,7 +366,7 @@ export function unixSocketPaths(procNetUnix: string): string[] {
   for (const line of procNetUnix.split('\n').slice(1)) {
     const match = /^\s*\S+:\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s(.+)$/.exec(line)
     const socket = match?.[1]
-    if (socket?.startsWith('/')) found.push(path.resolve(socket))
+    if (socket?.startsWith('/')) found.push(socket)
   }
   return found
 }
