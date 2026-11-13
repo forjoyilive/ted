@@ -300,11 +300,14 @@ function rebaseBranch(): string {
     )
     process.exit(1)
   }
-  const number = Object.keys(state.heads ?? {})[0] ?? '7'
+  const asked = (JSON.parse(stdin ?? '{}') as { variables?: { id?: unknown } }).variables?.id
+  const number = /^PR_(\d+)$/.exec(String(asked))?.[1] ?? Object.keys(state.heads ?? {})[0] ?? '7'
+  const own = merge.prs?.[number]
+  const origin = merge.origins?.[state.prRepos?.[number] ?? ''] ?? merge.origin ?? ''
   const branch = state.heads?.[number] ?? ''
   const work = mkdtempSync(path.join(tmpdir(), 'stub-gh-rebase-'))
   try {
-    runGit(work, 'clone', '-q', merge.origin ?? '', 'repo')
+    runGit(work, 'clone', '-q', origin, 'repo')
     const repo = path.join(work, 'repo')
     runGit(repo, 'checkout', '-q', branch)
     runGit(repo, 'rebase', '-q', 'origin/main')
@@ -321,7 +324,8 @@ function rebaseBranch(): string {
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
-  merge.mergeState = 'CLEAN'
+  if (own) own.mergeState = 'CLEAN'
+  else merge.mergeState = 'CLEAN'
   state.merge = merge
   save()
   return headOf(number)

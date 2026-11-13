@@ -295,6 +295,18 @@ test(
     expect(
       (await validating.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })).status,
     ).toBe(200)
+    await waitForStage(client, task, 'review')
+    const reviewing = await lead(client, task)
+    expect(
+      (
+        await reviewing.call('POST', `/tasks/${task.id}/brief`, {
+          text: await readFile(client.briefFile, 'utf8'),
+        })
+      ).status,
+    ).toBe(201)
+    expect(
+      (await reviewing.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })).status,
+    ).toBe(200)
     const signoff = await waitUntil(
       async () =>
         (await comments(client, task)).find(
