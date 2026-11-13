@@ -124,7 +124,12 @@ import {
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { checkRunTiming } from './check-timing.ts'
-import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import {
+  type CoordinatorStore,
+  confirmationHeadline,
+  createCoordinatorStore,
+  type StoredCoordinator,
+} from './coordinators.ts'
 import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createOperationStore, type OperationStore } from './execution-operations.ts'
@@ -148,6 +153,7 @@ import {
   commentAttachments,
   comments,
   conversationTabs,
+  coordinators as coordinatorRows,
   deletedTasks,
   events,
   factories,
@@ -2982,8 +2988,24 @@ export async function openStore({
           },
         ]
       })
+    const fromCoordinators = store
+      .query(queryDb(coordinatorRows))
+      .flatMap((row): WaitingRequest[] => {
+        if (!factoryIds.has(row.factoryId)) return []
+        const chat = JSON.parse(row.data) as StoredCoordinator
+        return (chat.confirmations ?? [])
+          .filter((c) => c.answer === undefined)
+          .map((c) => ({
+            source: 'coordinator',
+            id: c.id,
+            factoryId: row.factoryId,
+            createdAt: c.askedAt,
+            headline: confirmationHeadline(c),
+            confirmationKind: c.kind,
+          }))
+      })
     const current = settings()
-    return [...fromTasks, ...fromAutomations, ...fromPlans]
+    return [...fromTasks, ...fromAutomations, ...fromPlans, ...fromCoordinators]
       .map(
         (request): WaitingRequest =>
           factoryNotifications(current, request.factoryId).inboxItems
@@ -5917,7 +5939,9 @@ export async function openStore({
           ? request.taskId
           : request.source === 'plan'
             ? request.planId
-            : request.automationId
+            : request.source === 'coordinator'
+              ? request.factoryId
+              : request.automationId
       commit(
         until === null
           ? events.requestSnoozeCleared({ requestId, at })

@@ -345,6 +345,13 @@ export function inboxNotice(request: WaitingRequest): ProblemNotice {
       opens: { kind: 'open-inbox' },
     }
   }
+  if (request.source === 'coordinator') {
+    return {
+      title: 'Coordinator',
+      body: `Confirm: ${request.headline}`,
+      opens: { kind: 'open-inbox' },
+    }
+  }
   return {
     title: request.planTitle,
     body: `${kindLabels[request.kind]}: ${request.headline}`,

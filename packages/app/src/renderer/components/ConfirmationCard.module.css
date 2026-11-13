@@ -1,0 +1,20 @@
+.card { margin: 14px 0; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--surface-card); overflow: hidden; font-size: var(--text-12); }
+.header { padding: 12px 14px 4px; }
+.header h3 { margin: 0; font-size: var(--text-13); font-weight: var(--weight-semibold); }
+.from { margin: 2px 0 0; color: var(--text-tertiary); font-size: var(--text-11); }
+.body { margin: 0; padding: 6px 14px 8px; color: var(--text-secondary); }
+.tasks { list-style: none; margin: 0; padding: 0; }
+.task { border-top: 1px solid var(--border-subtle); padding: 10px 14px; }
+.taskRow { display: flex; align-items: baseline; gap: 8px; }
+.taskId { font-weight: var(--weight-semibold); white-space: nowrap; }
+.taskTitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskStage { color: var(--text-tertiary); font-size: var(--text-11); white-space: nowrap; }
+.warn { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--status-warning-border); border-radius: var(--radius-control); background: var(--status-waiting-bg); }
+.warn > p { margin: 0 0 6px; color: var(--status-warning-text); }
+.warn > p:last-child { margin-bottom: 0; }
+.result { margin: 6px 0 0; color: var(--text-secondary); }
+.refused { margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--status-failed-border); border-radius: var(--radius-control); background: var(--status-failed-bg); color: var(--status-failed-fg); }
+.error { margin: 0; padding: 8px 14px; color: var(--status-failed-fg); }
+.footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border-subtle); background: var(--surface-app); }
+.note { margin-right: auto; color: var(--text-tertiary); font-size: var(--text-11); }
+.done { margin: 0; padding: 10px 14px; border-top: 1px solid var(--border-subtle); color: var(--text-secondary); }

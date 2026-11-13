@@ -64,10 +64,14 @@ import type { CommandLineStatus } from './command-line.ts'
 import type {
   Coordinator,
   CoordinatorAction,
+  CoordinatorConfirmationAnswer,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
   CoordinatorReceipt,
+  CoordinatorRemoval,
+  CoordinatorRemovalKind,
+  CoordinatorRemovalResult,
   CoordinatorStatus,
   CoordinatorTaskQuery,
 } from './coordinator.ts'
@@ -437,6 +441,25 @@ export class DaemonClient {
     input: CoordinatorAction,
   ): Promise<CoordinatorReceipt> {
     return this.#request('POST', `/coordinator/tasks/${encodeURIComponent(id)}/${action}`, input)
+  }
+
+  coordinatorRemove(
+    kind: CoordinatorRemovalKind,
+    input: CoordinatorRemoval,
+  ): Promise<CoordinatorRemovalResult> {
+    return this.#request('POST', `/coordinator/${kind}`, input)
+  }
+
+  answerCoordinatorConfirmation(
+    factoryId: string,
+    confirmationId: string,
+    answer: CoordinatorConfirmationAnswer,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator/confirmations/${encodeURIComponent(confirmationId)}`,
+      answer,
+    )
   }
 
   getPlan(id: string): Promise<PlanDetail> {

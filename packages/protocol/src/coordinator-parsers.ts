@@ -1,12 +1,17 @@
 import type {
+  ConfirmationChoices,
   CoordinatorAction,
+  CoordinatorConfirmationAnswer,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
+  CoordinatorRemoval,
+  CoordinatorRemovalKind,
   CoordinatorTaskQuery,
 } from './coordinator.ts'
 import {
   agentStageIds,
+  blockedChoices,
   type RoundAnswerInput,
   type StageId,
   type TaskStatusKind,
@@ -196,6 +201,79 @@ export function parseCoordinatorAction(
     ...(body.startUnblocked === true && { startUnblocked: true }),
     ...(message !== '' && { message }),
   }
+}
+const maxRemovalTasks = 20
+const childChoices: Record<CoordinatorRemovalKind, readonly string[]> = {
+  archive: ['archive', 'detach'],
+  delete: ['delete', 'unparent'],
+  unarchive: [],
+}
+function removalChoices(
+  body: Record<string, unknown>,
+  kind: CoordinatorRemovalKind,
+): ConfirmationChoices {
+  const { children, blocked, closePullRequests } = body
+  const allowed = childChoices[kind]
+  if (children !== undefined && !allowed.includes(children as string))
+    throw new HttpError(
+      400,
+      allowed.length === 0
+        ? 'children only applies to archive and delete'
+        : `children must be ${allowed.join(' or ')}`,
+    )
+  if (blocked !== undefined && (kind === 'unarchive' || !blockedChoices.includes(blocked as never)))
+    throw new HttpError(400, `blocked must be ${blockedChoices.join(' or ')}`)
+  if (
+    closePullRequests !== undefined &&
+    (kind !== 'archive' || typeof closePullRequests !== 'boolean')
+  )
+    throw new HttpError(400, 'closePullRequests is true or false, and only applies to archive')
+  return {
+    ...(children !== undefined && {
+      children: children as NonNullable<ConfirmationChoices['children']>,
+    }),
+    ...(blocked !== undefined && {
+      blocked: blocked as NonNullable<ConfirmationChoices['blocked']>,
+    }),
+    ...(closePullRequests === true && { closePullRequests: true }),
+  }
+}
+export function parseCoordinatorRemoval(
+  value: unknown,
+  kind: CoordinatorRemovalKind,
+): CoordinatorRemoval {
+  const body = bodyObject(value)
+  const operation = operationId(body)
+  const tasks = body.tasks
+  if (!Array.isArray(tasks) || tasks.length === 0 || tasks.length > maxRemovalTasks)
+    throw new HttpError(400, `tasks lists 1 to ${maxRemovalTasks} Tasks, each with its version`)
+  const parsed = tasks.map((entry) => {
+    const { id, version } = bodyObject(entry, 'task')
+    if (typeof id !== 'string' || id === '' || id.length > 100)
+      throw new HttpError(400, 'each Task needs its ID')
+    if (typeof version !== 'string' || !/^[a-f0-9]{64}$/.test(version))
+      throw new HttpError(400, 'version must come from a current Task read')
+    return { id, version }
+  })
+  if (new Set(parsed.map((t) => t.id)).size !== parsed.length)
+    throw new HttpError(400, 'name each Task once')
+  return { operation, tasks: parsed, ...removalChoices(body, kind) }
+}
+export function parseCoordinatorConfirmationAnswer(value: unknown): CoordinatorConfirmationAnswer {
+  const body = bodyObject(value)
+  if (body.decision !== 'confirm' && body.decision !== 'cancel')
+    throw new HttpError(400, 'decision must be confirm or cancel')
+  if (body.choices === undefined) return { decision: body.decision }
+  const entries = Object.entries(bodyObject(body.choices, 'choices'))
+  if (entries.length > maxRemovalTasks) throw new HttpError(400, 'too many Tasks in choices')
+  const choices: Record<string, ConfirmationChoices> = {}
+  for (const [id, raw] of entries) {
+    const entry = bodyObject(raw, 'choice')
+    const { children } = entry
+    const kind = children === 'delete' || children === 'unparent' ? 'delete' : 'archive'
+    choices[id] = removalChoices(entry, kind)
+  }
+  return { decision: body.decision, choices }
 }
 export function parseCoordinatorMessage(value: unknown): CoordinatorMessage {
   const body = bodyObject(value)

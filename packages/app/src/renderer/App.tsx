@@ -65,6 +65,7 @@ import {
   useAutomationRequests,
   useBanners,
   useConnection,
+  useCoordinatorConfirmations,
   useCoordinatorStatuses,
   useDrift,
   useFactoryList,
@@ -327,6 +328,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const questions = useAutomationRequests()
   const allAutomations = useAutomationOutcomes()
   const planInbox = usePlanInbox()
+  const confirmations = useCoordinatorConfirmations()
   const inboxCount = useWaitingCount()
   const notificationsOff = useNotificationsOff()
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
@@ -342,7 +344,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   for (const [factoryId, count] of Object.entries(
     waitingByFactory(
       inbox.filter((item) => !snoozed.has(item.request.id)),
-      questions.filter((question) => !snoozed.has(question.id)),
+      [...questions, ...confirmations].filter((request) => !snoozed.has(request.id)),
       planInbox.filter((item) => !snoozed.has(item.request.id)),
     ),
   )) {
@@ -838,6 +840,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               factoryId: question.factoryId,
               runId: question.runId,
               requestId: question.id,
+            })
+          }
+          confirmations={confirmations}
+          onOpenConfirmation={(confirmation) =>
+            dispatch({
+              type: 'open',
+              screen: { kind: 'factory', factoryId: confirmation.factoryId, view: 'coordinator' },
             })
           }
           onFilter={(factoryId) => openInbox({ factoryId })}

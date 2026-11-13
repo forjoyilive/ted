@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import type { CoordinatorOperation } from '@ted/protocol'
+import type { CoordinatorOperation, CoordinatorRemovalKind } from '@ted/protocol'
 import {
   type CoordinatorAction,
   type CoordinatorCreate,
   parseCoordinatorAction,
+  parseCoordinatorConfirmationAnswer,
   parseCoordinatorCreate,
   parseCoordinatorMessage,
+  parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -67,6 +69,13 @@ export const coordinatorRoutes: Route[] = [
       return [200, null]
     },
   },
+  jsonRoute(parseCoordinatorConfirmationAnswer, {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/coordinator\/confirmations\/([^/]+)$/,
+    async handle({ params: [id = '', confirmation = ''], body }, { coordinators }) {
+      return [200, await coordinators.answerConfirmation(id, confirmation, body)]
+    },
+  }),
   {
     method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/retry$/,
@@ -103,6 +112,18 @@ export const coordinatorRoutes: Route[] = [
       return [201, await coordinators.create(caller, redactedCreate(body))]
     },
   }),
+  jsonRoute(
+    (value, { params: [kind = ''] }) =>
+      parseCoordinatorRemoval(value, kind as CoordinatorRemovalKind),
+    {
+      method: 'POST',
+      path: /^\/coordinator\/(archive|unarchive|delete)$/,
+      runToken: true,
+      async handle({ caller, body, params: [kind = ''] }, { coordinators }) {
+        return [200, await coordinators.remove(caller, kind as CoordinatorRemovalKind, body)]
+      },
+    },
+  ),
   jsonRoute(
     (value, { params: [, kind = ''] }) =>
       parseCoordinatorAction(value, kind as CoordinatorOperation),

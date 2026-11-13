@@ -205,12 +205,20 @@ export {
 } from './client.ts'
 export type { CommandLineStatus } from './command-line.ts'
 export type {
+  ConfirmationChoices,
+  ConfirmationTaskRef,
   Coordinator,
   CoordinatorAction,
+  CoordinatorConfirmation,
+  CoordinatorConfirmationAnswer,
+  CoordinatorConfirmationTask,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
   CoordinatorReceipt,
+  CoordinatorRemoval,
+  CoordinatorRemovalKind,
+  CoordinatorRemovalResult,
   CoordinatorRequest,
   CoordinatorStatus,
   CoordinatorTask,
@@ -221,8 +229,10 @@ export type {
 export {
   coordinatorTaskSearch,
   parseCoordinatorAction,
+  parseCoordinatorConfirmationAnswer,
   parseCoordinatorCreate,
   parseCoordinatorMessage,
+  parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'

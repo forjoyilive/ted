@@ -320,6 +320,29 @@ describe('marking a merged Task done', () => {
   })
 })
 
+describe('Coordinator archive, unarchive and delete', () => {
+  test('parse with their own flags', () => {
+    const versions = ['--versions', '{"NB-1":"v"}', '--operation', 'op']
+    expect(
+      parseInvocation(
+        ['coordinator', 'archive', 'NB-1', 'NB-2', ...versions, '--close-pull-requests'],
+        {},
+      ).handler,
+    ).toBe('coordinatorArchive')
+    expect(parseInvocation(['coordinator', 'unarchive', 'NB-1', ...versions], {}).handler).toBe(
+      'coordinatorUnarchive',
+    )
+    expect(
+      parseInvocation(['coordinator', 'delete', 'NB-1', ...versions, '--children', 'delete'], {})
+        .handler,
+    ).toBe('coordinatorDelete')
+    expect(() =>
+      parseInvocation(['coordinator', 'delete', 'NB-1', ...versions, '--close-pull-requests'], {}),
+    ).toThrow(UsageError)
+    expect(helpText()).toContain('ted coordinator delete')
+  })
+})
+
 describe('commands merged from the latest base', () => {
   test('registers export and Stage effort while keeping flags command-specific', () => {
     expect(

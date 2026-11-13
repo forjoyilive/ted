@@ -301,6 +301,91 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     (await s.client.call('POST', '/coordinator/tasks', { operation: 'x', title: 'F' })).status,
   ).toBe(403)
 
+  const d = await s.task('D')
+  const removal = async (kind: string, ids: string[], extra: object = {}, operation = '') =>
+    run.call('POST', `/coordinator/${kind}`, {
+      operation: operation || `${kind}-${ids.join('-')}`,
+      tasks: await Promise.all(ids.map(async (id) => ({ id, version: (await read(id)).version }))),
+      ...extra,
+    })
+  const taskById = async (id: string) =>
+    (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)
+  const archivedD = await removal('archive', [d.id], {}, 'archive-d')
+  expect(archivedD.status).toBe(200)
+  expect(archivedD.body).toMatchObject({
+    receipts: [{ operation: 'archive', taskId: d.id, text: `Archived ${d.displayId}` }],
+  })
+  expect(archivedD.body).not.toHaveProperty('confirmation')
+  expect((await taskById(d.id))?.archived).toBeTruthy()
+  const unarchivedD = await removal('unarchive', [d.id])
+  expect((unarchivedD.body as { receipts: CoordinatorReceipt[] }).receipts[0]?.text).toContain(
+    `Unarchived ${d.displayId}`,
+  )
+  expect((await taskById(d.id))?.archived).toBeFalsy()
+  expect((await removal('archive', [foreign.id])).status).toBe(404)
+  expect(
+    (
+      await run.call('POST', '/coordinator/archive', {
+        operation: 'stale-archive',
+        tasks: [{ id: d.id, version: av.version }],
+      })
+    ).status,
+  ).toBe(409)
+
+  const archiveB = await removal('archive', [b.id])
+  const askedB = (archiveB.body as { confirmation: { id: string; waiting: boolean } }).confirmation
+  expect(askedB.waiting).toBe(true)
+  expect((await taskById(b.id))?.archived).toBeFalsy()
+  const deleteAD = await removal('delete', [a.id, d.id], { children: 'delete' })
+  const askedAD = (deleteAD.body as { confirmation: { id: string } }).confirmation
+  const cards = (await s.chat()).confirmations
+  expect(cards.find((c) => c.id === askedB.id)).toMatchObject({
+    kind: 'archive',
+    tasks: [{ id: b.id, blockedTasks: [{ id: createReceipt.taskId }] }],
+  })
+  expect(cards.find((c) => c.id === askedAD.id)).toMatchObject({
+    kind: 'delete',
+    tasks: [
+      { id: a.id, children: 'delete', descendants: [{ id: createReceipt.taskId }] },
+      { id: d.id, descendants: [] },
+    ],
+  })
+  const waiting = await s.ok<WaitingRequest[]>('GET', '/inbox/waiting')
+  expect(waiting.filter((w) => w.source === 'coordinator')).toMatchObject([
+    { id: askedB.id, headline: `Archive ${b.displayId}?` },
+    { id: askedAD.id, headline: `Delete 2 Tasks? ${a.displayId}, ${d.displayId}` },
+  ])
+  const answer = (id: string) => `${s.base}/confirmations/${id}`
+  expect((await run.call('POST', answer(askedB.id), { decision: 'confirm' })).status).toBe(403)
+  await s.ok('POST', answer(askedB.id), { decision: 'cancel' })
+  expect((await taskById(b.id))?.archived).toBeFalsy()
+  expect(await s.waitingIds()).not.toContain(askedB.id)
+
+  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E', blockedBy: [d.id] })
+  const answered = await s.ok<Coordinator>('POST', answer(askedAD.id), {
+    decision: 'confirm',
+  })
+  expect(answered.confirmations.find((c) => c.id === askedAD.id)).toMatchObject({
+    answer: { decision: 'confirm' },
+    tasks: [
+      { id: a.id, result: { done: true } },
+      {
+        id: d.id,
+        result: {
+          done: false,
+          text: expect.stringContaining('the Tasks it blocks changed after this card was shown'),
+        },
+      },
+    ],
+  })
+  expect(await taskById(a.id)).toBeUndefined()
+  expect(await taskById(createReceipt.taskId ?? '')).toBeUndefined()
+  expect((await taskById(d.id))?.archived).toBeFalsy()
+  expect((await s.client.call('POST', answer(askedAD.id), { decision: 'cancel' })).status).toBe(409)
+  expect((await removal('delete', [a.id, d.id], { children: 'delete' })).body).toEqual(
+    deleteAD.body,
+  )
+
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {
     ...receipt,

@@ -35,6 +35,7 @@ import type {
   TedStoppedTask,
   ThreadEvent,
   ValidationObligations,
+  WaitingRequest,
 } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { countWaiting } from '@ted/protocol/waiting'
@@ -1025,6 +1026,22 @@ export function useWaitingCount(): number {
         event.type === 'inbox-changed' ? () => countWaiting(event.waiting) : undefined,
     }).value ?? 0
   )
+}
+
+export type ConfirmationRequest = Extract<WaitingRequest, { source: 'coordinator' }>
+
+export function useCoordinatorConfirmations(): ConfirmationRequest[] {
+  const pick = (requests: readonly WaitingRequest[]) =>
+    requests.filter((r): r is ConfirmationRequest => r.source === 'coordinator')
+  return useEventValue<ConfirmationRequest[]>({
+    initial: [],
+    load: async () => {
+      const [waiting, snoozed] = await Promise.all([ted.listWaiting(), ted.listSnoozed()])
+      return pick([...waiting, ...snoozed])
+    },
+    event: (event) =>
+      event.type === 'inbox-changed' ? () => pick([...event.waiting, ...event.snoozed]) : undefined,
+  }).value
 }
 
 export function useSnoozedRequests(): SnoozedRequest[] {
