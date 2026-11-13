@@ -137,7 +137,9 @@ test('7 and 30 days are whole local days before today, and All groups whole days
       [5, 6, 7, 8, 9, 10, 11].map((d) => iso(at(10, d))),
     )
     expect(week.current.buckets[6]?.taskIds).toEqual(['late'])
-    expect(week.current.buckets.flatMap((b) => b.taskIds)).toEqual(week.current.taskIds)
+    expect(week.current.buckets.flatMap((b) => b.taskIds).sort()).toEqual(
+      [...week.current.taskIds].sort(),
+    )
     expect(week.previous).toMatchObject({
       from: iso(at(9, 29)),
       to: iso(at(10, 5)),

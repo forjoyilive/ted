@@ -48,13 +48,18 @@ const timestamp = (at: string) =>
     fractionalSecondDigits: new Date(at).getUTCMilliseconds() === 0 ? undefined : 3,
     timeZoneName: 'short',
   })
-const shortDate = (at: string) => formatDate(at, { month: 'short', day: 'numeric' })
+const machineDate = (at: string | Date, options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat('en-GB', {
+    ...options,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }).format(typeof at === 'string' ? new Date(at) : at)
+const shortDate = (at: string) => machineDate(at, { month: 'short', day: 'numeric' })
 const clock = (at: number) => formatDate(new Date(at), { hour: '2-digit', minute: '2-digit' })
 const hourMs = 3_600_000
 const dayMs = 86_400_000
 const lastDay = (bucket: DashboardBucket) => new Date(Date.parse(bucket.to) - 1)
 const calendarDate = (at: Date) =>
-  formatDate(at, { year: 'numeric', month: 'numeric', day: 'numeric' })
+  machineDate(at, { year: 'numeric', month: 'numeric', day: 'numeric' })
 const dayCount = (bucket: DashboardBucket) =>
   Math.round((Date.parse(bucket.to) - Date.parse(bucket.from)) / dayMs)
 
@@ -63,11 +68,11 @@ function dayLabel(bucket: DashboardBucket, asOf: string): string {
   const last = lastDay(bucket)
   const soFar = bucket.to === asOf ? ' (today so far)' : ''
   if (calendarDate(first) === calendarDate(last))
-    return `${formatDate(first, { weekday: 'short', day: 'numeric', month: 'short' })}${soFar}`
+    return `${machineDate(first, { weekday: 'short', day: 'numeric', month: 'short' })}${soFar}`
   const sameMonth =
-    formatDate(first, { year: 'numeric', month: 'numeric' }) ===
-    formatDate(last, { year: 'numeric', month: 'numeric' })
-  const start = sameMonth ? formatDate(first, { day: 'numeric' }) : shortDate(bucket.from)
+    machineDate(first, { year: 'numeric', month: 'numeric' }) ===
+    machineDate(last, { year: 'numeric', month: 'numeric' })
+  const start = sameMonth ? machineDate(first, { day: 'numeric' }) : shortDate(bucket.from)
   return `${start}–${shortDate(last.toISOString())}${soFar}`
 }
 const metricValue = (period: DashboardPeriod | DashboardBucket, metric: DashboardMetric) =>
@@ -171,7 +176,7 @@ function Chart({
     today
       ? `${timestamp(bucket.from)} – ${timestamp(bucket.to)} (end excluded)`
       : dayLabel(bucket, data.asOf)
-  const perPoint = a[0] ? dayCount(a[0]) : 1
+  const perPoint = Math.max(1, a[0] ? dayCount(a[0]) : 1)
   const last = a.at(-1)
   const number = (value: number) =>
     metric === 'completed' ? String(Math.round(value)) : duration(value)
@@ -280,7 +285,7 @@ function Chart({
                   textAnchor={i === 0 ? 'start' : end ? 'end' : 'middle'}
                 >
                   {data.range === '7d'
-                    ? formatDate(bucket.from, { weekday: 'short', day: 'numeric' })
+                    ? machineDate(bucket.from, { weekday: 'short', day: 'numeric' })
                     : shortDate(end ? lastDay(bucket).toISOString() : bucket.from)}
                 </text>
               )

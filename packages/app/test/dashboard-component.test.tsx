@@ -95,27 +95,38 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
 
 test('graph points and their samples name the calendar days they cover', async () => {
   const preferences = timePreferences()
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
   setTimePreferences({ timeZone: 'UTC', timeFormat: '24-hour' })
   try {
     const day = dashboardFixture()
-    day.asOf = '2026-11-12T14:26:00.000Z'
-    day.current.from = '2026-11-11T00:00:00.000Z'
-    day.current.to = '2026-11-12T00:00:00.000Z'
+    day.asOf = '2026-11-12T22:26:00.000Z'
+    day.current.from = '2026-11-11T08:00:00.000Z'
+    day.current.to = '2026-11-12T08:00:00.000Z'
     day.current.buckets = day.current.buckets.map((bucket) => ({
       ...bucket,
-      from: '2026-11-11T00:00:00.000Z',
-      to: '2026-11-12T00:00:00.000Z',
+      from: '2026-11-11T08:00:00.000Z',
+      to: '2026-11-12T08:00:00.000Z',
     }))
     const all = structuredClone(day)
     all.range = 'all'
     all.previous = null
     all.comparison = null
-    all.current.from = '2026-11-09T00:00:00.000Z'
+    all.current.from = '2026-11-09T08:00:00.000Z'
     all.current.to = all.asOf
     all.current.buckets = all.current.buckets.map((bucket) => ({
       ...bucket,
-      from: '2026-11-09T00:00:00.000Z',
+      from: '2026-11-09T08:00:00.000Z',
       to: all.asOf,
+    }))
+    const early = structuredClone(all)
+    early.asOf = '2026-11-12T14:00:00.000Z'
+    early.current.from = '2026-11-12T08:00:00.000Z'
+    early.current.to = early.asOf
+    early.current.buckets = early.current.buckets.map((bucket) => ({
+      ...bucket,
+      from: '2026-11-12T08:00:00.000Z',
+      to: early.asOf,
     }))
     const today = structuredClone(day)
     today.range = 'today'
@@ -125,24 +136,40 @@ test('graph points and their samples name the calendar days they cover', async (
       from: '2026-11-12T14:00:30.125Z',
       to: today.asOf,
     }))
-    for (const [data, label, heading, bounds] of [
-      [day, 'Wed 11 Nov', 'Tasks completed · Wed 11 Nov', 'Midnight to midnight'],
+    for (const [data, label, heading, bounds, caption] of [
+      [
+        day,
+        'Wed 11 Nov',
+        'Tasks completed · Wed 11 Nov',
+        'Midnight to midnight',
+        'One point per calendar day, midnight to midnight. Today is not included.',
+      ],
       [
         all,
         '9–12 Nov (today so far)',
         'Tasks completed · 9–12 Nov (today so far)',
-        '14:26:00 UTC (end excluded)',
+        '22:26:00 UTC (end excluded)',
+        'Each point covers 4 calendar days',
+      ],
+      [
+        early,
+        'Thu 12 Nov (today so far)',
+        'Tasks completed · Thu 12 Nov (today so far)',
+        '14:00:00 UTC (end excluded)',
+        'One point per calendar day, midnight to midnight. The last point runs to now.',
       ],
       [
         today,
         '14:00:30.125 UTC',
         'Tasks completed · Selected period',
         '14:26:45.500 UTC (end excluded)',
+        'One point per hour since midnight.',
       ],
     ] as const) {
       bridge({ factoryDashboard: () => data })
       const view = render(<DashboardView open={vi.fn()} />)
       const completed = await screen.findByRole('region', { name: 'Tasks completed' })
+      expect(completed.textContent).toContain(caption)
       const point = within(completed).getByRole('button', { name: /^Selected.*2 tasks/ })
       expect(point.getAttribute('aria-label')).toContain(label)
       expect(point.getAttribute('title')).toContain(label)
@@ -154,6 +181,8 @@ test('graph points and their samples name the calendar days they cover', async (
     }
   } finally {
     setTimePreferences(preferences)
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
   }
 })
 
