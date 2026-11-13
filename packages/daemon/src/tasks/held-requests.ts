@@ -19,6 +19,16 @@ export function heldToRelease(
     .map((r) => r.id)
 }
 
+export function heldUntil(
+  held: readonly { id: string; runId: string; createdAt: string }[],
+  runId: string,
+  turnEndedAt: string | undefined,
+): string[] {
+  return held
+    .filter((r) => r.runId === runId && (turnEndedAt === undefined || r.createdAt <= turnEndedAt))
+    .map((r) => r.id)
+}
+
 export function createHeldRequests(
   store: TedStore,
   runs: RunManager,
@@ -26,13 +36,8 @@ export function createHeldRequests(
 ): HeldRequests {
   const fromEnv = Number(tedEnv('TED_HOLD_REQUESTS_MS') ?? Number.NaN)
   const maxMs = options.maxMs ?? (Number.isFinite(fromEnv) ? fromEnv : holdAtMostMs)
-  const releaseFor = (runId: string) =>
-    store.releaseRequests(
-      store
-        .heldRequests()
-        .filter((r) => r.runId === runId)
-        .map((r) => r.id),
-    )
+  const releaseFor = (runId: string, turnEndedAt?: string) =>
+    store.releaseRequests(heldUntil(store.heldRequests(), runId, turnEndedAt))
   const sweep = () =>
     store.releaseRequests(
       heldToRelease(
@@ -43,7 +48,7 @@ export function createHeldRequests(
       ),
     )
   runs.observe({
-    turnEnded: (run) => releaseFor(run.id),
+    turnEnded: (run, at) => releaseFor(run.id, at),
     finished: (run) => releaseFor(run.id),
   })
   sweep()

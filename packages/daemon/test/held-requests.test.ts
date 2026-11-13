@@ -4,7 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { eventlogFile } from '../src/store/files.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
-import { heldToRelease } from '../src/tasks/held-requests.ts'
+import { heldToRelease, heldUntil } from '../src/tasks/held-requests.ts'
 
 let directory: string
 let store: TedStore
@@ -77,4 +77,14 @@ test('heldToRelease lets go of requests whose Run stopped working or that waited
     { id: 'old', runId: 'a', createdAt: '2026-11-13T12:04:00Z' },
   ]
   expect(heldToRelease(held, (runId) => runId === 'a', now)).toEqual(['idle', 'old'])
+})
+
+test('a turn’s end releases only that Run’s requests posted before it', () => {
+  const held = [
+    { id: 'before', runId: 'a', createdAt: '2026-11-13T12:00:00.000Z' },
+    { id: 'next-turn', runId: 'a', createdAt: '2026-11-13T12:00:02.000Z' },
+    { id: 'other-run', runId: 'b', createdAt: '2026-11-13T12:00:00.000Z' },
+  ]
+  expect(heldUntil(held, 'a', '2026-11-13T12:00:01.000Z')).toEqual(['before'])
+  expect(heldUntil(held, 'a', undefined)).toEqual(['before', 'next-turn'])
 })
