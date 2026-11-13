@@ -767,6 +767,23 @@ describe('Talk it through', () => {
     transport.ackMs = 1000
     let client = await start()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const blockerGate = path.join(scratch, 'acknowledge-competing-talk')
+    const blocker = await startTask(
+      client,
+      advance,
+      few,
+      ask(client.storageFile),
+      reply,
+      { readNextAfter: blockerGate },
+      { endTurn: true },
+    )
+    const blockerRound = (await openRound(client, 1)).request
+    const blockerLead = await leadId(client, blocker)
+    await client.ok('PUT', `/tasks/${blocker.id}`, { priority: 'urgent' })
+    await waitUntil(
+      async () => (await client.getRun(blockerLead)).run.state === 'idle',
+      'the higher-priority Lead to wait before requesting either talk',
+    )
     const gate = path.join(scratch, 'acknowledge-talk')
     const task = await startTask(
       client,
@@ -777,30 +794,43 @@ describe('Talk it through', () => {
       { readNextAfter: gate },
       { endTurn: true },
     )
-    const item = await openRound(client, 1)
+    const request = await waitUntil(
+      async () => (await comments(client, task)).find((comment) => comment.kind === 'round'),
+      'the original Task’s round',
+    )
     const lead = await leadId(client, task)
     await waitUntil(async () => (await client.getRun(lead)).run.state === 'idle', 'idle Lead')
-    await client.ok('POST', `/comments/${item.request.id}/talk`)
+    await client.ok('POST', `/comments/${request.id}/talk`)
     const permits = path.join(home, 'runs', lead, 'input-permits')
     await waitUntil(
       async () => (await readdir(permits).catch(() => [])).some((f) => f.endsWith('.consumed')),
       'host consumption without agent receipt',
     )
     await new Promise((resolve) => setTimeout(resolve, 1250))
-    const blocker = await startTask(
-      client,
-      { waitFor: path.join(scratch, 'never-ack-slot') },
-      { endTurn: true },
-    )
+    await client.ok('POST', `/comments/${blockerRound.id}/talk`)
+    const blockerPermits = path.join(home, 'runs', blockerLead, 'input-permits')
+    const checkCompetingHeld = async () => {
+      expect(
+        (await readdir(blockerPermits).catch(() => [])).filter((file) =>
+          file.endsWith('.consumed'),
+        ),
+      ).toHaveLength(0)
+      expect((await client.getRun(blockerLead)).run.state).toBe('idle')
+    }
     const checkHeld = async () => {
-      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
+      const round = (await comments(client, task)).find((c) => c.id === request.id)
       expect(round?.talkRequested).toBe(true)
       expect(round?.talk?.notifiedAt).toBeUndefined()
-      expect((await getTask(client, blocker.id)).runs).toHaveLength(0)
+      await checkCompetingHeld()
       expect((await client.ok<RunSlots>('GET', '/slots')).working).toBe(1)
     }
     await checkHeld()
-    await hostsStarted(home)
+    for (const id of [lead, blockerLead]) {
+      await waitUntil(
+        async () => (await hostRecords(home, id)).some((record) => record.t === 'start'),
+        'the admitted and competing hosts to start',
+      )
+    }
     await daemon?.stop()
     daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
     client = { ...client, ...connection() }
@@ -827,9 +857,9 @@ describe('Talk it through', () => {
     await checkHeld()
     await writeFile(gate, '')
     await waitUntil(async () => {
-      const competing = await getTask(client, blocker.id)
-      const round = (await comments(client, task)).find((c) => c.id === item.request.id)
-      if (!round?.talk?.notifiedAt) expect(competing.runs).toHaveLength(0)
+      const competing = (await readdir(blockerPermits).catch(() => [])).length
+      const round = (await comments(client, task)).find((c) => c.id === request.id)
+      if (!round?.talk?.notifiedAt) expect(competing).toBe(0)
       return round?.talk?.notifiedAt
     }, 'agent acknowledgement before releasing the admitted slot')
     expect(
@@ -837,9 +867,22 @@ describe('Talk it through', () => {
     ).toHaveLength(1)
     expect((await readdir(permits)).filter((f) => f.endsWith('.consumed'))).toHaveLength(2)
     await waitUntil(
-      async () => (await getTask(client, blocker.id)).runs.some((r) => r.state === 'working'),
-      'slot released after acknowledgement',
+      async () =>
+        (await readdir(blockerPermits).catch(() => [])).some((file) => file.endsWith('.consumed')),
+      'slot released to the higher-priority continuation after acknowledgement',
     )
+    await writeFile(blockerGate, '')
+    await waitUntil(async () => {
+      const round = (await comments(client, blocker)).find(
+        (comment) => comment.id === blockerRound.id,
+      )
+      return round?.talk?.notifiedAt
+    }, 'the competing continuation to acknowledge after receiving the slot')
+    expect(
+      (await userMessages(client, blocker)).filter((message) =>
+        message.includes('wants to talk Round 1'),
+      ),
+    ).toHaveLength(1)
   })
 
   test('a working Lead that settles before dispatch waits for continuation admission', async () => {

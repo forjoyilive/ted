@@ -1415,8 +1415,8 @@ export function createTasks(options: {
             await store.persisted()
           }
         }
-        const talking = availableTalkLead(find(taskId), true)
-        if (talking && atIdlePoint(talking)) {
+        const talking = liveLeadOf(store, find(taskId))
+        if (talking) {
           pendingTalks(taskId, true)
           const pending = store.pendingRoundTalks(talking.id)
           if (pending.length > 0) {
@@ -1586,8 +1586,32 @@ export function createTasks(options: {
     loadTimer = undefined
   }
 
+  let restoreTalkAdmissions = true
   async function fill(): Promise<void> {
-    if (closed || store.newWorkHold() !== undefined) return
+    if (closed) return
+    if (restoreTalkAdmissions) {
+      restoreTalkAdmissions = false
+      for (const id of store.tasksWithQueuedContinuations()) {
+        const task = store.getTask(id)
+        if (
+          !task ||
+          task.stopped ||
+          task.archived ||
+          task.stage === 'done' ||
+          task.stage === 'backlog' ||
+          task.waitsForBlockers ||
+          holds.has(id)
+        )
+          continue
+        const run = liveLeadOf(store, task)
+        if (!run || run.problem || store.agentPauses()[run.agent] !== undefined) continue
+        const pending = store.pendingRoundTalks(run.id)
+        if (pending.length === 0) continue
+        const consumed = new Set(runs.consumedInputs(run.id))
+        if (pending.some(({ messageId }) => consumed.has(messageId))) beginContinuation(id)
+      }
+    }
+    if (store.newWorkHold() !== undefined) return
     for (const id of store.preparedTasks()) {
       const task = taskNow(id)
       if (!task || task.archived || task.preparation !== 'ready') continue

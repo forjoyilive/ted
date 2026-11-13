@@ -142,6 +142,7 @@ export interface RunManager {
   ): Promise<boolean>
   retainRevocableInputs(runId: string, ids: readonly string[]): void
   inputDispatched(runId: string, messageId: string): boolean
+  consumedInputs(runId: string): string[]
   acceptedInputs(runId: string): string[]
   initialInputIds(runId: string): string[]
   interrupt(runId: string): Promise<void>
@@ -1184,6 +1185,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const run = store.getRun(runId)
       return inputRecords(runId, Buffer.alloc(0))
         .filter((record) => record.forGeneration === 1 && record.text === run?.prompt)
+        .flatMap((record) => record.deliveryIds)
+    },
+    consumedInputs(runId) {
+      const runDir = path.join(runsDir, runId)
+      return inputRecords(runId)
+        .filter((record) => record.permit && inputConsumed(runDir, record.permit))
         .flatMap((record) => record.deliveryIds)
     },
     acceptedInputs(runId) {
