@@ -52,6 +52,12 @@ function tedWritten(message: RunMessage): boolean {
   return message.from === 'ted' || tedTexts.has(message.text.trim())
 }
 
+function asTedIfLegacy(item: ChatItem): ChatItem | undefined {
+  if (item.kind !== 'human' || !tedTexts.has(item.text.trim())) return item
+  if (item.queued === true || item.unsent === true) return undefined
+  return { kind: 'ted', id: item.id, title: titleOf(item.text), text: item.text, at: item.at }
+}
+
 const lineCount = (text: string) => (text === '' ? 0 : text.split('\n').length)
 
 function credentialFrom(account: string | undefined): Billing | undefined {
@@ -506,7 +512,9 @@ export function createConversations(options: {
             at: chat.run.startedAt,
           })
         }
-        for (const item of chat.items) {
+        for (const shown of chat.items) {
+          const item = asTedIfLegacy(shown)
+          if (item === undefined) continue
           if (id !== started[0] && item.kind === 'instructions') continue
           if (id !== last && item.kind === 'human' && !item.sent) continue
           items.push(id === last ? item : { ...item, id: `${id}:${item.id}` })

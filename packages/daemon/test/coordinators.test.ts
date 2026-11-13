@@ -472,6 +472,7 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   await waitUntil(async () => (await s.chat()).status === 'ready', 'Coordinator to finish its turn')
   await daemon?.stop()
   const store = await openStore({ directory: tedPaths(home).store })
+  let deliveredId = ''
   try {
     const saved = store.coordinators.get(s.factory.id)
     if (!saved) throw new Error('missing saved Coordinator')
@@ -497,6 +498,12 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
         .digest('hex'),
     }
     const at = new Date().toISOString()
+    const delivered = store.queueRunMessage({
+      runId: saved.runId,
+      text: 'Continue the interrupted response using fresh facts. Do not repeat completed actions.',
+    })
+    store.deliverRunMessages(saved.runId, [delivered.id], false)
+    deliveredId = delivered.id
     store.coordinators.save({
       ...saved,
       receipts: [
@@ -522,10 +529,13 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect(((await client.call('GET', s.base)).body as Coordinator).receipts).toContainEqual(
     legacyReceipt,
   )
-  const unsent = ((await client.call('GET', `${s.base}/chat`)).body as RunChat).items.filter(
-    (item) => item.kind === 'human' && item.unsent === true,
-  )
+  const chat = (await client.call('GET', `${s.base}/chat`)).body as RunChat
+  const unsent = chat.items.filter((item) => item.kind === 'human' && item.unsent === true)
   expect(unsent.map((item) => item.id)).toEqual(['legacy-human'])
+  expect(chat.items.find((item) => item.id === deliveredId)?.kind).toBe('ted')
+  expect(
+    chat.items.filter((item) => item.kind === 'human' && item.text.startsWith('Continue the')),
+  ).toEqual([])
   expect(
     (
       await client.call('POST', `${s.base}/messages`, {
