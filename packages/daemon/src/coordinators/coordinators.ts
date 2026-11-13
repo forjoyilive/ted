@@ -620,6 +620,10 @@ export function createCoordinators(options: {
     )
       throw new RequestError(403, 'This is not the active Coordinator Run')
     requireFactory(c.factoryId)
+    return c
+  }
+  function admit(caller: Caller): StoredCoordinator {
+    const c = actor(caller)
     if (changing.has(c.factoryId))
       throw new RequestError(409, 'The human is starting a new Coordinator conversation')
     return c
@@ -1315,7 +1319,7 @@ export function createCoordinators(options: {
       }
     },
     async act(caller, ref, kind, input) {
-      const c = actor(caller)
+      const c = admit(caller)
       const next = (chains.get(c.factoryId) ?? Promise.resolve())
         .catch(() => {})
         .then(async () => {
@@ -1495,7 +1499,7 @@ export function createCoordinators(options: {
       }
     },
     async create(caller, input) {
-      const c = actor(caller)
+      const c = admit(caller)
       const next = (chains.get(c.factoryId) ?? Promise.resolve())
         .catch(() => {})
         .then(async () => {
@@ -1662,7 +1666,7 @@ export function createCoordinators(options: {
       }
     },
     remove(caller, kind, input) {
-      const c = actor(caller)
+      const c = admit(caller)
       return serial(c.factoryId, async () => {
         const current = actor(caller)
         const fingerprint = createHash('sha256')
