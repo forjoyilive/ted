@@ -169,6 +169,17 @@ export interface TaskSource {
     description?: string
   }
   sentry?: { shortId: string }
+  asana?: TaskAsanaSource
+}
+
+export interface TaskAsanaSource {
+  gid: string
+  title: string
+  assignee?: import('./asana-import.ts').AsanaPerson
+  completed: boolean
+  importedAt: string
+  context: string
+  children: { gid: string; name: string; url: string; completed: boolean }[]
 }
 
 export interface SetTaskSnoozeRequest {
@@ -678,6 +689,7 @@ export type RequestPurpose =
         | 'failed-run'
         | 'linear-closed'
         | 'linear-team'
+        | 'asana-missing'
         | 'idle-run'
         | 'ci-stuck'
     }
@@ -713,6 +725,7 @@ export interface Comment {
   design?: DesignReview
   tutorial?: true
   linearTeam?: LinearTeam
+  asanaMissing?: import('./asana-import.ts').AsanaMissing
 }
 
 export interface DesignFile {
