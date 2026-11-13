@@ -308,5 +308,34 @@ describe('List views', () => {
     ]) {
       expect((await client.call('PATCH', '/settings', { listViews: bad })).status).toBe(400)
     }
+
+    expect((await client.ok<{ boardViews: unknown }>('GET', '/settings')).boardViews).toEqual({})
+    const board = {
+      cardSize: 'compact',
+      fields: ['priority', 'activity', 'sub-agents', 'blockers'],
+      hiddenStages: ['backlog', 'done'],
+      hideEmpty: true,
+    }
+    const plain = { cardSize: 'full', fields: [], hiddenStages: [], hideEmpty: false }
+    const boards = await client.ok<{ boardViews: unknown }>('PATCH', '/settings', {
+      boardViews: { nb: board, other: plain },
+    })
+    expect(boards.boardViews).toEqual({ nb: board, other: plain })
+    expect((await client.ok<{ boardViews: unknown }>('GET', '/settings')).boardViews).toEqual({
+      nb: board,
+      other: plain,
+    })
+    for (const bad of [
+      { nb: { ...board, cardSize: 'tiny' } },
+      { nb: { ...board, fields: ['title'] } },
+      { nb: { ...board, fields: 'priority' } },
+      { nb: { ...board, hiddenStages: ['nowhere'] } },
+      { nb: { ...board, hideEmpty: 'yes' } },
+      { nb: { cardSize: 'full' } },
+      { nb: null },
+      [],
+    ]) {
+      expect((await client.call('PATCH', '/settings', { boardViews: bad })).status).toBe(400)
+    }
   })
 })

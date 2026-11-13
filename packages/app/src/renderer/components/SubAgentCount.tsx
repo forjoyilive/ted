@@ -6,11 +6,13 @@ import { TaskStatusChips } from './TaskStatus.tsx'
 export function TaskStatusWithSubAgents({
   task,
   onOpenTask,
+  subAgents = true,
 }: {
   task: Pick<Task, 'runs' | 'status' | 'markers'>
   onOpenTask: (ref: string) => void
+  subAgents?: boolean
 }) {
-  const count = activeSubAgentCount(task.runs)
+  const count = subAgents ? activeSubAgentCount(task.runs) : 0
   if (!task.status && task.markers.length === 0 && count === 0) return null
   return (
     <span className={styles.status}>

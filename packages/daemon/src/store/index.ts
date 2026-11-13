@@ -106,6 +106,7 @@ import { isDiskFullError } from '../disk.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
+  statusWithoutBlocker,
   type TaskFacts,
   taskActivity,
   taskCanResume,
@@ -1807,6 +1808,7 @@ export async function openStore({
     }
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
+    const unblocked = statusWithoutBlocker(facts, status)
     const shown = taskActivity(facts)
     const tabs: ConversationTab[] = reads.tabs(row.id).flatMap((tab) => {
       const run = all.find((r) => r.id === tab.runId)
@@ -1926,6 +1928,7 @@ export async function openStore({
       ...(worktree !== null && { worktree }),
       ...(lead !== undefined && { leadRunId: lead.id }),
       ...(status !== undefined && { status }),
+      ...(unblocked !== undefined && { statusWithoutBlocker: unblocked }),
       statuses: taskStatuses(facts),
       markers: taskMarkers(facts, status),
       ...(shown !== undefined && { activity: shown }),
