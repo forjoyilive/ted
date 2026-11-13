@@ -77,12 +77,7 @@ describe('Archive, Unarchive and Delete', () => {
 
     await header.getByRole('button', { name: 'Task actions' }).click()
     const menu = header.page().getByRole('menu', { name: /Task actions/ })
-    expect(await menu.getByRole('menuitem').allTextContents()).toEqual([
-      'Unarchive',
-      'Copy Task ID',
-      'Full brief',
-      'Delete…',
-    ])
+    expect(await menu.getByRole('menuitem').allTextContents()).toEqual(['Unarchive', 'Delete…'])
     await window.keyboard.press('Escape')
 
     await thread.getByRole('button', { name: 'Unarchive' }).click()

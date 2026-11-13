@@ -217,8 +217,7 @@ test.each(['Full brief', 'All changes'])(
     await user().click(within(nav).getByRole('button', { name: 'All Tasks' }))
     await user().click(await screen.findByRole('row', { name: /NB-1/ }))
     if (previous === 'Full brief') {
-      await user().click(screen.getByRole('button', { name: 'Task actions' }))
-      await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
+      await user().click(await screen.findByRole('button', { name: 'Brief' }))
     } else {
       await user().click(await screen.findByRole('tab', { name: 'Changes' }))
       await user().click(await screen.findByRole('button', { name: 'All changes' }))
