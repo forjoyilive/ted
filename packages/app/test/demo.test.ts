@@ -60,6 +60,7 @@ test('opens the populated demo and reuses it when reopened', async () => {
   let nav = window.getByRole('navigation', { name: 'Sidebar' })
   await nav.waitFor({ timeout: 180_000 })
   await nav.getByRole('button', { name: 'Garden', exact: true }).click()
+  await nav.getByRole('button', { name: 'Task views' }).click()
   await nav.getByRole('button', { name: 'Board', exact: true }).click()
   await window
     .getByRole('region', { name: 'Backlog', exact: true })

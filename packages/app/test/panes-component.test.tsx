@@ -56,7 +56,11 @@ test('Task back links restore Board, List and All Tasks', async () => {
   await user().click(screen.getByRole('button', { name: '← All Tasks' }))
   expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
   const u = user()
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Board',

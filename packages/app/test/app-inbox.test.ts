@@ -387,7 +387,7 @@ describe('Full Inbox', () => {
     await openFilter()
     expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
-    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await sidebar(window).getByRole('button', { name: 'Dashboard', exact: true }).click()
     await window.getByRole('heading', { name: /notebook.*Dashboard/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])

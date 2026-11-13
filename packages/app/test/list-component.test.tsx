@@ -46,6 +46,11 @@ test('Started is the last column in both Lists and updates elapsed time', async 
   await user().click(screen.getByRole('button', { name: 'widgets' }))
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
+  await user().click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'List',
     }),
   )
@@ -81,6 +86,11 @@ test('List display, grouping and filters update persisted settings per scope', a
     filters: { priorities: ['high'] },
   })
   await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'List',
@@ -249,6 +259,11 @@ test('Show empty groups is saved per List and includes groups emptied by search'
   main = within(screen.getByRole('main'))
   expect(main.getByRole('button', { name: /^Intake/ })).toBeTruthy()
   await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Task views',
+    }),
+  )
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'List',
