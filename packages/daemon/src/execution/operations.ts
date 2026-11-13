@@ -165,6 +165,9 @@ export async function createExecutionOperations(options: {
     const operation = journal.operation(request.operationId)
     if (!operation) {
       if (stale(request.ref, request.order)) return
+      if (journal.full(Buffer.byteLength(JSON.stringify(request)))) return refuse(request, 'limit')
+      lowDisk = (await options.freeBytes()) < limits.minFreeBytes
+      if (lowDisk) return refuse(request, 'disk')
       await journal.tombstone(request.operationId, request.ref, request.order)
       return
     }

@@ -656,6 +656,38 @@ test('the execution Mac refuses work at its limits, keeps what it stored and say
     expect(await stateOf(7)).toBe('stopped')
     expect(await stateOf(9)).toBe('stopped')
 
+    const fullHome = await mkdtemp(path.join(await realpath(tmpdir()), 'ted-operations-'))
+    const full = await createExecutionOperations({
+      home: fullHome,
+      identity: () => ({ grantId: 'grant-1', scopes: [scope] }),
+      freeBytes: async () => free,
+      limits: { ...executionLimits, unconfirmed: 1 },
+    })
+    try {
+      await full.handle(answer([command(11)]))
+      await full.handle({ ...answer([]), stops: [stop(command(12))] })
+      const atLimit = await full.request(true)
+      expect(atLimit.inventory?.map((o) => o.operationId)).toEqual(['op-11'])
+      expect(atLimit.reports).toContainEqual({
+        operationId: 'op-12',
+        ref: command(12).ref,
+        state: 'refused',
+        refusal: 'limit',
+      })
+      await full.handle({ ...answer([]), stops: [stop(command(11))] })
+      await full.handle({
+        ...answer([]),
+        confirmed: [executionIds.operation('op-11')],
+        stops: [stop(command(12))],
+      })
+      expect((await full.request(true)).inventory).toEqual([
+        { operationId: 'op-12', ref: command(12).ref, state: 'stopped' },
+      ])
+    } finally {
+      await full.close()
+      await rm(fullHome, { recursive: true, force: true })
+    }
+
     expect(
       machineOperationsText(
         {
