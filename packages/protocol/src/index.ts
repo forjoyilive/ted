@@ -700,6 +700,7 @@ export {
   type StorageSummary,
   type StoredBackup,
   storageCategories,
+  storageKeptForMs,
   type WorktreeUse,
 } from './storage.ts'
 export type { DesignFileSpec, LocalDesignReviewInput, SaveTaskDraftRequest } from './task.ts'

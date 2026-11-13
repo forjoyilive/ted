@@ -5,6 +5,7 @@ import {
   type StorageCategoryId,
   type StorageSummary,
   storageCategories,
+  storageKeptForMs,
   tedPaths,
   type WorktreeUse,
 } from '@ted/protocol'
@@ -15,7 +16,8 @@ import { isCloning, removeClone } from './factories.ts'
 import type { TedStore } from './store/index.ts'
 
 export interface Storage {
-  summary(): Promise<StorageSummary>
+  summary(options?: { refresh?: boolean }): Promise<StorageSummary>
+  viewed(): void
   removeUnusedClones(only?: readonly string[]): Promise<RemoveClonesResult>
 }
 
@@ -30,10 +32,16 @@ export function createStorage(options: {
   disk: DiskWatch
   data: Pick<Data, 'summary'>
   volumeName: () => Promise<string>
+  now?: () => number
 }): Storage {
   const { store, disk } = options
+  const now = options.now ?? Date.now
   const paths = tedPaths(options.home)
   let volume: Promise<string> | undefined
+  let saved: StorageSummary | undefined
+  let measuring: Promise<StorageSummary> | undefined
+  let viewedAt = 0
+  let generation = 0
 
   const categoryDirs: Record<StorageCategoryId, string[]> = {
     worktrees: [paths.worktrees, paths.plans],
@@ -76,85 +84,127 @@ export function createStorage(options: {
     )
   }
 
-  return {
-    async summary() {
-      const counter = createCounter()
-      const [categories, usedBytes, reading, backups] = await Promise.all([
-        Promise.all(
-          storageCategories.map(async ({ id, label }) => ({
-            id,
-            label,
-            bytes: (await Promise.all(categoryDirs[id].map((dir) => counter.size(dir)))).reduce(
-              (a, b) => a + b,
-              0,
-            ),
-          })),
-        ),
-        diskUsage(paths.home),
-        disk.check(),
-        options.data.summary(),
-      ])
-      const tasks = new Map(store.listTasks().map((t) => [t.displayId, t]))
-      const factories = new Map(store.listFactories().map((f) => [f.id, f]))
-      const worktrees: WorktreeUse[] = []
-      for (const name of await childDirs(paths.worktrees)) {
-        const task = tasks.get(name)
-        if (!task) continue
-        worktrees.push({
-          taskId: task.id,
-          displayId: task.displayId,
-          title: task.title,
-          factoryId: task.factoryId,
-          factoryName: factories.get(task.factoryId)?.name ?? '',
-          bytes: await diskUsage(path.join(paths.worktrees, name)),
-        })
-      }
-      const removable = await unusedClones()
-      volume ??= options.volumeName().catch(() => '')
-      return {
-        home: `${displayPath(paths.home)}${path.sep}`,
-        usedBytes,
-        freeBytes: reading?.freeBytes ?? 0,
-        volume: await volume,
-        categories: categories.sort((a, b) => b.bytes - a.bytes),
-        largestWorktrees: worktrees.sort((a, b) => b.bytes - a.bytes).slice(0, largestShown),
-        removableClones: {
-          count: removable.length,
-          bytes: (await Promise.all(removable.map(({ dir }) => diskUsage(dir)))).reduce(
+  async function measure(): Promise<StorageSummary> {
+    const measuredAt = new Date(now()).toISOString()
+    const counter = createCounter()
+    const [categories, usedBytes, reading, backups] = await Promise.all([
+      Promise.all(
+        storageCategories.map(async ({ id, label }) => ({
+          id,
+          label,
+          bytes: (await Promise.all(categoryDirs[id].map((dir) => counter.size(dir)))).reduce(
             (a, b) => a + b,
             0,
           ),
-        },
-        simulators: { count: 0, bytes: 0 },
-        backups: await Promise.all(
-          backups.backups.map(async (backup) => ({
-            ...backup,
-            bytes: await diskUsage(path.join(paths.backups, backup.name)),
-          })),
+        })),
+      ),
+      diskUsage(paths.home),
+      disk.check(),
+      options.data.summary(),
+    ])
+    const tasks = new Map(store.listTasks().map((t) => [t.displayId, t]))
+    const factories = new Map(store.listFactories().map((f) => [f.id, f]))
+    const worktrees: WorktreeUse[] = []
+    for (const name of await childDirs(paths.worktrees)) {
+      const task = tasks.get(name)
+      if (!task) continue
+      worktrees.push({
+        taskId: task.id,
+        displayId: task.displayId,
+        title: task.title,
+        factoryId: task.factoryId,
+        factoryName: factories.get(task.factoryId)?.name ?? '',
+        bytes: await diskUsage(path.join(paths.worktrees, name)),
+      })
+    }
+    const removable = await unusedClones()
+    volume ??= options.volumeName().catch(() => '')
+    return {
+      home: `${displayPath(paths.home)}${path.sep}`,
+      usedBytes,
+      freeBytes: reading?.freeBytes ?? 0,
+      volume: await volume,
+      categories: categories.sort((a, b) => b.bytes - a.bytes),
+      largestWorktrees: worktrees.sort((a, b) => b.bytes - a.bytes).slice(0, largestShown),
+      removableClones: {
+        count: removable.length,
+        bytes: (await Promise.all(removable.map(({ dir }) => diskUsage(dir)))).reduce(
+          (a, b) => a + b,
+          0,
         ),
-        backupsDir: `${displayPath(paths.backups)}${path.sep}`,
+      },
+      simulators: { count: 0, bytes: 0 },
+      backups: await Promise.all(
+        backups.backups.map(async (backup) => ({
+          ...backup,
+          bytes: await diskUsage(path.join(paths.backups, backup.name)),
+        })),
+      ),
+      backupsDir: `${displayPath(paths.backups)}${path.sep}`,
+      measuredAt,
+    }
+  }
+
+  function remeasure(): Promise<StorageSummary> {
+    if (measuring) return measuring
+    const started = generation
+    const run = measure()
+      .then((summary) => {
+        if (started === generation) saved = summary
+        return summary
+      })
+      .finally(() => {
+        if (measuring === run) measuring = undefined
+      })
+    measuring = run
+    return run
+  }
+
+  return {
+    async summary(request = {}) {
+      const stale = now() - viewedAt > storageKeptForMs
+      viewedAt = now()
+      if (request.refresh === true || stale || saved === undefined) {
+        return remeasure()
       }
+      if (measuring) return measuring
+      const kept = saved
+      const reading = await disk.check()
+      return { ...kept, freeBytes: reading?.freeBytes ?? kept.freeBytes }
+    },
+    viewed() {
+      viewedAt = now()
     },
     async removeUnusedClones(only) {
-      const root = await realpath(paths.repos).catch(() => undefined)
-      if (root === undefined) return { removed: [], bytes: 0 }
-      const removed: string[] = []
-      let bytes = 0
-      const wanted = only && new Set(only.map((repo) => repo.toLowerCase()))
-      for (const { repo, dir } of await unusedClones()) {
-        if (wanted && !wanted.has(repo.toLowerCase())) continue
-        const [owner, name] = repo.split('/')
-        if (!owner || !name || ![owner, name].every(isSafeSegment)) continue
-        const real = await realpath(dir).catch(() => undefined)
-        if (real !== path.join(root, owner, name)) continue
-        const size = await diskUsage(dir)
-        if (!(await removeClone(dir, () => !usedRepos().has(repo.toLowerCase())))) continue
-        await rmdir(path.dirname(dir)).catch(() => undefined)
-        removed.push(repo)
-        bytes += size
+      try {
+        return await removeClones(only)
+      } finally {
+        generation++
+        saved = undefined
+        measuring = undefined
       }
-      return { removed, bytes }
     },
+  }
+
+  async function removeClones(only?: readonly string[]): Promise<RemoveClonesResult> {
+    const root = await realpath(paths.repos).catch(() => undefined)
+    if (root === undefined) return { removed: [], bytes: 0 }
+    const removed: string[] = []
+    let bytes = 0
+    const wanted = only && new Set(only.map((repo) => repo.toLowerCase()))
+    for (const { repo, dir } of await unusedClones()) {
+      if (wanted && !wanted.has(repo.toLowerCase())) continue
+      const [owner, name] = repo.split('/')
+      if (!owner || !name || ![owner, name].every(isSafeSegment)) continue
+      const real = await realpath(dir).catch(() => undefined)
+      if (real !== path.join(root, owner, name)) continue
+      const size = await diskUsage(dir)
+      if (!(await removeClone(dir, () => !usedRepos().has(repo.toLowerCase())))) continue
+      await rmdir(path.dirname(dir)).catch(() => undefined)
+      removed.push(repo)
+      bytes += size
+    }
+    return { removed, bytes }
   }
 }
 

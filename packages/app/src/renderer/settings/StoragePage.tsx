@@ -1,10 +1,11 @@
 import type { StorageSummary, StoredBackup } from '@ted/protocol'
 import { runOutputDayLimits } from '@ted/protocol/settings'
-import { formatBytes } from '@ted/protocol/storage'
-import { useCallback, useEffect, useState } from 'react'
+import { formatBytes, storageKeptForMs } from '@ted/protocol/storage'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
+import { ago, useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { plural } from '../words.ts'
@@ -49,15 +50,24 @@ function backupTitle(backup: StoredBackup): string {
   }
 }
 
+let lastShown: { storage: StorageSummary; leftAt: number } | undefined
+
+function shownAgain(): StorageSummary | undefined {
+  if (!lastShown || Date.now() - lastShown.leftAt > storageKeptForMs) return undefined
+  return lastShown.storage
+}
+
 export function StoragePage({ settings, dispatch }: SettingsPageProps) {
   const { epoch } = useConnection()
-  const [storage, setStorage] = useState<StorageSummary>()
+  const [storage, setStorage] = useState<StorageSummary | undefined>(shownAgain)
   const [error, setError] = useState<string>()
   const [removing, setRemoving] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const now = useNow()
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
     try {
-      setStorage(await ted.getStorage())
+      setStorage(await ted.getStorage({ refresh }))
       setError(undefined)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
@@ -68,6 +78,26 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
     void epoch
     void load()
   }, [epoch, load])
+
+  const latest = useRef(storage)
+  latest.current = storage
+
+  useEffect(
+    () => () => {
+      if (latest.current) lastShown = { storage: latest.current, leftAt: Date.now() }
+      void ted.storageViewed().catch(() => undefined)
+    },
+    [],
+  )
+
+  const refresh = async () => {
+    setRefreshing(true)
+    try {
+      await load(true)
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const removeClones = async () => {
     setRemoving(true)
@@ -82,7 +112,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
   }
 
   const subtitle = storage
-    ? `${formatBytes(storage.usedBytes)} used under ${storage.home} · ${formatBytes(storage.freeBytes)} free${storage.volume === '' ? '' : ` on ${storage.volume}`}`
+    ? `${formatBytes(storage.usedBytes)} used under ${storage.home} · ${formatBytes(storage.freeBytes)} free${storage.volume === '' ? '' : ` on ${storage.volume}`} · Measured ${ago(storage.measuredAt, now)}`
     : error
       ? undefined
       : 'Measuring…'
@@ -90,7 +120,17 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
   const largest = Math.max(1, ...shown.map((c) => c.bytes))
 
   return (
-    <SettingsPage title="Storage" subtitle={subtitle}>
+    <SettingsPage
+      title="Storage"
+      subtitle={subtitle}
+      actions={
+        storage && (
+          <Button onClick={() => refresh()} disabled={refreshing}>
+            {refreshing ? 'Measuring…' : 'Refresh'}
+          </Button>
+        )
+      }
+    >
       {error !== undefined && <p className={styles.error}>{error}</p>}
       {!storage && !error && <Skeleton shape="settings" label="Loading storage…" />}
       {storage && (

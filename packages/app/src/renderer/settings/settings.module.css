@@ -122,6 +122,12 @@
   gap: 8px;
 }
 
+.pageActions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .pageTitle {
   margin: 0;
   font-size: var(--text-22);

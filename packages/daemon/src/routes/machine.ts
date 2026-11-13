@@ -106,8 +106,19 @@ export const machineRoutes: Route[] = [
   }),
   {
     method: 'GET',
-    path: /^\/storage$/,
-    handle: async (_, { storage }) => [200, await storage.summary()],
+    path: /^\/storage(?:\?.*)?$/,
+    handle: async ({ req }, { storage }) => {
+      const refresh = new URL(req.url ?? '/', 'http://localhost').searchParams.get('refresh')
+      return [200, await storage.summary({ refresh: refresh === '1' })]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/storage\/viewed$/,
+    handle: async (_, { storage }) => {
+      storage.viewed()
+      return [200, {}]
+    },
   },
   {
     method: 'POST',
