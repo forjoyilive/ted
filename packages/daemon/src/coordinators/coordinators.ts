@@ -1276,10 +1276,19 @@ export function createCoordinators(options: {
               ].join(' · '),
             )
           } catch (error) {
-            if (error instanceof RequestError && receipt.taskId === undefined) refused = error
-            receipt.text = redactSecrets(
-              `Couldn’t create “${input.title.slice(0, 200)}”: ${error instanceof Error ? error.message : String(error)}`,
-            )
+            const why = error instanceof Error ? error.message : String(error)
+            const made = receipt.taskId
+              ? store.getTask(receipt.taskId)
+              : store.coordinatorCreated(current.factoryId, input.operation)
+            if (made) {
+              receipt.taskId = made.id
+              receipt.text = redactSecrets(
+                `Created ${made.displayId} “${made.title.slice(0, 200)}” · ${state(snapshot(made))} · couldn’t finish: ${why}`,
+              )
+            } else {
+              if (error instanceof RequestError) refused = error
+              receipt.text = redactSecrets(`Couldn’t create “${input.title.slice(0, 200)}”: ${why}`)
+            }
           }
           const after = receipt.taskId && store.getTask(receipt.taskId)
           if (after) receipt.after = snapshot(after)
