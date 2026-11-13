@@ -221,6 +221,7 @@ function countUnder(tree: AsanaTree, node: AsanaNode): number {
 
 function problemsOf(node: AsanaNode): string[] {
   const problems: string[] = []
+  if (node.cut) problems.push('TED copies only the start of a very long description or comment.')
   if (node.commentsWarning !== undefined) problems.push(node.commentsWarning)
   const missing = node.unfetched?.length ?? 0
   if (missing > 0) {
@@ -286,6 +287,11 @@ export function asanaSource(
 
 export function asanaNotes(node: AsanaNode): string[] {
   const notes: string[] = []
+  if (node.cut) {
+    notes.push(
+      `This item’s description or a comment was longer than TED copies, so the Task has only the start of it. Read the rest in Asana: ${node.url}`,
+    )
+  }
   if (node.commentsWarning !== undefined) {
     notes.push(`${node.commentsWarning}\n\nRead the full discussion in Asana: ${node.url}`)
   }

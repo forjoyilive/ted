@@ -2,7 +2,15 @@ import { chmod, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { startStubAsana, unusedPort } from '../../daemon/test/fixtures/stub-asana.ts'
-import { ctx, launchApp, openSettings, setUpAppTests } from './app-harness.ts'
+import { makeOriginRepo } from '../../daemon/test/helpers.ts'
+import {
+  addFactory,
+  ctx,
+  daemonClient,
+  launchApp,
+  openSettings,
+  setUpAppTests,
+} from './app-harness.ts'
 
 setUpAppTests()
 let stub: Awaited<ReturnType<typeof startStubAsana>>
@@ -71,6 +79,33 @@ test('private configuration stays in main; browser authorization, identity, test
   await expect
     .poll(() => stub.requests.filter((r) => r.path === '/api/1.0/users/me').length)
     .toBeGreaterThan(1)
+  await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
+  stub.setTasks([
+    { gid: '501', name: 'Checkout redesign', notes: 'Ship it', subtasks: ['502', '503', '504'] },
+    { gid: '502', name: 'Payment form', assignee: { gid: '100', name: 'Avery' } },
+    { gid: '503', name: 'Order summary', assignee: { gid: '200', name: 'Sam' } },
+    { gid: '504', name: 'Pick provider', completed: true },
+  ])
+  await window.keyboard.press('Meta+N')
+  const newTask = window.getByRole('dialog', { name: 'New Task' })
+  await newTask.getByLabel('Description').fill('https://app.asana.com/0/9/501/f')
+  const preview = newTask.getByRole('region', { name: 'Asana import' })
+  await expect
+    .poll(() => preview.textContent())
+    .toContain('3 Tasks: 1 assigned to you, 1 to others, 1 unassigned')
+  expect(await preview.getByRole('listitem').count()).toBe(4)
+  await newTask.getByLabel('Start now').uncheck()
+  await newTask.getByRole('button', { name: 'Create 3 Tasks' }).click()
+  await newTask.waitFor({ state: 'detached' })
+  const imported = (await (await daemonClient()).listTasks()).filter((t) => !t.setup)
+  const root = imported.find((t) => t.title === 'Checkout redesign')
+  expect(imported.map((t) => t.title).sort()).toEqual([
+    'Checkout redesign',
+    'Order summary',
+    'Payment form',
+  ])
+  expect(imported.filter((t) => t.parentId === root?.id)).toHaveLength(2)
+  expect(root?.source?.asana).toMatchObject({ gid: '501', completed: false })
   const renderer = await window.evaluate(() => ({
     text: document.body.innerHTML,
     local: { ...localStorage },

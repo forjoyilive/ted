@@ -35,6 +35,7 @@ export interface AsanaNode {
   files?: LinearFile[]
   unfetched?: LinearUnfetched[]
   unreadable?: string
+  cut?: boolean
   childrenUnreadable?: string
   children: string[]
 }
@@ -49,8 +50,8 @@ const maxListed = 1000
 const pageSize = 100
 const parallel = 4
 const maxName = 300
-const maxNotes = 100_000
-const maxComment = 20_000
+const maxNotes = 20_000
+const maxDiscussion = 40_000
 const retries = 3
 
 export async function readAsanaTree(input: {
@@ -125,6 +126,7 @@ export async function readAsanaTree(input: {
       }
       const discussion = await comments(read, node.gid)
       node.comments = discussion.comments
+      if (discussion.cut) node.cut = true
       if (discussion.warning !== undefined) node.commentsWarning = discussion.warning
       const attached = await attachments(read, node.gid)
       if (input.files) {
@@ -176,6 +178,7 @@ function nodeFrom(
       }),
     ...(typeof task.notes === 'string' &&
       task.notes.trim() !== '' && { notes: task.notes.slice(0, maxNotes) }),
+    ...(typeof task.notes === 'string' && task.notes.length > maxNotes && { cut: true }),
     children: [],
   }
 }
@@ -238,7 +241,7 @@ async function subtasks(
 async function comments(
   read: AsanaRead,
   gid: string,
-): Promise<{ comments: AsanaComment[]; warning?: string }> {
+): Promise<{ comments: AsanaComment[]; warning?: string; cut?: boolean }> {
   const listed = await pages(
     read,
     `/tasks/${gid}/stories`,
@@ -246,17 +249,30 @@ async function comments(
     maxAsanaComments * 5,
   )
   const all = listed.items.filter((story) => story.resource_subtype === 'comment_added')
-  const taken = all.slice(0, maxAsanaComments).map((story) => {
-    const by = story.created_by as Record<string, unknown> | null | undefined
-    return {
-      author: oneLine(typeof by?.name === 'string' ? by.name : '').slice(0, 200) || 'Someone',
-      at: typeof story.created_at === 'string' ? story.created_at.slice(0, 40) : '',
-      text: (typeof story.text === 'string' ? story.text : '').slice(0, maxComment),
+  let remaining = maxDiscussion
+  const shortened = { any: false }
+  const taken = all.slice(0, maxAsanaComments).flatMap((story) => {
+    if (remaining <= 0) {
+      shortened.any = true
+      return []
     }
+    const by = story.created_by as Record<string, unknown> | null | undefined
+    const text = typeof story.text === 'string' ? story.text : ''
+    if (text.length > remaining) shortened.any = true
+    const kept = text.slice(0, remaining)
+    remaining -= kept.length
+    return [
+      {
+        author: oneLine(typeof by?.name === 'string' ? by.name : '').slice(0, 200) || 'Someone',
+        at: typeof story.created_at === 'string' ? story.created_at.slice(0, 40) : '',
+        text: kept,
+      },
+    ]
   })
   const cut = all.length > maxAsanaComments || listed.more
   return {
     comments: taken,
+    ...(shortened.any && { cut: true }),
     ...(cut && {
       warning: `TED copied the first ${taken.length} comments from Asana; read the rest there.`,
     }),
