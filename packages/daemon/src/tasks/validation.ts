@@ -56,6 +56,15 @@ interface ValidationOptions {
   background(what: string, work: () => Promise<void>): void
 }
 
+export class StaleCoverageError extends RequestError {
+  constructor() {
+    super(
+      409,
+      'The Checks haven’t run on the Task’s current code, so TED can’t move it on yet. TED runs them first when the Task is moved on.',
+    )
+  }
+}
+
 export interface HandOffChecks {
   run: CheckRun
   coverage: string | undefined
@@ -782,7 +791,11 @@ export function createValidation(options: ValidationOptions) {
     }
   }
 
-  async function currentCoverage(task: StoredTask, refreshPending = false): Promise<boolean> {
+  async function currentCoverage(
+    task: StoredTask,
+    refreshPending = false,
+    mergedOnGitHub = false,
+  ): Promise<boolean> {
     const progress = store.failures.progress(task.id)
     if (task.stage === 'done') return true
     if (!progress) return task.stage !== 'validate' && visitStart(task) === ''
@@ -795,7 +808,7 @@ export function createValidation(options: ValidationOptions) {
     const tested = progress.coverage ?? (previous && coverageOf(previous))
     // The Check plan is read from the default branch, which holds this Task’s own changes
     // once its pull requests have merged, so only the code is compared from then on.
-    if (merged(task)) {
+    if (merged(task) || (mergedOnGitHub && task.stage === 'merge')) {
       if (
         progress.visit !== visitStart(task) ||
         progress.pending ||
@@ -910,12 +923,15 @@ export function createValidation(options: ValidationOptions) {
     )
   }
 
-  async function requireCoverage(task: StoredTask): Promise<void> {
-    if (!(await currentCoverage(task)))
+  async function requireCoverage(task: StoredTask, mergedOnGitHub = false): Promise<void> {
+    if (await currentCoverage(task, false, mergedOnGitHub)) return
+    const progress = store.failures.progress(task.id)
+    if (progress && !progress.pending && progress.next < progress.checks.length)
       throw new RequestError(
         409,
-        'Validate Check coverage is stale or incomplete; run ted checks before advancing. Not-run Checks are not passed.',
+        'A Check failed on the Task’s current code, so TED can’t move it on. Resolve its failure case first.',
       )
+    throw new StaleCoverageError()
   }
 
   function pendingRepair(task: Task): boolean {

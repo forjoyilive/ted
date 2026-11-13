@@ -13,7 +13,7 @@ import {
 import { describe, expect, test } from 'vitest'
 import { clonePath } from '../src/factories.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { api, tokenFor, waitUntil } from './helpers.ts'
+import { api, commitToOrigin, tokenFor, waitUntil } from './helpers.ts'
 import {
   approve,
   type Client,
@@ -442,8 +442,21 @@ describe('Sending after sign-off', () => {
     expect(unchanged.stage).toBe('merge')
     expect(unchanged.repos[0]?.pullRequest?.state).not.toBe('merged')
 
+    await commitToOrigin(ctx.scratch, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, review, merge]',
+        'stages:',
+        '  validate:',
+        '    checks: [{ name: "Added after the merge", run: "exit 1" }]',
+        '',
+      ].join('\n'),
+    })
+    await client.ok('GET', `/factories/${task.factoryId}/settings?refresh=first`)
+    const checkRuns = await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)
     await setGh({ merged: true })
     const marked = await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)
+    expect(await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)).toEqual(checkRuns)
     expect(marked.stage).toBe('done')
     expect(marked.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await lines(client, task)).toContain(

@@ -385,7 +385,7 @@ import {
   p1OnlyReviewPrompt,
   subAgentsInValidate,
 } from './validate-settings.ts'
-import { createValidation, type HandOffChecks } from './validation.ts'
+import { createValidation, type HandOffChecks, StaleCoverageError } from './validation.ts'
 import { failureCaseFindings, failureCaseReference } from './validation-report.ts'
 import { type CommandResult, outputTail } from './worktree.ts'
 
@@ -773,15 +773,25 @@ export function createTasks(options: {
   const mergeWaits = new Map<string, AbortController>()
   const checkWaits = new Map<string, AbortController>()
   options.checkSlots.watch((places) => store.setChecksWaiting(places))
+  const checksIdle = new Map<string, (() => void)[]>()
   function setChecking(taskId: string, on: boolean): void {
     if (on) checking.add(taskId)
     else {
       checking.delete(taskId)
       mergeWaits.get(taskId)?.abort()
       if (merging.has(taskId)) watch?.kick()
+      const waiting = checksIdle.get(taskId)
+      checksIdle.delete(taskId)
+      for (const resolve of waiting ?? []) resolve()
     }
     store.setTaskChecking(taskId, on)
   }
+  const untilChecksIdle = (taskId: string) =>
+    checking.has(taskId)
+      ? new Promise<void>((resolve) =>
+          checksIdle.set(taskId, [...(checksIdle.get(taskId) ?? []), resolve]),
+        )
+      : Promise.resolve()
   const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   const apps = createApps({
@@ -1972,6 +1982,104 @@ export function createTasks(options: {
     const last = store.listComments(taskId).at(-1)
     if (last?.author.kind === 'ted' && last.kind === 'note' && last.body === body) return
     store.postComment({ taskId, kind: 'note', author: { kind: 'ted' }, body })
+  }
+
+  const movingOn = new Set<string>()
+  function setMovingOn(taskId: string, on: boolean): void {
+    if (on) movingOn.add(taskId)
+    else movingOn.delete(taskId)
+    store.setTaskMovingAfterChecks(taskId, on)
+  }
+
+  async function checksFirst<T>(
+    taskId: string,
+    action: () => Promise<T>,
+    waiting: () => T,
+  ): Promise<T> {
+    try {
+      return await action()
+    } catch (error) {
+      if (!(error instanceof StaleCoverageError)) throw error
+      if (!movingOn.has(taskId)) await checksThen(taskId, action)
+      return waiting()
+    }
+  }
+
+  async function startChecksBeforeMove(
+    taskId: string,
+  ): Promise<{ done: Promise<CheckRunnerResult | undefined> }> {
+    if (checking.has(taskId)) return { done: untilChecksIdle(taskId).then(() => undefined) }
+    setChecking(taskId, true)
+    try {
+      const task = find(taskId)
+      const resolution = await gateWorkflow(task, { fetch: false })
+      const problem = runsInBypass(resolution) ? undefined : await sandboxProblem(task.factoryId)
+      if (problem !== undefined) throw new RequestError(409, problem)
+      const started = await validation.begin(
+        find(taskId),
+        resolution,
+        task.stage === 'merge' ? 'merge' : 'agent',
+      )
+      if (!started) {
+        setChecking(taskId, false)
+        return { done: Promise.resolve(undefined) }
+      }
+      return { done: started.done.finally(() => setChecking(taskId, false)) }
+    } catch (error) {
+      setChecking(taskId, false)
+      throw error
+    }
+  }
+
+  async function checksThen(
+    taskId: string,
+    action: () => Promise<unknown>,
+    round = 1,
+  ): Promise<void> {
+    if (movingOn.has(taskId))
+      throw new RequestError(
+        409,
+        `TED is already running ${find(taskId).displayId}’s Checks before moving it on; try again when they finish`,
+      )
+    const { done } = await startChecksBeforeMove(taskId)
+    setMovingOn(taskId, true)
+    const before = find(taskId)
+    inBackground(`move ${before.displayId} on after its Checks`, async () => {
+      const result = await done.catch(() => undefined)
+      setMovingOn(taskId, false)
+      const current = store.getTask(taskId)
+      if (!current || current.archived || current.stopped || current.stage !== before.stage) return
+      if (result?.outcome === 'interrupted') return
+      if (result !== undefined && result.outcome !== 'passed') {
+        const failureId = store.failures.progress(taskId)?.failureId
+        const failed = `TED ran the Checks before moving ${current.displayId} on, and one failed, so the Task stays in ${stageTitle(current.stage)}.${failureId ? ` The failure is recorded as failure case ${shortReference(failureId)}.` : ''}`
+        tedNote(taskId, failed)
+        await deliver(
+          find(taskId),
+          failureId
+            ? `${failed} Investigate it, add evidence and assess it as the Stage’s instructions say before reporting an outcome again.`
+            : `${failed} Fix it, commit and report the outcome again.`,
+        )
+        return
+      }
+      try {
+        await action()
+      } catch (error) {
+        if (error instanceof StaleCoverageError && round < 2) {
+          await checksThen(taskId, action, round + 1)
+          return
+        }
+        const why =
+          error instanceof StaleCoverageError
+            ? 'its code changed while they ran'
+            : error instanceof Error
+              ? error.message
+              : String(error)
+        const stuck = `TED ran the Checks before moving ${current.displayId} on, but couldn’t move it: ${redactSecrets(why)}`
+        tedNote(taskId, stuck)
+        await deliver(find(taskId), stuck)
+      }
+    })
   }
 
   function inBackground(what: string, work: () => Promise<void>): void {
@@ -3342,6 +3450,14 @@ export function createTasks(options: {
 
   async function markDone(ref: string): Promise<Task> {
     const id = find(ref).id
+    return checksFirst(
+      id,
+      () => markDoneNow(id),
+      () => publicTask(id),
+    )
+  }
+
+  async function markDoneNow(id: string): Promise<Task> {
     await untilFree(id)
     await mergeWatcher.settled(id)
     const task = find(id)
@@ -3384,7 +3500,7 @@ export function createTasks(options: {
         }
         verified.add(`${name}:${where}`)
       }
-      await requireObligations(before, read, 'done')
+      await requireObligations(before, read, 'done', true)
       const resolution = await taskWorkflow(find(id), { fetch: false })
       const current = find(id)
       if (current.stage !== 'merge' || current.archived) throw notAtMerge(current)
@@ -4912,6 +5028,7 @@ export function createTasks(options: {
         deliverAnswer,
         gateWorkflow,
         requireObligations: (task, target) => requireObligations(task, undefined, target),
+        checksThen: (taskId, action) => checksThen(taskId, action),
         bindApproval,
         liveLead,
         startMerging,
@@ -8367,6 +8484,7 @@ export function createTasks(options: {
     task: Task,
     observed?: PullRequestRead,
     target?: string,
+    mergedOnGitHub = false,
   ): Promise<void> {
     if (unfinishedChildren(task.id))
       throw new RequestError(
@@ -8386,7 +8504,7 @@ export function createTasks(options: {
       const result = await failures.obligations(task)
       if (result.blockers.every((id) => store.failures.get(id)?.validation)) return
     }
-    await validation.requireCoverage(find(task.id))
+    await validation.requireCoverage(find(task.id), mergedOnGitHub)
     if (store.failures.list(task.id).length === 0) return
     const context = observed
       ? await failures
@@ -9552,313 +9670,324 @@ export function createTasks(options: {
     },
 
     async reportOutcome(ref, caller, outcome) {
-      const asked = taskLead(ref, caller, 'reports outcomes').task
-      await untilFree(asked.id)
-      const { task, runId } = taskLead(ref, caller, 'reports outcomes')
-      if (task.stage !== asked.stage) {
-        throw new RequestError(
-          409,
-          `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
-        )
-      }
-      if (task.stage === 'backlog' || task.stage === 'done') {
-        throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
-      }
-      if (checking.has(task.id)) {
-        throw new RequestError(
-          409,
-          `TED is running ${task.displayId}’s Checks; wait for their results before reporting an outcome`,
-        )
-      }
-      if (outcome.outcome !== 'ask') {
-        if (outcome.judged !== undefined && task.stage !== 'validate') {
-          throw new RequestError(400, 'only Validate reports the review and visual results')
-        }
-        if (
-          outcome.outcome === 'back' &&
-          outcome.severity !== undefined &&
-          task.stage !== 'validate'
-        ) {
-          throw new RequestError(400, 'only Validate declares a Finding’s severity')
-        }
-        if (outcome.outcome === 'advance' && outcome.design) {
-          if (task.stage !== 'design') {
-            throw new RequestError(400, 'only Design posts a design review')
-          }
-          checkOwnFiles(task, designFiles(outcome.design))
-          if (outcome.design.setup && !task.setup) {
-            throw new RequestError(400, 'only a setup Task proposes TED settings')
-          }
-        }
-        if (
-          task.setup &&
-          task.stage === 'design' &&
-          outcome.outcome === 'advance' &&
-          outcome.skip !== true &&
-          !outcome.design?.setup
-        ) {
-          throw new RequestError(
-            400,
-            'a setup Task posts its proposal with `ted outcome advance --design <file>` and a setup section; see the setup instructions for Design',
-          )
-        }
-        if (pendingLoopCheck(task.id)) {
+      const report = async (): Promise<OutcomeResult> => {
+        const asked = taskLead(ref, caller, 'reports outcomes').task
+        await untilFree(asked.id)
+        const { task, runId } = taskLead(ref, caller, 'reports outcomes')
+        if (task.stage !== asked.stage) {
           throw new RequestError(
             409,
-            'TED is checking whether Validate’s rounds are converging; wait for its verdict before reporting an outcome',
+            `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
           )
         }
-        const asked = openSendBackAsk(task)
-        if (asked) {
+        if (task.stage === 'backlog' || task.stage === 'done') {
+          throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
+        }
+        if (checking.has(task.id)) {
           throw new RequestError(
             409,
-            handOffAsks(task.id).some((c) => c.id === asked.id)
-              ? `TED asked the human about ${task.displayId}’s failing Checks (request ${asked.id}); wait for their answer before reporting an outcome`
-              : `TED asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
+            `TED is running ${task.displayId}’s Checks; wait for their results before reporting an outcome`,
           )
         }
-      }
-      return holding(task, async () => {
-        const current = find(task.id)
-        const stage = current.stage as AgentStageId
-        if (outcome.outcome === 'ask') {
-          const request = store.postComment({
-            taskId: task.id,
-            kind: 'question',
-            body: outcome.question,
-            author: { kind: 'run', runId },
-            ...(outcome.choices && outcome.choices.length > 0 && { choices: outcome.choices }),
-          })
-          return {
-            task: publicTask(task.id),
-            message: `Asked the human (request ${request.id}). TED sends you their answer.`,
-            request,
+        if (outcome.outcome !== 'ask') {
+          if (outcome.judged !== undefined && task.stage !== 'validate') {
+            throw new RequestError(400, 'only Validate reports the review and visual results')
           }
-        }
-        const resolution =
-          outcome.outcome === 'advance' ? await gateWorkflow(current) : await taskWorkflow(current)
-        const { workflow } = resolution
-        if (outcome.outcome === 'advance')
-          await requireObligations(current, undefined, workflow.next(stage))
-        const changesAsked =
-          (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
-        if (outcome.outcome === 'back') {
-          if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
-            throw new RequestError(
-              409,
-              `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design`,
-            )
+          if (
+            outcome.outcome === 'back' &&
+            outcome.severity !== undefined &&
+            task.stage !== 'validate'
+          ) {
+            throw new RequestError(400, 'only Validate declares a Finding’s severity')
           }
-          const declared =
-            outcome.cause === 'base-conflict' &&
-            !changesAsked &&
-            outcome.to === 'work' &&
-            (stage === 'validate' || stage === 'review')
-          if (declared) checkBack(workflow, stage, outcome.to)
-          const conflict = declared ? await baseConflict(current) : undefined
-          let failedCheck: string | undefined
-          if (stage === 'validate') {
-            const blockers = conflict ? [] : (await failures.obligations(current)).blockers
-            for (const value of store.failures
-              .list(task.id)
-              .filter((f) => f.validation && blockers.includes(f.id))) {
-              const assessment = value.assessments.at(-1)
-              if (
-                value.resolutions.at(-1)?.resolution !== 'fix' &&
-                (assessment?.assessment !== 'regression' ||
-                  assessment.evidenceCount !== value.additions.length)
-              )
-                throw new RequestError(
-                  409,
-                  'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
-                )
-              if (
-                value.source.kind === 'factory-check' ||
-                value.source.kind === 'post-rebase-check'
-              )
-                failedCheck = value.source.checkRunId
+          if (outcome.outcome === 'advance' && outcome.design) {
+            if (task.stage !== 'design') {
+              throw new RequestError(400, 'only Design posts a design review')
             }
-            checkBack(workflow, stage, outcome.to)
-            if (
-              outcome.judged?.review?.passed === false ||
-              outcome.judged?.visual?.passed === false
-            )
-              failedCheck = undefined
-            if (!conflict && (failedCheck === undefined || outcome.severity !== undefined))
-              await declareSeverity(current, workflow, runId, outcome.severity)
-            judge(current, 'sent-back', outcome.judged)
+            checkOwnFiles(task, designFiles(outcome.design))
+            if (outcome.design.setup && !task.setup) {
+              throw new RequestError(400, 'only a setup Task proposes TED settings')
+            }
           }
-          if (conflict) {
-            const findings = `${outcome.findings.trim()}\n\n${conflictChecked(conflict, manyRepos(current))}`
-            return sendBack(current, resolution, stage, { ...outcome, findings }, undefined, {
-              counted: false,
-              cause: 'base-conflict',
-              conflict: foundConflict(current, conflict),
+          if (
+            task.setup &&
+            task.stage === 'design' &&
+            outcome.outcome === 'advance' &&
+            outcome.skip !== true &&
+            !outcome.design?.setup
+          ) {
+            throw new RequestError(
+              400,
+              'a setup Task posts its proposal with `ted outcome advance --design <file>` and a setup section; see the setup instructions for Design',
+            )
+          }
+          if (pendingLoopCheck(task.id)) {
+            throw new RequestError(
+              409,
+              'TED is checking whether Validate’s rounds are converging; wait for its verdict before reporting an outcome',
+            )
+          }
+          const asked = openSendBackAsk(task)
+          if (asked) {
+            throw new RequestError(
+              409,
+              handOffAsks(task.id).some((c) => c.id === asked.id)
+                ? `TED asked the human about ${task.displayId}’s failing Checks (request ${asked.id}); wait for their answer before reporting an outcome`
+                : `TED asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
+            )
+          }
+        }
+        return holding(task, async () => {
+          const current = find(task.id)
+          const stage = current.stage as AgentStageId
+          if (outcome.outcome === 'ask') {
+            const request = store.postComment({
+              taskId: task.id,
+              kind: 'question',
+              body: outcome.question,
+              author: { kind: 'run', runId },
+              ...(outcome.choices && outcome.choices.length > 0 && { choices: outcome.choices }),
             })
-          }
-          const sent = await sendBack(current, resolution, stage, outcome, failedCheck)
-          return declared
-            ? { ...sent, message: `${sent.message.replace(/\.$/, '')}. ${noConflictFound}` }
-            : sent
-        }
-        if (changesAsked) {
-          throw new RequestError(
-            409,
-            `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
-          )
-        }
-        if (stage === 'merge') {
-          const mode = mergeMode(current, workflow)
-          throw new RequestError(
-            409,
-            mode === 'off'
-              ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
-              : mode === 'gate'
-                ? `TED posts the Merge sign-off for ${task.displayId} once CI passes, then merges; there’s no outcome to report at Merge`
-                : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
-          )
-        }
-        if (
-          stage === 'work' ||
-          ((stage === 'validate' || stage === 'review') &&
-            workflow.stages.includes('work') &&
-            workflow.order.indexOf('work') < workflow.order.indexOf(stage))
-        ) {
-          const conflict = await baseConflict(current)
-          if (conflict) {
-            store.recordBaseConflict(task.id, foundConflict(current, conflict))
-            throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
-          }
-        }
-        const moved = stage === 'validate' ? await movedSinceReview(current) : undefined
-        if (moved !== undefined) throw new RequestError(409, moved)
-        const waiting = stage === 'clarify' ? openRound(current) : undefined
-        if (waiting) {
-          throw new RequestError(
-            409,
-            `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
-          )
-        }
-        if (outcome.skip === true) {
-          if (!skippableStages.includes(stage)) {
-            throw new RequestError(
-              409,
-              `only Clarify and Design can skip themselves; ${stageTitle(stage)} can’t`,
-            )
-          }
-          if (current.setup) {
-            throw new RequestError(409, 'a setup Task always goes through Clarify and Design')
-          }
-          const since = visitStart(current)
-          if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
-            throw new RequestError(
-              409,
-              `${stageTitle(stage)} has already posted its sign-off request, so it can’t skip itself`,
-            )
-          }
-          store.postComment({
-            taskId: task.id,
-            body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
-              gateOn(current, workflow, stage) ? ' Its sign-off was skipped too.' : ''
-            }`,
-            author: { kind: 'ted' },
-          })
-        }
-        const gate = gateOn(current, workflow, stage) && outcome.skip !== true
-        if (!gate && stage === 'work' && workflow.next(stage) === 'validate') {
-          await execution.local(task.id)
-          const heads = await liveHeads(current)
-          const coverage = await validation.coverage(current)
-          const started = await validation.begin(current, resolution, 'hand-off')
-          if (started) {
-            setChecking(task.id, true)
-            inBackground(`run ${task.displayId}’s Checks`, () =>
-              handOffChecks(task.id, { started, coverage, heads, lead: runId }),
-            )
             return {
               task: publicTask(task.id),
-              message: `TED is running the Factory’s Checks before ${task.displayId} leaves Work. If they pass, TED moves it to Validate; if one fails, it stays in Work and TED sends you the output. Wait for TED’s message.`,
+              message: `Asked the human (request ${request.id}). TED sends you their answer.`,
+              request,
             }
           }
-        }
-        if (!gate) {
-          if (
-            outcome.skip !== true &&
-            workflow.overnightGates?.includes(stage) &&
-            !gateSkipped(current)
-          ) {
-            store.gateSkippedOvernight(task.id, stage)
+          const resolution =
+            outcome.outcome === 'advance'
+              ? await gateWorkflow(current)
+              : await taskWorkflow(current)
+          const { workflow } = resolution
+          if (outcome.outcome === 'advance')
+            await requireObligations(current, undefined, workflow.next(stage))
+          const changesAsked =
+            (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
+          if (outcome.outcome === 'back') {
+            if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
+              throw new RequestError(
+                409,
+                `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design`,
+              )
+            }
+            const declared =
+              outcome.cause === 'base-conflict' &&
+              !changesAsked &&
+              outcome.to === 'work' &&
+              (stage === 'validate' || stage === 'review')
+            if (declared) checkBack(workflow, stage, outcome.to)
+            const conflict = declared ? await baseConflict(current) : undefined
+            let failedCheck: string | undefined
+            if (stage === 'validate') {
+              const blockers = conflict ? [] : (await failures.obligations(current)).blockers
+              for (const value of store.failures
+                .list(task.id)
+                .filter((f) => f.validation && blockers.includes(f.id))) {
+                const assessment = value.assessments.at(-1)
+                if (
+                  value.resolutions.at(-1)?.resolution !== 'fix' &&
+                  (assessment?.assessment !== 'regression' ||
+                    assessment.evidenceCount !== value.additions.length)
+                )
+                  throw new RequestError(
+                    409,
+                    'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
+                  )
+                if (
+                  value.source.kind === 'factory-check' ||
+                  value.source.kind === 'post-rebase-check'
+                )
+                  failedCheck = value.source.checkRunId
+              }
+              checkBack(workflow, stage, outcome.to)
+              if (
+                outcome.judged?.review?.passed === false ||
+                outcome.judged?.visual?.passed === false
+              )
+                failedCheck = undefined
+              if (!conflict && (failedCheck === undefined || outcome.severity !== undefined))
+                await declareSeverity(current, workflow, runId, outcome.severity)
+              judge(current, 'sent-back', outcome.judged)
+            }
+            if (conflict) {
+              const findings = `${outcome.findings.trim()}\n\n${conflictChecked(conflict, manyRepos(current))}`
+              return sendBack(current, resolution, stage, { ...outcome, findings }, undefined, {
+                counted: false,
+                cause: 'base-conflict',
+                conflict: foundConflict(current, conflict),
+              })
+            }
+            const sent = await sendBack(current, resolution, stage, outcome, failedCheck)
+            return declared
+              ? { ...sent, message: `${sent.message.replace(/\.$/, '')}. ${noConflictFound}` }
+              : sent
           }
-          if (outcome.design) {
+          if (changesAsked) {
+            throw new RequestError(
+              409,
+              `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
+            )
+          }
+          if (stage === 'merge') {
+            const mode = mergeMode(current, workflow)
+            throw new RequestError(
+              409,
+              mode === 'off'
+                ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
+                : mode === 'gate'
+                  ? `TED posts the Merge sign-off for ${task.displayId} once CI passes, then merges; there’s no outcome to report at Merge`
+                  : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
+            )
+          }
+          if (
+            stage === 'work' ||
+            ((stage === 'validate' || stage === 'review') &&
+              workflow.stages.includes('work') &&
+              workflow.order.indexOf('work') < workflow.order.indexOf(stage))
+          ) {
+            const conflict = await baseConflict(current)
+            if (conflict) {
+              store.recordBaseConflict(task.id, foundConflict(current, conflict))
+              throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
+            }
+          }
+          const moved = stage === 'validate' ? await movedSinceReview(current) : undefined
+          if (moved !== undefined) throw new RequestError(409, moved)
+          const waiting = stage === 'clarify' ? openRound(current) : undefined
+          if (waiting) {
+            throw new RequestError(
+              409,
+              `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
+            )
+          }
+          if (outcome.skip === true) {
+            if (!skippableStages.includes(stage)) {
+              throw new RequestError(
+                409,
+                `only Clarify and Design can skip themselves; ${stageTitle(stage)} can’t`,
+              )
+            }
+            if (current.setup) {
+              throw new RequestError(409, 'a setup Task always goes through Clarify and Design')
+            }
+            const since = visitStart(current)
+            if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
+              throw new RequestError(
+                409,
+                `${stageTitle(stage)} has already posted its sign-off request, so it can’t skip itself`,
+              )
+            }
             store.postComment({
               taskId: task.id,
-              body: designNote(outcome.design, briefGoal(store.latestBrief(task.id)?.text ?? '')),
-              author: { kind: 'run', runId },
-              attachments: designFiles(outcome.design),
+              body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
+                gateOn(current, workflow, stage) ? ' Its sign-off was skipped too.' : ''
+              }`,
+              author: { kind: 'ted' },
             })
           }
-          const next = workflow.next(stage) as AgentStageId | 'done'
-          if (stage === 'validate') {
-            judge(current, 'passed', outcome.judged)
-            pullRequestWork(task.id, 'again')
+          const gate = gateOn(current, workflow, stage) && outcome.skip !== true
+          if (!gate && stage === 'work' && workflow.next(stage) === 'validate') {
+            await execution.local(task.id)
+            const heads = await liveHeads(current)
+            const coverage = await validation.coverage(current)
+            const started = await validation.begin(current, resolution, 'hand-off')
+            if (started) {
+              setChecking(task.id, true)
+              inBackground(`run ${task.displayId}’s Checks`, () =>
+                handOffChecks(task.id, { started, coverage, heads, lead: runId }),
+              )
+              return {
+                task: publicTask(task.id),
+                message: `TED is running the Factory’s Checks before ${task.displayId} leaves Work. If they pass, TED moves it to Validate; if one fails, it stays in Work and TED sends you the output. Wait for TED’s message.`,
+              }
+            }
           }
-          const moved = await move(
-            current,
-            resolution,
-            next,
-            next === 'done' ? undefined : nextStageMessage(workflow, next),
-          )
-          return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
-        }
-        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} sign-off`
-        if (openGateRequest(current)) {
-          throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
-        }
-        const brief = store.latestBrief(task.id)
-        const since = latest(visitStart(current), lastChangesRequested(current))
-        if (!brief || brief.createdAt < since) {
-          throw new RequestError(
-            409,
-            `write the Task brief with \`ted brief write\` before passing the ${name}`,
-          )
-        }
-        if (stage === 'validate') judge(current, 'passed', outcome.judged)
-        const leadsToMerge =
-          stage !== 'design' &&
-          stage !== 'clarify' &&
-          (workflow.next(stage) === 'merge' || workflow.next(stage) === 'done')
-        const changes = leadsToMerge
-          ? await signOffChanges(current, outcome.changes?.trim())
-          : undefined
-        const design = outcome.design
-        const requestedFor = stage === 'review' ? await requestCommit(current, workflow) : undefined
-        const kept = workflow.overnightKept
-        if (kept?.stages.includes(stage) && !gateKept(current)) {
-          store.gateKeptOvernight(task.id, stage, kept.reason)
-        }
-        const request = store.postComment({
-          taskId: task.id,
-          kind: stage === 'design' ? 'review' : 'signoff',
-          title: design?.title ?? briefGoal(brief.text) ?? name,
-          body: brief.text,
-          author: { kind: 'run', runId },
-          gate: { ...gateButtons(workflow, stage), ...(changes && { changes }) },
-          ...(design && { attachments: designFiles(design) }),
-          ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
+          if (!gate) {
+            if (
+              outcome.skip !== true &&
+              workflow.overnightGates?.includes(stage) &&
+              !gateSkipped(current)
+            ) {
+              store.gateSkippedOvernight(task.id, stage)
+            }
+            if (outcome.design) {
+              store.postComment({
+                taskId: task.id,
+                body: designNote(outcome.design, briefGoal(store.latestBrief(task.id)?.text ?? '')),
+                author: { kind: 'run', runId },
+                attachments: designFiles(outcome.design),
+              })
+            }
+            const next = workflow.next(stage) as AgentStageId | 'done'
+            if (stage === 'validate') {
+              judge(current, 'passed', outcome.judged)
+              pullRequestWork(task.id, 'again')
+            }
+            const moved = await move(
+              current,
+              resolution,
+              next,
+              next === 'done' ? undefined : nextStageMessage(workflow, next),
+            )
+            return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
+          }
+          const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} sign-off`
+          if (openGateRequest(current)) {
+            throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
+          }
+          const brief = store.latestBrief(task.id)
+          const since = latest(visitStart(current), lastChangesRequested(current))
+          if (!brief || brief.createdAt < since) {
+            throw new RequestError(
+              409,
+              `write the Task brief with \`ted brief write\` before passing the ${name}`,
+            )
+          }
+          if (stage === 'validate') judge(current, 'passed', outcome.judged)
+          const leadsToMerge =
+            stage !== 'design' &&
+            stage !== 'clarify' &&
+            (workflow.next(stage) === 'merge' || workflow.next(stage) === 'done')
+          const changes = leadsToMerge
+            ? await signOffChanges(current, outcome.changes?.trim())
+            : undefined
+          const design = outcome.design
+          const requestedFor =
+            stage === 'review' ? await requestCommit(current, workflow) : undefined
+          const kept = workflow.overnightKept
+          if (kept?.stages.includes(stage) && !gateKept(current)) {
+            store.gateKeptOvernight(task.id, stage, kept.reason)
+          }
+          const request = store.postComment({
+            taskId: task.id,
+            kind: stage === 'design' ? 'review' : 'signoff',
+            title: design?.title ?? briefGoal(brief.text) ?? name,
+            body: brief.text,
+            author: { kind: 'run', runId },
+            gate: { ...gateButtons(workflow, stage), ...(changes && { changes }) },
+            ...(design && { attachments: designFiles(design) }),
+            ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
+          })
+          if (requestedFor) {
+            store.gateRequestedFor(task.id, request.id, requestedFor.name, requestedFor.commit)
+          }
+          if (stage === 'validate') pullRequestWork(task.id, 'again')
+          if (stage === 'review' || workflow.next(stage) === 'merge') {
+            pullRequestWork(task.id, 'ready')
+          }
+          return {
+            task: publicTask(task.id),
+            message: `Waiting for the human at the ${name}. TED sends you their answer.`,
+            request,
+          }
         })
-        if (requestedFor) {
-          store.gateRequestedFor(task.id, request.id, requestedFor.name, requestedFor.commit)
-        }
-        if (stage === 'validate') pullRequestWork(task.id, 'again')
-        if (stage === 'review' || workflow.next(stage) === 'merge') {
-          pullRequestWork(task.id, 'ready')
-        }
-        return {
-          task: publicTask(task.id),
-          message: `Waiting for the human at the ${name}. TED sends you their answer.`,
-          request,
-        }
-      })
+      }
+      if (outcome.outcome !== 'advance') return report()
+      const id = taskLead(ref, caller, 'reports outcomes').task.id
+      return checksFirst(id, report, () => ({
+        task: publicTask(id),
+        message: `TED is running the Checks on ${find(id).displayId}’s current code before moving it on. It moves the Task when they pass and tells you if one fails. End your turn.`,
+      }))
     },
 
     setLead(ref, lead) {

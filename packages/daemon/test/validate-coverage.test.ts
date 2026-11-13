@@ -112,7 +112,26 @@ async function passing({
     }, 'Check delivery finished')
   }
   if (enterValidate) await settled()
-  return { task, root, repo, read, call, advance, runs, obligations, settled }
+  const stage = async () => (await read<Task[]>('/tasks')).find((t) => t.id === task.id)?.stage
+  const advanceAfterChecks = async () => {
+    const result = await advance()
+    expect(result.status, JSON.stringify(result.body)).toBe(200)
+    expect(JSON.stringify(result.body)).toContain('running the Checks')
+    await settled()
+  }
+  return {
+    task,
+    root,
+    repo,
+    read,
+    call,
+    advance,
+    advanceAfterChecks,
+    runs,
+    obligations,
+    settled,
+    stage,
+  }
 }
 
 test('unchanged passing coverage advances', async () => {
@@ -135,38 +154,29 @@ test.each([false, true])(
         claudeBin: stubClaudePath,
       })
     }
-    const denied = await s.advance()
-    expect(denied.status).toBe(409)
-    expect(JSON.stringify(denied.body)).toContain('coverage')
-    expect((await s.obligations()).satisfied).toBe(false)
+    await s.advanceAfterChecks()
     expect((await s.runs())[0]).toEqual(original[0])
-    const rerun = await s.call('/checks')
-    expect(rerun.status).toBe(201)
-    await s.settled()
     expect((await s.runs()).at(-1)?.checks[0]?.state).toBe('failed')
     const failures = await s.read<FailureCase[]>(`${s.root}/failures`)
     expect(failures).toHaveLength(1)
-    expect((await s.advance()).status).toBe(409)
+    expect(await s.stage()).toBe('validate')
+    const refused = await s.advance()
+    expect(refused.status).toBe(409)
+    expect(JSON.stringify(refused.body)).toContain('A Check failed')
   },
 )
 
-test('a changed Check plan becomes outstanding instead of inheriting prior completion', async () => {
+test('a changed Check plan runs before advancing instead of inheriting prior completion', async () => {
   const s = await passing()
   const original = await s.runs()
   await commitToOrigin(ctx.scratch, {
     '.ted/workflow.yaml': workflow([...checks, { name: 'New Check', run: 'echo newly-required' }]),
   })
-  expect((await s.advance()).status).toBe(409)
-  const held = await s.obligations()
-  expect(held.satisfied).toBe(false)
-  expect(held.progress?.checks.map((c) => c.name)).toEqual(
-    expect.arrayContaining(['Tests', 'New Check']),
-  )
-  expect(await s.runs()).toEqual(original)
-  expect((await s.call('/checks')).status).toBe(201)
-  await s.settled()
-  expect((await s.obligations()).satisfied).toBe(true)
-  expect((await s.advance()).status).toBe(200)
+  await s.advanceAfterChecks()
+  const runs = await s.runs()
+  expect(runs.length).toBe(original.length + 1)
+  expect(runs.at(-1)?.checks.map((c) => c.name)).toEqual(['Tests', 'New Check'])
+  await waitUntil(async () => (await s.stage()) === 'review', 'the Task to move on')
 })
 
 test('changing a repo’s command environment invalidates coverage even with the same Check names', async () => {
@@ -179,12 +189,9 @@ test('changing a repo’s command environment invalidates coverage even with the
       '      env: { CHECK_CONTEXT: revised }',
     ]),
   })
-  expect((await s.advance()).status).toBe(409)
-  expect((await s.obligations()).satisfied).toBe(false)
-  expect((await s.call('/checks')).status).toBe(201)
-  await s.settled()
+  await s.advanceAfterChecks()
   expect((await s.obligations()).satisfied).toBe(true)
-  expect((await s.advance()).status).toBe(200)
+  await waitUntil(async () => (await s.stage()) === 'review', 'the Task to move on')
 })
 
 test('legitimate no-change skips advance without manufacturing a pass', async () => {
@@ -199,11 +206,9 @@ test('a new Check added after an empty plan still must run', async () => {
   const s = await passing({ plan: [] })
   expect(await s.runs()).toEqual([])
   await commitToOrigin(ctx.scratch, { '.ted/workflow.yaml': workflow() })
-  expect((await s.advance()).status).toBe(409)
-  expect((await s.obligations()).satisfied).toBe(false)
-  expect((await s.call('/checks')).status).toBe(201)
-  await s.settled()
-  expect((await s.advance()).status).toBe(200)
+  await s.advanceAfterChecks()
+  expect((await s.runs()).at(-1)?.outcome).toBe('passed')
+  await waitUntil(async () => (await s.stage()) === 'review', 'the Task to move on')
 })
 
 test('CI completion alone preserves completed local Check coverage', async () => {
@@ -265,11 +270,13 @@ test('a no-change skip cannot cover a newly applicable Check after local code ch
   const s = await passing({ changed: false })
   expect((await s.runs())[0]?.checks[0]?.state).toBe('skipped')
   await writeFile(path.join(s.repo.worktree, 'work.txt'), 'implemented again\n')
-  expect((await s.advance()).status).toBe(409)
+  await s.advanceAfterChecks()
+  expect((await s.runs()).at(-1)?.checks[0]?.state).toBe('failed')
   expect((await s.obligations()).satisfied).toBe(false)
+  expect(await s.stage()).toBe('validate')
 })
 
-test('newly resolved Checks hold advancement before posting a Validate Gate', async () => {
+test('newly resolved Checks run before TED posts a Validate Gate', async () => {
   const s = await passing()
   expect(
     (
@@ -284,12 +291,15 @@ test('newly resolved Checks hold advancement before posting a Validate Gate', as
       { name: 'New Check', run: 'echo required' },
     ]).replace('  validate:\n', '  validate:\n    gate: true\n'),
   })
-  const result = await s.advance()
-  expect(result.status, JSON.stringify(result.body)).toBe(409)
-  expect(JSON.stringify(result.body)).toContain('coverage')
+  await s.advanceAfterChecks()
+  expect((await s.runs()).at(-1)?.checks.map((c) => c.name)).toEqual(['Tests', 'New Check'])
   expect((await s.read<ValidationObligations>(`${s.root}/validation-obligations`)).satisfied).toBe(
-    false,
+    true,
   )
+  await waitUntil(async () => {
+    const comments = await s.read<{ kind: string; answer?: unknown }[]>(`${s.root}/comments`)
+    return comments.some((c) => c.kind === 'gate' && c.answer === undefined)
+  }, 'the Validate sign-off')
 })
 
 test('reading a completed Task preserves its historical validation summary', async () => {
@@ -368,12 +378,8 @@ test('later forward movement holds missing Validate coverage and a full rerun ca
   await store.persisted()
   await store.close()
   ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
-  const held = await s.advance()
-  expect(held.status).toBe(409)
-  expect(JSON.stringify(held.body)).toContain('coverage')
   expect(await s.runs()).toEqual([])
-  expect((await s.call('/checks')).status).toBe(201)
-  await s.settled()
+  await s.advanceAfterChecks()
   expect((await s.obligations()).satisfied).toBe(true)
   expect((await s.runs()).at(-1)?.outcome).toBe('passed')
 })

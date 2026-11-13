@@ -11,6 +11,7 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type NewComment, openStore, type TedStore } from '../src/store/index.ts'
 import { createRequestAnswers, type RequestAnswerPort } from '../src/tasks/request-answers.ts'
+import { StaleCoverageError } from '../src/tasks/validation.ts'
 import { resolveWorkflow } from '../src/workflow/resolve.ts'
 
 let directory: string
@@ -64,6 +65,7 @@ beforeEach(async () => {
     requireObligations: async () => {
       effects.push('obligations')
     },
+    checksThen: unexpected,
     bindApproval: async () => {
       effects.push('approval')
     },
@@ -933,6 +935,26 @@ test('Sign-off obligations receive the next Stage so a repair may return through
   }
   await answer(comment, { action: 'approve' })
   expect(effects).toEqual(['obligations:work', 'approval', 'moved'])
+})
+
+test('approving a sign-off while the Checks are out of date records it and moves after they run', async () => {
+  const comment = post({ kind: 'gate' }, { kind: 'signoff', gate: { approveLabel: 'Approve' } })
+  let stale = true
+  port.requireObligations = async () => {
+    effects.push('obligations')
+    if (stale) throw new StaleCoverageError()
+  }
+  let afterChecks: (() => Promise<unknown>) | undefined
+  port.checksThen = async (_id, action) => {
+    effects.push('checks')
+    afterChecks = action
+  }
+  const answered = await answer(comment, { action: 'approve' })
+  expect(answered.answer?.kind).toBe('approved')
+  expect(effects).toEqual(['obligations', 'checks', 'approval'])
+  stale = false
+  await afterChecks?.()
+  expect(effects).toEqual(['obligations', 'checks', 'approval', 'obligations', 'moved'])
 })
 
 test('a preparation Sign-off validates its Workflow before recording approval', async () => {
