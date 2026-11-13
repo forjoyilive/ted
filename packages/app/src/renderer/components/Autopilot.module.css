@@ -1,9 +1,11 @@
 .field {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .select {
   justify-self: start;
+  max-width: 100%;
 }
 .field small {
   color: var(--text-tertiary);
