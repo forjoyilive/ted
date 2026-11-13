@@ -25,12 +25,9 @@
   color: var(--text-tertiary);
 }
 
-.images figure img {
-  max-width: min(100%, 300px);
-}
-
-.expandedImages figure img {
-  max-width: min(100%, 420px);
+.expandedImages {
+  --thumbnail-height: 240px;
+  --thumbnail-max-width: 420px;
 }
 
 .controls {
