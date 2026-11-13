@@ -51,9 +51,11 @@ test('chat images close on surrounding space and backdrop clicks, keeping image 
   await openAllTasks(page)
   await taskRow(page, 'NB-1').click()
   const thread = page.getByRole('region', { name: 'Task thread' })
-  const thumbnail = page
-    .getByRole('region', { name: 'Original request' })
-    .getByRole('button', { name: 'View wide.svg', exact: true })
+  const request = page.getByRole('region', { name: 'Original request' })
+  await expect(request.getByRole('img').count()).resolves.toBe(0)
+  await request.getByRole('button', { name: 'See description', exact: true }).click()
+  const description = page.getByRole('dialog', { name: 'NB-1 · View attachments', exact: true })
+  const thumbnail = description.getByRole('button', { name: 'View wide.svg', exact: true })
   await thumbnail.click()
   const described = page.getByRole('dialog', { name: 'wide.svg', exact: true })
   const large = described.getByRole('img', { name: 'wide.svg' })
@@ -64,9 +66,11 @@ test('chat images close on surrounding space and backdrop clicks, keeping image 
       return panel && shown ? shown.width / panel.width : 0
     })
     .toBeGreaterThan(0.9)
-  expect((await thumbnail.locator('img').boundingBox())?.width).toBeLessThanOrEqual(302)
+  expect((await thumbnail.locator('img').boundingBox())?.width).toBeLessThanOrEqual(422)
   await described.press('Escape')
   await described.waitFor({ state: 'detached' })
+  await description.press('Escape')
+  await description.waitFor({ state: 'detached' })
   for (const shape of shapes) {
     const opener = thread.getByRole('button', { name: `View ${shape.name}`, exact: true })
     const viewer = page.getByRole('dialog', { name: shape.name, exact: true })

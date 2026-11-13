@@ -79,7 +79,7 @@ test('settings replaces its loading state with an error and retry action', async
   expect(retry).toHaveBeenCalledOnce()
 })
 
-test('the history link appears once the description has an edit, and opens every version', async () => {
+test('the history link appears in the description dialog once there is an edit, and opens every version', async () => {
   const pending = deferred<DescriptionVersion[]>()
   bridge({ ...detailHandlers(), taskDescriptions: () => pending.promise })
   render(<TaskDescription task={task()} />)
@@ -90,11 +90,16 @@ test('the history link appears once the description has an edit, and opens every
       { version: 2, text: 'Narrower scope', at: createdAt },
     ]),
   )
-  await user().click(screen.getByRole('button', { name: 'Edited once · history' }))
+  expect(screen.queryByRole('button', { name: /history/ })).toBeNull()
+  await user().click(screen.getByRole('button', { name: 'See description' }))
+  const description = screen.getByRole('dialog', { name: 'NB-1 · Sync notes' })
+  await user().click(within(description).getByRole('button', { name: 'Edited once · history' }))
   const dialog = screen.getByRole('dialog', { name: 'NB-1 description history' })
   expect(within(dialog).getByText('Original scope')).toBeTruthy()
   expect(within(dialog).getByText('Narrower scope')).toBeTruthy()
   await user().click(within(dialog).getByRole('button', { name: 'Close' }))
+  expect(screen.queryByRole('dialog', { name: 'NB-1 description history' })).toBeNull()
+  await user().click(within(description).getByRole('button', { name: 'Close' }))
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
@@ -140,6 +145,7 @@ test('a failed description load shows the error, even for an empty description, 
   ])
   await user().click(within(request).getByRole('button', { name: 'Try again' }))
   await screen.findByText('No description.')
+  await user().click(within(request).getByRole('button', { name: 'See description' }))
   expect(screen.getByRole('button', { name: 'Edited once · history' })).toBeTruthy()
 })
 
@@ -532,9 +538,7 @@ test('spinners keep accessible loading names without visible loading text', asyn
   expect(screen.getByRole('status').textContent).toBe('')
 })
 
-test('the request shows images while collapsed, expands formatting and files, and resets on another Task', async () => {
-  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(80)
-  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40)
+test('the header shows a one-line preview and See description; the dialog holds formatting, images and files', async () => {
   const image = { hash: 'image', name: 'request.png', mediaType: 'image/png', size: 68 }
   const file = { hash: 'file', name: 'reference.txt', mediaType: 'text/plain', size: 12 }
   const current = task({ attachments: [image, file], description: 'Latest edited scope.' })
@@ -551,75 +555,60 @@ test('the request shows images while collapsed, expands formatting and files, an
   })
   const view = render(<TaskDescription task={current} />)
   const request = screen.getByRole('region', { name: 'Original request' })
-  await within(request).findByRole('img', { name: image.name })
-  expect(within(request).queryByText('1 image')).toBeNull()
-  expect(within(request).queryByText(current.description)).toBeNull()
+  await within(request).findByText('Original scope')
+  expect(within(request).queryByRole('img')).toBeNull()
   expect(within(request).queryByText(file.name)).toBeNull()
+  expect(within(request).queryByText(current.description)).toBeNull()
   expect(within(request).getByText(/Original scope/).textContent).not.toContain('**')
-  expect(within(request).getByText('Original scope').closest('[inert]')).toBeNull()
-  expect(within(request).getByText('guide')).toBeTruthy()
   expect(within(request).queryByRole('link')).toBeNull()
-  expect(within(request).queryByRole('button', { name: 'Copy code' })).toBeNull()
-  await user().click(within(request).getByRole('button', { name: `View ${image.name}` }))
-  const viewer = screen.getByRole('dialog', { name: image.name })
-  await user().click(within(viewer).getByRole('button', { name: 'Close' }))
-  await user().click(within(request).getByRole('button', { name: 'See more' }))
-  expect(within(request).getByText('Original scope').tagName).toBe('STRONG')
-  expect(within(request).getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
+  expect(within(request).queryByRole('button', { name: /history/ })).toBeNull()
+  expect(within(request).queryByRole('button', { name: 'See more' })).toBeNull()
+  await user().click(within(request).getByRole('button', { name: 'See description' }))
+  const dialog = screen.getByRole('dialog', { name: 'NB-1 · Sync notes' })
+  expect(within(dialog).getByText('Original scope').tagName).toBe('STRONG')
+  expect(within(dialog).getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
     'https://example.com/guide',
   )
-  expect(within(request).getByRole('button', { name: 'Copy code' })).toBeTruthy()
-  expect(within(request).getByText(file.name)).toBeTruthy()
-  expect(within(request).getAllByRole('img', { name: image.name })).toHaveLength(1)
-  await user().click(within(request).getByRole('button', { name: 'See less' }))
-  expect(within(request).queryByText(file.name)).toBeNull()
-  expect(within(request).getByRole('img', { name: image.name })).toBeTruthy()
-  await user().click(within(request).getByRole('button', { name: 'See more' }))
+  expect(within(dialog).getByRole('button', { name: 'Copy code' })).toBeTruthy()
+  expect(within(dialog).getByText(file.name)).toBeTruthy()
+  expect(await within(dialog).findByRole('img', { name: image.name })).toBeTruthy()
+  fireEvent(dialog, new Event('cancel', { cancelable: true }))
+  expect(screen.queryByRole('dialog')).toBeNull()
   const pending = deferred<DescriptionVersion[]>()
   api.handle('taskDescriptions', () => pending.promise)
   view.rerender(<TaskDescription task={task({ id: 'NB-2', displayId: 'NB-2' })} />)
-  expect(screen.queryByRole('img', { name: image.name })).toBeNull()
-  expect(screen.queryByText(current.description)).toBeNull()
+  expect(screen.queryByText('Original scope')).toBeNull()
   expect(screen.getByRole('status', { name: 'Loading original request…' })).toBeTruthy()
   await act(async () => pending.resolve([{ version: 1, at: createdAt, text: 'Second request.' }]))
-  expect(screen.queryByRole('button', { name: 'See less' })).toBeNull()
   expect(screen.getByText('Second request.')).toBeTruthy()
 })
 
-test('short, image-only and empty requests need no expansion control', async () => {
+test('short and image-only requests show See description; an empty one shows nothing', async () => {
   const image = { hash: 'image', name: 'request.png', mediaType: 'image/png', size: 68 }
   const api = bridge({
     taskDescriptions: () => [{ version: 1, at: createdAt, text: 'A short request.' }],
     readAttachment: () => ({ data: 'aW1hZ2U=' }),
   })
-  const current = task()
-  const view = render(<TaskDescription task={current} />)
+  const view = render(<TaskDescription task={task()} />)
   await screen.findByText('A short request.')
-  expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'See description' })).toBeTruthy()
   api.handle('taskDescriptions', () => [{ version: 1, at: createdAt, text: '' }])
-  view.rerender(<TaskDescription task={task({ id: 'NB-2', attachments: [image] })} />)
-  await screen.findByRole('img', { name: image.name })
-  expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
+  view.rerender(
+    <TaskDescription task={task({ id: 'NB-2', displayId: 'NB-2', attachments: [image] })} />,
+  )
+  await user().click(await screen.findByRole('button', { name: 'See description' }))
   expect(screen.queryByText('No description.')).toBeNull()
+  const dialog = screen.getByRole('dialog', { name: 'NB-2 · Sync notes' })
+  expect(await within(dialog).findByRole('img', { name: image.name })).toBeTruthy()
+  const request = screen.getByRole('region', { name: 'Original request' })
+  expect(
+    within(request)
+      .getAllByRole('img')
+      .every((img) => dialog.contains(img)),
+  ).toBe(true)
   view.rerender(<TaskDescription task={task({ id: 'NB-3' })} />)
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Original request' })).toBeNull())
   expect(screen.queryByText('No description.')).toBeNull()
-})
-
-test('a short linked request can reveal its interactive content without hiding the preview', async () => {
-  bridge({
-    taskDescriptions: () => [
-      { version: 1, at: createdAt, text: 'Read the [guide](https://example.com/guide).' },
-    ],
-  })
-  render(<TaskDescription task={task()} />)
-  const guide = await screen.findByText('guide')
-  expect(guide.closest('[inert]')).toBeNull()
-  expect(screen.queryByRole('link')).toBeNull()
-  await user().click(await screen.findByRole('button', { name: 'See more' }))
-  expect(screen.getByRole('link', { name: 'guide' }).getAttribute('href')).toBe(
-    'https://example.com/guide',
-  )
 })
 
 test('thread Unarchive retains pending feedback, rejects repeats and recovers after failure', async () => {
