@@ -16,6 +16,7 @@ export function tedPaths(home: string) {
     daemonOutput: path.join(home, 'logs', 'daemon-output.log'),
     daemonInfo: path.join(home, 'daemon.json'),
     daemonLock: path.join(home, 'daemon-lock.db'),
+    quitMark: path.join(home, 'quit-mark'),
     runTokenKey: path.join(home, 'run-token.key'),
     repos: path.join(home, 'repos'),
     worktrees: path.join(home, 'worktrees'),
