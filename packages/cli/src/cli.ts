@@ -1378,7 +1378,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       console.log(`${task.displayId} waits for ${by}`)
     },
     taskDone: async () => {
-      const ref = taskRef()
+      const ref = tedEnv('TED_TASK', env)
+      if (!ref) throw new UsageError('ted task done works only inside a Task Lead’s Run')
       const task = await withDaemon(home, (client) => client.leadDone(ref))
       console.log(`${task.displayId} is Done`)
     },

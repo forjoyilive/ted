@@ -205,6 +205,8 @@ describe('importable CLI execution', () => {
     expect(output).toBe(`${helpText()}\n`)
     expect(await runCli(['task', 'list', '--design', 'missing.json'], runtime)).toBe(2)
     expect(await runCli(['comment', '--attach', 'missing.txt', '--skip'], runtime)).toBe(2)
+    expect(await runCli(['task', 'done'], runtime)).toBe(2)
+    expect(errors).toContain('ted task done works only inside a Task Lead’s Run')
     expect(errors).toContain('--design')
     expect(errors).toContain('--skip')
     expect(errors).not.toContain('ENOENT')

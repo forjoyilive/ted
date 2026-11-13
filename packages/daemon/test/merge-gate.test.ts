@@ -365,7 +365,7 @@ async function mergeSignoffOrReview(client: Client, task: Task, count: number) {
 }
 
 describe('Sending after sign-off', () => {
-  test('Send and cancel merge cancels the merge, turns auto-merge off and counts as Request changes; the Task Lead then marks it done', async () => {
+  test('Send and cancel merge cancels the merge, turns auto-merge off and counts as Request changes; a Coordinator then marks it done', async () => {
     const clock = new ManualClock()
     const client = await start({
       daemon: { clock },
@@ -465,16 +465,47 @@ describe('Sending after sign-off', () => {
     })
     await client.ok('GET', `/factories/${task.factoryId}/settings?refresh=first`)
     const checkRuns = await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)
+    const started = await client.ok<{ runId: string }>(
+      'POST',
+      `/factories/${task.factoryId}/coordinator/messages`,
+      {
+        text: JSON.stringify({ steps: [{ waitFor: path.join(ctx.scratch, 'coordinator') }] }),
+        agent: 'claude',
+      },
+    )
+    await waitUntil(async () => {
+      const chat = await client.ok<{ started: boolean; status: string }>(
+        'GET',
+        `/factories/${task.factoryId}/coordinator`,
+      )
+      return chat.started && chat.status === 'working' ? chat : undefined
+    }, 'the Coordinator to start')
+    const coordinator = api(
+      port,
+      (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(started.runId),
+    )
+    const read = await coordinator.call('GET', `/coordinator/tasks/${task.id}`)
+    const { version } = JSON.parse(
+      (read.body as { context: string }).context.split('\n').slice(1, -1).join('\n'),
+    ) as { version: string }
+
     await setGh({ merged: true })
-    const answered = await lead.call('POST', `/tasks/${task.id}/done`)
+    const answered = await coordinator.call('POST', `/coordinator/tasks/${task.id}/done`, {
+      operation: 'done-1',
+      version,
+    })
     expect(answered.status).toBe(200)
-    const marked = answered.body as Task
+    expect((answered.body as { text: string }).text).toContain('done')
+    const marked = await getTask(client, task.id)
     expect(await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)).toEqual(checkRuns)
     expect(marked.stage).toBe('done')
     expect(marked.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await lines(client, task)).toContain(
-      'The Task Lead marked the Task done after its pull requests merged on GitHub',
+      'The Coordinator marked the Task done after its pull requests merged on GitHub',
     )
+    const leadAgain = await lead.call('POST', `/tasks/${task.id}/done`)
+    expect(leadAgain.status).toBe(200)
+    expect((leadAgain.body as Task).stage).toBe('done')
     expect((await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)).stage).toBe('done')
   })
 })
