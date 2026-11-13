@@ -4,7 +4,7 @@ export const boardCardSizes = ['full', 'compact'] as const
 
 export type BoardCardSize = (typeof boardCardSizes)[number]
 
-export const boardFields = ['priority', 'activity', 'sub-agents', 'blockers'] as const
+export const boardFields = ['priority', 'activity', 'sub-agents', 'blockers', 'hierarchy'] as const
 
 export type BoardField = (typeof boardFields)[number]
 
