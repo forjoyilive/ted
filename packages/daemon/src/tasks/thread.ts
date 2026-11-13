@@ -559,6 +559,9 @@ export function threadEvents(
           )
         }
         break
+      case 'v1.BaseBranchAdopted':
+        add(entry, 'quiet', `TED moved ${text(data.repo)} to the latest ${text(data.base)}`)
+        break
       case 'v1.LoopCheckStarted':
         add(
           entry,

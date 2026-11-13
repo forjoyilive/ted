@@ -146,6 +146,24 @@ export function createTaskHistory(
           return { kind: 'blockers', pending }
       }
     },
+    heldBeforeWork(taskId: string): boolean {
+      const log = read(taskId)
+      const held = log.findLastIndex(
+        (e) => e.name === 'v1.TaskPreparationChanged' && e.data.state === 'ready',
+      )
+      return (
+        held >= 0 &&
+        !log
+          .slice(held + 1)
+          .some(
+            (e) =>
+              (e.name === 'v2.RunStarted' ||
+                e.name === 'v3.RunStarted' ||
+                e.name === 'v4.RunStarted') &&
+              typeof e.data.parentRunId !== 'string',
+          )
+      )
+    },
     failureHistory(
       taskId: string,
       now: number,

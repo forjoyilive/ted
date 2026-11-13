@@ -109,8 +109,21 @@ export async function folderRemotes(
   return { root, remotes }
 }
 
-export async function fetch(repo: string): Promise<void> {
-  await git(repo, 'fetch', '--prune', 'origin')
+export async function fetch(repo: string, timeoutMs?: number): Promise<void> {
+  if (timeoutMs === undefined) {
+    await git(repo, 'fetch', '--prune', 'origin')
+    return
+  }
+  try {
+    await execFileAsync('git', ['fetch', '--prune', 'origin'], {
+      cwd: repo,
+      env: env(),
+      timeout: timeoutMs,
+    })
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr?.trim()
+    throw new GitError(redactSecrets(`git fetch failed${stderr ? `: ${stderr}` : ''}`))
+  }
 }
 
 export async function defaultBranch(repo: string): Promise<string> {
@@ -803,7 +816,11 @@ export async function prepareIncorporation(
   return { head, commit }
 }
 
-export async function moveBranchTo(worktree: string, commit: string): Promise<void> {
+export async function moveBranchTo(
+  worktree: string,
+  commit: string,
+  from?: string,
+): Promise<boolean> {
   const keys = await git(worktree, 'config', '--name-only', '--get-regexp', '^filter\\.').catch(
     () => '',
   )
@@ -818,18 +835,27 @@ export async function moveBranchTo(worktree: string, commit: string): Promise<vo
     '-c',
     `filter.${name}.required=false`,
   ])
-  await git(
-    worktree,
-    ...noHooks,
-    ...noFilters,
-    '-c',
-    'core.hooksPath=/dev/null',
-    '-c',
-    'submodule.recurse=false',
-    'reset',
-    '--keep',
-    commit,
-  )
+  const reset = (to: string) =>
+    git(
+      worktree,
+      '--no-replace-objects',
+      `--work-tree=${path.resolve(worktree)}`,
+      ...noHooks,
+      ...noFilters,
+      '-c',
+      'core.hooksPath=/dev/null',
+      '-c',
+      'submodule.recurse=false',
+      'reset',
+      '--keep',
+      to,
+    )
+  await reset(commit)
+  if (from === undefined) return true
+  const before = await git(worktree, '--no-replace-objects', 'rev-parse', '--verify', 'HEAD@{1}')
+  if (before === from) return true
+  await reset(before)
+  return false
 }
 
 export async function addScratchWorktree(
