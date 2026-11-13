@@ -117,6 +117,7 @@ function DescriptionDialog({
       className={`${styles.historyDialog} ${styles.descriptionDialog}`}
       aria-labelledby={headingId}
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return
         event.preventDefault()
         onClose()
       }}
