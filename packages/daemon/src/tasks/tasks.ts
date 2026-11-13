@@ -705,6 +705,7 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     sandbox: options.sandbox,
+    sandboxSockets: async (taskId) => sandboxSockets(find(taskId)),
     env: () => options.env?.() ?? process.env,
   })
 
@@ -832,15 +833,20 @@ export function createTasks(options: {
     return problem
   }
 
-  function sandboxScope(
+  async function sandboxSockets(task: StoredTask): Promise<readonly string[]> {
+    return (await taskWorkflow(task, { fetch: false })).workflow.settings.sandbox_sockets ?? []
+  }
+
+  async function sandboxScope(
     task: StoredTask,
     repos: readonly TaskRepo[] = task.repos,
-  ): Omit<SandboxScope, 'tmp'> {
+  ): Promise<Omit<SandboxScope, 'tmp'>> {
     const live = repos.filter((r) => !r.removed)
     return {
       writable: [...new Set(live.map((r) => r.worktree))],
       readable: [...new Set(live.map((r) => clonePath(reposDir, r)))],
       cache: path.join(sandboxDir, task.displayId, 'cache'),
+      sockets: await sandboxSockets(task),
     }
   }
 
@@ -856,7 +862,7 @@ export function createTasks(options: {
         release,
         sandbox: {
           sandbox: options.sandbox,
-          scope: sandboxScope(task, repos),
+          scope: await sandboxScope(task, repos),
           tmpRoot: path.join(sandboxDir, task.displayId),
         },
       }
@@ -879,12 +885,13 @@ export function createTasks(options: {
     )
     const setupApps = task.setup ? await approvedSetupApps(task) : undefined
     const bypass = runsInBypass(await taskWorkflow(find(task.id), { fetch: false }))
+    const scope = await sandboxScope(task)
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
-      cache: sandboxScope(task).cache,
+      cache: scope.cache,
       ...(!bypass && {
-        sandbox: sandboxScope(task),
+        sandbox: scope,
         outsideSandbox: store.settings().appsOutsideSandbox[task.factoryId] ?? [],
       }),
       repos: live.map((repo) => {

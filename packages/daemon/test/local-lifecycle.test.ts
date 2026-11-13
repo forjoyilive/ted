@@ -34,6 +34,7 @@ function backend(program?: string) {
     worktreesDir: path.join(home, 'worktrees'),
     logsDir: path.join(home, 'logs'),
     sandbox: createSandbox({ tedHome: home, env: () => process.env, ...(program && { program }) }),
+    sandboxSockets: async () => [],
     env: () => process.env,
   })
 }

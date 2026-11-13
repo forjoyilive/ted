@@ -295,6 +295,7 @@ const rootOrder = [
   'planner',
   'permissions',
   'max_working_runs',
+  'sandbox_sockets',
   'repos',
   'order',
   'stages',

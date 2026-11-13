@@ -283,6 +283,7 @@ Rules:
 | `effort` (same) | any layer | The CLI’s levels: `low`, `medium`, `high`, `xhigh`, `max`, plus `ultra` on some Codex models. An unsupported level drops to the highest the model allows. Unset: the CLI’s default. | KRI-53 |
 | `permissions` | Legacy Factory key | Advisory `auto` or `bypass`; never authorizes Bypass. The effective mode is chosen on each computer (7.8). | KRI-20, KRI-53, KRI-165 |
 | `max_working_runs` | Factory only | Optional per-Factory cap on working Runs. Unset by default. | KRI-15, KRI-57 |
+| `sandbox_sockets` | any layer | Unix socket paths that sandboxed Checks, Apps and worktree setup/teardown may connect to (ADR 0142). Each entry is an absolute path, a `~/` path or a whole `$NAME` from the login shell. Unset: only sockets in the Task’s own folders. | KRI-221 |
 | `repos` | Factory only | List of the Factory’s repos; the first is the primary repo (4.6). | KRI-58 |
 | `order` | any layer | Ordered list of agent Stage ids (4.7). | KRI-12, KRI-58 |
 | `stages.<id>.enabled` | any layer | `false` turns a Stage off without editing `order`. | KRI-12 |

@@ -66,6 +66,7 @@ export interface WorkflowSettings {
   planner?: AgentChoice
   permissions?: string
   max_working_runs?: number
+  sandbox_sockets?: string[]
   repos?: RepoSettings[]
   order?: AgentStageId[]
   stages: Partial<Record<StageId, StageSettings>>
@@ -237,6 +238,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           error(value, '`max_working_runs` must be a whole number above 0')
         } else settings.max_working_runs = scalar(value) as number
         break
+      case 'sandbox_sockets': {
+        const sockets = checkSandboxSockets(value)
+        if (sockets) settings.sandbox_sockets = sockets
+        break
+      }
       case 'repos':
         if (context.kind === 'library') warn(key, `\`${name}${factoryOnly}`)
         else {
@@ -288,6 +294,19 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       } else warn(entry.key, `unknown key \`${path}\``)
     }
     return choice
+  }
+
+  function checkSandboxSockets(value: Node | null): string[] | undefined {
+    const message =
+      '`sandbox_sockets` must be a list of socket paths: absolute, starting with ~/, or a whole $NAME'
+    if (!isSeq(value)) return void error(value, message)
+    const sockets: string[] = []
+    for (const item of value.items as (Node | null)[]) {
+      const entry = scalar(item)
+      if (typeof entry !== 'string' || !isSocketEntry(entry)) return void error(item, message)
+      sockets.push(entry)
+    }
+    return sockets
   }
 
   function checkOrder(value: Node | null): AgentStageId[] | undefined {
@@ -722,6 +741,21 @@ function entries(map: YAMLMap): { key: Node | null; value: Node | null; name: st
     const key = pair.key as Node | null
     return { key, value: pair.value as Node | null, name: String(scalar(key)) }
   })
+}
+
+export function isSocketEntry(entry: string): boolean {
+  if (entry.includes('\0') || entry.length > 1024) return false
+  if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(entry)) return true
+  const rest = entry.startsWith('~/')
+    ? entry.slice(2)
+    : entry.startsWith('/')
+      ? entry.slice(1)
+      : undefined
+  return (
+    rest !== undefined &&
+    rest !== '' &&
+    !rest.split('/').some((part) => part === '..' || part === '')
+  )
 }
 
 function scalar(node: Node | null | undefined): unknown {
