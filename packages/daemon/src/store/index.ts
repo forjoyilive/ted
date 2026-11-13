@@ -976,6 +976,8 @@ export interface TedStore extends TaskHistory {
   taskVersion(): number
   taskBuilds(): number
   sourcedTaskIds(): string[]
+  taskSourceUrls(): { taskId: string; url: string }[]
+  taskPullRequestUrls(taskId: string): string[]
   runReadOffset(id: string): number
   recordRunUsage(usage: {
     runId: string
@@ -1069,6 +1071,12 @@ export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 export interface OpenProgress {
   done: number
   total: number
+}
+
+let tasksBuiltHere = 0
+
+export function tasksBuiltInProcess(): number {
+  return tasksBuiltHere
 }
 
 export async function openStore({
@@ -1686,6 +1694,7 @@ export async function openStore({
     reads: TaskReads = taskReads(false, true),
   ): StoredTask => {
     taskBuilds += 1
+    tasksBuiltHere += 1
     const stage = row.stage as StageId
     const pendingMessages: LeadMessage[] =
       pendingLeadDeliveries !== null
@@ -5519,6 +5528,12 @@ export async function openStore({
     taskVersion: () => stateCommits,
     taskBuilds: () => taskBuilds,
     sourcedTaskIds: () => store.query(queryDb(taskSources)).map((row) => row.taskId),
+    taskSourceUrls: () =>
+      store.query(queryDb(taskSources)).map(({ taskId, url }) => ({ taskId, url })),
+    taskPullRequestUrls: (taskId) =>
+      reposOf(taskId).flatMap((repo) =>
+        repo.pullRequest && !repo.removed ? [repo.pullRequest.url] : [],
+      ),
     runReadOffset: (id) => Math.max(runRow(id)?.readOffset ?? 0, heldOutput.get(id)?.toOffset ?? 0),
     recordRunUsage({ runId, agent, model, input, output, cost }) {
       commit(

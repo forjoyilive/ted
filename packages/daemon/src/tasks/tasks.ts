@@ -1259,6 +1259,13 @@ export function createTasks(options: {
     builtList = undefined
     builtAt = version
   }
+  function sameSource(url: string): Task[] {
+    const key = sourceKey(url)
+    const ids = store
+      .taskSourceUrls()
+      .flatMap((source) => (sourceKey(source.url) === key ? [source.taskId] : []))
+    return store.tasksIn(new Set(ids))
+  }
   function taskNow(id: string): StoredTask | undefined {
     builtNow()
     if (!built.has(id)) built.set(id, store.getTask(id))
@@ -4691,6 +4698,12 @@ export function createTasks(options: {
     }
   }
 
+  function autopilotCandidates(): string[] {
+    const ids = new Set(store.listOpenRequests().map((comment) => comment.taskId))
+    for (const key of automaticNotified) ids.add(key.slice(0, key.indexOf(':')))
+    return [...ids]
+  }
+
   function requireCommentable(task: StoredTask): void {
     if (task.archived) {
       throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
@@ -6938,7 +6951,7 @@ export function createTasks(options: {
     }
     const refuseOpen = () => {
       if (url === undefined) return
-      const clash = sourceClash(store.listTasks(), original.factoryId, url)
+      const clash = sourceClash(sameSource(url), original.factoryId, url)
       if (clash?.kind === 'open') throw new RequestError(409, clashMessage(clash))
     }
     refuseOpen()
@@ -7706,7 +7719,7 @@ export function createTasks(options: {
     ) {
       const ids =
         event.type === 'settings-changed'
-          ? store.listTasks().map((t) => t.id)
+          ? autopilotCandidates()
           : [event.type === 'task-updated' ? event.task.id : event.comment.taskId]
       for (const id of ids)
         setImmediate(() => {
@@ -8394,7 +8407,7 @@ export function createTasks(options: {
       }
       const refuseTracked = () => {
         if (sourceUrl === undefined || !factory || caller.kind === 'app') return
-        const clash = sourceClash(store.listTasks(), factory.id, sourceUrl)
+        const clash = sourceClash(sameSource(sourceUrl), factory.id, sourceUrl)
         if (clash) throw new RequestError(409, clashMessage(clash))
       }
       refuseTracked()
