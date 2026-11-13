@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process'
 import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
+import net from 'node:net'
 import path from 'node:path'
 import {
   DaemonClient,
   enrollmentLifetimeMs,
   executionHello,
   readDaemonInfo,
+  remoteExecutionOff,
   tedPaths,
 } from '@ted/protocol'
 import { expect, test } from 'vitest'
@@ -21,9 +23,21 @@ import { createExecutionFixture } from './support/execution-fixture.ts'
 import { observe } from './support/execution-observations.ts'
 import {
   executionWorkerFixture,
+  freeExecutionPort,
   pendingPairing,
   preparePairingController,
 } from './support/execution-pairing.ts'
+
+function accepts(address: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: address, port })
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('error', () => resolve(false))
+  })
+}
 
 test('pairing across isolated processes refuses untrusted peers and preserves approved trust through restart and revocation', async () => {
   const fixture = await createExecutionFixture()
@@ -266,6 +280,27 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
       oldCertificateForNewGrant: 'refused',
       agentStarts: 0,
     })
+
+    const saved = (await controller.client.executionMachines()).endpoint
+    expect(saved).toBeDefined()
+    if (!saved) return
+    expect(await accepts(saved.address, saved.port)).toBe(true)
+    await controller.kill()
+    controller.extraEnv.TED_REMOTE_EXECUTION = 'off'
+    await controller.start()
+    expect(await controller.client.executionMachines()).toMatchObject({
+      disabled: true,
+      machines: [],
+      pending: [],
+    })
+    expect(await accepts(saved.address, saved.port)).toBe(false)
+    await expect(
+      controller.client.configureExecution({
+        address: '127.0.0.1',
+        port: await freeExecutionPort(),
+      }),
+    ).rejects.toThrow(remoteExecutionOff)
+    await expect(controller.client.createExecutionEnrollment()).rejects.toThrow(remoteExecutionOff)
   } finally {
     await worker.close()
     await fixture.close()

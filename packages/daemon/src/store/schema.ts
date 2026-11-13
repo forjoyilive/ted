@@ -195,6 +195,16 @@ export const taskParents = State.SQLite.table({
   },
 })
 
+export const taskTreeArchives = State.SQLite.table({
+  name: 'taskTreeArchives',
+  indexes: [{ name: 'idx_taskTreeArchives_rootId', columns: ['rootId'] }],
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    rootId: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const deletedTasks = State.SQLite.table({
   name: 'deletedTasks',
   columns: {
@@ -1278,6 +1288,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskTreeArchived: Events.synced({
+    name: 'v1.TaskTreeArchived',
+    schema: Schema.Struct({
+      rootId: Schema.String,
+      taskIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskBlockerAdded: Events.synced({
     name: 'v1.TaskBlockerAdded',
     schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
@@ -2110,6 +2128,10 @@ export const events = {
   mergeCanceled: Events.synced({
     name: 'v1.MergeCanceled',
     schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
+  }),
+  taskMarkedDone: Events.synced({
+    name: 'v1.TaskMarkedDone',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
@@ -3378,6 +3400,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.GateApprovalBound': (args) =>
     task(args, { commentId: args.commentId, name: args.name, commit: args.commit }),
   'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
+  'v1.TaskMarkedDone': (args) => task(args),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -3572,6 +3595,12 @@ const materializers = counted(
           : taskParents.insert({ taskId, parentId, at }).onConflict('taskId', 'replace'),
         tasks.update({ changedAt: at }).where({ id: taskId }),
       ],
+      'v1.TaskTreeArchived': ({ rootId, taskIds, at }) => [
+        taskTreeArchives.delete().where({ rootId }),
+        ...taskIds.map((taskId) =>
+          taskTreeArchives.insert({ taskId, rootId, at }).onConflict('taskId', 'replace'),
+        ),
+      ],
       'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
         taskBlockers
           .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
@@ -3671,6 +3700,8 @@ const materializers = counted(
       'v1.GateSkippedOvernight': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.TaskMarkedDone': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
@@ -3797,6 +3828,8 @@ const materializers = counted(
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v1.TaskUnarchived': ({ taskId, rank, at }) => [
+        taskTreeArchives.delete().where({ taskId }),
+        taskTreeArchives.delete().where({ rootId: taskId }),
         ...(rank === null
           ? []
           : [taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace')]),
@@ -3817,6 +3850,8 @@ const materializers = counted(
         tasks.delete().where({ id: taskId }),
         taskQueue.delete().where({ taskId }),
         taskBlockers.delete().where({ taskId }),
+        taskTreeArchives.delete().where({ taskId }),
+        taskTreeArchives.delete().where({ rootId: taskId }),
         taskAttachments.delete().where({ taskId }),
         taskBrowserCaptures.delete().where({ taskId }),
         commentAttachments.delete().where({ taskId }),
@@ -3916,6 +3951,8 @@ const materializers = counted(
         taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
         reviewScopes.delete().where({ taskId }),
+        taskTreeArchives.delete().where({ rootId: taskId }),
+        taskTreeArchives.delete().where({ taskId }),
         baseConflicts.delete().where({ taskId }),
         p1OnlyReviews.delete().where({ taskId }),
         severityDeclarations.delete().where({ taskId }),
@@ -4677,6 +4714,7 @@ const state = State.SQLite.makeState({
     executionOperations,
     taskBlockers,
     taskParents,
+    taskTreeArchives,
     deletedTasks,
     taskAttachments,
     taskBrowserCaptures,

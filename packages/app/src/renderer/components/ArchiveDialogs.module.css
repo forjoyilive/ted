@@ -200,3 +200,30 @@
 .instead:hover {
   text-decoration: underline;
 }
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.choice input {
+  margin: 3px 0 0;
+  accent-color: var(--accent-default);
+}
+
+.choice[data-disabled] {
+  color: var(--text-muted);
+}
+
+.choiceHelp {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+
+.note {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}

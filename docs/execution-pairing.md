@@ -1,5 +1,7 @@
 # Connect an execution Mac
 
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+
 This first version pairs Macs and reports readiness. It does not assign or run Tasks
 remotely. One controlling TED keeps the Factory, Tasks, Workflow, Inbox and approvals.
 An execution Mac has a smaller worker window. Its independent TED Factories, if any,

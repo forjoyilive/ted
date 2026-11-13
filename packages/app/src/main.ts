@@ -28,6 +28,7 @@ import {
   type MachineSettings,
   noActivity,
   parseLinearUrl,
+  remoteExecutionOn,
   tedEnv,
   tedHome,
   tedPaths,
@@ -322,7 +323,8 @@ async function choosePicture(): Promise<string | undefined> {
   return square.resize({ width: size, height: size, quality: 'best' }).toDataURL()
 }
 
-const workerOnly = process.argv.includes('--worker')
+const remoteExecution = remoteExecutionOn()
+const workerOnly = remoteExecution && process.argv.includes('--worker')
 const platform = process.platform as Platform
 const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1'
 
@@ -363,7 +365,7 @@ const restartDelaysMs = tedEnv('TED_RESTART_DELAYS_MS')?.split(',').map(Number) 
 ]
 const keepsStopping = 'TED’s background process keeps stopping'
 
-const workerWindow = createWorkerWindow(hiddenWindow)
+const workerWindow = createWorkerWindow(remoteExecution, hiddenWindow)
 const workerRequests = {
   workerStatus: () => workerWindow.status(),
   workerPair: (input: unknown) => workerWindow.pair(input),
@@ -852,7 +854,10 @@ async function createWindow(): Promise<void> {
   created.webContents.on('will-navigate', (event) => event.preventDefault())
   keepFramesInPlace(created.webContents)
   traceStartup('renderer-load-start')
-  await created.loadFile(path.join(import.meta.dirname, '../dist/renderer/index.html'))
+  await created.loadFile(
+    path.join(import.meta.dirname, '../dist/renderer/index.html'),
+    remoteExecution ? { query: { remoteExecution: 'on' } } : {},
+  )
   traceStartup('renderer-load-finished')
 }
 
@@ -1072,7 +1077,7 @@ async function start(): Promise<void> {
   app.on('window-all-closed', () => undefined)
   app.on('activate', showWindow)
   app.on('second-instance', (_event, argv) => {
-    if (argv.includes('--worker')) void workerWindow.open()
+    if (remoteExecution && argv.includes('--worker')) void workerWindow.open()
     else showWindow()
   })
   refresh()

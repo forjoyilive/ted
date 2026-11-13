@@ -193,6 +193,7 @@ import {
   taskRepos,
   taskSources,
   tasks,
+  taskTreeArchives,
   workflowLayers,
 } from './schema.ts'
 import { createSideChatStore, type SideChatStore } from './side-chats.ts'
@@ -370,6 +371,7 @@ export interface NewTask {
   lead?: TaskLead
   startRequested?: boolean
   blockedBy?: string[]
+  parentId?: string
   attachments?: Attachment[]
   source?: TaskSource
   followUpOf?: string
@@ -660,6 +662,7 @@ export interface TedStore extends TaskHistory {
   gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
   gateKeptOvernight(taskId: string, stage: AgentStageId, reason: 'settings' | 'unreadable'): void
   mergeCanceled(taskId: string, commentId: string): void
+  taskMarkedDone(taskId: string): void
   mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
@@ -707,6 +710,8 @@ export interface TedStore extends TaskHistory {
   parentOf(taskId: string): string | undefined
   childrenOf(taskId: string): string[]
   setTaskParent(taskId: string, parentId: string | null): Task
+  recordTreeArchive(rootId: string, taskIds: readonly string[]): void
+  archivedWith(rootId: string): string[]
   blockers(taskId: string): BlockerLink[]
   addBlocker(
     taskId: string,
@@ -3286,6 +3291,7 @@ export async function openStore({
       lead,
       startRequested = false,
       blockedBy = [],
+      parentId,
       attachments = [],
       source,
       followUpOf,
@@ -3360,6 +3366,7 @@ export async function openStore({
         ...blockedBy.map((blockerId) =>
           events.taskBlockerAddedV2({ taskId: id, blockerId, runId: null, at }),
         ),
+        ...(parentId ? [events.taskParentChanged({ taskId: id, parentId, at })] : []),
         ...attachments.map((attachment) =>
           events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
         ),
@@ -3417,6 +3424,7 @@ export async function openStore({
       }
       if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
       if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
+      if (parentId !== undefined && taskRow(parentId)) updatedTask(parentId)
       return task
     },
     listTasks: () => listTasks().map(toPublicTask),
@@ -3667,6 +3675,15 @@ export async function openStore({
       for (const id of new Set([old, parentId])) if (id && taskRow(id)) updatedTask(id)
       return task
     },
+    recordTreeArchive(rootId, taskIds) {
+      commit(
+        events.taskTreeArchived({ rootId, taskIds: [...taskIds], at: new Date().toISOString() }),
+      )
+    },
+    archivedWith: (rootId) =>
+      store
+        .query(queryDb(taskTreeArchives.where({ rootId }).orderBy('taskId', 'asc')))
+        .map((row) => row.taskId),
     blockers: blockerLinks,
     addBlocker(taskId, blockerId, { runId, then } = {}) {
       const at = new Date().toISOString()
@@ -4270,6 +4287,10 @@ export async function openStore({
     },
     mergeCanceled(taskId, commentId) {
       commit(events.mergeCanceled({ taskId, commentId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    taskMarkedDone(taskId) {
+      commit(events.taskMarkedDone({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     mergePending(taskId) {

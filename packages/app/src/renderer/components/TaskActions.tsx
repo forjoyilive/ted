@@ -2,6 +2,8 @@ import type { RunSummary, Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useState } from 'react'
+import { useTasks } from '../data.ts'
+import { newChildTask, pickChildEvent, pickParentEvent } from '../hierarchy.ts'
 import { keysFor } from '../keymap.ts'
 import { usePendingAction } from '../pending-action.ts'
 import { clockTime } from '../requests.ts'
@@ -19,12 +21,16 @@ import {
   deleteTaskEvent,
   FollowUpDialog,
   followUpTaskEvent,
+  needsUnarchiveDialog,
   ResetDialog,
   resetTaskEvent,
+  UnarchiveDialog,
+  unarchiveTaskEvent,
 } from './ArchiveDialogs.tsx'
 import menuStyles from './ContextMenu.module.css'
 import { buttonPosition, ContextMenu, type MenuPosition, MenuSubmenu } from './ContextMenu.tsx'
 import { Tooltip } from './Help.tsx'
+import { changeParent } from './HierarchySection.tsx'
 import { LoadingError } from './Loading.tsx'
 import { SnoozeTaskDialog, snoozeTaskEvent } from './SnoozeTaskDialog.tsx'
 import styles from './TaskActions.module.css'
@@ -186,7 +192,14 @@ function HistoryItem({ history, close }: { history: TaskHistory; close: () => vo
   )
 }
 
-export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up' | 'reset' | 'snooze'
+export type TaskDialogKind =
+  | 'archive'
+  | 'delete'
+  | 'edit'
+  | 'follow-up'
+  | 'reset'
+  | 'snooze'
+  | 'unarchive'
 
 export function TaskDialog({
   task,
@@ -202,6 +215,7 @@ export function TaskDialog({
   const close = () => onKind(undefined)
   if (kind === 'snooze') return <SnoozeTaskDialog task={task} onClose={close} />
   if (kind === 'archive') return <ArchiveDialog task={task} onClose={close} />
+  if (kind === 'unarchive') return <UnarchiveDialog task={task} onClose={close} />
   if (kind === 'edit') return <EditTaskDialog task={task} onClose={close} />
   if (kind === 'reset') return <ResetDialog task={task} onClose={close} />
   if (kind === 'delete') {
@@ -231,7 +245,7 @@ export function TaskActionsMenu({
   contextAt?: MenuPosition | undefined
   contextOnly?: boolean
   onMenuClose?: () => void
-  onPickBlocker?: (task: Task) => void
+  onPickBlocker?: (task: Task, event?: string) => void
   onFollowedUp?: (followUp: Task) => void
   onOpenBrief?: (() => void) | undefined
   history?: TaskHistory | undefined
@@ -249,6 +263,14 @@ export function TaskActionsMenu({
   }, [contextAt])
   const [dialog, setDialog] = useState<TaskDialogKind>()
   const [error, setError] = useState<string>()
+  const allTasks = useTasks()
+  const parentName = allTasks.find((t) => t.id === task.parentId)?.displayId ?? 'its parent'
+  const pick = (event: string) => {
+    close()
+    return onPickBlocker
+      ? onPickBlocker(task, event)
+      : window.dispatchEvent(new CustomEvent(event, { detail: task.id }))
+  }
   const errorClass = contextOnly ? menuStyles.error : styles.error
   useEffect(() => {
     if (contextOnly) return
@@ -269,6 +291,12 @@ export function TaskActionsMenu({
       if (event instanceof CustomEvent && event.detail === task.id) {
         close()
         setDialog('delete')
+      }
+    }
+    const onUnarchive = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id && task.archived) {
+        close()
+        setDialog('unarchive')
       }
     }
     const onReset = (event: Event) => {
@@ -303,6 +331,7 @@ export function TaskActionsMenu({
     window.addEventListener(editTaskEvent, onEdit)
     window.addEventListener(deleteTaskEvent, onDelete)
     window.addEventListener(resetTaskEvent, onReset)
+    window.addEventListener(unarchiveTaskEvent, onUnarchive)
     window.addEventListener(followUpTaskEvent, onFollowUp)
     return () => {
       window.removeEventListener(snoozeTaskEvent, onSnooze)
@@ -310,6 +339,7 @@ export function TaskActionsMenu({
       window.removeEventListener(editTaskEvent, onEdit)
       window.removeEventListener(deleteTaskEvent, onDelete)
       window.removeEventListener(resetTaskEvent, onReset)
+      window.removeEventListener(unarchiveTaskEvent, onUnarchive)
       window.removeEventListener(followUpTaskEvent, onFollowUp)
     }
   }, [task, contextOnly])
@@ -419,7 +449,11 @@ export function TaskActionsMenu({
               type="button"
               role="menuitem"
               className={styles.item}
-              onClick={() => act(() => ted.unarchiveTask(task.id))}
+              onClick={() =>
+                needsUnarchiveDialog(task)
+                  ? choose('unarchive')
+                  : act(() => ted.unarchiveTask(task.id))
+              }
             >
               <span className={styles.label}>Unarchive</span>
             </ActionButton>
@@ -536,6 +570,20 @@ export function TaskActionsMenu({
               <hr className={styles.separator} />
             </>
           )}
+          {task.stage === 'merge' && (
+            <>
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                title="For pull requests you merged on GitHub yourself. TED checks that each one merged before it moves the Task to Done."
+                onClick={() => act(() => ted.markDone(task.id))}
+              >
+                <span className={styles.label}>Mark as Done</span>
+              </ActionButton>
+              <hr className={styles.separator} />
+            </>
+          )}
           <Submenu label="Priority" hint={priorityLabels[task.priority]}>
             {priorities.map((priority) => (
               <Choice
@@ -605,6 +653,47 @@ export function TaskActionsMenu({
             >
               <span className={styles.label}>Blocked by…</span>
               <span className={styles.hint}>{keysFor('blocked-by').join(' or ')}</span>
+            </ActionButton>
+          )}
+          {task.stage !== 'done' && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => {
+                close()
+                newChildTask(task)
+              }}
+            >
+              Create child…
+            </ActionButton>
+          )}
+          {task.stage !== 'done' && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => pick(pickChildEvent)}
+            >
+              Add existing Task as child…
+            </ActionButton>
+          )}
+          <ActionButton
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => pick(pickParentEvent)}
+          >
+            {task.parentId === undefined ? 'Set parent…' : 'Change parent…'}
+          </ActionButton>
+          {task.parentId !== undefined && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => act(() => changeParent(task, null))}
+            >
+              {`Detach from ${parentName}`}
             </ActionButton>
           )}
           {onOpenBrief && (

@@ -187,6 +187,9 @@ function listView(value: unknown): ListView {
   if (view.showEmptyGroups !== undefined && typeof view.showEmptyGroups !== 'boolean') {
     throw new HttpError(400, 'showEmptyGroups must be true or false')
   }
+  if (view.nested !== undefined && typeof view.nested !== 'boolean') {
+    throw new HttpError(400, 'nested must be true or false')
+  }
   const columns = oneOfList('columns', view.columns, listColumns)
   if (view.columnsVersion !== undefined && view.columnsVersion !== 2) {
     throw new HttpError(400, 'columnsVersion must be 2')
@@ -198,6 +201,7 @@ function listView(value: unknown): ListView {
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
     ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),
+    ...(view.nested !== undefined && { nested: view.nested }),
   }
 }
 

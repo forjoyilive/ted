@@ -1,0 +1,38 @@
+.markers {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.marker {
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.caret:hover {
+  color: var(--text-primary);
+}
+
+.caretSpace {
+  flex-shrink: 0;
+  width: 16px;
+}

@@ -246,6 +246,12 @@ import {
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
 import {
+  type HierarchyMember,
+  type HierarchyView,
+  hierarchyChangedText,
+  hierarchyText,
+} from './hierarchy-text.ts'
+import {
   answered as answeredItems,
   answeredSince,
   byHuman,
@@ -399,6 +405,7 @@ export interface CreateTaskInput
     | 'followUpOf'
     | 'splitFrom'
     | 'automation'
+    | 'parentId'
   > {
   title?: string
   source?: string
@@ -406,6 +413,7 @@ export interface CreateTaskInput
   followUp?: string
   factory?: string
   blockedBy?: string[]
+  parent?: string
   attachments?: Attachment[]
   start?: boolean
 }
@@ -462,6 +470,7 @@ export interface Tasks {
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
+  markDone(ref: string): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
   setUpFactory(factoryId: string): Promise<Task | undefined>
   newSetupTask(factoryId: string): Promise<Task>
@@ -2985,16 +2994,16 @@ export function createTasks(options: {
     if (merging.has(taskId) || closed) return
     merging.add(taskId)
     const name = find(taskId).displayId
-    const canAct = () => {
+    const canWatch = () => {
       const current = taskNow(taskId)
       return (
         !current?.stopped &&
         !checking.has(taskId) &&
-        !holdsMerge(taskId) &&
         !hierarchyBusy.has(taskId) &&
         !unfinishedChildren(taskId)
       )
     }
+    const canAct = () => canWatch() && !holdsMerge(taskId)
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
         let urgent = true
@@ -3004,7 +3013,7 @@ export function createTasks(options: {
           await pullRequestQueue.get(taskId)
           let next: MergeCycle = 'wait'
           let read: PullRequestRead | undefined
-          if (canAct() && watch) {
+          if (canWatch() && watch) {
             read = await watch.next({ now: urgent })
             if (closed || !watched(taskNow(taskId))) return
           }
@@ -3014,12 +3023,18 @@ export function createTasks(options: {
             !current.stopped &&
             !checking.has(taskId) &&
             validation.pendingRepair(current)
-          if (canAct() || repair) {
-            next = await mergeWatcher.cycle(taskId, read).catch((error: unknown) => {
-              if (error instanceof RequestError && error.status === 409) return 'busy' as const
-              console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))
-              return 'wait' as const
-            })
+          const onlyMergedOutside = !canAct() && !repair
+          if (canWatch() || repair) {
+            next = await mergeWatcher
+              .cycle(taskId, read, { onlyMergedOutside })
+              .catch((error: unknown) => {
+                if (error instanceof RequestError && error.status === 409) return 'busy' as const
+                console.error(
+                  `couldn’t merge ${name}’s pull requests:`,
+                  redactSecrets(textOf(error)),
+                )
+                return 'wait' as const
+              })
           }
           if (next === 'done') return
           busy = next === 'busy' ? busy + 1 : 0
@@ -3283,6 +3298,69 @@ export function createTasks(options: {
       )
     }
     return store.getComment(posted.id) ?? posted
+  }
+
+  async function markDone(ref: string): Promise<Task> {
+    const id = find(ref).id
+    await untilFree(id)
+    await mergeWatcher.settled(id)
+    const task = find(id)
+    if (task.stage === 'done' && store.isMerged(id)) return publicTask(id)
+    const notAtMerge = (t: StoredTask) =>
+      new RequestError(409, `${t.displayId} isn’t at Merge, so it can’t be marked done`)
+    if (task.stage !== 'merge' || task.archived) throw notAtMerge(task)
+    return holding(task, async () => {
+      if (!watch) {
+        throw new RequestError(
+          409,
+          `TED can’t read GitHub, so it can’t check that ${task.displayId}’s pull requests merged`,
+        )
+      }
+      const read = await watch.next({ now: true })
+      const before = find(id)
+      if (before.stage !== 'merge' || before.archived) throw notAtMerge(before)
+      if (!before.repos.some((r) => !r.removed && r.pullRequest !== undefined)) {
+        throw new RequestError(409, `${before.displayId} has no pull request to check on GitHub`)
+      }
+      const unmerged = (t: StoredTask) =>
+        t.repos.flatMap((r) =>
+          !r.removed && r.pullRequest !== undefined && r.pullRequest.state !== 'merged'
+            ? [{ name: r.name, where: `${r.repo}#${r.pullRequest.number}` }]
+            : [],
+        )
+      const verified = new Set<string>()
+      for (const { name, where } of unmerged(before)) {
+        const key = `${id}:${name}`
+        const host = read.hostOf.get(key)
+        const remote = read.pulls.get(key)
+        if ((host !== undefined && read.failed.has(host)) || !remote) {
+          throw new RequestError(409, `TED couldn’t read ${where} from GitHub; try again`)
+        }
+        if (remote.state === 'CLOSED') {
+          throw new RequestError(409, `${where} was closed on GitHub without merging`)
+        }
+        if (remote.state !== 'MERGED') {
+          throw new RequestError(409, `${where} is still open on GitHub`)
+        }
+        verified.add(`${name}:${where}`)
+      }
+      await requireObligations(before, read, 'done')
+      const resolution = await taskWorkflow(find(id), { fetch: false })
+      const current = find(id)
+      if (current.stage !== 'merge' || current.archived) throw notAtMerge(current)
+      const left = unmerged(current)
+      const changed = left.find(({ name, where }) => !verified.has(`${name}:${where}`))
+      if (changed) {
+        throw new RequestError(409, `${changed.where} changed while TED read GitHub; try again`)
+      }
+      store.taskMarkedDone(id)
+      for (const { name } of left) {
+        store.pullRequestMerged(id, name, { noCi: false, byTed: false })
+      }
+      await move(find(id), resolution, 'done', undefined)
+      await store.persisted()
+      return publicTask(id)
+    })
   }
 
   const leadFrom = (settings?: WorkflowSettings) =>
@@ -4009,6 +4087,7 @@ export function createTasks(options: {
       resumeSession === undefined && current.stage === 'validate'
         ? await validateRound(current, resolution.workflow)
         : undefined
+    const hierarchyPrompt = hierarchyText(hierarchyView(task.id))
     const prompt = [
       overnightGuidance(overnightMode, task.setup),
       ...pending.map((message) => message.text),
@@ -4028,6 +4107,7 @@ export function createTasks(options: {
                 folder: cwd,
               },
             ),
+            ...(hierarchyPrompt !== undefined ? [hierarchyPrompt] : []),
             ...(round !== undefined ? [round] : []),
             ...(followUp !== undefined ? [followUp] : []),
             ...(note !== undefined ? [note] : []),
@@ -5868,6 +5948,39 @@ export function createTasks(options: {
     return found
   }
 
+  function hierarchyMember(taskId: string, depth = 0): HierarchyMember {
+    const task = find(taskId)
+    return {
+      displayId: task.displayId,
+      title: task.title,
+      stage: task.stage,
+      merged: store.isMerged(task.id),
+      archived: task.archived !== undefined,
+      children:
+        depth > 20 ? [] : store.childrenOf(task.id).map((id) => hierarchyMember(id, depth + 1)),
+    }
+  }
+
+  function hierarchyView(taskId: string): HierarchyView {
+    const task = find(taskId)
+    const parentId = store.parentOf(task.id)
+    return {
+      displayId: task.displayId,
+      parent: parentId === undefined ? undefined : hierarchyMember(parentId),
+      children: store.childrenOf(task.id).map((id) => hierarchyMember(id)),
+    }
+  }
+
+  function tellHierarchyChanged(ids: readonly (string | undefined)[]): void {
+    for (const id of new Set(ids)) {
+      if (id === undefined || !store.getTask(id) || !liveLead(find(id))) continue
+      const text = hierarchyChangedText(hierarchyView(id))
+      inBackground('tell the Task Lead its hierarchy changed', async () => {
+        await deliver(find(id), text)
+      })
+    }
+  }
+
   function hierarchyPreview(ref: string): TaskHierarchyPreview {
     const task = find(ref)
     return {
@@ -5876,6 +5989,7 @@ export function createTasks(options: {
         const child = find(id)
         return { id, displayId: child.displayId, title: child.title }
       }),
+      archivedWith: task.archived ? archivedFamily(task.id) : [],
     }
   }
 
@@ -5966,10 +6080,11 @@ export function createTasks(options: {
     store.setTaskParent(task.id, parent?.id ?? null)
     if (old) releaseParent(old.id, wasBlocked)
     if (parent) holdParent(parent.id)
+    tellHierarchyChanged([task.id, old?.id, parent?.id])
     return publicTask(task.id)
   }
 
-  function archivePlan(ref: string, revision?: string) {
+  function archivePlan(ref: string, revision?: string, detach = false) {
     const task = live(ref)
     const children = descendants(task.id)
     if (children.length > 0) requireHierarchyRevision(task, revision)
@@ -5979,7 +6094,8 @@ export function createTasks(options: {
     if (parent && !store.isMerged(task.id)) safeParent(parent)
     return {
       task,
-      ids,
+      ids: detach ? [task.id] : ids,
+      direct: store.childrenOf(task.id).filter((id) => !find(id).archived),
       parent,
       wasBlocked: parent !== undefined && unmergedBlockers(parent.id).length > 0,
     }
@@ -5990,10 +6106,13 @@ export function createTasks(options: {
     {
       closePullRequests = false,
       blocked = 'unblock',
+      children: choice = 'archive',
       hierarchyRevision: revision,
     }: ArchiveTaskRequest = {},
   ): Task {
-    const { task, ids, parent, wasBlocked } = archivePlan(ref, revision)
+    const detach = choice === 'detach'
+    const { task, ids, direct, parent, wasBlocked } = archivePlan(ref, revision, detach)
+    const archived: string[] = []
     for (const id of [...ids].reverse()) {
       const current = find(id)
       if (current.archived) continue
@@ -6001,6 +6120,16 @@ export function createTasks(options: {
       if (store.childrenOf(id).length > 0 && current.startRequested)
         store.setStartRequested(id, false)
       archiveNow(find(id), closePullRequests)
+      archived.push(id)
+    }
+    if (detach) {
+      for (const child of direct) store.setTaskParent(child, null)
+      tellHierarchyChanged(direct)
+    } else if (ids.length > 1) {
+      store.recordTreeArchive(
+        task.id,
+        archived.filter((id) => id !== task.id),
+      )
     }
     if (parent) releaseParent(parent.id, wasBlocked)
     wake()
@@ -6172,40 +6301,66 @@ export function createTasks(options: {
     return archived
   }
 
+  function archivedFamily(rootId: string): string[] {
+    const together = new Set(store.archivedWith(rootId))
+    const restored = new Set([rootId])
+    const family: string[] = []
+    for (const id of descendants(rootId)) {
+      const parentId = store.parentOf(id)
+      if (!together.has(id) || !find(id).archived || !parentId || !restored.has(parentId)) continue
+      restored.add(id)
+      family.push(id)
+    }
+    return family
+  }
+
+  async function restoreArchived(id: string): Promise<void> {
+    await clearingAway.get(id)?.catch(() => undefined)
+    await pullRequestQueue.get(id)
+    const current = find(id)
+    if (!current.archived || deleting.has(id)) {
+      throw new RequestError(409, `${current.displayId} isn’t archived`)
+    }
+    const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
+    store.unarchiveTask(id, {
+      queue: midFlow,
+      waitForBlockers: midFlow && unmergedBlockers(id).length > 0,
+    })
+    if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
+      pullRequestWork(id, 'reopen')
+    }
+  }
+
   async function unarchive(ref: string, input: UnarchiveTaskRequest = {}): Promise<Task> {
     const task = find(ref)
     if (!task.archived || deleting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} isn’t archived`)
     }
     const parent = task.parentId ? find(task.parentId) : undefined
-    const affected = [task.id, ...(parent ? [parent.id] : [])]
+    const family = input.children === 'restore' ? archivedFamily(task.id) : []
+    const affected = [task.id, ...(parent ? [parent.id] : []), ...family]
     requireHierarchyIdle(affected)
     if (parent && input.unlinkParent) {
       requireHierarchyRevision(task, input.hierarchyRevision)
-      if (parent.stage !== 'done') safeParent(parent)
+      if (parent.stage !== 'done' && !parent.archived) safeParent(parent)
     }
     if (parent && !input.unlinkParent && !store.isMerged(task.id)) safeParent(parent)
     for (const id of affected) hierarchyBusy.add(id)
     try {
-      await clearingAway.get(task.id)?.catch(() => undefined)
-      await pullRequestQueue.get(task.id)
-      const current = find(task.id)
-      if (!current.archived || deleting.has(task.id)) {
-        throw new RequestError(409, `${task.displayId} isn’t archived`)
+      if (parent && input.unlinkParent) {
+        await clearingAway.get(task.id)?.catch(() => undefined)
+        if (!find(task.id).archived) throw new RequestError(409, `${task.displayId} isn’t archived`)
+        store.setTaskParent(task.id, null)
       }
-      if (parent && input.unlinkParent) store.setTaskParent(task.id, null)
-      const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
-      store.unarchiveTask(task.id, {
-        queue: midFlow,
-        waitForBlockers: midFlow && unmergedBlockers(task.id).length > 0,
-      })
-      if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
-        pullRequestWork(task.id, 'reopen')
-      }
+      await restoreArchived(task.id)
+      for (const id of family) await restoreArchived(id)
+      for (const id of [...family].reverse()) holdParent(id)
+      if (family.length > 0) holdParent(task.id)
       if (parent && !input.unlinkParent) holdParent(parent.id)
     } finally {
       for (const id of affected) hierarchyBusy.delete(id)
     }
+    if (parent) tellHierarchyChanged([task.id])
     await pump()
     wake()
     return publicTask(task.id)
@@ -6233,7 +6388,9 @@ export function createTasks(options: {
     try {
       if (parent) store.setTaskParent(task.id, null)
       if (input.children !== 'delete') {
-        for (const id of store.childrenOf(task.id)) store.setTaskParent(id, null)
+        const direct = store.childrenOf(task.id)
+        for (const id of direct) store.setTaskParent(id, null)
+        tellHierarchyChanged(direct)
       }
       if (parent) releaseParent(parent.id, wasBlocked)
       for (const id of [...ids].reverse()) await removeOne(id, input)
@@ -8296,12 +8453,19 @@ export function createTasks(options: {
         source: sourceUrl,
         sentryId,
         followUp,
+        parent: parentRef,
         ...fields
       },
       caller = { kind: 'app' },
     ) {
       if (fields.draftRevision !== undefined && caller.kind !== 'app') {
         throw new RequestError(403, 'only the app can consume a New Task draft')
+      }
+      if (parentRef !== undefined && caller.kind !== 'app') {
+        throw new RequestError(403, 'only the app can create a Task under a parent')
+      }
+      if (parentRef !== undefined && followUp !== undefined) {
+        throw new RequestError(400, 'a follow-up Task can’t be created under a parent')
       }
       const automation = automationCaller(caller)
       const key = automation?.factoryKey ?? givenKey
@@ -8336,6 +8500,18 @@ export function createTasks(options: {
         title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
       const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
+      const parentFor = () => {
+        if (parentRef === undefined) return undefined
+        const parent = find(parentRef)
+        if (!factory || parent.factoryId !== factory.id)
+          throw new RequestError(409, 'Parent and child must belong to the same Factory')
+        requireHierarchyIdle([parent.id])
+        safeParent(parent)
+        if (blockers.some((id) => cycleFrom(id, parent.id)))
+          throw new RequestError(409, 'Parent link would create a hierarchy or blocker cycle')
+        return parent
+      }
+      parentFor()
       let failure: unknown
       const resolution = factory
         ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
@@ -8357,6 +8533,7 @@ export function createTasks(options: {
         throw new RequestError(409, `${factory.name} is being removed`)
       }
       intakeUnchanged()
+      const parent = parentFor()
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
@@ -8373,11 +8550,16 @@ export function createTasks(options: {
         }),
         lead: lead ?? { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
         blockedBy: blockers,
+        ...(parent && { parentId: parent.id }),
         startRequested: startNow === true && !held,
         ...(factory && { factoryId: factory.id }),
         ...(automation && { automation: automation.link }),
         linearConsent: caller.kind === 'app',
       })
+      if (parent) {
+        holdParent(parent.id)
+        tellHierarchyChanged([parent.id])
+      }
       if (issue) noteUnfetched(task.id, issue, linearFiles)
       if (automation && issue) askLinearTeam(task.id, automation.name, issue)
       if (!factory) return task
@@ -9307,6 +9489,7 @@ export function createTasks(options: {
 
     useDefaultModel,
     cancelMerge,
+    markDone,
 
     setRepos,
 

@@ -156,6 +156,7 @@ function recoveryDraft(value: unknown): NewTaskDraft | undefined {
     !strings(value.dismissed) ||
     !record(value.filled) ||
     (value.source !== undefined && typeof value.source !== 'string') ||
+    (value.parent !== undefined && typeof value.parent !== 'string') ||
     (value.clarifyDepth !== undefined && !clarifyDepths.some((d) => d === value.clarifyDepth)) ||
     !Array.isArray(value.attachments) ||
     value.attachments.some(

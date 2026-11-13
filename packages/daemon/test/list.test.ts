@@ -284,6 +284,7 @@ describe('List views', () => {
     const withEmpty = {
       ...view,
       showEmptyGroups: true,
+      nested: true,
       columnsVersion: 2,
       columns: ['title', 'updated', 'started'],
     }
@@ -300,6 +301,7 @@ describe('List views', () => {
     for (const bad of [
       { all: { ...view, showEmptyGroups: 'yes' } },
       { all: { ...view, showEmptyGroups: null } },
+      { all: { ...view, nested: 'yes' } },
       { all: { ...view, columnsVersion: 3 } },
       { all: { ...view, sort: 'sideways' } },
       { all: { ...view, columns: ['nonsense'] } },
@@ -312,7 +314,7 @@ describe('List views', () => {
     expect((await client.ok<{ boardViews: unknown }>('GET', '/settings')).boardViews).toEqual({})
     const board = {
       cardSize: 'compact',
-      fields: ['priority', 'activity', 'sub-agents', 'blockers'],
+      fields: ['priority', 'activity', 'sub-agents', 'blockers', 'hierarchy'],
       hiddenStages: ['backlog', 'done'],
       hideEmpty: true,
     }

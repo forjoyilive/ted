@@ -381,14 +381,24 @@ test('Reset lists what is lost and kept for a started Task, and sends the reset'
   expect(api.request).toHaveBeenCalledWith('resetTask', 'NB-1')
 })
 
-test('a Task with a merged pull request shows Reset greyed out with the reason', async () => {
-  bridge({})
+test('a Task at Merge with a merged pull request shows Reset greyed out and offers Mark as Done', async () => {
+  const api = bridge({
+    markDone: () => {
+      throw new Error('acme/widgets#7 is still open on GitHub')
+    },
+  })
   const merged = task({ stage: 'merge', statuses: ['partly-merged'] })
   await act(async () => {
     render(<TaskActionsMenu task={merged} />)
   })
-  await user().click(await screen.findByRole('button', { name: 'Task actions' }))
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
   const item = screen.getByRole('menuitem', { name: /^Reset…/ })
   expect(item.getAttribute('aria-disabled')).toBe('true')
   expect(item.textContent).toContain('A pull request has merged')
+  await u.click(screen.getByRole('menuitem', { name: 'Mark as Done' }))
+  expect(api.request).toHaveBeenCalledWith('markDone', merged.id)
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    'acme/widgets#7 is still open on GitHub',
+  )
 })

@@ -259,6 +259,7 @@ export function serviceEnvironment(host: HostSpec, run: string, source: string):
     TED_EDITOR_APP_DIRS: '',
     TED_SANDBOX_BIN: '/usr/bin/sandbox-exec',
     TED_LAB_RUN: path.basename(run),
+    TED_REMOTE_EXECUTION: 'on',
   }
 }
 

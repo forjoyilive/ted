@@ -16,6 +16,7 @@ import {
   parseEditLineCommentRequest,
   parseEditTaskRequest,
   parseFollowUpRequest,
+  parseMarkDoneRequest,
   parseMoveTaskRequest,
   parsePostCommentRequest,
   parseRecordFailureRequest,
@@ -568,6 +569,12 @@ export const taskRoutes: Route[] = [
       const files = await attachmentList(body.attachments, attachments)
       return [201, await tasks.cancelMerge(ref, body.comment, files)]
     },
+  }),
+  jsonRoute(parseMarkDoneRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/mark-done$/,
+    optionalBody: true,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.markDone(ref)],
   }),
   {
     method: 'POST',

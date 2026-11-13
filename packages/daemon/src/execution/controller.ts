@@ -20,6 +20,7 @@ import {
   parseExecutionEnrollment,
   parseExecutionHeartbeat,
   parseExecutionSyncRequest,
+  remoteExecutionOff,
   requireExecutionCompatibility,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -72,6 +73,7 @@ async function body(req: IncomingMessage, limit = 16 * 1024): Promise<unknown> {
 }
 export function createExecutionController(options: {
   home: string
+  enabled: boolean
   store: Pick<TedStore, 'pairing' | 'persisted' | 'newWorkHold'>
   repos(): Promise<ExecutionMachines['repos']>
   commands?: Pick<ExecutionCommands, 'sync' | 'summary'>
@@ -331,8 +333,14 @@ export function createExecutionController(options: {
     problem = undefined
     options.onProblem?.(undefined)
   }
+  const refuseWhenOff = () => {
+    if (!options.enabled) throw new RequestError(409, remoteExecutionOff)
+  }
   return {
+    enabled: options.enabled,
+    refuseWhenOff,
     async start() {
+      if (!options.enabled) return
       const saved = store.pairing.endpoint()
       if (saved)
         try {
@@ -344,6 +352,7 @@ export function createExecutionController(options: {
         }
     },
     configure(input: ExecutionEndpoint) {
+      refuseWhenOff()
       return serial(async () => {
         if (store.newWorkHold())
           throw new RequestError(507, 'New work is held while storage is unavailable')
@@ -378,6 +387,8 @@ export function createExecutionController(options: {
       }
     },
     async list(): Promise<ExecutionMachines> {
+      if (!options.enabled)
+        return { disabled: true, addresses: [], pending: [], machines: [], repos: [] }
       return {
         ...(endpoint && { endpoint }),
         ...(identity && { controllerPin: identity.pin }),

@@ -11,6 +11,7 @@ import {
   groupTasks,
   isQueueMode,
   neighbours,
+  nestedRows,
   queueView,
   rankMove,
   selectionRange,
@@ -408,5 +409,63 @@ describe('empty groups', () => {
     expect(
       groupTasks([], { ...defaultView('all'), group: 'none', showEmptyGroups: true }, factories),
     ).toEqual([])
+  })
+})
+
+describe('nestedRows', () => {
+  const shape = (rows: ReturnType<typeof nestedRows>) =>
+    rows.map((r) => [r.task.displayId, r.depth, r.hasChildren])
+
+  test('nests children under a parent in the same group and keeps the group order', () => {
+    const parent = task({ displayId: 'NB-40', childIds: ['NB-41', 'NB-42'] })
+    const first = task({ displayId: 'NB-41', parentId: 'NB-40', childIds: ['NB-43'] })
+    const second = task({ displayId: 'NB-42', parentId: 'NB-40' })
+    const grandchild = task({ displayId: 'NB-43', parentId: 'NB-41' })
+    const other = task({ displayId: 'NB-44' })
+    expect(shape(nestedRows([second, other, grandchild, parent, first], new Set()))).toEqual([
+      ['NB-44', 0, false],
+      ['NB-40', 0, true],
+      ['NB-42', 1, false],
+      ['NB-41', 1, true],
+      ['NB-43', 2, false],
+    ])
+  })
+
+  test('a child whose parent is in another group stays at the top level', () => {
+    const child = task({ displayId: 'NB-51', parentId: 'NB-50' })
+    const loose = task({ displayId: 'NB-52' })
+    expect(shape(nestedRows([child, loose], new Set()))).toEqual([
+      ['NB-51', 0, false],
+      ['NB-52', 0, false],
+    ])
+  })
+
+  test('a collapsed parent hides all its descendants', () => {
+    const parent = task({ displayId: 'NB-60', childIds: ['NB-61'] })
+    const child = task({ displayId: 'NB-61', parentId: 'NB-60', childIds: ['NB-62'] })
+    const grandchild = task({ displayId: 'NB-62', parentId: 'NB-61' })
+    const after = task({ displayId: 'NB-63' })
+    expect(shape(nestedRows([parent, child, grandchild, after], new Set(['NB-60'])))).toEqual([
+      ['NB-60', 0, true],
+      ['NB-63', 0, false],
+    ])
+    expect(shape(nestedRows([parent, child, grandchild, after], new Set(['NB-61'])))).toEqual([
+      ['NB-60', 0, true],
+      ['NB-61', 1, true],
+      ['NB-63', 0, false],
+    ])
+  })
+
+  test('a parent cycle shows every Task once without looping', () => {
+    const a = task({ displayId: 'NB-70', parentId: 'NB-71' })
+    const b = task({ displayId: 'NB-71', parentId: 'NB-70' })
+    const tail = task({ displayId: 'NB-72', parentId: 'NB-71' })
+    const self = task({ displayId: 'NB-73', parentId: 'NB-73' })
+    expect(shape(nestedRows([tail, a, b, self], new Set()))).toEqual([
+      ['NB-70', 0, true],
+      ['NB-71', 1, true],
+      ['NB-72', 2, false],
+      ['NB-73', 0, false],
+    ])
   })
 })

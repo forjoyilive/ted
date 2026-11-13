@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { Task } from '@ted/protocol'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { NewTaskDialog } from '../src/renderer/views/NewTaskDialog.tsx'
@@ -6,7 +7,7 @@ import { TaskLeadField } from '../src/renderer/views/TaskLeadField.tsx'
 import { bridge, deferred, draftHandlers, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
-async function newTask() {
+async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
   const created = vi.fn(() => task())
   const api = bridge({
     ...draftHandlers(),
@@ -14,7 +15,15 @@ async function newTask() {
     createTask: created,
   })
   const close = vi.fn()
-  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={close} />)
+  render(
+    <NewTaskDialog
+      factories={[factory()]}
+      tasks={options.tasks ?? []}
+      factoryId="f1"
+      {...(options.parentId !== undefined && { parentId: options.parentId })}
+      onClose={close}
+    />,
+  )
   await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   return { api, created, close }
 }
@@ -62,13 +71,21 @@ test('New Task sends an explicit title and starts by default', async () => {
   )
 })
 
-test('Create more clears both fields, keeps the dialog open and restores focus', async () => {
-  const { created, close } = await newTask()
+test('Create more clears both fields, keeps the dialog open and restores focus; a child keeps its parent', async () => {
+  const parent = task({ id: 'p', displayId: 'NB-40', title: 'Offline editing' })
+  const { created, close } = await newTask({ tasks: [parent], parentId: 'p' })
   const u = user()
+  expect(
+    await screen.findByText(
+      'NB-40 waits for this Task to merge before it does its own remaining work.',
+    ),
+  ).toBeTruthy()
   await u.type(screen.getByLabelText('Title'), 'First')
   await u.type(screen.getByLabelText('Description'), 'One')
   await u.click(screen.getByRole('button', { name: 'Create more' }))
   expect(created).toHaveBeenCalledOnce()
+  expect(created).toHaveBeenCalledWith(expect.objectContaining({ title: 'First', parent: 'p' }))
+  expect(await screen.findByText('Offline editing')).toBeTruthy()
   expect(close).not.toHaveBeenCalled()
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe('')

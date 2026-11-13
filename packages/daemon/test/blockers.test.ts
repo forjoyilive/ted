@@ -839,6 +839,82 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
     'to start only on the explicit request',
   )
   expect(restarted.status?.kind).not.toBe('stopped')
+
+  const family = await create(client, 'Family')
+  const kid = await create(client, 'Kid')
+  const grandkid = await create(client, 'Grandkid')
+  const loner = await create(client, 'Archived on its own')
+  await parentOf(app, kid, family)
+  await parentOf(app, grandkid, kid)
+  await parentOf(app, loner, family)
+  await app.archiveTask(loner.id)
+  await app.archiveTask(family.id, {
+    hierarchyRevision: (await app.taskHierarchyPreview(family.id)).revision,
+  })
+  await daemon?.stop()
+  client = await openTed()
+  app = await hierarchyApp()
+  expect(new Set((await app.taskHierarchyPreview(family.id)).archivedWith)).toEqual(
+    new Set([kid.id, grandkid.id]),
+  )
+  await app.unarchiveTask(family.id, { children: 'restore' })
+  for (const task of [family, kid, grandkid])
+    expect((await getTask(client, task.id)).archived).toBeUndefined()
+  expect((await getTask(client, loner.id)).archived).toBeDefined()
+  const confirm = async (task: Task) => (await app.taskHierarchyPreview(task.id)).revision
+  await app.archiveTask(family.id, { hierarchyRevision: await confirm(family) })
+  await app.unarchiveTask(family.id)
+  await app.archiveTask(family.id, { hierarchyRevision: await confirm(family) })
+  expect((await app.taskHierarchyPreview(family.id)).archivedWith).toEqual([])
+  await app.unarchiveTask(family.id, { children: 'restore' })
+  expect((await getTask(client, kid.id)).archived).toBeDefined()
+  await app.unarchiveTask(kid.id)
+  await app.unarchiveTask(grandkid.id)
+  await app.archiveTask(family.id, {
+    children: 'detach',
+    hierarchyRevision: (await app.taskHierarchyPreview(family.id)).revision,
+  })
+  expect((await getTask(client, family.id)).archived).toBeDefined()
+  const detached = await getTask(client, kid.id)
+  expect(detached.archived).toBeUndefined()
+  expect(detached.parentId).toBeUndefined()
+  expect((await getTask(client, grandkid.id)).parentId).toBe(kid.id)
+  expect((await getTask(client, loner.id)).parentId).toBe(family.id)
+  await app.unarchiveTask(loner.id, { unlinkParent: true, hierarchyRevision: await confirm(loner) })
+  const restoredLoner = await getTask(client, loner.id)
+  expect(restoredLoner.archived).toBeUndefined()
+  expect(restoredLoner.parentId).toBeUndefined()
+
+  const made = await app.createTask({
+    title: 'Made under Kid',
+    factory: 'NB',
+    parent: kid.displayId,
+  })
+  expect(made.parentId).toBe(kid.id)
+  expect((await getTask(client, kid.id)).childIds).toEqual(
+    expect.arrayContaining([grandkid.id, made.id]),
+  )
+  await expect(
+    app.createTask({ title: 'Other Factory', factory: 'OTHER', parent: kid.displayId }),
+  ).rejects.toThrow('same Factory')
+  await expect(
+    app.createTask({ title: 'Archived parent', factory: 'NB', parent: family.displayId }),
+  ).rejects.toThrow('Restore the parent')
+  await expect(
+    app.createTask({ title: 'Cycle', factory: 'NB', parent: kid.displayId, blockedBy: [kid.id] }),
+  ).rejects.toThrow('cycle')
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('daemon is not running')
+  await expect(
+    new DaemonClient(info, info.token).createTask({
+      title: 'From the terminal',
+      factory: 'NB',
+      parent: kid.displayId,
+    }),
+  ).rejects.toThrow('only the app')
+  const titles = (await client.ok<Task[]>('GET', '/tasks')).map((task) => task.title)
+  for (const refused of ['Other Factory', 'Archived parent', 'Cycle', 'From the terminal'])
+    expect(titles).not.toContain(refused)
 })
 
 test('prepared parents require explicit Resume after unlink, reparent, archive or delete, including after restart', async () => {
@@ -994,6 +1070,12 @@ test('nested parents wait for children to merge while independent Tasks run, and
   expect(Date.parse(workingChild.startedAt ?? '')).toBeGreaterThanOrEqual(
     Date.parse(mergedLeaf.merged?.at ?? ''),
   )
+  const childPrompt = (
+    await client.ok<{ run: { prompt: string } }>('GET', `/runs/${workingChild.leadRunId}`)
+  ).run.prompt
+  expect(childPrompt).toContain(`${child.displayId} is a child of ${parent.displayId}`)
+  expect(childPrompt).toContain(`${child.displayId} is a parent`)
+  expect(childPrompt).toContain(`- ${leaf.displayId} (merged): `)
   expect((await getTask(client, parent.id)).runs).toEqual([])
   const candidate = await create(client, 'New child')
   await expect(parentOf(app, candidate, child)).rejects.toThrow('Stop the parent')

@@ -43,6 +43,7 @@ import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
+import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
@@ -96,6 +97,7 @@ const fieldLabels: Record<BoardField, string> = {
   activity: 'Activity line',
   'sub-agents': 'Sub-agent count',
   blockers: 'Blockers',
+  hierarchy: 'Parent and children',
 }
 
 function without<T>(list: readonly T[], item: T): T[] {
@@ -517,6 +519,7 @@ export function Board({
             <button type="button" data-card-title className={styles.cardTitle}>
               {task.title}
             </button>
+            {shows('hierarchy') && <HierarchyMarker task={task} tasks={tasks} />}
             <TaskStatusWithSubAgents
               task={shows('blockers') ? task : withoutBlockers(task)}
               subAgents={shows('sub-agents')}

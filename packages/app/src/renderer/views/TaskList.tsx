@@ -29,6 +29,8 @@ import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
+import markerStyles from '../components/HierarchyMarker.module.css'
+import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
@@ -48,7 +50,9 @@ import {
   groupTasks,
   isAllTasks,
   isQueueMode,
+  type NestedRow,
   neighbours,
+  nestedRows,
   selectionRange,
   shownColumns,
   sortLabels,
@@ -400,6 +404,11 @@ function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: List
         disabled={view.group === 'none'}
         onChange={() => onChange({ ...view, showEmptyGroups: !view.showEmptyGroups })}
       />
+      <CheckItem
+        label="Nest child Tasks"
+        checked={view.nested ?? false}
+        onChange={() => onChange({ ...view, nested: !view.nested })}
+      />
       <div className={styles.menuDivider} />
       <div className={styles.menuHeading}>Columns</div>
       {listColumns.map((column) => (
@@ -496,6 +505,7 @@ export function TaskList({
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
   const [spot, setSpot] = useState<DropSpot>()
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set())
 
   useEffect(() => {
     void scope
@@ -519,9 +529,15 @@ export function TaskList({
   const queueMode = isQueueMode(view)
   const columns = shownColumns(view)
   const archivedOnly = view.filters.archived === 'only'
-  const canDrag = view.sort === 'manual' && !archivedOnly
+  const nested = view.nested === true
+  const canReorder = view.sort === 'manual' && !archivedOnly
+  const canDrag = canReorder && !nested
   const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
-  const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : g.tasks))
+  const rowsOf = (group: TaskGroup): NestedRow[] =>
+    nested
+      ? nestedRows(group.tasks, folded)
+      : group.tasks.map((task) => ({ task, depth: 0, hasChildren: false }))
+  const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : rowsOf(g).map((r) => r.task)))
   const grid = [
     '24px',
     ...[...(queueMode ? (['queue'] as const) : []), ...columns].map((c) => columnWidths[c]),
@@ -613,7 +629,37 @@ export function TaskList({
     }
   }
 
-  function cell(column: ListColumn, task: Task): ReactNode {
+  function fold(task: Task) {
+    setFolded((current) => {
+      const next = new Set(current)
+      if (!next.delete(task.id)) next.add(task.id)
+      return next
+    })
+  }
+
+  function caret(nest: NestedRow) {
+    if (!nested) return null
+    if (!nest.hasChildren && !folded.has(nest.task.id)) {
+      return <span className={markerStyles.caretSpace} aria-hidden />
+    }
+    const open = !folded.has(nest.task.id)
+    return (
+      <button
+        type="button"
+        className={markerStyles.caret}
+        aria-expanded={open}
+        aria-label={`${open ? 'Collapse' : 'Expand'} children of ${nest.task.displayId}`}
+        onClick={(event) => {
+          event.stopPropagation()
+          fold(nest.task)
+        }}
+      >
+        <ChevronIcon open={open} />
+      </button>
+    )
+  }
+
+  function cell(column: ListColumn, task: Task, nest: NestedRow): ReactNode {
     switch (column) {
       case 'priority':
         return <PriorityIcon priority={task.priority} />
@@ -621,8 +667,13 @@ export function TaskList({
         return <span className={styles.id}>{task.displayId}</span>
       case 'title':
         return (
-          <span className={styles.titleCell}>
+          <span
+            className={styles.titleCell}
+            style={nest.depth > 0 ? { paddingLeft: nest.depth * 20 } : undefined}
+          >
+            {caret(nest)}
             <span className={styles.titleText}>{task.title}</span>
+            <HierarchyMarker task={task} tasks={tasks} showParent={nest.depth === 0} />
             <AutopilotLabel task={task} />
             {task.archived && <span className={styles.archivedChip}>Archived</span>}
           </span>
@@ -658,7 +709,8 @@ export function TaskList({
 
   const rightAligned = new Set<ListColumn>(['updated', 'created', 'tokens', 'started'])
 
-  function row(task: Task, group: TaskGroup, index: number) {
+  function row(nest: NestedRow, group: TaskGroup, index: number) {
+    const task = nest.task
     const isSelected = selected.includes(task.id)
     const place = task.status?.kind === 'queued' && 'place' in task.status ? task.status.place : 0
     return (
@@ -686,6 +738,7 @@ export function TaskList({
           dragging?.task.id === task.id ? styles.dragged : '',
         ].join(' ')}
         style={{ gridTemplateColumns: grid }}
+        title={canReorder && nested ? 'Turn off Nest child Tasks to reorder' : undefined}
         draggable={canDrag && !task.archived}
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = 'move'
@@ -743,7 +796,7 @@ export function TaskList({
               rightAligned.has(column) ? styles.right : '',
             ].join(' ')}
           >
-            {cell(column, task)}
+            {cell(column, task, nest)}
           </td>
         ))}
       </tr>
@@ -761,12 +814,13 @@ export function TaskList({
   }
 
   function groupRows(group: TaskGroup) {
+    if (nested) return rowsOf(group).map((nest, i) => row(nest, group, i))
     const rest = group.tasks.filter((t) => t.id !== dragging?.task.id)
     const items: ReactNode[] = []
     group.tasks.forEach((task, i) => {
       const at = rest.findIndex((t) => t.id === task.id)
       if (at !== -1) items.push(dropLine(group, at))
-      items.push(row(task, group, i))
+      items.push(row({ task, depth: 0, hasChildren: false }, group, i))
     })
     items.push(dropLine(group, rest.length))
     return items
