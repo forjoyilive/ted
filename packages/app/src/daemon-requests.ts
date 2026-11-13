@@ -139,6 +139,7 @@ export const forwardedRequests = [
   'checkRepo',
   'createFactory',
   'retryClone',
+  'setFactoryNotifications',
   'setFactoryPermissions',
   'factorySettings',
   'previewFactorySettings',

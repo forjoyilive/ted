@@ -14,6 +14,7 @@ import {
 import {
   type Activity,
   type Banner,
+  countWaiting,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
@@ -443,7 +444,7 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'activity-changed') state = { ...state, activity: event.activity }
   if (event.type === 'inbox-changed') {
-    state = { ...state, waiting: event.waiting.length }
+    state = { ...state, waiting: countWaiting(event.waiting) }
     notifications.waiting(event.waiting)
   }
   if (event.type === 'banner-raised' || event.type === 'banner-updated') {
@@ -853,7 +854,7 @@ async function loadState(): Promise<void> {
     client.listBanners(),
     client.listWaiting(),
   ])
-  state = { ...state, activity, banners, waiting: waiting.length }
+  state = { ...state, activity, banners, waiting: countWaiting(waiting) }
   notifications.waiting(waiting)
   refresh()
   await noteTedStops().catch((error: unknown) =>

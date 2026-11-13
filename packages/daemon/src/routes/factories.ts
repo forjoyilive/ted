@@ -1,5 +1,6 @@
 import {
   agentStageIds,
+  factoryNotifications,
   parseAddFactoryRequest,
   parseAutoStartBacklogRequest,
   parseCheckRepoRequest,
@@ -12,6 +13,7 @@ import {
   parseReorderFactoriesRequest,
   parseSaveSettingsRequest,
   parseSetFactoryLinearIntakeRequest,
+  parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
@@ -40,6 +42,23 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/export$/,
     handle: async ({ params: [id = ''] }, { store }) => [200, factoryExport(store, id)],
   },
+  jsonRoute(parseSetFactoryNotificationsRequest, {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/notifications$/,
+    async handle({ body, params: [id = ''] }, { store }) {
+      if (!store.getFactory(id)) throw new HttpError(404, 'no such Factory')
+      const settings = store.settings()
+      return [
+        200,
+        store.updateSettings({
+          factoryNotifications: {
+            ...settings.factoryNotifications,
+            [id]: { ...factoryNotifications(settings, id), ...body },
+          },
+        }),
+      ]
+    },
+  }),
   jsonRoute(parseSetFactoryPermissionsRequest, {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/permissions$/,

@@ -19,12 +19,13 @@ import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
+import { FactoryNotificationChoices } from '../components/FactoryNotifications.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
-import { useEventValue } from '../data.ts'
+import { useEventValue, useSettings } from '../data.ts'
 import {
   agentEdited,
   driftLine,
@@ -1344,5 +1345,25 @@ export const WorkflowSection = memo(
 )
 export const ChecksSection = memo(ChecksSectionView, sameDraft('checks', 'repos'))
 export const AgentsSection = memo(AgentsSectionView, sameDraft('agents'))
+export function NotificationsSection({ factoryId }: { factoryId: string }) {
+  const settings = useSettings()
+  return (
+    <section className={`${base.section} ${base.compactSection}`} aria-labelledby="notifications">
+      <SectionHeading
+        id="notifications"
+        setting="factory.notifications"
+        title="Notifications"
+        where="machine"
+        help="Which of this Factory’s events notify you. The same choices are in Settings → Notifications, under By Factory."
+      />
+      <p className={base.caption}>
+        Saved here immediately. A notification is sent only when it is also on in Settings →
+        Notifications.
+      </p>
+      {settings && <FactoryNotificationChoices settings={settings} factoryId={factoryId} />}
+    </section>
+  )
+}
+
 export const PermissionsSection = memo(PermissionsSectionView, sameDraft('maxWorkingRuns'))
 export const NotesSection = memo(NotesSectionView, sameDraft('notes'))

@@ -296,6 +296,7 @@ export {
   type RepoSetup,
   type RepoSource,
   repoNamePattern,
+  type SetFactoryNotificationsRequest,
   type SetFactoryPermissionsRequest,
   type SetLocalFolderRequest,
   suggestFactoryName,
@@ -317,6 +318,7 @@ export {
   parseReorderFactoriesRequest,
   parseSaveLibraryRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
@@ -579,7 +581,11 @@ export {
   type Appearance,
   appearances,
   checkLimits,
+  defaultFactoryNotifications,
   defaultMachineSettings,
+  type FactoryNotifications,
+  factoryNotifications,
+  firstFactoryNotifications,
   type MachineSettings,
   type Profile,
   type QuitChoice,
@@ -847,7 +853,7 @@ export {
 export type { UpdateWork } from './update.ts'
 export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
-export type { SnoozedRequest, WaitingRequest } from './waiting.ts'
+export { countWaiting, type SnoozedRequest, type WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,

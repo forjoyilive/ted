@@ -97,6 +97,7 @@ import type {
   ReorderFactoriesRequest,
   RepoCheck,
   RepoRemoval,
+  SetFactoryNotificationsRequest,
 } from './factory.ts'
 import type {
   CheckTry,
@@ -1306,6 +1307,13 @@ export class DaemonClient {
 
   createFactory(input: CreateFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/factories', input)
+  }
+
+  setFactoryNotifications(
+    factoryId: string,
+    change: SetFactoryNotificationsRequest,
+  ): Promise<MachineSettings> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/notifications`, change)
   }
 
   setFactoryPermissions(

@@ -1,4 +1,11 @@
-import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
+import type {
+  AutomationRequest,
+  Factory,
+  InboxItem,
+  MachineSettings,
+  PlanInboxItem,
+} from '@ted/protocol'
+import { factoryNotifications } from '@ted/protocol/settings'
 import { Fragment, type ReactNode, useContext, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import {
@@ -9,7 +16,7 @@ import {
 } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
-import { ChevronIcon } from '../components/icons.tsx'
+import { BellOffIcon, ChevronIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import {
@@ -51,6 +58,8 @@ export function Inbox({
   onShowAnswered,
   onClearFilters,
   onNewTask,
+  onOpenNotifications,
+  settings,
   children,
 }: {
   items: readonly InboxItem[]
@@ -70,6 +79,8 @@ export function Inbox({
   onShowAnswered: (show: boolean) => void
   onClearFilters?: () => void
   onNewTask: () => void
+  onOpenNotifications?: () => void
+  settings?: MachineSettings | undefined
   children?: ReactNode
 }) {
   const view = useInboxGrouping(showAnswered ? 'answered' : 'waiting')
@@ -96,6 +107,16 @@ export function Inbox({
       ]),
     )
   const now = useNow()
+  const quiet = (id: string) =>
+    settings !== undefined && !factoryNotifications(settings, id).inboxItems
+  const mark = (id: string) =>
+    !showAnswered &&
+    quiet(id) && (
+      <span className={styles.uncounted} title="Inbox items are off for this Factory">
+        <BellOffIcon />
+        Not counted
+      </span>
+    )
   const manyFactories = factories.length > 1
   const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set())
   const known = useRef(new Set<string>())
@@ -193,6 +214,17 @@ export function Inbox({
         .sort((a, b) =>
           (snoozed.get(a.request.id) ?? '').localeCompare(snoozed.get(b.request.id) ?? ''),
         )
+  const uncounted = showAnswered
+    ? []
+    : rows
+        .map((row) =>
+          row.kind === 'plan'
+            ? row.item.plan.factoryId
+            : row.kind === 'task'
+              ? row.item.task.factoryId
+              : row.item.factoryId,
+        )
+        .filter(quiet)
   const groups = groupInbox(rows, view.grouping, now)
   const ordered = groups.flatMap((group) => group.rows)
   const visible = groups.flatMap((group) => (view.collapsed(group.key) ? [] : group.rows))
@@ -244,6 +276,7 @@ export function Inbox({
         >
           <span className={styles.top}>
             <span className={styles.kind}>{inboxLabel(request)}</span>
+            {mark(plan.factoryId)}
             <span className={ageClass}>{age(request.createdAt, now)}</span>
           </span>
           <span data-headline className={`${styles.headline} ${styles.unread}`}>
@@ -284,6 +317,7 @@ export function Inbox({
             <span className={request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind}>
               {requestLabel(request)}
             </span>
+            {mark(task.factoryId)}
             <span className={ageClass}>{age(request.answer?.at ?? request.createdAt, now)}</span>
           </span>
           <span
@@ -320,6 +354,7 @@ export function Inbox({
       >
         <span className={styles.top}>
           <span className={styles.kind}>Question</span>
+          {mark(question.factoryId)}
           <span className={ageClass}>{age(question.createdAt, now)}</span>
         </span>
         <span data-headline className={`${styles.headline} ${styles.unread}`}>
@@ -388,6 +423,9 @@ export function Inbox({
                               aria-pressed={chip.factoryId === factoryId}
                               onClick={() => onFilter(chip.factoryId)}
                             >
+                              {chip.factoryId !== undefined && quiet(chip.factoryId) && (
+                                <BellOffIcon />
+                              )}
                               {chip.label} <span className={styles.chipCount}>{chip.count}</span>
                             </button>
                           ))}
@@ -421,6 +459,24 @@ export function Inbox({
             </div>
           )}
         </header>
+        {uncounted.length > 0 && (
+          <p className={styles.uncountedNote}>
+            <BellOffIcon />
+            <span>
+              {uncounted.length} not counted or notified: Inbox items are off for{' '}
+              {[...new Set(uncounted)].map((id) => factoryName(factories, id)).join(', ')}.
+            </span>
+            {onOpenNotifications && (
+              <button
+                type="button"
+                className={styles.uncountedChange}
+                onClick={onOpenNotifications}
+              >
+                Change
+              </button>
+            )}
+          </p>
+        )}
         {allRows.length === 0 ? (
           <InboxEmptyState
             empty={inboxEmpty({

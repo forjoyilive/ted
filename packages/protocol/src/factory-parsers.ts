@@ -7,6 +7,7 @@ import type {
   RemoveFactoryRequest,
   ReorderFactoriesRequest,
   RepoSource,
+  SetFactoryNotificationsRequest,
   SetFactoryPermissionsRequest,
   SetLocalFolderRequest,
   SetRepoFolderRequest,
@@ -424,6 +425,26 @@ export function parseSaveLibraryRequest(value: unknown): SaveLibraryRequest {
   const body = record(value)
   if (typeof body.version !== 'string') throw new HttpError(400, 'version is required')
   return { changes: parseLibraryChanges(body.changes), version: body.version }
+}
+
+export function parseSetFactoryNotificationsRequest(
+  value: unknown,
+): SetFactoryNotificationsRequest {
+  const body = record(value)
+  const { inboxItems, taskMerged } = body
+  if (inboxItems === undefined && taskMerged === undefined) {
+    throw new HttpError(400, 'give inboxItems or taskMerged')
+  }
+  if (inboxItems !== undefined && typeof inboxItems !== 'boolean') {
+    throw new HttpError(400, 'inboxItems must be true or false')
+  }
+  if (taskMerged !== undefined && typeof taskMerged !== 'boolean') {
+    throw new HttpError(400, 'taskMerged must be true or false')
+  }
+  return {
+    ...(inboxItems !== undefined && { inboxItems }),
+    ...(taskMerged !== undefined && { taskMerged }),
+  }
 }
 
 export function parseSetFactoryPermissionsRequest(value: unknown): SetFactoryPermissionsRequest {

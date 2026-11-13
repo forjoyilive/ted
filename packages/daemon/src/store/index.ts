@@ -60,7 +60,9 @@ import {
   type Factory,
   type FailureCase,
   type FindingSeverity,
+  factoryNotifications,
   failureChoices,
+  firstFactoryNotifications,
   type GitHubWait,
   type LayerKind,
   type LayerUse,
@@ -2834,8 +2836,29 @@ export async function openStore({
           },
         ]
       })
-    return [...fromTasks, ...fromAutomations, ...fromPlans].sort((a, b) =>
-      a.createdAt.localeCompare(b.createdAt),
+    const current = settings()
+    return [...fromTasks, ...fromAutomations, ...fromPlans]
+      .map(
+        (request): WaitingRequest =>
+          factoryNotifications(current, request.factoryId).inboxItems
+            ? request
+            : { ...request, uncounted: true },
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  }
+  if (
+    store.query(queryDb(machineSettingValues.where({ name: 'factoryNotifications' }))).length === 0
+  ) {
+    commit(
+      events.machineSettingsChanged({
+        changes: JSON.stringify({
+          factoryNotifications: firstFactoryNotifications(
+            store.query(allFactories).map((f) => f.id),
+            settings().notifyTaskMerged,
+          ),
+        }),
+        at: new Date().toISOString(),
+      }),
     )
   }
   const inbox = (): { waiting: WaitingRequest[]; snoozed: SnoozedRequest[] } => {
