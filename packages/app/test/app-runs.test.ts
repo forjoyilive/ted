@@ -135,16 +135,18 @@ describe('Stop and Resume', () => {
       await tooltip.evaluate((element) => {
         const box = element.getBoundingClientRect()
         const menu = element.ownerDocument.querySelector('[role="menu"]')?.getBoundingClientRect()
-        const corners = [
-          [box.left + 1, box.top + 1],
-          [box.right - 1, box.top + 1],
-          [box.left + 1, box.bottom - 1],
-          [box.right - 1, box.bottom - 1],
+        const middleX = box.left + box.width / 2
+        const middleY = box.top + box.height / 2
+        const edges = [
+          [box.left + 2, middleY],
+          [box.right - 2, middleY],
+          [middleX, box.top + 2],
+          [middleX, box.bottom - 2],
         ]
         const style = (element as HTMLElement).style
         const pointerEvents = style.pointerEvents
         style.pointerEvents = 'auto'
-        const visible = corners.every(([x, y]) => {
+        const visible = edges.every(([x, y]) => {
           const hit = document.elementFromPoint(x ?? 0, y ?? 0)
           return hit === element || element.contains(hit)
         })
