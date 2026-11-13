@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   commentBox,
+  leadAskedAtMerge,
   statusWithoutBlocker,
   type TaskFacts,
   taskActivity,
@@ -237,4 +238,29 @@ test('a snoozed Backlog Task carries its schedule alongside blockers without inv
   ])
   expect(taskActivity(at({ stage: 'backlog', snoozedUntil: until }))).toBe('Scheduled to start')
   expect(taskMarkers({ ...facts, archived: true }, undefined)).toEqual([])
+})
+
+describe('an answer at Merge', () => {
+  const asked = {
+    stage: 'merge',
+    leadRunId: 'lead',
+    askedBy: 'lead',
+    leadEnded: 'stopped',
+    openRequests: 0,
+  } as const
+
+  test('restarts a Task Lead that asked and was stopped while it waited', () => {
+    expect(leadAskedAtMerge(asked)).toBe(true)
+  })
+
+  test.each<Partial<Parameters<typeof leadAskedAtMerge>[0]>>([
+    { stage: 'work' },
+    { askedBy: undefined },
+    { askedBy: 'sub-agent' },
+    { leadEnded: undefined },
+    { leadEnded: 'lost' },
+    { openRequests: 1 },
+  ])('leaves it when %o', (change) => {
+    expect(leadAskedAtMerge({ ...asked, ...change })).toBe(false)
+  })
 })

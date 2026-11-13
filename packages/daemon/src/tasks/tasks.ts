@@ -376,6 +376,7 @@ import {
   sizeCheckTitle,
   splitApprovedSummary,
 } from './split.ts'
+import { leadAskedAtMerge } from './status.ts'
 import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
 import { titleFromText } from './task-title.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
@@ -5031,7 +5032,7 @@ export function createTasks(options: {
     automatic = false,
     expectedLead?: string,
   ): Promise<Comment> {
-    return createRequestAnswers(
+    const answered = await createRequestAnswers(
       {
         store,
         untilFree,
@@ -5079,6 +5080,35 @@ export function createTasks(options: {
       },
       automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
     )(id, request, sendDrafts, mark)
+    await resumeAfterAnswer(answered)
+    return answered
+  }
+
+  function resumesAtMerge(task: StoredTask, answered: Comment): boolean {
+    const lead = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    return (
+      leadAskedAtMerge({
+        stage: task.stage,
+        leadRunId: task.leadRunId,
+        askedBy: answered.author.kind === 'run' ? answered.author.runId : undefined,
+        leadEnded: lead?.state === 'finished' ? lead.ended?.how : undefined,
+        openRequests: openRequests(task.id).length,
+      }) &&
+      canStartFresh(task) &&
+      !leadLifecycle.pendingRevive(task.id) &&
+      !leadLifecycle.recovering(task.leadRunId ?? '')
+    )
+  }
+
+  async function resumeAfterAnswer(answered: Comment): Promise<void> {
+    const taskId = answered.taskId
+    const task = store.getTask(taskId)
+    if (!task || stoppingByHand.has(taskId)) return
+    if (!interrupted(task) && !resumesAtMerge(task, answered)) return
+    if (store.tedStopPending(taskId)) store.answerTedStop(taskId, 'restart')
+    store.resumeTask(taskId, { waitForBlockers: unmergedBlockers(taskId).length > 0 })
+    await store.persisted()
+    await pump()
   }
 
   async function guardAutopilotAnswer(comment: Comment, expectedLead?: string): Promise<void> {
