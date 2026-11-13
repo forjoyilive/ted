@@ -861,6 +861,15 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   for (const task of [family, kid, grandkid])
     expect((await getTask(client, task.id)).archived).toBeUndefined()
   expect((await getTask(client, loner.id)).archived).toBeDefined()
+  const confirm = async (task: Task) => (await app.taskHierarchyPreview(task.id)).revision
+  await app.archiveTask(family.id, { hierarchyRevision: await confirm(family) })
+  await app.unarchiveTask(family.id)
+  await app.archiveTask(family.id, { hierarchyRevision: await confirm(family) })
+  expect((await app.taskHierarchyPreview(family.id)).archivedWith).toEqual([])
+  await app.unarchiveTask(family.id, { children: 'restore' })
+  expect((await getTask(client, kid.id)).archived).toBeDefined()
+  await app.unarchiveTask(kid.id)
+  await app.unarchiveTask(grandkid.id)
   await app.archiveTask(family.id, {
     children: 'detach',
     hierarchyRevision: (await app.taskHierarchyPreview(family.id)).revision,
@@ -871,6 +880,10 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   expect(detached.parentId).toBeUndefined()
   expect((await getTask(client, grandkid.id)).parentId).toBe(kid.id)
   expect((await getTask(client, loner.id)).parentId).toBe(family.id)
+  await app.unarchiveTask(loner.id, { unlinkParent: true, hierarchyRevision: await confirm(loner) })
+  const restoredLoner = await getTask(client, loner.id)
+  expect(restoredLoner.archived).toBeUndefined()
+  expect(restoredLoner.parentId).toBeUndefined()
 
   const made = await app.createTask({
     title: 'Made under Kid',
@@ -1057,7 +1070,9 @@ test('nested parents wait for children to merge while independent Tasks run, and
   expect(Date.parse(workingChild.startedAt ?? '')).toBeGreaterThanOrEqual(
     Date.parse(mergedLeaf.merged?.at ?? ''),
   )
-  const [childPrompt = ''] = await userMessages(client, workingChild.leadRunId ?? '')
+  const childPrompt = (
+    await client.ok<{ run: { prompt: string } }>('GET', `/runs/${workingChild.leadRunId}`)
+  ).run.prompt
   expect(childPrompt).toContain(`${child.displayId} is a child of ${parent.displayId}`)
   expect(childPrompt).toContain(`${child.displayId} is a parent`)
   expect(childPrompt).toContain(`- ${leaf.displayId} (merged): `)

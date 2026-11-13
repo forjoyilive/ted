@@ -44,17 +44,24 @@ export function parentOf(task: Task, tasks: readonly Task[]): Task | undefined {
   return task.parentId === undefined ? undefined : tasks.find((t) => t.id === task.parentId)
 }
 
-export function childTree(task: Task, tasks: readonly Task[]): TreeNode[] {
+export function childTree(task: Task, tasks: readonly Task[], keepArchived = false): TreeNode[] {
   const seen = new Set([task.id])
-  const walk = (parent: Task): TreeNode[] =>
+  const walk = (parent: Task, top: boolean): TreeNode[] =>
     childrenOf(parent, tasks)
-      .filter((child) => !child.archived || isMerged(child))
+      .filter((child) => !top || !child.archived || isMerged(child))
       .flatMap((child) => {
         if (seen.has(child.id)) return []
         seen.add(child.id)
-        return [{ task: child, children: walk(child) }]
+        return [{ task: child, children: walk(child, false) }]
       })
-  return walk(task)
+  return walk(task, !keepArchived)
+}
+
+export function archivedChildTree(task: Task, tasks: readonly Task[]): TreeNode[] {
+  return childProgress(task, tasks).archived.map((child) => ({
+    task: child,
+    children: childTree(child, tasks, true),
+  }))
 }
 
 export function childProgress(task: Task, tasks: readonly Task[]): ChildProgress {
@@ -95,6 +102,7 @@ export function parentChoices(task: Task, tasks: readonly Task[]): Task[] {
 }
 
 export function childChoices(task: Task, tasks: readonly Task[]): Task[] {
+  const below = descendantIds(task, tasks)
   const above = new Set<string>()
   for (let up = parentOf(task, tasks); up && !above.has(up.id); up = parentOf(up, tasks))
     above.add(up.id)
@@ -102,7 +110,7 @@ export function childChoices(task: Task, tasks: readonly Task[]): Task[] {
     (t) =>
       t.factoryId === task.factoryId &&
       t.id !== task.id &&
-      t.parentId !== task.id &&
+      !below.has(t.id) &&
       !above.has(t.id) &&
       open(t),
   )

@@ -3590,10 +3590,12 @@ const materializers = counted(
           : taskParents.insert({ taskId, parentId, at }).onConflict('taskId', 'replace'),
         tasks.update({ changedAt: at }).where({ id: taskId }),
       ],
-      'v1.TaskTreeArchived': ({ rootId, taskIds, at }) =>
-        taskIds.map((taskId) =>
+      'v1.TaskTreeArchived': ({ rootId, taskIds, at }) => [
+        taskTreeArchives.delete().where({ rootId }),
+        ...taskIds.map((taskId) =>
           taskTreeArchives.insert({ taskId, rootId, at }).onConflict('taskId', 'replace'),
         ),
+      ],
       'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
         taskBlockers
           .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
@@ -3820,6 +3822,7 @@ const materializers = counted(
       ],
       'v1.TaskUnarchived': ({ taskId, rank, at }) => [
         taskTreeArchives.delete().where({ taskId }),
+        taskTreeArchives.delete().where({ rootId: taskId }),
         ...(rank === null
           ? []
           : [taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace')]),
@@ -3941,6 +3944,7 @@ const materializers = counted(
         taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
         reviewScopes.delete().where({ taskId }),
+        taskTreeArchives.delete().where({ rootId: taskId }),
         taskTreeArchives.delete().where({ taskId }),
         baseConflicts.delete().where({ taskId }),
         p1OnlyReviews.delete().where({ taskId }),

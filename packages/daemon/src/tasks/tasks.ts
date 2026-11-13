@@ -6029,7 +6029,7 @@ export function createTasks(options: {
     return {
       task,
       ids: detach ? [task.id] : ids,
-      direct: store.childrenOf(task.id),
+      direct: store.childrenOf(task.id).filter((id) => !find(id).archived),
       parent,
       wasBlocked: parent !== undefined && unmergedBlockers(parent.id).length > 0,
     }
@@ -6059,7 +6059,7 @@ export function createTasks(options: {
     if (detach) {
       for (const child of direct) store.setTaskParent(child, null)
       tellHierarchyChanged(direct)
-    } else {
+    } else if (ids.length > 1) {
       store.recordTreeArchive(
         task.id,
         archived.filter((id) => id !== task.id),
@@ -6276,7 +6276,7 @@ export function createTasks(options: {
     requireHierarchyIdle(affected)
     if (parent && input.unlinkParent) {
       requireHierarchyRevision(task, input.hierarchyRevision)
-      if (parent.stage !== 'done') safeParent(parent)
+      if (parent.stage !== 'done' && !parent.archived) safeParent(parent)
     }
     if (parent && !input.unlinkParent && !store.isMerged(task.id)) safeParent(parent)
     for (const id of affected) hierarchyBusy.add(id)

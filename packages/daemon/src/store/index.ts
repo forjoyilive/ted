@@ -3675,7 +3675,6 @@ export async function openStore({
       return task
     },
     recordTreeArchive(rootId, taskIds) {
-      if (taskIds.length === 0) return
       commit(
         events.taskTreeArchived({ rootId, taskIds: [...taskIds], at: new Date().toISOString() }),
       )

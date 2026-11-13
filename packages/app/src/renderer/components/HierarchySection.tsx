@@ -1,6 +1,7 @@
 import type { Task } from '@ted/protocol'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import {
+  archivedChildTree,
   childChoices,
   childProgress,
   childTree,
@@ -268,7 +269,7 @@ export function ChildrenSection({
             Archived without merging · doesn’t hold {task.displayId}
           </p>
           <TreeRows
-            nodes={progress.archived.map((t) => ({ task: t, children: [] }))}
+            nodes={archivedChildTree(task, tasks)}
             tasks={tasks}
             collapsed={collapsed}
             onToggle={toggle}

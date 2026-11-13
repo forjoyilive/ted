@@ -131,9 +131,14 @@ function Choice<T extends string>({
   )
 }
 
-function detachHelp(task: Task, tasks: readonly Task[]): string {
-  const direct = childrenOf(task, tasks).length
+function detachHelp(task: Task, tasks: readonly Task[], archivedToo: boolean): string {
+  const direct = childrenOf(task, tasks).filter((t) => archivedToo || !t.archived).length
   return `The ${direct === 1 ? 'Task' : `${direct} Tasks`} directly under ${task.displayId} ${direct === 1 ? 'loses its' : 'lose their'} parent and carry on. Their own children stay under them.`
+}
+
+function parentWorking(parent: Task): boolean {
+  const lead = parent.runs.find((run) => run.id === parent.leadRunId && run.role === 'lead')
+  return lead !== undefined && lead.state !== 'finished'
 }
 
 function parentRefusal(task: Task, parent: Task): string | undefined {
@@ -141,8 +146,7 @@ function parentRefusal(task: Task, parent: Task): string | undefined {
     return `${parent.displayId} is archived. Unarchive ${parent.displayId} first to bring ${task.displayId} back as part of it.`
   if (parent.stage === 'done')
     return `${parent.displayId} is Done, so it can’t take ${task.displayId} back.`
-  const lead = parent.runs.find((run) => run.id === parent.leadRunId && run.role === 'lead')
-  if (lead && lead.state !== 'finished')
+  if (parentWorking(parent))
     return `${parent.displayId} is working, and TED doesn’t change a working Task’s children. Stop ${parent.displayId} first.`
   return undefined
 }
@@ -334,7 +338,7 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
                 value="detach"
                 chosen={family}
                 label="Detach them and keep them"
-                help={detachHelp(task, all)}
+                help={detachHelp(task, all, false)}
                 onChoose={setFamily}
               />
             </TasksUnder>
@@ -395,6 +399,7 @@ export function UnarchiveDialog({ task, onClose }: { task: Task; onClose: () => 
   const parent = all.find((t) => t.id === task.parentId)
   const partOf = parent !== undefined && !isMerged(task)
   const refusal = partOf ? parentRefusal(task, parent) : undefined
+  const working = partOf && parentWorking(parent)
   const [picked, setPlace] = useState<'together' | 'detach'>('together')
   const place = refusal === undefined ? picked : 'detach'
   const hasChildren = (task.childIds?.length ?? 0) > 0
@@ -454,6 +459,7 @@ export function UnarchiveDialog({ task, onClose }: { task: Task; onClose: () => 
                 chosen={place}
                 label="Detach it and keep it"
                 help={`${task.displayId} comes back without a parent. ${parent.displayId} isn’t affected.`}
+                disabledBecause={working ? refusal : undefined}
                 onChoose={setPlace}
               />
             </TasksUnder>
@@ -492,7 +498,7 @@ export function UnarchiveDialog({ task, onClose }: { task: Task; onClose: () => 
             <Button onClick={onClose}>Cancel</Button>
             <Button
               variant="primary"
-              disabled={busy || !hierarchy.ready}
+              disabled={busy || !hierarchy.ready || working}
               onClick={() => unarchive()}
             >
               {restoring > 0 ? `Unarchive ${restoring + 1} Tasks` : `Unarchive ${task.displayId}`}
@@ -586,7 +592,7 @@ export function DeleteDialog({
                 value="detach"
                 chosen={family}
                 label="Detach them and keep them"
-                help={detachHelp(task, all)}
+                help={detachHelp(task, all, true)}
                 onChoose={setFamily}
               />
               <p className={styles.note}>

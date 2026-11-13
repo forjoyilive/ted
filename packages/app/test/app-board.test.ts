@@ -278,6 +278,7 @@ describe('Board', () => {
       .getByText('NB-1 waits for this Task to merge before it does its own remaining work.')
       .waitFor()
     await dialog.getByLabel('Title').fill('Offline badge')
+    await dialog.getByLabel('Description').fill('Show a badge while edits wait to sync.')
     await dialog.getByLabel('Start now').uncheck()
     await dialog.getByRole('button', { name: 'Create', exact: true }).click()
     await children.locator('[data-task="NB-4"]').waitFor()
