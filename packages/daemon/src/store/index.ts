@@ -1127,6 +1127,15 @@ export async function openStore({
     }
   }) as typeof store.commit
 
+  const commitDraft: typeof store.commit = (...args: unknown[]) => {
+    waitingUnchanged = true
+    try {
+      return (commit as (...a: unknown[]) => unknown)(...args)
+    } finally {
+      waitingUnchanged = false
+    }
+  }
+
   const internals = store[StoreInternalsSymbol]
   const persisted = async () => {
     const committed = Effect.runSync(internals.syncProcessor.syncState.get).localHead
@@ -2665,6 +2674,14 @@ export async function openStore({
       emit({ type: 'task-updated', task: toPublicTask(toTask(row, true, reads())) })
     }
   }
+
+  const tasksWaitingForSlots = (): string[] => [
+    ...new Set([
+      ...queue().map(({ id }) => id),
+      ...(queueActivity.taskPlaces ?? []).map(({ id }) => id),
+      ...store.query(queryDb(subAgentRequests.select('taskId'))),
+    ]),
+  ]
 
   const updatedQueue = (except?: string) => {
     updatedTasks(queue().flatMap(({ id }) => (id === except ? [] : [id])))
@@ -4518,7 +4535,7 @@ export async function openStore({
         state.clearedRevision !== draft.revision &&
         !state.clearedRevisions?.includes(draft.revision)
       ) {
-        commit(
+        commitDraft(
           events.taskDraftSavedV2({
             factoryId,
             draft: JSON.stringify(draft),
@@ -4538,12 +4555,12 @@ export async function openStore({
       const at = new Date().toISOString()
       const kept = messageDraft(box)
       if (emptyMessageDraft(draft)) {
-        if (kept) commit(events.messageDraftCleared({ key, at }))
+        if (kept) commitDraft(events.messageDraftCleared({ key, at }))
         return null
       }
       const text = JSON.stringify(draft)
       if (kept === null || JSON.stringify(kept) !== text) {
-        commit(
+        commitDraft(
           events.messageDraftSaved({
             key,
             factoryId: owner.factoryId ?? null,
@@ -5826,14 +5843,14 @@ export async function openStore({
       if (reason === newWorkHeld) return
       newWorkHeld = reason
       stateCommits += 1
-      for (const row of store.query(allTasks)) updatedTask(row.id)
+      updatedTasks(tasksWaitingForSlots())
     },
     newWorkHold: () => newWorkHeld,
     holdForLoad(held) {
       if (held === heldForLoad) return
       heldForLoad = held
       stateCommits += 1
-      for (const row of store.query(allTasks)) updatedTask(row.id)
+      updatedTasks(tasksWaitingForSlots())
     },
     setTaskChecking(taskId, on) {
       if (checkingTasks.has(taskId) === on) return
