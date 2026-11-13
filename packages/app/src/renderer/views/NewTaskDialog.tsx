@@ -708,6 +708,7 @@ function NewTaskForm({
                           name={`${headingId}-depth`}
                           className={views.radio}
                           checked={clarifyDepth === depth}
+                          disabled={!defaultsReady}
                           onChange={() => setClarifyDepth(depth)}
                         />
                         {clarifyDepthLabels[depth]}

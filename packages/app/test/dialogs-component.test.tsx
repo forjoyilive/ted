@@ -308,7 +308,15 @@ test('an edit made before the defaults arrive keeps the Factory’s Clarify dept
   await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   const u = user()
   await u.type(screen.getByLabelText('Description'), 'Typed early')
+  const more = screen.getByRole('button', { name: /^More/ })
+  await u.click(more)
+  expect((screen.getByRole('radio', { name: 'Auto' }) as HTMLInputElement).disabled).toBe(true)
   await act(async () => health.resolve(draftHandlers().checkAgentHealth()))
+  await waitFor(() =>
+    expect((screen.getByRole('radio', { name: 'Grill' }) as HTMLInputElement).checked).toBe(true),
+  )
+  expect((screen.getByRole('radio', { name: 'Auto' }) as HTMLInputElement).disabled).toBe(false)
+  await u.click(more)
   await screen.findByText('Clarify depth Grill · Task Lead Claude')
   await u.click(screen.getByRole('button', { name: 'Create' }))
   expect(created).toHaveBeenCalledWith(expect.objectContaining({ clarifyDepth: 'grilling' }))
