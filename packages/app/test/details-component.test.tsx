@@ -45,7 +45,7 @@ test('Code moves from no worktree to branch and path', () => {
       onOpenShell={vi.fn()}
     />,
   )
-  expect(screen.getByText('ted/nb-1-sync')).toBeTruthy()
+  expect(screen.getByText('ted/nb-1-sync', { selector: 'code' })).toBeTruthy()
   expect(screen.getByText('/work/NB-1/widgets')).toBeTruthy()
 })
 
@@ -347,7 +347,7 @@ test('Task details shows six icon tabs, marks changes and working Runs, and keep
   expect(document.activeElement).toBe(tab('Apps'))
   await u.click(tab('Runs'))
   expect(
-    within(screen.getByRole('tabpanel', { name: 'Runs' })).getByText('Task Lead working'),
+    within(screen.getByRole('tabpanel', { name: 'Runs' })).getByText(/^Task Lead working/),
   ).toBeTruthy()
 
   view.rerender(<TaskDetails task={other} {...props} />)
