@@ -36,6 +36,7 @@ import type {
   ThreadEvent,
   ValidationObligations,
 } from '@ted/protocol'
+import { agentKinds } from '@ted/protocol/run'
 import { countWaiting } from '@ted/protocol/waiting'
 import {
   createContext,
@@ -574,7 +575,9 @@ function mergeHealth(current: AgentHealth[], incoming: AgentHealth[]): AgentHeal
     const known = byAgent.get(health.agent)
     if (!known || known.checkedAt <= health.checkedAt) byAgent.set(health.agent, health)
   }
-  return [...byAgent.values()].sort((a, b) => a.agent.localeCompare(b.agent))
+  return [...byAgent.values()].sort(
+    (a, b) => agentKinds.indexOf(a.agent) - agentKinds.indexOf(b.agent),
+  )
 }
 
 export function useAgentHealth(): AgentHealth[] {

@@ -60,11 +60,12 @@ function Lists() {
     <>
       <output>{banners.map((b) => b.text).join(',')}</output>
       <output>{health.map((h) => h.version).join(',')}</output>
+      <output>{health.map((h) => h.agent).join(',')}</output>
     </>
   )
 }
 
-test('banner deltas preserve untouched loaded banners and health keeps its newest timestamp', async () => {
+test('banner deltas preserve untouched loaded banners and health keeps its newest timestamp and agent order', async () => {
   const banners = deferred<Banner[]>()
   const health = deferred<AgentHealth[]>()
   const api = bridge({ listBanners: () => banners.promise, agentHealth: () => health.promise })
@@ -89,10 +90,15 @@ test('banner deltas preserve untouched loaded banners and health keeps its newes
     api.emit({ type: 'banner-cleared', id: 'removed' })
     api.emit({ type: 'agent-health-changed', health: h })
     banners.resolve([banner('removed'), banner('untouched')])
-    health.resolve([{ ...h, version: 'old', checkedAt: '2026-11-10T01:00:00Z' }])
+    health.resolve([
+      { ...h, agent: 'antigravity', version: 'a' },
+      { ...h, version: 'old', checkedAt: '2026-11-10T01:00:00Z' },
+      { ...h, agent: 'claude', version: 'c' },
+    ])
   })
   await screen.findByText('untouched,new')
-  await screen.findByText('new', { selector: 'output' })
+  await screen.findByText('c,new,a')
+  await screen.findByText('claude,codex,antigravity')
   await act(async () =>
     api.emit({
       type: 'agent-health-changed',
