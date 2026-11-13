@@ -1984,11 +1984,11 @@ export function createTasks(options: {
     store.postComment({ taskId, kind: 'note', author: { kind: 'ted' }, body })
   }
 
-  const movingOn = new Set<string>()
-  function setMovingOn(taskId: string, on: boolean): void {
-    if (on) movingOn.add(taskId)
-    else movingOn.delete(taskId)
-    store.setTaskMovingAfterChecks(taskId, on)
+  const movingOn = new Map<string, number>()
+  let waitingMoves = 0
+  function dropWaitingMove(taskId: string): void {
+    if (!movingOn.delete(taskId)) return
+    store.setTaskMovingAfterChecks(taskId, false)
   }
 
   async function checksFirst<T>(
@@ -2042,11 +2042,15 @@ export function createTasks(options: {
         `TED is already running ${find(taskId).displayId}’s Checks before moving it on; try again when they finish`,
       )
     const { done } = await startChecksBeforeMove(taskId)
-    setMovingOn(taskId, true)
+    waitingMoves += 1
+    const waiting = waitingMoves
+    movingOn.set(taskId, waiting)
+    store.setTaskMovingAfterChecks(taskId, true)
     const before = find(taskId)
     inBackground(`move ${before.displayId} on after its Checks`, async () => {
       const result = await done.catch(() => undefined)
-      setMovingOn(taskId, false)
+      if (movingOn.get(taskId) !== waiting) return
+      dropWaitingMove(taskId)
       const current = store.getTask(taskId)
       if (!current || current.archived || current.stopped || current.stage !== before.stage) return
       if (result?.outcome === 'interrupted') return
@@ -6744,6 +6748,7 @@ export function createTasks(options: {
   }
 
   function archiveNow(task: StoredTask, closePullRequests: boolean, why?: string): Task {
+    dropWaitingMove(task.id)
     browser.cancel(task.id)
     browserApps.delete(task.id)
     const closing = closePullRequests
@@ -6922,6 +6927,7 @@ export function createTasks(options: {
     try {
       await holding(task, async () => {
         if (!task.stopped) store.stopTask(id, { runs: task.runs.length, why: 'human' })
+        dropWaitingMove(id)
         await mergeWatcher.settled(id)
         await pullRequestQueue.get(id)
         const open = (current: StoredTask) =>
@@ -7666,6 +7672,7 @@ export function createTasks(options: {
     try {
       if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
       store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
+      dropWaitingMove(task.id)
       checkWaits.get(task.id)?.abort()
       subAgents.dropFor(task.id)
       settingUp.get(task.id)?.abort()

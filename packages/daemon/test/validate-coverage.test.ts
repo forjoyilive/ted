@@ -121,6 +121,7 @@ async function passing({
   }
   return {
     task,
+    app,
     root,
     repo,
     read,
@@ -177,6 +178,20 @@ test('a changed Check plan runs before advancing instead of inheriting prior com
   expect(runs.length).toBe(original.length + 1)
   expect(runs.at(-1)?.checks.map((c) => c.name)).toEqual(['Tests', 'New Check'])
   await waitUntil(async () => (await s.stage()) === 'review', 'the Task to move on')
+})
+
+test('stopping the Task while its out-of-date Checks run drops the waiting move', async () => {
+  const s = await passing()
+  await commitToOrigin(ctx.scratch, {
+    '.ted/workflow.yaml': workflow([...checks, { name: 'Slow Check', run: 'sleep 3' }]),
+  })
+  const held = await s.advance()
+  expect(held.status, JSON.stringify(held.body)).toBe(200)
+  expect((await s.app().call('POST', `${s.root}/stop`)).status).toBe(200)
+  expect((await s.app().call('POST', `${s.root}/resume`, {})).status).toBe(200)
+  await s.settled()
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  expect(await s.stage()).toBe('validate')
 })
 
 test('changing a repo’s command environment invalidates coverage even with the same Check names', async () => {
@@ -298,7 +313,7 @@ test('newly resolved Checks run before TED posts a Validate Gate', async () => {
   )
   await waitUntil(async () => {
     const comments = await s.read<{ kind: string; answer?: unknown }[]>(`${s.root}/comments`)
-    return comments.some((c) => c.kind === 'gate' && c.answer === undefined)
+    return comments.some((c) => c.kind === 'signoff' && c.answer === undefined)
   }, 'the Validate sign-off')
 })
 
