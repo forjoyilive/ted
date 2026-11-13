@@ -210,22 +210,24 @@ export function SelectionBar({
                 {counted('Prepare', preparable, chosen)}
               </Button>
             )}
-            <Select
-              aria-label="Autopilot for selected Tasks"
-              title="Autopilot makes routine decisions and carries started work through Merge. Turning it on also handles requests already waiting."
-              value=""
-              disabled={autopilotBusy || !chosen.some((t) => !t.archived && t.stage !== 'done')}
-              onChange={(event) => {
-                if (event.target.value) void setAutopilot(event.target.value as AutopilotChoice)
-              }}
-            >
-              <option value="" disabled>
-                {autopilotBusy ? 'Updating Autopilot…' : 'Autopilot…'}
-              </option>
-              <option value="on">Autopilot on</option>
-              <option value="off">Autopilot off</option>
-              <option value="inherit">Use global setting</option>
-            </Select>
+            {chosen.some((t) => !t.archived && t.stage !== 'done') && (
+              <Select
+                aria-label="Autopilot for selected Tasks"
+                title="Autopilot makes routine decisions and carries started work through Merge. Turning it on also handles requests already waiting."
+                value=""
+                disabled={autopilotBusy}
+                onChange={(event) => {
+                  if (event.target.value) void setAutopilot(event.target.value as AutopilotChoice)
+                }}
+              >
+                <option value="" disabled>
+                  {autopilotBusy ? 'Updating Autopilot…' : 'Autopilot…'}
+                </option>
+                <option value="on">Autopilot on</option>
+                <option value="off">Autopilot off</option>
+                <option value="inherit">Use global setting</option>
+              </Select>
+            )}
             {confirmArchive ? (
               <>
                 <Button
@@ -309,13 +311,17 @@ export function SelectionBar({
         <ContextMenu at={moreAt} label="More actions" onClose={() => setMoreAt(undefined)}>
           <MenuItems
             items={[
-              {
-                label: 'Priority',
-                items: priorities.map((priority) => ({
-                  label: priority === 'none' ? 'No priority' : priorityLabels[priority],
-                  action: () => bulk((t) => ted.setPriority(t.id, priority), archivable),
-                })),
-              },
+              ...(archivable.length > 0
+                ? [
+                    {
+                      label: 'Priority',
+                      items: priorities.map((priority) => ({
+                        label: priority === 'none' ? 'No priority' : priorityLabels[priority],
+                        action: () => bulk((t) => ted.setPriority(t.id, priority), archivable),
+                      })),
+                    },
+                  ]
+                : []),
               ...(snoozable.length > 0
                 ? [
                     {
