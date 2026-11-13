@@ -14,15 +14,7 @@ import { findAsanaUrl } from '@ted/protocol/asana-import'
 import { findLinearUrl } from '@ted/protocol/linear'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
-import {
-  type DragEvent,
-  type KeyboardEvent,
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from 'react'
+import { type KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import {
@@ -35,10 +27,12 @@ import pickerStyles from '../components/BlockerPicker.module.css'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
+import { DropOverlay } from '../components/DropOverlay.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
+import { useFileDrop } from '../file-drop.ts'
 import { setupNotice, setupNoticeText } from '../setup-notice.ts'
 import { emptyTaskDraft, taskDraftSession } from '../task-draft.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
@@ -104,6 +98,7 @@ function NewTaskForm({
   const dialog = useRef<HTMLDialogElement>(null)
   const descriptionField = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const drop = useFileDrop(() => attach)
   const headingId = useId()
   const [draft, showDraft] = useState(emptyTaskDraft)
   const [ready, setReady] = useState(false)
@@ -539,11 +534,6 @@ function NewTaskForm({
     void attach(heldFiles)
   })
 
-  function onDrop(event: DragEvent) {
-    event.preventDefault()
-    void attach([...event.dataTransfer.files])
-  }
-
   function onKeyDown(event: KeyboardEvent) {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
@@ -572,6 +562,7 @@ function NewTaskForm({
         return close()
       }}
       onKeyDown={onKeyDown}
+      {...drop.handlers}
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) return
         const bounds = event.currentTarget.getBoundingClientRect()
@@ -655,8 +646,6 @@ function NewTaskForm({
         <fieldset
           className={styles.attachments}
           aria-label="Attachments"
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={onDrop}
           onClick={(event) => {
             if (
               event.target instanceof Element &&
@@ -877,6 +866,7 @@ function NewTaskForm({
           {error ?? draftError ?? 'Add a Factory before you create a Task.'}
         </p>
       )}
+      {drop.dragging && <DropOverlay caption="Files are added under Attachments" />}
     </dialog>
   )
 }
