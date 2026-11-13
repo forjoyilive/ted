@@ -205,7 +205,7 @@ describe('iOS simulator Apps', () => {
     const client = await start()
     await addFactory(
       client,
-      'mkdir -p $TED_DERIVED_DATA && echo udid $TED_TASK $TED_SIMULATOR_UDID $TED_DERIVED_DATA; exec sleep 600',
+      'test -d $TED_DERIVED_DATA && echo udid $TED_TASK $TED_SIMULATOR_UDID $TED_DERIVED_DATA; exec sleep 600',
     )
     const task = await taskWithWorktree(client)
 
