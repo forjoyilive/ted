@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -203,7 +203,10 @@ async function simulatorRequest(client: Client, task: Task): Promise<Comment> {
 describe('iOS simulator Apps', () => {
   test('▶ clones a device for the Task, boots it, runs the App with its UDID, and archiving deletes it', async () => {
     const client = await start()
-    await addFactory(client)
+    await addFactory(
+      client,
+      'mkdir -p $TED_DERIVED_DATA && echo udid $TED_TASK $TED_SIMULATOR_UDID $TED_DERIVED_DATA; exec sleep 600',
+    )
     const task = await taskWithWorktree(client)
 
     expect(await iPhone(client, task)).toMatchObject({ kind: 'ios-simulator', state: 'stopped' })
@@ -230,7 +233,8 @@ describe('iOS simulator Apps', () => {
       'the App to start',
       20_000,
     )
-    expect(line).toBe(`udid NB-1 ${clone?.udid}`)
+    const taskCache = path.join(await realpath(home), 'sandbox', 'NB-1')
+    expect(line).toBe(`udid NB-1 ${clone?.udid} ${taskCache}/cache/xcode/DerivedData`)
 
     const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
     expect(slots).toMatchObject({ supported: true, limit: 3 })
@@ -266,6 +270,14 @@ describe('iOS simulator Apps', () => {
     await waitUntil(
       async () => (await client.ok<SimulatorSlots>('GET', '/simulators')).booted.length === 0,
       'the simulator slot to be freed',
+    )
+    await waitUntil(
+      async () =>
+        !(await stat(taskCache).then(
+          () => true,
+          () => false,
+        )),
+      'the Task’s sandbox folder to be removed',
     )
   })
 

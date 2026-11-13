@@ -10,6 +10,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_REAL_ANTIGRAVITY_BIN: false,
   TED_DEMO: false,
   TED_DEMO_STARTED: false,
+  TED_DERIVED_DATA: 'Task Xcode DerivedData folder supplied to Apps, Checks and worktree commands.',
   TED_STUB_GH: false,
   TED_STUB_XCRUN: false,
   TED_EDITOR_APP_DIRS: false,
@@ -52,6 +53,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_SKIP_FIRST_LAUNCH: false,
   TED_STALL_AFTER_MS: false,
   TED_STAY_AWAKE: false,
+  TED_SWIFTPM_CACHE:
+    'Task Swift package cache folder supplied to Apps, Checks and worktree commands.',
   TED_TASK: 'Task context for Run commands and worktree commands.',
   TED_TEST_FILE: false,
   TED_TEST_RUN: false,

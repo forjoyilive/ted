@@ -73,12 +73,21 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(worktree, 'a.txt')),
         'echo x > "$TMPDIR/b.txt" && echo wrote',
         'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
+        'mkdir -p "$TED_DERIVED_DATA" "$TED_SWIFTPM_CACHE" "$CLANG_MODULE_CACHE_PATH" && echo x > "$TED_DERIVED_DATA/d" && echo wrote',
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 4)).toEqual(['wrote', 'wrote', 'wrote', 'read'])
+    expect(result.stdout.split('\n').slice(0, 5)).toEqual([
+      'wrote',
+      'wrote',
+      'wrote',
+      'wrote',
+      'read',
+    ])
     expect(await readFile(path.join(worktree, 'a.txt'), 'utf8')).toBe('x\n')
+    const cache = await realpath(scope().cache)
+    expect(await readFile(path.join(cache, 'xcode', 'DerivedData', 'd'), 'utf8')).toBe('x\n')
     expect(result.stdout).toContain(path.basename(tmp))
   })
 

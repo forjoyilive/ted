@@ -19,6 +19,15 @@ export interface Sandboxed {
 export interface Sandbox {
   problem(): Promise<string | undefined>
   wrap(argv: readonly [string, ...string[]], scope: SandboxScope): Promise<Sandboxed>
+  buildCaches(cache: string): Promise<Record<string, string>>
+}
+
+export function buildCacheEnv(cache: string): Record<string, string> {
+  return {
+    TED_DERIVED_DATA: path.join(cache, 'xcode', 'DerivedData'),
+    TED_SWIFTPM_CACHE: path.join(cache, 'xcode', 'swiftpm'),
+    CLANG_MODULE_CACHE_PATH: path.join(cache, 'xcode', 'ModuleCache'),
+  }
 }
 
 export class SandboxUnavailable extends Error {}
@@ -86,10 +95,15 @@ export function createSandbox(options: {
         PIP_CACHE_DIR: cache('pip'),
         GOCACHE: cache('go-build'),
         GOMODCACHE: cache('go-mod'),
+        ...buildCacheEnv(paths.cache),
       }
       return platform === 'darwin'
         ? { argv: [ready, ...seatbeltArgs(paths), ...argv], env: added }
         : { argv: [ready, ...bwrapArgs(paths, env), '--', ...argv], env: added }
+    },
+    async buildCaches(cache) {
+      const home = await real(options.tedHome)
+      return buildCacheEnv(await plainFolder(home, path.resolve(options.tedHome), cache, true))
     },
   }
 }
