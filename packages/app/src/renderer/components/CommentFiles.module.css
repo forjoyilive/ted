@@ -7,29 +7,59 @@
 
 .images {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  margin: -4px;
+  padding: 4px;
+  overflow-x: auto;
+  --fade: 48px;
+}
+
+.images[data-more-after] {
+  mask-image: linear-gradient(
+    to right,
+    var(--surface-card) calc(100% - var(--fade)),
+    transparent
+  );
+}
+
+.images[data-more-before] {
+  mask-image: linear-gradient(to right, transparent, var(--surface-card) var(--fade));
+}
+
+.images[data-more-before][data-more-after] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--surface-card) var(--fade),
+    var(--surface-card) calc(100% - var(--fade)),
+    transparent
+  );
+}
+
+.images:has(:focus-visible) {
+  mask-image: none;
 }
 
 .image {
   display: flex;
-  max-width: 100%;
+  flex: none;
   margin: 0;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .thumbnail img {
   display: block;
-  max-width: min(100%, 360px);
-  max-height: 240px;
+  box-sizing: border-box;
+  width: auto;
+  height: var(--thumbnail-height, 160px);
+  max-width: var(--thumbnail-max-width, 320px);
   border: 1px solid var(--border-default);
   border-radius: 8px;
-  object-fit: contain;
+  object-fit: cover;
+  object-position: top left;
   background: var(--surface-inset);
 }
 
-.caption,
 .meta {
   color: var(--text-caption);
   font-size: var(--text-12);
@@ -37,8 +67,9 @@
 
 .placeholder {
   display: flex;
+  box-sizing: border-box;
   min-width: 160px;
-  min-height: 80px;
+  height: var(--thumbnail-height, 160px);
   align-items: center;
   justify-content: center;
   padding: 8px;
@@ -119,7 +150,6 @@
 
 .thumbnail {
   display: block;
-  max-width: 100%;
   padding: 0;
   border: none;
   border-radius: 8px;

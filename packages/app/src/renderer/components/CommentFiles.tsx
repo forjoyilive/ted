@@ -1,5 +1,5 @@
 import type { Attachment } from '@ted/protocol'
-import { useState } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useBytes } from '../attachment-bytes.ts'
 import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -89,6 +89,7 @@ function ImageFile({ attachment, onOpen }: { attachment: Attachment; onOpen: () 
           type="button"
           className={styles.thumbnail}
           aria-label={`View ${attachment.name}`}
+          title={attachment.name}
           onClick={onOpen}
         >
           <img src={src} alt={attachment.name} />
@@ -98,8 +99,40 @@ function ImageFile({ attachment, onOpen }: { attachment: Attachment; onOpen: () 
           {error ?? <Loading compact label={`Loading ${attachment.name}…`} />}
         </div>
       )}
-      <figcaption className={styles.caption}>{attachment.name}</figcaption>
     </figure>
+  )
+}
+
+function ImageRow({ images, children }: { images: string; children: ReactNode }) {
+  const row = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState({ before: false, after: false })
+  useLayoutEffect(() => {
+    const element = row.current
+    if (!element || images === '') return
+    const measure = () => {
+      const before = element.scrollLeft > 1
+      const after = element.scrollLeft + element.clientWidth < element.scrollWidth - 1
+      setMore((was) => (was.before === before && was.after === after ? was : { before, after }))
+    }
+    measure()
+    element.addEventListener('scroll', measure, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
+    observer?.observe(element)
+    for (const child of element.children) observer?.observe(child)
+    return () => {
+      element.removeEventListener('scroll', measure)
+      observer?.disconnect()
+    }
+  }, [images])
+  return (
+    <div
+      ref={row}
+      className={styles.images}
+      data-more-before={more.before || undefined}
+      data-more-after={more.after || undefined}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -144,11 +177,11 @@ export function CommentFiles({ files }: { files: readonly Attachment[] }) {
   return (
     <div className={styles.files}>
       {images.length > 0 && (
-        <div className={styles.images}>
+        <ImageRow images={images.map((a) => `${a.hash}:${a.name}`).join('\n')}>
           {images.map((a, index) => (
             <ImageFile key={`${a.hash}:${a.name}`} attachment={a} onOpen={() => setOpen(index)} />
           ))}
-        </div>
+        </ImageRow>
       )}
       {open !== undefined && (
         <ImageViewer images={images} initialIndex={open} onClose={() => setOpen(undefined)} />

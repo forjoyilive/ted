@@ -359,6 +359,8 @@ test('a Comment’s image buttons browse in display order, wrap, and restore the
     </>,
   )
   const thumbnail = await screen.findByRole('button', { name: 'View middle.png' })
+  expect(thumbnail.title).toBe('middle.png')
+  expect(screen.queryByText('middle.png')).toBeNull()
   await user().click(thumbnail)
   const dialog = screen.getByRole('dialog', { name: 'middle.png' })
   expect(within(dialog).getByRole('status').textContent).toBe('2 of 3')
