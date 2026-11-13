@@ -61,10 +61,7 @@ export function AgentDefaults() {
   }
 
   return (
-    <SettingsGroup
-      label="Defaults for all Factories"
-      help="Saved in your Library’s workflow.yaml. A Factory can override each one in its own settings."
-    >
+    <SettingsGroup setting="app.agents.defaults">
       {!view && !error && (
         <Skeleton shape="settings" framed={false} label="Loading agent defaults…" />
       )}

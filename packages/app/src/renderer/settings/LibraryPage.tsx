@@ -163,7 +163,11 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
       {view && draft && loaded && (
         <>
           <section className={styles.group} aria-labelledby="library-workflow">
-            <h2 id="library-workflow" className={styles.groupLabel}>
+            <h2
+              id="library-workflow"
+              className={styles.groupLabel}
+              data-setting="app.library.workflow"
+            >
               Workflow
             </h2>
             <div className={`${sections.table} ${sections.workflowTable}`}>
@@ -217,7 +221,11 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
           </section>
 
           <section className={styles.group} aria-labelledby="library-stage-files">
-            <h2 id="library-stage-files" className={styles.groupLabel}>
+            <h2
+              id="library-stage-files"
+              className={styles.groupLabel}
+              data-setting="app.library.stage-files"
+            >
               Stage files
             </h2>
             <div className={sections.table}>
