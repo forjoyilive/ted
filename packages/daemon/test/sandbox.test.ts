@@ -260,36 +260,74 @@ describe('the folders a sandbox opens', () => {
   test.skipIf(tmpdir().startsWith('/tmp'))(
     'on Linux, sockets outside the Task are covered and listed ones stay open',
     async () => {
+      const runtime = path.join(outside, 'run')
+      await mkdir(runtime)
       const listed = path.join(outside, 'listed.sock')
+      const listedInRuntime = path.join(runtime, 'agent.sock')
       const other = path.join(outside, 'other.sock')
+      const inClone = path.join(clone, 'c.s')
       const own = path.join(worktree, 'o.s')
-      const servers = await Promise.all([listed, other, own].map(listen))
+      const sockets = [listed, listedInRuntime, other, inClone, own]
+      const servers = await Promise.all(sockets.map(listen))
       try {
+        const names = [
+          listed,
+          listedInRuntime,
+          `${outside}//./other.sock`,
+          inClone,
+          own,
+          path.join(outside, 'gone.sock'),
+          '@abstract',
+          'relative.sock',
+        ]
         const table = [
           'Num       RefCount Protocol Flags    Type St Inode Path',
-          ...[listed, other, own, path.join(outside, 'gone.sock'), '@abstract'].map(
+          ...names.map(
             (socket, i) =>
               `0000000000000000: 00000002 00000000 00010000 0001 01 ${1000 + i} ${socket}`,
           ),
         ].join('\n')
         const sandbox = createSandbox({
           tedHome,
-          env: () => ({ PATH: '/usr/bin:/bin', HOME: outside }),
+          env: () => ({ PATH: '/usr/bin:/bin', HOME: outside, XDG_RUNTIME_DIR: runtime }),
           platform: 'linux',
           program: '/usr/bin/true',
           unixSockets: async () => table,
         })
         const { argv } = await sandbox.wrap(['/bin/sh', '-c'], {
           ...scope(),
-          sockets: ['~/listed.sock'],
+          sockets: ['~/listed.sock', '~/run/agent.sock'],
         })
-        const masked = argv.flatMap((arg, i) => (arg === '/dev/null' ? [argv[i + 1]] : []))
-        expect(masked).toEqual([other])
+        const after = (flag: string, source?: string) =>
+          argv.flatMap((arg, i) =>
+            arg === flag && (source === undefined || argv[i + 1] === source) ? [argv[i + 2]] : [],
+          )
+        expect(after('--ro-bind', '/dev/null')).toEqual([
+          await realpath(other),
+          await realpath(inClone),
+        ])
+        const restored = await realpath(listedInRuntime)
+        expect(after('--ro-bind', restored)).toEqual([restored])
+        expect(argv.indexOf(restored)).toBeGreaterThan(argv.lastIndexOf('--tmpfs'))
+        expect(argv.lastIndexOf('/dev/null')).toBeGreaterThan(argv.indexOf(await realpath(clone)))
       } finally {
         for (const server of servers) server.close()
       }
     },
   )
+
+  test('on Linux, a sandbox that can’t list the machine’s sockets refuses to run', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      unixSockets: () => Promise.reject(new Error('EACCES')),
+    })
+    await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(
+      /couldn’t list this machine’s Unix sockets/,
+    )
+  })
 
   test('on Linux with --bind-fd, bwrap gets each folder as an open descriptor', async () => {
     const sandbox = createSandbox({
@@ -323,9 +361,11 @@ describe('the folders a sandbox opens', () => {
           '0000000000000000: 00000002 00000000 00010000 0001 01 21 @/tmp/.X11-unix/X0',
           '0000000000000000: 00000003 00000000 00000000 0001 03 22',
           '0000000000000000: 00000002 00000000 00010000 0001 01 23 /home/a b/agent.sock',
+          '0000000000000000: 00000002 00000000 00010000 0001 01 24 /home/u/svc//./c.sock',
+          '0000000000000000: 00000002 00000000 00010000 0001 01 25 relative.sock',
         ].join('\n'),
       ),
-    ).toEqual(['/run/docker.sock', '/home/a b/agent.sock'])
+    ).toEqual(['/run/docker.sock', '/home/a b/agent.sock', '/home/u/svc/c.sock'])
   })
 })
 

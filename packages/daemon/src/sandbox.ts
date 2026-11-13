@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { redactSecrets } from './redact.ts'
 
 export interface SandboxScope {
   writable: readonly string[]
@@ -112,12 +113,14 @@ export function createSandbox(options: {
           close: async () => {},
         }
       }
-      const masks = await socketMasks(
-        await (options.unixSockets ?? (() => readFile('/proc/net/unix', 'utf8')))().catch(() => ''),
-        paths,
-        sockets,
-        env,
-      )
+      const table = await (
+        options.unixSockets ?? (() => readFile('/proc/net/unix', 'utf8'))
+      )().catch((error: unknown) => {
+        throw new SandboxUnavailable(
+          `TED couldn’t list this machine’s Unix sockets: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+      const linux = await linuxSockets(table, paths, sockets, env)
       const binds = bwrapBinds(paths)
       const handles: FileHandle[] = []
       const close = async () => {
@@ -132,7 +135,7 @@ export function createSandbox(options: {
         throw error
       }
       return {
-        argv: [ready, ...bwrapArgs(paths, env, masks, binds, bindFds), '--', ...argv],
+        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds), '--', ...argv],
         env: added,
         fds: handles.map((handle) => handle.fd),
         close,
@@ -196,7 +199,11 @@ async function allowedSockets(
         ? path.join(home, entry.slice(2))
         : entry
     if (expanded === undefined || !expanded.startsWith('/') || expanded.includes('\0')) {
-      console.error(`sandbox_sockets entry ${entry} isn’t an absolute path here, so TED skips it`)
+      console.error(
+        redactSecrets(
+          `sandbox_sockets entry ${entry} isn’t an absolute path here, so TED skips it`,
+        ),
+      )
       continue
     }
     found.add(path.resolve(expanded))
@@ -261,7 +268,7 @@ function bwrapBinds(paths: SandboxPaths): Bind[] {
 function bwrapArgs(
   paths: SandboxPaths,
   env: NodeJS.ProcessEnv,
-  masks: readonly string[],
+  sockets: LinuxSockets,
   binds: readonly Bind[],
   byFd: boolean,
 ): string[] {
@@ -281,12 +288,13 @@ function bwrapArgs(
     '/dev',
     '--proc',
     '/proc',
-    ...masks.flatMap((socket) => ['--ro-bind', '/dev/null', socket]),
     ...(tmpBind ?? []),
     ...(runtime === undefined ? [] : ['--tmpfs', runtime]),
     '--tmpfs',
     paths.tedHome,
     ...taskBinds.flat(),
+    ...sockets.restores.flatMap((socket) => ['--ro-bind', socket, socket]),
+    ...sockets.masks.flatMap((socket) => ['--ro-bind', '/dev/null', socket]),
     '--unsetenv',
     'DBUS_SESSION_BUS_ADDRESS',
   ]
@@ -298,34 +306,46 @@ function runtimeDir(env: NodeJS.ProcessEnv): string | undefined {
 
 const macSystemSockets = ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
 
-async function socketMasks(
+interface LinuxSockets {
+  masks: string[]
+  restores: string[]
+}
+
+async function linuxSockets(
   procNetUnix: string,
   paths: SandboxPaths,
   allowed: readonly string[],
   env: NodeJS.ProcessEnv,
-): Promise<string[]> {
+): Promise<LinuxSockets> {
   const runtime = runtimeDir(env)
-  const hidden = [
-    paths.tedHome,
+  const covered = [
     '/tmp',
     '/dev',
     '/proc',
-    ...(runtime === undefined ? [] : [runtime]),
-    ...paths.writable,
-    paths.tmp,
-    paths.cache,
+    ...(runtime === undefined ? [] : [runtime, await real(runtime)]),
   ]
+  const own = [...paths.writable, paths.tmp, paths.cache]
+  const hidden = (file: string) =>
+    covered.some((dir) => inside(dir, file)) ||
+    (inside(paths.tedHome, file) && !paths.readable.some((dir) => inside(dir, file)))
+  const socketAt = async (file: string) =>
+    (await lstat(file).catch(() => undefined))?.isSocket() === true
+
   const masks = new Set<string>()
-  for (const socket of unixSocketPaths(procNetUnix)) {
-    if (masks.has(socket) || allowed.includes(socket)) continue
-    if (hidden.some((dir) => inside(dir, socket))) continue
-    const found = await lstat(socket).catch(() => undefined)
-    if (!found?.isSocket()) continue
-    const resolved = await real(socket)
-    if (allowed.includes(resolved) || hidden.some((dir) => inside(dir, resolved))) continue
-    masks.add(socket)
+  for (const name of unixSocketPaths(procNetUnix)) {
+    const resolved = await real(name)
+    if (masks.has(resolved) || allowed.includes(resolved)) continue
+    if (hidden(resolved) || own.some((dir) => inside(dir, resolved))) continue
+    if (await socketAt(resolved)) masks.add(resolved)
   }
-  return [...masks]
+
+  const restores = new Set<string>()
+  for (const socket of allowed) {
+    if (inside(paths.tedHome, socket) || !covered.some((dir) => inside(dir, socket))) continue
+    if (socket !== (await real(socket)) || !(await socketAt(socket))) continue
+    restores.add(socket)
+  }
+  return { masks: [...masks], restores: [...restores] }
 }
 
 export function unixSocketPaths(procNetUnix: string): string[] {
@@ -333,7 +353,7 @@ export function unixSocketPaths(procNetUnix: string): string[] {
   for (const line of procNetUnix.split('\n').slice(1)) {
     const match = /^\s*\S+:\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s(.+)$/.exec(line)
     const socket = match?.[1]
-    if (socket?.startsWith('/') && path.normalize(socket) === socket) found.push(socket)
+    if (socket?.startsWith('/')) found.push(path.resolve(socket))
   }
   return found
 }
