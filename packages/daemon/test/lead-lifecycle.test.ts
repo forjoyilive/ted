@@ -565,12 +565,40 @@ test('Restart now after an Agent change starts a new Run with the carried conver
   const { lifecycle, starts, stopped } = harness()
   await lifecycle.applyLead(taskId)
   expect(starts).toEqual([])
+  advance(1000)
   await lifecycle.restartNow(taskId)
   expect(stopped).toEqual(['lead'])
   expect(store.getRun('fresh-0')).toMatchObject({ agent: 'claude' })
   expect(store.getRun('fresh-0')?.prompt).toContain('Switched from codex to claude')
   expect(store.getRun('fresh-0')?.prompt).toContain('Also check the empty state')
   expect(store.runMessages('lead').filter((m) => m.queued)).toEqual([])
+  lifecycle.close()
+})
+
+test('an Agent switch keeps the old Run until the new agent is ready', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  store.setTaskLead(taskId, { agent: 'claude' })
+  store.queueRunMessage({ runId: 'lead', text: 'Keep me' })
+  let ready = false
+  const { lifecycle, starts, stopped } = harness({
+    health: {
+      ready: async () => ready,
+      check: async () => [],
+      limited: () => {},
+    },
+  })
+  advance(1000)
+  await expect(lifecycle.restartNow(taskId)).rejects.toThrow('Claude isn’t ready')
+  store.setLeadRestartPending(taskId, true)
+  await lifecycle.applyLead(taskId)
+  expect(stopped).toEqual([])
+  expect(starts).toEqual([])
+  expect(store.runMessages('lead').filter((m) => m.queued)).toHaveLength(1)
+  ready = true
+  await lifecycle.applyLead(taskId)
+  expect(stopped).toEqual(['lead'])
+  expect(store.getRun('fresh-0')?.prompt).toContain('Keep me')
   lifecycle.close()
 })
 

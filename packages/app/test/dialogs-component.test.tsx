@@ -393,6 +393,24 @@ test('a late save’s update doesn’t replace a newer pick, and saves go one at
   expect(effort().value).toBe('high')
 })
 
+test('a failed save doesn’t put back older values while a newer save waits', async () => {
+  const first = deferred<Task>()
+  const second = deferred<Task>()
+  const replies = [first, second]
+  const setTaskLead = vi.fn(() => replies.shift()?.promise)
+  bridge({ setTaskLead })
+  render(<TaskLeadField task={task({ lead: { agent: 'claude' } })} />)
+  const effort = () => screen.getByLabelText('Effort') as HTMLSelectElement
+  const u = user()
+  await u.selectOptions(effort(), 'low')
+  await u.selectOptions(effort(), 'high')
+  await act(async () => first.reject(new Error('The daemon isn’t answering')))
+  expect(effort().value).toBe('high')
+  expect(screen.getByRole('alert').textContent).toContain('The daemon isn’t answering')
+  await act(async () => second.reject(new Error('Still not answering')))
+  expect(effort().value).toBe('')
+})
+
 test('Restart now shows only while the live Task Lead differs from the saved choice', async () => {
   const run: import('@ted/protocol').Run = {
     id: 'r1',

@@ -85,10 +85,11 @@ export function TaskLeadField({ task }: { task: Task }) {
           setSaved(true)
         },
         (e: unknown) => {
+          setError(errorText(e))
+          if (savingNow.current > 0) return
           setAgent(latest.current.agent)
           setModel(latest.current.model)
           setEffort(latest.current.effort)
-          setError(errorText(e))
         },
       )
   }

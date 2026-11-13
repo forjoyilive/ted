@@ -1,4 +1,5 @@
 import type { AgentKind, Comment, Run, RunMessage, TaskLead, TaskRepo } from '@ted/protocol'
+import { agentShortNames } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Clock, Timer } from '../clock.ts'
@@ -217,9 +218,9 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       if (restartAsked.has(taskId) || task.leadRestartPending) {
         if (lead.agent !== run.agent) {
           if (store.newWorkHold() !== undefined) return
+          if (!(await freshLead(task, run, lead.agent))) return
           restartAsked.delete(taskId)
           interruptedForRestart.delete(run.id)
-          await freshLead(task, run, lead.agent)
           return
         }
         store.setLeadRestartPending(taskId, true)
@@ -296,17 +297,19 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     }
   }
 
-  async function freshLead(task: StoredTask, run: Run, agent: AgentKind): Promise<void> {
+  async function freshLead(task: StoredTask, run: Run, agent: AgentKind): Promise<boolean> {
     if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
+    if (!(await health.ready(agent))) return false
     const resolution = await workflow(find(task.id))
     const env = leadEnv(task, entries(task, resolution))
     const unread = store.runMessages(run.id).filter((message) => message.queued === true)
     const pickUp = await agentChangeNote(task, run, agent, unread)
     await runs.stop(run.id)
     await launch(task, resolution, env, undefined, { pickUp })
-    if (find(task.id).leadRunId === run.id) return
+    if (find(task.id).leadRunId === run.id) return true
     for (const message of unread) store.deleteRunMessage(run.id, message.id)
     await store.persisted()
+    return true
   }
 
   async function restartNow(taskId: string): Promise<void> {
@@ -319,6 +322,11 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       throw new RequestError(409, `${task.displayId}’s Task Lead already uses these settings`)
     const off = agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)
     if (off !== undefined) throw new RequestError(409, off)
+    if (lead.agent !== run.agent && !(await health.ready(lead.agent)))
+      throw new RequestError(
+        409,
+        `${agentShortNames[lead.agent]} isn’t ready. Check Settings → Agents.`,
+      )
     if (lead.agent !== run.agent && store.newWorkHold() !== undefined)
       throw new RequestError(
         409,
