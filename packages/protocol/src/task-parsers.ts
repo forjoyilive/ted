@@ -20,6 +20,8 @@ import type {
   ReportOutcomeRequest,
   SaveTaskDraftRequest,
   SetPriorityRequest,
+  SetTaskParentRequest,
+  UnarchiveTaskRequest,
 } from './task.ts'
 import {
   type AgentStageId,
@@ -57,7 +59,7 @@ import {
   type WriteBriefRequest,
 } from './task.ts'
 import type { SetTaskGatesRequest, TaskGateOverrides } from './task-gates.ts'
-import { agentChoice, RequestValidationError as HttpError } from './validation.ts'
+import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
 export function parseStartTaskRequest(value: unknown): StartTaskRequest {
   if (value === undefined || value === null) return {}
@@ -905,9 +907,44 @@ export function parseBlockTaskRequest(value: unknown): BlockTaskRequest {
   return { by }
 }
 
+function hierarchyRevision(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value))
+    throw new HttpError(400, 'hierarchyRevision must come from a current hierarchy read')
+  return value
+}
+
+export function parseSetTaskParentRequest(value: unknown): SetTaskParentRequest {
+  const body = bodyObject(value)
+  if (body.parentId !== null && (typeof body.parentId !== 'string' || !body.parentId.trim()))
+    throw new HttpError(400, 'parentId must be a Task ID or null')
+  const revision = hierarchyRevision(body.revision)
+  if (!revision) throw new HttpError(400, 'revision must come from a current hierarchy read')
+  return { parentId: body.parentId === null ? null : body.parentId.trim(), revision }
+}
+
+export function parseUnarchiveTaskRequest(value: unknown): UnarchiveTaskRequest {
+  const body = bodyObject(value ?? {})
+  if (body.unlinkParent !== undefined && typeof body.unlinkParent !== 'boolean')
+    throw new HttpError(400, 'unlinkParent must be true or false')
+  return {
+    ...(body.unlinkParent !== undefined && { unlinkParent: body.unlinkParent }),
+    ...(body.hierarchyRevision !== undefined && {
+      hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
+    }),
+  }
+}
+
 export function parseDeleteTaskRequest(value: unknown): DeleteTaskRequest {
   const body = value as Record<string, unknown> | null
-  return { blocked: blockedChoice(body) }
+  if (body?.children !== undefined && body.children !== 'delete' && body.children !== 'unparent')
+    throw new HttpError(400, 'children must be delete or unparent')
+  return {
+    blocked: blockedChoice(body),
+    ...(body?.children !== undefined && { children: body.children }),
+    ...(body?.hierarchyRevision !== undefined && {
+      hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
+    }),
+  }
 }
 
 export function parseArchiveTaskRequest(value: unknown): ArchiveTaskRequest {
@@ -916,7 +953,13 @@ export function parseArchiveTaskRequest(value: unknown): ArchiveTaskRequest {
   if (close !== undefined && typeof close !== 'boolean') {
     throw new HttpError(400, 'closePullRequests must be true or false')
   }
-  return { closePullRequests: close === true, blocked: blockedChoice(body) }
+  return {
+    closePullRequests: close === true,
+    blocked: blockedChoice(body),
+    ...(body?.hierarchyRevision !== undefined && {
+      hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
+    }),
+  }
 }
 
 export function parseSetTaskGatesRequest(input: unknown): SetTaskGatesRequest {

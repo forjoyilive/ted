@@ -229,6 +229,8 @@ export interface Task {
   lead?: TaskLead
   stageEffort?: Effort
   blockedBy: string[]
+  parentId?: string
+  childIds?: string[]
   attachments: Attachment[]
   source?: TaskSource
   linearSync?: 'on' | 'ask'
@@ -413,12 +415,36 @@ export const blockedChoices = ['unblock', 'keep'] as const
 
 export type BlockedChoice = (typeof blockedChoices)[number]
 
+export interface TaskHierarchy {
+  parentId: string | null
+  childIds: string[]
+  revision: string
+}
+
+export interface SetTaskParentRequest {
+  parentId: string | null
+  revision: string
+}
+
+export interface TaskHierarchyPreview {
+  revision: string
+  descendants: (TaskLink & { title: string })[]
+}
+
+export interface UnarchiveTaskRequest {
+  unlinkParent?: boolean
+  hierarchyRevision?: string
+}
+
 export interface ArchiveTaskRequest {
+  hierarchyRevision?: string
   closePullRequests?: boolean
   blocked?: BlockedChoice
 }
 
 export interface DeleteTaskRequest {
+  children?: 'delete' | 'unparent'
+  hierarchyRevision?: string
   blocked?: BlockedChoice
 }
 

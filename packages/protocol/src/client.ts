@@ -198,14 +198,18 @@ import type {
   SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
+  SetTaskParentRequest,
   SetTaskReposRequest,
   Task,
   TaskBrief,
   TaskDefaults,
   TaskDraftState,
+  TaskHierarchy,
+  TaskHierarchyPreview,
   TaskReposResult,
   TedStoppedTask,
   ThreadEvent,
+  UnarchiveTaskRequest,
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
@@ -631,8 +635,20 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/linear-sync`)
   }
 
-  unarchiveTask(ref: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/unarchive`, {})
+  taskHierarchy(ref: string): Promise<TaskHierarchy> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/hierarchy`)
+  }
+
+  taskHierarchyPreview(ref: string): Promise<TaskHierarchyPreview> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/hierarchy/preview`)
+  }
+
+  setTaskParent(ref: string, request: SetTaskParentRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/parent`, request)
+  }
+
+  unarchiveTask(ref: string, request: UnarchiveTaskRequest = {}): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/unarchive`, request)
   }
 
   resetTask(ref: string): Promise<Task> {
