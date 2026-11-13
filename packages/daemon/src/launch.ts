@@ -69,17 +69,12 @@ async function plainEntry(file: string, kind: 'file' | 'directory'): Promise<boo
   return kind === 'file' ? stats?.isFile() === true : stats?.isDirectory() === true
 }
 
-async function processGroups(pids: number[]): Promise<Map<number, number>> {
-  if (pids.length === 0) return new Map()
-  const { stdout } = await execFileAsync('ps', ['-o', 'pid=,pgid=', '-p', pids.join(',')]).catch(
-    (error: { stdout?: string }) => ({ stdout: error.stdout ?? '' }),
+async function ownProcessGroup(): Promise<number | undefined> {
+  const { stdout } = await execFileAsync('ps', ['-o', 'pgid=', '-p', String(process.pid)]).catch(
+    () => ({ stdout: '' }),
   )
-  const groups = new Map<number, number>()
-  for (const line of stdout.split('\n')) {
-    const [pid, pgid] = line.trim().split(/\s+/).map(Number)
-    if (Number.isInteger(pid) && Number.isInteger(pgid)) groups.set(pid as number, pgid as number)
-  }
-  return groups
+  const group = Number(stdout.trim())
+  return Number.isInteger(group) && group > 0 ? group : undefined
 }
 
 export async function stopTedProcesses(
@@ -99,16 +94,7 @@ export async function stopTedProcesses(
     }
   }
   const holders = (await lockHolders(...locks)).filter((pid) => pid > 1 && pid !== process.pid)
-  const groups = await processGroups([...holders, process.pid])
-  const own = groups.get(process.pid)
-  const targets = [
-    ...new Set(
-      holders.map((pid) => {
-        const group = groups.get(pid)
-        return group === pid && group !== own ? -pid : pid
-      }),
-    ),
-  ]
+  const own = await ownProcessGroup()
   const signal = (target: number, name: NodeJS.Signals | 0): boolean => {
     try {
       process.kill(target, name)
@@ -117,6 +103,9 @@ export async function stopTedProcesses(
       return false
     }
   }
+  // A group whose ID is a live holder's pid is that holder's own group: hosts and the daemon
+  // are started detached, so their agents and children stop with them.
+  const targets = [...new Set(holders.map((pid) => (pid !== own && signal(-pid, 0) ? -pid : pid)))]
   for (const target of targets) signal(target, 'SIGTERM')
   const deadline = Date.now() + graceMs
   let left = targets.filter((target) => signal(target, 0))
