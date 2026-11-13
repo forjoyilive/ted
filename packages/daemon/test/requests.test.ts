@@ -195,7 +195,10 @@ describe('ted ask --supersedes', () => {
     const other = await startTask(client, ask('Elsewhere?'), { endTurn: true })
     const lead = await asRun(await idleLead(client, task))
     const otherLead = await asRun(await idleLead(client, other))
-    const [first, second, note] = await comments(client, task)
+    const posted = await comments(client, task)
+    const first = posted.find((c) => c.body === 'First?')
+    const second = posted.find((c) => c.body === 'Second?')
+    const note = posted.find((c) => c.body === 'Just a note')
     if (!first || !second || !note) throw new Error('missing Comments')
     await client.ok('POST', `/comments/${first.id}/answer`, { action: 'answer', text: 'Yes' })
 

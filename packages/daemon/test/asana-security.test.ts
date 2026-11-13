@@ -67,9 +67,10 @@ async function start(options: Pick<DaemonOptions, 'clock' | 'idleExit'> = {}) {
   if (!info) throw new Error('No info')
   return { client: appClient(info, daemon.appToken), info }
 }
+const authorizationCode = 'authorization-code-opaque'
 async function connect(client: DaemonClient) {
   const { url } = await client.connectAsana()
-  const callback = stub.callback(url)
+  const callback = stub.callback(url, authorizationCode)
   return { url, callback }
 }
 async function connected(client: DaemonClient) {
@@ -245,7 +246,7 @@ test('app authority only, no endpoint redirects, and credentials stay out of API
       config.clientSecret,
       'access-secret-opaque',
       'refresh-secret-opaque',
-      new URL(attempt.callback).searchParams.get('code') ?? 'stub-code',
+      authorizationCode,
     ])
       expect(text).not.toContain(value)
 })

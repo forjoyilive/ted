@@ -141,6 +141,7 @@ describe('slow requests', () => {
       '/peers/watch',
     )
     expect(routes.filter((r) => r.waits).map((r) => routePattern(r.path))).toEqual([
+      '/tasks/:id/lead/restart',
       '/peers/watch',
       '/tasks/:id/repos/:id/shell/panes/:id/output',
       '/tasks/:id/browser',
