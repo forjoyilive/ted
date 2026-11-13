@@ -259,21 +259,39 @@ test('files dropped while the draft loads are attached once it has loaded', asyn
   expect(screen.queryByText('Attaching…')).toBeNull()
 })
 
-test('the attach box opens the file picker from anywhere on it before agent health returns', async () => {
+test('the attach box opens the file picker from anywhere on it while the draft and agent health load', async () => {
+  const draft = deferred<{ draft: null }>()
   const health = deferred<never>()
+  const uploaded = vi.fn((file: unknown) => ({
+    hash: 'abc',
+    name: (file as { name: string }).name,
+    mediaType: 'text/plain',
+    size: 5,
+  }))
   bridge({
     ...draftHandlers(),
+    taskDraft: () => draft.promise,
     taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
     checkAgentHealth: () => health.promise,
+    uploadAttachment: uploaded,
   })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
-  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
-  const picker = vi.spyOn(screen.getByLabelText('Attach files'), 'click')
+  expect(screen.getByLabelText('Description').matches(':disabled')).toBe(true)
+  const input = screen.getByLabelText('Attach files')
+  const picker = vi.spyOn(input, 'click')
   const u = user()
   await u.click(screen.getByRole('group', { name: 'Attachments' }))
   expect(picker).toHaveBeenCalledOnce()
   await u.click(screen.getByRole('button', { name: 'Drop files here, or click to attach' }))
   expect(picker).toHaveBeenCalledTimes(2)
+  fireEvent.change(input, {
+    target: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] },
+  })
+  expect(await screen.findByText('Attaching…')).toBeTruthy()
+  expect(uploaded).not.toHaveBeenCalled()
+  await act(async () => draft.resolve({ draft: null }))
+  expect(await screen.findByRole('button', { name: 'Remove notes.txt' })).toBeTruthy()
+  expect(uploaded).toHaveBeenCalledOnce()
   expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
