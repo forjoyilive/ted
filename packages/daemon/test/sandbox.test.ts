@@ -351,17 +351,46 @@ describe('the folders a sandbox opens', () => {
   )
 
   test('on Linux, a sandbox that can’t list the machine’s sockets is a problem and refuses to run', async () => {
+    let readable = true
     const sandbox = createSandbox({
       tedHome,
       env: () => ({ PATH: '/usr/bin:/bin' }),
       platform: 'linux',
       program: '/usr/bin/true',
-      unixSockets: () => Promise.reject(new Error('EACCES')),
+      unixSockets: async () => {
+        if (!readable) throw new Error('EACCES')
+        return ''
+      },
     })
+    expect(await sandbox.problem()).toBeUndefined()
+    readable = false
     expect(await sandbox.problem()).toMatch(/couldn’t list this machine’s Unix sockets/)
     await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(
       /couldn’t list this machine’s Unix sockets/,
     )
+  })
+
+  test('on Linux, a socket named through a linked folder and .. is covered where it really is', async () => {
+    const service = path.join(clone, 's')
+    await mkdir(path.join(service, 'n'), { recursive: true })
+    await symlink(path.join(service, 'n'), path.join(clone, 'l'))
+    const server = await listen(path.join(service, 'c.s'))
+    try {
+      const sandbox = createSandbox({
+        tedHome,
+        env: () => ({ PATH: '/usr/bin:/bin' }),
+        platform: 'linux',
+        program: '/usr/bin/true',
+        unixSockets: async () =>
+          `Num       RefCount Protocol Flags    Type St Inode Path\n0000000000000000: 00000002 00000000 00010000 0001 01 1000 ${clone}/l/../c.s`,
+      })
+      const { argv } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+      expect(argv[argv.lastIndexOf('/dev/null') + 1]).toBe(
+        await realpath(path.join(service, 'c.s')),
+      )
+    } finally {
+      server.close()
+    }
   })
 
   test('on Linux, a socket in a clone is covered even when TED_HOME sits in the runtime folder', async () => {
