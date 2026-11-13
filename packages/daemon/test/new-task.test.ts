@@ -156,7 +156,7 @@ describe('creating a Task from the New Task dialog', () => {
       start: true,
       startInBackground: true,
     })
-    expect(soon.stage).toBe('backlog')
+    expect(soon.stage).toBe('intake')
     expect(soon.leadRunId).toBeUndefined()
     const listed = async () => (await client.listTasks()).find((task) => task.id === soon.id)
     await expect.poll(async () => (await listed())?.leadRunId).toEqual(expect.any(String))
