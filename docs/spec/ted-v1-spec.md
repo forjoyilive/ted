@@ -1136,15 +1136,14 @@ Figma: KRI-63 Task details (Run chat in a Conversation tab; “Steering · messa
 
 Figma: KRI-63 Task details; Page 1 (Apps section 13:3, Full brief 14:204).
 
-- Order, top to bottom; each heading collapses its section to a one-line summary (“Apps · 3 running”): (KRI-63, KRI-8 coordinator decision 4)
-  1. A **Setup Task** note, on setup Tasks only (5.3).
-  2. **Fields:** Priority, Task Lead (the setting as written, “Claude · opus · high”), Clarify depth (“Few · by the Task Lead”), Repos (multi-repo only), Blocked by, Blocks.
-  3. **Code:** per repo, the pull request, branch, worktree path, **Shell**, **Open in editor** (9.8).
-  4. **Changes** (9.5).
+- A row of icon tabs at the top of the pane, fixed while the content below scrolls: Details, Code, Changes, Files, Runs, Apps. Hovering a tab shows its name and shortcut (⌥1 to ⌥6 in that order); the selected tab is underlined in the accent colour and its name heads the pane, with its one-line summary under it (“PR #27 · open”, “36 files”, “Task Lead working”). Changes carries a count of changed files and Runs a dot while a Run is working. Only the selected tab’s content is drawn. The first Task opened shows Details; after that a Task opens on the tab used last, until the app quits. Tab reaches the row and the arrow keys, Home and End move between tabs. Pressing B switches to Details. (KRI-301)
+  1. **Details:** a **Setup Task** note on setup Tasks only (5.3), then the fields, each label above its value: Priority, Task Lead (the setting as written, “Claude · opus · high”), Clarify depth (“Few · by the Task Lead”), Autopilot, Sign-offs, Repos (multi-repo only), Blocked by, Blocks, Factory, Stage, Attachments, Branch.
+  2. **Code:** per repo, **Shell** and **Open in editor** (9.8), then the pull request, branch and worktree path, each label above its value.
+  3. **Changes** (9.5).
+  4. **Files.**
   5. **Runs:** a summary line (7.7); live Runs first, the Task Lead with its sub-agents indented under it; stopped Runs under a collapsible “3 stopped Runs” line, newest first. Each row, flush left: Run icon, Run name, state; agent · model · effort as the CLI reported at Run start (an unset model shows the real name; unreported effort shows “default effort”); Subscription or API key · tokens, plus dollars for API-key Runs. Hover shows Restart and Stop; Stop on the Task Lead is Stop Task. Clicking opens the Conversation tab. Run state words are lower case.
   6. **Apps** (9.6), including a hosted preview row.
-  7. **Task brief:** Goal and Next step, plus **Full brief**.
-- **Original request** is a collapsed row at the end of the Task brief section, with a link to the description’s history. (KRI-19)
+- The Task brief opens from **Full brief** in the Task actions menu.
 - **Task actions menu** (⋯ in the header, or right-click a Board card, List row or Task header): the first item by status (Backlog **Start**, Queued **Move to Backlog**, Stopped **Resume**, Failed **Retry**, Done **Follow up…**, Working **Stop Task** with “Stops all 3 Runs. Worktree and Apps stay.”), then Priority ▸, Task Lead ▸, Clarify depth ▸ (greyed after Clarify), Blocked by…, Edit title and description…, Copy Task ID, Open source in Linear, Archive… (⌘⌫) and Delete… in red. An archived Task has **Unarchive**, **Copy Task ID** and Delete. Opening or using the menu does not trigger the enclosing Task’s navigation. (KRI-63, KRI-284)
 - **Context menus:** right-clicking a selected List row applies common actions to every selected Task; the heading names the selected count. An unselected row has that Task’s actions. Selection stays intact when a menu opens. Bulk Archive and Delete confirm the group and retain pull-request and blocker choices; operations stop on a failure and identify the Task, with earlier successes retained. Files and Changes entries offer **View file** or **View changes**, and **Copy path** (repo-relative, with the repo in the heading). Inbox entries offer **Open request** and **Copy message text** for Task requests, planning requests and Automation questions; answers and approvals stay in the full request. ⇧F10 or the Context Menu key opens a focused object’s menu; arrow keys navigate, Enter chooses, Escape closes and restores focus, and outside clicks or Tab dismiss. Menus fit the viewport and support scrolling when necessary. (KRI-284)
 

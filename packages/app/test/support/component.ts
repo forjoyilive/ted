@@ -4,6 +4,7 @@ import { defaultMachineSettings } from '@ted/protocol/settings'
 import { cleanup } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
+import { showDetailsTab } from '../../src/renderer/details.ts'
 import type { TedBridge, TedEvent } from '../../src/renderer/ted.ts'
 
 const verifications: (() => void)[] = []
@@ -82,6 +83,7 @@ afterEach(() => {
   const checks = verifications.splice(0)
   try {
     cleanup()
+    showDetailsTab('details')
     for (const verify of checks) verify()
   } finally {
     vi.restoreAllMocks()

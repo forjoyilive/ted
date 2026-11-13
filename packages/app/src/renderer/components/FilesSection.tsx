@@ -150,7 +150,7 @@ function FilesBody({ task, files, error, selected, onOpen, onBrowse, refresh }: 
         Refresh files
       </Button>
       <FileListState files={files} error={error} />
-      <div className={styles.scroll}>
+      <div>
         {trees?.map((repo) => (
           <div key={repo.repo}>
             <p className={styles.repo}>{repo.repo}</p>
@@ -180,7 +180,6 @@ export function FilesSection(props: FilesSectionProps & { onQuickOpen: () => voi
   return (
     <DetailsSection
       id="files"
-      title="Files"
       action={
         <Button
           variant="quiet"

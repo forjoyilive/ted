@@ -58,7 +58,7 @@ test('the file tree opens a file absent from Changes, retains its path, and show
       onQuickOpen={vi.fn()}
     />,
   )
-  const section = screen.getByRole('region', { name: 'Files' })
+  const section = screen.getByRole('tabpanel', { name: 'Files' })
   fireEvent.click(within(section).getByText('src'))
   await user().click(within(section).getByRole('button', { name: 'hello.ts' }))
   expect(onOpen).toHaveBeenCalledWith({ repo: 'web', path: 'src/hello.ts' })
@@ -219,7 +219,10 @@ test.each(['Full brief', 'All changes'])(
     if (previous === 'Full brief') {
       await user().click(screen.getByRole('button', { name: 'Task actions' }))
       await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
-    } else await user().click(await screen.findByRole('button', { name: 'All changes' }))
+    } else {
+      await user().click(await screen.findByRole('tab', { name: 'Changes' }))
+      await user().click(await screen.findByRole('button', { name: 'All changes' }))
+    }
     await screen.findByRole('region', { name: previous })
     await user().keyboard('{Control>}p{/Control}')
     const quick = await screen.findByRole('dialog', { name: 'Quick open' })
@@ -554,7 +557,8 @@ async function openChangesTask(a: ReturnType<typeof appState>) {
   await user().click(within(nav).getByRole('button', { name: 'All Tasks' }))
   await user().click(await screen.findByRole('row', { name: /NB-1/ }))
   await screen.findByRole('region', { name: 'Task thread' })
-  return screen.findByRole('region', { name: 'Changes' })
+  await user().click(await screen.findByRole('tab', { name: 'Changes' }))
+  return screen.findByRole('tabpanel', { name: 'Changes' })
 }
 
 test('an open PR retains local access; both sources use the reader without mixing code or offering local actions on PR lines', async () => {

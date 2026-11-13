@@ -70,6 +70,7 @@ test('chat timestamps keep advancing while idle and after a tool finishes', asyn
   await window.clock.pauseAt(Date.now() + 1000)
   await openAllTasks(window)
   await taskRow(window, 'NB-1').click()
+  await window.getByRole('tab', { name: 'Runs' }).click()
   await window
     .getByRole('complementary', { name: 'Task details' })
     .getByRole('button', { name: /Task Lead/ })

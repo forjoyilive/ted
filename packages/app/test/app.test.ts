@@ -448,6 +448,7 @@ describe('TED app', () => {
     await openAllTasks(window)
     await taskRow(window, 'NB-1').click()
     const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('tab', { name: 'Runs' }).click()
     await details.getByRole('button', { name: /Task Lead/ }).click()
 
     const chat = window.getByRole('region', { name: 'Run chat' })
@@ -558,6 +559,7 @@ describe('TED app', () => {
       e.scrollTop = 150
     })
     await expect.poll(top).toBe(150)
+    await window.getByRole('tab', { name: 'Runs' }).click()
     await window
       .getByRole('complementary', { name: 'Task details' })
       .getByRole('button', { name: /Task Lead/ })
