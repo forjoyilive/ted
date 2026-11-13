@@ -2587,7 +2587,10 @@ export async function openStore({
     })
   }
 
-  const nextRank = () => Math.max(0, ...store.query(allTasks).map((t) => t.rank ?? t.number)) + 1
+  const nextRank = () =>
+    store
+      .query(queryDb(tasks.select('rank', 'number')))
+      .reduce((highest, t) => Math.max(highest, t.rank ?? t.number), 0) + 1
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const heldOutput = new Map<string, { toOffset: number; lastOutputAt?: string }>()
   const listTasks = () => {
@@ -2945,13 +2948,16 @@ export async function openStore({
   }
   const openRequests = (): WaitingRequest[] => {
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
+    const requestRows = shownRequestRows()
     const liveTasks = new Map(
-      store
-        .query(allTasks)
+      (requestRows.length === 0
+        ? []
+        : store.query(queryDb(tasks.select('id', 'factoryId', 'number', 'title', 'archivedAt')))
+      )
         .filter((t) => t.archivedAt === null)
         .map((t) => [t.id, t]),
     )
-    const fromTasks = shownRequestRows().flatMap((row): WaitingRequest[] => {
+    const fromTasks = requestRows.flatMap((row): WaitingRequest[] => {
       const task = liveTasks.get(row.taskId)
       if (!task) return []
       return [
@@ -3450,9 +3456,10 @@ export async function openStore({
       setup = false,
       coordinatorOperation,
     }) {
-      const inFactory = store.query(queryDb(tasks.where({ factoryId })))
-      const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
-      const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
+      const used = [
+        ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
+        ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
+      ]
       const awaitingSetup =
         !setup &&
         listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
