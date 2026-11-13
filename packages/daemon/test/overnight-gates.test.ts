@@ -66,8 +66,7 @@ async function begin(
     factory: 'NB',
     ...extra,
   })
-  const { overnightMode } = await client.ok<{ overnightMode: boolean }>('GET', '/settings')
-  if (!overnightMode) await client.ok('POST', `/tasks/${task.id}/start`)
+  await client.ok('POST', `/tasks/${task.id}/start`)
   return task
 }
 
