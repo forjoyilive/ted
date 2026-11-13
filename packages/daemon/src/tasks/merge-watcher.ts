@@ -347,11 +347,15 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     return found
   }
 
-  async function mergedOutside(taskId: string, read: PullRequestRead): Promise<boolean> {
-    const open = find(taskId).repos.filter(
-      (r) => !r.removed && r.pullRequest !== undefined && r.pullRequest.state !== 'merged',
-    )
-    if (open.length === 0) return false
+  async function mergedOutside(
+    taskId: string,
+    read: PullRequestRead | undefined,
+  ): Promise<boolean> {
+    const opened = find(taskId).repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    if (opened.length === 0) return false
+    const open = opened.filter((r) => r.pullRequest?.state !== 'merged')
+    if (open.length === 0) return true
+    if (!read) return false
     let remote: Map<string, RemotePullRequest>
     try {
       remote = remoteOf(taskId, open, read)
@@ -367,8 +371,13 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         noCi: false,
         byTed: false,
       })
-      const pr = remote.get(repo.name)
-      if (options.gh && pr) await removeMergedBranch(options.gh, repo, pr)
+    }
+    const gh = options.gh
+    if (gh) {
+      for (const repo of open) {
+        const pr = remote.get(repo.name)
+        if (pr) await removeMergedBranch(gh, repo, pr)
+      }
     }
     return true
   }
@@ -434,7 +443,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const task = find(taskId)
     if (port.busy(taskId)) return 'busy'
     if (task.stage === 'done') return watchOnlyCycle(taskId, read)
-    if (task.stage === 'merge' && !task.archived && read && (await mergedOutside(taskId, read)))
+    if (task.stage === 'merge' && !task.archived && (await mergedOutside(taskId, read)))
       return finishMerge(taskId)
     if (onlyMergedOutside) return 'wait'
     const resolution = await port.resolve(task)
