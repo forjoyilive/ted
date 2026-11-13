@@ -202,6 +202,7 @@ import type {
   Priority,
   ReportOutcomeRequest,
   RepoSetupReport,
+  RequestArchiveRequest,
   ResumeTaskRequest,
   SaveTaskDraftRequest,
   SetClarifyDepthRequest,
@@ -672,6 +673,10 @@ export class DaemonClient {
 
   archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
+  }
+
+  requestArchive(ref: string, request: RequestArchiveRequest): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive-request`, request)
   }
 
   followUpTask(ref: string, comment?: string, attachments?: AttachmentRef[]): Promise<Task> {

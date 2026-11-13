@@ -26,7 +26,7 @@ import type {
   StageId,
   Task,
 } from '@ted/protocol'
-import { priorities } from '@ted/protocol'
+import { archiveChoice, priorities } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -672,7 +672,8 @@ export function createCoordinators(options: {
     if (comment.kind === 'round') return 'round answers'
     if (comment.kind === 'proposal' || comment.gate) return 'approve or request changes'
     if (comment.kind !== 'question') return 'no'
-    if (comment.sizeCheck || tasks.isFailureDecision(comment.id)) return 'with a choice'
+    if (comment.sizeCheck || comment.archive || tasks.isFailureDecision(comment.id))
+      return 'with a choice'
     return comment.author.kind === 'ted' && (comment.choices?.length ?? 0) > 0
       ? 'with a choice'
       : 'yes'
@@ -731,12 +732,34 @@ export function createCoordinators(options: {
       throw new RequestError(400, 'This request is answered with one of its choices')
     if (input.choice !== undefined && !asked.choices?.includes(input.choice))
       throw new RequestError(409, `“${input.choice}” isn’t one of the request’s choices`)
+    const archive = asked.archive && input.choice === archiveChoice
+    if (!archive && input.closePullRequests !== undefined)
+      throw new RequestError(
+        400,
+        `--close-pull-requests and --keep-pull-requests only go with ${archiveChoice} on an archive request`,
+      )
+    if (archive) {
+      const facts = confirmationFacts(task, 'archive')
+      if (facts.descendants.length > 0)
+        throw new RequestError(
+          403,
+          `Archiving ${task.displayId} would archive the Tasks under it too; that waits for the human in the Inbox`,
+        )
+      if (facts.pullRequests.length > 0 && input.closePullRequests === undefined)
+        throw new RequestError(
+          400,
+          `${task.displayId} has an open pull request; add --close-pull-requests or --keep-pull-requests`,
+        )
+    }
     return {
       asked,
       answer: {
         action: 'answer',
         ...(input.choice !== undefined && { choice: input.choice }),
         text,
+        ...(archive && {
+          archive: { closePullRequests: input.closePullRequests === true, blocked: 'unblock' },
+        }),
       },
     }
   }

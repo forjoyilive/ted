@@ -67,6 +67,7 @@ const completeAction: Required<P.CoordinatorAction> = {
   recommended: true,
   skipRows: [2],
   startUnblocked: true,
+  closePullRequests: false,
 }
 for (const kind of ['start', 'move', 'tell', 'resume', 'done'] as const) {
   test(`parseCoordinatorAction keeps every ${kind} field`, () => {
@@ -305,6 +306,7 @@ test('Coordinator answer variants keep every request field', () => {
   }
   const inputs = [
     { ...base, choice: completeAction.choice },
+    { ...base, choice: 'Archive', closePullRequests: completeAction.closePullRequests },
     { ...base, decision: completeAction.decision },
     { ...base, answers: completeAction.answers },
     { ...base, recommended: completeAction.recommended },
@@ -315,6 +317,11 @@ rejects(
   (value) => P.parseCoordinatorAction(value, 'answer'),
   { operation: 'id', version, request: 'comment', choice: 'Yes', decision: 'approve' },
   'give one of:',
+)
+rejects(
+  (value) => P.parseCoordinatorAction(value, 'answer'),
+  { operation: 'id', version, request: 'comment', choice: 'Archive', closePullRequests: 'yes' },
+  'closePullRequests must be true or false',
 )
 rejects(
   (value) => P.parseCoordinatorAction(value, 'answer'),

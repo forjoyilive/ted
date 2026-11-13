@@ -1,6 +1,7 @@
 import type {
   AgentStageId,
   AnswerRequest,
+  ArchiveTaskRequest,
   Attachment,
   Comment,
   CommentAnswer,
@@ -8,7 +9,13 @@ import type {
   SendBack,
   Task,
 } from '@ted/protocol'
-import { failureChoices, sizeChoices, validateFailureChoices } from '@ted/protocol'
+import {
+  archiveChoice,
+  failureChoices,
+  keepArchiveChoice,
+  sizeChoices,
+  validateFailureChoices,
+} from '@ted/protocol'
 import type { Simulators } from '../apps/simulators.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -89,6 +96,7 @@ export interface RequestAnswerPort {
   settleDependents(id: string, choice: 'unblock'): void
   beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
+  archiveAsked(task: StoredTask, options: ArchiveTaskRequest): () => Task
   wake(): void
   sendNudge(task: StoredTask, run: Run): Promise<void>
   useDefaultModel(id: string): Promise<Task>
@@ -138,6 +146,7 @@ export function createRequestAnswers(
     leaveWorkToDiagnose,
     settleDependents,
     archiveNow,
+    archiveAsked,
     wake,
     sendNudge,
     useDefaultModel,
@@ -639,6 +648,12 @@ export function createRequestAnswers(
     } else if (request.choice === undefined && text === '') {
       throw new RequestError(400, 'pick a choice or write an answer')
     }
+    if (
+      comment.purpose?.kind === 'archive' &&
+      (request.action !== 'answer' || request.choice === undefined)
+    ) {
+      throw new RequestError(400, `answer with ${archiveChoice} or ${keepArchiveChoice}`)
+    }
     if (comment.purpose?.kind === 'asana-missing' && request.action === 'answer') {
       return answerAsanaMissing(task, comment, request.choice, text)
     }
@@ -772,6 +787,23 @@ export function createRequestAnswers(
         const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
         if (answered) return answered
       }
+      if (comment.purpose?.kind === 'archive' && choice === archiveChoice) {
+        const now = find(task.id)
+        if (now.archived) throw new RequestError(409, `${now.displayId} is already archived`)
+        const archive = archiveAsked(
+          now,
+          request.action === 'answer' ? (request.archive ?? {}) : {},
+        )
+        const answered = answerRequest(task, comment, {
+          kind: 'answered',
+          at,
+          choice,
+          ...(text !== '' && { text }),
+        })
+        archive()
+        wake()
+        return store.getComment(comment.id) ?? answered
+      }
       if (comment.purpose?.kind === 'linear-closed' && choice !== undefined) {
         if (choice === linearArchiveChoice && !find(task.id).archived)
           port.beforeArchive?.(find(task.id))
@@ -828,12 +860,28 @@ export function createRequestAnswers(
       )
       if (aboutModel) return answered
       const lines = linesText(answered)
-      await deliverAnswer(task, comment, answerMessage(answered, lines))
+      await deliverAnswer(
+        task,
+        comment,
+        comment.purpose?.kind === 'archive'
+          ? archiveKeptMessage(find(task.id), answered)
+          : answerMessage(answered, lines),
+      )
       return store.getComment(comment.id) ?? answered
     })
   }
 
   return answerAs
+}
+
+function archiveKeptMessage(task: Task, comment: Comment): string {
+  const who = comment.autopilotAnswered ? 'Autopilot' : 'The user'
+  const text = comment.answer?.kind === 'answered' ? comment.answer.text : undefined
+  return [
+    `${who} chose ${keepArchiveChoice} on your request to archive ${task.displayId}, so TED won’t archive it.`,
+    ...(text !== undefined ? [`They added:\n\n${text}`] : []),
+    `The Task stays in ${stageTitle(task.stage)}. Carry on with this Stage’s work. Ask to archive it again only if something new comes up.`,
+  ].join('\n\n')
 }
 
 function permissionMessage(approved: boolean, command: string, text: string): string | undefined {

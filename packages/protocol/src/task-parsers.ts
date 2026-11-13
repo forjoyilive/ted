@@ -17,7 +17,9 @@ import type {
   DesignReviewInput,
   LocalDesignReviewInput,
   MoveTaskRequest,
+  PullRequestAdvice,
   ReportOutcomeRequest,
+  RequestArchiveRequest,
   SaveTaskDraftRequest,
   SetPriorityRequest,
   SetTaskParentRequest,
@@ -700,6 +702,9 @@ export function parseAnswerRequest(body: unknown): AnswerRequest {
       action: 'answer',
       ...(typeof request.choice === 'string' && { choice: request.choice }),
       ...(text !== undefined && { text }),
+      ...(request.archive !== undefined && {
+        archive: parseArchiveTaskRequest(objectOrNull(request.archive, 'archive')),
+      }),
     }
   }
   if (request.action === 'accept-recommended') return { action: 'accept-recommended' }
@@ -957,6 +962,40 @@ export function parseDeleteTaskRequest(value: unknown): DeleteTaskRequest {
     ...(body?.children !== undefined && { children: body.children }),
     ...(body?.hierarchyRevision !== undefined && {
       hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
+    }),
+  }
+}
+
+function objectOrNull(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new HttpError(400, `${name} must be an object`)
+  return value as Record<string, unknown>
+}
+
+const maxArchiveReason = 300
+
+function archiveLine(value: unknown, name: string): string {
+  if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
+  const line = oneLine(value)
+  if (line === '') throw new HttpError(400, `give ${name}`)
+  if (line.length > maxArchiveReason)
+    throw new HttpError(400, `${name} must be at most ${maxArchiveReason} characters`)
+  return line
+}
+
+export function parsePullRequestAdvice(value: unknown): PullRequestAdvice {
+  const { recommend, why } = objectOrNull(value, 'pullRequests')
+  if (recommend !== 'close' && recommend !== 'keep')
+    throw new HttpError(400, 'pullRequests.recommend must be close or keep')
+  return { recommend, why: archiveLine(why, 'a reason for the pull request choice') }
+}
+
+export function parseRequestArchiveRequest(value: unknown): RequestArchiveRequest {
+  const body = objectOrNull(value, 'the request')
+  return {
+    reason: archiveLine(body.reason, 'a reason'),
+    ...(body.pullRequests !== undefined && {
+      pullRequests: parsePullRequestAdvice(body.pullRequests),
     }),
   }
 }

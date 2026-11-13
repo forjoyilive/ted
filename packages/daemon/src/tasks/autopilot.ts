@@ -11,6 +11,7 @@ export function ordinaryAutopilotRequest(comment: Comment): boolean {
     comment.failed
   )
     return false
+  if (comment.archive) return comment.kind === 'question' && comment.author.kind === 'run'
   if (comment.kind === 'round') return comment.purpose?.kind === 'round'
   if (comment.gate) return comment.purpose?.kind === 'gate'
   return (
