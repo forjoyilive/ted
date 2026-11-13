@@ -25,6 +25,7 @@ import {
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AppLogView } from '../components/AppLogView.tsx'
 import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
+import { unarchiveOrAsk } from '../components/ArchiveDialogs.tsx'
 import { AutopilotField } from '../components/Autopilot.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
@@ -41,6 +42,7 @@ import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
 import { FileView } from '../components/FileView.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
+import { ChildrenSection, ParentField } from '../components/HierarchySection.tsx'
 import { ChevronIcon } from '../components/icons.tsx'
 import {
   DraftBar,
@@ -527,6 +529,7 @@ export function TaskPanes({
         factories={factories}
         onOpenRun={openRun}
         onOpenShell={openShell}
+        onOpenTask={onOpenTask}
         shownApp={shownApp}
         onOpenApp={openApp}
         changes={
@@ -1088,10 +1091,11 @@ function ArchivedBar({ task }: { task: Task }) {
         className={styles.archivedAction}
         disabled={busy}
         onClick={() => {
-          setBusy(true)
           setError(undefined)
-          return ted
-            .unarchiveTask(task.id)
+          const request = unarchiveOrAsk(task)
+          if (!request) return
+          setBusy(true)
+          return request
             .catch((failure: unknown) => setError(readableError(failure)))
             .finally(() => setBusy(false))
         }}
@@ -1118,6 +1122,7 @@ export function TaskDetails({
   hidden = false,
   shownApp,
   onOpenApp,
+  onOpenTask,
 }: {
   task: Task
   tasks: readonly Task[]
@@ -1129,6 +1134,7 @@ export function TaskDetails({
   hidden?: boolean
   shownApp?: ShownApp | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
+  onOpenTask?: ((ref: string) => void) | undefined
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -1214,6 +1220,10 @@ export function TaskDetails({
             </dd>
           </>
         )}
+        <dt>Parent</dt>
+        <dd>
+          <ParentField key={task.id} task={task} tasks={tasks} onOpenTask={onOpenTask} />
+        </dd>
         {task.stage !== 'done' && (
           <>
             <dt>Blocked by</dt>
@@ -1274,6 +1284,7 @@ export function TaskDetails({
           {error}
         </p>
       )}
+      <ChildrenSection key={task.id} task={task} tasks={tasks} onOpenTask={onOpenTask} />
       <CodeSection task={task} onOpenShell={onOpenShell} />
       {changes}
       {files}

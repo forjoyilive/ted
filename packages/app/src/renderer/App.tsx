@@ -78,6 +78,7 @@ import {
   useUpdateStatus,
   useWaitingCount,
 } from './data.ts'
+import { newChildTaskEvent } from './hierarchy.ts'
 import { waitingByFactory } from './inbox.ts'
 import {
   armable,
@@ -256,7 +257,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setUsageOpen(false)
   }, [navigation])
   const closeRuns = useCallback(() => setRunsOpen(false), [])
-  const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
+  const [newTaskOpen, setNewTaskOpen] = useState<{
+    description?: string
+    factoryId?: string
+    parentId?: string
+  }>()
+  useEffect(() => {
+    const open = (event: Event) => {
+      const parent = (event as CustomEvent<{ parentId: string; factoryId: string }>).detail
+      setNewTaskOpen({ factoryId: parent.factoryId, parentId: parent.parentId })
+    }
+    window.addEventListener(newChildTaskEvent, open)
+    return () => window.removeEventListener(newChildTaskEvent, open)
+  }, [])
   const [removing, setRemoving] = useState<Factory>()
   const [automationDialog, setAutomationDialog] = useState<{
     factoryId?: string
@@ -287,7 +300,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const [sheetOpen, setSheetOpen] = useState(false)
   const [armed, setArmed] = useState<HTMLButtonElement>()
   const [cardDialog, setCardDialog] = useState<{ taskId: string; kind: TaskDialogKind }>()
-  const [pendingPick, setPendingPick] = useState<string>()
+  const [pendingPick, setPendingPick] = useState<{ taskId: string; event: string }>()
   const [findAt, setFindAt] = useState<string>()
   const panes = useRef<HTMLDivElement>(null)
   const place = JSON.stringify([navigation.screen, navigation.taskId, navigation.settings])
@@ -581,7 +594,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     }
     if (target && onCard && command.id === 'blocked-by') {
       event.preventDefault()
-      setPendingPick(target.id)
+      setPendingPick({ taskId: target.id, event: pickBlockerEvent })
       openTask(target)
       return
     }
@@ -618,9 +631,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   }, [armed])
 
   useEffect(() => {
-    if (pendingPick === undefined || pendingPick !== navigation.taskId) return
+    if (pendingPick === undefined || pendingPick.taskId !== navigation.taskId) return
     setPendingPick(undefined)
-    window.dispatchEvent(new CustomEvent(pickBlockerEvent, { detail: pendingPick }))
+    window.dispatchEvent(new CustomEvent(pendingPick.event, { detail: pendingPick.taskId }))
   }, [pendingPick, navigation.taskId])
 
   const openTaskByRef = (ref: string) => {
@@ -1065,8 +1078,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         tasks={tasks}
         place={`${place}:${navigation.taskId ?? ''}`}
         onFollowedUp={openTask}
-        onPickBlocker={(target) => {
-          setPendingPick(target.id)
+        onPickBlocker={(target, event = pickBlockerEvent) => {
+          setPendingPick({ taskId: target.id, event })
           openTask(target)
         }}
       />
@@ -1115,6 +1128,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           {...(newTaskOpen.description !== undefined && {
             initialDescription: newTaskOpen.description,
           })}
+          {...(newTaskOpen.parentId !== undefined && { parentId: newTaskOpen.parentId })}
           onClose={() => setNewTaskOpen(undefined)}
           onOpenTask={openTask}
         />

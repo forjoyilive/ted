@@ -854,6 +854,9 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   await daemon?.stop()
   client = await openTed()
   app = await hierarchyApp()
+  expect(new Set((await app.taskHierarchyPreview(family.id)).archivedWith)).toEqual(
+    new Set([kid.id, grandkid.id]),
+  )
   await app.unarchiveTask(family.id, { children: 'restore' })
   for (const task of [family, kid, grandkid])
     expect((await getTask(client, task.id)).archived).toBeUndefined()

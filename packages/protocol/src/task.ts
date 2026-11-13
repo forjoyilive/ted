@@ -429,6 +429,7 @@ export interface SetTaskParentRequest {
 export interface TaskHierarchyPreview {
   revision: string
   descendants: (TaskLink & { title: string })[]
+  archivedWith: string[]
 }
 
 export interface UnarchiveTaskRequest {

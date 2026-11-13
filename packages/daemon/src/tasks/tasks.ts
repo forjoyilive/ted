@@ -5742,6 +5742,7 @@ export function createTasks(options: {
         const child = find(id)
         return { id, displayId: child.displayId, title: child.title }
       }),
+      archivedWith: task.archived ? archivedFamily(task.id) : [],
     }
   }
 

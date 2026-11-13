@@ -24,6 +24,7 @@ import {
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
+import pickerStyles from '../components/BlockerPicker.module.css'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
@@ -51,6 +52,7 @@ interface NewTaskDialogProps {
   tasks: readonly Task[]
   factoryId: string | undefined
   initialDescription?: string
+  parentId?: string
   onClose: () => void
   onOpenTask?: (task: Task) => void
 }
@@ -60,10 +62,12 @@ export function NewTaskDialog({
   tasks,
   factoryId,
   initialDescription = '',
+  parentId,
   onClose,
   onOpenTask,
 }: NewTaskDialogProps) {
   const [seed, setSeed] = useState(initialDescription)
+  const [parentSeed, setParentSeed] = useState(parentId)
   const [factory, setFactory] = useState(
     () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
   )
@@ -74,10 +78,12 @@ export function NewTaskDialog({
       tasks={tasks}
       factoryId={factory}
       initialDescription={seed}
+      {...(parentSeed !== undefined && { parentId: parentSeed })}
       onClose={onClose}
       {...(onOpenTask && { onOpenTask })}
       onFactory={(id) => {
         setSeed('')
+        setParentSeed(undefined)
         setFactory(id)
       }}
     />
@@ -89,6 +95,7 @@ function NewTaskForm({
   tasks,
   factoryId: factory,
   initialDescription = '',
+  parentId,
   onClose,
   onOpenTask,
   onFactory,
@@ -143,6 +150,8 @@ function NewTaskForm({
   const setClarifyDepth = field('clarifyDepth')
   const setLead = field('lead')
   const setDismissed = field('dismissed')
+  const setParent = field('parent')
+  const parent = tasks.find((t) => t.id === draft.parent && t.factoryId === factory)
   const setup = setupNotice(
     factories.find((f) => f.id === factory),
     tasks,
@@ -208,6 +217,7 @@ function NewTaskForm({
     session.load().then(
       () => {
         if (!active) return
+        if (parentId !== undefined) session.update({ parent: parentId })
         if (initialDescription) {
           const text = session.get().description
           session.update({
@@ -230,7 +240,7 @@ function NewTaskForm({
       mounted.current = false
       lookups.current++
     }
-  }, [session, initialDescription, lookUp])
+  }, [session, initialDescription, parentId, lookUp])
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -383,12 +393,14 @@ function NewTaskForm({
         clarifyDepth,
         ...(lead && { lead }),
         blockedBy: blockedBy.filter((id) => tasks.some((t) => t.id === id)),
+        ...(parent && { parent: parent.id }),
         attachments: attachments.map(({ hash, name, mediaType }) => ({ hash, name, mediaType })),
         ...(source && { source: source.url }),
         start,
       })
       created = true
       session.consumed(revision)
+      if (more && parent) session.update({ parent: parent.id })
       if (more) clear()
       else onClose()
     } catch (failure) {
@@ -629,6 +641,28 @@ function NewTaskForm({
             onRemove={(id) => setBlockedBy((current) => current.filter((c) => c !== id))}
           />
         </div>
+        {parent && (
+          <div className={styles.field}>
+            <span className={styles.label}>Parent</span>
+            <span className={pickerStyles.blockers}>
+              <span className={pickerStyles.blocker}>
+                <span className={pickerStyles.blockerId}>{parent.displayId}</span>
+                <span className={pickerStyles.blockerTitle}>{parent.title}</span>
+                <ActionButton
+                  type="button"
+                  className={pickerStyles.remove}
+                  aria-label={`Don’t put it under ${parent.displayId}`}
+                  onClick={() => setParent(undefined)}
+                >
+                  <CloseIcon size={11} />
+                </ActionButton>
+              </span>
+            </span>
+            <span className={styles.hint}>
+              {`${parent.displayId} waits for this Task to merge before it does its own remaining work.`}
+            </span>
+          </div>
+        )}
 
         <section className={styles.more}>
           <ActionButton

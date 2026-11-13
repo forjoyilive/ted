@@ -6,6 +6,7 @@ import {
   deleteTaskEvent,
   followUpTaskEvent,
   resetTaskEvent,
+  unarchiveOrAsk,
 } from './components/ArchiveDialogs.tsx'
 import { snoozeTaskEvent } from './components/SnoozeTaskDialog.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
@@ -211,7 +212,7 @@ export function taskCommands(task: Task): Command[] {
         id: 'unarchive',
         label: 'Unarchive',
         scope: 'task',
-        run: () => ted.unarchiveTask(task.id),
+        run: () => unarchiveOrAsk(task),
       },
       {
         id: 'delete',

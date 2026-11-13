@@ -15,7 +15,7 @@ The existing queue holds parents for direct children, which in turn wait for the
 | DaemonClient method | HTTP | Result or request |
 | --- | --- | --- |
 | `taskHierarchy(ref)` | `GET /tasks/:ref/hierarchy` | `{ parentId, childIds, revision }` |
-| `taskHierarchyPreview(ref)` | `GET /tasks/:ref/hierarchy/preview` | `{ revision, descendants: [{ id, displayId, title }] }` |
+| `taskHierarchyPreview(ref)` | `GET /tasks/:ref/hierarchy/preview` | `{ revision, descendants: [{ id, displayId, title }], archivedWith }`; `archivedWith` lists the descendants `children: 'restore'` would bring back |
 | `setTaskParent(ref, request)` | `PUT /tasks/:ref/parent` | `{ parentId: string \| null, revision }`; returns the child Task |
 
 A revision describes the current Factory Task state, including hierarchy, manual blockers, lifecycle and Runs. Read it again after a conflict. It intentionally refuses stale edits when another Task changes; the client does not retry a decision against new state automatically. The daemon resolves Task references and owns cycle checks, parent safety, waiting and release effects. Integrations use these same daemon-owned operations rather than writing blocker rows themselves.

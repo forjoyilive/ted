@@ -1,6 +1,7 @@
-import type { BlockedChoice, Task } from '@ted/protocol'
+import type { BlockedChoice, Task, TaskHierarchyPreview } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTaskRuns, useTasks } from '../data.ts'
+import { childrenOf, isMerged } from '../hierarchy.ts'
 import { stageName } from '../list-view.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { readableError, ted } from '../ted.ts'
@@ -13,6 +14,138 @@ export const archiveTaskEvent = 'ted:archive-task'
 export const deleteTaskEvent = 'ted:delete-task'
 export const resetTaskEvent = 'ted:reset-task'
 export const followUpTaskEvent = 'ted:follow-up-task'
+export const unarchiveTaskEvent = 'ted:unarchive-task'
+
+export function needsUnarchiveDialog(task: Task): boolean {
+  return (task.parentId !== undefined && !isMerged(task)) || (task.childIds?.length ?? 0) > 0
+}
+
+export function unarchiveOrAsk(task: Task): Promise<unknown> | undefined {
+  if (needsUnarchiveDialog(task)) {
+    window.dispatchEvent(new CustomEvent(unarchiveTaskEvent, { detail: task.id }))
+    return undefined
+  }
+  return ted.unarchiveTask(task.id)
+}
+
+function useHierarchyPreview(task: Task, wanted: boolean) {
+  const [preview, setPreview] = useState<TaskHierarchyPreview>()
+  const [failure, setFailure] = useState<string>()
+  const [asked, setAsked] = useState(0)
+  useEffect(() => {
+    if (!wanted) return
+    let current = true
+    void asked
+    ted.taskHierarchyPreview(task.id).then(
+      (next) => {
+        if (current) setPreview(next)
+      },
+      (error: unknown) => {
+        if (current) setFailure(readableError(error))
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [task.id, wanted, asked])
+  return {
+    preview: wanted ? preview : undefined,
+    failure,
+    ready: !wanted || preview !== undefined,
+    reload: () => setAsked((n) => n + 1),
+  }
+}
+
+function stateText(task: Task | undefined): string {
+  if (!task) return ''
+  if (isMerged(task)) return 'Merged'
+  if (task.archived) return 'Archived'
+  return stageName(task.stage)
+}
+
+function TasksUnder({
+  legend,
+  ids,
+  tasks,
+  children,
+}: {
+  legend: string
+  ids: readonly string[]
+  tasks: readonly Task[]
+  children?: ReactNode
+}) {
+  return (
+    <fieldset className={styles.blocked}>
+      <legend className={styles.blockedHeading}>{legend}</legend>
+      {ids.length > 0 && (
+        <ul className={styles.blockedList}>
+          {ids.map((id) => {
+            const t = tasks.find((task) => task.id === id)
+            return (
+              <li key={id} className={styles.blockedRow}>
+                <span className={styles.blockedId}>{t?.displayId ?? 'A Task'}</span>
+                <span className={styles.blockedTitle}>{t?.title ?? ''}</span>
+                <span className={styles.blockedStage}>{stateText(t)}</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {children}
+    </fieldset>
+  )
+}
+
+function Choice<T extends string>({
+  name,
+  value,
+  chosen,
+  label,
+  help,
+  disabledBecause,
+  onChoose,
+}: {
+  name: string
+  value: T
+  chosen: T | undefined
+  label: string
+  help: string
+  disabledBecause?: string | undefined
+  onChoose: (value: T) => void
+}) {
+  return (
+    <label className={styles.choice} data-disabled={disabledBecause !== undefined || undefined}>
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={chosen === value}
+        disabled={disabledBecause !== undefined}
+        onChange={() => onChoose(value)}
+      />
+      <span>
+        {label}
+        <span className={styles.choiceHelp}>{disabledBecause ?? help}</span>
+      </span>
+    </label>
+  )
+}
+
+function detachHelp(task: Task, tasks: readonly Task[]): string {
+  const direct = childrenOf(task, tasks).length
+  return `The ${direct === 1 ? 'Task' : `${direct} Tasks`} directly under ${task.displayId} ${direct === 1 ? 'loses its' : 'lose their'} parent and carry on. Their own children stay under them.`
+}
+
+function parentRefusal(task: Task, parent: Task): string | undefined {
+  if (parent.archived)
+    return `${parent.displayId} is archived. Unarchive ${parent.displayId} first to bring ${task.displayId} back as part of it.`
+  if (parent.stage === 'done')
+    return `${parent.displayId} is Done, so it can’t take ${task.displayId} back.`
+  const lead = parent.runs.find((run) => run.id === parent.leadRunId && run.role === 'lead')
+  if (lead && lead.state !== 'finished')
+    return `${parent.displayId} is working, and TED doesn’t change a working Task’s children. Stop ${parent.displayId} first.`
+  return undefined
+}
 
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
@@ -128,6 +261,16 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
   const [choice, setChoice] = useState<BlockedChoice>('unblock')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const all = useTasks()
+  const hasChildren = (task.childIds?.length ?? 0) > 0
+  const hierarchy = useHierarchyPreview(task, hasChildren)
+  const [family, setFamily] = useState<'together' | 'detach'>('together')
+  const under = (hierarchy.preview?.descendants ?? [])
+    .map((d) => d.id)
+    .filter((id) => !all.find((t) => t.id === id)?.archived)
+  const alreadyArchived = (hierarchy.preview?.descendants ?? []).filter(
+    (d) => all.find((t) => t.id === d.id)?.archived,
+  )
   const hasWorktree = task.repos.some((r) => !r.removed)
   const does = [
     ...(task.runs.length > 0 ? [`stops ${runsPhrase(task.runs.length)}`] : []),
@@ -146,10 +289,15 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
       await ted.archiveTask(task.id, {
         closePullRequests: prs.length > 0 && close,
         ...(blocked.length > 0 && { blocked: choice }),
+        ...(hierarchy.preview && {
+          children: family === 'together' ? 'archive' : 'detach',
+          hierarchyRevision: hierarchy.preview.revision,
+        }),
       })
       onClose()
     } catch (failure) {
       setError(readableError(failure))
+      hierarchy.reload()
       setBusy(false)
     }
   }
@@ -162,6 +310,40 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
           <p className={styles.body}>
             {`${task.title}.${action} ${kept} You can unarchive it later.`}
           </p>
+          {hasChildren && (
+            <TasksUnder
+              legend={`${under.length} ${under.length === 1 ? 'Task is' : 'Tasks are'} under ${task.displayId}`}
+              ids={under}
+              tasks={all}
+            >
+              {alreadyArchived.length > 0 && (
+                <p className={styles.note}>
+                  {`${joinAnd(alreadyArchived.map((d) => d.displayId))} ${alreadyArchived.length === 1 ? 'is' : 'are'} already archived and won’t change.`}
+                </p>
+              )}
+              <Choice
+                name={`archive-${task.id}`}
+                value="together"
+                chosen={family}
+                label={`Archive them with ${task.displayId}`}
+                help={`Every Task under ${task.displayId} is archived too. Merged ones stay merged.`}
+                onChoose={setFamily}
+              />
+              <Choice
+                name={`archive-${task.id}`}
+                value="detach"
+                chosen={family}
+                label="Detach them and keep them"
+                help={detachHelp(task, all)}
+                onChoose={setFamily}
+              />
+            </TasksUnder>
+          )}
+          {hierarchy.failure !== undefined && (
+            <p className={styles.error} role="alert">
+              {hierarchy.failure}
+            </p>
+          )}
           {prs.length > 0 && (
             <label className={styles.check}>
               <input
@@ -194,8 +376,126 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
           )}
           <div className={styles.buttons}>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => archive()}>
-              Archive
+            <Button variant="primary" disabled={busy || !hierarchy.ready} onClick={() => archive()}>
+              {!hasChildren
+                ? 'Archive'
+                : family === 'together' && under.length > 0
+                  ? `Archive ${under.length + 1} Tasks`
+                  : `Archive ${task.displayId}`}
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+export function UnarchiveDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const all = useTasks()
+  const parent = all.find((t) => t.id === task.parentId)
+  const partOf = parent !== undefined && !isMerged(task)
+  const refusal = partOf ? parentRefusal(task, parent) : undefined
+  const [picked, setPlace] = useState<'together' | 'detach'>('together')
+  const place = refusal === undefined ? picked : 'detach'
+  const hasChildren = (task.childIds?.length ?? 0) > 0
+  const hierarchy = useHierarchyPreview(task, partOf || hasChildren)
+  const family = hierarchy.preview?.archivedWith ?? []
+  const [withFamily, setWithFamily] = useState<'together' | 'detach'>('together')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const restoring = withFamily === 'together' ? family.length : 0
+
+  async function unarchive() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ted.unarchiveTask(task.id, {
+        ...(partOf &&
+          place === 'detach' && {
+            unlinkParent: true,
+            ...(hierarchy.preview && { hierarchyRevision: hierarchy.preview.revision }),
+          }),
+        ...(restoring > 0 && { children: 'restore' }),
+      })
+      onClose()
+    } catch (failure) {
+      setError(readableError(failure))
+      hierarchy.reload()
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog onClose={onClose}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={styles.heading}>{`Unarchive ${task.displayId}?`}</h2>
+          <p className={styles.body}>
+            {partOf
+              ? `${task.title} is part of ${parent.displayId}.`
+              : family.length > 0
+                ? `${task.title}. ${family.length === 1 ? '1 Task under it was' : `${family.length} Tasks under it were`} archived with it.`
+                : `${task.title}.`}
+          </p>
+          {partOf && (
+            <TasksUnder legend="How should it come back?" ids={[]} tasks={all}>
+              <Choice
+                name={`place-${task.id}`}
+                value="together"
+                chosen={place}
+                label={`Unarchive it as part of ${parent.displayId}`}
+                help={`${parent.displayId} waits for ${task.displayId} to merge again.`}
+                disabledBecause={refusal}
+                onChoose={setPlace}
+              />
+              <Choice
+                name={`place-${task.id}`}
+                value="detach"
+                chosen={place}
+                label="Detach it and keep it"
+                help={`${task.displayId} comes back without a parent. ${parent.displayId} isn’t affected.`}
+                onChoose={setPlace}
+              />
+            </TasksUnder>
+          )}
+          {family.length > 0 && (
+            <TasksUnder legend={`Archived with ${task.displayId}`} ids={family} tasks={all}>
+              <Choice
+                name={`family-${task.id}`}
+                value="together"
+                chosen={withFamily}
+                label={`Unarchive them with ${task.displayId}`}
+                help={`They come back under ${task.displayId}, and ${task.displayId} waits for the unmerged ones again.`}
+                onChoose={setWithFamily}
+              />
+              <Choice
+                name={`family-${task.id}`}
+                value="detach"
+                chosen={withFamily}
+                label="Leave them archived"
+                help={`Only ${task.displayId} comes back. Archived children don’t hold it, and they stay part of it.`}
+                onChoose={setWithFamily}
+              />
+            </TasksUnder>
+          )}
+          {hierarchy.failure !== undefined && (
+            <p className={styles.error} role="alert">
+              {hierarchy.failure}
+            </p>
+          )}
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button
+              variant="primary"
+              disabled={busy || !hierarchy.ready}
+              onClick={() => unarchive()}
+            >
+              {restoring > 0 ? `Unarchive ${restoring + 1} Tasks` : `Unarchive ${task.displayId}`}
             </Button>
           </div>
         </>
@@ -220,6 +520,11 @@ export function DeleteDialog({
   const [busy, setBusy] = useState(false)
   const removing = useRef(false)
   const [error, setError] = useState<string>()
+  const all = useTasks()
+  const hasChildren = (task.childIds?.length ?? 0) > 0
+  const hierarchy = useHierarchyPreview(task, hasChildren)
+  const [family, setFamily] = useState<'together' | 'detach'>()
+  const under = (hierarchy.preview?.descendants ?? []).map((d) => d.id)
   const removed = [
     'the Task',
     ...(runs > 0
@@ -237,10 +542,17 @@ export function DeleteDialog({
     setBusy(true)
     setError(undefined)
     try {
-      await ted.deleteTask(task.id, blocked.length > 0 ? { blocked: choice } : {})
+      await ted.deleteTask(task.id, {
+        ...(blocked.length > 0 && { blocked: choice }),
+        ...(hierarchy.preview && {
+          children: family === 'together' ? 'delete' : 'unparent',
+          hierarchyRevision: hierarchy.preview.revision,
+        }),
+      })
       onClose()
     } catch (failure) {
       setError(readableError(failure))
+      hierarchy.reload()
       setBusy(false)
     } finally {
       removing.current = false
@@ -255,6 +567,38 @@ export function DeleteDialog({
           <p className={styles.body}>
             {`${task.title}. TED removes ${joinAnd(removed)}. This can’t be undone.`}
           </p>
+          {hasChildren && (
+            <TasksUnder
+              legend={`${under.length} ${under.length === 1 ? 'Task is' : 'Tasks are'} under ${task.displayId}`}
+              ids={under}
+              tasks={all}
+            >
+              <Choice
+                name={`delete-${task.id}`}
+                value="together"
+                chosen={family}
+                label={`Delete them with ${task.displayId}`}
+                help={`Every Task under ${task.displayId} is deleted too, with its history.`}
+                onChoose={setFamily}
+              />
+              <Choice
+                name={`delete-${task.id}`}
+                value="detach"
+                chosen={family}
+                label="Detach them and keep them"
+                help={detachHelp(task, all)}
+                onChoose={setFamily}
+              />
+              <p className={styles.note}>
+                Nothing is chosen for you here, because a delete can’t be undone.
+              </p>
+            </TasksUnder>
+          )}
+          {hierarchy.failure !== undefined && (
+            <p className={styles.error} role="alert">
+              {hierarchy.failure}
+            </p>
+          )}
           {prs.length > 0 && (
             <p className={styles.warning}>
               {`${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ pr }) => `#${pr.number}`))} stay open on GitHub, and the ${prs.length === 1 ? 'branch stays' : 'branches stay'}.${task.archived ? '' : ' Archive closes the pull requests and keeps the history.'}`}
@@ -288,8 +632,16 @@ export function DeleteDialog({
             <Button disabled={busy} onClick={onClose}>
               Cancel
             </Button>
-            <Button variant="danger" disabled={busy} onClick={() => remove()}>
-              {busy ? 'Deleting…' : `Delete ${task.displayId}`}
+            <Button
+              variant="danger"
+              disabled={busy || !hierarchy.ready || (hasChildren && family === undefined)}
+              onClick={() => remove()}
+            >
+              {busy
+                ? 'Deleting…'
+                : hasChildren && family === 'together'
+                  ? `Delete ${under.length + 1} Tasks`
+                  : `Delete ${task.displayId}`}
             </Button>
           </div>
         </>
