@@ -51,10 +51,28 @@ export interface Coordinator {
   runIds: string[]
   started: boolean
   opening: string
+  startedAt: string
   lead: TaskLead
   status: 'ready' | 'queued' | 'working' | 'paused' | 'failed'
   error?: string
   unsentMessages: RunMessage[]
+  receipts: CoordinatorReceipt[]
+  confirmations: CoordinatorConfirmation[]
+  tasks: Task[]
+}
+
+export interface CoordinatorConversationSummary {
+  id: string
+  title: string
+  startedAt: string
+  endedAt: string
+  taskCount: number
+}
+
+export interface CoordinatorConversation extends CoordinatorConversationSummary {
+  factoryId: string
+  lead: TaskLead
+  runIds: string[]
   receipts: CoordinatorReceipt[]
   confirmations: CoordinatorConfirmation[]
   tasks: Task[]

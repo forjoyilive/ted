@@ -9,6 +9,8 @@ import type {
   CoordinatorConfirmation,
   CoordinatorConfirmationAnswer,
   CoordinatorConfirmationTask,
+  CoordinatorConversation,
+  CoordinatorConversationSummary,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
@@ -33,7 +35,11 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
-import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
+import type {
+  PromptPart,
+  SavedCoordinatorConversation,
+  StoredCoordinator,
+} from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { QueueSource } from '../tasks/queue.ts'
 import type { Caller, Tasks } from '../tasks/tasks.ts'
@@ -151,6 +157,10 @@ export interface Coordinators {
   holdFactoryRemoval(factoryId: string): () => void
   removeFactory(factoryId: string): Promise<void>
   reset(factoryId: string): Promise<void>
+  conversations(factoryId: string): CoordinatorConversationSummary[]
+  conversation(factoryId: string, conversationId: string): CoordinatorConversation
+  continueConversation(factoryId: string, conversationId: string): Promise<Coordinator>
+  deleteConversation(factoryId: string, conversationId: string): Promise<void>
   close(): Promise<void>
 }
 
@@ -169,9 +179,10 @@ export function createCoordinators(options: {
   const stopping = new Set<string>()
   const removing = new Set<string>()
   const resetting = new Set<string>()
+  const changing = new Map<string, Promise<void>>()
   const held = (id: string) => removing.has(id) || resetting.has(id)
   const notResetting = (id: string) => {
-    if (resetting.has(id))
+    if (resetting.has(id) || changing.has(id))
       throw new RequestError(409, 'The Coordinator is being reset; send the message again')
   }
   const chains = new Map<string, Promise<unknown>>()
@@ -201,11 +212,31 @@ export function createCoordinators(options: {
         : c.phase
   const chatTasks = (c: StoredCoordinator): Task[] => {
     const built = new Map(store.tasksIn(new Set(c.taskIds)).map((t) => [t.id, t]))
-    return c.taskIds.flatMap((id) => {
-      const t = built.get(id)
-      return t?.factoryId === c.factoryId ? [t] : []
-    })
+    return c.taskIds
+      .flatMap((id) => {
+        const t = built.get(id)
+        return t?.factoryId === c.factoryId ? [t] : []
+      })
+      .reverse()
   }
+  const startedAt = (c: StoredCoordinator) =>
+    c.startedAt ??
+    c.runIds.map((id) => store.getRun(id)?.startedAt).find((at) => at !== undefined) ??
+    ''
+  const requireConversation = (factoryId: string, id: string) => {
+    requireFactory(factoryId)
+    const found = saved.conversation(id)
+    if (!found || found.chat.factoryId !== factoryId)
+      throw new RequestError(404, 'no such Coordinator conversation')
+    return found
+  }
+  const summaryOf = (c: SavedCoordinatorConversation): CoordinatorConversationSummary => ({
+    id: c.id,
+    title: c.chat.opening,
+    startedAt: c.startedAt,
+    endedAt: c.endedAt,
+    taskCount: chatTasks(c.chat).length,
+  })
   const publicChat = (c: StoredCoordinator): Coordinator => {
     const reason = agentStartHold(store, c.lead.agent, c.runId) ?? c.error
     return {
@@ -214,6 +245,7 @@ export function createCoordinators(options: {
       runIds: c.runIds,
       started: store.getRun(c.runId) !== undefined,
       opening: c.opening,
+      startedAt: startedAt(c),
       lead: c.lead,
       status: status(c),
       ...(reason !== undefined && { error: reason }),
@@ -276,7 +308,13 @@ export function createCoordinators(options: {
     queued: () =>
       saved
         .list()
-        .filter((c) => c.phase === 'queued' && !launching.has(c.factoryId) && !held(c.factoryId))
+        .filter(
+          (c) =>
+            c.phase === 'queued' &&
+            !launching.has(c.factoryId) &&
+            !held(c.factoryId) &&
+            !changing.has(c.factoryId),
+        )
         .map((c) => ({ id: c.factoryId, factoryId: c.factoryId, kind: 'coordinator', rank: 0 })),
     runnable: (id) => {
       const c = saved.get(id)
@@ -582,6 +620,12 @@ export function createCoordinators(options: {
     )
       throw new RequestError(403, 'This is not the active Coordinator Run')
     requireFactory(c.factoryId)
+    return c
+  }
+  function admit(caller: Caller): StoredCoordinator {
+    const c = actor(caller)
+    if (changing.has(c.factoryId))
+      throw new RequestError(409, 'The human is starting a new Coordinator conversation')
     return c
   }
   function target(c: StoredCoordinator, ref: string): Task {
@@ -904,6 +948,107 @@ export function createCoordinators(options: {
     })
   }
 
+  async function settle(c: StoredCoordinator): Promise<void> {
+    const id = c.factoryId
+    await launches.get(id)?.catch(() => {})
+    await chains.get(id)?.catch(() => {})
+    await steering.drain(c.runId)
+    for (const runId of (saved.get(id) ?? c).runIds) {
+      const run = store.getRun(runId)
+      if (run && run.state !== 'finished') await runs.stop(runId)
+    }
+  }
+  async function removeFolders(runIds: readonly string[]): Promise<void> {
+    for (const runId of runIds) {
+      if (!/^[a-f0-9-]{36}$/.test(runId)) throw new Error('invalid Coordinator Run ID')
+      for (const base of ['coordinators', 'runs']) {
+        const parent = path.join(home, base),
+          dir = path.join(parent, runId)
+        const stat = await lstat(dir).catch(() => undefined)
+        if (
+          stat?.isDirectory() &&
+          (await realpath(dir)) === path.join(await realpath(parent), runId) &&
+          (await lstat(parent)).isDirectory() &&
+          (await realpath(parent)) === path.join(await realpath(home), base)
+        )
+          await rm(dir, { recursive: true, force: true })
+      }
+    }
+  }
+  function clearSnoozes(c: StoredCoordinator): void {
+    const snoozed = new Set(store.snoozed().map((r) => r.id))
+    for (const asked of c.confirmations ?? [])
+      if (snoozed.has(asked.id)) store.snoozeRequest(asked.id, null)
+  }
+  async function exclusive(id: string, work: () => Promise<void>): Promise<void> {
+    if (changing.has(id))
+      throw new RequestError(409, 'The Coordinator is already changing conversations')
+    let finished = () => {}
+    changing.set(
+      id,
+      new Promise<void>((resolve) => {
+        finished = resolve
+      }),
+    )
+    try {
+      await work()
+    } finally {
+      resetting.delete(id)
+      changing.delete(id)
+      finished()
+      if (!closed) pump()
+    }
+  }
+  async function shelve(id: string, restore?: SavedCoordinatorConversation): Promise<void> {
+    const c = saved.get(id)
+    if (!c) {
+      if (restore && !removing.has(id) && !closed) saved.restore(restore)
+      await store.persisted()
+      return
+    }
+    await settle(c)
+    if (removing.has(id) || closed) return
+    resetting.add(id)
+    const latest = saved.get(id) ?? c
+    clearSnoozes(latest)
+    const started = latest.runIds.filter((runId) => store.getRun(runId) !== undefined)
+    const dropped = latest.runIds.filter((runId) => !started.includes(runId))
+    const canceled = latest.runIds.flatMap((runId) => pending(runId))
+    const last = started.at(-1)
+    if (last === undefined) {
+      await removeFolders(latest.runIds)
+      saved.remove(id)
+      if (restore) saved.restore(restore)
+      await store.persisted()
+      return
+    }
+    await removeFolders(dropped)
+    const at = new Date().toISOString()
+    const { error: _error, launch: _launch, prompts, ...kept } = latest
+    const chat: StoredCoordinator = {
+      ...kept,
+      runId: last,
+      runIds: started,
+      phase: 'ready',
+      unsentMessages: [],
+      startedAt: startedAt(latest),
+      confirmations: (latest.confirmations ?? []).map((asked) =>
+        asked.answer ? asked : { ...asked, answer: { decision: 'cancel' as const, at } },
+      ),
+      ...(prompts && {
+        prompts: Object.fromEntries(
+          Object.entries(prompts).filter(([runId]) => started.includes(runId)),
+        ),
+      }),
+    }
+    saved.keep(
+      { id: randomUUID(), startedAt: chat.startedAt ?? '', endedAt: at, chat },
+      canceled,
+      restore,
+    )
+    await store.persisted()
+  }
+
   const service: Coordinators = {
     get(id) {
       requireFactory(id)
@@ -947,6 +1092,7 @@ export function createCoordinators(options: {
         lead,
         phase: 'queued',
         opening: input.text,
+        startedAt: new Date().toISOString(),
         receipts: [],
         taskIds: [],
       }
@@ -962,6 +1108,7 @@ export function createCoordinators(options: {
       if (!c || c.runId !== runId)
         throw new RequestError(409, 'This Coordinator Run was replaced; open the current chat')
       requireFactory(c.factoryId)
+      notResetting(c.factoryId)
       if (stopping.has(c.factoryId)) throw new RequestError(409, 'The Coordinator is stopping')
       if (text.trim() === '' || text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
@@ -1172,7 +1319,7 @@ export function createCoordinators(options: {
       }
     },
     async act(caller, ref, kind, input) {
-      const c = actor(caller)
+      const c = admit(caller)
       const next = (chains.get(c.factoryId) ?? Promise.resolve())
         .catch(() => {})
         .then(async () => {
@@ -1352,7 +1499,7 @@ export function createCoordinators(options: {
       }
     },
     async create(caller, input) {
-      const c = actor(caller)
+      const c = admit(caller)
       const next = (chains.get(c.factoryId) ?? Promise.resolve())
         .catch(() => {})
         .then(async () => {
@@ -1519,7 +1666,7 @@ export function createCoordinators(options: {
       }
     },
     remove(caller, kind, input) {
-      const c = actor(caller)
+      const c = admit(caller)
       return serial(c.factoryId, async () => {
         const current = actor(caller)
         const fingerprint = createHash('sha256')
@@ -1623,6 +1770,7 @@ export function createCoordinators(options: {
     },
     answerConfirmation(factoryId, id, answer) {
       requireChat(factoryId)
+      notResetting(factoryId)
       return serial(factoryId, async () => {
         const c = requireChat(factoryId)
         const asked = (c.confirmations ?? []).find((x) => x.id === id)
@@ -1758,34 +1906,19 @@ export function createCoordinators(options: {
       return () => removing.delete(id)
     },
     async removeFactory(id) {
-      const c = saved.get(id)
-      if (!c) return
+      await changing.get(id)
       try {
-        await launches.get(id)?.catch(() => {})
-        await chains.get(id)?.catch(() => {})
-        await steering.drain(c.runId)
-        const latest = saved.get(id) ?? c
-        for (const runId of latest.runIds) {
-          if (store.getRun(runId)?.state !== 'finished' && store.getRun(runId))
-            await runs.stop(runId)
-          for (const base of ['coordinators', 'runs']) {
-            const parent = path.join(home, base),
-              dir = path.join(parent, runId)
-            if (!/^[a-f0-9-]{36}$/.test(runId)) throw new Error('invalid Coordinator Run ID')
-            const stat = await lstat(dir).catch(() => undefined)
-            if (
-              stat?.isDirectory() &&
-              (await realpath(dir)) === path.join(await realpath(parent), runId) &&
-              (await lstat(parent)).isDirectory() &&
-              (await realpath(parent)) === path.join(await realpath(home), base)
-            )
-              await rm(dir, { recursive: true, force: true })
-          }
+        const c = saved.get(id)
+        if (c) {
+          await settle(c)
+          await removeFolders(saved.get(id)?.runIds ?? c.runIds)
+          clearSnoozes(saved.get(id) ?? c)
+          saved.remove(id)
         }
-        const snoozed = new Set(store.snoozed().map((r) => r.id))
-        for (const asked of saved.get(id)?.confirmations ?? [])
-          if (snoozed.has(asked.id)) store.snoozeRequest(asked.id, null)
-        saved.remove(id)
+        for (const conversation of saved.conversations(id)) {
+          await removeFolders(conversation.chat.runIds)
+          saved.forget(conversation.id)
+        }
         await store.persisted()
       } finally {
         if (!closed) pump()
@@ -1793,14 +1926,37 @@ export function createCoordinators(options: {
     },
     async reset(id) {
       requireFactory(id)
-      if (resetting.has(id)) throw new RequestError(409, 'The Coordinator is already being reset')
-      resetting.add(id)
-      try {
-        await service.removeFactory(id)
-      } finally {
-        resetting.delete(id)
-        if (!closed) pump()
+      await exclusive(id, () => shelve(id))
+    },
+    conversations(id) {
+      requireFactory(id)
+      return saved.conversations(id).map(summaryOf)
+    },
+    conversation(id, conversationId) {
+      const found = requireConversation(id, conversationId)
+      return {
+        ...summaryOf(found),
+        factoryId: id,
+        lead: found.chat.lead,
+        runIds: found.chat.runIds,
+        receipts: found.chat.receipts,
+        confirmations: found.chat.confirmations ?? [],
+        tasks: chatTasks(found.chat),
       }
+    },
+    async continueConversation(id, conversationId) {
+      requireConversation(id, conversationId)
+      await exclusive(id, () => shelve(id, requireConversation(id, conversationId)))
+      return publicChat(requireChat(id))
+    },
+    async deleteConversation(id, conversationId) {
+      requireConversation(id, conversationId)
+      await exclusive(id, async () => {
+        const found = requireConversation(id, conversationId)
+        await removeFolders(found.chat.runIds)
+        saved.forget(found.id)
+        await store.persisted()
+      })
     },
     async close() {
       closed = true

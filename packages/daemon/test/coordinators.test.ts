@@ -6,6 +6,8 @@ import path from 'node:path'
 import {
   type Comment,
   type Coordinator,
+  type CoordinatorConversation,
+  type CoordinatorConversationSummary,
   type CoordinatorReceipt,
   type CoordinatorRequest,
   type CoordinatorTask,
@@ -172,10 +174,10 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   })
   expect(again.runId).toBe(c.runId)
   expect((await s.chat()).tasks.map((t) => t.id)).toEqual([
-    task.id,
-    badge.id,
-    shelved.id,
     symbols.id,
+    shelved.id,
+    badge.id,
+    task.id,
   ])
 })
 
@@ -735,37 +737,81 @@ test('failed session resumption can retry in a replacement Run with history and 
   expect(history.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
 })
 
-test('Factory removal deletes Coordinator history, pending work and managed files', async () => {
+test('Factory removal deletes Coordinator history, saved conversations, pending work and managed files', async () => {
   const s = await setup()
+  const first = await s.start()
+  await s.ok('POST', `${s.base}/reset`)
   const { c, run } = await s.start()
   await s.ok('POST', `/factories/${s.factory.id}/remove`, { key: 'NB', closePullRequests: false })
   expect((await s.client.call('GET', s.base)).status).toBe(404)
-  expect((await s.client.call('GET', `/runs/${c.runId}/chat`)).status).toBe(404)
+  expect((await s.client.call('GET', `${s.base}/conversations`)).status).toBe(404)
+  for (const runId of [first.c.runId, c.runId]) {
+    expect((await s.client.call('GET', `/runs/${runId}/chat`)).status).toBe(404)
+    expect(existsSync(path.join(home, 'coordinators', runId))).toBe(false)
+    expect(existsSync(path.join(home, 'runs', runId))).toBe(false)
+  }
   expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
-  await expect(
-    import('node:fs/promises').then((fs) => fs.stat(path.join(home, 'coordinators', c.runId))),
-  ).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
-test('reset deletes the conversation and the next message starts a new one', async () => {
+test('New conversation saves the conversation, which can be read, continued with its history and deleted', async () => {
   const s = await setup()
-  const { c, run } = await s.start()
+  const { c, run } = await s.start([{ say: 'Saved advice' }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'the first reply')
+  const conversations = () =>
+    s.ok<CoordinatorConversationSummary[]>('GET', `${s.base}/conversations`)
   await s.ok('POST', `${s.base}/reset`)
   expect(await s.chat()).toBeNull()
-  expect((await s.client.call('GET', `/runs/${c.runId}/chat`)).status).toBe(404)
   expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
-  expect(existsSync(path.join(home, 'coordinators', c.runId))).toBe(false)
   expect((await api(s.port, s.tokens.issue(c.runId)).call('POST', `${s.base}/reset`)).status).toBe(
     403,
   )
+  const [saved] = await conversations()
+  if (!saved) throw new Error('the conversation was not saved')
+  expect(saved).toMatchObject({ title: c.opening, taskCount: 0 })
+  expect(
+    await s.ok<CoordinatorConversation>('GET', `${s.base}/conversations/${saved.id}`),
+  ).toMatchObject({
+    runIds: [c.runId],
+  })
+  const kept = await s.ok<RunChat>('GET', `${s.base}/conversations/${saved.id}/chat`)
+  expect(kept.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
+  expect(existsSync(path.join(home, 'coordinators', c.runId))).toBe(true)
+  for (const [method, route] of [
+    ['GET', `${s.base}/conversations`],
+    ['POST', `${s.base}/conversations/${saved.id}/continue`],
+    ['DELETE', `${s.base}/conversations/${saved.id}`],
+  ] as const)
+    expect((await api(s.port, s.tokens.issue(c.runId)).call(method, route)).status).toBe(403)
 
   const next = await s.start([{ say: 'A fresh start' }, { endTurn: true }])
   expect(next.c.runId).not.toBe(c.runId)
   expect(next.c.runIds).toEqual([next.c.runId])
   expect(next.c.receipts).toEqual([])
-  await s.ok('POST', `${s.base}/reset`)
-  await s.ok('POST', `${s.base}/reset`)
-  expect(await s.chat()).toBeNull()
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'the second reply')
+
+  const continued = await s.ok<Coordinator>('POST', `${s.base}/conversations/${saved.id}/continue`)
+  expect(continued).toMatchObject({ runIds: [c.runId], status: 'ready', opening: c.opening })
+  const others = await conversations()
+  expect(others.map((x) => x.title)).toEqual([next.c.opening])
+  expect((await s.client.call('GET', `${s.base}/conversations/${saved.id}`)).status).toBe(404)
+
+  await s.ok('POST', `${s.base}/messages`, {
+    text: JSON.stringify({ steps: [{ say: 'Back again' }, { endTurn: true }] }),
+  })
+  const resumed = await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `${s.base}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Back again') ? chat : undefined
+  }, 'the continued conversation’s reply')
+  expect(resumed.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
+  expect((await s.chat()).runIds[0]).toBe(c.runId)
+
+  const other = others[0]
+  if (!other) throw new Error('the second conversation was not saved')
+  await s.ok('DELETE', `${s.base}/conversations/${other.id}`)
+  expect(await conversations()).toEqual([])
+  expect((await s.client.call('GET', `/runs/${next.c.runId}/chat`)).status).toBe(404)
+  expect(existsSync(path.join(home, 'coordinators', next.c.runId))).toBe(false)
+  expect((await s.client.call('DELETE', `${s.base}/conversations/${other.id}`)).status).toBe(404)
 })
 
 test('agent health pauses queued responses and sending advice leaves Tasks unchanged', async () => {

@@ -967,6 +967,17 @@ export const coordinators = State.SQLite.table({
   },
 })
 
+export const coordinatorConversations = State.SQLite.table({
+  name: 'coordinatorConversations',
+  indexes: [{ name: 'idx_coordinatorConversations_factoryId', columns: ['factoryId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    endedAt: State.SQLite.text(),
+    data: State.SQLite.text(),
+  },
+})
+
 export const plans = State.SQLite.table({
   name: 'plans',
   indexes: [{ name: 'idx_plans_fromTaskId', columns: ['fromTaskId'] }],
@@ -1140,6 +1151,23 @@ export const events = {
   coordinatorRemoved: Events.synced({
     name: 'v1.CoordinatorRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, runIds: Schema.Array(Schema.String) }),
+  }),
+  coordinatorConversationSaved: Events.synced({
+    name: 'v1.CoordinatorConversationSaved',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      endedAt: Schema.String,
+      data: Schema.String,
+    }),
+  }),
+  coordinatorConversationContinued: Events.synced({
+    name: 'v1.CoordinatorConversationContinued',
+    schema: Schema.Struct({ id: Schema.String, factoryId: Schema.String }),
+  }),
+  coordinatorConversationDeleted: Events.synced({
+    name: 'v1.CoordinatorConversationDeleted',
+    schema: Schema.Struct({ id: Schema.String, runIds: Schema.Array(Schema.String) }),
   }),
   validationProgressed: Events.synced({
     name: 'v1.ValidationProgressed',
@@ -4691,6 +4719,23 @@ const materializers = counted(
           runInterrupts.delete().where({ runId: id }),
         ]),
       ],
+      'v1.CoordinatorConversationSaved': ({ id, factoryId, endedAt, data }) => [
+        coordinators.delete().where({ factoryId }),
+        coordinatorConversations
+          .insert({ id, factoryId, endedAt, data })
+          .onConflict('id', 'replace'),
+      ],
+      'v1.CoordinatorConversationContinued': ({ id }) =>
+        coordinatorConversations.delete().where({ id }),
+      'v1.CoordinatorConversationDeleted': ({ id, runIds }) => [
+        coordinatorConversations.delete().where({ id }),
+        ...runIds.flatMap((runId) => [
+          messageDrafts.delete().where({ key: runDraftKey(runId) }),
+          runs.delete().where({ id: runId }),
+          runMessages.delete().where({ runId }),
+          runInterrupts.delete().where({ runId }),
+        ]),
+      ],
       'v1.PlanStarted': ({ at, ...plan }) =>
         plans.insert({ ...plan, state: 'queued', createdAt: at }),
       'v1.PlanRenamed': ({ id, title }) => plans.update({ title }).where({ id }),
@@ -4818,6 +4863,7 @@ const state = State.SQLite.makeState({
     planRequests,
     planTasks,
     coordinators,
+    coordinatorConversations,
     sideChats,
     requestSnoozes,
   },

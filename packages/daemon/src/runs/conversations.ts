@@ -22,7 +22,7 @@ import type { DiskWatch } from '../disk.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { planOpening } from '../plans/prompts.ts'
-import type { PromptPart } from '../store/coordinators.ts'
+import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
@@ -34,6 +34,7 @@ import type { Steering } from './steering.ts'
 export interface Conversations {
   chat(runId: string): Promise<RunChat>
   coordinatorChat(factoryId: string): Promise<RunChat | null>
+  savedCoordinatorChat(conversationId: string): Promise<RunChat>
   taskRuns(ref: string): RunSummary[]
   send(runId: string, text: string, options?: { interrupt?: boolean }): Promise<RunMessage>
   stopTurn(runId: string): Promise<RunSummary>
@@ -439,21 +440,85 @@ export function createConversations(options: {
     }
   }
 
+  async function storedChat(
+    c: StoredCoordinator,
+    chat: (runId: string) => Promise<RunChat>,
+  ): Promise<RunChat> {
+    const started = c.runIds.filter((id) => store.getRun(id) !== undefined)
+    const last = started.at(-1)
+    let items: ChatItem[] = []
+    let run: RunSummary | undefined
+    for (const id of c.runIds) {
+      if (!started.includes(id)) {
+        for (const message of store.runMessages(id)) {
+          if (message.queued !== true || tedWritten(message)) continue
+          const { text, at } = message
+          items.push({ kind: 'human', id: message.id, text, at, sent: false, queued: true })
+        }
+        continue
+      }
+      const read = await chat(id)
+      if (id === last) run = read.run
+      if (id !== started[0]) {
+        items.push({
+          kind: 'ted',
+          id: `${id}:new-run`,
+          title: 'New Run',
+          text: 'The earlier Run ended, so TED started a new one and gave it this conversation as context.',
+          at: read.run.startedAt,
+        })
+      }
+      for (const shown of read.items) {
+        const item = asTedIfLegacy(shown)
+        if (item === undefined) continue
+        if (id !== started[0] && item.kind === 'instructions') continue
+        if (id !== last && item.kind === 'human' && !item.sent) continue
+        items.push(id === last ? item : { ...item, id: `${id}:${item.id}` })
+      }
+    }
+    items = mergeByTime(
+      items,
+      (c.unsentMessages ?? [])
+        .filter((message) => !tedWritten(message))
+        .map(({ id, text, at }) => ({
+          kind: 'human',
+          id,
+          text,
+          at,
+          sent: false,
+          unsent: true,
+        })),
+    )
+    return {
+      run: run ?? {
+        id: c.runId,
+        name: 'Coordinator',
+        role: 'run',
+        agent: c.lead.agent,
+        ...(c.lead.model !== undefined && { model: c.lead.model }),
+        ...(c.lead.effort !== undefined && { effort: c.lead.effort }),
+        state: 'idle',
+        startedAt: items.find((item) => 'at' in item && item.at !== undefined)?.at ?? '',
+        current: true,
+      },
+      items,
+    }
+  }
+
   return {
     async chat(runId) {
       const run = requireRun(runId)
       const entries = parsedOutput(runs.output, agents, run).chat.entries()
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
-      const coordinated = store.coordinators.forRun(runId) !== undefined
+      const owner = store.coordinators.forRun(runId) ?? store.coordinators.savedForRun(runId)?.chat
+      const coordinated = owner !== undefined
       const planned = store.plans.get(runId) !== undefined
       const openingText = coordinated ? coordinatorOpening : planOpening
       const opening = coordinated
         ? run.prompt.lastIndexOf(openingText)
         : run.prompt.indexOf(openingText)
-      const firstPart = coordinated
-        ? store.coordinators.forRun(runId)?.prompts?.[runId]?.[0]
-        : undefined
+      const firstPart = owner?.prompts?.[runId]?.[0]
       const planPreamble = firstPart
         ? run.prompt.slice(0, firstPart.start).trim()
         : (planned || coordinated) && opening !== -1
@@ -476,7 +541,7 @@ export function createConversations(options: {
               promptFromHuman: planPreamble !== undefined,
               ...(coordinated && {
                 tedHeading: coordinatorFromTed,
-                promptParts: store.coordinators.forRun(runId)?.prompts?.[runId],
+                promptParts: owner?.prompts?.[runId],
                 bundle: coordinatorTurn,
               }),
             }),
@@ -488,65 +553,12 @@ export function createConversations(options: {
     async coordinatorChat(factoryId) {
       const c = store.coordinators.get(factoryId)
       if (!c) return null
-      const started = c.runIds.filter((id) => store.getRun(id) !== undefined)
-      const last = started.at(-1)
-      let items: ChatItem[] = []
-      let run: RunSummary | undefined
-      for (const id of c.runIds) {
-        if (!started.includes(id)) {
-          for (const message of store.runMessages(id)) {
-            if (message.queued !== true || tedWritten(message)) continue
-            const { text, at } = message
-            items.push({ kind: 'human', id: message.id, text, at, sent: false, queued: true })
-          }
-          continue
-        }
-        const chat = await this.chat(id)
-        if (id === last) run = chat.run
-        if (id !== started[0]) {
-          items.push({
-            kind: 'ted',
-            id: `${id}:new-run`,
-            title: 'New Run',
-            text: 'The earlier Run ended, so TED started a new one and gave it this conversation as context.',
-            at: chat.run.startedAt,
-          })
-        }
-        for (const shown of chat.items) {
-          const item = asTedIfLegacy(shown)
-          if (item === undefined) continue
-          if (id !== started[0] && item.kind === 'instructions') continue
-          if (id !== last && item.kind === 'human' && !item.sent) continue
-          items.push(id === last ? item : { ...item, id: `${id}:${item.id}` })
-        }
-      }
-      items = mergeByTime(
-        items,
-        (c.unsentMessages ?? [])
-          .filter((message) => !tedWritten(message))
-          .map(({ id, text, at }) => ({
-            kind: 'human',
-            id,
-            text,
-            at,
-            sent: false,
-            unsent: true,
-          })),
-      )
-      return {
-        run: run ?? {
-          id: c.runId,
-          name: 'Coordinator',
-          role: 'run',
-          agent: c.lead.agent,
-          ...(c.lead.model !== undefined && { model: c.lead.model }),
-          ...(c.lead.effort !== undefined && { effort: c.lead.effort }),
-          state: 'idle',
-          startedAt: items.find((item) => 'at' in item && item.at !== undefined)?.at ?? '',
-          current: true,
-        },
-        items,
-      }
+      return storedChat(c, this.chat)
+    },
+    async savedCoordinatorChat(conversationId) {
+      const saved = store.coordinators.conversation(conversationId)
+      if (!saved) throw new RequestError(404, 'no such Coordinator conversation')
+      return storedChat(saved.chat, this.chat)
     },
     taskRuns(ref) {
       const task = requireTask(ref)
