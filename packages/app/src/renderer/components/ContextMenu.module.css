@@ -44,6 +44,12 @@
 .item:disabled { color: var(--text-muted); }
 .hint { margin-left: auto; color: var(--text-tertiary); }
 .danger { color: var(--status-destructive); }
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  border: none;
+  background: var(--border-subtle);
+}
 .error {
   position: fixed;
   bottom: 16px;

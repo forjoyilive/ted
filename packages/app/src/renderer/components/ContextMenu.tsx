@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type HTMLAttributes,
   type ReactNode,
   useEffect,
@@ -250,6 +251,7 @@ export interface MenuAction {
   action?: (() => unknown | Promise<unknown>) | undefined
   disabled?: boolean
   danger?: boolean
+  divider?: boolean
   items?: MenuAction[]
 }
 
@@ -262,25 +264,36 @@ export function MenuItems({
   items: MenuAction[]
   choose: (item: MenuAction) => unknown
 }) {
-  return items.map((item) =>
-    item.items ? (
-      <MenuSubmenu key={item.label} label={item.label}>
-        <MenuItems items={item.items} choose={choose} pendingLabel={pendingLabel} />
-      </MenuSubmenu>
-    ) : (
-      <ActionButton
-        key={item.label}
-        type="button"
-        role="menuitem"
-        disabled={item.disabled || (pendingLabel !== undefined && pendingLabel !== item.label)}
-        pending={pendingLabel === item.label}
-        className={`${styles.item} ${item.danger ? styles.danger : ''}`}
-        onClick={() => choose(item)}
-      >
-        {item.label}
-        {item.hint !== undefined && <span className={styles.hint}>{item.hint}</span>}
-      </ActionButton>
-    ),
+  return items.map((item) => (
+    <Fragment key={item.label}>
+      {item.divider && <hr className={styles.separator} />}
+      {menuItem(item, choose, pendingLabel)}
+    </Fragment>
+  ))
+}
+
+function menuItem(
+  item: MenuAction,
+  choose: (item: MenuAction) => unknown,
+  pendingLabel: string | undefined,
+) {
+  return item.items ? (
+    <MenuSubmenu key={item.label} label={item.label}>
+      <MenuItems items={item.items} choose={choose} pendingLabel={pendingLabel} />
+    </MenuSubmenu>
+  ) : (
+    <ActionButton
+      key={item.label}
+      type="button"
+      role="menuitem"
+      disabled={item.disabled || (pendingLabel !== undefined && pendingLabel !== item.label)}
+      pending={pendingLabel === item.label}
+      className={`${styles.item} ${item.danger ? styles.danger : ''}`}
+      onClick={() => choose(item)}
+    >
+      {item.label}
+      {item.hint !== undefined && <span className={styles.hint}>{item.hint}</span>}
+    </ActionButton>
   )
 }
 

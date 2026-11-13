@@ -1919,11 +1919,18 @@ test('repair drafts survive switching and keyboard submission uses the valid rep
   await act(async () => pending.resolve({}))
 })
 
-test('Inbox right-click opens the clicked request and copies its full message without answering', async () => {
-  requestApi()
+test('Inbox right-click offers request actions, then Task or plan actions, and never Open request', async () => {
   const props = inboxProps()
+  const { handle } = requestApi()
+  const stopTask = vi.fn(() => ({}))
+  const stopPlan = vi.fn(() => ({}))
+  const deletePlan = vi.fn(() => ({}))
+  handle('stopTask', stopTask)
+  handle('stopPlan', stopPlan)
+  handle('deletePlan', deletePlan)
+  handle('listTasks', () => [])
   const request = comment({ body: 'First line\nSecond line' })
-  const item = { task: task(), request }
+  const item = { task: task({ preparation: 'ready' }), request }
   const question = {
     id: 'aq',
     kind: 'question' as const,
@@ -1972,27 +1979,53 @@ test('Inbox right-click opens the clicked request and copies its full message wi
   )
   const u = user()
   const copy = vi.spyOn(navigator.clipboard, 'writeText')
+  const labels = () => screen.getAllByRole('menuitem').map((e) => e.textContent)
   fireEvent.contextMenu(screen.getByText('First line'))
+  expect(labels()).toEqual([
+    'Snooze…',
+    'Copy message text',
+    'Stop Task',
+    'Copy Task ID',
+    'Archive…',
+    'Delete…',
+  ])
+  expect(screen.getAllByRole('separator')).toHaveLength(1)
   await u.click(screen.getByRole('menuitem', { name: 'Copy message text' }))
   expect(copy).toHaveBeenCalledWith('First line\nSecond line')
   expect(props.onOpen).not.toHaveBeenCalled()
   fireEvent.contextMenu(screen.getByText('First line'))
-  await u.click(screen.getByRole('menuitem', { name: 'Open request' }))
-  expect(props.onOpen).toHaveBeenCalledWith(item)
+  await u.click(screen.getByRole('menuitem', { name: 'Copy Task ID' }))
+  expect(copy).toHaveBeenCalledWith('NB-1')
+  fireEvent.contextMenu(screen.getByText('First line'))
+  await u.click(screen.getByRole('menuitem', { name: 'Stop Task' }))
+  await waitFor(() => expect(stopTask).toHaveBeenCalledWith('NB-1'))
+  fireEvent.contextMenu(screen.getByText('First line'))
+  await u.click(screen.getByRole('menuitem', { name: 'Archive…' }))
+  await u.click(
+    within(await screen.findByRole('dialog', { name: 'Archive NB-1?' })).getByRole('button', {
+      name: 'Cancel',
+    }),
+  )
+  expect(screen.queryByRole('dialog')).toBeNull()
   fireEvent.contextMenu(screen.getByText('Automation question'))
-  expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual([
-    'Open request',
-    'Snooze…',
-    'Copy message text',
-  ])
-  await u.click(screen.getByRole('menuitem', { name: 'Open request' }))
-  expect(onOpenQuestion).toHaveBeenCalledWith(question)
+  expect(labels()).toEqual(['Snooze…', 'Copy message text'])
+  expect(screen.queryByRole('separator')).toBeNull()
   fireEvent.contextMenu(screen.getByText('Planning question'))
+  expect(labels()).toEqual(['Snooze…', 'Copy message text', 'Stop plan', 'Delete plan…'])
   await u.click(screen.getByRole('menuitem', { name: 'Copy message text' }))
   expect(copy).toHaveBeenCalledWith('Planning details\nSecond line')
   fireEvent.contextMenu(screen.getByText('Planning question'))
-  await u.click(screen.getByRole('menuitem', { name: 'Open request' }))
-  expect(onOpenPlan).toHaveBeenCalledWith(plan)
+  await u.click(screen.getByRole('menuitem', { name: 'Stop plan' }))
+  await waitFor(() => expect(stopPlan).toHaveBeenCalledWith('p1'))
+  fireEvent.contextMenu(screen.getByText('Planning question'))
+  await u.click(screen.getByRole('menuitem', { name: 'Delete plan…' }))
+  const confirm = await screen.findByRole('dialog', { name: 'Delete this planning chat?' })
+  expect(deletePlan).not.toHaveBeenCalled()
+  await u.click(within(confirm).getByRole('button', { name: 'Delete' }))
+  await waitFor(() => expect(deletePlan).toHaveBeenCalledWith('p1'))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(onOpenQuestion).not.toHaveBeenCalled()
+  expect(onOpenPlan).not.toHaveBeenCalled()
 })
 
 test('request bodies and expanded answered history share nested Markdown formatting', async () => {
