@@ -745,6 +745,119 @@ export async function workingChanges(
   }
 }
 
+export async function findCommits(
+  repo: string,
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>()
+  await inScratch(repo, 'ted-find-commits-', async (run) => {
+    for (const id of ids) {
+      const commit = await run([
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        '--end-of-options',
+        `${id}^{commit}`,
+      ]).then(
+        ({ stdout }) => stdout.trim(),
+        () => '',
+      )
+      if (commit !== '') found.set(id, commit)
+    }
+  })
+  return found
+}
+
+export interface CommitDiff {
+  commit: string
+  parents: string[]
+  subject: string
+  author: string
+  date: string
+  files: WorkingFile[]
+  diffs: WorkingDiff[]
+  limited?: true
+}
+
+export async function commitDiff(repo: string, id: string): Promise<CommitDiff | undefined> {
+  return inScratch(repo, 'ted-commit-', async (run) => {
+    const commit = await run([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      '--end-of-options',
+      `${id}^{commit}`,
+    ]).then(
+      ({ stdout }) => stdout.trim(),
+      () => '',
+    )
+    if (commit === '') return undefined
+    const { stdout: described } = await run([
+      'log',
+      '-1',
+      '--no-show-signature',
+      '--no-color',
+      '--format=%P%x00%an%x00%aI%x00%s',
+      commit,
+      '--',
+    ])
+    const [parentList = '', author = '', date = '', subject = ''] = described
+      .replace(/\n$/, '')
+      .split('\0')
+    const parents = parentList.split(' ').filter((p) => p !== '')
+    const from = parents[0] ?? (await run(['hash-object', '-t', 'tree', '/dev/null'])).stdout.trim()
+    const { stdout: numstat } = await run([
+      'diff',
+      ...diffFlags,
+      '--numstat',
+      '-z',
+      from,
+      commit,
+      '--',
+    ])
+    const files: WorkingFile[] = parseNumstat(numstat)
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      .map((file) => ({
+        path: file.path,
+        added: file.added,
+        removed: file.removed,
+        uncommitted: false,
+        ...(file.binary && { binary: true as const }),
+      }))
+    const diffs: WorkingDiff[] = []
+    for (const [i, file] of files.entries()) {
+      if (file.binary || i >= maxDiffFiles) {
+        diffs.push({ ...file, hunks: [], ...(!file.binary && { truncated: true as const }) })
+        continue
+      }
+      const patch = await run([
+        '--literal-pathspecs',
+        'diff',
+        ...diffFlags,
+        '-U3',
+        from,
+        commit,
+        '--',
+        file.path,
+      ]).then(
+        ({ stdout }) => parsePatch(stdout),
+        () => ({ hunks: [], truncated: true as const }),
+      )
+      diffs.push({ ...file, ...patch })
+    }
+    return {
+      commit,
+      parents,
+      subject,
+      author,
+      date,
+      files,
+      diffs,
+      ...(files.length > maxDiffFiles && { limited: true as const }),
+    }
+  })
+}
+
 export function parsePatch(patch: string): { hunks: DiffHunk[]; truncated?: true } {
   const hunks: DiffHunk[] = []
   let current: DiffHunk | undefined

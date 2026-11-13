@@ -42,11 +42,13 @@ import type { SetTaskAutopilotRequest } from './autopilot.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
 import type {
+  CommitChanges,
   DraftLineCommentRequest,
   FileDiff,
   LineComment,
   PullRequestChanges,
   TaskChanges,
+  TaskCommit,
 } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type {
@@ -983,6 +985,20 @@ export class DaemonClient {
     return this.#request(
       'GET',
       `/tasks/${encodeURIComponent(ref)}/pull-request-changes/${encodeURIComponent(repo)}`,
+    )
+  }
+
+  taskCommits(ref: string, ids: readonly string[]): Promise<TaskCommit[]> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/commits?${new URLSearchParams({ ids: ids.join(',') })}`,
+    )
+  }
+
+  commitChanges(ref: string, commit: string): Promise<CommitChanges> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/commits/${encodeURIComponent(commit)}`,
     )
   }
 

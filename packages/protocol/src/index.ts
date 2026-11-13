@@ -114,6 +114,7 @@ export {
 export {
   type ChangeFile,
   type ChangesSource,
+  type CommitChanges,
   changeKey,
   type DiffHunk,
   type DiffRow,
@@ -121,13 +122,16 @@ export {
   type DraftLineCommentRequest,
   type EditLineCommentRequest,
   type FileDiff,
+  isCommitId,
   type LineAnchor,
   type LineComment,
   type LineSide,
   lineLabel,
+  maxCommitLookups,
   type PullRequestChanges,
   type RepoChanges,
   type TaskChanges,
+  type TaskCommit,
 } from './changes.ts'
 export {
   maxLineCommentLength,
