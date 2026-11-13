@@ -379,6 +379,7 @@ export function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
     'TED_TEST_RUN',
     'TED_TEST_FILE',
     'TED_EXIT_WITH_PID',
+    'TED_REMOTE_EXECUTION',
   ]) {
     if (process.env[name] !== undefined) env[name] = process.env[name]
   }

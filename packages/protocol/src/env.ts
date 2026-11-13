@@ -41,6 +41,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_ONLINE_FILE: false,
   TED_OPEN_BIN: false,
   TED_PLAN: 'Planning Run context for CLI requests.',
+  TED_REMOTE_EXECUTION: false,
   TED_RESTART_DELAYS_MS: false,
   TED_RUN: 'Run context for CLI requests and steering boundaries.',
   TED_RUN_CAPABILITY:
@@ -81,4 +82,13 @@ function retained(name: string): boolean {
     (Object.hasOwn(tedEnvironment, name) && typeof tedEnvironment[name] === 'string') ||
     /^TED_APP_[A-Z0-9_]+_(PORT|URL)$/.test(name)
   )
+}
+
+export const remoteExecutionOff = 'Remote execution is turned off in this version of TED.'
+
+export function remoteExecutionOn(
+  env: NodeJS.ProcessEnv = process.env,
+  which: Edition = edition,
+): boolean {
+  return tedEnv('TED_REMOTE_EXECUTION', env, which) === 'on'
 }

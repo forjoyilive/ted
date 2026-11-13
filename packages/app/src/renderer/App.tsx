@@ -99,7 +99,7 @@ import {
   initialNavigation,
   newPlan,
   type SettingsSectionId,
-  settingsSectionIds,
+  shownSettingsSectionIds,
   startHistory,
   withHistory,
 } from './navigation.ts'
@@ -150,7 +150,7 @@ function sectionsStoppingWork(banners: readonly Banner[]) {
     const place = banner.action?.opens
     const named = place?.kind === 'settings' ? place.section : banner.action?.section
     if (banner.severity !== 'stops-work' || named === undefined) continue
-    const section = settingsSectionIds.find((id) => id === named)
+    const section = shownSettingsSectionIds.find((id) => id === named)
     if (section !== undefined) stopping[section] = true
   }
   return stopping
@@ -639,7 +639,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     } else if (!place) {
       await ted.actOnBanner(banner.id).catch((error: unknown) => console.error(error))
     } else if (place.kind === 'settings') {
-      const section = settingsSectionIds.find((id) => id === place.section)
+      const section = shownSettingsSectionIds.find((id) => id === place.section)
       dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
     } else if (place.kind === 'automation') {
       dispatch({
@@ -673,7 +673,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       dispatch({ type: 'open-task', taskId: command.taskId, factoryId: command.factoryId })
     }
     if (command.kind === 'settings') {
-      const section = settingsSectionIds.find((id) => id === command.section)
+      const section = shownSettingsSectionIds.find((id) => id === command.section)
       dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
     }
     if (command.kind === 'banner') {

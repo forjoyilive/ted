@@ -15,6 +15,7 @@ export const executionRoutes: Route[] = [
     method: 'POST',
     path: /^\/execution\/configure$/,
     async handle({ body }, { execution }) {
+      execution.refuseWhenOff()
       await execution.configure(body)
       return [200, await execution.list()]
     },
@@ -23,6 +24,7 @@ export const executionRoutes: Route[] = [
     method: 'POST',
     path: /^\/execution\/cancel-enrollment$/,
     async handle(_, { execution }) {
+      execution.refuseWhenOff()
       execution.cancelEnrollment()
       return [200, {}]
     },
@@ -30,17 +32,24 @@ export const executionRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/execution\/enrollment$/,
-    handle: async (_, { execution }) => [200, execution.createEnrollment()],
+    async handle(_, { execution }) {
+      execution.refuseWhenOff()
+      return [200, execution.createEnrollment()]
+    },
   },
   jsonRoute(parseApproveExecution, {
     method: 'POST',
     path: /^\/execution\/approve$/,
-    handle: async ({ body }, { execution }) => [200, await execution.approve(body)],
+    async handle({ body }, { execution }) {
+      execution.refuseWhenOff()
+      return [200, await execution.approve(body)]
+    },
   }),
   jsonRoute(parseExecutionIdRequest, {
     method: 'POST',
     path: /^\/execution\/reject$/,
     async handle({ body }, { execution }) {
+      execution.refuseWhenOff()
       execution.reject(body.id)
       return [200, {}]
     },
@@ -49,6 +58,7 @@ export const executionRoutes: Route[] = [
     method: 'POST',
     path: /^\/execution\/revoke$/,
     async handle({ body }, { execution }) {
+      execution.refuseWhenOff()
       await execution.revoke(body.id)
       return [200, {}]
     },

@@ -1,5 +1,9 @@
 # Incremental execution validation
 
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+
+> Validate doesn’t need these scenarios. Run them only for a Task that works on remote execution itself and turns the flag on.
+
 Run selected scenarios from the repository root with Node 24, pnpm and Git installed:
 
 ```sh

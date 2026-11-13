@@ -1,7 +1,14 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { DaemonClient, type DaemonInfo, type DataStatus, tedEnv, tedPaths } from '@ted/protocol'
+import {
+  DaemonClient,
+  type DaemonInfo,
+  type DataStatus,
+  remoteExecutionOn,
+  tedEnv,
+  tedPaths,
+} from '@ted/protocol'
 import { createAgentAvailability } from './agent-availability.ts'
 import { createAgents } from './agents/index.ts'
 import { type AsanaOptions, createAsana } from './asana/asana.ts'
@@ -59,6 +66,7 @@ import { createWorkflows } from './workflow/workflows.ts'
 export interface DaemonOptions {
   home: string
   execution?: {
+    enabled?: boolean
     now?: () => number
     ready?: (api: { commands: ExecutionCommands; store: TedStore }) => void
   }
@@ -585,6 +593,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       options.execution?.ready?.({ commands, store })
       const execution = createExecutionController({
         home: paths.home,
+        enabled: options.execution?.enabled ?? remoteExecutionOn(),
         store,
         commands,
         ...(options.execution?.now && { now: options.execution.now }),

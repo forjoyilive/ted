@@ -72,6 +72,7 @@ export interface ExecutionPending {
   readiness: ExecutionReadiness
 }
 export interface ExecutionMachines {
+  disabled?: true
   endpoint?: ExecutionEndpoint
   controllerPin?: string
   addresses: { name: string; address: string }[]
