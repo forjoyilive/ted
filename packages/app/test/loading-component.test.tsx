@@ -99,7 +99,16 @@ test('the history link appears once the description has an edit, and opens every
 })
 
 test('Answer in the header closes a shown App so the request appears', async () => {
-  bridge({ ...detailHandlers(), listComments: () => [comment({ body: 'Ship it today?' })] })
+  bridge({
+    ...detailHandlers(),
+    listComments: () => [comment({ body: 'Ship it today?' })],
+    listThreadEvents: () => [],
+    listCheckRuns: () => [],
+    listFailures: () => [],
+    taskDescriptions: () => [],
+    markCommentsRead: () => ({ read: 1 }),
+    appLog: () => ({ text: '', truncated: false }),
+  })
   const onCloseApp = vi.fn()
   const props = { task: task(), backLink: undefined, shownRun: undefined, ...callbacks }
   const view = render(
