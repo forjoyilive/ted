@@ -1,8 +1,14 @@
-import { isIP } from 'node:net'
 import { rm } from 'node:fs/promises'
+import { isIP } from 'node:net'
 import type { LinearFile, LinearUnfetched } from '@ted/protocol'
 import { maxAttachmentBytes } from '../attachments.ts'
-import { DownloadError, type FileStore, saveDownload, tooLarge, withExtension } from '../downloads.ts'
+import {
+  DownloadError,
+  type FileStore,
+  saveDownload,
+  tooLarge,
+  withExtension,
+} from '../downloads.ts'
 import type { AsanaAttachment } from './tree.ts'
 
 const parallel = 4

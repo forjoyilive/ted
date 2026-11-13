@@ -23,7 +23,6 @@ export interface AsanaPlan {
   holds: { parent: ParentRef; items: AsanaMissing['items'] }[]
 }
 
-
 export function asanaTaskUrl(gid: string): string {
   return `https://app.asana.com/0/0/${gid}/f`
 }
@@ -85,7 +84,9 @@ export function planAsanaImport(input: {
       stage: rootClash.task.stage,
     }
     rootRef = { taskId: rootClash.task.id }
-    rows.push(row(root, { kind: 'kept', taskId: rootClash.task.id, displayId: rootClash.task.displayId }))
+    rows.push(
+      row(root, { kind: 'kept', taskId: rootClash.task.id, displayId: rootClash.task.displayId }),
+    )
     if (!input.app) refusal = clashMessage(rootClash)
   } else {
     if (rootClash && !input.app) refusal = clashMessage(rootClash)
@@ -264,7 +265,11 @@ export function asanaSource(
       ? [
           '',
           'Comments copied from Asana:',
-          ...node.comments.flatMap((comment) => ['', `${comment.author}, ${comment.at}:`, comment.text]),
+          ...node.comments.flatMap((comment) => [
+            '',
+            `${comment.author}, ${comment.at}:`,
+            comment.text,
+          ]),
         ]
       : []),
   ].join('\n')
@@ -296,10 +301,21 @@ export function asanaNotes(node: AsanaNode): string[] {
   return notes
 }
 
-export function missingWorkText(displayId: string, items: AsanaMissing['items']): string {
+export const asanaRetryChoice = 'Retry'
+export const asanaGoAheadChoice = 'Go ahead without them'
+export const missingWorkTitle = 'Some work under this Task didn’t come across from Asana'
+
+export function missingWorkText(items: AsanaMissing['items']): string {
   return [
-    `${displayId} won’t start until you choose.`,
-    ...items.map((item) => `- ${item.name}: ${item.reason}. ${item.url}`),
-    `**Retry** reads Asana again and adds what it can. **Go ahead without them** lets ${displayId} start; its Task Lead is told these items aren’t its work.`,
+    'This Task won’t start until you choose.',
+    items.map((item) => `- ${item.name}: ${item.reason}. ${item.url}`).join('\n'),
+    `**${asanaRetryChoice}** reads Asana again and adds what it can. **${asanaGoAheadChoice}** lets this Task start; its Task Lead is told these items aren’t its work.`,
+  ].join('\n\n')
+}
+
+export function goAheadText(items: AsanaMissing['items']): string {
+  return [
+    'The user chose to go ahead without these Asana items. They aren’t this Task’s work:',
+    items.map((item) => `- ${item.name}: ${item.url}`).join('\n'),
   ].join('\n\n')
 }

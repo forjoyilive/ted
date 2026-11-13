@@ -25,6 +25,7 @@ import {
   signRequest,
 } from './app-auth.ts'
 import type { AsanaConfiguration, AsanaStatus } from './asana.ts'
+import type { AsanaImportPreview, AsanaImportRequest, AsanaImportResult } from './asana-import.ts'
 import type {
   AnswerAutomationRequest,
   Automation,
@@ -512,6 +513,14 @@ export class DaemonClient {
 
   createTask(input: CreateTaskRequest): Promise<Task> {
     return this.#request('POST', '/tasks', input)
+  }
+
+  previewAsanaImport(input: AsanaImportRequest): Promise<AsanaImportPreview> {
+    return this.#request('POST', '/tasks/asana-preview', input)
+  }
+
+  importAsana(input: AsanaImportRequest): Promise<AsanaImportResult> {
+    return this.#request('POST', '/tasks/asana-import', input)
   }
 
   setTaskSnooze(ref: string, snoozedUntil: string | null): Promise<Task> {

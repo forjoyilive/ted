@@ -1,7 +1,10 @@
 import type { Comment, RequestPurpose } from '@ted/protocol'
 
 export function structuralPurpose(
-  comment: Pick<Comment, 'kind' | 'gate' | 'simulator' | 'sizeCheck' | 'linearTeam' | 'asanaMissing' | 'failed'>,
+  comment: Pick<
+    Comment,
+    'kind' | 'gate' | 'simulator' | 'sizeCheck' | 'linearTeam' | 'asanaMissing' | 'failed'
+  >,
 ): RequestPurpose | undefined {
   if (comment.kind === 'note') return undefined
   if (comment.simulator) return { kind: 'simulator' }

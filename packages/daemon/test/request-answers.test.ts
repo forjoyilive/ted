@@ -98,6 +98,10 @@ beforeEach(async () => {
     linesText: () => undefined,
     gateName: () => 'Design sign-off',
     firstLine: (text) => text.split('\n')[0] ?? '',
+    answerAsanaMissing: async (_task, comment) => {
+      effects.push('asana-missing')
+      return comment
+    },
   }
 })
 afterEach(async () => {

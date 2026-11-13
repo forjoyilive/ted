@@ -12,6 +12,9 @@ import type {
   AppStarter,
   ArchiveDoneResult,
   ArchiveTaskRequest,
+  AsanaImportPreview,
+  AsanaImportRequest,
+  AsanaImportResult,
   AssessFailureRequest,
   Attachment,
   BaseConflictFound,
@@ -111,6 +114,7 @@ import {
   briefHeadings,
   clarifyDepths,
   clarifyIsOver,
+  parseAsanaTaskUrl,
   parseLinearUrl,
   type ResetRefusal,
   resetRefusal,
@@ -123,9 +127,12 @@ import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
+import { AsanaReadError } from '../asana/asana.ts'
+import { type AsanaRead, type AsanaTree, readAsanaTree } from '../asana/tree.ts'
 import type { Banners } from '../banners.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
+import type { FileStore } from '../downloads.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
@@ -183,6 +190,18 @@ import {
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
+import {
+  asanaGoAheadChoice,
+  asanaNotes,
+  asanaRetryChoice,
+  asanaSource,
+  asanaTaskUrl,
+  goAheadText,
+  missingWorkText,
+  missingWorkTitle,
+  type ParentRef,
+  planAsanaImport,
+} from './asana-import.ts'
 import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
 import {
   type BaseConflict,
@@ -468,6 +487,8 @@ export interface Tasks {
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
+  asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
+  importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   markDone(ref: string): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
@@ -626,6 +647,12 @@ export function createTasks(options: {
     Partial<LinearSyncApi> &
     Partial<Pick<Linear, 'intakeMembership'>>
   linearSyncMs?: number
+  asana?: {
+    read: AsanaRead
+    user(): Promise<{ gid: string; name: string }>
+    files?: FileStore
+    allowLoopbackFiles?: boolean
+  }
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
@@ -3841,6 +3868,270 @@ export function createTasks(options: {
     return lookup?.state === 'found' ? lookup.issue : undefined
   }
 
+  const asanaImports = new Map<string, Promise<unknown>>()
+
+  function asanaTarget(input: AsanaImportRequest, caller: Caller) {
+    if (input.addToTree === true && caller.kind !== 'app') {
+      throw new RequestError(403, 'only the app can add children to an existing tree')
+    }
+    const automation = automationCaller(caller)
+    if (automation && input.factory !== undefined && input.factory !== automation.factoryKey) {
+      throw new RequestError(
+        403,
+        `this Automation creates Tasks only in ${automation.factoryKey}, its own Factory`,
+      )
+    }
+    const key = automation?.factoryKey ?? input.factory
+    if (key === undefined) throw new RequestError(400, 'name the Factory to import into')
+    const factory = store.listFactories().find((f) => f.key === key)
+    if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
+    if (removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    const gid = parseAsanaTaskUrl(input.url)?.gid
+    if (gid === undefined) throw new RequestError(400, 'url must be an Asana task URL')
+    return { factory, automation, gid }
+  }
+
+  async function readAsana(factoryId: string, gid: string, withFiles: boolean) {
+    const asana = options.asana
+    if (!asana) throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+    const tasksNow = store.listTasks()
+    const tracked = new Set(
+      tasksNow.flatMap((task) => {
+        if (task.factoryId !== factoryId || !task.source) return []
+        const key = sourceKey(task.source.url)
+        return key.startsWith('asana:') ? [key.slice('asana:'.length)] : []
+      }),
+    )
+    if (sourceClash(tasksNow, factoryId, asanaTaskUrl(gid))?.kind !== 'open') tracked.delete(gid)
+    const user = await asana.user().catch((error: unknown) => {
+      throw new RequestError(409, error instanceof Error ? error.message : 'Connect Asana first')
+    })
+    const tree = await readAsanaTree({
+      read: asana.read,
+      rootGid: gid,
+      tracked,
+      ...(withFiles && asana.files && { files: asana.files }),
+      ...(asana.allowLoopbackFiles && { allowLoopbackFiles: true }),
+    }).catch((error: unknown) => {
+      const status = error instanceof AsanaReadError ? error.status : undefined
+      throw new RequestError(
+        409,
+        status === 403
+          ? 'Asana didn’t let TED read this task. Check that the connected account can open it.'
+          : status === 404
+            ? 'Asana couldn’t find this task.'
+            : redactSecrets(error instanceof Error ? error.message : 'Couldn’t read Asana'),
+      )
+    })
+    return { tree, user }
+  }
+
+  function planAsana(tree: AsanaTree, factoryId: string, userGid: string, app: boolean) {
+    return planAsanaImport({
+      tree,
+      tasks: store.listTasks(),
+      factoryId,
+      userGid,
+      app,
+      parentRefusal: (taskId) => {
+        try {
+          requireHierarchyIdle([taskId])
+          safeParent(find(taskId))
+          return undefined
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error)
+        }
+      },
+      wouldCycle: (childId, parentId) => cycleFrom(childId, parentId) !== undefined,
+    })
+  }
+
+  async function asanaPreview(input: AsanaImportRequest, caller: Caller = { kind: 'app' }) {
+    const { factory, gid } = asanaTarget(input, caller)
+    const { tree, user } = await readAsana(factory.id, gid, false)
+    return planAsana(tree, factory.id, user.gid, caller.kind === 'app').preview
+  }
+
+  function importAsana(
+    input: AsanaImportRequest,
+    caller: Caller = { kind: 'app' },
+    closing?: { commentId: string; choice: string },
+  ): Promise<AsanaImportResult> {
+    const target = asanaTarget(input, caller)
+    if (input.dryRun === true) {
+      return asanaPreview(input, caller).then((preview) => ({ preview, created: [], linked: [] }))
+    }
+    const prior = asanaImports.get(target.factory.id) ?? Promise.resolve()
+    const next = prior
+      .catch(() => undefined)
+      .then(() => importAsanaNow(input, caller, target, closing))
+    asanaImports.set(target.factory.id, next)
+    return next.finally(() => {
+      if (asanaImports.get(target.factory.id) === next) asanaImports.delete(target.factory.id)
+    })
+  }
+
+  async function importAsanaNow(
+    input: AsanaImportRequest,
+    caller: Caller,
+    { factory, automation, gid }: ReturnType<typeof asanaTarget>,
+    closing?: { commentId: string; choice: string },
+  ): Promise<AsanaImportResult> {
+    const { tree, user } = await readAsana(factory.id, gid, true)
+    const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
+      (error: unknown) => {
+        console.error(redactSecrets(`couldn’t read ${factory.repo}’s Workflow: ${String(error)}`))
+        return undefined
+      },
+    )
+    if (removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    const plan = planAsana(tree, factory.id, user.gid, caller.kind === 'app')
+    if (plan.preview.refusal !== undefined) throw new RequestError(409, plan.preview.refusal)
+    const tracked = plan.preview.tracked
+    if (tracked && input.addToTree !== true && closing === undefined) {
+      throw new RequestError(
+        409,
+        `Already tracked as ${tracked.displayId}. Add its new children to the existing tree instead.`,
+      )
+    }
+    const held = automation !== undefined && (!resolution || runsInBypass(resolution))
+    const lead = { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' as const }
+    const at = new Date().toISOString()
+    const ref = (parent: ParentRef) =>
+      'gid' in parent ? { key: parent.gid } : { taskId: parent.taskId }
+    const gidOf = (parent: ParentRef) =>
+      'gid' in parent
+        ? parent.gid
+        : (parseAsanaTaskUrl(find(parent.taskId).source?.url ?? '')?.gid ?? gid)
+    const result = store.createTaskTree({
+      factoryId: factory.id,
+      tasks: plan.creates.map(({ node, parent }) => ({
+        key: node.gid,
+        ...(parent && { parent: ref(parent) }),
+        title: node.name,
+        description: node.notes ?? '',
+        priority: input.priority ?? 'none',
+        lead,
+        startRequested: input.start === true && !held,
+        attachments: withoutRepeats(
+          (node.files ?? []).map(({ hash, name, size, mediaType }) => ({
+            hash,
+            name,
+            size,
+            mediaType,
+          })),
+        ),
+        sourceUrl: node.url,
+        asana: asanaSource(node, tree, user.gid, at),
+        ...(automation && { automation: automation.link }),
+      })),
+      links: plan.links.map((link) => ({ taskId: link.taskId, parent: ref(link.parent) })),
+      comments: [
+        ...plan.creates.flatMap(({ node }) =>
+          asanaNotes(node).map((body) => ({
+            task: { key: node.gid },
+            kind: 'note' as const,
+            author: { kind: 'ted' as const },
+            body: redactSecrets(body),
+          })),
+        ),
+        ...plan.holds.map((hold) => ({
+          task: ref(hold.parent),
+          kind: 'question' as const,
+          author: { kind: 'ted' as const },
+          title: missingWorkTitle,
+          body: missingWorkText(hold.items),
+          choices: [asanaRetryChoice, asanaGoAheadChoice],
+          asanaMissing: { rootGid: gidOf(hold.parent), items: hold.items },
+        })),
+        ...(held && automation && plan.creates[0]
+          ? [
+              {
+                task: { key: plan.creates[0].node.gid },
+                kind: 'note' as const,
+                author: { kind: 'ted' as const },
+                body: `Created by ${automation.name} · left in Backlog because this Factory runs in Bypass`,
+              },
+            ]
+          : []),
+      ],
+      ...(closing && {
+        closing: {
+          commentId: closing.commentId,
+          answer: { kind: 'answered' as const, at, choice: closing.choice },
+        },
+      }),
+    })
+    const created = [...result.created.values()]
+    const existingParents = new Set([
+      ...plan.creates.flatMap(({ parent }) =>
+        parent && 'taskId' in parent ? [parent.taskId] : [],
+      ),
+      ...plan.links.flatMap((link) => ('taskId' in link.parent ? [link.parent.taskId] : [])),
+    ])
+    for (const id of existingParents) holdParent(id)
+    tellHierarchyChanged([...existingParents, ...plan.links.map((link) => link.taskId)])
+    const startAll =
+      resolution !== undefined &&
+      !held &&
+      (input.start === true || !resolution.workflow.stages.includes('backlog'))
+    if (startAll) {
+      for (const task of created) {
+        await start(task.id).catch((error: unknown) => {
+          console.error(redactSecrets(`couldn’t start ${task.displayId}: ${String(error)}`))
+        })
+      }
+    }
+    wake()
+    const root = result.created.get(gid)
+    return {
+      preview: plan.preview,
+      ...(root
+        ? { root: { taskId: root.id, displayId: root.displayId } }
+        : tracked && { root: { taskId: tracked.taskId, displayId: tracked.displayId } }),
+      created: created.map((task) => ({ taskId: task.id, displayId: task.displayId })),
+      linked: result.linked.map((task) => ({ taskId: task.id, displayId: task.displayId })),
+    }
+  }
+
+  async function answerAsanaMissing(
+    task: Task,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment> {
+    if (comment.answer) throw new RequestError(409, 'this request has already been answered')
+    const missing = comment.asanaMissing
+    if (!missing) throw new RequestError(400, 'this question isn’t about Asana work')
+    if (text !== '') {
+      throw new RequestError(400, `answer with ${asanaRetryChoice} or ${asanaGoAheadChoice}`)
+    }
+    if (choice === asanaRetryChoice) {
+      const factory = factoryOf(find(task.id))
+      await importAsana(
+        { url: asanaTaskUrl(missing.rootGid), factory: factory.key, addToTree: true },
+        { kind: 'app' },
+        { commentId: comment.id, choice },
+      )
+    } else if (choice === asanaGoAheadChoice) {
+      store.answerComment(comment.id, { kind: 'answered', at: new Date().toISOString(), choice })
+      store.postComment({
+        taskId: task.id,
+        kind: 'note',
+        author: { kind: 'ted' },
+        body: goAheadText(missing.items),
+      })
+      wake()
+    } else {
+      throw new RequestError(400, `answer with ${asanaRetryChoice} or ${asanaGoAheadChoice}`)
+    }
+    return store.getComment(comment.id) ?? comment
+  }
+
   async function storedFiles(files: readonly LinearFile[]): Promise<LinearFile[]> {
     const found = await Promise.all(
       files.map(async (file) =>
@@ -4592,6 +4883,7 @@ export function createTasks(options: {
         linesText,
         gateName,
         firstLine,
+        answerAsanaMissing,
         withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),
         mergeSendBack: (id, findings) =>
           mergeSendBack(id, findings, undefined, false, { counted: false }),
@@ -8486,6 +8778,19 @@ export function createTasks(options: {
           linearConsent: caller.kind === 'app',
         })
       }
+      if (sourceUrl !== undefined && parseAsanaTaskUrl(sourceUrl) && parentRef === undefined) {
+        const imported = await importAsana(
+          {
+            url: sourceUrl,
+            ...(key !== undefined && { factory: key }),
+            ...(fields.priority !== undefined && { priority: fields.priority }),
+            ...(startNow !== undefined && { start: startNow }),
+          },
+          caller,
+        )
+        if (!imported.root) throw new RequestError(409, 'the Asana import created no Task')
+        return publicTask(imported.root.taskId)
+      }
       const refuseTracked = () => {
         if (sourceUrl === undefined || !factory || caller.kind === 'app') return
         const clash = sourceClash(store.listTasks(), factory.id, sourceUrl)
@@ -8572,6 +8877,9 @@ export function createTasks(options: {
       const hasBacklog = resolution.workflow.stages.includes('backlog')
       return hasBacklog && startNow !== true ? task : start(task.id)
     },
+
+    asanaPreview,
+    importAsana: (input, caller) => importAsana(input, caller),
 
     async setUpFactory(factoryId) {
       const factory = store.getFactory(factoryId)

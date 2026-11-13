@@ -2,8 +2,8 @@ import { rm } from 'node:fs/promises'
 import type { LinearFile, LinearUnfetched } from '@ted/protocol'
 import { maxAttachmentBytes } from '../attachments.ts'
 import {
-  type Downloaded,
   DownloadError,
+  type Downloaded,
   type FileStore,
   saveDownload,
   tooLarge,

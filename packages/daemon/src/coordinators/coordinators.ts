@@ -599,7 +599,8 @@ export function createCoordinators(options: {
       comment.kind === 'permission' ||
       comment.permission ||
       comment.simulator ||
-      comment.linearTeam
+      comment.linearTeam ||
+      comment.asanaMissing
     )
       return 'no'
     if (comment.kind === 'round') return 'round answers'

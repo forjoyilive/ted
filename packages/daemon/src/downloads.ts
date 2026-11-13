@@ -96,4 +96,3 @@ export function withExtension(name: string, mediaType: string): string {
 export function tooLarge(): DownloadError {
   return new DownloadError(`the file is over ${maxAttachmentBytes / 1024 / 1024} MB`)
 }
-

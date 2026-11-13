@@ -93,6 +93,12 @@ export interface RequestAnswerPort {
   linesText(comment: Comment): string | undefined
   gateName(comment: Comment): string
   firstLine(text: string): string
+  answerAsanaMissing(
+    task: Task,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment>
 }
 
 export function createRequestAnswers(
@@ -135,6 +141,7 @@ export function createRequestAnswers(
     linesText,
     gateName,
     firstLine,
+    answerAsanaMissing,
   } = port
   const { answerLinearTeam } = createLinearConsent(store)
   const answerRequest = (
@@ -628,6 +635,9 @@ export function createRequestAnswers(
       throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
     } else if (request.choice === undefined && text === '') {
       throw new RequestError(400, 'pick a choice or write an answer')
+    }
+    if (comment.purpose?.kind === 'asana-missing' && request.action === 'answer') {
+      return answerAsanaMissing(task, comment, request.choice, text)
     }
     if (comment.purpose?.kind === 'linear-team' && request.action === 'answer') {
       return answerLinearTeam(task, comment, request.choice, text)

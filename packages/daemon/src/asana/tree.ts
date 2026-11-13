@@ -183,8 +183,7 @@ function nodeFrom(
 function permalink(value: unknown, gid: string): string {
   if (typeof value === 'string' && URL.canParse(value)) {
     const url = new URL(value)
-    if (url.protocol === 'https:' && url.host === 'app.asana.com' && !url.username)
-      return url.href
+    if (url.protocol === 'https:' && url.host === 'app.asana.com' && !url.username) return url.href
   }
   return `https://app.asana.com/0/0/${gid}/f`
 }
@@ -341,5 +340,12 @@ function reasonOf(error: unknown): string {
 }
 
 function oneLine(text: string): string {
-  return text.replace(/[\u0000-\u001f\u007f  ]+/g, ' ').trim()
+  return [...text]
+    .map((c) => {
+      const code = c.codePointAt(0) ?? 0
+      return code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 ? ' ' : c
+    })
+    .join('')
+    .replace(/ {2,}/g, ' ')
+    .trim()
 }
