@@ -245,7 +245,6 @@ describe('button heights', () => {
 
   test('hand-made buttons take their height from the same tokens', async () => {
     const buttons: [file: string, name: string, height: string, grows?: 'grows'][] = [
-      ['components/TaskConversationTabs.module.css', 'historyButton', regular],
       ['components/BannerStack.module.css', 'action', regular],
       ['views/TaskLeadField.module.css', 'button', regular, 'grows'],
       ['views/FactorySettings.module.css', 'dangerButton', regular],

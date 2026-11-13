@@ -12,27 +12,26 @@
   margin: -4px;
   padding: 4px;
   overflow-x: auto;
-  --fade: 48px;
 }
 
 .images[data-more-after] {
   mask-image: linear-gradient(
     to right,
-    var(--surface-card) calc(100% - var(--fade)),
+    var(--surface-card) calc(100% - 48px),
     transparent
   );
 }
 
 .images[data-more-before] {
-  mask-image: linear-gradient(to right, transparent, var(--surface-card) var(--fade));
+  mask-image: linear-gradient(to right, transparent, var(--surface-card) 48px);
 }
 
 .images[data-more-before][data-more-after] {
   mask-image: linear-gradient(
     to right,
     transparent,
-    var(--surface-card) var(--fade),
-    var(--surface-card) calc(100% - var(--fade)),
+    var(--surface-card) 48px,
+    var(--surface-card) calc(100% - 48px),
     transparent
   );
 }

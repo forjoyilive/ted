@@ -240,7 +240,7 @@ test('Task details displays saved Priority, menu depth attribution and a success
   await u.selectOptions(within(details).getByLabelText('Priority'), 'high')
   expect((within(details).getByLabelText('Priority') as HTMLSelectElement).value).toBe('high')
   await u.click(screen.getByRole('button', { name: 'Task actions' }))
-  await u.hover(screen.getByRole('menuitem', { name: /^Clarify depth/ }))
+  await u.click(screen.getByRole('menuitem', { name: 'Settings' }))
   await u.click(screen.getByRole('menuitemradio', { name: /Few/ }))
   await within(details).findByText('Few · set by you')
   await u.click(within(details).getByRole('button', { name: 'Add blocker' }))
@@ -321,7 +321,7 @@ test('Task details shows six icon tabs, marks changes and working Runs, and keep
   expect(tab('Details').getAttribute('aria-selected')).toBe('true')
   expect(tab('Runs').textContent).toBe('Runs⌥5')
   const details = screen.getByRole('tabpanel', { name: 'Details' })
-  expect(within(details).getByRole('heading').textContent).toBe('Details')
+  expect(within(details).getByRole('heading', { level: 2 }).textContent).toBe('Details')
   expect(within(details).getByLabelText('Priority')).toBeTruthy()
   expect(tab('Changes').getAttribute('aria-description')).toBe('2 files changed')
   await vi.waitFor(() =>

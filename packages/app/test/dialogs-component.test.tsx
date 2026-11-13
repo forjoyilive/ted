@@ -270,7 +270,7 @@ test('files dropped anywhere on the dialog while the draft loads show the overla
     },
   })
   expect(screen.queryByText('Drop to attach')).toBeNull()
-  expect(await screen.findByText('Attaching…')).toBeTruthy()
+  expect(await screen.findByRole('status', { name: 'Attaching…' })).toBeTruthy()
   expect(uploaded).not.toHaveBeenCalled()
   await act(async () => draft.resolve({ draft: null }))
   expect(await screen.findByRole('button', { name: 'Remove notes.txt' })).toBeTruthy()
@@ -278,7 +278,7 @@ test('files dropped anywhere on the dialog while the draft loads show the overla
     { name: 'notes.txt', mediaType: 'text/plain' },
     expect.any(Uint8Array),
   )
-  expect(screen.queryByText('Attaching…')).toBeNull()
+  expect(screen.queryByRole('status', { name: 'Attaching…' })).toBeNull()
 })
 
 test('the attach box opens the file picker from anywhere on it while the draft and agent health load', async () => {
@@ -309,7 +309,7 @@ test('the attach box opens the file picker from anywhere on it while the draft a
   fireEvent.change(input, {
     target: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] },
   })
-  expect(await screen.findByText('Attaching…')).toBeTruthy()
+  expect(await screen.findByRole('status', { name: 'Attaching…' })).toBeTruthy()
   expect(uploaded).not.toHaveBeenCalled()
   await act(async () => draft.resolve({ draft: null }))
   expect(await screen.findByRole('button', { name: 'Remove notes.txt' })).toBeTruthy()
