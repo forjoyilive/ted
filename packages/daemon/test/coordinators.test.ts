@@ -10,6 +10,7 @@ import {
   type CoordinatorRequest,
   type CoordinatorTask,
   type CoordinatorTaskList,
+  coordinatorTaskSearch,
   type Factory,
   type LineComment,
   type RunChat,
@@ -154,6 +155,12 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   expect((await tasksWhere('?status=working')).matching).toBe(0)
   expect((await tasksWhere('?waiting=1')).matching).toBe(0)
   expect((await run.call('GET', '/coordinator/tasks?stage=nowhere')).status).toBe(400)
+  const symbols = await s.task('Sync & retry C++ at 100%')
+  expect(
+    (await tasksWhere(coordinatorTaskSearch({ search: '& retry C++ at 100%' }))).tasks.map(
+      (t) => t.id,
+    ),
+  ).toEqual([symbols.id])
   expect((await run.call('GET', `/coordinator/tasks/${other.id}`)).status).toBe(404)
   await s.ok('POST', `/tasks/${task.id}/comments`, { body: 'Fresh context from the human' })
   const read = unpack<CoordinatorTask>(
@@ -164,7 +171,12 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
     text: 'Compare these Tasks',
   })
   expect(again.runId).toBe(c.runId)
-  expect((await s.chat()).tasks.map((t) => t.id)).toEqual([task.id, badge.id, shelved.id])
+  expect((await s.chat()).tasks.map((t) => t.id)).toEqual([
+    task.id,
+    badge.id,
+    shelved.id,
+    symbols.id,
+  ])
 })
 
 test('Coordinator tokens cannot use generic reads, mutations, or human-only actions', async () => {

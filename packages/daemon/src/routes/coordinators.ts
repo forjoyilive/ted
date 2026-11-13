@@ -66,11 +66,16 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'GET',
-    path: /^\/coordinator\/tasks(?:\?([^#]{0,2000}))?$/,
+    path: /^\/coordinator\/tasks(?:\?[^#]{0,2000})?$/,
     runToken: true,
-    handle: async ({ caller, params: [search = ''] }, { coordinators }) => [
+    handle: async ({ req, caller }, { coordinators }) => [
       200,
-      context(coordinators.list(caller, parseCoordinatorTaskQuery(search))),
+      context(
+        coordinators.list(
+          caller,
+          parseCoordinatorTaskQuery(new URL(req.url ?? '/', 'http://localhost').search),
+        ),
+      ),
     ],
   },
   {
