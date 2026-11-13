@@ -698,6 +698,7 @@ export function TaskThread({
   const activity = mergedLine(task, now) ?? task.activity
   const jumpToRequest = (id: string) => {
     if (shownRun !== undefined) onShowRun(undefined)
+    if (shownApp !== undefined) onCloseApp?.()
     setConversationReveal(undefined)
     setFilter(undefined)
     setReveal({ id })

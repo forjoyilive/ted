@@ -733,7 +733,6 @@ test('Inbox reveals its request after delayed history and after other panes cove
   expect(screen.queryByRole('region', { name: 'Full brief' })).toBeNull()
   expect(document.activeElement?.contains(card)).toBe(true)
   expect(screen.getByDisplayValue('Keep this draft')).toBe(answer)
-  await user().click(screen.getByRole('tab', { name: /Task Lead/ }))
   await screen.findByText('Working on it.')
   await user().click(within(inbox).getByText(request.body))
   const revealed = await screen.findByRole('region', { name: 'Question' })

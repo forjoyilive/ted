@@ -98,6 +98,26 @@ test('the history link appears once the description has an edit, and opens every
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
+test('Answer in the header closes a shown App so the request appears', async () => {
+  bridge({ ...detailHandlers(), listComments: () => [comment({ body: 'Ship it today?' })] })
+  const onCloseApp = vi.fn()
+  const props = { task: task(), backLink: undefined, shownRun: undefined, ...callbacks }
+  const view = render(
+    <TaskThread
+      {...props}
+      shownApp={{ repo: 'acme/widgets', name: 'web' }}
+      onCloseApp={onCloseApp}
+    />,
+  )
+  await user().click(
+    await screen.findByRole('button', { name: 'Jump to Question: Ship it today?' }),
+  )
+  expect(onCloseApp).toHaveBeenCalledOnce()
+  view.rerender(<TaskThread {...props} onCloseApp={onCloseApp} />)
+  const card = await screen.findByRole('region', { name: 'Question' })
+  await waitFor(() => expect(document.activeElement?.contains(card)).toBe(true))
+})
+
 test('a failed description load shows the error, even for an empty description, and can be retried', async () => {
   const pending = deferred<DescriptionVersion[]>()
   const api = bridge({ ...detailHandlers(), taskDescriptions: () => pending.promise })
