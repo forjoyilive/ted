@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import styles from './icons.module.css'
 
 interface IconProps {
@@ -205,5 +206,84 @@ export function PlayIcon({ className }: IconProps) {
     <svg className={className} width="14" height="14" viewBox="0 0 14 14" aria-hidden>
       <path d="M4.5 3.2V10.8L10.8 7L4.5 3.2Z" fill="currentColor" />
     </svg>
+  )
+}
+
+function TabIcon({ className, children }: IconProps & { children: ReactNode }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {children}
+    </svg>
+  )
+}
+
+export function DetailsIcon({ className }: IconProps) {
+  return (
+    <TabIcon className={className}>
+      <circle cx="8" cy="8" r="5.75" />
+      <path d="M8 7.25v3.5" />
+      <path d="M8 5.1v.05" />
+    </TabIcon>
+  )
+}
+
+export function BranchIcon({ className }: IconProps) {
+  return (
+    <TabIcon className={className}>
+      <circle cx="4.5" cy="3.75" r="1.75" />
+      <circle cx="4.5" cy="12.25" r="1.75" />
+      <circle cx="11.5" cy="5.75" r="1.75" />
+      <path d="M4.5 5.5v5" />
+      <path d="M11.5 7.5c0 2-2.5 2.5-7 3" />
+    </TabIcon>
+  )
+}
+
+export function ChangesIcon({ className }: IconProps) {
+  return (
+    <TabIcon className={className}>
+      <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2.5" />
+      <path d="M8 4.75v3.5" />
+      <path d="M6.25 6.5h3.5" />
+      <path d="M6.25 11h3.5" />
+    </TabIcon>
+  )
+}
+
+export function FolderIcon({ className }: IconProps) {
+  return (
+    <TabIcon className={className}>
+      <path d="M1.75 4.5a1.5 1.5 0 0 1 1.5-1.5h2.6l1.5 1.75h5.4a1.5 1.5 0 0 1 1.5 1.5v5.25a1.5 1.5 0 0 1-1.5 1.5h-9.5a1.5 1.5 0 0 1-1.5-1.5z" />
+    </TabIcon>
+  )
+}
+
+export function PulseIcon({ className }: IconProps) {
+  return (
+    <TabIcon className={className}>
+      <path d="M1.5 8.5h2.6l1.7-4.75 3.1 8.5 1.9-3.75h3.7" />
+    </TabIcon>
+  )
+}
+
+export function WindowIcon({ className }: IconProps) {
+  return (
+    <TabIcon className={className}>
+      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+      <path d="M1.75 6h12.5" />
+      <path d="M4 4.4v.05" />
+      <path d="M6 4.4v.05" />
+    </TabIcon>
   )
 }

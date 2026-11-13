@@ -603,11 +603,35 @@
   display: none;
 }
 
-.detailsHeading {
-  margin: 0 0 18px;
-  font-size: var(--text-14);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
+.tabbedPane {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow-y: hidden;
+}
+
+.tabBody {
+  flex: 1;
+  min-height: 0;
+  padding: 16px 16px 24px;
+  overflow-y: auto;
+}
+
+.tabbedPane .details {
+  display: block;
+}
+
+.tabbedPane .details dt {
+  margin: 14px 0 3px;
+  font-size: var(--text-12);
+}
+
+.tabbedPane .details dt:first-child {
+  margin-top: 0;
+}
+
+.tabbedPane .details dd {
+  min-width: 0;
 }
 
 .taskPane {

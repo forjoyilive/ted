@@ -15,7 +15,7 @@ export function CodeSection({
 }) {
   const repos = task.repos.filter((repo) => !repo.removed)
   return (
-    <DetailsSection id="code" title="Code" collapsedSummary={codeSummary(task)}>
+    <DetailsSection id="code" summary={codeSummary(task)}>
       {repos.length === 0 ? (
         <>
           <p className={styles.empty}>
@@ -130,16 +130,31 @@ function RepoRow({
           {problem}
         </p>
       )}
-      <PullRequestLine task={task} repo={repo} />
-      <code className={styles.branch}>{repo.branch}</code>
-      <button
-        type="button"
-        className={styles.path}
-        title={copied ? 'Copied' : 'Click to copy'}
-        onClick={() => void copyPath()}
-      >
-        {repo.worktree}
-      </button>
+      <dl className={styles.fields}>
+        {(repo.pullRequest || repo.pushFailed) && (
+          <>
+            <dt>Pull request</dt>
+            <dd>
+              <PullRequestLine task={task} repo={repo} />
+            </dd>
+          </>
+        )}
+        <dt>Branch</dt>
+        <dd>
+          <code className={styles.branch}>{repo.branch}</code>
+        </dd>
+        <dt>Worktree</dt>
+        <dd>
+          <button
+            type="button"
+            className={styles.path}
+            title={copied ? 'Copied' : 'Click to copy'}
+            onClick={() => void copyPath()}
+          >
+            {repo.worktree}
+          </button>
+        </dd>
+      </dl>
       {repo.setup && repo.setup.state !== 'passed' && (
         <p className={styles.setup}>
           {setupLabel[repo.setup.state]}{' '}

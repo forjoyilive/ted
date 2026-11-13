@@ -169,8 +169,6 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   )
   await user().click(screen.getByRole('button', { name: /stopped Run/ }))
   expect(document.querySelector('[data-run="r2"]')?.textContent).toContain('Reviewer')
-  await user().click(screen.getByRole('button', { name: /^Runs/ }))
-  expect(screen.queryByRole('list')).toBeNull()
 })
 
 test('Task menu restarts the current Lead, follows its state and reports restart failures', async () => {
@@ -235,6 +233,7 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   expect(chat.queryByRole('button', { name: 'Stop Task' })).toBeNull()
   expect(chat.getByRole('textbox', { name: 'Message the Task Lead' })).toBeTruthy()
   const details = within(screen.getByRole('complementary', { name: 'Task details' }))
+  await u.click(details.getByRole('tab', { name: 'Runs' }))
   expect(await details.findByText('Claude · claude-test · default effort')).toBeTruthy()
   expect(details.getByText('12k tokens')).toBeTruthy()
   await u.click(chat.getByRole('button', { name: /^History/ }))
@@ -301,6 +300,7 @@ test('opening a sub-agent from Task details selects its actual Conversation and 
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   const details = await screen.findByRole('complementary', { name: 'Task details' })
+  await user().click(within(details).getByRole('tab', { name: 'Runs' }))
   await user().click(await within(details).findByRole('button', { name: /Reviewer/ }))
   await screen.findByText('I reviewed the offline queue.')
   expect(screen.getByRole('tab', { name: /Reviewer/ }).getAttribute('aria-selected')).toBe('true')

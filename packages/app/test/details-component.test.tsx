@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen, within } from '@testing-library/react'
+import type { RunSummary } from '@ted/protocol'
+import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { CodeSection } from '../src/renderer/CodeSection.tsx'
-import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
+import { ChangesSection } from '../src/renderer/components/ChangesSection.tsx'
+import { pickBlockerEvent, TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { ReposField } from '../src/renderer/views/ReposField.tsx'
 import { TaskDetails } from '../src/renderer/views/TaskThread.tsx'
 import { appState } from './support/app.tsx'
@@ -248,4 +250,115 @@ test('Task details displays saved Priority, menu depth attribution and a success
   expect(screen.getAllByText(/Starts when NB-2 merges/)[0]).toBeTruthy()
   expect(a.request).toHaveBeenCalledWith('setClarifyDepth', 'NB-1', { depth: 'few' })
   expect(a.request).toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-2')
+})
+
+test('Task details shows six icon tabs, marks changes and working Runs, and keeps the last tab for the next Task', async () => {
+  const working: RunSummary = {
+    id: 'r1',
+    taskId: 'NB-1',
+    name: 'Task Lead',
+    agent: 'claude',
+    role: 'lead',
+    state: 'working',
+    current: true,
+    startedAt: new Date().toISOString(),
+  }
+  bridge({ ...handlers(), listTaskRuns: (id: unknown) => (id === 'NB-1' ? [working] : []) })
+  const t = task({
+    branch: 'ted/nb-1-sync',
+    repos: [
+      {
+        name: 'widgets',
+        repo: 'acme/widgets',
+        branch: 'ted/nb-1-sync',
+        worktree: '/work/NB-1/widgets',
+        copied: [],
+        skipped: [],
+        pullRequest: {
+          number: 27,
+          url: 'https://github.com/acme/widgets/pull/27',
+          base: 'main',
+          state: 'ready',
+        },
+      },
+    ],
+  })
+  const other = task({ id: 'NB-2', displayId: 'NB-2', title: 'Offline editing' })
+  const changes = (
+    <ChangesSection
+      onOpen={vi.fn()}
+      changes={{
+        taskId: 'NB-1',
+        files: 2,
+        repos: [
+          {
+            name: 'widgets',
+            baseBranch: 'main',
+            added: 3,
+            removed: 1,
+            files: [
+              { path: 'src/sync.ts', added: 2, removed: 1, uncommitted: false },
+              { path: 'README.md', added: 1, removed: 0, uncommitted: true },
+            ],
+          },
+        ],
+      }}
+    />
+  )
+  const props = {
+    tasks: [t, other],
+    factories: [factory()],
+    onOpenRun: vi.fn(),
+    onOpenShell: vi.fn(),
+  }
+  const view = render(<TaskDetails task={t} changes={changes} changeCount={2} {...props} />)
+  const tab = (name: string) => screen.getByRole('tab', { name })
+  expect(
+    within(screen.getByRole('tablist', { name: 'Task details sections' }))
+      .getAllByRole('tab')
+      .map((el) => el.getAttribute('aria-label')),
+  ).toEqual(['Details', 'Code', 'Changes', 'Files', 'Runs', 'Apps'])
+  expect(tab('Details').getAttribute('aria-selected')).toBe('true')
+  expect(tab('Runs').textContent).toBe('Runs⌥5')
+  const details = screen.getByRole('tabpanel', { name: 'Details' })
+  expect(within(details).getByRole('heading').textContent).toBe('Details')
+  expect(within(details).getByLabelText('Priority')).toBeTruthy()
+  expect(tab('Changes').getAttribute('aria-description')).toBe('2 files changed')
+  await vi.waitFor(() =>
+    expect(tab('Runs').getAttribute('aria-description')).toBe('A Run is working'),
+  )
+
+  const u = user()
+  await u.click(tab('Code'))
+  const code = screen.getByRole('tabpanel', { name: 'Code' })
+  expect(within(code).getByText('PR #27 · open')).toBeTruthy()
+  expect(within(code).getByRole('button', { name: 'Shell' })).toBeTruthy()
+  expect(screen.queryByRole('tabpanel', { name: 'Details' })).toBeNull()
+
+  await u.keyboard('{ArrowRight}')
+  expect(document.activeElement).toBe(tab('Changes'))
+  expect(
+    within(screen.getByRole('tabpanel', { name: 'Changes' })).getByText('2 files'),
+  ).toBeTruthy()
+  await u.keyboard('{End}')
+  expect(tab('Apps').getAttribute('aria-selected')).toBe('true')
+  await u.keyboard('{Home}')
+  await u.keyboard('{ArrowLeft}')
+  expect(document.activeElement).toBe(tab('Apps'))
+  await u.click(tab('Runs'))
+  expect(
+    within(screen.getByRole('tabpanel', { name: 'Runs' })).getByText('Task Lead working'),
+  ).toBeTruthy()
+
+  view.rerender(<TaskDetails task={other} {...props} />)
+  const runs = await screen.findByRole('tabpanel', { name: 'Runs' })
+  expect(within(runs).getByText('No Runs yet')).toBeTruthy()
+  await vi.waitFor(() => expect(tab('Runs').getAttribute('aria-description')).toBeNull())
+  expect(tab('Changes').getAttribute('aria-description')).toBeNull()
+
+  act(() => {
+    window.dispatchEvent(new CustomEvent(pickBlockerEvent, { detail: 'NB-2' }))
+  })
+  expect(tab('Details').getAttribute('aria-selected')).toBe('true')
+  expect(await screen.findByLabelText('Find a Task')).toBeTruthy()
 })

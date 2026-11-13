@@ -40,7 +40,6 @@ export function ChangesSection({
   hasPullRequest?: boolean
   refresh?: () => void
 }) {
-  if ((!changes || changes.repos.length === 0) && !hasPullRequest) return null
   const count = !changes
     ? 'Loading…'
     : changes.repos.length > 0 && changes.repos.every((r) => r.unavailable)
@@ -51,7 +50,6 @@ export function ChangesSection({
   return (
     <DetailsSection
       id="changes"
-      title="Changes"
       summary={count}
       action={
         onExpandAll &&
@@ -96,6 +94,8 @@ export function ChangesSection({
       )}
       {!changes ? (
         <Loading label="Loading changes…" />
+      ) : changes.repos.length === 0 && !hasPullRequest ? (
+        <p className={styles.empty}>No changes yet</p>
       ) : changes.repos.length === 0 ? (
         <p className={styles.empty}>
           Local changes are unavailable. The worktree may have been removed.

@@ -180,7 +180,6 @@ export function FilesSection(props: FilesSectionProps & { onQuickOpen: () => voi
   return (
     <DetailsSection
       id="files"
-      title="Files"
       action={
         <Button
           size="small"

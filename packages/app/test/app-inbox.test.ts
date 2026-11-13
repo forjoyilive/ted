@@ -450,6 +450,7 @@ describe('Permission requests', () => {
 
     await card.getByText(/npm install --save yjs@13\.6\.27$/).waitFor()
     const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('tab', { name: 'Runs' }).click()
     await details.getByRole('button', { name: /Task Lead/ }).click()
     const chat = window.getByRole('region', { name: 'Run chat' })
     await chat.getByText('You denied', { exact: true }).waitFor()

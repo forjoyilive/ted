@@ -87,6 +87,12 @@ describe('the shortcut sheet', () => {
     expect(press('d')).toMatchObject({ id: 'go-to-dashboard' })
     expect(press('[', { metaKey: true })).toMatchObject({ id: 'back' })
     expect(press('Enter')).toMatchObject({ id: 'open' })
+    expect(
+      sequences.feed(
+        { key: '£', code: 'Digit3', metaKey: false, ctrlKey: false, altKey: true, shiftKey: false },
+        0,
+      ),
+    ).toMatchObject({ id: 'details-tab-changes' })
   })
 
   test('the sheet says ↵ sends from a comment box or chat and ⇧↵ adds a line', () => {

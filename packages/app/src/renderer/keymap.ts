@@ -71,6 +71,12 @@ const sections: readonly SheetSection[] = [
       { id: 'archive', label: 'Archive', keys: ['⌘⌫'] },
       { id: 'quick-open', label: 'Open a file', keys: ['⌘P'] },
       { id: 'shell', label: 'Open the Task’s shell', keys: ['⌃`'] },
+      { id: 'details-tab-details', label: 'Show the Details tab', keys: ['⌥1'] },
+      { id: 'details-tab-code', label: 'Show the Code tab', keys: ['⌥2'] },
+      { id: 'details-tab-changes', label: 'Show the Changes tab', keys: ['⌥3'] },
+      { id: 'details-tab-files', label: 'Show the Files tab', keys: ['⌥4'] },
+      { id: 'details-tab-runs', label: 'Show the Runs tab', keys: ['⌥5'] },
+      { id: 'details-tab-apps', label: 'Show the Apps tab', keys: ['⌥6'] },
     ],
   },
   {

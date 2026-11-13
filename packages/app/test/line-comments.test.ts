@@ -114,7 +114,8 @@ describe('Line comments', () => {
   test('a draft from the gutter shows inline, counts in Changes, and Send to Task Lead posts it to the thread', async () => {
     const window = await openTaskWithChanges()
     const details = window.getByRole('complementary', { name: 'Task details' })
-    const changes = details.getByRole('region', { name: 'Changes' })
+    await details.getByRole('tab', { name: 'Changes' }).click()
+    const changes = details.getByRole('tabpanel', { name: 'Changes' })
     await changes.getByRole('button', { name: /^SearchPanel\.tsx/ }).click()
     const diff = window.getByRole('region', { name: 'Diff' })
     const added = diff.getByRole('row', { name: /THREE/ })

@@ -37,12 +37,18 @@ export function AppsSection({
   const apps = useTaskApps(task.id)
   const simulators = useSimulators()
   const hosted = hostedPreviews(task)
-  if (apps.length === 0 && hosted.length === 0) return null
+  if (apps.length === 0 && hosted.length === 0) {
+    return (
+      <DetailsSection id="apps">
+        <p className={styles.empty}>No Apps for this Task</p>
+      </DetailsSection>
+    )
+  }
   const repos = [...new Set([...apps.map((a) => a.repo), ...hosted.map((h) => h.repo)])]
   const grouped = task.repos.filter((r) => !r.removed).length > 1 || repos.length > 1
   const summary = appsSummary(apps, hosted.length)
   return (
-    <DetailsSection id="apps" title="Apps" summary={summary}>
+    <DetailsSection id="apps" summary={summary}>
       {repos.map((repo) => (
         <div key={repo} className={styles.group}>
           {grouped && <h3 className={styles.repo}>{repo}</h3>}

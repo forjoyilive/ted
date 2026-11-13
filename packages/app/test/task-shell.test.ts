@@ -101,9 +101,10 @@ async function openTask(window: Page) {
     .getByRole('button', { name: 'All Tasks' })
     .click()
   await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
+  await window.getByRole('tab', { name: 'Code' }).click()
   return window
     .getByRole('complementary', { name: 'Task details' })
-    .getByRole('region', { name: 'Code' })
+    .getByRole('tabpanel', { name: 'Code' })
 }
 
 async function typeInShell(window: Page, text: string) {
@@ -213,7 +214,7 @@ describe('Task shell', () => {
     await shell.getByRole('button', { name: '← Task Lead' }).click()
     const again = window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Code' })
+      .getByRole('tabpanel', { name: 'Code' })
     await again.getByRole('button', { name: 'Shell' }).click()
     await third.locator('.xterm-helper-textarea').waitFor()
     await window.reload()
@@ -335,7 +336,7 @@ describe('Task shell', () => {
     await shell.getByRole('button', { name: '← Task Lead' }).click()
     await window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Code' })
+      .getByRole('tabpanel', { name: 'Code' })
       .getByRole('button', { name: 'Shell', exact: true })
       .click()
     await shell.getByRole('button', { name: 'Open Shell', exact: true }).click()
@@ -432,9 +433,10 @@ describe('Task shell', () => {
     expect(lines).toEqual([`code [${worktree}]`, `code [${worktree}]`])
     expect(await picker.count()).toBe(0)
 
+    await window.getByRole('tab', { name: 'Changes' }).click()
     const changes = window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Changes' })
+      .getByRole('tabpanel', { name: 'Changes' })
     await changes.getByRole('button', { name: /^README\.md/ }).click()
     const diff = window.getByRole('region', { name: 'Diff' })
     await diff.getByRole('row', { name: /second line/ }).waitFor()
@@ -446,9 +448,10 @@ describe('Task shell', () => {
     }, 'VS Code to open the file')
     expect(line).toBe(`code [${worktree}] [--goto] [${worktree}/README.md:2:1]`)
 
+    await window.getByRole('tab', { name: 'Code' }).click()
     await window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Code' })
+      .getByRole('tabpanel', { name: 'Code' })
       .getByRole('button', { name: 'Shell' })
       .click()
     await window
