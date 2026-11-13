@@ -51,6 +51,7 @@ export const createdByLabels: Record<CreatedBy, string> = {
   split: 'A split',
   'follow-up': 'A Follow-up',
   setup: 'Factory setup',
+  coordinator: 'The Coordinator',
 }
 
 export const sortLabels: Record<ListSort, string> = {

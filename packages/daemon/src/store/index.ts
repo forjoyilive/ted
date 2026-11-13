@@ -379,6 +379,7 @@ export interface NewTask {
   automation?: { automationId: string; firingId: string }
   plan?: { planId: string; row: number }
   setup?: boolean
+  coordinatorOperation?: string
   linearConsent?: boolean
 }
 
@@ -564,6 +565,7 @@ export interface TedStore extends TaskHistory {
   createTask(input: NewTask): Promise<Task>
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
+  coordinatorCreated(factoryId: string, operation: string): StoredTask | undefined
   startTask(input: {
     taskId: string
     stage: StageId
@@ -1679,6 +1681,7 @@ export async function openStore({
       needsPlanningAt,
       partlyMergedAt,
       setup,
+      coordinatorOperation,
       ...row
     }: typeof tasks.Type,
     observe = false,
@@ -1912,15 +1915,17 @@ export async function openStore({
         : undefined
     const createdBy: CreatedBy = setup
       ? 'setup'
-      : followUpOf !== null
-        ? 'follow-up'
-        : splitFrom !== null
-          ? 'split'
-          : reads.automationLinks(row.id).length > 0
-            ? 'automation'
-            : planLink
-              ? 'planning'
-              : 'human'
+      : coordinatorOperation !== null
+        ? 'coordinator'
+        : followUpOf !== null
+          ? 'follow-up'
+          : splitFrom !== null
+            ? 'split'
+            : reads.automationLinks(row.id).length > 0
+              ? 'automation'
+              : planLink
+                ? 'planning'
+                : 'human'
     const linearSync = linearSyncOf(row, source, reads)
     return {
       ...row,
@@ -3295,6 +3300,7 @@ export async function openStore({
       automation,
       plan,
       setup = false,
+      coordinatorOperation,
     }) {
       const inFactory = store.query(queryDb(tasks.where({ factoryId })))
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -3405,6 +3411,16 @@ export async function openStore({
         ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
         ...(plan ? [events.planTaskCreated({ ...plan, taskId: id, at })] : []),
         ...(setup ? [events.setupTaskCreated({ taskId: id, factoryId, at })] : []),
+        ...(coordinatorOperation !== undefined
+          ? [
+              events.taskCreatedByCoordinator({
+                taskId: id,
+                factoryId,
+                operation: coordinatorOperation,
+                at,
+              }),
+            ]
+          : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
@@ -3424,6 +3440,12 @@ export async function openStore({
       const row = taskRow(ref)
       const found = row ?? taskRowByDisplayId(ref)
       return found && toTask(found)
+    },
+    coordinatorCreated(factoryId, operation) {
+      const row = store
+        .query(queryDb(tasks.where({ factoryId, coordinatorOperation: operation })))
+        .at(0)
+      return row && toTask(row)
     },
     startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()

@@ -157,7 +157,7 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead.
+The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead.
 _Avoid_: Foreman, manager, supervisor
 
 **Sub-agent**:

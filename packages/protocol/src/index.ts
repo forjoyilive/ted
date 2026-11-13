@@ -189,6 +189,7 @@ export type { CommandLineStatus } from './command-line.ts'
 export type {
   Coordinator,
   CoordinatorAction,
+  CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
   CoordinatorReceipt,
@@ -197,7 +198,11 @@ export type {
   CoordinatorTask,
   CoordinatorTaskSummary,
 } from './coordinator.ts'
-export { parseCoordinatorAction, parseCoordinatorMessage } from './coordinator-parsers.ts'
+export {
+  parseCoordinatorAction,
+  parseCoordinatorCreate,
+  parseCoordinatorMessage,
+} from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
   DashboardBucket,

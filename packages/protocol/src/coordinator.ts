@@ -1,8 +1,10 @@
 import type { RunMessage } from './chat.ts'
 import type {
+  ClarifyDepth,
   Comment,
   DescriptionVersion,
   MoveTaskRequest,
+  Priority,
   RoundAnswerInput,
   RoundQuestion,
   Task,
@@ -16,12 +18,19 @@ export type CoordinatorTaskState = Pick<
   'stage' | 'priority' | 'rank' | 'status' | 'archived' | 'parentId' | 'childIds'
 >
 
-export type CoordinatorOperation = 'start' | 'move' | 'tell' | 'answer' | 'resume' | 'parent'
+export type CoordinatorOperation =
+  | 'start'
+  | 'move'
+  | 'tell'
+  | 'answer'
+  | 'resume'
+  | 'parent'
+  | 'create'
 
 export interface CoordinatorReceipt {
   id: string
   operation: CoordinatorOperation
-  taskId: string
+  taskId?: string
   text: string
   at: string
   before?: CoordinatorTaskState
@@ -115,4 +124,18 @@ export interface CoordinatorAction extends MoveTaskRequest {
   recommended?: boolean
   skipRows?: number[]
   startUnblocked?: boolean
+}
+
+export interface CoordinatorCreate extends MoveTaskRequest {
+  operation: string
+  title: string
+  description?: string
+  parentId?: string
+  blockedBy?: string[]
+  source?: string
+  priority?: Priority
+  clarifyDepth?: ClarifyDepth
+  lead?: TaskLead
+  start?: boolean
+  neighbours?: Record<string, string>
 }
