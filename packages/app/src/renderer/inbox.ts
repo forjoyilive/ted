@@ -129,7 +129,30 @@ const kindHeadings: readonly (readonly [InboxKind, string])[] = [
   ['signoff', 'Sign-offs'],
 ]
 
+export interface InboxOrder {
+  groupsReversed: boolean
+  oldestFirst: boolean
+}
+
+export const defaultInboxOrder: InboxOrder = { groupsReversed: false, oldestFirst: false }
+
 export function groupInbox<T extends { grouped: Grouped }>(
+  newestFirst: readonly T[],
+  grouping: InboxGrouping,
+  now: number,
+  order: InboxOrder = defaultInboxOrder,
+): InboxGroup<T>[] {
+  const groups = groupRows(
+    order.oldestFirst ? [...newestFirst].reverse() : newestFirst,
+    grouping,
+    now,
+  )
+  if (!order.groupsReversed) return groups
+  const last = groups.at(-1)
+  return last?.key === 'none' ? [...groups.slice(0, -1).reverse(), last] : [...groups].reverse()
+}
+
+function groupRows<T extends { grouped: Grouped }>(
   rows: readonly T[],
   grouping: InboxGrouping,
   now: number,
