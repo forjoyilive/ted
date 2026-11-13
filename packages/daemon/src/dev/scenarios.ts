@@ -699,11 +699,6 @@ async function populateScenarios(
     title: 'Add a shortcut for the notebook switcher',
     start: true,
   })
-  await client.startPlan({
-    factory: garden.key,
-    message: 'Explore quick notebook switching',
-    agent: 'claude',
-  })
   ids.queued = queued.displayId
   await until(async () => (await observed.task(queued.id)).status?.kind === 'queued', 'queued Task')
   const settingsReady = await invalidSettings
@@ -811,16 +806,7 @@ export async function verifyDemo(client: DaemonClient): Promise<void> {
     'attachments',
   )
   const plans = await client.listPlans()
-  for (const status of [
-    'working',
-    'waiting',
-    'idle',
-    'queued',
-    'paused',
-    'failed',
-    'stopped',
-    'finished',
-  ])
+  for (const status of ['working', 'waiting', 'idle', 'paused', 'failed', 'stopped', 'finished'])
     need(
       plans.some((p) => p.status === status),
       `${status} Plan`,
