@@ -95,6 +95,10 @@ export function AsanaImportPreview({
       {preview && preview.refusal === undefined && (
         <>
           <span className={styles.summary}>{ownershipLine(preview)}</span>
+          <span className={styles.note}>
+            Priority and Start now apply to every new Task. Title, Task Lead, blockers, parent and
+            attachments come from Asana and the Factory’s defaults instead.
+          </span>
           <ul className={styles.tree} aria-label="Asana items">
             {preview.rows.map((row) => {
               const shown = what(row)

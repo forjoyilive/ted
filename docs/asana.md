@@ -1,6 +1,6 @@
 # Connect Asana with your own OAuth app
 
-In Settings → Integrations → Asana, connect one account for this TED installation. TED keeps app credentials and refresh tokens in your OS keyring. This first slice supports connection only: importing, synchronization and automatic intake follow in separate Tasks. Connecting does not modify Asana tasks.
+In Settings → Integrations → Asana, connect one account for this TED installation. TED keeps app credentials and refresh tokens in your OS keyring. Once connected you can import Asana tasks as TED Tasks (below); synchronization and automatic intake follow in separate Tasks. Connecting and importing do not modify Asana tasks.
 
 ## Register an app
 
@@ -41,6 +41,18 @@ After file-storage removal, TED retains a small credential-free removal marker s
 
 Pending authorization holds the daemon alive until it settles. It does not survive a daemon restart. Close/cancel/timeout consumes the attempt and closes the temporary listener. State is unguessable and single-use; S256 binds each code to the daemon’s private verifier. Invalid, mismatched, duplicate and expired callbacks cannot connect an account. The normal daemon API retains app authority checks; Run tokens and the on-disk daemon token cannot configure, connect, test, cancel, disconnect or remove Asana.
 
+## Import an Asana task and the work under it
+
+Paste an Asana task URL in New Task, or run `ted task create --factory <key> --source <Asana task URL>`. TED reads that task and every task under it, at every depth, and shows the tree before creating anything: each item, who it is assigned to in Asana, what TED will do with it, and a line such as “6 Tasks: 3 assigned to you, 2 to others, 1 unassigned”. `ted task create … --dry-run` prints the same tree without creating it.
+
+- The selected task becomes the parent Task and each unfinished task under it a child Task, whoever it is assigned to and whether or not it is in a project. A task you pick from the middle of a tree brings the tasks under it. Tasks complete in Asana create no Task and are listed on their parent for context; a selected task that is itself complete is still imported, marked Complete in Asana.
+- Each Task keeps the item’s title, description (the Original request), assignee, completion and link. Its comments, with authors and times, and its files come along as they were at import; later changes in Asana don’t. Files stored outside Asana (Google Drive, Dropbox, links) stay as links in a TED note. Priority stays None unless you choose one; custom fields aren’t mapped.
+- Any URL form for the same Asana task matches. Tasks already tracked in the Factory are reused, never overwritten or restarted: an open Task with no parent moves under its new parent, a Done Task counts as finished, and an archived one is left alone. An open Task already under a different parent stays there and is listed as a conflict.
+- Importing a task that is already tracked is refused from the command line, as for any source. In New Task, TED instead offers **Add new children to the existing tree**, which creates only the unfinished items that aren’t in TED yet.
+- When TED can’t read an item (no access, deleted, request failed), or an item conflicts, it creates the rest and asks you on the nearest imported parent; that Task doesn’t start until you answer. **Retry** reads Asana again and adds what it can. **Go ahead without them** lets the Task start and tells its Task Lead those items aren’t its work.
+- One import creates at most 100 Tasks, 10 levels deep. A bigger tree is refused whole, with the count TED found; import one of its subtasks instead. For each item TED copies up to 20,000 characters of description, 40,000 of comments (at most 100 comments) and 20 files, and says on the Task when it copied less.
+- TED creates the whole tree at once, after it has read everything and downloaded the files. If the import stops partway, nothing is created; run it again.
+
 ## Real-account smoke procedure (manual only)
 
 Use a disposable Asana account/workspace and separate test app registrations. Never put a real credential into automated fixtures. Record only the edition, pass/fail result and safe error summary.
@@ -55,6 +67,6 @@ Use a disposable Asana account/workspace and separate test app registrations. Ne
 
 ## Validation and review
 
-Automated coverage contacts loopback stubs only: `packages/daemon/test/asana.test.ts`, `packages/daemon/test/asana-security.test.ts` and `packages/app/test/asana.test.ts`. The stub verifies the S256 verifier, records token/identity/revocation requests, and simulates expiry, revocation, denial, redirects and network errors. Native app coverage stubs the file picker and browser launch. Tests are reserved for Validate under this Factory’s workflow.
+Automated coverage contacts loopback stubs only: `packages/daemon/test/asana.test.ts`, `packages/daemon/test/asana-security.test.ts`, `packages/daemon/test/asana-import.test.ts`, `packages/daemon/test/asana-import-plan.test.ts` and `packages/app/test/asana.test.ts`. The stub verifies the S256 verifier, records token/identity/revocation requests, and simulates expiry, revocation, denial, redirects and network errors. Native app coverage stubs the file picker and browser launch. Tests are reserved for Validate under this Factory’s workflow.
 
 Before merging, complete an independent code and credential/network security review of the final diff. Review app/Run authority, private-file import, edition/account isolation, callback integrity and listener cleanup, serialized refresh/account replacement, late-response invalidation, bounded requests with redirects forbidden, and absence of secrets in IPC results, events, Runs, logs and diagnostics. The design threat assessment and these instructions do not count as a completed review. Keep its findings and final disposition with the Task evidence.
