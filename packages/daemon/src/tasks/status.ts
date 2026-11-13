@@ -25,6 +25,7 @@ export interface TaskFacts {
   tedWorking?: boolean
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
+  movingAfterChecks?: boolean
   checksWaiting?: { place: number }
   testActivity?: ActiveTestInvocations
   stopped?: {
@@ -218,6 +219,11 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (taskCanResume(facts)) return 'The Task Lead has stopped. Resume to carry on.'
   if (facts.autoMergeLeft) {
     return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
+  }
+  if (facts.movingAfterChecks) {
+    if (!facts.checking) return 'Running Checks before moving on'
+    const { name, index, total } = facts.checking
+    return `Running Checks before moving on · ${name} (${index} of ${total})`
   }
   if (facts.checking) {
     const { name, index, total } = facts.checking

@@ -31,6 +31,7 @@ import {
   splitApprovedMessage,
   splitChosenMessage,
 } from './split.ts'
+import { StaleCoverageError } from './validation.ts'
 
 export interface RequestAnswerPort {
   store: TedStore
@@ -64,6 +65,7 @@ export interface RequestAnswerPort {
   deliverAnswer(task: Task, comment: Comment, text: string): Promise<void>
   gateWorkflow(task: StoredTask): Promise<WorkflowResolution>
   requireObligations(task: StoredTask, target?: AgentStageId | 'done'): Promise<void>
+  checksThen(taskId: string, action: () => Promise<unknown>): Promise<void>
   bindApproval(task: StoredTask, comment: Comment, workflow: ResolvedWorkflow): Promise<void>
   liveLead(task: Task): Run | undefined
   startMerging(task: StoredTask, workflow: ResolvedWorkflow): void
@@ -124,6 +126,7 @@ export function createRequestAnswers(
     deliverAnswer,
     gateWorkflow,
     requireObligations,
+    checksThen,
     bindApproval,
     liveLead,
     startMerging,
@@ -706,8 +709,53 @@ export function createRequestAnswers(
         const resolution = await gateWorkflow(now)
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
         if (now.preparation === 'preparing') checkPreparationWorkflow(resolution.workflow)
-        await requireObligations(now, next)
+        const stale = await requireObligations(now, next).then(
+          () => false,
+          (error: unknown) => {
+            if (error instanceof StaleCoverageError) return true
+            throw error
+          },
+        )
         if (automatic) await automatic.guard(comment)
+        const approved =
+          text === ''
+            ? `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)}.`
+            : `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+        const carryOut = async (from: StoredTask, using: WorkflowResolution) => {
+          const to = using.workflow.next(from.stage) as AgentStageId | 'done'
+          if (from.stage === 'merge') {
+            startMerging(find(task.id), using.workflow)
+            watchMerge(task.id)
+            await deliver(
+              from,
+              `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
+            )
+            return
+          }
+          const signedOff = to === 'merge'
+          if (signedOff) pullRequestWork(task.id, 'signoff')
+          await move(
+            from,
+            using,
+            to,
+            to === 'done'
+              ? undefined
+              : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(using.workflow, to)}`,
+            { signedOff },
+          )
+        }
+        if (stale) {
+          const stage = now.stage
+          await checksThen(task.id, () =>
+            hold(task, async () => {
+              const later = find(task.id)
+              if (later.stage !== stage) return
+              const using = await gateWorkflow(later)
+              await requireObligations(later, using.workflow.next(stage) as AgentStageId | 'done')
+              await carryOut(later, using)
+            }),
+          )
+        }
         const answered = answerRequest(task, comment, {
           kind: 'approved',
           at,
@@ -715,30 +763,7 @@ export function createRequestAnswers(
         })
         await bindApproval(now, comment, resolution.workflow)
         if (!liveLead(now)) store.holdAnswer(comment.id)
-        const approved =
-          text === ''
-            ? `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)}.`
-            : `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)} and added:\n\n${text}\n\n`
-        if (now.stage === 'merge') {
-          startMerging(find(task.id), resolution.workflow)
-          watchMerge(task.id)
-          await deliver(
-            now,
-            `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
-          )
-          return answered
-        }
-        const signedOff = next === 'merge'
-        if (signedOff) pullRequestWork(task.id, 'signoff')
-        await move(
-          now,
-          resolution,
-          next,
-          next === 'done'
-            ? undefined
-            : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(resolution.workflow, next)}`,
-          { signedOff },
-        )
+        if (!stale) await carryOut(now, resolution)
         return answered
       }
       if (automatic) await automatic.guard(comment)

@@ -1065,6 +1065,7 @@ export interface TedStore extends TaskHistory {
   newWorkHold(): string | undefined
   holdForLoad(held: boolean): void
   setTaskChecking(taskId: string, on: boolean): void
+  setTaskMovingAfterChecks(taskId: string, on: boolean): void
   setChecksWaiting(places: ReadonlyMap<string, number>): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automationDrafts: AutomationDraftStore
@@ -1142,6 +1143,7 @@ export async function openStore({
   let heldForLoad = false
   const waitingOnSubAgents = new Set<string>()
   const checkingTasks = new Set<string>()
+  const movingAfterChecks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
@@ -1916,6 +1918,7 @@ export async function openStore({
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
+      ...(movingAfterChecks.has(row.id) && { movingAfterChecks: true }),
       testActivity: testInvocationStore.active(row.id),
       ...(checksWaiting.has(row.id) && {
         checksWaiting: { place: checksWaiting.get(row.id) ?? 1 },
@@ -3825,6 +3828,7 @@ export async function openStore({
       const row = taskRow(taskId)
       if (!row) return
       checkingTasks.delete(taskId)
+      movingAfterChecks.delete(taskId)
       const at = new Date().toISOString()
       commit(
         ...[
@@ -3851,6 +3855,7 @@ export async function openStore({
     resetTask(taskId) {
       const row = requireTaskRow(taskId)
       checkingTasks.delete(taskId)
+      movingAfterChecks.delete(taskId)
       const runIds = taskRuns(taskId).map((r) => r.id)
       const human = history.humanClarifyDepth(taskId)
       const byLead = row.clarifyDepthBy === 'task-lead'
@@ -6090,6 +6095,15 @@ export async function openStore({
       heldForLoad = held
       stateCommits += 1
       updatedTasks(tasksWaitingForSlots())
+    },
+    setTaskMovingAfterChecks(taskId, on) {
+      if (movingAfterChecks.has(taskId) === on) return
+      stateCommits += 1
+      if (on) {
+        if (!taskRow(taskId)) return
+        movingAfterChecks.add(taskId)
+      } else movingAfterChecks.delete(taskId)
+      if (taskRow(taskId)) updatedTask(taskId)
     },
     setTaskChecking(taskId, on) {
       if (checkingTasks.has(taskId) === on) return
