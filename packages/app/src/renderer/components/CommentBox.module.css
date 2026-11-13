@@ -69,11 +69,6 @@
   font-size: var(--text-13);
 }
 
-.composer[data-dragging] .box {
-  border-color: var(--accent-border);
-  background: var(--accent-subtle);
-}
-
 .files {
   display: flex;
   margin: 0;

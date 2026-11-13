@@ -13,7 +13,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useCallback, useContext, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import {
@@ -41,6 +41,7 @@ import { contextMenu } from '../components/ContextMenu.tsx'
 import { DetailsSection } from '../components/DetailsSection.tsx'
 import { DetailsTabs } from '../components/DetailsTabs.tsx'
 import { AllChanges, CommitView, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
+import { DropOverlay } from '../components/DropOverlay.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
@@ -92,6 +93,7 @@ import {
 } from '../data.ts'
 import { showDetailsTab, useDetailsTab } from '../details.ts'
 import { openInEditor } from '../editor.ts'
+import { useFileDrop } from '../file-drop.ts'
 import { quickOpenEvent, takeFileRequest, useTaskFiles } from '../files.ts'
 import { pickChildEvent, pickParentEvent } from '../hierarchy.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
@@ -627,6 +629,8 @@ export function TaskThread({
     shownRun !== undefined &&
     shownRun !== task.leadRunId &&
     !earlier.some((run) => run.id === shownRun)
+  const commentDrop = useRef<(files: File[]) => unknown>(undefined)
+  const drop = useFileDrop(() => commentDrop.current)
   const commentList = useCommentList(task.id)
   const eventList = useThreadEventList(task.id)
   const checkList = useCheckRunList(task.id)
@@ -1004,7 +1008,12 @@ export function TaskThread({
               />
             </>
           ) : null}
-          <div className={styles.threadBody} hidden={showingSubAgent || shownApp !== undefined}>
+          <div
+            className={styles.threadBody}
+            hidden={showingSubAgent || shownApp !== undefined}
+            {...drop.handlers}
+          >
+            {drop.dragging && <DropOverlay caption="Files are added to your next Comment" />}
             {stage !== undefined && (
               <p className={styles.filterNote}>
                 Showing {stageName(stage)} only ·{' '}
@@ -1091,6 +1100,7 @@ export function TaskThread({
                       run={chat?.run}
                       hasLineComments={(lines?.current ?? []).some(isDraft)}
                       onFollowedUp={onFollowedUp}
+                      dropInto={commentDrop}
                     />
                   </RequestDock>
                 </div>

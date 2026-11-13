@@ -1,5 +1,5 @@
 import type { CommentBox as BoxState, RunSummary, Task } from '@ted/protocol'
-import { type ClipboardEvent, type DragEvent, useRef, useState } from 'react'
+import { type ClipboardEvent, type RefObject, useEffect, useRef, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { formatSize } from '../task-fields.ts'
@@ -29,11 +29,13 @@ export function CommentBox({
   onFollowedUp,
   run,
   hasLineComments = false,
+  dropInto,
 }: {
   task: Task
   run?: RunSummary | undefined
   hasLineComments?: boolean
   onFollowedUp?: (followUp: Task) => void
+  dropInto?: RefObject<((files: File[]) => unknown) | undefined>
 }) {
   const state = task.commentBox
   const draft = useMessageDraft(state === 'archived' ? undefined : { kind: 'comment', id: task.id })
@@ -44,7 +46,6 @@ export function CommentBox({
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
   const [uploading, setUploading] = useState(0)
-  const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const direct =
     state === 'live' &&
@@ -60,6 +61,14 @@ export function CommentBox({
   const resumes = state === 'stopped'
   const done = state === 'done'
   const cancels = state === 'merge-pending'
+
+  useEffect(() => {
+    if (!dropInto || state === 'archived') return
+    dropInto.current = attach
+    return () => {
+      dropInto.current = undefined
+    }
+  })
 
   if (state === 'archived') {
     return (
@@ -93,12 +102,6 @@ export function CommentBox({
         setUploading((n) => n - 1)
       }
     }
-  }
-
-  function onDrop(event: DragEvent) {
-    event.preventDefault()
-    setDragging(false)
-    void attach([...event.dataTransfer.files])
   }
 
   function onPaste(event: ClipboardEvent) {
@@ -143,20 +146,7 @@ export function CommentBox({
   }
 
   return (
-    <fieldset
-      className={styles.composer}
-      data-state={state}
-      data-dragging={dragging || undefined}
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes('Files')) return
-        event.preventDefault()
-        setDragging(true)
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false)
-      }}
-      onDrop={onDrop}
-    >
+    <fieldset className={styles.composer} data-state={state}>
       {cancels && (
         <p className={styles.mergeNote}>
           The merge is pending. Posting a Comment cancels TED’s merge and counts as Request changes.

@@ -229,7 +229,7 @@ test('a pending create disables submission and an error preserves the draft', as
   )
 })
 
-test('files dropped while the draft loads are attached once it has loaded', async () => {
+test('files dropped anywhere on the dialog while the draft loads show the overlay and are attached once it has loaded', async () => {
   const draft = deferred<{ draft: null }>()
   const uploaded = vi.fn((file: unknown) => ({
     hash: 'abc',
@@ -245,9 +245,21 @@ test('files dropped while the draft loads are attached once it has loaded', asyn
   })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
   expect(screen.getByLabelText('Description').matches(':disabled')).toBe(true)
-  fireEvent.drop(screen.getByRole('group', { name: 'Attachments' }), {
-    dataTransfer: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] },
+  const description = screen.getByLabelText('Description')
+  fireEvent.dragOver(description, { dataTransfer: { types: ['text/plain'] } })
+  expect(screen.queryByText('Drop to attach')).toBeNull()
+  fireEvent.dragOver(description, { dataTransfer: { types: ['Files'] } })
+  expect(screen.getByText('Drop to attach')).toBeTruthy()
+  fireEvent.dragLeave(description, { relatedTarget: null })
+  expect(screen.queryByText('Drop to attach')).toBeNull()
+  fireEvent.dragOver(description, { dataTransfer: { types: ['Files'] } })
+  fireEvent.drop(description, {
+    dataTransfer: {
+      types: ['Files'],
+      files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })],
+    },
   })
+  expect(screen.queryByText('Drop to attach')).toBeNull()
   expect(await screen.findByText('Attaching…')).toBeTruthy()
   expect(uploaded).not.toHaveBeenCalled()
   await act(async () => draft.resolve({ draft: null }))

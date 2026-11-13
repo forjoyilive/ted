@@ -158,7 +158,11 @@ describe('TED app', () => {
       data.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
       return data
     }, onePixelPng)
-    await box.dispatchEvent('drop', { dataTransfer: dropped })
+    await image.dispatchEvent('dragover', { dataTransfer: dropped })
+    const overlay = thread.getByText('Drop to attach')
+    await overlay.waitFor()
+    await image.dispatchEvent('drop', { dataTransfer: dropped })
+    await overlay.waitFor({ state: 'detached' })
     await thread.getByRole('listitem').filter({ hasText: 'dropped.png' }).waitFor()
     await box.evaluate((element) => {
       const data = new DataTransfer()
