@@ -266,7 +266,8 @@ async function handle(
       const ownBoundary = req.method === 'POST' && url === `/runs/${caller.runId}/boundary`
       const coordinatorTool =
         (req.method === 'GET' &&
-          /^\/coordinator\/tasks(?:\/[^/?]+)?(?:\?offset=\d{1,8})?$/.test(url)) ||
+          (/^\/coordinator\/tasks\/[^/?]+(?:\?offset=\d{1,8})?$/.test(url) ||
+            /^\/coordinator\/tasks(?:\?[^#]{0,2000})?$/.test(url))) ||
         (req.method === 'POST' &&
           (url === '/coordinator/tasks' ||
             /^\/coordinator\/tasks\/[^/]+\/(start|move|tell|answer|resume|parent)$/.test(url)))

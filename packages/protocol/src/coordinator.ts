@@ -7,10 +7,12 @@ import type {
   Priority,
   RoundAnswerInput,
   RoundQuestion,
+  StageId,
   Task,
   TaskBrief,
   TaskHierarchy,
   TaskLead,
+  TaskStatusKind,
 } from './task.ts'
 
 export type CoordinatorTaskState = Pick<
@@ -96,6 +98,24 @@ export type CoordinatorTaskSummary = Pick<
   | 'childIds'
   | 'archived'
 > & { openRequests?: CoordinatorRequest[]; moreOpenRequests?: number }
+
+export interface CoordinatorTaskQuery {
+  offset?: number
+  all?: true
+  stages?: StageId[]
+  statuses?: TaskStatusKind[]
+  waiting?: true
+  search?: string
+}
+
+export interface CoordinatorTaskList {
+  now: string
+  tasks: CoordinatorTaskSummary[]
+  matching: number
+  stageCounts: Partial<Record<StageId, number>>
+  archived?: number
+  nextOffset?: number
+}
 
 export interface CoordinatorTask {
   hierarchy: TaskHierarchy

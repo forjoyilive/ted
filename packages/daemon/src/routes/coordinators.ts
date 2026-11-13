@@ -6,6 +6,7 @@ import {
   parseCoordinatorAction,
   parseCoordinatorCreate,
   parseCoordinatorMessage,
+  parseCoordinatorTaskQuery,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -65,11 +66,11 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'GET',
-    path: /^\/coordinator\/tasks(?:\?offset=(\d{1,8}))?$/,
+    path: /^\/coordinator\/tasks(?:\?([^#]{0,2000}))?$/,
     runToken: true,
-    handle: async ({ caller, params: [page] }, { coordinators }) => [
+    handle: async ({ caller, params: [search = ''] }, { coordinators }) => [
       200,
-      context(coordinators.list(caller, offset(page))),
+      context(coordinators.list(caller, parseCoordinatorTaskQuery(search))),
     ],
   },
   {

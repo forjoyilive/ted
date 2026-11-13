@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import * as P from '../src/index.ts'
-import { rejects, roundTrip, variant } from './parser-cases.ts'
+import { type AllFields, rejects, roundTrip, variant } from './parser-cases.ts'
 
 roundTrip(P.parseAppRef, { name: 'Dev', repo: 'ted' })
 roundTrip(P.parseStartAppRequest, {
@@ -98,6 +98,35 @@ test('parseCoordinatorCreate keeps every field', () => {
   }
   expect(P.parseCoordinatorCreate(body)).toEqual(body)
 })
+test('parseCoordinatorTaskQuery keeps every field and coordinatorTaskSearch writes them', () => {
+  const query: AllFields<P.CoordinatorTaskQuery> = {
+    offset: 100,
+    all: true,
+    stages: ['backlog', 'work'],
+    statuses: ['waiting-on-you', 'failed'],
+    waiting: true,
+    search: 'offline badge & sync',
+  }
+  expect(P.parseCoordinatorTaskQuery(P.coordinatorTaskSearch(query))).toEqual(query)
+  expect(P.parseCoordinatorTaskQuery('?stage=work&stage=work&search=%20%20')).toEqual({
+    stages: ['work'],
+  })
+  expect(P.coordinatorTaskSearch({})).toBe('')
+})
+const taskQueryRejections: [string, string][] = [
+  ['stage=queued', 'unknown Stage queued'],
+  ['status=idle', 'unknown status idle'],
+  ['offset=-1', 'offset must be a whole number'],
+  ['all=yes', 'all takes no value'],
+  ['waiting=1&waiting=1', 'waiting may be given once'],
+  ['factory=NB', 'unknown Task list filter factory'],
+  [`search=${'a'.repeat(201)}`, 'limited to 200'],
+]
+for (const [search, message] of taskQueryRejections)
+  test(`parseCoordinatorTaskQuery rejects ${message}`, () => {
+    expect(() => P.parseCoordinatorTaskQuery(search)).toThrow(message)
+    expect(() => P.parseCoordinatorTaskQuery(search)).toThrow(P.RequestValidationError)
+  })
 roundTrip(P.parseShellSize, { cols: 80, rows: 24 })
 roundTrip(P.parseShellInputRequest, { data: 'ls\n' })
 roundTrip(P.parseOpenInEditorRequest, { file: 'src/main.ts', line: 10, column: 2, snapshot: true })

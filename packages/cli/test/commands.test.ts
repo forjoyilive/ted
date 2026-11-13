@@ -438,6 +438,12 @@ describe('commands merged from the latest base', () => {
         ['peers', '--offset', '3'],
         ['peers', 'inbox', '--offset', '4'],
         ['coordinator', 'tasks', '--offset', '5'],
+        [
+          'coordinator',
+          'tasks',
+          ...['--stage', 'backlog', '--stage', 'work', '--status', 'failed'],
+          ...['--waiting', '--search', 'offline badge', '--all'],
+        ],
         ['coordinator', 'task', 'NB-1', '--offset', '6'],
         ['coordinator', 'move', ...common, '--after', 'NB-0', '--neighbours', '{"NB-0":"rank"}'],
       ])
@@ -488,10 +494,15 @@ describe('commands merged from the latest base', () => {
           runtime,
         ),
       ).toBe(2)
+      expect(await runCli(['coordinator', 'tasks', '--stage', 'queued'], runtime)).toBe(2)
       expect(requests.slice(4)).toEqual([
         { url: '/peers?offset=3', body: undefined },
         { url: '/peers/inbox?offset=4', body: undefined },
         { url: '/coordinator/tasks?offset=5', body: undefined },
+        {
+          url: '/coordinator/tasks?all=1&stage=backlog&stage=work&status=failed&waiting=1&search=offline+badge',
+          body: undefined,
+        },
         { url: '/coordinator/tasks/NB-1?offset=6', body: undefined },
         {
           url: '/coordinator/tasks/NB-1/move',
