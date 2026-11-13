@@ -1,5 +1,5 @@
 import type { DescriptionVersion, Task } from '@ted/protocol'
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useDescriptionsState } from '../data.ts'
@@ -12,7 +12,7 @@ import { Markdown } from './Markdown.tsx'
 import styles from './TaskDescription.module.css'
 
 const previewComponents: Components = {
-  a: ({ children }) => <span data-preview-link>{children}</span>,
+  a: ({ children }) => <span>{children}</span>,
   img: ({ alt }) => <>{alt}</>,
 }
 
@@ -23,34 +23,12 @@ export function TaskDescription({ task }: { task: Task }) {
 function Description({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
   const [history, setHistory] = useState(false)
-  const [overflow, setOverflow] = useState(false)
-  const [links, setLinks] = useState(false)
-  const preview = useRef<HTMLDivElement>(null)
-  const contentId = useId()
   const descriptions = useDescriptionsState(task.id)
   const versions = descriptions.value
   const original = versions?.[0]?.text ?? ''
   const edits = Math.max(0, (versions?.length ?? 1) - 1)
   const images = task.attachments.filter(showsInline)
   const files = task.attachments.filter((file) => !showsInline(file))
-  useLayoutEffect(() => {
-    const element = preview.current
-    if (open) return
-    if (!element || original.trim() === '') {
-      setOverflow(false)
-      setLinks(false)
-      return
-    }
-    const measure = () => {
-      setOverflow(element.scrollHeight > element.clientHeight)
-      setLinks(element.querySelector('[data-preview-link]') !== null)
-    }
-    measure()
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure)
-    observer?.observe(element)
-    return () => observer?.disconnect()
-  }, [original, open])
-  const seeMore = (open || overflow || links || files.length > 0) && versions !== undefined
   const blank = original.trim() === '' && images.length === 0 && files.length === 0
   if (
     blank &&
@@ -65,47 +43,38 @@ function Description({ task }: { task: Task }) {
       {versions === undefined ? (
         !descriptions.error && <Skeleton rows={1} label="Loading original request…" />
       ) : (
-        <div id={contentId}>
-          {open ? (
-            original.trim() && <Markdown text={original} className={styles.text} />
-          ) : original.trim() ? (
-            <div ref={preview} className={styles.preview}>
+        <div className={styles.row}>
+          {original.trim() ? (
+            <div className={styles.preview}>
               <div className={`${markdownStyles.markdown} ${styles.text}`}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={previewComponents}>
                   {original}
                 </ReactMarkdown>
               </div>
             </div>
-          ) : images.length === 0 ? (
-            <p className={styles.empty}>No description.</p>
-          ) : null}
-          {images.length > 0 && (
-            <div className={open ? styles.expandedImages : undefined}>
-              <CommentFiles files={images} />
-            </div>
+          ) : (
+            blank && <p className={styles.empty}>No description.</p>
           )}
-          {open && files.length > 0 && <CommentFiles files={files} />}
+          <button
+            type="button"
+            className={styles.link}
+            aria-haspopup="dialog"
+            onClick={() => setOpen(true)}
+          >
+            See description
+          </button>
         </div>
       )}
-      {(seeMore || edits > 0) && (
-        <div className={styles.controls}>
-          {seeMore && (
-            <button
-              type="button"
-              className={styles.link}
-              aria-expanded={open}
-              aria-controls={contentId}
-              onClick={() => setOpen((value) => !value)}
-            >
-              {open ? 'See less' : 'See more'}
-            </button>
-          )}
-          {edits > 0 && (
-            <button type="button" className={styles.link} onClick={() => setHistory(true)}>
-              {`Edited ${edits === 1 ? 'once' : `${edits} times`} · history`}
-            </button>
-          )}
-        </div>
+      {open && versions !== undefined && (
+        <DescriptionDialog
+          task={task}
+          text={original}
+          images={images}
+          files={files}
+          edits={edits}
+          onHistory={() => setHistory(true)}
+          onClose={() => setOpen(false)}
+        />
       )}
       {history && (
         <DescriptionHistory
@@ -117,6 +86,72 @@ function Description({ task }: { task: Task }) {
         />
       )}
     </section>
+  )
+}
+
+function DescriptionDialog({
+  task,
+  text,
+  images,
+  files,
+  edits,
+  onHistory,
+  onClose,
+}: {
+  task: Task
+  text: string
+  images: Task['attachments']
+  files: Task['attachments']
+  edits: number
+  onHistory: () => void
+  onClose: () => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const headingId = useId()
+  useEffect(() => {
+    dialog.current?.showModal()
+  }, [])
+  return (
+    <dialog
+      ref={dialog}
+      className={`${styles.historyDialog} ${styles.descriptionDialog}`}
+      aria-labelledby={headingId}
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return
+        event.preventDefault()
+        onClose()
+      }}
+    >
+      <header className={styles.historyHead}>
+        <h2 id={headingId} className={styles.historyHeading}>
+          {`${task.displayId} · ${task.title}`}
+        </h2>
+        <button type="button" className={styles.historyClose} aria-label="Close" onClick={onClose}>
+          <CloseIcon />
+        </button>
+      </header>
+      <div className={styles.descriptionBody}>
+        {text.trim() ? (
+          <Markdown text={text} className={styles.text} />
+        ) : (
+          images.length === 0 &&
+          files.length === 0 && <p className={styles.empty}>No description.</p>
+        )}
+        {images.length > 0 && (
+          <div className={styles.expandedImages}>
+            <CommentFiles files={images} />
+          </div>
+        )}
+        {files.length > 0 && <CommentFiles files={files} />}
+      </div>
+      {edits > 0 && (
+        <footer className={styles.descriptionFoot}>
+          <button type="button" className={styles.link} onClick={onHistory}>
+            {`Edited ${edits === 1 ? 'once' : `${edits} times`} · history`}
+          </button>
+        </footer>
+      )}
+    </dialog>
   )
 }
 
