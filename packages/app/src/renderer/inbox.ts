@@ -4,9 +4,11 @@ import type {
   Factory,
   InboxItem,
   PlanInboxItem,
+  Priority,
   StageId,
 } from '@ted/protocol'
 import { stageName, stageOrder } from './list-view.ts'
+import { priorityLabels } from './task-fields.ts'
 
 export interface InboxChip {
   factoryId?: string
@@ -74,7 +76,7 @@ export function nextSelection<T extends { request: { id: string } }>(
   )
 }
 
-export const inboxGroupings = ['none', 'kind', 'age', 'stage'] as const
+export const inboxGroupings = ['none', 'kind', 'age', 'stage', 'priority'] as const
 
 export type InboxGrouping = (typeof inboxGroupings)[number]
 
@@ -83,6 +85,7 @@ export const inboxGroupingLabels: Record<InboxGrouping, string> = {
   kind: 'Kind',
   age: 'Age',
   stage: 'Stage',
+  priority: 'Priority',
 }
 
 export type InboxKind = 'blocking' | 'question' | 'signoff'
@@ -91,6 +94,7 @@ export interface Grouped {
   kind: InboxKind
   at: string
   stage?: StageId | undefined
+  priority?: Priority | undefined
 }
 
 export interface InboxGroup<T> {
@@ -122,6 +126,15 @@ export function requestKind(
   }
   return 'question'
 }
+
+const priorityHeadings: readonly (readonly [string, string])[] = [
+  ['urgent', priorityLabels.urgent],
+  ['high', priorityLabels.high],
+  ['medium', priorityLabels.medium],
+  ['low', priorityLabels.low],
+  ['none', 'No priority'],
+  ['no-task', 'Not from a Task'],
+]
 
 const kindHeadings: readonly (readonly [InboxKind, string])[] = [
   ['blocking', 'Blocking a Run'],
@@ -166,6 +179,8 @@ function groupRows<T extends { grouped: Grouped }>(
       .map(([key, label]) => ({ key, label, rows: rows.filter((row) => keyOf(row) === key) }))
       .filter((group) => group.rows.length > 0)
   if (grouping === 'kind') return pick(kindHeadings, (row) => row.grouped.kind)
+  if (grouping === 'priority')
+    return pick(priorityHeadings, (row) => row.grouped.priority ?? 'no-task')
   if (grouping === 'stage') {
     const known = (row: T) => {
       const stage = row.grouped.stage

@@ -186,4 +186,22 @@ describe('Group by', () => {
       ['No Stage', ['plan']],
     ])
   })
+
+  test('Priority goes from Urgent to No priority and puts requests without a Task last', () => {
+    const rows = [
+      row('plan', {}),
+      row('low', { priority: 'low' }),
+      row('none', { priority: 'none' }),
+      row('urgent1', { priority: 'urgent' }),
+      row('medium', { priority: 'medium' }),
+      row('urgent2', { priority: 'urgent' }),
+    ]
+    expect(shape(groupInbox(rows, 'priority', now))).toEqual([
+      ['Urgent', ['urgent1', 'urgent2']],
+      ['Medium', ['medium']],
+      ['Low', ['low']],
+      ['No priority', ['none']],
+      ['Not from a Task', ['plan']],
+    ])
+  })
 })

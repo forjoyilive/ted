@@ -209,6 +209,7 @@ export function Inbox({
       kind: requestKind(item.request),
       at: (showAnswered ? item.request.answer?.at : undefined) ?? item.request.createdAt,
       stage: item.request.stage ?? item.task.stage,
+      priority: item.task.priority,
     } satisfies Grouped,
     open: () => onOpen(item),
   }))
