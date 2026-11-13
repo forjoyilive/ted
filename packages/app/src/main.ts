@@ -435,7 +435,7 @@ function forward(event: DaemonEvent): void {
   const drawn = state
   if (event.type === 'run-updated' && event.run.state === 'finished')
     taskBrowsers?.ended(event.run.id)
-  if (event.type === 'apps-changed' || event.type === 'task-deleted')
+  if (event.type === 'apps-changed' || event.type === 'task-deleted' || event.type === 'task-reset')
     taskBrowsers?.changed(event.taskId)
   if (event.type === 'task-updated') taskBrowsers?.changed(event.task.id)
   if (event.type === 'settings-changed') applySettings(event.settings)

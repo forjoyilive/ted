@@ -272,3 +272,74 @@ test('preparation intent and ready holds survive reopening and are consumed on R
   store.changeStage(id, 'work', entry)
   expect(store.getTask(id)?.stopped).toBe(false)
 })
+
+test('a reset keeps the Task, its Linear consent and its original request, and clears the thread', async () => {
+  const blocker = await store.createTask({ title: 'Earlier' })
+  const task = await store.createTask({
+    title: 'From Linear',
+    description: 'The original request',
+    priority: 'high',
+    clarifyDepth: 'few',
+    blockedBy: [blocker.id],
+    source: { url: 'https://linear.app/acme/issue/ACM-7/from-linear' },
+  })
+  const read = () => store.listTasks().find((t) => t.id === task.id)
+  store.linearSyncAllowed(task.id, 'ACM-7')
+  store.queueTask(task.id, 'intake')
+  store.startTask({
+    taskId: task.id,
+    stage: 'intake',
+    branch: 'task',
+    worktree: dir,
+    entry,
+    repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+  })
+  store.changeStage(task.id, 'clarify', entry)
+  store.setClarifyDepth(task.id, { depth: 'grilling', by: 'task-lead' })
+  store.editTask(task.id, { description: 'An edited request' })
+  store.writeBrief({ taskId: task.id, text: '## Goal' })
+  store.postComment({
+    taskId: task.id,
+    kind: 'question',
+    author: { kind: 'ted' },
+    body: 'Go on?',
+    choices: ['Yes', 'No'],
+  })
+  expect(store.waiting().some((w) => 'taskId' in w && w.taskId === task.id)).toBe(true)
+  const rank = read()?.rank
+
+  store.resetTask(task.id)
+
+  const check = () => {
+    expect(read()).toMatchObject({
+      id: task.id,
+      displayId: task.displayId,
+      title: 'From Linear',
+      description: 'The original request',
+      priority: 'high',
+      clarifyDepth: 'few',
+      stage: 'backlog',
+      blockedBy: [blocker.id],
+      linearSync: 'on',
+      rank,
+      repos: [],
+      runs: [],
+    })
+    expect(read()?.startedAt).toBeUndefined()
+    expect(read()?.branch).toBeUndefined()
+    expect(store.listComments(task.id)).toEqual([])
+    expect(store.latestBrief(task.id)).toBeUndefined()
+    expect(store.descriptionVersions(task.id).map((v) => v.text)).toEqual(['The original request'])
+    expect(store.waiting().some((w) => 'taskId' in w && w.taskId === task.id)).toBe(false)
+    expect(
+      store
+        .taskLog(task.id)
+        .map((e) => e.name)
+        .filter((name) => !name.startsWith('v1.Linear')),
+    ).toEqual(['v1.TaskReset'])
+  }
+  check()
+  await store.close()
+  store = await openStore({ directory: dir })
+  check()
+})

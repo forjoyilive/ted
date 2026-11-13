@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
+  type CommitChanges,
   type Factory,
   type FileDiff,
   type PullRequestChanges,
   type Task,
   type TaskChanges,
+  type TaskCommit,
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -202,6 +204,38 @@ test('the diffs route returns one file’s diff, or every file’s', async () =>
   expect(all.map((d) => d.path)).toEqual(['README.md', 'a b.txt'])
   const missing = await client.call('GET', `/tasks/${task.id}/changes/nope/diffs`)
   expect(missing.status).toBe(404)
+
+  await gitIn(worktree, 'add', '-A')
+  await gitIn(worktree, 'commit', '-qm', 'Add notes')
+  const head = (await gitIn(worktree, 'rev-parse', 'HEAD')).stdout.trim()
+  const short = head.slice(0, 8)
+  const ids = [short, '0'.repeat(12), '--help', 'main'].join(',')
+  expect(
+    await client.ok<TaskCommit[]>(
+      'GET',
+      `/tasks/${task.id}/commits?ids=${encodeURIComponent(ids)}`,
+    ),
+  ).toEqual([{ id: short, repo: 'widgets', commit: head }])
+  expect(await client.ok<CommitChanges>('GET', `/tasks/${task.id}/commits/${short}`)).toMatchObject(
+    {
+      repo: 'widgets',
+      commit: head,
+      subject: 'Add notes',
+      files: [{ path: 'README.md' }, { path: 'a b.txt', added: 1 }],
+      diffs: [{ repo: 'widgets', path: 'README.md', head }, { path: 'a b.txt' }],
+    },
+  )
+  for (const bad of ['0'.repeat(12), 'main', '--help']) {
+    const res = await client.call('GET', `/tasks/${task.id}/commits/${encodeURIComponent(bad)}`)
+    expect(res.status).toBe(404)
+  }
+  const token = JSON.parse(await readFile(path.join(home, 'daemon.json'), 'utf8')).token as string
+  for (const route of [
+    `/tasks/${task.id}/commits?ids=${short}`,
+    `/tasks/${task.id}/commits/${short}`,
+  ]) {
+    expect((await api(client.port, token).call('GET', route)).status).toBe(403)
+  }
 })
 
 test('a Task with no worktree has no changes', async () => {

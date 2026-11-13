@@ -1,3 +1,4 @@
+import type { BoardView } from './board-view.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
@@ -79,6 +80,7 @@ export interface MachineSettings {
   notifySound: boolean
   factoryNotifications: Readonly<Record<string, FactoryNotifications>>
   listViews: Readonly<Record<string, ListView>>
+  boardViews: Readonly<Record<string, BoardView>>
   firstLaunchDone: boolean
   enabledAgents: readonly AgentKind[]
   billing: Readonly<Record<AgentKind, Billing>>
@@ -120,6 +122,7 @@ export const defaultMachineSettings: MachineSettings = {
   notifySound: false,
   factoryNotifications: {},
   listViews: {},
+  boardViews: {},
   firstLaunchDone: false,
   enabledAgents: [...agentKinds],
   billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },

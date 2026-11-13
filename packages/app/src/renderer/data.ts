@@ -263,6 +263,7 @@ function useLiveList<T extends { id: string }>(
   order: (a: T, b: T) => number,
   drop: (event: TedEvent) => string | undefined = keepAll,
   retryEveryMs?: number,
+  reloadOn?: (event: TedEvent) => boolean,
 ): { items: T[]; loaded: boolean; error: string | undefined; retry: () => void } {
   const [items, setItems] = useState<T[]>([])
   const [done, setDone] = useState(false)
@@ -286,6 +287,11 @@ function useLiveList<T extends { id: string }>(
     let fresh: T[] | undefined = []
     const dropped = new Set<string>()
     const unsubscribe = ted.onEvent((event) => {
+      if (reloadOn?.(event)) {
+        setItems([])
+        void retry()
+        return
+      }
       const gone = drop(event)
       if (gone !== undefined) {
         dropped.add(gone)
@@ -325,7 +331,7 @@ function useLiveList<T extends { id: string }>(
       clearTimeout(again)
       unsubscribe()
     }
-  }, [load, pick, order, drop, epoch, attempt, retryEveryMs, retry, settled])
+  }, [load, pick, order, drop, epoch, attempt, retryEveryMs, retry, settled, reloadOn])
 
   const current = loaded.current === load
   return {
@@ -388,7 +394,11 @@ export function useCommentList(taskId: string) {
         : undefined,
     [taskId],
   )
-  return useLiveList(load, pick, byCreatedAt)
+  const reset = useCallback(
+    (event: TedEvent) => event.type === 'task-reset' && event.taskId === taskId,
+    [taskId],
+  )
+  return useLiveList(load, pick, byCreatedAt, undefined, undefined, reset)
 }
 
 const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
@@ -406,7 +416,11 @@ export function useCheckRunList(taskId: string) {
         : undefined,
     [taskId],
   )
-  return useLiveList(load, pick, byStartedAt)
+  const reset = useCallback(
+    (event: TedEvent) => event.type === 'task-reset' && event.taskId === taskId,
+    [taskId],
+  )
+  return useLiveList(load, pick, byStartedAt, undefined, undefined, reset)
 }
 
 export function useThreadEvents(taskId: string): ThreadEvent[] {

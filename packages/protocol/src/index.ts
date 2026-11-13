@@ -97,6 +97,14 @@ export {
 } from './banner.ts'
 export { parseBannerActionInput } from './banner-parsers.ts'
 export {
+  type BoardCardSize,
+  type BoardField,
+  type BoardView,
+  boardCardSizes,
+  boardFields,
+  defaultBoardView,
+} from './board-view.ts'
+export {
   type BrowserAction,
   type BrowserCommand,
   type BrowserPollRequest,
@@ -114,6 +122,7 @@ export {
 export {
   type ChangeFile,
   type ChangesSource,
+  type CommitChanges,
   changeKey,
   type DiffHunk,
   type DiffRow,
@@ -121,13 +130,16 @@ export {
   type DraftLineCommentRequest,
   type EditLineCommentRequest,
   type FileDiff,
+  isCommitId,
   type LineAnchor,
   type LineComment,
   type LineSide,
   lineLabel,
+  maxCommitLookups,
   type PullRequestChanges,
   type RepoChanges,
   type TaskChanges,
+  type TaskCommit,
 } from './changes.ts'
 export {
   maxLineCommentLength,
@@ -719,6 +731,7 @@ export {
   type RepoSetupReport,
   type RepoToConfirm,
   type RequestPurpose,
+  type ResetRefusal,
   type ResumeTaskRequest,
   type Round,
   type RoundAnswer,
@@ -726,6 +739,7 @@ export {
   type RoundInput,
   type RoundQuestion,
   type RoundTalk,
+  resetRefusal,
   type SetActivityRequest,
   type SetClarifyDepthRequest,
   type SetPriorityRequest,

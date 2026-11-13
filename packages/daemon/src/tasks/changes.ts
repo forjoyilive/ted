@@ -1,4 +1,12 @@
-import type { FileDiff, RepoChanges, TaskChanges } from '@ted/protocol'
+import {
+  type CommitChanges,
+  type FileDiff,
+  isCommitId,
+  maxCommitLookups,
+  type RepoChanges,
+  type TaskChanges,
+  type TaskCommit,
+} from '@ted/protocol'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
 
@@ -42,6 +50,57 @@ async function repoChanges(target: ChangesTarget): Promise<RepoChanges> {
       unavailable: `Couldn’t read the changes in ${target.name}.`,
     }
   }
+}
+
+export interface CommitRepo {
+  name: string
+  worktree: string
+}
+
+export async function taskCommits(
+  repos: readonly CommitRepo[],
+  ids: readonly string[],
+): Promise<TaskCommit[]> {
+  const wanted = [...new Set(ids)].filter(isCommitId).slice(0, maxCommitLookups)
+  const found: TaskCommit[] = []
+  let left = wanted
+  for (const repo of repos) {
+    if (left.length === 0) break
+    const commits = await git.findCommits(repo.worktree, left).catch(() => new Map())
+    for (const [id, commit] of commits) found.push({ id, repo: repo.name, commit })
+    left = left.filter((id) => !commits.has(id))
+  }
+  return found
+}
+
+export async function commitChanges(
+  repos: readonly CommitRepo[],
+  id: string,
+): Promise<CommitChanges | undefined> {
+  if (!isCommitId(id)) return undefined
+  for (const repo of repos) {
+    const diff = await git.commitDiff(repo.worktree, id).catch(() => undefined)
+    if (!diff) continue
+    const [parent] = diff.parents
+    return {
+      repo: repo.name,
+      commit: diff.commit,
+      subject: diff.subject.slice(0, 300),
+      author: diff.author.slice(0, 100),
+      date: diff.date,
+      ...(parent !== undefined && { parent }),
+      ...(diff.parents.length > 1 && { merge: true as const }),
+      files: diff.files,
+      diffs: diff.diffs.map((file) => ({
+        repo: repo.name,
+        head: diff.commit,
+        mergeBase: parent ?? '',
+        ...file,
+      })),
+      ...(diff.limited && { limited: true as const }),
+    }
+  }
+  return undefined
 }
 
 export async function fileDiffs(target: ChangesTarget, path?: string): Promise<FileDiff[]> {

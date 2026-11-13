@@ -10,6 +10,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
+import { writtenText } from '../src/renderer/components/RoundCard.tsx'
 import { QuestionCard } from '../src/renderer/views/Automations.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
@@ -248,6 +249,9 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   await u.type(f.getByLabelText('Add to answer 1'), 'Clashes are rare.')
   await u.click(f.getByRole('radio', { name: 'Other' }))
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
+  expect((f.getByLabelText('Your answer 1') as HTMLInputElement).value).toBe('Clashes are rare.')
+  expect(submit.disabled).toBe(false)
+  await u.clear(f.getByLabelText('Your answer 1'))
   expect(submit.disabled).toBe(true)
   await u.type(f.getByLabelText('Your answer 1'), '   ')
   expect(submit.disabled).toBe(true)
@@ -256,7 +260,9 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   await u.click(f.getByRole('button', { name: 'Reset' }))
   expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
   await u.click(f.getByText('Keep latest'))
-  expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe('Clashes are rare.')
+  expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Ask me to resolve each conflict.',
+  )
   await u.click(f.getByRole('radio', { name: 'Other' }))
   expect((f.getByLabelText('Your answer 1') as HTMLInputElement).value).toBe(
     'Ask me to resolve each conflict.',
@@ -266,6 +272,15 @@ test('round recommendations, reset, Other validation and notes are sent as answe
     action: 'answer-round',
     answers: [{ answer: 'Ask me to resolve each conflict.' }, { answer: 'The edit wins.' }],
   })
+})
+
+test('a round draft saved with two texts shows the selected option’s text', () => {
+  expect(writtenText({ note: 'Under a choice', custom: 'Under Other' })).toBe('Under a choice')
+  expect(writtenText({ note: 'Under a choice', custom: 'Under Other', other: true })).toBe(
+    'Under Other',
+  )
+  expect(writtenText({ note: 'Under a choice', other: true })).toBe('Under a choice')
+  expect(writtenText({ note: '', custom: 'Under Other' })).toBe('Under Other')
 })
 
 test('grilling sign-off displays decisions, open questions and button guidance', async () => {

@@ -1,6 +1,7 @@
 import type { MachineSettings } from '@ted/protocol'
 import { FactoryNotificationsTable } from '../components/FactoryNotifications.tsx'
 import { useEventValue, useFactories } from '../data.ts'
+import { type SettingId, settingEntry } from '../settings-search.ts'
 import { ted } from '../ted.ts'
 import { Button, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import styles from './notifications.module.css'
@@ -8,22 +9,10 @@ import type { SettingsPageProps } from './sections.tsx'
 
 type NotifySetting = 'notifyInboxItems' | 'notifyProblems' | 'notifyTaskMerged' | 'notifySound'
 
-const switches: { setting: NotifySetting; title: string; help: string }[] = [
-  {
-    setting: 'notifyInboxItems',
-    title: 'Inbox items',
-    help: 'One notification per new Inbox item: Failed Tasks, permission requests, sign-offs and the idle ask. Clicking it opens the Task.',
-  },
-  {
-    setting: 'notifyProblems',
-    title: 'Problems that stop work',
-    help: 'One notification when such a problem starts, never when it clears. Warnings never notify. Clicking it opens the Settings section.',
-  },
-  {
-    setting: 'notifyTaskMerged',
-    title: 'Task merged',
-    help: 'One notification when a Task reaches Done. Clicking it opens the Task.',
-  },
+const switches: { setting: NotifySetting; row: SettingId }[] = [
+  { setting: 'notifyInboxItems', row: 'app.notifications.send.inbox' },
+  { setting: 'notifyProblems', row: 'app.notifications.send.problems' },
+  { setting: 'notifyTaskMerged', row: 'app.notifications.send.merged' },
 ]
 
 export function useNotificationsOff(): boolean {
@@ -37,18 +26,16 @@ export function useNotificationsOff(): boolean {
 function NotifySwitch({
   settings,
   setting,
-  title,
-  help,
+  row,
 }: {
   settings: MachineSettings
   setting: NotifySetting
-  title: string
-  help: string
+  row: SettingId
 }) {
   return (
-    <SettingRow title={title} help={help}>
+    <SettingRow setting={row}>
       <Switch
-        label={title}
+        label={settingEntry(row).name}
         checked={settings[setting]}
         onChange={(on) => ted.updateSettings({ [setting]: on })}
       />
@@ -76,25 +63,21 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
           <Button onClick={() => ted.openNotificationSettings()}>Open System Settings</Button>
         </div>
       )}
-      <SettingsGroup label="Send a notification for">
+      <SettingsGroup setting="app.notifications.send">
         {switches.map((row) => (
           <NotifySwitch key={row.setting} settings={settings} {...row} />
         ))}
       </SettingsGroup>
       {factories.length > 0 && (
-        <SettingsGroup
-          label="By Factory"
-          help="A notification is sent only when it is on above and ticked for the Factory. These are the same choices as Notifications in each Factory’s Settings. With Inbox items unticked, a Factory’s requests stay in the Inbox but leave its count and the Dock badge."
-        >
+        <SettingsGroup setting="app.notifications.by-factory">
           <FactoryNotificationsTable settings={settings} factories={factories} />
         </SettingsGroup>
       )}
-      <SettingsGroup label="Sound">
+      <SettingsGroup setting="app.notifications.sound">
         <NotifySwitch
           settings={settings}
           setting="notifySound"
-          title="Play a sound"
-          help="Play the system sound with each notification."
+          row="app.notifications.sound.play"
         />
       </SettingsGroup>
     </SettingsPage>
