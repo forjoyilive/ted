@@ -186,6 +186,7 @@ export const forwardedRequests = [
   'readDaemonLog',
   'readRunOutput',
   'getStorage',
+  'storageViewed',
   'removeUnusedClones',
   'listBanners',
   'dismissBanner',

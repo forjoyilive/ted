@@ -51,6 +51,7 @@ export interface StorageSummary {
   simulators: { count: number; bytes: number }
   backups: StoredBackup[]
   backupsDir: string
+  measuredAt: string
 }
 
 export interface RemoveClonesResult {

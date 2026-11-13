@@ -1648,8 +1648,12 @@ export class DaemonClient {
     return this.#request('GET', '/data-status')
   }
 
-  getStorage(): Promise<StorageSummary> {
-    return this.#request('GET', '/storage')
+  getStorage(options: { refresh?: boolean } = {}): Promise<StorageSummary> {
+    return this.#request('GET', options.refresh === true ? '/storage?refresh=1' : '/storage')
+  }
+
+  async storageViewed(): Promise<void> {
+    await this.#request('POST', '/storage/viewed')
   }
 
   removeUnusedClones(): Promise<RemoveClonesResult> {

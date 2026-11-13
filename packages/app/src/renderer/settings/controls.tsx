@@ -10,17 +10,20 @@ export function SettingsPage({
   title,
   help,
   subtitle,
+  actions,
   children,
 }: {
   title: string
   help?: ReactNode
   subtitle?: ReactNode
+  actions?: ReactNode
   children: ReactNode
 }) {
   const titleRow = (
     <div className={styles.pageTitleRow}>
       <h1 className={styles.pageTitle}>{title}</h1>
       {help !== undefined && <Help>{help}</Help>}
+      {actions !== undefined && <div className={styles.pageActions}>{actions}</div>}
     </div>
   )
   return (

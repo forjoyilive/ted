@@ -5,6 +5,8 @@ import { type Factory, type StorageSummary, type Task, tedPaths } from '@ted/pro
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { excludeFromTimeMachine } from '../src/disk.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { createStorage, storageKeptForMs } from '../src/storage.ts'
+import type { TedStore } from '../src/store/index.ts'
 import {
   api,
   killRunHosts,
@@ -72,6 +74,8 @@ describe('Settings → Storage', () => {
     )
 
     const storage = await client.ok<StorageSummary>('GET', '/storage')
+    expect((await client.ok<StorageSummary>('GET', '/storage')).measuredAt).toBe(storage.measuredAt)
+    await client.ok<StorageSummary>('GET', '/storage?refresh=1')
 
     expect(storage.volume).toBe('Macintosh HD')
     expect(storage.freeBytes).toBe(8.2e9)
@@ -134,6 +138,46 @@ describe('Settings → Storage', () => {
     const after = await client.ok<StorageSummary>('GET', '/storage')
     expect(after.removableClones.count).toBe(0)
     expect(after.categories.find((c) => c.id === 'clones')?.bytes).toBeGreaterThan(0)
+  })
+
+  test('keeps the measurement until the page goes unviewed for 10 minutes, Refresh or clone removal', async () => {
+    let clock = Date.parse('2026-11-13T10:00:00.000Z')
+    let freeBytes = 5e9
+    const minutes = (n: number) => n * 60_000
+    const storage = createStorage({
+      home,
+      store: { listFactories: () => [], listTasks: () => [] } as unknown as TedStore,
+      disk: { check: async () => ({ freeBytes, held: false }) } as never,
+      data: { summary: async () => ({ backups: [] }) } as never,
+      volumeName: async () => 'Macintosh HD',
+      now: () => clock,
+    })
+    const measuredAt = async (refresh = false) => (await storage.summary({ refresh })).measuredAt
+
+    const first = await measuredAt()
+    clock += minutes(9)
+    freeBytes = 4e9
+    const kept = await storage.summary()
+    expect(kept.measuredAt).toBe(first)
+    expect(kept.freeBytes).toBe(4e9)
+
+    clock += minutes(9)
+    expect(await measuredAt()).toBe(first)
+    storage.viewed()
+    clock += storageKeptForMs
+    expect(await measuredAt()).toBe(first)
+
+    clock += storageKeptForMs + 1
+    const second = await measuredAt()
+    expect(second).not.toBe(first)
+
+    clock += minutes(1)
+    const third = await measuredAt(true)
+    expect(third).not.toBe(second)
+
+    clock += minutes(1)
+    await storage.removeUnusedClones()
+    expect(await measuredAt()).not.toBe(third)
   })
 
   test('worktrees, clones, simulators and scratch worktrees are kept out of Time Machine', async () => {

@@ -122,10 +122,12 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   ])
 })
 
-test('Storage sets how long Run output is kept after a Task is done', async () => {
+test('Storage sets how long Run output is kept and measures again only on Refresh', async () => {
   const update = vi.fn()
-  bridge({
+  const viewed = vi.fn()
+  const api = bridge({
     listFactories: () => [],
+    storageViewed: viewed,
     getStorage: () => ({
       home: '~/.ted/',
       usedBytes: 2e9,
@@ -137,10 +139,13 @@ test('Storage sets how long Run output is kept after a Task is done', async () =
       simulators: { count: 0, bytes: 0 },
       backups: [],
       backupsDir: '~/.ted/backups/',
+      measuredAt: new Date(Date.now() - 3 * 60_000).toISOString(),
     }),
     updateSettings: update,
   })
-  const { rerender } = render(<StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const { rerender, unmount } = render(
+    <StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />,
+  )
   const group = await screen.findByRole('group', { name: 'Run output' })
   const days = within(group).getByRole<HTMLSelectElement>('combobox', {
     name: 'Keep Run output after a Task is done',
@@ -159,6 +164,14 @@ test('Storage sets how long Run output is kept after a Task is done', async () =
   )
   expect(days.value).toBe('45')
   expect(within(days).getByRole('option', { name: '45 days' })).toBeTruthy()
+
+  expect(screen.getByText(/· Measured 3m ago$/)).toBeTruthy()
+  expect(api.request).toHaveBeenCalledWith('getStorage', { refresh: false })
+  await user().click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(api.request).toHaveBeenCalledWith('getStorage', { refresh: true }))
+  expect(viewed).not.toHaveBeenCalled()
+  unmount()
+  expect(viewed).toHaveBeenCalledOnce()
 })
 
 test('login approval opens the fixed system-settings bridge action', async () => {
