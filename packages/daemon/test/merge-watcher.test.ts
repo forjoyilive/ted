@@ -379,6 +379,9 @@ test('a canceled merge retries disabling auto-merge and still finishes when GitH
   expect(await watcher.cycle(id, read(remote({ state: 'MERGED' })))).toBe('done')
   expect(pr()?.state).toBe('merged')
   expect(port.finish).toHaveBeenCalled()
+  expect(gh.api).toHaveBeenLastCalledWith('repos/acme/widgets/git/refs/heads/task', {
+    method: 'DELETE',
+  })
   expect(gh.run).toHaveBeenLastCalledWith([
     'pr',
     'merge',
