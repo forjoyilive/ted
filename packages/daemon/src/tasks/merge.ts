@@ -110,25 +110,42 @@ export function relevantChecks(pr: RemotePullRequest): RemotePullRequest['checks
   return required.length > 0 ? required : pr.checks
 }
 
+export interface CiOptions {
+  mergeAnyway?: boolean
+  accepted?: ReadonlySet<string>
+}
+
+const acceptedCheck = (check: RemoteCheck, options: CiOptions) =>
+  check.identity !== undefined && options.accepted?.has(check.identity) === true
+
+export function failingChecks(pr: RemotePullRequest, options: CiOptions = {}): RemoteCheck[] {
+  return relevantChecks(pr).filter((c) => c.state === 'failed' && !acceptedCheck(c, options))
+}
+
+export function acceptedFailing(pr: RemotePullRequest, options: CiOptions = {}): RemoteCheck[] {
+  return relevantChecks(pr).filter((c) => c.state === 'failed' && acceptedCheck(c, options))
+}
+
 export function ciState(
   target: MergeTarget,
   pr: RemotePullRequest,
-  options: { mergeAnyway?: boolean } = {},
+  options: CiOptions = {},
 ): CiState {
   if (!target.hasCi) return 'passed'
   const relevant = relevantChecks(pr)
-  if (relevant.some((c) => c.state === 'failed')) return 'failed'
+  const pending = relevant.some((c) => c.state === 'pending')
+  if (failingChecks(pr, options).length > 0) return pending ? 'pending' : 'failed'
   if (options.mergeAnyway && !pr.checks.some((c) => c.required && c.state === 'pending')) {
     return 'passed'
   }
-  if (relevant.length === 0 || relevant.some((c) => c.state === 'pending')) return 'pending'
+  if (relevant.length === 0 || pending) return 'pending'
   return 'passed'
 }
 
 export function nextStep(
   target: MergeTarget,
   pr: RemotePullRequest,
-  options: { mergeAnyway?: boolean } = {},
+  options: CiOptions = {},
 ): MergeStep {
   if (pr.state === 'MERGED') return { kind: 'merged' }
   if (pr.state === 'CLOSED') return { kind: 'closed' }
@@ -139,15 +156,18 @@ export function nextStep(
   const canAutoMerge = pr.autoMergeAllowed && !pr.autoMerge
   const ci = ciState(target, pr, options)
   if (ci === 'failed') {
-    const failed = relevantChecks(pr)
-      .filter((c) => c.state === 'failed')
-      .map((c) => c.name)
-    return { kind: 'ci-failed', checks: failed }
+    return { kind: 'ci-failed', checks: failingChecks(pr, options).map((c) => c.name) }
   }
   if (reviewMissing(pr)) return { kind: 'wait', on: 'review', autoMerge: canAutoMerge }
   const blocked = pr.mergeStateStatus === 'BLOCKED'
-  if (ci === 'pending') return { kind: 'wait', on: 'ci', autoMerge: blocked && canAutoMerge }
+  if (ci === 'pending') {
+    const failing = target.hasCi && failingChecks(pr, options).length > 0
+    return { kind: 'wait', on: 'ci', autoMerge: !failing && blocked && canAutoMerge }
+  }
   if (mergeableStates.includes(pr.mergeStateStatus)) return { kind: 'merge', noCi: !target.hasCi }
+  if (target.hasCi && acceptedFailing(pr, options).length > 0) {
+    return { kind: 'wait', on: 'required-check', autoMerge: false }
+  }
   return { kind: 'wait', on: target.hasCi ? 'ci' : 'merge', autoMerge: blocked && canAutoMerge }
 }
 
@@ -291,7 +311,10 @@ export async function rebasePullRequest(
   return typeof head === 'string' && head !== pr.headRefOid ? head : undefined
 }
 
-export async function deleteBranch(gh: Pick<Gh, 'api'>, target: MergeTarget): Promise<void> {
+export async function deleteBranch(
+  gh: Pick<Gh, 'api'>,
+  target: Pick<MergeTarget, 'repo' | 'branch'>,
+): Promise<void> {
   const ref = target.branch.split('/').map(encodeURIComponent).join('/')
   const [owner = '', name = ''] = target.repo.split('/').map(encodeURIComponent)
   await gh.api(`repos/${owner}/${name}/git/refs/heads/${ref}`, { method: 'DELETE' })

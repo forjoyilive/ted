@@ -220,10 +220,14 @@ export function threadEvents(
     })
 
   const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
-  for (const entry of log) {
+  const reset = log.findLastIndex((entry) => entry.name === 'v1.TaskReset')
+  for (const entry of reset < 0 ? log : log.slice(reset)) {
     const { data } = entry
     const who = data.runId ? 'Task Lead' : 'You'
     switch (entry.name) {
+      case 'v1.TaskReset':
+        add(entry, 'edit', 'Task was reset')
+        break
       case 'v1.TaskCreated':
       case 'v2.TaskCreated':
         add(
@@ -450,6 +454,18 @@ export function threadEvents(
       case 'v1.TaskResumed':
         add(entry, 'run', 'You resumed the Task')
         break
+      case 'v1.TaskStoppedByTed':
+        add(
+          entry,
+          'quiet',
+          data.cause === 'quit'
+            ? 'TED stopped the Task Lead when it quit'
+            : 'The Task Lead was stopped when TED went down',
+        )
+        break
+      case 'v1.TedStopAnswered':
+        if (data.choice === 'leave') add(entry, 'quiet', 'You left the Task stopped')
+        break
       case 'v1.TaskRetried':
         add(entry, 'run', 'You retried the Task')
         break
@@ -546,6 +562,9 @@ export function threadEvents(
             `TED kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
           )
         }
+        break
+      case 'v1.BaseBranchAdopted':
+        add(entry, 'quiet', `TED moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
       case 'v1.LoopCheckStarted':
         add(

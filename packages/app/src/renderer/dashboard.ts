@@ -12,6 +12,7 @@ export type FlowSelection = { period: 'current' | 'previous' } & (
   | { kind: 'send-back'; from: string; to: string }
   | { kind: 'affected' }
   | { kind: 'incomplete' }
+  | { kind: 'left-out' }
   | { kind: 'validate'; outcome: FlowValidateOutcome }
 )
 

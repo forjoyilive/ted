@@ -2,6 +2,9 @@
   display: grid;
   gap: 6px;
 }
+.select {
+  justify-self: start;
+}
 .field small {
   color: var(--text-tertiary);
 }

@@ -170,8 +170,6 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   )
   await user().click(screen.getByRole('button', { name: /stopped Run/ }))
   expect(document.querySelector('[data-run="r2"]')?.textContent).toContain('Reviewer')
-  await user().click(screen.getByRole('button', { name: /^Runs/ }))
-  expect(screen.queryByRole('list')).toBeNull()
 })
 
 test('Task menu stops the Task and has no Restart for an idle Lead', async () => {
@@ -216,6 +214,7 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   expect(chat.queryByRole('button', { name: 'Stop Task' })).toBeNull()
   expect(chat.getByRole('textbox', { name: 'Message the Task Lead' })).toBeTruthy()
   const details = within(screen.getByRole('complementary', { name: 'Task details' }))
+  await u.click(details.getByRole('tab', { name: 'Runs' }))
   expect(await details.findByText('Claude · claude-test · default effort')).toBeTruthy()
   expect(details.getByText('12k tokens')).toBeTruthy()
   await u.click(chat.getByRole('button', { name: /^History/ }))
@@ -251,6 +250,35 @@ test('Comment composer sends Enter and command Enter, while Shift Enter keeps a 
   })
 })
 
+test('Comment box opens with unsent text, keeps what is typed and empties after sending', async () => {
+  const { CommentBox } = await import('../src/renderer/components/CommentBox.tsx')
+  let kept: unknown = { text: 'Half a thought', attachments: [] }
+  const api = bridge({
+    postComment: vi.fn(),
+    messageDraft: () => ({ draft: kept }),
+    saveMessageDraft: (_box, draft) => {
+      kept = (draft as { text: string }).text === '' ? null : draft
+      return { draft: kept }
+    },
+  })
+  const first = render(<CommentBox task={task({ commentBox: 'live' })} />)
+  expect(await screen.findByDisplayValue('Half a thought')).toBeTruthy()
+  expect(api.request).toHaveBeenCalledWith('messageDraft', { kind: 'comment', id: 'NB-1' })
+  await user().type(screen.getByRole('textbox', { name: 'Comment' }), ', finished')
+  first.unmount()
+  await vi.waitFor(() => expect(kept).toMatchObject({ text: 'Half a thought, finished' }))
+
+  render(<CommentBox task={task({ commentBox: 'live' })} />)
+  const box = await screen.findByDisplayValue('Half a thought, finished')
+  await user().type(box, '{Enter}')
+  expect(api.request).toHaveBeenCalledWith('postComment', 'NB-1', {
+    body: 'Half a thought, finished',
+    attachments: [],
+  })
+  await vi.waitFor(() => expect(kept).toBeNull())
+  expect((box as HTMLTextAreaElement).value).toBe('')
+})
+
 test('opening a sub-agent from Task details selects its actual Conversation and tab', async () => {
   const a = appState()
   const sub: RunSummary = {
@@ -282,6 +310,7 @@ test('opening a sub-agent from Task details selects its actual Conversation and 
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   const details = await screen.findByRole('complementary', { name: 'Task details' })
+  await user().click(within(details).getByRole('tab', { name: 'Runs' }))
   await user().click(await within(details).findByRole('button', { name: /Reviewer/ }))
   await screen.findByText('I reviewed the offline queue.')
   expect(screen.getByRole('tab', { name: /Reviewer/ }).getAttribute('aria-selected')).toBe('true')

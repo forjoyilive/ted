@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { systemClock } from '../src/clock.ts'
+import { RequestError } from '../src/errors.ts'
 import { type Gh, GhError } from '../src/github/gh.ts'
 import { type NewStageEntry, openStore, type TedStore } from '../src/store/index.ts'
 import type { PullRequestRead, RemotePullRequest } from '../src/tasks/merge.ts'
@@ -189,8 +190,9 @@ test('waits for CI then merges when the poller reports success', async () => {
   expect(pr()?.merged?.noCi).toBe(false)
 })
 
-test('failed required CI sends back before any merge', async () => {
+test('failed CI without an attempt identity sends back before any merge', async () => {
   ci()
+  port.ciFailures = vi.fn(async () => {})
   await watcher.cycle(
     id,
     read(remote({ checks: [{ ...pending, required: true, state: 'failed' }] })),
@@ -198,6 +200,27 @@ test('failed required CI sends back before any merge', async () => {
   expect(current().stage).toBe('work')
   expect(port.sendBack).toHaveBeenCalledWith(id, expect.stringContaining('CI failed'))
   expect(gh.run).not.toHaveBeenCalled()
+})
+
+test('failed CI with attempt identities is handed to diagnosis; acceptance merges only when GitHub allows', async () => {
+  ci()
+  const failed = { ...pending, required: true, state: 'failed' as const, identity: 'run-1:a:b' }
+  const scoped = (over: Partial<RemotePullRequest> = {}) =>
+    read(remote({ checks: [failed], checksComplete: true, ...over }))
+  port.ciFailures = vi.fn(async () => {})
+  port.ciBlocked = vi.fn(async () => {})
+  expect(await watcher.cycle(id, scoped())).toBe('wait')
+  expect(port.ciFailures).toHaveBeenCalledTimes(1)
+  expect(port.sendBack).not.toHaveBeenCalled()
+  expect(current().stage).toBe('merge')
+  port.acceptedCi = () => new Set(['run-1:a:b'])
+  expect(await watcher.cycle(id, scoped({ mergeStateStatus: 'BLOCKED' }))).toBe('wait')
+  expect(pr()?.waiting).toBe('required-check')
+  expect(port.ciBlocked).toHaveBeenCalledWith(id, expect.anything(), expect.anything(), [failed])
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(await watcher.cycle(id, scoped({ mergeStateStatus: 'UNSTABLE' }))).toBe('done')
+  expect(gh.run).toHaveBeenCalledTimes(1)
+  expect(port.sendBack).not.toHaveBeenCalled()
 })
 
 test.each([
@@ -232,13 +255,27 @@ test('missing reads or pull requests wait without merging', async () => {
   expect(gh.run).not.toHaveBeenCalled()
 })
 
-test('read authentication errors set the sign-in wait and release the in-flight cycle', async () => {
+test('read authentication errors set the sign-in wait and release the in-flight cycle; a good read clears it while obligations hold the merge, and the hold is logged once', async () => {
   const failed = read()
   failed.failed.set('github.com', new GhError('auth', 'sign in'))
   await expect(watcher.cycle(id, failed)).rejects.toThrow('sign in')
   expect(pr()?.waiting).toBe('sign-in')
   expect(watcher.inFlightCount()).toBe(0)
   await watcher.settled(id)
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.mocked(port.requireObligations).mockRejectedValue(
+    new RequestError(409, 'Unresolved failure cases hold this Task: abc'),
+  )
+  await expect(watcher.cycle(id, read())).rejects.toThrow('Unresolved')
+  expect(pr()?.waiting).toBeUndefined()
+  await expect(watcher.cycle(id, read())).rejects.toThrow('Unresolved')
+  expect(log.mock.calls).toEqual([
+    [expect.stringContaining('merge is waiting: Unresolved failure cases hold this Task: abc')],
+  ])
+  expect(gh.run).not.toHaveBeenCalled()
+  vi.mocked(port.requireObligations).mockResolvedValue(undefined)
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(pr()?.state).toBe('merged')
 })
 
 test('auto-merge uses an allowed method once and observes an external merge', async () => {
@@ -554,12 +591,14 @@ test('an already posted Gate remains active overnight and forced unseen Gates st
   expect(mergeMode(store, current(), resolution.workflow)).toBe('gate')
 })
 
-test('mutation authentication failure waits for sign-in without claiming a merge', async () => {
+test('mutation authentication failure waits for sign-in without claiming a merge, and the next cycle merges', async () => {
   vi.mocked(gh.run).mockRejectedValueOnce(new GhError('auth', 'sign in'))
   await expect(watcher.cycle(id, read())).rejects.toThrow('sign in')
   expect(pr()?.waiting).toBe('sign-in')
   expect(port.read).not.toHaveBeenCalled()
   expect(pr()?.state).toBe('ready')
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(pr()?.state).toBe('merged')
 })
 
 test.each(['pure', 'extra commit', 'file mode', 'local commit'] as const)(

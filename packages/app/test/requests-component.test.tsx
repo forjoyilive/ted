@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
-import type { AutomationRequest, FailureCase, PlanInboxItem, Round } from '@ted/protocol'
+import {
+  type AutomationRequest,
+  defaultMachineSettings,
+  type FailureCase,
+  type PlanInboxItem,
+  type Round,
+} from '@ted/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
+import { writtenText } from '../src/renderer/components/RoundCard.tsx'
 import { QuestionCard } from '../src/renderer/views/Automations.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
@@ -224,6 +231,41 @@ test('Submit answers preserves changed choices, written answers and added notes'
   })
 })
 
+test('chat edits synchronize with the still-mounted thread before submission', async () => {
+  const { answer } = requestApi()
+  const request = comment({ kind: 'round', round })
+  const props = { request, task: task() }
+  const cards = (talking: boolean) => (
+    <div>
+      <div data-testid="thread" hidden={talking}>
+        <RequestCard {...props} active={!talking} />
+      </div>
+      <div data-testid="chat">{talking && <RequestCard {...props} />}</div>
+    </div>
+  )
+  const view = render(cards(false))
+  const u = user()
+  await u.click(screen.getByRole('radio', { name: 'Keep latest' }))
+  await u.type(screen.getByLabelText('Add to answer 1'), 'Thread note.')
+  view.rerender(cards(true))
+  const chat = within(screen.getByTestId('chat'))
+  await u.click(chat.getByRole('radio', { name: /Keep both/ }))
+  await u.clear(chat.getByLabelText('Add to answer 1'))
+  await u.type(chat.getByLabelText('Add to answer 1'), 'Agreed in chat.')
+  await u.clear(chat.getByLabelText('Answer 2'))
+  await u.type(chat.getByLabelText('Answer 2'), 'Keep every edit.')
+  view.rerender(cards(false))
+  expect((screen.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Agreed in chat.',
+  )
+  await u.click(screen.getByRole('button', { name: 'Submit answers' }))
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [{ answer: 'Keep both', note: 'Agreed in chat.' }, { answer: 'Keep every edit.' }],
+  })
+})
+
 test('round recommendations, reset, Other validation and notes are sent as answers', async () => {
   const { answer } = requestApi()
   render(
@@ -242,6 +284,9 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   await u.type(f.getByLabelText('Add to answer 1'), 'Clashes are rare.')
   await u.click(f.getByRole('radio', { name: 'Other' }))
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
+  expect((f.getByLabelText('Your answer 1') as HTMLInputElement).value).toBe('Clashes are rare.')
+  expect(submit.disabled).toBe(false)
+  await u.clear(f.getByLabelText('Your answer 1'))
   expect(submit.disabled).toBe(true)
   await u.type(f.getByLabelText('Your answer 1'), '   ')
   expect(submit.disabled).toBe(true)
@@ -250,7 +295,9 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   await u.click(f.getByRole('button', { name: 'Reset' }))
   expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
   await u.click(f.getByText('Keep latest'))
-  expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe('Clashes are rare.')
+  expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Ask me to resolve each conflict.',
+  )
   await u.click(f.getByRole('radio', { name: 'Other' }))
   expect((f.getByLabelText('Your answer 1') as HTMLInputElement).value).toBe(
     'Ask me to resolve each conflict.',
@@ -260,6 +307,172 @@ test('round recommendations, reset, Other validation and notes are sent as answe
     action: 'answer-round',
     answers: [{ answer: 'Ask me to resolve each conflict.' }, { answer: 'The edit wins.' }],
   })
+})
+
+test('Talk it through confirms a stopped Task, preserves edits on cancel, and opens only when ready', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  const start = vi.fn((..._args: unknown[]) => ({ resumeRequired: true }))
+  api.handle('talkThrough', start)
+  const open = vi.fn()
+  const props = { request, task: task(), onOpenRun: open }
+  const view = render(<RequestCard {...props} />)
+  const u = user()
+  await u.click(screen.getByRole('radio', { name: 'Keep latest' }))
+  await u.type(screen.getByLabelText('Add to answer 1'), 'Keep this note.')
+  await u.click(screen.getByRole('button', { name: 'Talk it through' }))
+  expect(start).toHaveBeenLastCalledWith('c1', { confirmResume: false })
+  await screen.findByRole('dialog', { name: 'Resume Task to talk?' })
+  await u.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(start).toHaveBeenCalledTimes(1)
+  expect((screen.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Keep this note.',
+  )
+  await u.click(screen.getByRole('button', { name: 'Talk it through' }))
+  await screen.findByRole('dialog', { name: 'Resume Task to talk?' })
+  api.handle('talkThrough', (...args) => {
+    start(...args)
+    return { ...request, talkRequested: true }
+  })
+  await u.click(screen.getByRole('button', { name: 'Resume and talk' }))
+  expect(start).toHaveBeenLastCalledWith('c1', { confirmResume: true })
+  view.rerender(<RequestCard {...props} request={{ ...request, talkRequested: true }} />)
+  expect(screen.getByRole('status').textContent).toContain('Waiting for Task Lead…')
+  expect(
+    (screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement).disabled,
+  ).toBe(false)
+  expect(open).not.toHaveBeenCalled()
+  const ready = {
+    ...request,
+    talk: { runId: 'new-lead', startedAt: createdAt, notifiedAt: createdAt },
+  }
+  view.rerender(<RequestCard {...props} request={ready} task={task({ leadRunId: 'new-lead' })} />)
+  await waitFor(() => expect(open).toHaveBeenCalledExactlyOnceWith('new-lead'))
+  view.unmount()
+  render(<RequestCard request={ready} task={task({ leadRunId: 'new-lead' })} onOpenRun={open} />)
+  expect(open).toHaveBeenCalledTimes(1)
+  expect((screen.getByRole('radio', { name: /Keep latest/ }) as HTMLInputElement).checked).toBe(
+    true,
+  )
+  expect((screen.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Keep this note.',
+  )
+  api.handle('talkThrough', () => ready)
+  await u.click(screen.getByRole('button', { name: 'Open chat' }))
+  expect(open).toHaveBeenCalledTimes(2)
+})
+
+test('a talk that becomes ready after leaving the round offers Open chat on the next visit', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  api.handle('talkThrough', () => ({ ...request, talkRequested: true }))
+  const open = vi.fn()
+  const view = render(<RequestCard request={request} task={task()} onOpenRun={open} />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  view.unmount()
+  render(
+    <RequestCard
+      request={{ ...request, talk: { runId: 'lead', startedAt: createdAt, notifiedAt: createdAt } }}
+      task={task({ leadRunId: 'lead' })}
+      onOpenRun={open}
+    />,
+  )
+  expect(screen.getByRole('button', { name: 'Open chat' })).toBeTruthy()
+  expect(open).not.toHaveBeenCalled()
+})
+
+test('a still-mounted hidden round never opens a queued talk over another view', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  api.handle('talkThrough', () => ({ ...request, talkRequested: true }))
+  const open = vi.fn()
+  const props = { task: task({ leadRunId: 'lead' }), onOpenRun: open }
+  const view = render(<RequestCard {...props} request={request} active />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  view.rerender(<RequestCard {...props} request={{ ...request, talkRequested: true }} active />)
+  view.rerender(
+    <RequestCard {...props} request={{ ...request, talkRequested: true }} active={false} />,
+  )
+  const ready = { ...request, talk: { runId: 'lead', startedAt: createdAt, notifiedAt: createdAt } }
+  view.rerender(<RequestCard {...props} request={ready} active={false} />)
+  expect(open).not.toHaveBeenCalled()
+  view.rerender(<RequestCard {...props} request={ready} active />)
+  expect(open).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Open chat' })).toBeTruthy()
+})
+
+test('leaving and returning before a talk request finishes prevents late automatic navigation', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  const response = deferred<typeof request>()
+  api.handle('talkThrough', () => response.promise)
+  const open = vi.fn()
+  const props = { task: task({ leadRunId: 'lead' }), onOpenRun: open, request }
+  const view = render(<RequestCard {...props} active />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  view.rerender(<RequestCard {...props} active={false} />)
+  view.rerender(<RequestCard {...props} active />)
+  await act(async () =>
+    response.resolve({
+      ...request,
+      talk: { runId: 'lead', startedAt: createdAt, notifiedAt: createdAt },
+    }),
+  )
+  expect(open).not.toHaveBeenCalled()
+})
+
+test('cancelling a bound talk before acknowledgement never opens the stopped Lead', async () => {
+  const api = requestApi()
+  const request = comment({ kind: 'round', round })
+  api.handle('talkThrough', () => ({ ...request, talkRequested: true }))
+  const open = vi.fn()
+  const props = {
+    task: task({ leadRunId: 'lead', status: { kind: 'waiting-on-you' } }),
+    onOpenRun: open,
+  }
+  const view = render(<RequestCard {...props} request={request} />)
+  await user().click(screen.getByRole('button', { name: 'Talk it through' }))
+  const bound = { ...request, talk: { runId: 'lead', startedAt: createdAt } }
+  view.rerender(<RequestCard {...props} request={{ ...bound, talkRequested: true }} />)
+  view.rerender(<RequestCard {...props} request={bound} />)
+  expect(open).not.toHaveBeenCalled()
+})
+
+test('a pending talk explains a live Lead’s availability and acknowledgement wait', () => {
+  requestApi()
+  const lead = {
+    id: 'lead',
+    agent: 'claude' as const,
+    role: 'lead' as const,
+    name: 'Task Lead',
+    state: 'waiting' as const,
+  }
+  const request = comment({ kind: 'round', round, talkRequested: true })
+  const view = render(
+    <RequestCard
+      request={request}
+      task={task({ leadRunId: lead.id, runs: [{ ...lead, paused: 'Signed out' }] })}
+    />,
+  )
+  expect(screen.getByRole('status').textContent).toContain('Signed out')
+  view.rerender(
+    <RequestCard
+      request={{ ...request, talk: { runId: lead.id, startedAt: createdAt } }}
+      task={task({ leadRunId: lead.id, runs: [lead] })}
+    />,
+  )
+  expect(screen.getByRole('status').textContent).toContain(
+    'Waiting for the Task Lead to receive this request.',
+  )
+})
+
+test('a round draft saved with two texts shows the selected option’s text', () => {
+  expect(writtenText({ note: 'Under a choice', custom: 'Under Other' })).toBe('Under a choice')
+  expect(writtenText({ note: 'Under a choice', custom: 'Under Other', other: true })).toBe(
+    'Under Other',
+  )
+  expect(writtenText({ note: 'Under a choice', other: true })).toBe('Under a choice')
+  expect(writtenText({ note: '', custom: 'Under Other' })).toBe('Under Other')
 })
 
 test('grilling sign-off displays decisions, open questions and button guidance', async () => {
@@ -557,7 +770,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
   await user().click(screen.getByRole('button', { name: 'Show answered' }))
   expect(props.onShowAnswered).toHaveBeenCalledWith(true)
   view.rerender(<Inbox {...props} factoryId="f1" />)
-  expect(screen.getByText(/widgets/)).toBeTruthy()
+  expect(screen.getAllByText(/widgets/)).toHaveLength(2)
   await user().click(screen.getByRole('button', { name: 'Show all Factories' }))
   expect(props.onFilter).toHaveBeenCalledWith(undefined)
 })
@@ -572,6 +785,115 @@ test('resolving a selected request opens the next request and clears when none r
   expect(props.onOpen).toHaveBeenCalledWith(second)
   view.rerender(<Inbox {...props} items={[]} selected="c2" />)
   expect(props.onClear).toHaveBeenCalledOnce()
+})
+
+test('a Factory with Inbox items off has its requests marked as not counted', async () => {
+  requestApi()
+  const props = inboxProps()
+  const onOpenNotifications = vi.fn()
+  const items = [{ task: task(), request: comment({ id: 'c1' }) }]
+  const view = render(<Inbox {...props} items={items} onOpenNotifications={onOpenNotifications} />)
+  expect(screen.queryByText('Not counted')).toBeNull()
+  view.rerender(
+    <Inbox
+      {...props}
+      items={items}
+      onOpenNotifications={onOpenNotifications}
+      settings={{
+        ...defaultMachineSettings,
+        factoryNotifications: { f1: { inboxItems: false, taskMerged: false } },
+      }}
+    />,
+  )
+  expect(screen.getByText('Not counted')).toBeTruthy()
+  expect(screen.getByText(/1 not counted or notified: Inbox items are off for/)).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Change' }))
+  expect(onOpenNotifications).toHaveBeenCalledOnce()
+})
+
+test('Filter holds Group by, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
+  const props = inboxProps()
+  const question = {
+    task: task(),
+    request: comment({ id: 'q', body: 'A question?', createdAt: '2026-11-09T13:00:00Z' }),
+  }
+  const permission = {
+    task: task(),
+    request: comment({
+      id: 'perm',
+      kind: 'permission',
+      body: 'Run the build',
+      permission: { command: 'pnpm build' },
+      createdAt: '2026-11-09T12:00:00Z',
+    }),
+  }
+  const all = {
+    ...props,
+    items: [question, permission],
+    factories: [factory(), factory({ id: 'f2', name: 'Other' })],
+    onClearFilters: vi.fn(),
+  }
+  try {
+    const view = render(<Inbox {...all} />)
+    const headlines = () =>
+      [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
+    const headings = () =>
+      [...view.container.querySelectorAll('ul [aria-expanded]')].map((el) => [
+        el.textContent,
+        el.getAttribute('aria-expanded'),
+      ])
+    expect(headlines()).toEqual(['A question?', 'Run the build'])
+    expect(headings()).toEqual([])
+    expect(screen.queryByRole('switch', { name: 'Answered' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
+
+    await user().click(screen.getByRole('button', { name: /^Filter/ }))
+    const menu = screen.getByRole('menu', { name: 'Filter' })
+    expect(
+      within(menu).getByRole('menuitemradio', { name: /^None/ }).getAttribute('aria-checked'),
+    ).toBe('true')
+    await user().click(within(menu).getByRole('button', { name: 'Other 0' }))
+    expect(props.onFilter).toHaveBeenCalledWith('f2')
+    await user().click(within(menu).getByRole('switch', { name: 'Answered' }))
+    expect(props.onShowAnswered).toHaveBeenCalledWith(true)
+
+    await user().click(within(menu).getByRole('menuitemradio', { name: /^Kind/ }))
+    expect(headings()).toEqual([
+      ['Blocking a Run1', 'true'],
+      ['Questions1', 'true'],
+    ])
+    expect(headlines()).toEqual(['Run the build', 'A question?'])
+    expect(screen.getByText('Grouped by Kind')).toBeTruthy()
+
+    await user().click(screen.getByRole('button', { name: /^Blocking a Run/ }))
+    expect(headings()).toEqual([
+      ['Blocking a Run1', 'false'],
+      ['Questions1', 'true'],
+    ])
+    expect(headlines()).toEqual(['A question?'])
+    view.rerender(<Inbox {...all} selected="perm" />)
+    expect(props.onOpen).not.toHaveBeenCalled()
+    expect(props.onClear).not.toHaveBeenCalled()
+
+    view.unmount()
+    render(<Inbox {...all} />)
+    const again = () =>
+      [...document.querySelectorAll('ul [aria-expanded]')].map((el) => [
+        el.textContent,
+        el.getAttribute('aria-expanded'),
+      ])
+    expect(again()).toEqual([
+      ['Blocking a Run1', 'false'],
+      ['Questions1', 'true'],
+    ])
+
+    await user().click(screen.getByRole('button', { name: 'Clear' }))
+    expect(all.onClearFilters).toHaveBeenCalledOnce()
+    expect(again()).toEqual([])
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
+  } finally {
+    localStorage.removeItem('ted.inbox.grouping')
+  }
 })
 
 test('Inbox interleaves request types newest first, filters without reordering, and selects the next visible row', async () => {
@@ -1660,6 +1982,7 @@ test('Inbox right-click opens the clicked request and copies its full message wi
   fireEvent.contextMenu(screen.getByText('Automation question'))
   expect(screen.getAllByRole('menuitem').map((e) => e.textContent)).toEqual([
     'Open request',
+    'Snooze…',
     'Copy message text',
   ])
   await u.click(screen.getByRole('menuitem', { name: 'Open request' }))

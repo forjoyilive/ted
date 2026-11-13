@@ -115,6 +115,7 @@ async function openTaskWithChanges(): Promise<Page> {
   await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
   await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
   await window.getByRole('region', { name: 'Task thread' }).waitFor()
+  await window.getByRole('tab', { name: 'Changes' }).click()
   return window
 }
 
@@ -123,8 +124,8 @@ describe('Changes in Task details', () => {
     const window = await openTaskWithChanges()
     const changes = window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Changes' })
-    await changes.getByRole('heading', { name: 'Changes · 3 files' }).waitFor()
+      .getByRole('tabpanel', { name: 'Changes' })
+    await changes.getByText('3 files', { exact: true }).waitFor()
     const repo = changes.getByRole('list', { name: 'widgets' })
     await changes.getByText('+3').first().waitFor()
     await expect
@@ -169,7 +170,7 @@ describe('Changes in Task details', () => {
     {
       const changes = window
         .getByRole('complementary', { name: 'Task details' })
-        .getByRole('region', { name: 'Changes' })
+        .getByRole('tabpanel', { name: 'Changes' })
       await changes.getByRole('button', { name: 'All changes' }).click()
 
       const all = window.getByRole('region', { name: 'All changes' })
@@ -190,22 +191,22 @@ describe('Changes in Task details', () => {
     const window = await openTaskWithChanges()
     const changes = window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Changes' })
-    await changes.getByRole('heading', { name: 'Changes · 3 files' }).waitFor()
+      .getByRole('tabpanel', { name: 'Changes' })
+    await changes.getByText('3 files', { exact: true }).waitFor()
     const [task] = await (await client()).listTasks()
     await write(task?.repos[0]?.worktree ?? '', { 'extra.txt': 'x\n' })
 
     await window.evaluate(() => globalThis.dispatchEvent(new Event('focus')))
 
-    await changes.getByRole('heading', { name: 'Changes · 4 files' }).waitFor()
+    await changes.getByText('4 files', { exact: true }).waitFor()
   })
 
   test('a committed change undone in the working tree remains readable as local committed work', async () => {
     const window = await openTaskWithChanges()
     const changes = window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Changes' })
-    await changes.getByRole('heading', { name: 'Changes · 3 files' }).waitFor()
+      .getByRole('tabpanel', { name: 'Changes' })
+    await changes.getByText('3 files', { exact: true }).waitFor()
     const [task] = await (await client()).listTasks()
     await write(task?.repos[0]?.worktree ?? '', {
       'src/search/SearchPanel.tsx': ['one', 'two', 'three', 'four', 'five', ''].join('\n'),

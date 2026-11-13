@@ -4,6 +4,7 @@ import { defaultMachineSettings } from '@ted/protocol/settings'
 import { cleanup } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
+import { showDetailsTab } from '../../src/renderer/details.ts'
 import type { TedBridge, TedEvent } from '../../src/renderer/ted.ts'
 
 const verifications: (() => void)[] = []
@@ -16,6 +17,8 @@ export function bridge(given: Record<string, Handler>) {
     agentAvailability: () => [],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
     getSideChat: () => null,
+    messageDraft: () => ({ draft: null }),
+    saveMessageDraft: (_box, draft) => ({ draft }),
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
     getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     ...given,
@@ -80,6 +83,7 @@ afterEach(() => {
   const checks = verifications.splice(0)
   try {
     cleanup()
+    showDetailsTab('details')
     for (const verify of checks) verify()
   } finally {
     vi.restoreAllMocks()

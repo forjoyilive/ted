@@ -170,19 +170,19 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     })
   }
 
-  function acknowledgeLeadMessages(run: Run): void {
-    if (run.taskId === undefined) return
-    const task = store.getTask(run.taskId)
-    if (task?.leadRunId !== run.id || task.pendingLeadMessages.length === 0) return
+  function acknowledgeLeadMessages(run: Run, known?: StoredTask): boolean {
+    if (run.taskId === undefined) return false
+    const task = known?.id === run.taskId ? known : store.getTask(run.taskId)
+    if (task?.leadRunId !== run.id || task.pendingLeadMessages.length === 0) return false
     store.deliveredLeadMessages(run.taskId, runs.acceptedInputs(run.id))
+    return true
   }
 
   async function applyLead(taskId: string): Promise<void> {
     if (applying.has(taskId)) return
     const previous = store.getTask(taskId)
     const run = previous && liveLead(previous)
-    if (run) acknowledgeLeadMessages(run)
-    const task = store.getTask(taskId)
+    const task = run && acknowledgeLeadMessages(run, previous) ? store.getTask(taskId) : previous
     const lead = task && effectiveLead(task)
     if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
     if (agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)) return
@@ -422,6 +422,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
       return
     }
+    const stoppedByTed = store.tedStopPending(task.id)
     const [checked] = await health.check([run.agent])
     if (checked?.state === 'ready' && signedOut === undefined) {
       const ended = store.getRun(run.id)?.ended
@@ -432,7 +433,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     }
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
-    if (now.waitsForBlockers || now.stopped) return
+    if (now.waitsForBlockers || now.stopped || stoppedByTed) return
     if (signedOut !== undefined) {
       const held = new Set(store.heldAnswers(task.id).map((c) => c.id))
       for (const comment of store.listComments(task.id)) {

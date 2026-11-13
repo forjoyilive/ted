@@ -1,8 +1,10 @@
 import {
   type Attachment,
+  maxCommitLookups,
   type NewTaskDraft,
   parseAddFailureEvidenceRequest,
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAssessFailureRequest,
   parseBlockTaskRequest,
@@ -27,10 +29,14 @@ import {
   parseSetPriorityRequest,
   parseSetTaskAutopilotRequest,
   parseSetTaskGatesRequest,
+  parseSetTaskParentRequest,
   parseSetTaskReposRequest,
   parseSetTaskSnoozeRequest,
+  parseSnoozeRequestRequest,
   parseStartTaskRequest,
+  parseTalkThroughRequest,
   parseTaskLead,
+  parseUnarchiveTaskRequest,
   parseVerifyFailureRequest,
   parseWriteBriefRequest,
 } from '@ted/protocol'
@@ -45,6 +51,18 @@ import type {
 import { jsonRoute, type Route } from './route.ts'
 
 export const taskRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/ted-stops$/,
+    handle: async (_, { tasks }) => [200, tasks.tedStops()],
+  },
+  jsonRoute(parseAnswerTedStopsRequest, {
+    method: 'POST',
+    path: /^\/ted-stops\/answer$/,
+    async handle({ body }, { tasks }) {
+      return [200, await tasks.answerTedStops(body)]
+    },
+  }),
   jsonRoute(parseSetTaskAutopilotRequest, {
     method: 'PUT',
     path: /^\/tasks\/([^/]+)\/autopilot$/,
@@ -217,6 +235,13 @@ export const taskRoutes: Route[] = [
       return [200, tasks.setTaskSnooze(ref, body.snoozedUntil)]
     },
   }),
+  jsonRoute(parseSnoozeRequestRequest, {
+    method: 'PUT',
+    path: /^\/requests\/([^/]+)\/snooze$/,
+    async handle({ body, params: [id = ''] }, { tasks }) {
+      return [200, tasks.snoozeRequest(id, body.until)]
+    },
+  }),
   jsonRoute(parseStartTaskRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/start$/,
@@ -300,9 +325,37 @@ export const taskRoutes: Route[] = [
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.allowLinearSync(ref)],
   },
   {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/hierarchy$/,
+    runToken: true,
+    handle: async ({ params: [ref = ''], caller }, { tasks }) => [
+      200,
+      tasks.hierarchy(ref, caller),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/hierarchy\/preview$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.hierarchyPreview(ref)],
+  },
+  jsonRoute(parseSetTaskParentRequest, {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/parent$/,
+    handle: async ({ params: [ref = ''], body }, { tasks }) => [200, tasks.setParent(ref, body)],
+  }),
+  jsonRoute(parseUnarchiveTaskRequest, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/unarchive$/,
-    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.unarchive(ref)],
+    handle: async ({ params: [ref = ''], body }, { tasks }) => [
+      200,
+      await tasks.unarchive(ref, body),
+    ],
+  }),
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/reset$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.reset(ref)],
   },
   jsonRoute(parseDeleteTaskRequest, {
     optionalBody: true,
@@ -441,6 +494,23 @@ export const taskRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/commits(?:\?.*)?$/,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can look up commits')
+      const ids = new URL(req.url ?? '/', 'http://localhost').searchParams.get('ids') ?? ''
+      return [200, await tasks.commits(ref, ids.split(',').slice(0, maxCommitLookups))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/commits\/([^/?]+)$/,
+    async handle({ params: [ref = '', commit = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read a commit')
+      return [200, await tasks.commitChanges(ref, commit)]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/tasks\/([^/]+)\/line-comments$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.lineComments(ref)],
   },
@@ -539,10 +609,19 @@ export const taskRoutes: Route[] = [
     handle: async (_, { store }) => [200, store.waiting()],
   },
   {
+    method: 'GET',
+    path: /^\/inbox\/snoozed$/,
+    handle: async (_, { store }) => [200, store.snoozed()],
+  },
+  jsonRoute(parseTalkThroughRequest, {
     method: 'POST',
     path: /^\/comments\/([^/]+)\/talk$/,
-    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.talkThrough(id)],
-  },
+    optionalBody: true,
+    handle: async ({ params: [id = ''], body }, { tasks }) => [
+      200,
+      await tasks.talkThrough(id, body),
+    ],
+  }),
   {
     method: 'POST',
     path: /^\/comments\/([^/]+)\/done-talking$/,

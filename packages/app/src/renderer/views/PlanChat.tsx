@@ -15,6 +15,7 @@ import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
@@ -27,7 +28,9 @@ import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import {
+  dotted,
   planEnded,
   planStartedLine,
   planStatusChip,
@@ -36,7 +39,7 @@ import {
   when,
 } from '../plans.ts'
 import { ago, clockTime, useNow } from '../requests.ts'
-import { agentLabels, modelChoices } from '../task-fields.ts'
+import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './PlanChat.module.css'
 import { stageName } from './TaskViews.tsx'
@@ -120,7 +123,6 @@ export function LeadSelects({
   lead: TaskLead
   onChange: (lead: TaskLead) => void
 }) {
-  const models = [...new Set([...modelChoices[lead.agent], ...(lead.model ? [lead.model] : [])])]
   const set = (agent: AgentKind, model: string, effort: string) =>
     onChange({
       agent,
@@ -136,18 +138,12 @@ export function LeadSelects({
       >
         <AgentOptions current={lead.agent} />
       </Select>
-      <Select
+      <ModelSelect
         aria-label="Model"
+        agent={lead.agent}
         value={lead.model ?? ''}
-        onChange={(event) => set(lead.agent, event.target.value, lead.effort ?? '')}
-      >
-        <option value="">Default model</option>
-        {models.map((model) => (
-          <option key={model} value={model}>
-            {model}
-          </option>
-        ))}
-      </Select>
+        onChange={(model) => set(lead.agent, model, lead.effort ?? '')}
+      />
       <Select
         aria-label="Effort"
         value={lead.effort ?? ''}
@@ -188,7 +184,8 @@ function NewPlanChat({
 }) {
   const earlier = usePlan(from)?.plan
   const [lead, setLead] = useState<TaskLead>()
-  const [text, setText] = useState('')
+  const draft = useMessageDraft({ kind: 'new-plan', id: factory.id })
+  const { text, setText } = draft
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const cloning = !factory.cloned
@@ -226,6 +223,7 @@ function NewPlanChat({
         ...(lead?.model !== undefined && { model: lead.model }),
         ...(lead?.effort !== undefined && { effort: lead.effort }),
       })
+      draft.clear()
       onStarted(plan.id)
     } catch (failed) {
       setError(readableError(failed))
@@ -590,7 +588,7 @@ function OneLiner({
       <div className={`${styles.card} ${styles.approved}`}>
         <div className={styles.cardHead}>
           <span className={styles.approvedKind}>{kind}</span>
-          <span>{`${detail} · ${state}`}</span>
+          <span>{dotted(detail, state)}</span>
         </div>
         {request.title !== undefined && <p className={styles.cardTitle}>{request.title}</p>}
         <ProposalRows
@@ -612,7 +610,7 @@ function OneLiner({
     <div className={pending ? `${styles.line} ${styles.pending}` : styles.line}>
       <div className={styles.lineHead}>
         <span className={styles.lineKind}>{kind}</span>
-        <span className={styles.lineText}>{` · ${detail} · ${state}`}</span>
+        <span className={styles.lineText}>{` · ${dotted(detail, state)}`}</span>
         <span className={styles.spacer} />
         {canShow && (
           <ActionButton type="button" className={styles.link} onClick={() => setOpen(!open)}>
@@ -669,7 +667,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
     >
       <div className={styles.cardHead}>
         <span className={styles.pendingKind}>{kind}</span>
-        <span>{`· ${detail} · from the planner · ${ago(request.createdAt, now)}`}</span>
+        <span>{`· ${dotted(detail, 'from the planner', ago(request.createdAt, now))}`}</span>
       </div>
       {request.title !== undefined && request.title !== '' && (
         <p className={styles.cardTitle}>{request.title}</p>
@@ -683,6 +681,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
             sending={sending}
             talking={false}
             onTalk={undefined}
+            box={{ kind: 'plan-request', id: request.id }}
             onSend={(answer) => send(answer)}
           />
           <p className={styles.talkHint}>Typing below talks it through with the planner.</p>
@@ -693,6 +692,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
           proposal={request.proposal}
           readOnly={false}
           sending={sending}
+          box={{ kind: 'plan-request', id: request.id }}
           onSend={(answer) => send(answer)}
         />
       )}

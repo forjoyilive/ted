@@ -183,14 +183,15 @@ describe('Failed', () => {
     await card.getByText('The Task Lead stopped twice in 30 minutes').waitFor()
     await card.getByText('claude exited with code 1').waitFor()
 
-    await card.getByRole('button', { name: 'Open last Run' }).click()
+    const answer = thread.getByRole('region', { name: 'Answer', exact: true })
+    await answer.getByRole('button', { name: 'Open last Run' }).click()
     await window.getByRole('region', { name: 'Run chat' }).getByText('Starting.').first().waitFor()
     await window.getByRole('tab', { name: 'Task Lead' }).click()
 
-    await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
-    await card.getByRole('radio', { name: 'Retry', exact: true }).check()
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
+    await answer.getByRole('radio', { name: 'Retry', exact: true }).check()
     expect((await client.listTasks())[0]?.status?.kind).toBe('failed')
-    await card.getByRole('button', { name: 'Send', exact: true }).click()
+    await answer.getByRole('button', { name: 'Send', exact: true }).click()
 
     await thread.getByText('You retried the Task').waitFor()
     const comments = await client.listComments('NB-1')

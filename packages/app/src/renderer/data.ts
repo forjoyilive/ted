@@ -26,14 +26,17 @@ import type {
   RunSlots,
   RunSummary,
   SimulatorSlots,
+  SnoozedRequest,
   StageEntry,
   StageId,
   Task,
   TaskApp,
   TaskBrief,
+  TedStoppedTask,
   ThreadEvent,
   ValidationObligations,
 } from '@ted/protocol'
+import { countWaiting } from '@ted/protocol/waiting'
 import {
   createContext,
   useCallback,
@@ -260,6 +263,7 @@ function useLiveList<T extends { id: string }>(
   order: (a: T, b: T) => number,
   drop: (event: TedEvent) => string | undefined = keepAll,
   retryEveryMs?: number,
+  reloadOn?: (event: TedEvent) => boolean,
 ): { items: T[]; loaded: boolean; error: string | undefined; retry: () => void } {
   const [items, setItems] = useState<T[]>([])
   const [done, setDone] = useState(false)
@@ -283,6 +287,11 @@ function useLiveList<T extends { id: string }>(
     let fresh: T[] | undefined = []
     const dropped = new Set<string>()
     const unsubscribe = ted.onEvent((event) => {
+      if (reloadOn?.(event)) {
+        setItems([])
+        void retry()
+        return
+      }
       const gone = drop(event)
       if (gone !== undefined) {
         dropped.add(gone)
@@ -322,7 +331,7 @@ function useLiveList<T extends { id: string }>(
       clearTimeout(again)
       unsubscribe()
     }
-  }, [load, pick, order, drop, epoch, attempt, retryEveryMs, retry, settled])
+  }, [load, pick, order, drop, epoch, attempt, retryEveryMs, retry, settled, reloadOn])
 
   const current = loaded.current === load
   return {
@@ -385,7 +394,11 @@ export function useCommentList(taskId: string) {
         : undefined,
     [taskId],
   )
-  return useLiveList(load, pick, byCreatedAt)
+  const reset = useCallback(
+    (event: TedEvent) => event.type === 'task-reset' && event.taskId === taskId,
+    [taskId],
+  )
+  return useLiveList(load, pick, byCreatedAt, undefined, undefined, reset)
 }
 
 const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
@@ -403,7 +416,11 @@ export function useCheckRunList(taskId: string) {
         : undefined,
     [taskId],
   )
-  return useLiveList(load, pick, byStartedAt)
+  const reset = useCallback(
+    (event: TedEvent) => event.type === 'task-reset' && event.taskId === taskId,
+    [taskId],
+  )
+  return useLiveList(load, pick, byStartedAt, undefined, undefined, reset)
 }
 
 export function useThreadEvents(taskId: string): ThreadEvent[] {
@@ -464,6 +481,21 @@ export function useSlots(): RunSlots | undefined {
     load: ted.getSlots,
     event: (event) => (event.type === 'slots-changed' ? () => event.slots : undefined),
   }).value
+}
+
+export function useTedStops(): TedStoppedTask[] {
+  const listed = useRef<ReadonlySet<string>>(new Set())
+  const stops =
+    useReloading(
+      () => ted.tedStops(),
+      (event) =>
+        event.type === 'ted-stops-changed' ||
+        (event.type === 'task-updated' && listed.current.has(event.task.id)) ||
+        (event.type === 'task-deleted' && listed.current.has(event.taskId)),
+      'ted-stops',
+    ) ?? []
+  listed.current = new Set(stops.map((task) => task.id))
+  return stops
 }
 
 export function useDrift(): DriftCounts | undefined {
@@ -984,10 +1016,19 @@ export function useWaitingCount(): number {
   return (
     useEventValue<number | undefined>({
       initial: undefined,
-      load: async () => (await ted.listWaiting()).length,
-      event: (event) => (event.type === 'inbox-changed' ? () => event.waiting.length : undefined),
+      load: async () => countWaiting(await ted.listWaiting()),
+      event: (event) =>
+        event.type === 'inbox-changed' ? () => countWaiting(event.waiting) : undefined,
     }).value ?? 0
   )
+}
+
+export function useSnoozedRequests(): SnoozedRequest[] {
+  return useEventValue<SnoozedRequest[]>({
+    initial: [],
+    load: ted.listSnoozed,
+    event: (event) => (event.type === 'inbox-changed' ? () => event.snoozed : undefined),
+  }).value
 }
 
 export function useAutomationRequests(): AutomationRequest[] {

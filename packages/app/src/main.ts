@@ -14,6 +14,7 @@ import {
 import {
   type Activity,
   type Banner,
+  countWaiting,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
@@ -434,7 +435,7 @@ function forward(event: DaemonEvent): void {
   const drawn = state
   if (event.type === 'run-updated' && event.run.state === 'finished')
     taskBrowsers?.ended(event.run.id)
-  if (event.type === 'apps-changed' || event.type === 'task-deleted')
+  if (event.type === 'apps-changed' || event.type === 'task-deleted' || event.type === 'task-reset')
     taskBrowsers?.changed(event.taskId)
   if (event.type === 'task-updated') taskBrowsers?.changed(event.task.id)
   if (event.type === 'settings-changed') applySettings(event.settings)
@@ -443,7 +444,7 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'activity-changed') state = { ...state, activity: event.activity }
   if (event.type === 'inbox-changed') {
-    state = { ...state, waiting: event.waiting.length }
+    state = { ...state, waiting: countWaiting(event.waiting) }
     notifications.waiting(event.waiting)
   }
   if (event.type === 'banner-raised' || event.type === 'banner-updated') {
@@ -457,6 +458,9 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'banner-raised') notifications.problem(event.banner)
   if (event.type === 'task-updated') notifications.merged(event.task)
+  if (event.type === 'ted-stops-changed') {
+    noteTedStops().catch((error: unknown) => console.error('reading stopped Tasks failed:', error))
+  }
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   if (state !== drawn || event.type === 'settings-changed') refresh()
@@ -850,9 +854,26 @@ async function loadState(): Promise<void> {
     client.listBanners(),
     client.listWaiting(),
   ])
-  state = { ...state, activity, banners, waiting: waiting.length }
+  state = { ...state, activity, banners, waiting: countWaiting(waiting) }
   notifications.waiting(waiting)
   refresh()
+  await noteTedStops().catch((error: unknown) =>
+    console.error('reading stopped Tasks failed:', error),
+  )
+}
+
+let startedInBackground = false
+
+function windowHidden(): boolean {
+  if (hiddenWindow) return true
+  if (!window || window.isDestroyed()) return startedInBackground
+  return !window.isVisible()
+}
+
+async function noteTedStops(): Promise<void> {
+  if (!client) return
+  const stops = await client.tedStops()
+  notifications.tedStops(stops.length, windowHidden())
 }
 
 async function loadStateWhenReady(): Promise<void> {
@@ -920,6 +941,7 @@ async function start(): Promise<void> {
   loginItem = makeLoginItem()
   const background =
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
+  startedInBackground = background
   traceStartup(background ? 'background-mode' : 'window-mode')
   if (background) app.dock?.hide()
   if (tedEnv('TED_DEMO') === '1' && edition === 'dev') {

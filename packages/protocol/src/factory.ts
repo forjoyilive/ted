@@ -189,6 +189,11 @@ export interface StopCheckTryRequest {
   name: string
 }
 
+export interface SetFactoryNotificationsRequest {
+  inboxItems?: boolean
+  taskMerged?: boolean
+}
+
 export interface SetFactoryPermissionsRequest {
   mode: PermissionMode
   confirmBypass?: boolean

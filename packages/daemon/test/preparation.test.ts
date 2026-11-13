@@ -1,7 +1,7 @@
 import { mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type Comment, type Factory, type Task, tedPaths } from '@ted/protocol'
+import { type Comment, type Factory, type Task, type ThreadEvent, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -119,9 +119,23 @@ test('Design approval durably holds before Work; Resume and Overnight release on
   const a = await prepare()
   const b = await prepare()
   const c = await prepare()
+  await commitToOrigin(scratch, { 'other.txt': 'new on main\n' })
   await client.ok('POST', `/tasks/${a.id}/resume`, {})
   await waitUntil(async () => (await get(a.id))?.leadRunId !== a.leadRunId, 'fresh Work Lead')
   expect((await get(a.id))?.preparation).toBeUndefined()
+  const moves = async (id: string) =>
+    (await client.ok<ThreadEvent[]>('GET', `/tasks/${id}/events`))
+      .map((e) => e.text)
+      .filter((text) => text.startsWith('TED moved '))
+  expect(await moves(a.id)).toEqual(['TED moved widgets to the latest main'])
+  expect(await moves(b.id)).toEqual([])
+  await waitUntil(
+    async () =>
+      (await client.getRun((await get(a.id))?.leadRunId ?? '')).conversation.some((e) =>
+        e.line.includes('TED moved this Task’s branch to the latest main before Work started'),
+      ),
+    'the Work Lead to be told its branch moved',
+  )
   await client.ok('POST', `/tasks/${a.id}/stop`)
   await client.ok('POST', `/tasks/${b.id}/stop`)
   await daemon?.stop()

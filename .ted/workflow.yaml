@@ -23,3 +23,4 @@ stages:
   clarify:
     enabled: true
     gate: false
+    based_on: 3f46c0f

@@ -21,6 +21,7 @@
   flex-direction: column;
   gap: 2px;
   padding: 24px 14px;
+  overflow-y: auto;
 }
 
 .navItem {

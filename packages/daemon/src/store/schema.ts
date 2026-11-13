@@ -48,6 +48,17 @@ export const taskDraftConsumptions = State.SQLite.table({
   },
 })
 
+export const messageDrafts = State.SQLite.table({
+  name: 'messageDrafts',
+  columns: {
+    key: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text({ nullable: true }),
+    taskId: State.SQLite.text({ nullable: true }),
+    planId: State.SQLite.text({ nullable: true }),
+    draft: State.SQLite.text(),
+  },
+})
+
 export const factoryOrder = State.SQLite.table({
   name: 'factoryOrder',
   columns: {
@@ -155,6 +166,16 @@ export const taskBlockers = State.SQLite.table({
     taskId: State.SQLite.text(),
     blockerId: State.SQLite.text(),
     setByRunId: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
+export const taskParents = State.SQLite.table({
+  name: 'taskParents',
+  indexes: [{ name: 'idx_taskParents_parentId', columns: ['parentId'] }],
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    parentId: State.SQLite.text(),
     at: State.SQLite.text(),
   },
 })
@@ -383,6 +404,8 @@ export const runMessages = State.SQLite.table({
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     runId: State.SQLite.text(),
+    taskId: State.SQLite.text({ nullable: true }),
+    roundId: State.SQLite.text({ nullable: true }),
     text: State.SQLite.text(),
     at: State.SQLite.text(),
     queued: State.SQLite.boolean({ default: false }),
@@ -445,6 +468,9 @@ export const comments = State.SQLite.table({
     answerSentRunId: State.SQLite.text({ nullable: true }),
     answerSentAt: State.SQLite.text({ nullable: true }),
     failedRunId: State.SQLite.text({ nullable: true }),
+    talkNotifiedAt: State.SQLite.text({ nullable: true }),
+    talkMessageId: State.SQLite.text({ nullable: true }),
+    talkRequested: State.SQLite.boolean({ default: false }),
     talkRunId: State.SQLite.text({ nullable: true }),
     talkStartedAt: State.SQLite.text({ nullable: true }),
     talkDoneAt: State.SQLite.text({ nullable: true }),
@@ -888,6 +914,17 @@ export const automationComments = State.SQLite.table({
   },
 })
 
+export const requestSnoozes = State.SQLite.table({
+  name: 'requestSnoozes',
+  indexes: [{ name: 'idx_requestSnoozes_ownerId', columns: ['ownerId'] }],
+  columns: {
+    requestId: State.SQLite.text({ primaryKey: true }),
+    ownerId: State.SQLite.text(),
+    factoryId: State.SQLite.text(),
+    until: State.SQLite.text(),
+  },
+})
+
 export const sideChats = State.SQLite.table({
   name: 'sideChats',
   columns: { sourceRunId: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
@@ -1180,6 +1217,14 @@ export const events = {
       createdAt: Schema.String,
     }),
   }),
+  taskParentChanged: Events.synced({
+    name: 'v1.TaskParentChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      parentId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskBlockerAdded: Events.synced({
     name: 'v1.TaskBlockerAdded',
     schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
@@ -1209,6 +1254,20 @@ export const events = {
   taskSnoozeCleared: Events.synced({
     name: 'v1.TaskSnoozeCleared',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  requestSnoozed: Events.synced({
+    name: 'v1.RequestSnoozed',
+    schema: Schema.Struct({
+      requestId: Schema.String,
+      ownerId: Schema.String,
+      factoryId: Schema.String,
+      until: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  requestSnoozeCleared: Events.synced({
+    name: 'v1.RequestSnoozeCleared',
+    schema: Schema.Struct({ requestId: Schema.String, at: Schema.String }),
   }),
   taskStartRequestChanged: Events.synced({
     name: 'v1.TaskStartRequestChanged',
@@ -1250,6 +1309,19 @@ export const events = {
   taskResumed: Events.synced({
     name: 'v1.TaskResumed',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
+  taskStoppedByTed: Events.synced({
+    name: 'v1.TaskStoppedByTed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runId: Schema.String,
+      cause: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  tedStopAnswered: Events.synced({
+    name: 'v1.TedStopAnswered',
+    schema: Schema.Struct({ taskId: Schema.String, choice: Schema.String, at: Schema.String }),
   }),
   taskLeadNudged: Events.synced({
     name: 'v1.TaskLeadNudged',
@@ -1545,6 +1617,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskReset: Events.synced({
+    name: 'v1.TaskReset',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      description: Schema.String,
+      clarifyDepth: Schema.String,
+      clarifyDepthBy: Schema.NullOr(Schema.String),
+      runIds: Schema.Array(Schema.String),
+      checkRunIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskEdited: Events.synced({
     name: 'v1.TaskEdited',
     schema: Schema.Struct({
@@ -1693,9 +1777,31 @@ export const events = {
     name: 'v1.CommentAnswered',
     schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
   }),
+  roundTalkRequested: Events.synced({
+    name: 'v1.RoundTalkRequested',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
   roundTalkStarted: Events.synced({
     name: 'v1.RoundTalkStarted',
     schema: Schema.Struct({ id: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  roundTalkStartedV2: Events.synced({
+    name: 'v2.RoundTalkStarted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      messageId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  roundTalkNotified: Events.synced({
+    name: 'v1.RoundTalkNotified',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      messageId: Schema.String,
+      at: Schema.String,
+    }),
   }),
   roundTalkDone: Events.synced({
     name: 'v1.RoundTalkDone',
@@ -2254,6 +2360,21 @@ export const events = {
     name: 'v1.TaskDraftRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
   }),
+  messageDraftSaved: Events.synced({
+    name: 'v1.MessageDraftSaved',
+    schema: Schema.Struct({
+      key: Schema.String,
+      factoryId: Schema.NullOr(Schema.String),
+      taskId: Schema.NullOr(Schema.String),
+      planId: Schema.NullOr(Schema.String),
+      draft: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  messageDraftCleared: Events.synced({
+    name: 'v1.MessageDraftCleared',
+    schema: Schema.Struct({ key: Schema.String, at: Schema.String }),
+  }),
   factoryRemoved: Events.synced({
     name: 'v1.FactoryRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
@@ -2681,6 +2802,17 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  baseBranchAdopted: Events.synced({
+    name: 'v1.BaseBranchAdopted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      base: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   p1OnlyReviewRecorded: Events.synced({
     name: 'v1.SeverityRuleReviewRecorded',
     schema: Schema.Struct({
@@ -3080,6 +3212,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
   'v1.TaskResumedOvernight': (args) => task(args),
+  'v1.TaskStoppedByTed': (args) => task(args, { runId: args.runId, cause: args.cause }),
+  'v1.TedStopAnswered': (args) => task(args, { choice: args.choice }),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
   'v1.TaskLeadFailed': (args) =>
     task(args, {
@@ -3111,6 +3245,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.LinearPullRequestsLinked': (args) =>
     task(args, { identifier: args.identifier, urls: args.urls }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
+  'v1.TaskReset': (args) => task(args, { clarifyDepth: args.clarifyDepth }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
   'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
@@ -3142,6 +3277,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       fileCount: args.fileCount,
       sendBackId: args.sendBackId,
     }),
+  'v1.BaseBranchAdopted': (args) => task(args, { repo: args.repo, base: args.base }),
   'v1.SendBackSeverityDeclared': (args) =>
     task(args, { runId: args.runId, round: args.round, severity: args.severity }),
   'v1.SeverityRuleReviewRecorded': (args) =>
@@ -3256,6 +3392,9 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   }),
 }
 
+export const messageDraftKey = (kind: string, id: string): string => `${kind}:${id}`
+const runDraftKey = (id: string): string => messageDraftKey('run', id)
+
 function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
   return Object.fromEntries(
     Object.entries(withIntervalBoundaries(handlers)).map(([name, handler]) => {
@@ -3340,6 +3479,12 @@ const materializers = counted(
       'v1.TaskExecutionForgotten': ({ taskId }) => executionAssignments.delete().where({ taskId }),
       'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+      'v1.TaskParentChanged': ({ taskId, parentId, at }) => [
+        parentId === null
+          ? taskParents.delete().where({ taskId })
+          : taskParents.insert({ taskId, parentId, at }).onConflict('taskId', 'replace'),
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      ],
       'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
         taskBlockers
           .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
@@ -3354,6 +3499,11 @@ const materializers = counted(
         tasks.update({ snoozedUntil: until, startRequested: false }).where({ id: taskId }),
       'v1.TaskSnoozeCleared': ({ taskId }) =>
         tasks.update({ snoozedUntil: null }).where({ id: taskId }),
+      'v1.RequestSnoozed': ({ requestId, ownerId, factoryId, until }) =>
+        requestSnoozes
+          .insert({ requestId, ownerId, factoryId, until })
+          .onConflict('requestId', 'replace'),
+      'v1.RequestSnoozeCleared': ({ requestId }) => requestSnoozes.delete().where({ requestId }),
       'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
         tasks.update({ startRequested }).where({ id: taskId }),
       'v1.TaskWaitingForBlockers': ({ taskId }) => [
@@ -3389,6 +3539,10 @@ const materializers = counted(
       'v1.TaskPreparationChanged': ({ taskId, state, at }) =>
         tasks.update({ preparation: state, changedAt: at }).where({ id: taskId }),
       'v1.TaskStopped': ({ taskId, runs, why, at }) => [
+        runMessages
+          .update({ deletedAt: at, queued: false })
+          .where({ taskId, roundId: { op: '!=', value: null }, queued: true }),
+        comments.update({ talkRequested: false, talkMessageId: null }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
         tasks
           .update({
@@ -3412,12 +3566,18 @@ const materializers = counted(
           .update({ stoppedAt: null, stoppedRuns: null, stoppedWhy: null, changedAt: at })
           .where({ id: taskId }),
       ],
+      'v1.TaskStoppedByTed': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.TedStopAnswered': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateRequestedFor': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateApprovalBound': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.BaseBranchAdopted': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateKeptOvernight': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
@@ -3523,15 +3683,30 @@ const materializers = counted(
       'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
         tasks.update({ priority, changedAt: at }).where({ id: taskId }),
       'v1.TaskArchived': ({ taskId, at }) => [
+        runMessages
+          .update({ deletedAt: at, queued: false })
+          .where({ taskId, roundId: { op: '!=', value: null }, queued: true }),
+        comments.update({ talkRequested: false, talkMessageId: null }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v2.TaskArchived': ({ taskId, at }) => [
+        runMessages
+          .update({ deletedAt: at, queued: false })
+          .where({ taskId, roundId: { op: '!=', value: null }, queued: true }),
+        comments.update({ talkRequested: false, talkMessageId: null }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v3.TaskArchived': ({ taskId, at }) => [
+        runMessages
+          .update({ deletedAt: at, queued: false })
+          .where({ taskId, roundId: { op: '!=', value: null }, queued: true }),
+        comments.update({ talkRequested: false, talkMessageId: null }).where({ taskId }),
         taskQueue.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v1.TaskUnarchived': ({ taskId, rank, at }) => [
@@ -3564,6 +3739,7 @@ const materializers = counted(
         subAgentRequests.delete().where({ taskId }),
         conversationTabs.delete().where({ taskId }),
         comments.delete().where({ taskId }),
+        requestSnoozes.delete().where({ ownerId: taskId }),
         taskLog.delete().where({ taskId }),
         taskBriefs.delete().where({ taskId }),
         peerMessages.delete().where({ recipientTaskId: taskId }),
@@ -3583,12 +3759,100 @@ const materializers = counted(
         taskRepos.delete().where({ taskId }),
         pullRequests.delete().where({ taskId }),
         heldRuns.delete().where({ taskId }),
+        messageDrafts.delete().where({ taskId }),
+        ...(runIds.length === 0
+          ? []
+          : [
+              messageDrafts.delete().where({ key: { op: 'IN', value: runIds.map(runDraftKey) } }),
+              runs.delete().where({ id: { op: 'IN', value: runIds } }),
+              runMessages.delete().where({ runId: { op: 'IN', value: runIds } }),
+              runInterrupts.delete().where({ runId: { op: 'IN', value: runIds } }),
+            ]),
+        ...(checkRunIds.length === 0
+          ? []
+          : [
+              checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+              checkBoundaries.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+            ]),
+      ],
+      'v1.TaskReset': ({
+        taskId,
+        description,
+        clarifyDepth,
+        clarifyDepthBy,
+        runIds,
+        checkRunIds,
+        at,
+      }) => [
+        tasks
+          .update({
+            description,
+            clarifyDepth,
+            clarifyDepthBy,
+            stage: 'backlog',
+            branch: null,
+            worktree: null,
+            activity: null,
+            activityEntries: null,
+            stageEffort: null,
+            pendingLeadMessage: null,
+            pendingLeadDeliveries: null,
+            leadRestartPending: false,
+            startRequested: false,
+            waitsForBlockers: false,
+            snoozedUntil: null,
+            stoppedAt: null,
+            stoppedRuns: null,
+            stoppedWhy: null,
+            preparation: null,
+            failedAt: null,
+            needsPlanningAt: null,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+        taskQueue.delete().where({ taskId }),
+        taskBrowserCaptures.delete().where({ taskId }),
+        commentAttachments.delete().where({ taskId }),
+        lineComments.delete().where({ taskId }),
+        runs.delete().where({ taskId }),
+        subAgentRequests.delete().where({ taskId }),
+        reviewers.delete().where({ taskId }),
+        loopChecks.delete().where({ taskId }),
+        sendBackAsks.delete().where({ taskId }),
+        conversationTabs.delete().where({ taskId }),
+        comments.delete().where({ taskId }),
+        requestSnoozes.delete().where({ ownerId: taskId }),
+        messageDrafts.delete().where({ taskId }),
+        taskLog.delete().where({ taskId, name: { op: 'NOT LIKE', value: 'v1.Linear%' } }),
+        taskBriefs.delete().where({ taskId }),
+        peerMessages.delete().where({ recipientTaskId: taskId }),
+        taskDescriptions.delete().where({ taskId }),
+        sendBacks.delete().where({ taskId }),
+        reviewScopes.delete().where({ taskId }),
+        baseConflicts.delete().where({ taskId }),
+        p1OnlyReviews.delete().where({ taskId }),
+        severityDeclarations.delete().where({ taskId }),
+        sendBackResets.delete().where({ taskId }),
+        checkRuns.delete().where({ taskId }),
+        testInvocations.delete().where({ taskId }),
+        failureCases.delete().where({ taskId }),
+        validationProgress.delete().where({ taskId }),
+        failureContexts.delete().where({ taskId }),
+        stageEntries.delete().where({ taskId }),
+        taskRepos.delete().where({ taskId }),
+        pullRequests.delete().where({ taskId }),
+        heldRuns.delete().where({ taskId }),
+        intervalBoundaries.delete().where({ subject: `task:${taskId}` }),
         ...(runIds.length === 0
           ? []
           : [
               runs.delete().where({ id: { op: 'IN', value: runIds } }),
               runMessages.delete().where({ runId: { op: 'IN', value: runIds } }),
               runInterrupts.delete().where({ runId: { op: 'IN', value: runIds } }),
+              messageDrafts.delete().where({ key: { op: 'IN', value: runIds.map(runDraftKey) } }),
+              intervalBoundaries
+                .delete()
+                .where({ subject: { op: 'IN', value: runIds.map((id) => `run:${id}`) } }),
             ]),
         ...(checkRunIds.length === 0
           ? []
@@ -3648,9 +3912,44 @@ const materializers = counted(
       'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAcceptanceInvalidated': (row) =>
         failureCases.insert(row).onConflict('id', 'replace'),
-      'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
+      'v1.CommentAnswered': ({ id, answer, at }) => [
+        runMessages.update({ deletedAt: at, queued: false }).where({ roundId: id, queued: true }),
+        comments.update({ answer, talkRequested: false, talkMessageId: null }).where({ id }),
+        requestSnoozes.delete().where({ requestId: id }),
+        messageDrafts.delete().where({ key: messageDraftKey('request', id) }),
+      ],
+      'v1.RoundTalkRequested': ({ id, at }) => [
+        runMessages.update({ deletedAt: at, queued: false }).where({ roundId: id, queued: true }),
+        comments.update({ talkRequested: true, talkMessageId: null }).where({ id }),
+      ],
       'v1.RoundTalkStarted': ({ id, runId, at }) =>
-        comments.update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null }).where({ id }),
+        comments
+          .update({
+            talkRunId: runId,
+            talkStartedAt: at,
+            talkDoneAt: null,
+            talkNotifiedAt: at,
+            talkRequested: false,
+          })
+          .where({ id }),
+      'v2.RoundTalkStarted': ({ id, runId, messageId, at }) => [
+        runMessages.update({ deletedAt: at, queued: false }).where({ roundId: id, queued: true }),
+        runMessages.update({ roundId: id }).where({ id: messageId }),
+        comments
+          .update({
+            talkRunId: runId,
+            talkStartedAt: at,
+            talkDoneAt: null,
+            talkRequested: true,
+            talkMessageId: messageId,
+            talkNotifiedAt: null,
+          })
+          .where({ id }),
+      ],
+      'v1.RoundTalkNotified': ({ id, runId, messageId, at }) =>
+        comments
+          .update({ talkRequested: false, talkNotifiedAt: at })
+          .where({ id, talkRunId: runId, talkMessageId: messageId }),
       'v1.RoundTalkDone': ({ id, at }) => comments.update({ talkDoneAt: at }).where({ id }),
       'v1.PeerMessageSent': (row) => peerMessages.insert(row),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
@@ -3857,8 +4156,8 @@ const materializers = counted(
       'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
       'v1.RunMessageQueued': ({ id, runId, text, at }) =>
         runMessages.insert({ id, runId, text, at, queued: true }),
-      'v2.RunMessageQueued': ({ id, runId, text, at, from }) =>
-        runMessages.insert({ id, runId, text, at, queued: true, fromTed: from === 'ted' }),
+      'v2.RunMessageQueued': ({ id, runId, taskId, text, at, from }) =>
+        runMessages.insert({ id, runId, taskId, text, at, queued: true, fromTed: from === 'ted' }),
       'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
       'v1.RunMessageDeleted': ({ id, at }) =>
         runMessages.update({ deletedAt: at, queued: false }).where({ id }),
@@ -4063,6 +4362,9 @@ const materializers = counted(
           .insert({ id: `${factoryId}:${revision}`, factoryId, revision })
           .onConflict('id', 'ignore'),
       ],
+      'v1.MessageDraftSaved': ({ at: _at, ...row }) =>
+        messageDrafts.insert(row).onConflict('key', 'replace'),
+      'v1.MessageDraftCleared': ({ key }) => messageDrafts.delete().where({ key }),
       'v1.TaskDraftRemoved': ({ factoryId }) => [
         taskDrafts.delete().where({ factoryId }),
         taskDraftConsumptions.delete().where({ factoryId }),
@@ -4075,6 +4377,8 @@ const materializers = counted(
         deletedTasks.delete().where({ factoryId }),
         banners.delete().where({ factoryId }),
         workflowLayers.delete().where({ layer: `factory:${factoryId}` }),
+        requestSnoozes.delete().where({ factoryId }),
+        messageDrafts.delete().where({ factoryId }),
       ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
@@ -4139,6 +4443,7 @@ const materializers = counted(
         automations.delete().where({ id }),
         automationFirings.delete().where({ automationId: id }),
         automationComments.delete().where({ automationId: id }),
+        requestSnoozes.delete().where({ ownerId: id }),
       ],
       'v1.AutomationFired': ({ skipped, retryOf, slotAt, ...firing }) => [
         automationFirings.insert({
@@ -4174,8 +4479,10 @@ const materializers = counted(
           choices: choices === null ? null : JSON.stringify(choices),
           createdAt: at,
         }),
-      'v1.AutomationCommentAnswered': ({ id, text, at }) =>
+      'v1.AutomationCommentAnswered': ({ id, text, at }) => [
         automationComments.update({ answer: text, answeredAt: at }).where({ id }),
+        requestSnoozes.delete().where({ requestId: id }),
+      ],
       'v1.AutomationPromptDraftRequested': ({ at, ...draft }) =>
         automationPromptDrafts.insert({
           ...draft,
@@ -4187,6 +4494,7 @@ const materializers = counted(
         automationPromptDrafts.update({ ...fields, updatedAt: at }).where({ id }),
       'v1.AutomationPromptDraftRemoved': ({ id }) => [
         automationPromptDrafts.delete().where({ id }),
+        messageDrafts.delete().where({ key: runDraftKey(id) }),
         runs.delete().where({ id }),
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
@@ -4194,6 +4502,7 @@ const materializers = counted(
       'v1.SideChatChanged': (row) => sideChats.insert(row).onConflict('sourceRunId', 'replace'),
       'v1.SideChatRemoved': ({ sourceRunId, runId }) => [
         sideChats.delete().where({ sourceRunId }),
+        messageDrafts.delete().where({ key: runDraftKey(runId) }),
         runs.delete().where({ id: runId }),
         runMessages.delete().where({ runId }),
         runInterrupts.delete().where({ runId }),
@@ -4202,6 +4511,7 @@ const materializers = counted(
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
         coordinators.delete().where({ factoryId }),
         ...runIds.flatMap((id) => [
+          messageDrafts.delete().where({ key: runDraftKey(id) }),
           runs.delete().where({ id }),
           runMessages.delete().where({ runId: id }),
           runInterrupts.delete().where({ runId: id }),
@@ -4211,8 +4521,10 @@ const materializers = counted(
         plans.insert({ ...plan, state: 'queued', createdAt: at }),
       'v1.PlanRenamed': ({ id, title }) => plans.update({ title }).where({ id }),
       'v1.PlanDeleted': ({ id }) => [
+        messageDrafts.delete().where({ planId: id }),
         plans.delete().where({ id }),
         planRequests.delete().where({ planId: id }),
+        requestSnoozes.delete().where({ ownerId: id }),
         runs.delete().where({ id }),
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
@@ -4226,7 +4538,11 @@ const materializers = counted(
         plans.update({ state: 'ended', outcome, error, finishedAt: at }).where({ id }),
       'v1.PlanRequestPosted': ({ at, ...request }) =>
         planRequests.insert({ ...request, createdAt: at }),
-      'v1.PlanRequestAnswered': ({ id, answer }) => planRequests.update({ answer }).where({ id }),
+      'v1.PlanRequestAnswered': ({ id, answer }) => [
+        planRequests.update({ answer }).where({ id }),
+        requestSnoozes.delete().where({ requestId: id }),
+        messageDrafts.delete().where({ key: messageDraftKey('plan-request', id) }),
+      ],
       'v1.PlanTaskCreated': (link) => planTasks.insert(link).onConflict('taskId', 'ignore'),
       'v1.PlanContinued': ({ id, fromPlanId, fromTitle, context }) =>
         plans.update({ fromPlanId, fromPlanTitle: fromTitle, context }).where({ id }),
@@ -4262,6 +4578,7 @@ const state = State.SQLite.makeState({
     intervalBoundaries,
     taskDrafts,
     taskDraftConsumptions,
+    messageDrafts,
     factories,
     factoryRepos,
     factoryOrder,
@@ -4271,6 +4588,7 @@ const state = State.SQLite.makeState({
     executionMachine,
     executionAssignments,
     taskBlockers,
+    taskParents,
     deletedTasks,
     taskAttachments,
     taskBrowserCaptures,
@@ -4325,6 +4643,7 @@ const state = State.SQLite.makeState({
     planTasks,
     coordinators,
     sideChats,
+    requestSnoozes,
   },
   materializers,
 })

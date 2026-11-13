@@ -93,7 +93,7 @@ export function createShells(options: ShellsOptions): Shells {
   }
 
   const unsubscribe = options.subscribe((event) => {
-    if (event.type === 'task-deleted') {
+    if (event.type === 'task-deleted' || event.type === 'task-reset') {
       for (const changed of resolving) changed.add(event.taskId)
       for (const key of workspaces.keys()) {
         if (key.startsWith(`${event.taskId}\0`)) workspaces.delete(key)

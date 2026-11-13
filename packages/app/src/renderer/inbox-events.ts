@@ -15,6 +15,7 @@ export function inboxChange(
     case 'comment-posted':
     case 'comment-updated':
       return event.comment.kind === 'note' ? undefined : 'reload'
+    case 'task-reset':
     case 'task-deleted': {
       const { taskId } = event
       return (items) =>

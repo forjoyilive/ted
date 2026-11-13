@@ -1,8 +1,11 @@
-import type { BoardStage, QueuedForSlot, StageId, Task } from '@ted/protocol'
+import type { BoardStage, BoardView, QueuedForSlot, StageId, Task } from '@ted/protocol'
+import { defaultBoardView } from '@ted/protocol/board-view'
 import { describe, expect, test } from 'vitest'
 import {
   boardColumns,
   boardDrop,
+  boardLayout,
+  boardViewFor,
   canStart,
   cardActivity,
   doneCardLine,
@@ -10,6 +13,7 @@ import {
   placeCard,
   startPlace,
   startStage,
+  withoutBlockers,
 } from '../src/renderer/board.ts'
 
 let made = 0
@@ -325,5 +329,97 @@ describe('the Done column', () => {
     expect(mergedLine(merged, now)).toBe('Merged 2h ago · PR #470, #88')
     expect(mergedLine(done('NB-27', '2026-11-08T12:00:00Z'), now)).toBe('Merged 1d ago')
     expect(mergedLine(task({ displayId: 'NB-1', stage: 'work' }), now)).toBeUndefined()
+  })
+})
+
+describe('the Board’s Display choices', () => {
+  const now = Date.parse('2026-11-09T12:00:00Z')
+  const stages = [on('backlog'), on('intake'), on('design', true), on('work'), on('done')]
+  const waiting = task({
+    displayId: 'NB-1',
+    stage: 'design',
+    statuses: ['waiting-on-you'],
+    status: { kind: 'waiting-on-you' },
+  })
+  const failed = task({
+    displayId: 'NB-2',
+    stage: 'design',
+    statuses: ['failed'],
+    status: { kind: 'failed' },
+  })
+  const working = task({
+    displayId: 'NB-3',
+    stage: 'design',
+    statuses: ['working'],
+    status: { kind: 'working' },
+  })
+  const oldDone = task({
+    displayId: 'NB-4',
+    stage: 'done',
+    merged: { at: '2026-10-01T12:00:00Z', pullRequests: [] },
+  })
+  const columns = boardColumns(
+    stages,
+    [task({ displayId: 'NB-5' }), waiting, failed, working, oldDone],
+    now,
+  )
+  const view = (fields: Partial<BoardView>): BoardView => ({ ...defaultBoardView, ...fields })
+  const shown = (fields: Partial<BoardView>, takesDrop?: (stage: StageId) => boolean) =>
+    boardLayout(columns, view(fields), takesDrop).columns.map((c) => c.stage)
+
+  test('a Factory without saved choices shows full cards, every field and every column', () => {
+    expect(boardViewFor(undefined, 'nb')).toEqual(defaultBoardView)
+    expect(boardViewFor({ other: view({ cardSize: 'compact' }) }, 'nb')).toEqual(defaultBoardView)
+    expect(boardViewFor({ nb: view({ cardSize: 'compact' }) }, 'nb').cardSize).toBe('compact')
+    expect(boardLayout(columns, defaultBoardView)).toEqual({ columns, hidden: [] })
+  })
+
+  test('a hidden column leaves the Board and is listed with its Tasks and those that need the user', () => {
+    const layout = boardLayout(columns, view({ hiddenStages: ['done', 'design', 'backlog'] }))
+    expect(layout.columns.map((c) => c.stage)).toEqual(['intake', 'work'])
+    expect(layout.hidden).toEqual([
+      { stage: 'backlog', count: 1, needsYou: 0 },
+      { stage: 'design', count: 3, needsYou: 2 },
+      { stage: 'done', count: 0, needsYou: 0 },
+    ])
+  })
+
+  test('Hide empty columns drops columns without Tasks, but not a Done column with older Tasks', () => {
+    expect(shown({ hideEmpty: true })).toEqual(['backlog', 'design', 'done'])
+    const noDone = boardColumns(stages, [waiting], now)
+    expect(boardLayout(noDone, view({ hideEmpty: true })).columns.map((c) => c.stage)).toEqual([
+      'design',
+    ])
+  })
+
+  test('an empty column that takes the dragged card is drawn; a hidden one stays hidden', () => {
+    const takesIntake = (stage: StageId) => stage === 'intake'
+    expect(shown({ hideEmpty: true }, takesIntake)).toEqual(['backlog', 'intake', 'design', 'done'])
+    const layout = boardLayout(
+      columns,
+      view({ hideEmpty: true, hiddenStages: ['intake'] }),
+      takesIntake,
+    )
+    expect(layout.columns.map((c) => c.stage)).toEqual(['backlog', 'design', 'done'])
+    expect(layout.hidden).toEqual([{ stage: 'intake', count: 0, needsYou: 0 }])
+  })
+
+  test('with Blockers off a card loses its blocked status and keeps its other markers', () => {
+    const blocked = task({
+      displayId: 'NB-6',
+      statuses: ['blocked'],
+      status: { kind: 'blocked', by: 'NB-9' },
+      markers: [{ kind: 'blocked-by', by: 'NB-9' }, { kind: 'needs-planning' }],
+    })
+    const plain = withoutBlockers(blocked)
+    expect(plain.status).toBeUndefined()
+    expect(plain.markers).toEqual([{ kind: 'needs-planning' }])
+    expect(withoutBlockers(working).status).toEqual({ kind: 'working' })
+    const queuedToo = withoutBlockers({
+      ...blocked,
+      statuses: ['blocked', 'queued'],
+      statusWithoutBlocker: { kind: 'queued', place: 2 },
+    })
+    expect(queuedToo.status).toEqual({ kind: 'queued', place: 2 })
   })
 })

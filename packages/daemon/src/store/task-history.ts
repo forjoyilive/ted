@@ -107,7 +107,9 @@ export function createTaskHistory(
     humanClarifyDepth(taskId: string): ClarifyDepth | undefined {
       const set = read(taskId).findLast(
         (e) =>
-          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') || e.name === 'v2.TaskCreated',
+          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') ||
+          e.name === 'v2.TaskCreated' ||
+          e.name === 'v1.TaskReset',
       )
       const depth = (set?.data.depth ?? set?.data.clarifyDepth) as ClarifyDepth | undefined
       return depth === 'auto' ? undefined : depth
@@ -145,6 +147,24 @@ export function createTaskHistory(
         default:
           return { kind: 'blockers', pending }
       }
+    },
+    heldBeforeWork(taskId: string): boolean {
+      const log = read(taskId)
+      const held = log.findLastIndex(
+        (e) => e.name === 'v1.TaskPreparationChanged' && e.data.state === 'ready',
+      )
+      return (
+        held >= 0 &&
+        !log
+          .slice(held + 1)
+          .some(
+            (e) =>
+              (e.name === 'v2.RunStarted' ||
+                e.name === 'v3.RunStarted' ||
+                e.name === 'v4.RunStarted') &&
+              typeof e.data.parentRunId !== 'string',
+          )
+      )
     },
     failureHistory(
       taskId: string,

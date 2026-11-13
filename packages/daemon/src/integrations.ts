@@ -295,7 +295,7 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
       banners.clear({ problem: githubProblem })
       return
     }
-    const waiting = store.listTasks().filter((t) => t.stage === 'merge').length
+    const waiting = store.taskOutlines().filter((t) => t.stage === 'merge').length
     const affects =
       waiting > 0
         ? `${waiting} ${waiting === 1 ? 'Task' : 'Tasks'} waiting to merge`

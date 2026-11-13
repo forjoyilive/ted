@@ -1,10 +1,11 @@
 // Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/
 // ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
 // grouping of calls, and Edit rows that expand to their diff.
-import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
+import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { conversationRows } from '../task-conversations.ts'
@@ -542,6 +543,7 @@ export interface ChatOptions {
   interrupt?: false
   send?: (text: string) => Promise<unknown>
   stopTurn?: () => Promise<unknown>
+  box?: MessageBox
 }
 
 function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }) {
@@ -559,6 +561,7 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       }
       endedNote={options.endedNote}
       interrupt={options.interrupt !== false}
+      box={options.box ?? { kind: 'run', id: run.id }}
       send={
         options.send ??
         ((text, interrupt) => ted.sendRunMessage(run.id, text, { interrupt: interrupt && working }))
@@ -577,8 +580,7 @@ export function Composer({
   help,
   endedNote,
   interrupt = true,
-  value,
-  onValue,
+  box,
   send: sendText,
   stopTurn: stopRequest,
 }: {
@@ -590,14 +592,12 @@ export function Composer({
   help: string
   endedNote?: string | undefined
   interrupt?: boolean
-  value?: string
-  onValue?: (text: string) => void
+  box?: MessageBox | undefined
   send: (text: string, interrupt: boolean) => Promise<unknown>
   stopTurn: () => Promise<unknown>
 }) {
-  const [own, setOwn] = useState('')
-  const text = value ?? own
-  const setText = onValue ?? setOwn
+  const draft = useMessageDraft(box)
+  const { text, setText } = draft
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [interrupting, setInterrupting] = useState(false)
@@ -611,7 +611,7 @@ export function Composer({
     setError(undefined)
     try {
       await sendText(text, interrupting)
-      setText('')
+      draft.clear()
     } catch (failed) {
       setError(readableError(failed))
     } finally {

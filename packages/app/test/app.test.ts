@@ -249,6 +249,7 @@ describe('TED app', () => {
     await taskRow(window, 'NB-1').click()
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Design review' })
+    const answer = thread.getByRole('region', { name: 'Answer', exact: true })
     await card.waitFor({ timeout: 40_000 })
 
     await card.getByRole('heading', { name: 'Onboarding design: two steps' }).waitFor()
@@ -327,7 +328,8 @@ describe('TED app', () => {
     const captures = path.resolve('node_modules/.cache/ted-152-design')
     await mkdir(captures, { recursive: true })
     await window.screenshot({ path: path.join(captures, 'native-review.png') })
-    await card.getByRole('button', { name: 'Approve', exact: true }).scrollIntoViewIfNeeded()
+    await card.getByText('Answer at the bottom of the Task ↓').scrollIntoViewIfNeeded()
+    await answer.getByRole('button', { name: 'Approve', exact: true }).waitFor()
     await window.screenshot({ path: path.join(captures, 'native-review-controls.png') })
     await window.setViewportSize({ width: 1000, height: 900 })
     await thread.getByRole('button', { name: /Jump to Design review/ }).click()
@@ -377,8 +379,10 @@ describe('TED app', () => {
       'The notification ask waits.',
     ])
 
-    await card.getByRole('textbox', { name: 'Your answer' }).fill('Keep the Skip link.')
-    await card.getByRole('button', { name: 'Approve' }).click()
+    expect(await card.getByRole('textbox', { name: 'Your answer' }).count()).toBe(0)
+    expect(await thread.getByRole('textbox', { name: 'Comment' }).count()).toBe(0)
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill('Keep the Skip link.')
+    await answer.getByRole('button', { name: 'Approve' }).click()
     const answered = thread.getByRole('region', { name: 'Design review, answered' })
     await answered.getByText('You approved').waitFor()
     await answered.locator('blockquote').getByText('Keep the Skip link.', { exact: true }).waitFor()
@@ -444,6 +448,7 @@ describe('TED app', () => {
     await openAllTasks(window)
     await taskRow(window, 'NB-1').click()
     const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('tab', { name: 'Runs' }).click()
     await details.getByRole('button', { name: /Task Lead/ }).click()
 
     const chat = window.getByRole('region', { name: 'Run chat' })
@@ -530,6 +535,7 @@ describe('TED app', () => {
       e.scrollTop = 150
     })
     await expect.poll(top).toBe(150)
+    await window.getByRole('tab', { name: 'Runs' }).click()
     await window
       .getByRole('complementary', { name: 'Task details' })
       .getByRole('button', { name: /Task Lead/ })
