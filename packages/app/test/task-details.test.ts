@@ -202,8 +202,7 @@ describe('Task details in the app', () => {
         .evaluateAll((els) => els.map((e) => e.ariaLabel)),
     ).toEqual(['Details', 'Code', 'Changes', 'Files', 'Runs', 'Apps'])
     expect(await details.getByRole('region', { name: 'Task brief' }).count()).toBe(0)
-    await window.getByRole('button', { name: 'Task actions' }).click()
-    await window.getByRole('menuitem', { name: 'Full brief' }).click()
+    await window.getByRole('button', { name: 'Brief', exact: true }).click()
     const full = window.getByRole('region', { name: 'Full brief' })
     await full.getByText('Stop the TypeError in SearchPanel.').waitFor()
     await full.getByText('Your sign-off.', { exact: true }).waitFor()

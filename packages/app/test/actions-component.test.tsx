@@ -259,8 +259,17 @@ test('Task actions opens and chooses actions without opening the enclosing Task'
   expect(screen.getByRole('menu', { name: /Task actions/ })).toBeTruthy()
   expect(screen.queryByRole('menuitem', { name: /^Reset…/ })).toBeNull()
   expect(open).not.toHaveBeenCalled()
-  await u.click(screen.getByRole('menuitem', { name: /^Priority/ }))
-  await u.click(screen.getByRole('menuitemradio', { name: 'Urgent' }))
+  for (const gone of ['Full brief', 'Copy Task ID', 'Priority', 'Task Lead', 'Set parent…'])
+    expect(screen.queryByRole('menuitem', { name: gone })).toBeNull()
+  await u.click(screen.getByRole('menuitem', { name: 'Parent and children' }))
+  const family = screen.getByRole('menu', { name: 'Parent and children' })
+  expect(within(family).getByRole('menuitem', { name: 'Create child…' })).toBeTruthy()
+  expect(within(family).getByRole('menuitem', { name: 'Set parent…' })).toBeTruthy()
+  await u.click(screen.getByRole('menuitem', { name: 'Settings' }))
+  const settings = screen.getByRole('menu', { name: 'Settings' })
+  expect(within(settings).getByText('Task Lead')).toBeTruthy()
+  expect(within(settings).getByRole('menuitemradio', { name: 'Few' })).toBeTruthy()
+  await u.click(within(settings).getByRole('menuitemradio', { name: 'Urgent' }))
   expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
   expect(open).not.toHaveBeenCalled()
 })
@@ -284,11 +293,11 @@ test('Task menu keyboard navigation reaches choices, dismisses and restores focu
 })
 
 test.each([false, true])(
-  'a context-only Task menu reports a rejected copy (archived: %s)',
+  'a context-only Task menu reports a refused action (archived: %s)',
   async (archived) => {
-    bridge({})
+    const refused = () => Promise.reject(new Error('Refused'))
+    bridge({ setPriority: refused, unarchiveTask: refused })
     const u = user()
-    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Copy refused'))
     const trigger = document.createElement('button')
     render(
       <TaskActionsMenu
@@ -299,8 +308,14 @@ test.each([false, true])(
         contextAt={{ x: 20, y: 20, trigger }}
       />,
     )
-    await u.click(await screen.findByRole('menuitem', { name: 'Copy Task ID' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Copy refused')
+    if (archived) {
+      expect(screen.queryByRole('menuitem', { name: 'Copy Task ID' })).toBeNull()
+      await u.click(await screen.findByRole('menuitem', { name: 'Unarchive' }))
+    } else {
+      await u.click(await screen.findByRole('menuitem', { name: 'Settings' }))
+      await u.click(screen.getByRole('menuitemradio', { name: 'Urgent' }))
+    }
+    expect((await screen.findByRole('alert')).textContent).toBe('Refused')
     expect(screen.queryByRole('menu')).toBeNull()
   },
 )

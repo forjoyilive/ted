@@ -10,7 +10,7 @@ import { besideMenu } from '../menu-tooltip.ts'
 import { usePendingAction } from '../pending-action.ts'
 import { clockTime } from '../requests.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
-import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
+import { agentLabels, clarifyDepthLabels, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
@@ -120,6 +120,12 @@ function Submenu({ label, hint, children }: { label: string; hint: string; child
       {children}
     </MenuSubmenu>
   )
+}
+
+function settingsHint(task: Task): string {
+  const priority = priorityLabels[task.priority]
+  if (task.stage === 'done') return priority
+  return `${priority} · ${task.lead ? agentLabels[task.lead.agent] : 'Default'}`
 }
 
 function Choice({
@@ -264,7 +270,6 @@ export function TaskActionsMenu({
   contextOnly = false,
   onMenuClose,
   onPickBlocker,
-  onOpenBrief,
   history,
   sideChat,
 }: {
@@ -274,7 +279,6 @@ export function TaskActionsMenu({
   onMenuClose?: () => void
   onPickBlocker?: (task: Task, event?: string) => void
   onFollowedUp?: (followUp: Task) => void
-  onOpenBrief?: (() => void) | undefined
   history?: TaskHistory | undefined
   sideChat?: TaskSideChat | undefined
 }) {
@@ -486,27 +490,6 @@ export function TaskActionsMenu({
             </ActionButton>
             {conversationItems && <hr className={styles.separator} />}
             {conversationItems}
-            <ActionButton
-              type="button"
-              role="menuitem"
-              className={styles.item}
-              onClick={() => act(() => navigator.clipboard.writeText(task.displayId))}
-            >
-              Copy Task ID
-            </ActionButton>
-            {onOpenBrief && (
-              <ActionButton
-                type="button"
-                role="menuitem"
-                className={styles.item}
-                onClick={() => {
-                  close()
-                  onOpenBrief()
-                }}
-              >
-                Full brief
-              </ActionButton>
-            )}
             {deleteItem}
           </ContextMenu>
         )}
@@ -611,7 +594,8 @@ export function TaskActionsMenu({
               <hr className={styles.separator} />
             </>
           )}
-          <Submenu label="Priority" hint={priorityLabels[task.priority]}>
+          <Submenu label="Settings" hint={settingsHint(task)}>
+            <div className={styles.group}>Priority</div>
             {priorities.map((priority) => (
               <Choice
                 key={priority}
@@ -620,52 +604,52 @@ export function TaskActionsMenu({
                 onChoose={() => act(() => ted.setPriority(task.id, priority))}
               />
             ))}
+            {task.stage !== 'done' && (
+              <>
+                <hr className={styles.separator} />
+                <div className={styles.group}>Task Lead</div>
+                {agentKinds
+                  .filter((agent) => enabledAgents.includes(agent) || task.lead?.agent === agent)
+                  .map((agent) => (
+                    <Choice
+                      key={agent}
+                      label={`${agentLabels[agent]}${enabledAgents.includes(agent) ? '' : ' · Off — new Runs wait'}`}
+                      disabled={!enabledAgents.includes(agent)}
+                      checked={task.lead?.agent === agent}
+                      onChoose={() =>
+                        act(() =>
+                          task.lead?.agent === agent
+                            ? Promise.resolve()
+                            : ted.setTaskLead(task.id, { agent }),
+                        )
+                      }
+                    />
+                  ))}
+                <hr className={styles.separator} />
+                <div className={styles.group}>Clarify depth</div>
+                {clarifyIsOver(task.stage) ? (
+                  <ActionButton
+                    type="button"
+                    role="menuitem"
+                    className={styles.item}
+                    aria-disabled
+                    title="Clarify is over, so changing its depth would do nothing."
+                  >
+                    <span className={styles.label}>Clarify is over</span>
+                  </ActionButton>
+                ) : (
+                  clarifyDepths.map((depth) => (
+                    <Choice
+                      key={depth}
+                      label={clarifyDepthLabels[depth]}
+                      checked={task.clarifyDepth === depth}
+                      onChoose={() => act(() => ted.setClarifyDepth(task.id, { depth: depth }))}
+                    />
+                  ))
+                )}
+              </>
+            )}
           </Submenu>
-          {task.stage !== 'done' && (
-            <Submenu label="Task Lead" hint={task.lead ? leadSummary(task.lead) : 'Default'}>
-              {agentKinds
-                .filter((agent) => enabledAgents.includes(agent) || task.lead?.agent === agent)
-                .map((agent) => (
-                  <Choice
-                    key={agent}
-                    label={`${agentLabels[agent]}${enabledAgents.includes(agent) ? '' : ' · Off — new Runs wait'}`}
-                    disabled={!enabledAgents.includes(agent)}
-                    checked={task.lead?.agent === agent}
-                    onChoose={() =>
-                      act(() =>
-                        task.lead?.agent === agent
-                          ? Promise.resolve()
-                          : ted.setTaskLead(task.id, { agent }),
-                      )
-                    }
-                  />
-                ))}
-            </Submenu>
-          )}
-          {task.stage !== 'done' &&
-            (clarifyIsOver(task.stage) ? (
-              <ActionButton
-                type="button"
-                role="menuitem"
-                className={styles.item}
-                aria-disabled
-                title="Clarify is over, so changing its depth would do nothing."
-              >
-                <span className={styles.label}>Clarify depth</span>
-                <span className={styles.hint}>Clarify is over</span>
-              </ActionButton>
-            ) : (
-              <Submenu label="Clarify depth" hint={clarifyDepthLabels[task.clarifyDepth]}>
-                {clarifyDepths.map((depth) => (
-                  <Choice
-                    key={depth}
-                    label={clarifyDepthLabels[depth]}
-                    checked={task.clarifyDepth === depth}
-                    onChoose={() => act(() => ted.setClarifyDepth(task.id, { depth: depth }))}
-                  />
-                ))}
-              </Submenu>
-            ))}
           {task.stage !== 'done' && (
             <ActionButton
               type="button"
@@ -682,60 +666,49 @@ export function TaskActionsMenu({
               <span className={styles.hint}>{keysFor('blocked-by').join(' or ')}</span>
             </ActionButton>
           )}
-          {task.stage !== 'done' && (
+          <Submenu label="Parent and children" hint={task.parentId === undefined ? '' : parentName}>
+            {task.stage !== 'done' && (
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => {
+                  close()
+                  newChildTask(task)
+                }}
+              >
+                Create child…
+              </ActionButton>
+            )}
+            {task.stage !== 'done' && (
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => pick(pickChildEvent)}
+              >
+                Add existing Task as child…
+              </ActionButton>
+            )}
             <ActionButton
               type="button"
               role="menuitem"
               className={styles.item}
-              onClick={() => {
-                close()
-                newChildTask(task)
-              }}
+              onClick={() => pick(pickParentEvent)}
             >
-              Create child…
+              {task.parentId === undefined ? 'Set parent…' : 'Change parent…'}
             </ActionButton>
-          )}
-          {task.stage !== 'done' && (
-            <ActionButton
-              type="button"
-              role="menuitem"
-              className={styles.item}
-              onClick={() => pick(pickChildEvent)}
-            >
-              Add existing Task as child…
-            </ActionButton>
-          )}
-          <ActionButton
-            type="button"
-            role="menuitem"
-            className={styles.item}
-            onClick={() => pick(pickParentEvent)}
-          >
-            {task.parentId === undefined ? 'Set parent…' : 'Change parent…'}
-          </ActionButton>
-          {task.parentId !== undefined && (
-            <ActionButton
-              type="button"
-              role="menuitem"
-              className={styles.item}
-              onClick={() => act(() => changeParent(task, null))}
-            >
-              {`Detach from ${parentName}`}
-            </ActionButton>
-          )}
-          {onOpenBrief && (
-            <ActionButton
-              type="button"
-              role="menuitem"
-              className={styles.item}
-              onClick={() => {
-                close()
-                onOpenBrief()
-              }}
-            >
-              Full brief
-            </ActionButton>
-          )}
+            {task.parentId !== undefined && (
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => act(() => changeParent(task, null))}
+              >
+                {`Detach from ${parentName}`}
+              </ActionButton>
+            )}
+          </Submenu>
           <ActionButton
             type="button"
             role="menuitem"
@@ -744,14 +717,6 @@ export function TaskActionsMenu({
           >
             <span className={styles.label}>Edit title and description…</span>
             <span className={styles.hint}>{keysFor('edit').join(' or ')}</span>
-          </ActionButton>
-          <ActionButton
-            type="button"
-            role="menuitem"
-            className={styles.item}
-            onClick={() => act(() => navigator.clipboard.writeText(task.displayId))}
-          >
-            Copy Task ID
           </ActionButton>
           {task.source?.asana && (
             <>

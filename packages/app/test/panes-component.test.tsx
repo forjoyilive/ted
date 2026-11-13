@@ -88,8 +88,7 @@ test('Full brief opens its five sections in the middle pane and returns to Threa
     text: '## Goal\n\nStop the TypeError.\n\n## Decisions so far\n\n- Guard in SearchPanel.\n\n## Current state\n\nDone.\n\n## Open questions\n\nNone.\n\n## Next step\n\nYour sign-off.',
   }))
   await openTask(a)
-  await user().click(screen.getByRole('button', { name: 'Task actions' }))
-  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
+  await user().click(await screen.findByRole('button', { name: 'Brief' }))
   const full = screen.getByRole('region', { name: 'Full brief' })
   expect(
     within(full)
@@ -736,8 +735,7 @@ test('Inbox reveals its request after delayed history and after other panes cove
     name: 'Your answer',
   })
   await user().type(answer, 'Keep this draft')
-  await user().click(screen.getByRole('button', { name: 'Task actions' }))
-  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
+  await user().click(await screen.findByRole('button', { name: 'Brief' }))
   await screen.findByRole('region', { name: 'Full brief' })
   await user().click(within(inbox).getByText(request.body))
   expect(screen.queryByRole('region', { name: 'Full brief' })).toBeNull()

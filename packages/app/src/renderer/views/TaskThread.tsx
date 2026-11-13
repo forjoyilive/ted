@@ -869,7 +869,6 @@ export function TaskThread({
             <TaskActionsMenu
               task={task}
               onFollowedUp={onFollowedUp}
-              onOpenBrief={onOpenBrief}
               history={{
                 earlier: [...earlier].reverse(),
                 finished: runs
@@ -895,6 +894,14 @@ export function TaskThread({
           <div className={`${styles.headerRow} ${styles.statusRow}`}>
             <span className={styles.taskMeta}>
               {task.displayId}
+              {onOpenBrief && (
+                <>
+                  {'  ·  '}
+                  <ActionButton type="button" className={styles.metaLink} onClick={onOpenBrief}>
+                    Brief
+                  </ActionButton>
+                </>
+              )}
               {task.followUpOf ? (
                 <>
                   {'  ·  Follow-up to '}

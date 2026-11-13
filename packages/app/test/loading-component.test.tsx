@@ -370,8 +370,7 @@ test('Full brief preserves loaded sections through a failed refresh and pending 
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
-  await user().click(screen.getByRole('button', { name: 'Task actions' }))
-  await user().click(await screen.findByRole('menuitem', { name: 'Full brief' }))
+  await user().click(await screen.findByRole('button', { name: 'Brief' }))
   const full = screen.getByRole('region', { name: 'Full brief' })
   expect(within(full).getByText('Keep this loaded goal visible.')).toBeTruthy()
   a.handle('taskBrief', () => Promise.reject(new Error('Temporary refresh failure')))
@@ -453,7 +452,7 @@ test('Developer diagnostics retain their values after a rejected poll and during
   }
 })
 
-test('Full brief exposes its initial loading and retry after opening from Task actions', async () => {
+test('Full brief exposes its initial loading and retry after opening from the Task header', async () => {
   const a = appState()
   const current = task()
   const brief = {
@@ -470,8 +469,7 @@ test('Full brief exposes its initial loading and retry after opening from Task a
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   expect(screen.queryByRole('region', { name: 'Task brief' })).toBeNull()
-  await user().click(screen.getByRole('button', { name: 'Task actions' }))
-  await user().click(screen.getByRole('menuitem', { name: 'Full brief' }))
+  await user().click(await screen.findByRole('button', { name: 'Brief' }))
   const full = screen.getByRole('region', { name: 'Full brief' })
   expect(within(full).getByRole('status', { name: 'Loading Task brief…' })).toBeTruthy()
   await act(async () => initial.reject(new Error('Initial brief load failed')))
