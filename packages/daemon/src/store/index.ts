@@ -663,7 +663,11 @@ export interface TedStore extends TaskHistory {
   removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
-  queueTask(taskId: string, stage: StageId, options?: { prepare?: boolean }): Task
+  queueTask(
+    taskId: string,
+    stage: StageId,
+    options?: { prepare?: boolean; keepRank?: boolean },
+  ): Task
   moveToBacklog(taskId: string): Task
   needsPlanning(taskId: string, runId: string): Task
   startAfterPlanning(
@@ -688,6 +692,7 @@ export interface TedStore extends TaskHistory {
   archiveTask(taskId: string, record?: { closing: string[]; branches: number; why?: string }): Task
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
+  resetTask(taskId: string): Task
   blockedBy(blockerId: string): string[]
   openBlockedTasks(): string[]
   queue(): QueuedTask[]
@@ -3364,12 +3369,13 @@ export async function openStore({
       return task
     },
     queueTask(taskId, stage, options) {
-      const rank = nextRank()
+      const kept = options?.keepRank ? taskRow(taskId)?.rank : null
+      const rank = kept ?? nextRank()
       const at = new Date().toISOString()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         ...startRequestUsed(taskId, at),
-        events.taskRanked({ taskId, rank, at }),
+        ...(kept == null ? [events.taskRanked({ taskId, rank, at })] : []),
         events.taskQueued({ taskId, stage, rank, at }),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
           ? [
@@ -3528,6 +3534,29 @@ export async function openStore({
       emit({ type: 'task-deleted', taskId })
       updatedQueue()
       updatedDependents(taskId)
+    },
+    resetTask(taskId) {
+      const row = requireTaskRow(taskId)
+      checkingTasks.delete(taskId)
+      const runIds = taskRuns(taskId).map((r) => r.id)
+      const human = history.humanClarifyDepth(taskId)
+      const byLead = row.clarifyDepthBy === 'task-lead'
+      commit(
+        events.taskReset({
+          taskId,
+          description: descriptionRows(taskId).at(0)?.text ?? row.description,
+          clarifyDepth: byLead ? (human ?? 'auto') : row.clarifyDepth,
+          clarifyDepthBy: byLead ? (human === undefined ? null : 'human') : row.clarifyDepthBy,
+          runIds,
+          checkRunIds: checkRunRows(taskId).map((r) => r.id),
+          at: new Date().toISOString(),
+        }),
+      )
+      emit({ type: 'task-reset', taskId })
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      updatedDependents(taskId)
+      return task
     },
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),

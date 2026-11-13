@@ -220,10 +220,14 @@ export function threadEvents(
     })
 
   const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
-  for (const entry of log) {
+  const reset = log.findLastIndex((entry) => entry.name === 'v1.TaskReset')
+  for (const entry of reset < 0 ? log : log.slice(reset)) {
     const { data } = entry
     const who = data.runId ? 'Task Lead' : 'You'
     switch (entry.name) {
+      case 'v1.TaskReset':
+        add(entry, 'edit', 'Task was reset')
+        break
       case 'v1.TaskCreated':
       case 'v2.TaskCreated':
         add(

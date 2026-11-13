@@ -107,7 +107,9 @@ export function createTaskHistory(
     humanClarifyDepth(taskId: string): ClarifyDepth | undefined {
       const set = read(taskId).findLast(
         (e) =>
-          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') || e.name === 'v2.TaskCreated',
+          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') ||
+          e.name === 'v2.TaskCreated' ||
+          e.name === 'v1.TaskReset',
       )
       const depth = (set?.data.depth ?? set?.data.clarifyDepth) as ClarifyDepth | undefined
       return depth === 'auto' ? undefined : depth

@@ -116,6 +116,10 @@ _Avoid_: Terminal, console, Run
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision
 
+**Reset**:
+The human’s choice to throw away what a started Task has done (its worktree, branch, pull request, thread and Runs) and start the same Task again from its first Stage with its Original request. The Task keeps its ID, title, Source, Priority, rank and blockers.
+_Avoid_: Restart, retry, redo
+
 **Source**:
 The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key.
 _Avoid_: Origin, link, ticket
