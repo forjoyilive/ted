@@ -149,7 +149,7 @@ describe('Planning chats', () => {
     expect(run.run.prompt).toContain('## Write clearly for the user')
     expect(run.run.prompt).toContain('Rewrite dense source wording in plain language')
     for (const guidance of [
-      'question count can vary widely and has no target or minimum',
+      'Put every question you can ask now in one round, up to 12',
       'goal, scope and exclusions, user behavior (including edge cases), constraints, risks and acceptance criteria',
       'ask the user to confirm your understanding and whether to split it into Tasks',
       'Keep the layers needed for that result together',

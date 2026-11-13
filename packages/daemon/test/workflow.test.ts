@@ -54,6 +54,14 @@ describe('TED defaults', () => {
     }
   })
 
+  test('tell Clarify to ask every question that is ready in one round', async () => {
+    const text = resolveWorkflow([await defaults()]).stageFile('clarify')?.text ?? ''
+
+    expect(text).toContain('Put every question you can ask now in the round')
+    expect(text).not.toContain('a handful')
+    expect(text).not.toMatch(/"title": "[^"]*· \d+ questions"/)
+  })
+
   test('put Gates on Design and Review, Merge on with no Gate, and max_back 3 except Validate 5', async () => {
     const { settings } = resolveWorkflow([await defaults()])
 
