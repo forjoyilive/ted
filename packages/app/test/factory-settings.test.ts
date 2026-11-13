@@ -13,6 +13,7 @@ import {
   stageEdited,
   unsavedChanges,
   unsavedLine,
+  unsavedSections,
   unsavedSummary,
 } from '../src/renderer/factory-settings.ts'
 import { markdownBlocks, markdownSpans } from '../src/renderer/markdown.ts'
@@ -139,6 +140,8 @@ describe('Factory settings draft', () => {
     const unsaved = unsavedChanges(draft, loaded)
     expect(unsaved).toEqual({ count: 3, files: ['.ted/workflow.yaml', '.ted/stages/review.md'] })
     expect(unsavedSummary(unsaved)).toBe('3 unsaved changes to 2 files in .ted/')
+    expect([...unsavedSections(draft, loaded)]).toEqual(['workflow', 'checks'])
+    expect([...unsavedSections(settingsDraft(view), loaded)]).toEqual([])
     expect([...stageEdited(draft, loaded, 'review')]).toEqual(['file'])
   })
 
@@ -148,6 +151,7 @@ describe('Factory settings draft', () => {
     draft.keepStageFiles = ['review']
     expect(settingsChanges(draft, loaded).keepStageFiles).toEqual(['review'])
     expect(unsavedChanges(draft, loaded)).toEqual({ count: 1, files: ['.ted/workflow.yaml'] })
+    expect([...unsavedSections(draft, loaded)]).toEqual(['workflow'])
     expect([...stageEdited(draft, loaded, 'review')]).toEqual(['kept'])
   })
 
@@ -179,6 +183,8 @@ describe('Factory settings draft', () => {
     expect(changes.agents).toEqual({ reviewer: null })
     expect(changes.maxWorkingRuns).toBe(3)
     expect(changes.notes).toBe('# Notebook\n')
+    draft.repos = draft.repos.slice(0, -1)
+    expect([...unsavedSections(draft, loaded)]).toEqual(['repos', 'agents', 'permissions', 'notes'])
     const notesOnly = settingsDraft(view)
     notesOnly.notes = 'x'
     expect(unsavedSummary(unsavedChanges(notesOnly, loaded))).toBe(

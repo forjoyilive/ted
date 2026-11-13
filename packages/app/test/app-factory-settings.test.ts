@@ -25,7 +25,7 @@ describe('Factory settings sections', () => {
     await nav.getByRole('button', { name: 'widgets' }).click()
     await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
     await window
-      .getByRole('navigation', { name: 'Jump to a section' })
+      .getByRole('navigation', { name: 'Factory settings' })
       .getByRole('button', { name: 'Permissions' })
       .click()
     const permissions = window.getByRole('region', { name: 'Permission mode', exact: true })
@@ -45,15 +45,15 @@ describe('Factory settings sections', () => {
     await permissions.getByText('Auto is on.').waitFor()
   })
 
-  test('jumping to a section scrolls only the settings, never the app frame', async () => {
+  test('switching pages scrolls only the settings, never the app frame', async () => {
     await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 800 })
     const nav = sidebar(window)
     await nav.getByRole('button', { name: 'widgets' }).click()
     await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
-    await window.getByText('Always last').waitFor()
-    const jump = window.getByRole('navigation', { name: 'Jump to a section' })
+    await window.getByRole('region', { name: 'General', exact: true }).waitFor()
+    const jump = window.getByRole('navigation', { name: 'Factory settings' })
 
     for (const width of [1280, 900]) {
       await window.setViewportSize({ width, height: 800 })
@@ -169,6 +169,10 @@ test('Stage effort saves in Library and a Factory override can return to inherit
   const nav = sidebar(window)
   await nav.getByRole('button', { name: 'widgets' }).click()
   await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+  await window
+    .getByRole('navigation', { name: 'Factory settings' })
+    .getByRole('button', { name: 'Workflow', exact: true })
+    .click()
   const design = window.getByRole('combobox', { name: 'Design effort', exact: true })
   await design.waitFor()
   expect(await design.inputValue()).toBe('')
@@ -179,7 +183,7 @@ test('Stage effort saves in Library and a Factory override can return to inherit
   expect(await design.locator('option:checked').textContent()).toContain('high · Library')
   if (process.env.TED_TEST_SCREENSHOT) {
     await window
-      .getByRole('navigation', { name: 'Jump to a section' })
+      .getByRole('navigation', { name: 'Factory settings' })
       .getByRole('button', { name: 'Workflow', exact: true })
       .click()
     await sleep(300)

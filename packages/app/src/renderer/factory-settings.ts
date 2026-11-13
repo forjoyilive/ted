@@ -14,6 +14,7 @@ import { agentRoles, settingsInput } from '@ted/protocol/factory-settings'
 import type { PermissionMode } from '@ted/protocol/run'
 import type { AgentStageId, ClarifyDepth, StageId } from '@ted/protocol/task'
 import { ago } from './requests.ts'
+import type { FactorySectionId } from './settings-search.ts'
 
 export type RepoField =
   | 'name'
@@ -273,6 +274,21 @@ export function unsavedChanges(draft: SettingsDraft, loaded: SettingsDraft): Uns
   for (const [id] of stageFiles) files.push(`.ted/stages/${id}.md`)
   if (changes.notes !== undefined) files.push('.ted/notes.md')
   return { count: yaml + stageFiles.length + (changes.notes !== undefined ? 1 : 0), files }
+}
+
+export function unsavedSections(
+  draft: SettingsDraft,
+  loaded: SettingsDraft,
+): Set<FactorySectionId> {
+  const changes = settingsChanges(draft, loaded)
+  const sections = new Set<FactorySectionId>()
+  if (changeCount(draft.repos, loaded.repos) > 0) sections.add('repos')
+  if (changes.stages || changes.stageFiles || changes.keepStageFiles) sections.add('workflow')
+  if (changes.checks) sections.add('checks')
+  if (changes.agents) sections.add('agents')
+  if (changes.maxWorkingRuns !== undefined) sections.add('permissions')
+  if (changes.notes !== undefined) sections.add('notes')
+  return sections
 }
 
 export function unsavedSummary({ count, files }: UnsavedChanges): string {

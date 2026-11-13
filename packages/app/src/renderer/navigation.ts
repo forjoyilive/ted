@@ -1,4 +1,6 @@
 import type { DashboardViewState } from './dashboard.ts'
+import type { FactorySectionId } from './settings-search.ts'
+
 export const settingsSectionIds = [
   'general',
   'notifications',
@@ -40,7 +42,13 @@ export function isTaskView(view: FactoryView): view is (typeof taskViews)[number
 export type Screen =
   | { kind: 'inbox'; factoryId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
-  | { kind: 'factory'; factoryId: string; view: FactoryView; dashboard?: DashboardViewState }
+  | {
+      kind: 'factory'
+      factoryId: string
+      view: FactoryView
+      dashboard?: DashboardViewState
+      section?: FactorySectionId
+    }
 
 export interface Navigation {
   screen: Screen

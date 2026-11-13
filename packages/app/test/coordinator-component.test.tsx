@@ -303,6 +303,7 @@ test('the Factory Workflow section shows the overnight notice only while Autopil
         onRemoveFactory={vi.fn()}
         onOpenTask={vi.fn()}
         dispatch={vi.fn()}
+        section="workflow"
       />
     ),
     () => screen.findByRole('heading', { name: 'Workflow' }),

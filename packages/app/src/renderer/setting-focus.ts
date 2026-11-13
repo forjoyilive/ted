@@ -13,7 +13,12 @@ export function openSetting(hit: SettingHit, dispatch: (action: NavigationAction
   else {
     dispatch({
       type: 'open',
-      screen: { kind: 'factory', factoryId: hit.target.factoryId, view: 'settings' },
+      screen: {
+        kind: 'factory',
+        factoryId: hit.target.factoryId,
+        view: 'settings',
+        section: hit.target.section,
+      },
     })
   }
   for (const look of lookers) look()
