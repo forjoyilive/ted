@@ -1,6 +1,6 @@
 # Checks and Apps run in an OS sandbox outside Bypass
 
-Status: accepted. Changes ADR 0044 and ADR 0084-apps-run-in-detached-hosts. Answers KRI-181. KRI-254 changed it: the human’s ▶ runs outside the sandbox (see “The human’s ▶” below).
+Status: accepted. Changes ADR 0044 and ADR 0084-apps-run-in-detached-hosts. Answers KRI-181. KRI-254 changed it: the human’s ▶ runs outside the sandbox (see “The human’s ▶” below). ADR 0142-sandboxed-commands-reach-only-listed-unix-sockets closes Unix sockets and, where `bwrap` supports it, the Linux bind race.
 
 ## Context
 

@@ -24,6 +24,7 @@ export async function runTaskCommand(
 ): Promise<CommandResult> {
   const { sandbox: givenSandbox, prepareLaunch, label, ...base } = input
   let release = () => {}
+  let closeFds = async () => {}
   let tmp: string | undefined
   try {
     const prepared = await prepareLaunch?.()
@@ -43,10 +44,16 @@ export async function runTaskCommand(
       ...sandbox.scope,
       tmp,
     })
+    closeFds = wrapped.close
     return await runWorktreeCommand({
       ...command,
       shell: wrapped.argv,
+      fds: wrapped.fds,
       env: { ...command.env, ...wrapped.env },
+      onSpawn: () => {
+        command.onSpawn()
+        void wrapped.close()
+      },
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -60,6 +67,7 @@ export async function runTaskCommand(
     return { outcome: 'failed', problem }
   } finally {
     release()
+    await closeFds()
     if (tmp !== undefined) {
       await rm(tmp, { recursive: true, force: true }).catch((error: unknown) => {
         console.error(redactSecrets(`couldn’t remove command temp folder: ${String(error)}`))

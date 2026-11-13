@@ -149,6 +149,7 @@ export async function runWorktreeCommand(input: {
   log: string
   signal?: AbortSignal
   shell?: [string, ...string[]]
+  fds?: readonly number[]
   onSpawn?: () => void
   lowPriority: boolean
 }): Promise<CommandResult> {
@@ -161,7 +162,7 @@ export async function runWorktreeCommand(input: {
       cwd: input.cwd,
       env: input.env,
       detached: true,
-      stdio: ['ignore', log.fd, log.fd],
+      stdio: ['ignore', log.fd, log.fd, ...(input.fds ?? [])],
     })
     input.onSpawn?.()
     let reason: 'timed-out' | 'interrupted' | undefined

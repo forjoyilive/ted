@@ -235,6 +235,31 @@ describe('layers', () => {
     expect(settings.max_working_runs).toBeUndefined()
   })
 
+  test('sandbox_sockets lists socket paths, and the later layer’s list wins', async () => {
+    const good = factory({
+      'workflow.yaml':
+        'version: 1\nsandbox_sockets: [/var/run/docker.sock, ~/.colima/docker.sock, $SSH_AUTH_SOCK]\n',
+    })
+    const { settings } = resolveWorkflow([
+      await defaults(),
+      library({ 'workflow.yaml': 'version: 1\nsandbox_sockets: [/run/a.sock]\n' }),
+      good,
+    ])
+    expect(good.problems).toEqual([])
+    expect(settings.sandbox_sockets).toEqual([
+      '/var/run/docker.sock',
+      '~/.colima/docker.sock',
+      '$SSH_AUTH_SOCK',
+    ])
+
+    for (const bad of ['docker.sock', '/run/../a.sock', '$HOME/a.sock', '~', 'yes']) {
+      const layer = factory({ 'workflow.yaml': `version: 1\nsandbox_sockets: ['${bad}']\n` })
+      expect(layer.problems.map((p) => p.message)).toEqual([
+        '`sandbox_sockets` must be a list of socket paths: absolute, starting with ~/, or a whole $NAME',
+      ])
+    }
+  })
+
   test('Factory notes come from the Factory layer', async () => {
     const workflow = resolveWorkflow([
       await defaults(),

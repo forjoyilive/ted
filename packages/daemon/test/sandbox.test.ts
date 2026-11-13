@@ -10,11 +10,12 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
+import { createServer, type Server } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { createSandbox, SandboxUnavailable } from '../src/sandbox.ts'
+import { createSandbox, SandboxUnavailable, unixSocketPaths } from '../src/sandbox.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -46,9 +47,9 @@ afterEach(async () => {
   for (const dir of [tedHome, outside]) await rm(dir, { recursive: true, force: true })
 })
 
-async function inSandbox(script: string) {
+async function inSandbox(script: string, sockets: string[] = []) {
   const sandbox = createSandbox({ tedHome, env: () => process.env })
-  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), sockets })
   const [command, ...args] = argv
   return execFileAsync(command, [...args, script], {
     cwd: worktree,
@@ -61,6 +62,15 @@ async function inSandbox(script: string) {
     }),
   )
 }
+
+async function listen(socket: string): Promise<Server> {
+  const server = createServer((connection) => connection.end())
+  await new Promise<void>((resolve) => server.listen(socket, resolve))
+  return server
+}
+
+const tryConnect = (socket: string) =>
+  `'${process.execPath}' -e "require('net').connect('${socket}').on('connect', () => { console.log('connected'); process.exit() }).on('error', () => { console.log('refused'); process.exit() })"`
 
 const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote || echo refused`
 const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
@@ -157,6 +167,26 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       await execFileAsync('defaults', ['delete', label]).catch(() => undefined)
     }
   })
+  test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async () => {
+    const own = path.join(tmp, 'o.s')
+    const listed = path.join(outside, 'listed.sock')
+    const other = path.join(outside, 'other.sock')
+    const servers = await Promise.all([own, listed, other].map(listen))
+    try {
+      const result = await inSandbox(
+        [tryConnect(own), tryConnect(listed), tryConnect(other), 'echo resolved'].join('; '),
+        [listed],
+      )
+      expect(result.stdout.trim().split('\n')).toEqual([
+        'connected',
+        'connected',
+        'refused',
+        'resolved',
+      ])
+    } finally {
+      for (const server of servers) server.close()
+    }
+  })
 })
 
 describe('the folders a sandbox opens', () => {
@@ -225,6 +255,77 @@ describe('the folders a sandbox opens', () => {
     expect(argv.join(' ')).toContain(`--ro-bind ${await realpath(clone)}`)
     expect(argv.join(' ')).toContain(`--bind ${real} ${real}`)
     expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
+  })
+
+  test.skipIf(tmpdir().startsWith('/tmp'))(
+    'on Linux, sockets outside the Task are covered and listed ones stay open',
+    async () => {
+      const listed = path.join(outside, 'listed.sock')
+      const other = path.join(outside, 'other.sock')
+      const own = path.join(worktree, 'o.s')
+      const servers = await Promise.all([listed, other, own].map(listen))
+      try {
+        const table = [
+          'Num       RefCount Protocol Flags    Type St Inode Path',
+          ...[listed, other, own, path.join(outside, 'gone.sock'), '@abstract'].map(
+            (socket, i) =>
+              `0000000000000000: 00000002 00000000 00010000 0001 01 ${1000 + i} ${socket}`,
+          ),
+        ].join('\n')
+        const sandbox = createSandbox({
+          tedHome,
+          env: () => ({ PATH: '/usr/bin:/bin', HOME: outside }),
+          platform: 'linux',
+          program: '/usr/bin/true',
+          unixSockets: async () => table,
+        })
+        const { argv } = await sandbox.wrap(['/bin/sh', '-c'], {
+          ...scope(),
+          sockets: ['~/listed.sock'],
+        })
+        const masked = argv.flatMap((arg, i) => (arg === '/dev/null' ? [argv[i + 1]] : []))
+        expect(masked).toEqual([other])
+      } finally {
+        for (const server of servers) server.close()
+      }
+    },
+  )
+
+  test('on Linux with --bind-fd, bwrap gets each folder as an open descriptor', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+      bindFds: true,
+      unixSockets: async () => '',
+    })
+    const wrapped = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    try {
+      const real = await realpath(worktree)
+      const line = wrapped.argv.join(' ')
+      expect(wrapped.fds).toHaveLength(5)
+      expect(line).toContain('--bind-fd 3 /tmp')
+      expect(line).toContain(`--ro-bind-fd 4 ${await realpath(clone)}`)
+      expect(line).toContain(`--bind-fd 5 ${real}`)
+      expect(line).not.toContain(`--bind ${real}`)
+    } finally {
+      await wrapped.close()
+    }
+  })
+
+  test('unixSocketPaths reads bound paths from /proc/net/unix and skips abstract ones', () => {
+    expect(
+      unixSocketPaths(
+        [
+          'Num       RefCount Protocol Flags    Type St Inode Path',
+          '0000000000000000: 00000002 00000000 00010000 0001 01 20 /run/docker.sock',
+          '0000000000000000: 00000002 00000000 00010000 0001 01 21 @/tmp/.X11-unix/X0',
+          '0000000000000000: 00000003 00000000 00000000 0001 03 22',
+          '0000000000000000: 00000002 00000000 00010000 0001 01 23 /home/a b/agent.sock',
+        ].join('\n'),
+      ),
+    ).toEqual(['/run/docker.sock', '/home/a b/agent.sock'])
   })
 })
 
