@@ -66,6 +66,7 @@ export const forwardedRequests = [
   'closeRunTab',
   'setTaskLead',
   'useDefaultModel',
+  'restartTaskLead',
   'editTask',
   'taskDescriptions',
   'search',

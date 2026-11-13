@@ -12,8 +12,9 @@ import { conversationRows } from '../task-conversations.ts'
 import { readableError, ted } from '../ted.ts'
 import { type ToolGroup, toolGroupSummary, toolGroups } from '../tool-groups.ts'
 import { ActionButton } from './ActionButton.tsx'
-import { AgentAvatar } from './Avatar.tsx'
+import { AgentAvatar, PersonAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
+import { EventLine } from './EventLine.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import { LoadingError, Skeleton } from './Loading.tsx'
@@ -303,36 +304,54 @@ function HumanMessage({
   item: Extract<ChatItem, { kind: 'human' }>
   run?: Pick<RunSummary, 'id' | 'state' | 'role'>
   now: number
-  options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect'>
+  options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect' | 'audience' | 'humanAs'>
 }) {
   const profile = useProfile()
   const unsent = item.unsent === true
   const queued = item.queued === true || unsent
   const live = !unsent && run !== undefined && (options.live ?? run.state !== 'finished')
+  const audience =
+    options.audience ?? (run && (run.role === 'lead' ? 'to the Task Lead' : 'to this Run only'))
+  const comment = options.humanAs === 'comment'
+  const head = (
+    <div className={styles.messageHead}>
+      <span className={styles.author}>{profile.name}</span>
+      <span className={styles.when}>
+        {[
+          ...(comment ? [] : ['']),
+          audience,
+          !queued ? ago(item.at, now) : undefined,
+          !item.sent && !queued ? 'sending' : undefined,
+        ]
+          .filter((part) => part !== undefined)
+          .join(' · ')}
+      </span>
+      {queued && (
+        <span className={styles.queuedChip}>
+          <ClockIcon />
+          {live ? 'Queued' : 'Not sent'}
+        </span>
+      )}
+      {queued && live && run && !options.inspect && (
+        <QueuedActions runId={run.id} messageId={item.id} sendNow={options.interrupt !== false} />
+      )}
+    </div>
+  )
+  if (comment) {
+    return (
+      <div className={`${styles.message} ${styles.personMessage}`} data-queued={queued}>
+        <PersonAvatar name={profile.name} photo={profile.photo} />
+        <div className={styles.messageBody}>
+          {head}
+          <Markdown className={styles.text} text={item.text} />
+        </div>
+      </div>
+    )
+  }
   return (
     <div className={styles.human}>
       <div className={styles.bubble} data-queued={queued}>
-        <div className={styles.messageHead}>
-          <span className={styles.author}>{profile.name}</span>
-          <span className={styles.when}>
-            {run && (run.role === 'lead' ? ' · to the Task Lead' : ' · to this Run only')}
-            {!queued && ` · ${ago(item.at, now)}`}
-            {!item.sent && !queued && ' · sending'}
-          </span>
-          {queued && (
-            <span className={styles.queuedChip}>
-              <ClockIcon />
-              {live ? 'Queued' : 'Not sent'}
-            </span>
-          )}
-          {queued && live && run && !options.inspect && (
-            <QueuedActions
-              runId={run.id}
-              messageId={item.id}
-              sendNow={options.interrupt !== false}
-            />
-          )}
-        </div>
+        {head}
         <Markdown className={styles.text} text={item.text} />
       </div>
     </div>
@@ -456,6 +475,9 @@ function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
     before.options.live === after.options.live &&
     before.options.interrupt === after.options.interrupt &&
     before.options.inspect === after.options.inspect &&
+    before.options.audience === after.options.audience &&
+    before.options.humanAs === after.options.humanAs &&
+    before.options.tedAs === after.options.tedAs &&
     (before.options.matchItemId === before.item.id) ===
       (after.options.matchItemId === after.item.id) &&
     (before.item === after.item || JSON.stringify(before.item) === JSON.stringify(after.item))
@@ -483,6 +505,17 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
         </Collapsible>
       )
     case 'ted':
+      if (options.tedAs === 'line') {
+        return (
+          <ul className={styles.lines}>
+            <EventLine
+              tone="quiet"
+              text={`From TED · ${item.text.replace(/\s+/g, ' ').trim()}`}
+              at={item.at ?? run.startedAt}
+            />
+          </ul>
+        )
+      }
       return (
         <Collapsible
           label="From TED"
@@ -515,6 +548,10 @@ export interface ChatExtra {
 export interface ChatOptions {
   inspect?: boolean
   matchItemId?: string
+  spot?: string
+  audience?: string
+  humanAs?: 'comment'
+  tedAs?: 'line'
 
   header?: ((run: RunSummary) => ReactNode) | undefined
   bar?: boolean
@@ -625,20 +662,15 @@ export function Composer({
   return (
     <div className={styles.composer}>
       {!live && endedNote && <p className={styles.endedNote}>{endedNote}</p>}
-      <div className={styles.boxWrap}>
-        <textarea
-          className={styles.box}
-          aria-label={label}
-          placeholder={live ? placeholder : endedPlaceholder}
-          disabled={!live}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={sendOnEnter((command) => send(command))}
-        />
-        <span className={styles.boxHelp}>
-          <Help>{help}</Help>
-        </span>
-      </div>
+      <textarea
+        className={styles.box}
+        aria-label={label}
+        placeholder={live ? placeholder : endedPlaceholder}
+        disabled={!live}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={sendOnEnter((command) => send(command))}
+      />
       {error !== undefined && (
         <p className={styles.error} role="alert">
           {error}
@@ -647,7 +679,6 @@ export function Composer({
       <div className={styles.buttons}>
         {live && (
           <Button
-            className={styles.stopTurn}
             aria-label="Stop the turn"
             title="Stop the turn without sending"
             disabled={stopping || !working}
@@ -666,6 +697,7 @@ export function Composer({
             Interrupt and send
           </Button>
         )}
+        <Help>{help}</Help>
         <Button
           variant="primary"
           shortcut="↵"
@@ -827,7 +859,11 @@ export function ChatBody({
         }}
       />
       <ScrollMemory
-        spot={options.inspect ? `search:${run.id}:${options.matchItemId}` : `run:${run.id}`}
+        spot={
+          options.inspect
+            ? `search:${run.id}:${options.matchItemId}`
+            : (options.spot ?? `run:${run.id}`)
+        }
         reveal={options.matchItemId ?? requestReveal}
         count={rows.length}
         grows={lastText}

@@ -34,7 +34,14 @@ export interface ResolvedWorkflow {
 
 const builtInOrder: readonly StageId[] = ['backlog', ...agentStageIds, 'done']
 const agentKeys = ['lead', 'reviewer', 'planner'] as const
-const lastWins = ['version', 'permissions', 'max_working_runs', 'repos', 'order'] as const
+const lastWins = [
+  'version',
+  'permissions',
+  'max_working_runs',
+  'sandbox_sockets',
+  'repos',
+  'order',
+] as const
 
 export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
   const settings: WorkflowSettings = { stages: {} }

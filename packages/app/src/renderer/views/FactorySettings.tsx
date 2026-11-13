@@ -1419,7 +1419,12 @@ function AppEditor({
       </div>
       <div className={styles.field}>
         <label className={styles.label} htmlFor={`${id}-run`}>
-          Run command <Help>TED passes a free port as $PORT.</Help>
+          Run command{' '}
+          <Help>
+            {app.kind === 'ios-simulator'
+              ? 'TED passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders.'
+              : 'TED passes a free port as $PORT.'}
+          </Help>
         </label>
         <input
           id={`${id}-run`}

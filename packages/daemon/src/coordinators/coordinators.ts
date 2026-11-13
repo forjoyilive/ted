@@ -47,6 +47,10 @@ import { writingGuidance } from '../writing.ts'
 
 export const coordinatorOpening = '## Message from the human'
 export const coordinatorFromTed = '## Message from TED'
+export const continueAfterPause =
+  'Continue the interrupted response using fresh facts. Do not repeat completed actions.'
+export const continueAfterRetry =
+  'Please continue the interrupted response. Check fresh facts and recorded action results; do not repeat completed actions.'
 export const coordinatorLine = 'Sent through the Coordinator on the human’s instruction.'
 const instructions = `# You are the Coordinator for one TED Factory
 Help the human compare Tasks and choose next work. Each Task has its own Task Lead.
@@ -558,7 +562,7 @@ export function createCoordinators(options: {
         if (pending(latest.runId).length === 0)
           store.queueRunMessage({
             runId: latest.runId,
-            text: 'Continue the interrupted response using fresh facts. Do not repeat completed actions.',
+            text: continueAfterPause,
             from: 'ted',
           })
         await store.persisted()
@@ -1174,7 +1178,7 @@ export function createCoordinators(options: {
       if (store.getRun(c.runId) && pending(c.runId).length === 0 && !c.launch)
         store.queueRunMessage({
           runId: c.runId,
-          text: 'Please continue the interrupted response. Check fresh facts and recorded action results; do not repeat completed actions.',
+          text: continueAfterRetry,
           from: 'ted',
         })
       save({ ...c, phase: 'queued', error: undefined })

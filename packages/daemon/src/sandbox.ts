@@ -1,24 +1,53 @@
-import { spawn } from 'node:child_process'
-import { constants } from 'node:fs'
-import { access, lstat, mkdir, realpath } from 'node:fs/promises'
+import { execFile, spawn } from 'node:child_process'
+import { constants, type Stats } from 'node:fs'
+import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { redactSecrets } from './redact.ts'
 
 export interface SandboxScope {
   writable: readonly string[]
   readable: readonly string[]
   tmp: string
   cache: string
+  sockets?: readonly string[]
 }
 
 export interface Sandboxed {
   argv: [string, ...string[]]
   env: Record<string, string>
+  fds: readonly number[]
+  close(): Promise<void>
 }
+
+export const firstBindFd = 3
 
 export interface Sandbox {
   problem(): Promise<string | undefined>
   wrap(argv: readonly [string, ...string[]], scope: SandboxScope): Promise<Sandboxed>
+  buildCaches(cache: string): Promise<Record<string, string>>
+}
+
+const buildFolders = {
+  TED_DERIVED_DATA: 'DerivedData',
+  TED_SWIFTPM_CACHE: 'swiftpm',
+  CLANG_MODULE_CACHE_PATH: 'ModuleCache',
+}
+
+export function buildCacheEnv(cache: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(buildFolders).map(([name, dir]) => [name, path.join(cache, 'xcode', dir)]),
+  )
+}
+
+async function makeBuildCaches(
+  home: string,
+  given: string,
+  cache: string,
+): Promise<Record<string, string>> {
+  const env = buildCacheEnv(cache)
+  for (const dir of Object.values(env)) await plainFolder(home, given, dir, true)
+  return env
 }
 
 export class SandboxUnavailable extends Error {}
@@ -30,9 +59,13 @@ export function createSandbox(options: {
   env: () => NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   program?: string
+  bindFds?: boolean
+  unixSockets?: () => Promise<string>
 }): Sandbox {
   const platform = options.platform ?? process.platform
   let ready: string | undefined
+  let bindFds = false
+  let saves: Promise<string | undefined> | undefined
 
   async function program(): Promise<string | undefined> {
     if (options.program !== undefined) return options.program
@@ -40,7 +73,26 @@ export function createSandbox(options: {
     return onPath('bwrap', options.env().PATH)
   }
 
+  async function socketTable(): Promise<string> {
+    return (options.unixSockets ?? (() => readFile('/proc/net/unix', 'utf8')))().catch(
+      (error: unknown) => {
+        throw new SandboxUnavailable(
+          `TED couldn’t list this machine’s Unix sockets, so it can’t sandbox Checks and Apps or worktree setup and teardown: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      },
+    )
+  }
+
   async function problem(): Promise<string | undefined> {
+    const why = await setUp()
+    if (why !== undefined || platform !== 'linux') return why
+    return socketTable().then(
+      () => undefined,
+      (error: Error) => error.message,
+    )
+  }
+
+  async function setUp(): Promise<string | undefined> {
     if (ready !== undefined) return undefined
     if (platform !== 'darwin' && platform !== 'linux') {
       return `TED can’t sandbox commands on ${platform}`
@@ -59,6 +111,14 @@ export function createSandbox(options: {
           ])
     const result = await probe(found, args, options.env())
     if (result.ok) {
+      if (platform === 'linux') {
+        bindFds = options.bindFds ?? (await helpText(found, options.env())).includes('--bind-fd')
+        if (!bindFds) {
+          console.error(
+            'bwrap on this machine has no --bind-fd, so TED checks the Task’s folders by path before bwrap opens them',
+          )
+        }
+      }
       ready = found
       return undefined
     }
@@ -71,8 +131,16 @@ export function createSandbox(options: {
     async wrap(argv, scope) {
       const why = await problem()
       if (why !== undefined || ready === undefined) throw new SandboxUnavailable(why)
-      const paths = await sandboxPaths(platform, options.tedHome, scope)
       const env = options.env()
+      const paths = await sandboxPaths(platform, options.tedHome, scope)
+      if (platform === 'darwin') {
+        saves ??= savesFolder()
+        const found = await saves
+        if (found !== undefined && !inside(found, paths.tedHome) && !inside(paths.tedHome, found)) {
+          paths.saves = found
+        }
+      }
+      const sockets = await allowedSockets(scope.sockets ?? [], env)
       const cache = (name: string) => path.join(paths.cache, name)
       const added: Record<string, string> = {
         TMPDIR: paths.tmp,
@@ -86,10 +154,42 @@ export function createSandbox(options: {
         PIP_CACHE_DIR: cache('pip'),
         GOCACHE: cache('go-build'),
         GOMODCACHE: cache('go-mod'),
+        ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
-      return platform === 'darwin'
-        ? { argv: [ready, ...seatbeltArgs(paths), ...argv], env: added }
-        : { argv: [ready, ...bwrapArgs(paths, env), '--', ...argv], env: added }
+      if (platform === 'darwin') {
+        return {
+          argv: [ready, ...seatbeltArgs(paths, sockets), ...argv],
+          env: added,
+          fds: [],
+          close: async () => {},
+        }
+      }
+      const table = await socketTable()
+      const linux = await linuxSockets(table, paths, sockets, env)
+      const binds = bwrapBinds(paths)
+      const handles: FileHandle[] = []
+      const close = async () => {
+        await Promise.all(handles.splice(0).map((handle) => handle.close().catch(() => {})))
+      }
+      try {
+        if (bindFds) {
+          for (const bind of binds) handles.push(await openPinned(bind.source, paths))
+        }
+      } catch (error) {
+        await close()
+        throw error
+      }
+      return {
+        argv: [ready, ...bwrapArgs(paths, env, linux, binds, bindFds), '--', ...argv],
+        env: added,
+        fds: handles.map((handle) => handle.fd),
+        close,
+      }
+    },
+    async buildCaches(cache) {
+      const home = await real(options.tedHome)
+      const given = path.resolve(options.tedHome)
+      return makeBuildCaches(home, given, await plainFolder(home, given, cache, true))
     },
   }
 }
@@ -101,6 +201,25 @@ interface SandboxPaths {
   cache: string
   tedHome: string
   sharedTmp?: string
+  saves?: string
+}
+
+const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService'
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function savesFolder(): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], (error, stdout) => {
+      const dir = stdout.trim()
+      if (error || !dir.startsWith('/')) return resolve(undefined)
+      real(dir).then((found) =>
+        resolve(/["\n\r]/.test(found) ? undefined : path.join(found, 'TemporaryItems')),
+      )
+    })
+  })
 }
 
 async function sandboxPaths(
@@ -136,7 +255,33 @@ async function sandboxPaths(
   }
 }
 
-function seatbeltArgs(paths: SandboxPaths): string[] {
+async function allowedSockets(
+  entries: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<string[]> {
+  const home = env.HOME?.startsWith('/') ? env.HOME : homedir()
+  const found = new Set<string>()
+  for (const entry of entries) {
+    const expanded = entry.startsWith('$')
+      ? env[entry.slice(1)]
+      : entry.startsWith('~/')
+        ? path.join(home, entry.slice(2))
+        : entry
+    if (expanded === undefined || !expanded.startsWith('/') || expanded.includes('\0')) {
+      console.error(
+        redactSecrets(
+          `sandbox_sockets entry ${entry} isn’t an absolute path here, so TED skips it`,
+        ),
+      )
+      continue
+    }
+    found.add(path.resolve(expanded))
+    found.add(await real(expanded))
+  }
+  return [...found]
+}
+
+function seatbeltArgs(paths: SandboxPaths, sockets: readonly string[]): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
     values
@@ -146,6 +291,14 @@ function seatbeltArgs(paths: SandboxPaths): string[] {
       })
       .join(' ')
   const own = [...paths.writable, paths.tmp, paths.cache]
+  const literal = (prefix: string, values: readonly string[]) =>
+    values
+      .map((value, i) => {
+        params.push('-D', `${prefix}${i}=${value}`)
+        return `(remote unix-socket (path-literal (param "${prefix}${i}")))`
+      })
+      .join(' ')
+  const ownSockets = own.map((_, i) => `(remote unix-socket (subpath (param "W${i}")))`).join(' ')
   const profile = [
     '(version 1)',
     '(allow default)',
@@ -154,15 +307,50 @@ function seatbeltArgs(paths: SandboxPaths): string[] {
     `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome])})`,
     `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
     `(allow file-write* ${param('W', own)})`,
+    ...(paths.saves === undefined
+      ? []
+      : [`(allow file-write* (regex #"^${escapeRegex(paths.saves)}/NSIRD_(${xcodeSavers})_"))`]),
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
+    '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
     '(deny user-preference-write)',
+    '(deny network-outbound (remote unix-socket))',
+    `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets, ...sockets])})`,
   ].join('\n')
   return [...params, '-p', profile]
 }
 
-function bwrapArgs(paths: SandboxPaths, env: NodeJS.ProcessEnv): string[] {
-  const runtime = env.XDG_RUNTIME_DIR?.startsWith('/') ? [env.XDG_RUNTIME_DIR] : []
+interface Bind {
+  source: string
+  dest: string
+  writable: boolean
+}
+
+function bwrapBinds(paths: SandboxPaths): Bind[] {
+  return [
+    { source: paths.tmp, dest: '/tmp', writable: true },
+    ...paths.readable.map((dir) => ({ source: dir, dest: dir, writable: false })),
+    ...[...paths.writable, paths.tmp, paths.cache].map((dir) => ({
+      source: dir,
+      dest: dir,
+      writable: true,
+    })),
+  ]
+}
+
+function bwrapArgs(
+  paths: SandboxPaths,
+  env: NodeJS.ProcessEnv,
+  sockets: LinuxSockets,
+  binds: readonly Bind[],
+  byFd: boolean,
+): string[] {
+  const runtime = runtimeDir(env)
+  const bind = (b: Bind, i: number) =>
+    byFd
+      ? [b.writable ? '--bind-fd' : '--ro-bind-fd', String(firstBindFd + i), b.dest]
+      : [b.writable ? '--bind' : '--ro-bind', b.source, b.dest]
+  const [tmpBind, ...taskBinds] = binds.map(bind)
   return [
     '--die-with-parent',
     '--unshare-pid',
@@ -173,17 +361,99 @@ function bwrapArgs(paths: SandboxPaths, env: NodeJS.ProcessEnv): string[] {
     '/dev',
     '--proc',
     '/proc',
-    '--bind',
-    paths.tmp,
-    '/tmp',
-    ...runtime.flatMap((dir) => ['--tmpfs', dir]),
+    ...(tmpBind ?? []),
+    ...(runtime === undefined ? [] : ['--tmpfs', runtime]),
     '--tmpfs',
     paths.tedHome,
-    ...paths.readable.flatMap((dir) => ['--ro-bind', dir, dir]),
-    ...[...paths.writable, paths.tmp, paths.cache].flatMap((dir) => ['--bind', dir, dir]),
+    ...taskBinds.flat(),
+    ...sockets.restores.flatMap((socket) => ['--ro-bind', socket, socket]),
+    ...sockets.masks.flatMap((socket) => ['--ro-bind', '/dev/null', socket]),
     '--unsetenv',
     'DBUS_SESSION_BUS_ADDRESS',
   ]
+}
+
+function runtimeDir(env: NodeJS.ProcessEnv): string | undefined {
+  return env.XDG_RUNTIME_DIR?.startsWith('/') ? env.XDG_RUNTIME_DIR : undefined
+}
+
+const macSystemSockets = ['/private/var/run/mDNSResponder', '/private/var/run/syslog']
+
+interface LinuxSockets {
+  masks: string[]
+  restores: string[]
+}
+
+async function linuxSockets(
+  procNetUnix: string,
+  paths: SandboxPaths,
+  allowed: readonly string[],
+  env: NodeJS.ProcessEnv,
+): Promise<LinuxSockets> {
+  const runtime = runtimeDir(env)
+  const covered = [
+    '/tmp',
+    '/dev',
+    '/proc',
+    ...(runtime === undefined ? [] : [runtime, await real(runtime)]),
+  ]
+  const own = [...paths.writable, paths.tmp, paths.cache]
+  const hidden = (file: string) =>
+    !paths.readable.some((dir) => inside(dir, file)) &&
+    (covered.some((dir) => inside(dir, file)) || inside(paths.tedHome, file))
+  const socketAt = async (file: string) =>
+    (await lstat(file).catch(() => undefined))?.isSocket() === true
+
+  const masks = new Set<string>()
+  for (const name of unixSocketPaths(procNetUnix)) {
+    const resolved = await real(name)
+    if (masks.has(resolved) || allowed.includes(resolved)) continue
+    if (hidden(resolved) || own.some((dir) => inside(dir, resolved))) continue
+    if (await socketAt(resolved)) masks.add(resolved)
+  }
+
+  const restores = new Set<string>()
+  for (const socket of allowed) {
+    if (inside(paths.tedHome, socket) || !covered.some((dir) => inside(dir, socket))) continue
+    if (socket !== (await real(socket)) || !(await socketAt(socket))) continue
+    restores.add(socket)
+  }
+  return { masks: [...masks], restores: [...restores] }
+}
+
+export function unixSocketPaths(procNetUnix: string): string[] {
+  const found: string[] = []
+  for (const line of procNetUnix.split('\n').slice(1)) {
+    const match = /^\s*\S+:\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s(.+)$/.exec(line)
+    const socket = match?.[1]
+    if (socket?.startsWith('/')) found.push(socket)
+  }
+  return found
+}
+
+async function openPinned(dir: string, paths: SandboxPaths): Promise<FileHandle> {
+  const handle = await open(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+  try {
+    const opened = await handle.stat()
+    const checked = await plainFolderStats(paths.tedHome, paths.tedHome, dir)
+    if (opened.dev !== checked.dev || opened.ino !== checked.ino) {
+      throw new SandboxUnavailable(
+        `${dir} changed while TED opened it, so TED won’t sandbox a command in it`,
+      )
+    }
+    return handle
+  } catch (error) {
+    await handle.close().catch(() => {})
+    throw error
+  }
+}
+
+async function helpText(command: string, env: NodeJS.ProcessEnv): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(command, ['--help'], { env, timeout: probeTimeoutMs }, (_error, stdout, stderr) =>
+      resolve(`${stdout}${stderr}`),
+    )
+  })
 }
 
 function corepackHome(env: NodeJS.ProcessEnv): string {
@@ -200,6 +470,11 @@ async function plainFolder(
   dir: string,
   create: boolean,
 ): Promise<string> {
+  await plainFolderStats(home, given, dir, create)
+  return path.join(home, ...folderParts(home, given, dir))
+}
+
+function folderParts(home: string, given: string, dir: string): string[] {
   const resolved = path.resolve(dir)
   const relative = inside(given, resolved)
     ? path.relative(given, resolved)
@@ -210,10 +485,20 @@ async function plainFolder(
   if (relative === undefined || parts.length === 0 || parts.includes('..')) {
     throw new SandboxUnavailable(`${dir} isn’t inside TED’s folder`)
   }
+  return parts
+}
+
+async function plainFolderStats(
+  home: string,
+  given: string,
+  dir: string,
+  create = false,
+): Promise<Stats> {
   let current = home
-  for (const part of parts) {
+  let found: Stats | undefined
+  for (const part of folderParts(home, given, dir)) {
     current = path.join(current, part)
-    let found = await lstat(current).catch(() => undefined)
+    found = await lstat(current).catch(() => undefined)
     if (!found && create) {
       await mkdir(current, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'EEXIST') throw error
@@ -226,7 +511,8 @@ async function plainFolder(
       )
     }
   }
-  return current
+  if (found === undefined) throw new SandboxUnavailable(`${dir} isn’t inside TED’s folder`)
+  return found
 }
 
 async function real(file: string): Promise<string> {

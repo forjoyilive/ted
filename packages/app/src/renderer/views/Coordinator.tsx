@@ -14,6 +14,7 @@ import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
+import { EventLine } from '../components/EventLine.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
@@ -27,7 +28,6 @@ import {
 } from '../data.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { when } from '../plans.ts'
-import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Coordinator.module.css'
 import { LeadSelects } from './PlanChat.tsx'
@@ -228,16 +228,11 @@ export function CoordinatorView({
         <header className={styles.header}>
           <div className={styles.titleRow}>
             <h1>{coordinator ? 'Current conversation' : 'New conversation'}</h1>
+            {coordinator === null && lead && <LeadSelects lead={lead} onChange={setLead} />}
             {coordinator && (
               <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
                 {chip.label}
               </StatusChip>
-            )}
-            <span className={styles.spacer} />
-            {coordinator === null && lead ? (
-              <LeadSelects lead={lead} onChange={setLead} />
-            ) : (
-              chat && <span className={styles.meta}>{runMeta(chat.run)}</span>
             )}
             {status === 'failed' && (
               <Button disabled={busy} onClick={() => retry()}>
@@ -246,9 +241,11 @@ export function CoordinatorView({
             )}
           </div>
           <p>
-            {coordinator?.startedAt
-              ? `${factory.name} · Started ${when(coordinator.startedAt)}`
-              : factory.name}
+            {[
+              factory.name,
+              ...(coordinator?.startedAt ? [`Started ${when(coordinator.startedAt)}`] : []),
+              ...(coordinator && chat ? [runMeta(chat.run)] : []),
+            ].join(' · ')}
           </p>
           {(error ?? coordinator?.error) && <p role="alert">{error ?? coordinator?.error}</p>}
         </header>
@@ -288,8 +285,13 @@ export function CoordinatorView({
                 factory.id,
                 coordinator?.confirmations ?? [],
                 coordinator?.receipts ?? [],
+                coordinator?.tasks ?? [],
                 onOpenTask,
               ),
+              spot: `coordinator:${factory.id}`,
+              audience: 'to the Coordinator',
+              humanAs: 'comment',
+              tedAs: 'line',
               label: 'Message to the Coordinator',
               placeholder,
               endedPlaceholder: 'Retry the Coordinator to send a message.',
@@ -401,10 +403,14 @@ function EarlierConversation({
         <header className={styles.header}>
           <div className={styles.titleRow}>
             <h1 className={styles.earlierTitle}>{summary.title}</h1>
-            <span className={styles.spacer} />
-            {chat.value && <span className={styles.meta}>{runMeta(chat.value.run)}</span>}
           </div>
-          <p>{`${factoryName} · ${when(summary.startedAt || summary.endedAt)} to ${when(summary.endedAt)}`}</p>
+          <p>
+            {[
+              factoryName,
+              `${when(summary.startedAt || summary.endedAt)} to ${when(summary.endedAt)}`,
+              ...(chat.value ? [runMeta(chat.value.run)] : []),
+            ].join(' · ')}
+          </p>
         </header>
         <div className={styles.banner}>
           <span>
@@ -435,8 +441,13 @@ function EarlierConversation({
               factoryId,
               conversation.value?.confirmations ?? [],
               conversation.value?.receipts ?? [],
+              conversation.value?.tasks ?? [],
               onOpenTask,
             ),
+            spot: `coordinator-conversation:${summary.id}`,
+            audience: 'to the Coordinator',
+            humanAs: 'comment',
+            tedAs: 'line',
             readOnly: (
               <p className={`${styles.muted} ${styles.readOnly}`}>
                 Read only. Continue this conversation to send a message.
@@ -454,6 +465,7 @@ function chatExtras(
   factoryId: string,
   confirmations: readonly CoordinatorConfirmation[],
   receipts: readonly CoordinatorReceipt[],
+  tasks: readonly Task[],
   onOpenTask: (id: string) => void,
 ) {
   return [
@@ -468,27 +480,33 @@ function chatExtras(
         />
       ),
     })),
-    ...receipts.map((receipt) => ({
-      id: receipt.id,
-      at: receipt.at,
-      node: (
-        <p className={styles.event}>
-          <span className={styles.dot} aria-hidden />
-          {receipt.taskId === undefined ? (
-            <span className={styles.eventPlain}>{receipt.text}</span>
-          ) : (
-            <ActionButton
-              type="button"
-              className={styles.eventText}
-              onClick={() => receipt.taskId && onOpenTask(receipt.taskId)}
-            >
-              {receipt.text}
-            </ActionButton>
-          )}
-          <time className={styles.eventTime}>{clockTime(receipt.at)}</time>
-        </p>
-      ),
-    })),
+    ...receipts.map((receipt) => {
+      const task = tasks.find((t) => t.id === receipt.taskId)
+      return {
+        id: receipt.id,
+        at: receipt.at,
+        node: (
+          <ul className={styles.lines}>
+            <EventLine
+              tone="run"
+              text={receipt.text}
+              at={receipt.at}
+              action={
+                receipt.taskId !== undefined && (
+                  <ActionButton
+                    type="button"
+                    className={styles.open}
+                    onClick={() => receipt.taskId && onOpenTask(receipt.taskId)}
+                  >
+                    {task ? `Open ${task.displayId}` : 'Open Task'}
+                  </ActionButton>
+                )
+              }
+            />
+          </ul>
+        ),
+      }
+    }),
   ]
 }
 

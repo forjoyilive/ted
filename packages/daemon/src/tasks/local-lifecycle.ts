@@ -93,6 +93,7 @@ export function createLocalLifecycle(options: {
   worktreesDir: string
   logsDir: string
   sandbox: Sandbox
+  sandboxSockets: (taskId: string) => Promise<readonly string[]>
   env: () => NodeJS.ProcessEnv
 }): LocalLifecycle {
   const { store } = options
@@ -533,6 +534,7 @@ export function createLocalLifecycle(options: {
                 writable: resources.map((r) => r.file),
                 readable: [...new Set(resources.map((r) => clonePath(options.reposDir, r.repo)))],
                 cache: path.join(sandboxDir, 'cache'),
+                sockets: await options.sandboxSockets(task.id),
               },
               tmpRoot: sandboxDir,
             },

@@ -67,6 +67,7 @@ export interface AppTask {
   repos: AppRepo[]
   sandbox?: Omit<SandboxScope, 'tmp'>
   outsideSandbox?: readonly string[]
+  cache?: string
 }
 
 export interface SimulatorOptions {
@@ -156,12 +157,13 @@ interface Runner {
     logBytes: number
     authority: LaunchAuthority
     shell?: string[]
+    fds?: readonly number[]
     lowPriority: boolean
   }): Promise<void>
 }
 
 const processRunner: Runner = {
-  async launch({ dir, run, cwd, env, logBytes, shell, authority, lowPriority }) {
+  async launch({ dir, run, cwd, env, logBytes, shell, fds = [], authority, lowPriority }) {
     const files = appFiles(dir)
     const launch: AppLaunchFile = {
       run,
@@ -169,6 +171,7 @@ const processRunner: Runner = {
       logBytes,
       authority,
       ...(shell !== undefined && { shell }),
+      ...(fds.length > 0 && { bindFds: fds.length }),
     }
     await writeFile(files.launch, JSON.stringify(launch), { mode: 0o600 })
     await rm(files.records, { force: true })
@@ -177,7 +180,7 @@ const processRunner: Runner = {
     const host = workCommand(entry.command, entry.args, lowPriority)
     const child = spawn(host.command, host.args, {
       detached: true,
-      stdio: 'ignore',
+      stdio: ['ignore', 'ignore', 'ignore', ...fds],
       cwd: dir,
       env: { ...env, ...markers(), ELECTRON_RUN_AS_NODE: '1' },
     })
@@ -609,18 +612,22 @@ export function createApps(options: AppsOptions): Apps {
         startedBy: by,
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
       }
-      await mkdir(dir, { recursive: true, mode: 0o700 })
-      await writeInstance(dir, instance)
-      await runners[app.kind].launch({
-        dir,
-        run: app.run,
-        cwd: repo.worktree,
-        env: { ...env, ...sandboxed.env },
-        logBytes: options.logBytes ?? appLogBytes,
-        authority: launchAuthority(store),
-        lowPriority: by !== 'human' && store.settings().lowPriorityWork,
-        ...(sandboxed.shell !== undefined && { shell: sandboxed.shell }),
-      })
+      try {
+        await mkdir(dir, { recursive: true, mode: 0o700 })
+        await writeInstance(dir, instance)
+        await runners[app.kind].launch({
+          dir,
+          run: app.run,
+          cwd: repo.worktree,
+          env: { ...env, ...sandboxed.env },
+          logBytes: options.logBytes ?? appLogBytes,
+          authority: launchAuthority(store),
+          lowPriority: by !== 'human' && store.settings().lowPriorityWork,
+          ...(sandboxed.shell !== undefined && { shell: sandboxed.shell, fds: sandboxed.fds }),
+        })
+      } finally {
+        await sandboxed.close?.()
+      }
       store.appStarted({
         taskId,
         repo: repo.name,
@@ -641,8 +648,16 @@ export function createApps(options: AppsOptions): Apps {
     scope: AppTask['sandbox'],
     task: AppTask,
     dir: string,
-  ): Promise<{ shell?: string[]; env: Record<string, string> } | { problem: string }> {
-    if (scope === undefined) return { env: {} }
+  ): Promise<
+    | {
+        shell?: string[]
+        fds?: readonly number[]
+        close?: () => Promise<void>
+        env: Record<string, string>
+      }
+    | { problem: string }
+  > {
+    if (scope === undefined) return { env: await unsandboxedCaches(task) }
     const problem = await options.sandboxProblem(task.factoryId)
     if (problem !== undefined) return { problem }
     await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -651,9 +666,19 @@ export function createApps(options: AppsOptions): Apps {
     await mkdir(tmp, { mode: 0o700 })
     try {
       const wrapped = await options.sandbox.wrap(['/bin/sh', '-c'], { ...scope, tmp })
-      return { shell: wrapped.argv, env: wrapped.env }
+      return { shell: wrapped.argv, fds: wrapped.fds, close: wrapped.close, env: wrapped.env }
     } catch (error) {
       if (error instanceof SandboxUnavailable) return { problem: error.message }
+      throw error
+    }
+  }
+
+  async function unsandboxedCaches(task: AppTask): Promise<Record<string, string>> {
+    if (task.cache === undefined) return {}
+    try {
+      return await options.sandbox.buildCaches(task.cache)
+    } catch (error) {
+      if (error instanceof SandboxUnavailable) return {}
       throw error
     }
   }

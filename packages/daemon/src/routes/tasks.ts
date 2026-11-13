@@ -434,6 +434,13 @@ export const taskRoutes: Route[] = [
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.useDefaultModel(ref)],
   },
   {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/lead\/restart$/,
+    fileToken: true,
+    waits: true,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.restartLead(ref)],
+  },
+  {
     method: 'GET',
     path: /^\/tasks\/([^/]+)\/comments$/,
     async handle({ params: [ref = ''] }, { store }) {

@@ -283,6 +283,7 @@ Rules:
 | `effort` (same) | any layer | The CLI’s levels: `low`, `medium`, `high`, `xhigh`, `max`, plus `ultra` on some Codex models. An unsupported level drops to the highest the model allows. Unset: the CLI’s default. | KRI-53 |
 | `permissions` | Legacy Factory key | Advisory `auto` or `bypass`; never authorizes Bypass. The effective mode is chosen on each computer (7.8). | KRI-20, KRI-53, KRI-165 |
 | `max_working_runs` | Factory only | Optional per-Factory cap on working Runs. Unset by default. | KRI-15, KRI-57 |
+| `sandbox_sockets` | any layer | Unix socket paths that sandboxed Checks, Apps and worktree setup/teardown may connect to (ADR 0142). Each entry is an absolute path, a `~/` path or a whole `$NAME` from the login shell. Unset: only sockets in the Task’s own folders. | KRI-221 |
 | `repos` | Factory only | List of the Factory’s repos; the first is the primary repo (4.6). | KRI-58 |
 | `order` | any layer | Ordered list of agent Stage ids (4.7). | KRI-12, KRI-58 |
 | `stages.<id>.enabled` | any layer | `false` turns a Stage off without editing `order`. | KRI-12 |
@@ -984,6 +985,10 @@ apps:
     kind: ios-simulator
     device: "iPhone 17"
     run: "npx expo run:ios --device ${TED_SIMULATOR_UDID}"
+  - name: iPad
+    kind: ios-simulator
+    device: "iPad Air 11-inch (M3)"
+    run: 'xcodebuild -scheme App -destination "id=$TED_SIMULATOR_UDID" -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" build'
 ```
 
 - Declared per repo under `repos[].apps`. Keys: `name`, `run`, `url`, `ready`, `kind`, `device`, optional fixed `port`, optional `env`. (KRI-18, KRI-58)
@@ -996,6 +1001,7 @@ apps:
 ### 9.7 iOS simulators (macOS only)
 
 - One simulator device per Task, cloned from the App’s `device` on first run, booted when needed, shown in Simulator.app, shut down when idle, deleted when the Task is archived. TED manages the device; the Factory’s `run` builds and installs using `TED_SIMULATOR_UDID`. (KRI-18)
+- An Xcode build in `run` passes `-derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE"`, folders in the Task’s own cache that TED sets for sandboxed and ▶ starts alike and removes with the Task; `CLANG_MODULE_CACHE_PATH` is set too. Without the flags a sandboxed build is refused. (KRI-220)
 - At most 3 booted at once (Settings → Limits). The sidebar footer shows “Simulators 3 of 3 booted” while any is booted. (KRI-18, KRI-23)
 - **The human presses Run with all slots booted:** a popover lists the booted simulators by Task, the one used longest ago selected, with **Cancel** and “Shut down NB-40’s and run”. TED never shuts one down silently. (KRI-23)
 - **An agent needs a simulator with all slots booted:** the Run posts a `permission` Comment and waits; the Task shows Waiting on you. The card reads “iPhone needs a simulator · 3 of 3 booted”, lists the booted simulators by Task (ID, title, App, “last used 40m ago”) as radio rows with the oldest pre-selected; a recording simulator is listed but can’t be picked. **Deny** makes `ted run-app` return “No simulator slot: the human denied”. If a slot frees up first, TED uses it and closes the request with “A simulator freed up; nothing was shut down.” (KRI-60, KRI-61)

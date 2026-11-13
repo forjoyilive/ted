@@ -3,6 +3,7 @@ import { closeSync, fstatSync, openSync, readFileSync, renameSync, writeSync } f
 import { watchExitWith } from '../exit-with.ts'
 import { waitForLock } from '../lock.ts'
 import { checkLaunchAuthority } from '../runs/launch-authority.ts'
+import { firstBindFd } from '../sandbox.ts'
 import { type AppHostRecord, type AppLaunchFile, appFiles } from './host-files.ts'
 
 const dir = process.argv[2]
@@ -35,14 +36,20 @@ const writeLog = (chunk: Buffer) => {
 
 const [shell = '/bin/sh', ...flags] = launch.shell ?? ['/bin/sh', '-c']
 checkLaunchAuthority(launch.authority)
+const bindFds = Array.from({ length: launch.bindFds ?? 0 }, (_, i) => firstBindFd + i)
 const child = spawn(shell, [...flags, launch.run], {
   cwd: launch.cwd,
   detached: true,
-  stdio: ['ignore', 'pipe', 'pipe'],
+  stdio: ['ignore', 'pipe', 'pipe', ...bindFds],
 })
+for (const fd of bindFds) {
+  try {
+    closeSync(fd)
+  } catch {}
+}
 record({ t: 'start', hostPid: process.pid, pid: child.pid ?? null })
-child.stdout.on('data', writeLog)
-child.stderr.on('data', writeLog)
+child.stdout?.on('data', writeLog)
+child.stderr?.on('data', writeLog)
 
 const killGroup = (signal: NodeJS.Signals) => {
   try {

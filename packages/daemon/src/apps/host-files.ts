@@ -7,6 +7,7 @@ export interface AppLaunchFile {
   cwd: string
   logBytes: number
   shell?: string[]
+  bindFds?: number
 }
 
 export type AppHostRecord =
