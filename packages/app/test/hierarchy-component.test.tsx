@@ -120,7 +120,7 @@ test('a parent shows nested children, merged progress, who it waits for and arch
   expect(shelved?.textContent).toContain('Archived, not merged')
   expect(children.getByText('Spike notes')).toBeTruthy()
   expect(children.getByText(/Archived without merging/)).toBeTruthy()
-  expect(children.getByText('Archived, not merged')).toBeTruthy()
+  expect(children.getAllByText('Archived, not merged')).toHaveLength(2)
   const u = user()
   await u.click(children.getByRole('button', { name: 'Collapse NB-42' }))
   expect(children.queryByText('Retry limits')).toBeNull()
