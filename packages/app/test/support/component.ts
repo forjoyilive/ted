@@ -21,6 +21,7 @@ export function bridge(given: Record<string, Handler>) {
     saveMessageDraft: (_box, draft) => ({ draft }),
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
     getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
+    tedStops: () => [],
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()
