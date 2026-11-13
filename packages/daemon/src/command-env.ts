@@ -86,6 +86,7 @@ export function executionEnvironment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv
     'LC_ALL',
     'APPIMAGE',
     'APPDIR',
+    'TED_EXECUTION_CRASH_AT',
     'TED_EXECUTION_HOME',
     'TED_LAB_RUN',
     'TED_LOGIN_SHELL',

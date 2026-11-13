@@ -57,6 +57,8 @@ installation’s `daemon.json`, keys, Factories or Run credentials. The worker r
 an explicit allowlist of basic runtime/tool-discovery inputs, its execution-home
 path and process-cleanup markers; it does not inherit agent API keys, SSH agents or
 TED’s app/file/Run credentials. `TED_LAB_RUN` is a Dev-only owned-lab cleanup marker.
+`TED_EXECUTION_CRASH_AT` is test-only: it names one point in the command channel
+where the controller or the worker kills itself, for crash tests. Release ignores it.
 `SHELL` is retained to discover the user’s login-shell tool paths. The discovered
 environment is filtered through the same worker allowlist before use, including
 for local agent-version probes.
