@@ -1,5 +1,10 @@
 import { queryDb, type Store } from '@livestore/livestore'
-import type { CoordinatorReceipt, RunMessage, TaskLead } from '@ted/protocol'
+import type {
+  CoordinatorConfirmation,
+  CoordinatorReceipt,
+  RunMessage,
+  TaskLead,
+} from '@ted/protocol'
 import { coordinators, events, type schema } from './schema.ts'
 
 export interface PromptPart {
@@ -19,6 +24,7 @@ export interface StoredCoordinator {
   opening: string
   error?: string | undefined
   receipts: CoordinatorReceipt[]
+  confirmations?: CoordinatorConfirmation[]
   taskIds: string[]
   unsentMessages?: RunMessage[]
   launch?:
@@ -63,4 +69,10 @@ export function createCoordinatorStore(options: {
       options.changed(factoryId)
     },
   }
+}
+
+export function confirmationHeadline(c: Pick<CoordinatorConfirmation, 'kind' | 'tasks'>): string {
+  const verb = c.kind === 'delete' ? 'Delete' : 'Archive'
+  const ids = c.tasks.map((t) => t.displayId)
+  return ids.length === 1 ? `${verb} ${ids[0]}?` : `${verb} ${ids.length} Tasks? ${ids.join(', ')}`
 }

@@ -100,6 +100,53 @@ test('parseCoordinatorCreate keeps every field', () => {
   }
   expect(P.parseCoordinatorCreate(body)).toEqual(body)
 })
+test('parseCoordinatorRemoval keeps every field and refuses choices that don’t fit the kind', () => {
+  const body: Required<P.CoordinatorRemoval> = {
+    operation: 'archive-1',
+    tasks: [
+      { id: 'TED-1', version },
+      { id: 'TED-2', version },
+    ],
+    children: 'detach',
+    blocked: 'keep',
+    closePullRequests: true,
+  }
+  expect(P.parseCoordinatorRemoval(body, 'archive')).toEqual(body)
+  expect(
+    P.parseCoordinatorRemoval(
+      { ...body, children: 'unparent', closePullRequests: undefined },
+      'delete',
+    ),
+  ).toEqual({ ...body, children: 'unparent', closePullRequests: undefined })
+  expect(() => P.parseCoordinatorRemoval(body, 'delete')).toThrow('children must be')
+  expect(() => P.parseCoordinatorRemoval({ ...body, children: undefined }, 'unarchive')).toThrow(
+    'blocked must be',
+  )
+  expect(() => P.parseCoordinatorRemoval({ ...body, tasks: [] }, 'archive')).toThrow('tasks lists')
+  expect(() =>
+    P.parseCoordinatorRemoval({ ...body, tasks: [body.tasks[0], body.tasks[0]] }, 'archive'),
+  ).toThrow('name each Task once')
+})
+test('parseCoordinatorConfirmationAnswer keeps every field', () => {
+  const body: Required<P.CoordinatorConfirmationAnswer> = {
+    decision: 'confirm',
+    choices: {
+      'TED-1': { children: 'archive', blocked: 'unblock', closePullRequests: true },
+      'TED-2': { children: 'delete', blocked: 'keep' },
+    },
+  }
+  expect(P.parseCoordinatorConfirmationAnswer(body)).toEqual(body)
+  expect(
+    P.parseCoordinatorConfirmationAnswer({
+      decision: 'confirm',
+      choices: { 'TED-1': { closePullRequests: false } },
+    }),
+  ).toEqual({ decision: 'confirm', choices: { 'TED-1': { closePullRequests: false } } })
+  expect(P.parseCoordinatorConfirmationAnswer({ decision: 'cancel' })).toEqual({
+    decision: 'cancel',
+  })
+  expect(() => P.parseCoordinatorConfirmationAnswer({ decision: 'maybe' })).toThrow('decision')
+})
 test('parseCoordinatorTaskQuery keeps every field and coordinatorTaskSearch writes them', () => {
   const query: AllFields<P.CoordinatorTaskQuery> = {
     offset: 100,

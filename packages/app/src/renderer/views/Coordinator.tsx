@@ -4,6 +4,7 @@ import { ActionButton } from '../components/ActionButton.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
+import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
@@ -148,27 +149,40 @@ export function CoordinatorView({
             retry={resource.error ? resource.retry : chatResource.retry}
             options={{
               bar: false,
-              extra: (coordinator?.receipts ?? []).map((receipt) => ({
-                id: receipt.id,
-                at: receipt.at,
-                node: (
-                  <p className={styles.event}>
-                    <span className={styles.dot} aria-hidden />
-                    {receipt.taskId === undefined ? (
-                      <span className={styles.eventPlain}>{receipt.text}</span>
-                    ) : (
-                      <ActionButton
-                        type="button"
-                        className={styles.eventText}
-                        onClick={() => receipt.taskId && onOpenTask(receipt.taskId)}
-                      >
-                        {receipt.text}
-                      </ActionButton>
-                    )}
-                    <time className={styles.eventTime}>{clockTime(receipt.at)}</time>
-                  </p>
-                ),
-              })),
+              extra: [
+                ...(coordinator?.confirmations ?? []).map((confirmation) => ({
+                  id: confirmation.id,
+                  at: confirmation.askedAt,
+                  node: (
+                    <ConfirmationCard
+                      key={`${confirmation.id}:${confirmation.answer?.decision ?? 'open'}`}
+                      factoryId={factory.id}
+                      confirmation={confirmation}
+                    />
+                  ),
+                })),
+                ...(coordinator?.receipts ?? []).map((receipt) => ({
+                  id: receipt.id,
+                  at: receipt.at,
+                  node: (
+                    <p className={styles.event}>
+                      <span className={styles.dot} aria-hidden />
+                      {receipt.taskId === undefined ? (
+                        <span className={styles.eventPlain}>{receipt.text}</span>
+                      ) : (
+                        <ActionButton
+                          type="button"
+                          className={styles.eventText}
+                          onClick={() => receipt.taskId && onOpenTask(receipt.taskId)}
+                        >
+                          {receipt.text}
+                        </ActionButton>
+                      )}
+                      <time className={styles.eventTime}>{clockTime(receipt.at)}</time>
+                    </p>
+                  ),
+                })),
+              ],
               label: 'Message to the Coordinator',
               placeholder,
               endedPlaceholder: 'Retry the Coordinator to send a message.',

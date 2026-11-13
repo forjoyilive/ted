@@ -1,5 +1,6 @@
 import type { RunMessage } from './chat.ts'
 import type {
+  BlockedChoice,
   ClarifyDepth,
   Comment,
   DescriptionVersion,
@@ -29,6 +30,9 @@ export type CoordinatorOperation =
   | 'parent'
   | 'done'
   | 'create'
+  | CoordinatorRemovalKind
+
+export type CoordinatorRemovalKind = 'archive' | 'unarchive' | 'delete'
 
 export interface CoordinatorReceipt {
   id: string
@@ -52,7 +56,57 @@ export interface Coordinator {
   error?: string
   unsentMessages: RunMessage[]
   receipts: CoordinatorReceipt[]
+  confirmations: CoordinatorConfirmation[]
   tasks: Task[]
+}
+
+export interface CoordinatorRemoval {
+  operation: string
+  tasks: { id: string; version: string }[]
+  children?: 'archive' | 'detach' | 'delete' | 'unparent'
+  blocked?: BlockedChoice
+  closePullRequests?: boolean
+}
+
+export interface CoordinatorRemovalResult {
+  receipts: CoordinatorReceipt[]
+  confirmation?: { id: string; waiting: boolean }
+}
+
+export interface ConfirmationTaskRef {
+  id: string
+  displayId: string
+  title: string
+}
+
+export interface ConfirmationChoices {
+  children?: 'archive' | 'detach' | 'delete' | 'unparent'
+  blocked?: BlockedChoice
+  closePullRequests?: boolean
+}
+
+export interface CoordinatorConfirmationTask extends ConfirmationTaskRef, ConfirmationChoices {
+  stage: StageId
+  descendants: ConfirmationTaskRef[]
+  blockedTasks: ConfirmationTaskRef[]
+  pullRequests: { repo: string; number: number }[]
+  working: boolean
+  result?: { done: boolean; text: string }
+}
+
+export interface CoordinatorConfirmation {
+  id: string
+  kind: 'archive' | 'delete'
+  operation: string
+  fingerprint: string
+  askedAt: string
+  tasks: CoordinatorConfirmationTask[]
+  answer?: { decision: 'confirm' | 'cancel'; at: string }
+}
+
+export interface CoordinatorConfirmationAnswer {
+  decision: 'confirm' | 'cancel'
+  choices?: Record<string, ConfirmationChoices>
 }
 
 export interface CoordinatorStatus {

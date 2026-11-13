@@ -14,6 +14,7 @@ import {
   type BrowserRequest,
   type ClarifyDepth,
   type CoordinatorAction,
+  type CoordinatorRemovalKind,
   type CoordinatorTaskQuery,
   DaemonClient,
   DaemonUnreachableError,
@@ -39,6 +40,7 @@ import {
   parseAssessFailureRequest,
   parseBrowserRequest,
   parseCoordinatorCreate,
+  parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
   parseDesignReviewInput,
   parseLinearUrl,
@@ -672,7 +674,28 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     return value
   }
 
-  function jsonOption(name: 'answers' | 'skip-rows' | 'neighbours'): unknown {
+  async function coordinatorRemove(kind: CoordinatorRemovalKind): Promise<void> {
+    const { operation } = options
+    if (!operation || !options.versions) throw new UsageError('operation and versions are required')
+    const versions = jsonOption('versions')
+    if (typeof versions !== 'object' || versions === null || Array.isArray(versions))
+      throw new UsageError('--versions must map each Task ID to its version')
+    const input = parseCoordinatorRemoval(
+      {
+        operation,
+        tasks: args.map((id) => ({ id, version: (versions as Record<string, unknown>)[id] })),
+        ...(options.children !== undefined && { children: options.children }),
+        ...(options.blocked !== undefined && { blocked: options.blocked }),
+        ...(options['close-pull-requests'] === true && { closePullRequests: true }),
+      },
+      kind,
+    )
+    console.log(
+      JSON.stringify(await withDaemon(home, (client) => client.coordinatorRemove(kind, input))),
+    )
+  }
+
+  function jsonOption(name: 'answers' | 'skip-rows' | 'neighbours' | 'versions'): unknown {
     const raw = options[name]
     if (raw === undefined) return undefined
     try {
@@ -966,6 +989,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ),
       )
     },
+    coordinatorArchive: () => coordinatorRemove('archive'),
+    coordinatorUnarchive: () => coordinatorRemove('unarchive'),
+    coordinatorDelete: () => coordinatorRemove('delete'),
     coordinatorDone: async () => {
       const { operation, version } = options
       if (!operation || !version) throw new UsageError('operation and version are required')

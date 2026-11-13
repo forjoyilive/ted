@@ -24,6 +24,7 @@ import { Help } from '../components/Help.tsx'
 import { BellOffIcon, ChevronIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { TaskDialog, type TaskDialogKind } from '../components/TaskActions.tsx'
+import type { ConfirmationRequest } from '../data.ts'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import {
   type Grouped,
@@ -60,6 +61,8 @@ export function Inbox({
   onClear,
   questions = [],
   onOpenQuestion,
+  confirmations = [],
+  onOpenConfirmation,
   onOpenPlan,
   onFilter,
   onShowAnswered,
@@ -81,6 +84,8 @@ export function Inbox({
   onClear: () => void
   questions?: readonly AutomationRequest[]
   onOpenQuestion?: (question: AutomationRequest) => void
+  confirmations?: readonly ConfirmationRequest[]
+  onOpenConfirmation?: (request: ConfirmationRequest) => void
   onOpenPlan?: (item: PlanInboxItem) => void
   onFilter: (factoryId: string | undefined) => void
   onShowAnswered: (show: boolean) => void
@@ -152,6 +157,7 @@ export function Inbox({
   for (const item of items) known.current.add(item.request.id)
   for (const item of plans) known.current.add(item.request.id)
   for (const question of questions) known.current.add(question.id)
+  for (const confirmation of confirmations) known.current.add(confirmation.id)
 
   useLayoutEffect(() => {
     const resolve = (ids: readonly string[]) =>
@@ -192,12 +198,18 @@ export function Inbox({
   const planRows = showAnswered
     ? []
     : pendingPlans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
+  const confirmationRows = showAnswered
+    ? []
+    : confirmations.filter(
+        (c) => !resolved.has(c.id) && (factoryId === undefined || c.factoryId === factoryId),
+      )
 
   const actions = useActionMenu(
     JSON.stringify([
       shown.map((item) => item.request.id),
       planRows.map((item) => item.request.id),
       asked.map((question) => question.id),
+      confirmationRows.map((c) => c.id),
     ]),
   )
 
@@ -230,6 +242,13 @@ export function Inbox({
           request: item,
           grouped: { kind: 'question', at: item.createdAt } satisfies Grouped,
           open: () => onOpenQuestion?.(item),
+        })),
+        ...confirmationRows.map((item) => ({
+          kind: 'coordinator' as const,
+          item,
+          request: item,
+          grouped: { kind: 'question', at: item.createdAt } satisfies Grouped,
+          open: () => onOpenConfirmation?.(item),
         })),
       ].sort(
         (a, b) =>
@@ -357,6 +376,36 @@ export function Inbox({
             className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
           >
             {headline(request)}
+          </span>
+          <span className={styles.where}>{where}</span>
+          {until(row.request.id)}
+        </button>
+      )
+    }
+    if (row.kind === 'coordinator') {
+      const confirmation = row.item
+      const where = [
+        'Coordinator',
+        ...(manyFactories ? [factoryName(factories, confirmation.factoryId)] : []),
+      ].join(' · ')
+      return (
+        <button
+          type="button"
+          className={styles.row}
+          aria-current={confirmation.id === selected ? 'true' : undefined}
+          data-nav-item
+          data-snooze-request={confirmation.id}
+          data-confirmation-request={confirmation.id}
+          {...requestMenu(confirmation.id, 'Coordinator', confirmation.headline)}
+          onClick={() => onOpenConfirmation?.(confirmation)}
+        >
+          <span className={styles.top}>
+            <span className={styles.kind}>Confirmation</span>
+            {mark(confirmation.factoryId)}
+            <span className={ageClass}>{age(confirmation.createdAt, now)}</span>
+          </span>
+          <span data-headline className={`${styles.headline} ${styles.unread}`}>
+            {confirmation.headline}
           </span>
           <span className={styles.where}>{where}</span>
           {until(row.request.id)}

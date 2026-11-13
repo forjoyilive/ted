@@ -25,6 +25,7 @@ function coordinator(fields: Partial<Coordinator> = {}): Coordinator {
     lead: { agent: 'claude' },
     status: 'ready',
     unsentMessages: [],
+    confirmations: [],
     receipts: [
       {
         id: 'op1',
@@ -85,6 +86,7 @@ function withCoordinator() {
   a.handle('coordinatorChat', () => shown.chat)
   a.handle('coordinatorStatuses', () => shown.statuses)
   a.handle('taskDefaults', () => ({ lead: { agent: 'claude' }, planner: { agent: 'claude' } }))
+  a.handle('tedStops', () => [])
   const open = async () => {
     await user().click(await screen.findByRole('button', { name: 'widgets' }))
     await user().click(within(nav()).getByRole('button', { name: /^Coordinator/ }))
@@ -379,4 +381,46 @@ test('Coordinator loading failures can retry without losing the combined convers
   act(() => a.emit({ type: 'coordinator-changed', factoryId: 'f1' }))
   await within(region).findByRole('alert')
   expect(within(region).getByText('Start with NB-1.')).toBeTruthy()
+})
+
+test('a Coordinator confirmation card shows its warnings and sends the human’s choices on Confirm', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.coordinator = coordinator({
+    confirmations: [
+      {
+        id: 'c1',
+        kind: 'archive',
+        operation: 'archive-1',
+        fingerprint: 'f',
+        askedAt: createdAt,
+        tasks: [
+          {
+            id: 'NB-3',
+            displayId: 'NB-3',
+            title: 'Export to CSV',
+            stage: 'review',
+            descendants: [{ id: 'NB-11', displayId: 'NB-11', title: 'CSV headers' }],
+            blockedTasks: [],
+            pullRequests: [{ repo: 'ted', number: 212 }],
+            working: true,
+          },
+        ],
+      },
+    ],
+  })
+  const answer = vi.fn(() => shown.coordinator)
+  a.handle('answerCoordinatorConfirmation', answer)
+  a.mount()
+  const pane = await open()
+  const card = await within(pane).findByRole('region', { name: 'Archive NB-3?' })
+  expect(card.textContent).toContain('NB-3’s Task Lead is working')
+  const close = within(card).getByRole('checkbox', { name: /Close the pull request/ })
+  expect((close as HTMLInputElement).checked).toBe(false)
+  await user().click(close)
+  await user().click(within(card).getByRole('radio', { name: /Detach them and keep them/ }))
+  await user().click(within(card).getByRole('button', { name: 'Archive NB-3' }))
+  expect(answer).toHaveBeenCalledWith('f1', 'c1', {
+    decision: 'confirm',
+    choices: { 'NB-3': { closePullRequests: true, children: 'detach' } },
+  })
 })

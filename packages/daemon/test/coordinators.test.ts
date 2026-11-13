@@ -301,6 +301,164 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     (await s.client.call('POST', '/coordinator/tasks', { operation: 'x', title: 'F' })).status,
   ).toBe(403)
 
+  const d = await s.task('D')
+  const removal = async (kind: string, ids: string[], extra: object = {}, operation = '') =>
+    run.call('POST', `/coordinator/${kind}`, {
+      operation: operation || `${kind}-${ids.join('-')}`,
+      tasks: await Promise.all(ids.map(async (id) => ({ id, version: (await read(id)).version }))),
+      ...extra,
+    })
+  const taskById = async (id: string) =>
+    (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)
+  const archivedD = await removal('archive', [d.id], {}, 'archive-d')
+  expect(archivedD.status).toBe(200)
+  expect(archivedD.body).toMatchObject({
+    receipts: [{ operation: 'archive', taskId: d.id, text: `Archived ${d.displayId}` }],
+  })
+  expect(archivedD.body).not.toHaveProperty('confirmation')
+  expect((await taskById(d.id))?.archived).toBeTruthy()
+  const unarchivedD = await removal('unarchive', [d.id])
+  expect((unarchivedD.body as { receipts: CoordinatorReceipt[] }).receipts[0]?.text).toContain(
+    `Unarchived ${d.displayId}`,
+  )
+  expect((await taskById(d.id))?.archived).toBeFalsy()
+  expect(
+    (
+      await run.call('POST', '/coordinator/archive', {
+        operation: 'archive-foreign',
+        tasks: [{ id: foreign.id, version: av.version }],
+      })
+    ).status,
+  ).toBe(404)
+  expect(
+    (
+      await run.call('POST', '/coordinator/archive', {
+        operation: 'stale-archive',
+        tasks: [{ id: d.id, version: av.version }],
+      })
+    ).status,
+  ).toBe(409)
+
+  const archiveB = await removal('archive', [b.id])
+  const askedB = (archiveB.body as { confirmation: { id: string; waiting: boolean } }).confirmation
+  expect(askedB.waiting).toBe(true)
+  expect((await taskById(b.id))?.archived).toBeFalsy()
+  const p = await s.task('P')
+  const madeQ = await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-q',
+    title: 'Q',
+    parentId: p.id,
+  })
+  expect(madeQ.status).toBe(201)
+  const q = await taskById((madeQ.body as CoordinatorReceipt).taskId ?? '')
+  if (!q) throw new Error('missing Q')
+  const f = await s.task('F')
+  await removal('archive', [f.id])
+  expect((await taskById(f.id))?.archived).toBeTruthy()
+  const adInput = {
+    operation: 'delete-adf',
+    tasks: await Promise.all(
+      [p.id, d.id, f.id].map(async (id) => ({ id, version: (await read(id)).version })),
+    ),
+    children: 'delete',
+  }
+  const deleteAD = await run.call('POST', '/coordinator/delete', adInput)
+  const askedAD = (deleteAD.body as { confirmation: { id: string } }).confirmation
+  const cards = (await s.chat()).confirmations
+  expect(cards.find((c) => c.id === askedB.id)).toMatchObject({
+    kind: 'archive',
+    tasks: [{ id: b.id, blockedTasks: [{ id: createReceipt.taskId }] }],
+  })
+  expect(cards.find((c) => c.id === askedAD.id)).toMatchObject({
+    kind: 'delete',
+    tasks: [
+      { id: p.id, children: 'delete', descendants: [{ id: q.id }] },
+      { id: d.id, descendants: [] },
+      { id: f.id },
+    ],
+  })
+  const waiting = await s.ok<WaitingRequest[]>('GET', '/inbox/waiting')
+  expect(waiting.filter((w) => w.source === 'coordinator')).toMatchObject([
+    { id: askedB.id, headline: `Archive ${b.displayId}?` },
+    {
+      id: askedAD.id,
+      headline: `Delete 3 Tasks? ${p.displayId}, ${d.displayId}, ${f.displayId}`,
+    },
+  ])
+  const answer = (id: string) => `${s.base}/confirmations/${id}`
+  expect((await run.call('POST', answer(askedB.id), { decision: 'confirm' })).status).toBe(403)
+  await s.ok('POST', answer(askedB.id), { decision: 'cancel' })
+  expect((await taskById(b.id))?.archived).toBeFalsy()
+  expect(await s.waitingIds()).not.toContain(askedB.id)
+
+  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [q.id] })
+  const own = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac-own')
+  const askedOwn = (own.body as { confirmation: { id: string } }).confirmation
+  const refusedOwn = await s.ok<Coordinator>('POST', answer(askedOwn.id), {
+    decision: 'confirm',
+    choices: { [q.id]: { blocked: 'keep' } },
+  })
+  expect(refusedOwn.confirmations.find((x) => x.id === askedOwn.id)?.tasks).toMatchObject([
+    {
+      id: p.id,
+      result: {
+        done: false,
+        text: expect.stringContaining(`${q.displayId}, which is under it, has its own choices`),
+      },
+    },
+    { id: q.id, result: { done: false, text: expect.stringContaining(`under ${p.displayId}`) } },
+  ])
+  expect(await taskById(p.id)).toBeDefined()
+  expect(await taskById(q.id)).toBeDefined()
+  const cascade = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac')
+  const askedAC = (cascade.body as { confirmation: { id: string } }).confirmation
+  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E3', blockedBy: [q.id] })
+  const refusedAC = await s.ok<Coordinator>('POST', answer(askedAC.id), { decision: 'confirm' })
+  expect(refusedAC.confirmations.find((x) => x.id === askedAC.id)?.tasks).toMatchObject([
+    {
+      id: p.id,
+      result: {
+        done: false,
+        text: expect.stringContaining(`${q.displayId}, which is under it, changed`),
+      },
+    },
+    { id: q.id, result: { done: false, text: expect.stringContaining('the Tasks it blocks') } },
+  ])
+  expect(await taskById(p.id)).toBeDefined()
+  expect(await taskById(q.id)).toBeDefined()
+
+  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E', blockedBy: [d.id] })
+  const answered = await s.ok<Coordinator>('POST', answer(askedAD.id), {
+    decision: 'confirm',
+  })
+  expect(answered.confirmations.find((c) => c.id === askedAD.id)).toMatchObject({
+    answer: { decision: 'confirm' },
+    tasks: [
+      { id: p.id, result: { done: true } },
+      {
+        id: d.id,
+        result: {
+          done: false,
+          text: expect.stringContaining('the Tasks it blocks changed after this card was shown'),
+        },
+      },
+      { id: f.id, result: { done: true } },
+    ],
+  })
+  expect(await taskById(f.id)).toBeUndefined()
+  expect(await taskById(p.id)).toBeUndefined()
+  expect(await taskById(q.id)).toBeUndefined()
+  expect(await taskById(a.id)).toBeDefined()
+  expect((await taskById(d.id))?.archived).toBeFalsy()
+  expect((await s.client.call('POST', answer(askedAD.id), { decision: 'cancel' })).status).toBe(409)
+  expect((await run.call('POST', '/coordinator/delete', adInput)).body).toMatchObject({
+    confirmation: { id: askedAD.id, waiting: false },
+    receipts: [
+      { operation: 'delete', taskId: p.id },
+      { operation: 'delete', taskId: f.id },
+    ],
+  })
+
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {
     ...receipt,

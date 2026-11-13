@@ -18,6 +18,7 @@ export const forwardedRequests = [
   'messageCoordinator',
   'stopCoordinator',
   'retryCoordinator',
+  'answerCoordinatorConfirmation',
   'resetCoordinator',
   'listTasks',
   'listComments',
