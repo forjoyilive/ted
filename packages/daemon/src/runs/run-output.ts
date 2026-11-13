@@ -102,7 +102,8 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
   function fromFile(runId: string, { fd, size, inode, to }: OpenLog): Cached {
     const cached = cache.get(runId)
     if (size < to) {
-      if (cached?.source === 'tail' && cached.inode === inode) return keep(runId, cached)
+      if (cached?.source === 'tail' && cached.inode === inode && cached.parsedTo === size)
+        return keep(runId, cached)
       const entries = readEntries(fd, 0, size, to - size)
       return keep(runId, {
         source: 'tail',
