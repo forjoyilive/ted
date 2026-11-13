@@ -1,6 +1,6 @@
 import type { AnswerRequest, MessageBox, Proposal, ProposalCreated } from '@ted/protocol'
 import { planProposal } from '@ted/protocol/proposal'
-import { sendOnEnter } from '../composer-keys.ts'
+import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { blockedByText, createLabel, droppedWarning, wouldStart } from '../proposal.ts'
 import { priorityLabels } from '../task-fields.ts'
@@ -152,6 +152,13 @@ export function ProposalAnswer({
   )
   const plan = planProposal(proposal, skip)
   const typed = text.trim() !== ''
+  const enter = signOffEnter(typed)
+  const approve = () =>
+    onSend({
+      action: 'approve',
+      ...(typed && { text }),
+      proposal: { skip, startUnblocked },
+    })
   const toggle = (row: number) =>
     setSkip(skip.includes(row) ? skip.filter((r) => r !== row) : [...skip, row])
   return (
@@ -182,12 +189,18 @@ export function ProposalAnswer({
             placeholder="Comment, or say what to change…"
             value={text}
             onChange={(event) => setText(event.target.value)}
-            onKeyDown={sendOnEnter(() => {
-              if (!sending) onSend({ action: 'request-changes', text })
-            })}
+            onKeyDown={sendOnEnter(
+              () => {
+                if (sending) return
+                if (enter === 'request-changes') onSend({ action: 'request-changes', text })
+                else if (plan.creates > 0) approve()
+              },
+              () => true,
+            )}
           />
           <div className={styles.buttons}>
             <Button
+              {...(enter === 'request-changes' && { shortcut: '↵' })}
               disabled={sending || !typed}
               onClick={() => onSend({ action: 'request-changes', text })}
             >
@@ -195,14 +208,9 @@ export function ProposalAnswer({
             </Button>
             <Button
               variant="primary"
+              {...(enter === 'approve' && { shortcut: '↵' })}
               disabled={sending || plan.creates === 0}
-              onClick={() =>
-                onSend({
-                  action: 'approve',
-                  ...(typed && { text }),
-                  proposal: { skip, startUnblocked },
-                })
-              }
+              onClick={approve}
             >
               {createLabel(plan.creates)}
             </Button>

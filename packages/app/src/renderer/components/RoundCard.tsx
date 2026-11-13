@@ -6,7 +6,8 @@ import type {
   RoundAnswer,
   RoundQuestion,
 } from '@ted/protocol'
-import { useId } from 'react'
+import { type KeyboardEvent, useId } from 'react'
+import { enterAction } from '../composer-keys.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { Button } from './Button.tsx'
 import styles from './RoundCard.module.css'
@@ -189,9 +190,34 @@ export function RoundQuestions({
   const update = (i: number, draft: Draft) =>
     setDrafts(drafts.map((d, at) => (at === i ? draft : d)))
   const complete = drafts.every((d) => (d.other ? writtenText(d) : d.answer).trim() !== '')
+  const submit = () =>
+    onSend({
+      action: 'answer-round',
+      answers: drafts.map((d) => {
+        const text = writtenText(d)
+        return {
+          answer: d.other ? text : d.answer,
+          ...(!d.other && text.trim() !== '' && { note: text }),
+        }
+      }),
+    })
+  const submitOnCommandEnter = (event: KeyboardEvent<HTMLDivElement>) => {
+    const action = enterAction({
+      key: event.key,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      isComposing: event.nativeEvent.isComposing,
+      keyCode: event.nativeEvent.keyCode,
+    })
+    if (action !== 'command-send') return
+    event.preventDefault()
+    if (complete && !sending) submit()
+  }
   return (
     <>
-      <div className={styles.questions}>
+      <div className={styles.questions} {...(!readOnly && { onKeyDown: submitOnCommandEnter })}>
         {round.questions.map((question, i) => (
           <Question
             key={question.question}
@@ -210,22 +236,7 @@ export function RoundQuestions({
               {waiting ? 'Waiting for Task Lead…' : talking ? 'Open chat' : 'Talk it through'}
             </Button>
           )}
-          <Button
-            variant="primary"
-            disabled={sending || !complete}
-            onClick={() =>
-              onSend({
-                action: 'answer-round',
-                answers: drafts.map((d) => {
-                  const text = writtenText(d)
-                  return {
-                    answer: d.other ? text : d.answer,
-                    ...(!d.other && text.trim() !== '' && { note: text }),
-                  }
-                }),
-              })
-            }
-          >
+          <Button variant="primary" shortcut="⌘↵" disabled={sending || !complete} onClick={submit}>
             Submit answers
           </Button>
         </div>

@@ -16,6 +16,10 @@ export function enterAction(press: EnterPress): 'send' | 'command-send' | undefi
   return press.metaKey || press.ctrlKey ? 'command-send' : 'send'
 }
 
+export function signOffEnter(typed: boolean): 'approve' | 'request-changes' {
+  return typed ? 'request-changes' : 'approve'
+}
+
 export function sendOnEnter(
   send: (command: boolean) => void,
   ready: (text: string) => boolean = (text) => text.trim() !== '',

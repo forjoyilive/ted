@@ -12,7 +12,7 @@ import type {
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
-import { sendOnEnter } from '../composer-keys.ts'
+import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
 import {
   useCheckRuns,
   useComments,
@@ -528,6 +528,22 @@ export function RequestAnswer({
       (selectedChoice !== undefined ? !needsReason || typed : other && otherText.trim() !== '')
     : typed
 
+  const enter = request.simulator
+    ? chosen !== undefined && 'approve'
+    : request.permission
+      ? 'approve'
+      : request.gate
+        ? signOffEnter(typed)
+        : ready && 'answer'
+
+  function approve() {
+    return send({
+      action: 'approve',
+      ...(request.simulator && chosen !== undefined && { simulator: chosen }),
+      ...withText,
+    })
+  }
+
   function sendAnswer() {
     if (!ready || sending) return
     return send(
@@ -539,6 +555,12 @@ export function RequestAnswer({
             ...(answerText.trim() !== '' && { text: answerText }),
           },
     )
+  }
+
+  function pressEnter() {
+    if (sending || enter === false) return
+    if (enter === 'approve') return approve()
+    return sendAnswer()
   }
 
   return (
@@ -592,16 +614,13 @@ export function RequestAnswer({
               ? setOtherText(event.target.value)
               : setText(event.target.value)
           }
-          onKeyDown={
-            request.permission || request.simulator
-              ? undefined
-              : (event) =>
-                  repairing
-                    ? sendOnEnter(
-                        () => event.currentTarget.form?.requestSubmit(),
-                        () => !sending,
-                      )(event)
-                    : sendOnEnter(sendAnswer, () => !!ready && !sending)(event)
+          onKeyDown={(event) =>
+            repairing
+              ? sendOnEnter(
+                  () => event.currentTarget.form?.requestSubmit(),
+                  () => !sending,
+                )(event)
+              : sendOnEnter(pressEnter, () => true)(event)
           }
         />
       )}
@@ -656,14 +675,9 @@ export function RequestAnswer({
             </Button>
             <Button
               variant="primary"
+              shortcut="↵"
               disabled={sending || chosen === undefined}
-              onClick={() =>
-                send({
-                  action: 'approve',
-                  ...(chosen !== undefined && { simulator: chosen }),
-                  ...withText,
-                })
-              }
+              onClick={approve}
             >
               {chosenOwner !== undefined ? `Shut down ${chosenOwner}’s and run` : 'Run'}
             </Button>
@@ -676,9 +690,10 @@ export function RequestAnswer({
             <Button
               variant="primary"
               arm="approve"
+              shortcut="↵"
               pending={sending && submission?.action === 'approve'}
               disabled={sending}
-              onClick={() => send({ action: 'approve', ...withText })}
+              onClick={approve}
             >
               Approve
             </Button>
@@ -687,6 +702,7 @@ export function RequestAnswer({
           <>
             <Button
               data-request-changes
+              {...(enter === 'request-changes' && { shortcut: '↵' })}
               pending={sending && submission?.action === 'request-changes'}
               disabled={sending || !typed}
               onClick={() => send({ action: 'request-changes', text })}
@@ -696,9 +712,10 @@ export function RequestAnswer({
             <Button
               variant="primary"
               arm="approve"
+              {...(enter === 'approve' && { shortcut: '↵' })}
               pending={sending && submission?.action === 'approve'}
               disabled={sending}
-              onClick={() => send({ action: 'approve', ...withText })}
+              onClick={approve}
             >
               {request.gate.approveLabel}
             </Button>
@@ -713,6 +730,7 @@ export function RequestAnswer({
             )}
             <Button
               variant="primary"
+              shortcut="↵"
               disabled={sending || !ready}
               pending={sending && submission?.action === 'answer'}
               onClick={sendAnswer}

@@ -68,10 +68,15 @@
 }
 
 .shortcut {
-  color: var(--text-on-accent-muted);
+  color: var(--text-tertiary);
   font-family: inherit;
   font-size: var(--text-12);
   font-weight: var(--weight-regular);
+}
+
+.primary .shortcut,
+.danger .shortcut {
+  color: var(--text-on-accent-muted);
 }
 
 .armed {
