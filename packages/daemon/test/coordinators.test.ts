@@ -322,7 +322,14 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     `Unarchived ${d.displayId}`,
   )
   expect((await taskById(d.id))?.archived).toBeFalsy()
-  expect((await removal('archive', [foreign.id])).status).toBe(404)
+  expect(
+    (
+      await run.call('POST', '/coordinator/archive', {
+        operation: 'archive-foreign',
+        tasks: [{ id: foreign.id, version: av.version }],
+      })
+    ).status,
+  ).toBe(404)
   expect(
     (
       await run.call('POST', '/coordinator/archive', {
@@ -377,14 +384,36 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
 
   const c = await taskById(createReceipt.taskId ?? '')
   if (!c) throw new Error('missing C')
+  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [c.id] })
+  const own = await removal('delete', [a.id, c.id], { children: 'delete' }, 'delete-ac-own')
+  const askedOwn = (own.body as { confirmation: { id: string } }).confirmation
+  const refusedOwn = await s.ok<Coordinator>('POST', answer(askedOwn.id), {
+    decision: 'confirm',
+    choices: { [c.id]: { blocked: 'keep' } },
+  })
+  expect(refusedOwn.confirmations.find((x) => x.id === askedOwn.id)?.tasks).toMatchObject([
+    {
+      id: a.id,
+      result: {
+        done: false,
+        text: expect.stringContaining(`${c.displayId}, which is under it, has its own choices`),
+      },
+    },
+    { id: c.id, result: { done: false, text: expect.stringContaining(`under ${a.displayId}`) } },
+  ])
+  expect(await taskById(a.id)).toBeDefined()
+  expect(await taskById(c.id)).toBeDefined()
   const cascade = await removal('delete', [a.id, c.id], { children: 'delete' }, 'delete-ac')
   const askedAC = (cascade.body as { confirmation: { id: string } }).confirmation
-  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [c.id] })
+  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E3', blockedBy: [c.id] })
   const refusedAC = await s.ok<Coordinator>('POST', answer(askedAC.id), { decision: 'confirm' })
   expect(refusedAC.confirmations.find((x) => x.id === askedAC.id)?.tasks).toMatchObject([
     {
       id: a.id,
-      result: { done: false, text: expect.stringContaining(`${c.displayId}, which is under it`) },
+      result: {
+        done: false,
+        text: expect.stringContaining(`${c.displayId}, which is under it, changed`),
+      },
     },
     { id: c.id, result: { done: false, text: expect.stringContaining('the Tasks it blocks') } },
   ])

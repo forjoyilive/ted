@@ -1668,6 +1668,24 @@ export function createCoordinators(options: {
           }
           return undefined
         }
+        const childrenOf = (card: CoordinatorConfirmationTask) =>
+          card.children ?? (asked.kind === 'archive' ? 'archive' : 'unparent')
+        const conflict = (card: CoordinatorConfirmationTask) => {
+          if (!sweeps(card)) return undefined
+          for (const other of cards) {
+            if (other.id === card.id || !card.descendants.some((d) => d.id === other.id)) continue
+            const differs =
+              (other.descendants.length > 0 && childrenOf(other) !== together) ||
+              (other.blockedTasks.length > 0 &&
+                (other.blocked ?? 'unblock') !== (card.blocked ?? 'unblock')) ||
+              (asked.kind === 'archive' &&
+                other.pullRequests.length > 0 &&
+                (other.closePullRequests === true) !== (card.closePullRequests === true))
+            if (differs)
+              return `${other.displayId}, which is under it, has its own choices on this card`
+          }
+          return undefined
+        }
         const refused = (why: string) => ({
           done: false,
           text: `Not ${verb}: ${why} after this card was shown. Ask the Coordinator again if you still want it ${verb}.`,
@@ -1675,6 +1693,7 @@ export function createCoordinators(options: {
         const order = [...cards.keys()].sort(
           (a, b) => (cards[b]?.descendants.length ?? 0) - (cards[a]?.descendants.length ?? 0),
         )
+        const clashes = new Set<string>()
         for (const i of order) {
           const card = cards[i]
           if (!card) continue
@@ -1686,9 +1705,23 @@ export function createCoordinators(options: {
               c.descendants.some((d) => d.id === card.id),
           )
           let result: { done: boolean; text: string }
-          const why = holder ? undefined : refusal(card)
+          const clashed = cards.find(
+            (c) =>
+              c.id !== card.id && clashes.has(c.id) && c.descendants.some((d) => d.id === card.id),
+          )
+          const clash = holder
+            ? undefined
+            : (conflict(card) ??
+              (clashed && `it is under ${clashed.displayId}, which wasn’t ${verb}`))
+          if (clash) clashes.add(card.id)
+          const why = holder || clash ? undefined : refusal(card)
           const task = store.getTask(card.id)
-          if (holder) {
+          if (clash) {
+            result = {
+              done: false,
+              text: `Not ${verb}: ${clash}. Ask the Coordinator again if you still want it ${verb}.`,
+            }
+          } else if (holder) {
             result = {
               done: true,
               text: `${asked.kind === 'archive' ? 'Archived' : 'Deleted'} with ${holder.displayId}`,
