@@ -345,7 +345,7 @@ test('changes requested prevents merging or a replacement Gate', async () => {
     text: 'Fix it',
     at: new Date().toISOString(),
   })
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(gh.run).not.toHaveBeenCalled()
   expect(port.postGate).not.toHaveBeenCalled()
 })
@@ -366,15 +366,22 @@ test('legacy Done Tasks with open pull requests are observed without a second fi
   expect(port.finish).not.toHaveBeenCalled()
 })
 
-test('canceled auto-merge retries disabling after a failure', async () => {
+test('a canceled merge retries disabling auto-merge and still finishes when GitHub merges it', async () => {
   store.autoMergeEnabled(id, 'widgets', { method: 'squash', requested: 'squash' })
   store.mergeCanceled(id, 'comment')
   vi.mocked(gh.run).mockRejectedValueOnce(new Error('offline'))
   vi.spyOn(console, 'error').mockImplementation(() => {})
   expect(await watcher.cycle(id, read())).toBe('wait')
   expect(pr()?.autoMerge).toBe('squash')
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(pr()?.autoMerge).toBeUndefined()
+  expect(pr()?.waiting).toBeUndefined()
+  expect(await watcher.cycle(id, read(remote({ state: 'MERGED' })))).toBe('done')
+  expect(pr()?.state).toBe('merged')
+  expect(port.finish).toHaveBeenCalled()
+  expect(gh.api).toHaveBeenLastCalledWith('repos/acme/widgets/git/refs/heads/task', {
+    method: 'DELETE',
+  })
   expect(gh.run).toHaveBeenLastCalledWith([
     'pr',
     'merge',
@@ -718,7 +725,7 @@ test('post-rebase Check decisions hold the Merge Gate and cannot override cancel
   expect(gh.run).not.toHaveBeenCalled()
   vi.mocked(port.checks).mockClear()
   store.mergeCanceled(id, 'human-cancellation')
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(port.checks).not.toHaveBeenCalled()
   resolution.workflow.stages = ['work', 'validate', 'review']
   expect(await watcher.cycle(id, read())).toBe('wait')
@@ -733,7 +740,7 @@ test('cancelling while local Check coverage settles prevents posting a Merge sig
     return true
   })
   expect(await watcher.cycle(id, read())).toBe('busy')
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(port.postGate).not.toHaveBeenCalled()
   expect(gh.run).not.toHaveBeenCalled()
 })
