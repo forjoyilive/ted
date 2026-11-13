@@ -9,7 +9,7 @@ import { readableError, ted } from '../ted.ts'
 import { plural } from '../words.ts'
 import { useEnabledAgents } from './AgentOptions.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
-import { Dialog } from './ArchiveDialogs.tsx'
+import { Dialog, needsUnarchiveDialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import menuStyles from './ContextMenu.module.css'
 import { ContextMenu, type MenuAction, MenuItems, type MenuPosition } from './ContextMenu.tsx'
@@ -65,6 +65,7 @@ export function BulkConfirmDialog({
         : [],
     ),
   )
+  const parents = tasks.filter((t) => (t.childIds?.length ?? 0) > 0)
   const perform = async () => {
     setBusy(true)
     setError(undefined)
@@ -138,6 +139,11 @@ export function BulkConfirmDialog({
               </label>
             </fieldset>
           )}
+          {parents.length > 0 && (
+            <p className={dialogStyles.warning}>
+              {`${parents.map((t) => t.displayId).join(', ')} ${parents.length === 1 ? 'has' : 'have'} child Tasks. ${kind === 'archive' ? 'Archive' : 'Delete'} ${parents.length === 1 ? 'it' : 'each'} on its own to choose what happens to the Tasks under ${parents.length === 1 ? 'it' : 'them'}.`}
+            </p>
+          )}
           <div className={dialogStyles.buttons}>
             <Button disabled={busy} onClick={() => onKind(undefined)}>
               Cancel
@@ -148,7 +154,7 @@ export function BulkConfirmDialog({
               </Button>
             )}
             <Button
-              disabled={busy}
+              disabled={busy || parents.length > 0}
               variant={kind === 'delete' ? 'danger' : 'primary'}
               onClick={() => perform()}
             >
@@ -243,7 +249,17 @@ function BulkTaskMenu({
     action: () => navigator.clipboard.writeText(tasks.map((t) => t.displayId).join('\n')),
   })
   if (archived)
-    items.push({ label: 'Unarchive', action: () => each((t) => ted.unarchiveTask(t.id)) })
+    items.push({
+      label: 'Unarchive',
+      action: () =>
+        each((t) =>
+          needsUnarchiveDialog(t)
+            ? Promise.reject(
+                new Error('It has a parent or child Tasks. Unarchive it on its own to choose how.'),
+              )
+            : ted.unarchiveTask(t.id),
+        ),
+    })
   if (active) items.push({ label: 'Archive…', action: () => setConfirmation('archive') })
   items.push({ label: 'Delete…', danger: true, action: () => setConfirmation('delete') })
   return (
@@ -296,7 +312,7 @@ export function TaskContextMenu({
   tasks: readonly Task[]
   place: string
   onFollowedUp: (task: Task) => void
-  onPickBlocker: (task: Task) => void
+  onPickBlocker: (task: Task, event?: string) => void
 }) {
   const [request, setRequest] = useState<TaskMenuRequest>()
   const [at, setAt] = useState<MenuPosition>()

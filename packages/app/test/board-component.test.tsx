@@ -101,10 +101,12 @@ test('Display sets card size, card fields and columns, and saves them for the Fa
         task({
           markers: [{ kind: 'blocked-by', by: 'NB-9' }],
           activity: 'Starts when NB-9 merges',
+          childIds: ['NB-2'],
         }),
         task({
           id: 'NB-2',
           displayId: 'NB-2',
+          parentId: 'NB-1',
           title: 'Export notes',
           stage: 'work',
           statuses: ['waiting-on-you'],
@@ -126,6 +128,12 @@ test('Display sets card size, card fields and columns, and saves them for the Fa
   const u = user()
   await u.click(screen.getByRole('button', { name: 'Display' }))
   const item = (name: string) => screen.getByRole('menuitemcheckbox', { name: new RegExp(name) })
+
+  expect(card('NB-2').getByText('↑ NB-1')).toBeTruthy()
+  expect(card('NB-1').getByText('0 of 1 merged')).toBeTruthy()
+  await u.click(item('Parent and children'))
+  expect(card('NB-2').queryByText('↑ NB-1')).toBeNull()
+  expect(card('NB-1').queryByText('0 of 1 merged')).toBeNull()
 
   await u.click(item('Activity line'))
   expect(screen.queryByText('Asked a question')).toBeNull()

@@ -71,6 +71,7 @@ roundTrip(P.parseCreateTaskRequest, {
   clarifyDepth: 'few',
   lead,
   blockedBy: ['TED-1'],
+  parent: 'TED-2',
   attachments: [file],
   source: 'https://example.com/issue',
   sentryId: 'APP-1',
@@ -89,6 +90,7 @@ roundTrip(P.parseSaveTaskDraftRequest, {
   clarifyDepth: 'few',
   lead,
   source: 'https://example.com/issue',
+  parent: 'TED-2',
   dismissed: ['old'],
   filled: { title: 'Source title', priority: 'high' },
 })
@@ -107,6 +109,7 @@ roundTrip(P.parseEditTaskRequest, { title: 'Title', description: 'Details' })
 roundTrip(P.parseArchiveTaskRequest, {
   closePullRequests: true,
   blocked: 'keep',
+  children: 'detach',
   hierarchyRevision: 'a'.repeat(64),
 })
 roundTrip(P.parseDeleteTaskRequest, {
@@ -303,7 +306,14 @@ test('start requests preserve the normal default and validate preparation intent
 })
 
 roundTrip(P.parseSetTaskParentRequest, { parentId: 'TED-1', revision: 'a'.repeat(64) })
-roundTrip(P.parseUnarchiveTaskRequest, { unlinkParent: true, hierarchyRevision: 'a'.repeat(64) })
+roundTrip(P.parseUnarchiveTaskRequest, {
+  unlinkParent: true,
+  children: 'restore',
+  hierarchyRevision: 'a'.repeat(64),
+})
+rejects(P.parseUnarchiveTaskRequest, { children: 'all' }, 'children must be restore')
+rejects(P.parseArchiveTaskRequest, { children: 'keep' }, 'children must be archive or detach')
+rejects(P.parseCreateTaskRequest, { title: 'T', parent: 7 }, 'parent must be text')
 rejects(P.parseSetTaskParentRequest, { parentId: 'TED-1' }, 'hierarchyRevision')
 rejects(P.parseSetTaskParentRequest, { revision: 'a'.repeat(64) }, 'parentId')
 rejects(P.parseSetTaskParentRequest, { parentId: [], revision: 'a'.repeat(64) }, 'parentId')

@@ -471,3 +471,58 @@ export function columnSelection(
   const inColumn = new Set(column.map((t) => t.id))
   return [...selected.filter((id) => !inColumn.has(id)), ...selectionRange(column, anchor, target)]
 }
+
+export interface NestedRow {
+  task: Task
+  depth: number
+  hasChildren: boolean
+}
+
+export function nestedRows(tasks: readonly Task[], collapsed: ReadonlySet<string>): NestedRow[] {
+  const inGroup = new Map(tasks.map((t) => [t.id, t]))
+  const parentIn = (task: Task) =>
+    task.parentId !== undefined && task.parentId !== task.id && inGroup.has(task.parentId)
+      ? task.parentId
+      : undefined
+  const children = new Map<string, Task[]>()
+  for (const task of tasks) {
+    const parent = parentIn(task)
+    if (parent !== undefined) children.set(parent, [...(children.get(parent) ?? []), task])
+  }
+  const onCycle = (task: Task) => {
+    const seen = new Set<string>()
+    for (let id = parentIn(task); id !== undefined; ) {
+      if (id === task.id) return true
+      if (seen.has(id)) return false
+      seen.add(id)
+      const up = inGroup.get(id)
+      id = up ? parentIn(up) : undefined
+    }
+    return false
+  }
+  const visited = new Set<string>()
+  const rows: NestedRow[] = []
+  const hide = (task: Task) => {
+    for (const child of children.get(task.id) ?? []) {
+      if (visited.has(child.id)) continue
+      visited.add(child.id)
+      hide(child)
+    }
+  }
+  const walk = (task: Task, depth: number) => {
+    visited.add(task.id)
+    const below = (children.get(task.id) ?? []).filter((c) => !visited.has(c.id))
+    rows.push({ task, depth, hasChildren: below.length > 0 })
+    if (collapsed.has(task.id)) {
+      hide(task)
+      return
+    }
+    for (const child of below) if (!visited.has(child.id)) walk(child, depth + 1)
+  }
+  for (const task of tasks) {
+    if (visited.has(task.id)) continue
+    if (parentIn(task) === undefined || onCycle(task)) walk(task, 0)
+  }
+  for (const task of tasks) if (!visited.has(task.id)) walk(task, 0)
+  return rows
+}

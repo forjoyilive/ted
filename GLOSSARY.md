@@ -116,6 +116,18 @@ _Avoid_: Workspace, Task directory
 The human’s own login shell in one repo’s worktree of a Task, shown in place of the thread; TED’s daemon keeps it running until the worktree is removed, and `ted` commands in it act as the human.
 _Avoid_: Terminal, console, Run
 
+**Parent Task**:
+A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
+_Avoid_: Epic, group, umbrella
+
+**Child Task**:
+A normal Task, with its own Workflow, Task Lead and pull requests, that is part of a parent Task’s work until the user detaches it.
+_Avoid_: Subtask, sub-issue (except when naming the Linear or Asana item it came from)
+
+**Detach**:
+Remove a Task from its parent so it carries on as a separate Task; its own children stay under it.
+_Avoid_: Unparent, unlink
+
 **Follow-up**:
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision
