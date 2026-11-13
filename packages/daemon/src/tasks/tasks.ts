@@ -2041,11 +2041,18 @@ export function createTasks(options: {
         409,
         `TED is already running ${find(taskId).displayId}’s Checks before moving it on; try again when they finish`,
       )
-    const { done } = await startChecksBeforeMove(taskId)
     waitingMoves += 1
     const waiting = waitingMoves
     movingOn.set(taskId, waiting)
     store.setTaskMovingAfterChecks(taskId, true)
+    let done: Promise<CheckRunnerResult | undefined>
+    try {
+      done = (await startChecksBeforeMove(taskId)).done
+    } catch (error) {
+      if (movingOn.get(taskId) === waiting) dropWaitingMove(taskId)
+      throw error
+    }
+    if (movingOn.get(taskId) !== waiting) return
     const before = find(taskId)
     inBackground(`move ${before.displayId} on after its Checks`, async () => {
       const result = await done.catch(() => undefined)
