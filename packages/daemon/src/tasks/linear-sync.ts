@@ -131,18 +131,25 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
     timer.unref()
   }
 
+  function mayNeedSync(id: string, open: boolean): boolean {
+    if (!store.isMerged(id)) return open
+    const record = store.linearSync(id)
+    return (
+      record.step !== 'done' || store.taskPullRequestUrls(id).some((url) => !record.linked.has(url))
+    )
+  }
+
   function watched(): Watched[] {
-    return store.tasksIn(new Set(store.sourcedTaskIds())).flatMap((task): Watched[] => {
+    const outlines = new Map(store.taskOutlines().map((task) => [task.id, task]))
+    const ids = store.taskSourceUrls().flatMap(({ taskId, url }) => {
+      const task = outlines.get(taskId)
+      if (!task || !parseLinearUrl(url)) return []
+      return mayNeedSync(taskId, !task.archived && task.stage !== 'done') ? [taskId] : []
+    })
+    return store.tasksIn(new Set(ids)).flatMap((task): Watched[] => {
       const link = task.source && parseLinearUrl(task.source.url)
       if (!link) return []
-      const merged = store.isMerged(task.id)
-      const record = store.linearSync(task.id)
-      if (merged) {
-        const linked = pullRequestLinks(task).every((l) => record.linked.has(l.url))
-        return record.step === 'done' && linked ? [] : [{ task, link, merged, record }]
-      }
-      if (task.archived || task.stage === 'done') return []
-      return [{ task, link, merged, record }]
+      return [{ task, link, merged: store.isMerged(task.id), record: store.linearSync(task.id) }]
     })
   }
 

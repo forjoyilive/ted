@@ -728,6 +728,13 @@ describe('TedStore', () => {
       expect(store.taskOutlines().map((t) => t.id)).toEqual(ids)
       expect(store.factoryOfTask(working.id)).toBe(working.factoryId)
       expect(store.sourcedTaskIds()).toEqual([working.id])
+      expect(store.taskSourceUrls()).toEqual([
+        { taskId: working.id, url: 'https://linear.app/acme/issue/ENG-7/fix-login' },
+      ])
+      expect(store.taskPullRequestUrls(working.id)).toEqual([
+        'https://github.com/acme/widgets/pull/7',
+      ])
+      expect(store.taskPullRequestUrls(blocked.id)).toEqual([])
       expect(
         store
           .commentTexts()
