@@ -135,8 +135,8 @@ function NewTaskForm({
     <K extends keyof NewTaskDraft>(key: K) =>
     (next: NewTaskDraft[K] | ((current: NewTaskDraft[K]) => NewTaskDraft[K])) => {
       session.update((current) => ({
-        lead: current.lead ?? defaultLead,
-        clarifyDepth: current.clarifyDepth ?? defaultDepth,
+        lead: current.lead ?? (defaultsReady ? defaultLead : undefined),
+        clarifyDepth: current.clarifyDepth ?? (defaultsReady ? defaultDepth : undefined),
         [key]: typeof next === 'function' ? next(current[key]) : next,
       }))
     }

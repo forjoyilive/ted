@@ -277,6 +277,25 @@ test('the attach box opens the file picker from anywhere on it before agent heal
   expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
+test('an edit made before the defaults arrive keeps the Factory’s Clarify depth', async () => {
+  const health = deferred<ReturnType<ReturnType<typeof draftHandlers>['checkAgentHealth']>>()
+  const created = vi.fn(() => task())
+  bridge({
+    ...draftHandlers(),
+    taskDefaults: () => ({ clarifyDepth: 'grilling', lead: { agent: 'claude' } }),
+    checkAgentHealth: () => health.promise,
+    createTask: created,
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  const u = user()
+  await u.type(screen.getByLabelText('Description'), 'Typed early')
+  await act(async () => health.resolve(draftHandlers().checkAgentHealth()))
+  await screen.findByText('Clarify depth Grill · Task Lead Claude')
+  await u.click(screen.getByRole('button', { name: 'Create' }))
+  expect(created).toHaveBeenCalledWith(expect.objectContaining({ clarifyDepth: 'grilling' }))
+})
+
 test('Model unavailable offers the default model and sends the human’s choice', async () => {
   const run: import('@ted/protocol').Run = {
     id: 'r1',
