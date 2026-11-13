@@ -15,6 +15,7 @@ import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
@@ -37,7 +38,7 @@ import {
   when,
 } from '../plans.ts'
 import { ago, clockTime, useNow } from '../requests.ts'
-import { agentLabels, modelChoices } from '../task-fields.ts'
+import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './PlanChat.module.css'
 import { stageName } from './TaskViews.tsx'
@@ -121,7 +122,6 @@ export function LeadSelects({
   lead: TaskLead
   onChange: (lead: TaskLead) => void
 }) {
-  const models = [...new Set([...modelChoices[lead.agent], ...(lead.model ? [lead.model] : [])])]
   const set = (agent: AgentKind, model: string, effort: string) =>
     onChange({
       agent,
@@ -137,18 +137,12 @@ export function LeadSelects({
       >
         <AgentOptions current={lead.agent} />
       </Select>
-      <Select
+      <ModelSelect
         aria-label="Model"
+        agent={lead.agent}
         value={lead.model ?? ''}
-        onChange={(event) => set(lead.agent, event.target.value, lead.effort ?? '')}
-      >
-        <option value="">Default model</option>
-        {models.map((model) => (
-          <option key={model} value={model}>
-            {model}
-          </option>
-        ))}
-      </Select>
+        onChange={(model) => set(lead.agent, model, lead.effort ?? '')}
+      />
       <Select
         aria-label="Effort"
         value={lead.effort ?? ''}
