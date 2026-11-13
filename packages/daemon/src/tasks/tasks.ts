@@ -6157,7 +6157,7 @@ export function createTasks(options: {
     blockerId?: string,
     reason = 'was unblocked without merging. Use Resume when ready to reassess the failure.',
   ): void {
-    const links = store.blockers(taskId).filter((link) => link.kind !== 'child')
+    const links = store.blockers(taskId).filter((link) => link.kind === undefined)
     const wasBlocked = links.some((l) => !l.merged)
     const runId = caller.kind === 'run' ? caller.runId : undefined
     for (const link of links) {
@@ -8809,7 +8809,7 @@ export function createTasks(options: {
       const runId = caller.kind === 'run' ? caller.runId : undefined
       const existing = store
         .blockers(task.id)
-        .find((b) => b.kind !== 'child' && b.blockerId === blocker.id)
+        .find((b) => b.kind === undefined && b.blockerId === blocker.id)
       if (existing && (runId === undefined || existing.setByRunId === runId)) {
         return publicTask(task.id)
       }
@@ -8829,7 +8829,7 @@ export function createTasks(options: {
     unblock(ref, caller, by) {
       const task =
         caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
-      const links = store.blockers(task.id).filter((link) => link.kind !== 'child')
+      const links = store.blockers(task.id).filter((link) => link.kind === undefined)
       const deleted = links.find(
         (l) => l.ended === 'deleted' && (l.blockerId === by || l.displayId === by),
       )

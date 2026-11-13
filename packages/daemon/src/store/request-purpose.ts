@@ -1,7 +1,7 @@
 import type { Comment, RequestPurpose } from '@ted/protocol'
 
 export function structuralPurpose(
-  comment: Pick<Comment, 'kind' | 'gate' | 'simulator' | 'sizeCheck' | 'linearTeam' | 'failed'>,
+  comment: Pick<Comment, 'kind' | 'gate' | 'simulator' | 'sizeCheck' | 'linearTeam' | 'asanaMissing' | 'failed'>,
 ): RequestPurpose | undefined {
   if (comment.kind === 'note') return undefined
   if (comment.simulator) return { kind: 'simulator' }
@@ -9,6 +9,7 @@ export function structuralPurpose(
   if (comment.gate) return { kind: 'gate' }
   if (comment.sizeCheck) return { kind: 'size-check' }
   if (comment.linearTeam) return { kind: 'linear-team' }
+  if (comment.asanaMissing) return { kind: 'asana-missing' }
   if (comment.failed) return { kind: 'failed-run' }
   if (comment.kind === 'round' || comment.kind === 'proposal') return { kind: comment.kind }
   return { kind: 'question' }
