@@ -40,6 +40,9 @@ function what(row: AsanaImportRow): { text: string; tone?: keyof typeof styles }
 export function asanaCreateLabel(preview: Preview): string {
   if (preview.tracked) {
     const n = preview.create
+    const moved = preview.rows.filter((row) => row.action.kind === 'linked').length
+    if (n === 0)
+      return `Move ${moved} ${moved === 1 ? 'Task' : 'Tasks'} under ${preview.tracked.displayId}`
     return `Add ${n} new ${n === 1 ? 'child' : 'children'} to ${preview.tracked.displayId}`
   }
   return `Create ${preview.create} ${preview.create === 1 ? 'Task' : 'Tasks'}`

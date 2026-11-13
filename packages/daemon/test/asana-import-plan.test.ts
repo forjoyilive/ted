@@ -21,6 +21,7 @@ test('every Asana task URL form gives the task ID, and sources match by it', () 
     'https://app.asana.com/0/555/1209337/f?focus=true',
     'https://app.asana.com/1/1201/project/1188/task/1209337',
     'https://app.asana.com/1/1201/task/1209337?focus=true',
+    'https://app.asana.com/1/1201/inbox/88/item/1209337/story/42',
   ]
   for (const url of forms) {
     expect(parseAsanaTaskUrl(url)?.gid).toBe('1209337')
@@ -109,7 +110,13 @@ function task(id: string, gid: string, more: Partial<Task> = {}): Task {
   } as Task
 }
 
-const plan = (tree: AsanaTree, tasks: Task[] = [], app = true, refusal?: string) =>
+const plan = (
+  tree: AsanaTree,
+  tasks: Task[] = [],
+  app = true,
+  refusal?: string,
+  blockers: Record<string, string[]> = {},
+) =>
   planAsanaImport({
     tree,
     tasks,
@@ -117,7 +124,7 @@ const plan = (tree: AsanaTree, tasks: Task[] = [], app = true, refusal?: string)
     userGid: 'me',
     app,
     parentRefusal: () => refusal,
-    wouldCycle: () => false,
+    blockersOf: (id) => blockers[id] ?? [],
   })
 
 test('the planner creates unfinished items, keeps completed ones as context and reuses tracked Tasks', () => {
@@ -153,27 +160,29 @@ test('the planner creates unfinished items, keeps completed ones as context and 
     '8': 'archived',
     '9': 'conflict',
     '10': 'unreadable',
+    '11': 'new',
   })
   expect(result.creates.map((c) => [c.node.gid, c.parent])).toEqual([
     ['1', undefined],
     ['2', { gid: '1' }],
     ['3', { gid: '2' }],
     ['5', { gid: '1' }],
+    ['11', { gid: '1' }],
   ])
   expect(result.links).toEqual([{ taskId: 'a', parent: { gid: '1' } }])
   expect(result.preview).toMatchObject({
-    create: 4,
-    ownership: { you: 1, others: 1, unassigned: 2 },
+    create: 5,
+    ownership: { you: 1, others: 1, unassigned: 3 },
     missing: 2,
   })
   expect(result.holds).toHaveLength(1)
   expect(result.holds[0]?.parent).toEqual({ gid: '1' })
   expect(result.holds[0]?.items.map((i) => i.reason)).toEqual([
     'it’s already NB-d, under NB-z; TED left it there',
-    'Asana didn’t let TED read it (no access), with 1 item under it',
+    'Asana didn’t let TED read it (no access)',
   ])
   expect(ownershipLine(result.preview)).toBe(
-    '4 Tasks: 1 assigned to you, 1 to others, 2 unassigned',
+    '5 Tasks: 1 assigned to you, 1 to others, 3 unassigned',
   )
   const text = asanaTreeText(result.preview)
   expect(text).toContain('Item 9')
@@ -203,6 +212,17 @@ test('a tracked root adds only new children for the app and is refused for the C
   )
   const again = plan(tree, [task('r', '1', { stage: 'done' })], true)
   expect(again.creates.map((c) => c.node.gid)).toEqual(['1', '2', '3'])
+})
+
+test('linking a Task that would close a loop through new Tasks is a conflict', () => {
+  const tree = treeOf([node('1', 0), node('2', 1, '1'), node('3', 2, '2')])
+  const tasks = [task('r', '1'), task('d', '3')]
+  const looped = plan(tree, tasks, true, undefined, { d: ['r'] })
+  expect(looped.preview.rows.map((r) => r.action.kind)).toEqual(['kept', 'new', 'conflict'])
+  expect(looped.links).toEqual([])
+  expect(looped.holds[0]).toMatchObject({ parent: { gid: '2' }, items: [{ gid: '3' }] })
+  const fine = plan(tree, tasks)
+  expect(fine.links).toEqual([{ taskId: 'd', parent: { gid: '2' } }])
 })
 
 test('a completed root is still imported, and limits refuse the whole import', () => {
@@ -262,6 +282,8 @@ test('the tree reader follows every page, skips system activity and marks unread
       next_page: offset + 2 < items.length ? { offset: String(offset + 2) } : null,
     })
     if (path === '/tasks/12') throw new AsanaReadError('no', 403)
+    if (path === '/attachments' && query.parent === '11') throw new AsanaReadError('no', 403)
+    if (path === '/tasks/11/subtasks') return { data: [], next_page: { offset: 'same' } }
     if (path === '/tasks/1/subtasks') return pageOf(subtasks)
     if (path.endsWith('/subtasks')) return pageOf([])
     if (path.endsWith('/stories'))
@@ -281,6 +303,11 @@ test('the tree reader follows every page, skips system activity and marks unread
   expect(tree.nodes.get('10')?.unfetched).toEqual([
     expect.objectContaining({ name: 'doc', reason: 'it’s stored outside Asana' }),
   ])
+  expect(tree.nodes.get('11')).toMatchObject({
+    partial: ['TED couldn’t copy its files: Asana didn’t let TED read it (no access)'],
+    childrenUnreadable: 'Asana didn’t finish listing its subtasks',
+  })
+  expect(tree.nodes.get('11')?.unreadable).toBeUndefined()
   expect(calls).toContain('/tasks/1/subtasks?4')
   expect(calls.some((c) => c.startsWith('/tasks/13?'))).toBe(false)
   expect(calls.some((c) => c.startsWith('/tasks/14?'))).toBe(false)

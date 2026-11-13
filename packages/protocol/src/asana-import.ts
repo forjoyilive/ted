@@ -42,7 +42,7 @@ function asanaGid(text: string): string | undefined {
     return gidPattern.test(project) && gidPattern.test(task) && task !== '0' ? task : undefined
   }
   if (parts[0] === '1') {
-    const at = parts.lastIndexOf('task')
+    const at = Math.max(parts.lastIndexOf('task'), parts.lastIndexOf('item'))
     const task = at > 1 ? parts[at + 1] : undefined
     return task !== undefined && gidPattern.test(task) && task !== '0' ? task : undefined
   }

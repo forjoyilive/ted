@@ -383,7 +383,7 @@ export interface NewTaskTree {
   tasks: readonly NewTreeTask[]
   links: readonly { taskId: string; parent: TreeRef }[]
   comments: readonly (Omit<NewComment, 'taskId'> & { task: TreeRef })[]
-  closing?: { commentId: string; answer: CommentAnswer }
+  closings?: readonly { commentId: string; answer: CommentAnswer }[]
   draftRevision?: string
 }
 
@@ -3530,7 +3530,14 @@ export async function openStore({
       if (parentId !== undefined && taskRow(parentId)) updatedTask(parentId)
       return task
     },
-    createTaskTree({ factoryId, tasks: planned, links, comments: posted, closing, draftRevision }) {
+    createTaskTree({
+      factoryId,
+      tasks: planned,
+      links,
+      comments: posted,
+      closings = [],
+      draftRevision,
+    }) {
       const currentDraft = draftRevision ? taskDraft(factoryId).draft : null
       const inFactory = store.query(queryDb(tasks.where({ factoryId })))
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -3610,15 +3617,13 @@ export async function openStore({
         ...created,
         ...linked,
         ...comments.flatMap(({ event, attached }) => [event, ...attached]),
-        ...(closing
-          ? [
-              events.commentAnswered({
-                id: closing.commentId,
-                answer: JSON.stringify(closing.answer),
-                at: closing.answer.at,
-              }),
-            ]
-          : []),
+        ...closings.map((closing) =>
+          events.commentAnswered({
+            id: closing.commentId,
+            answer: JSON.stringify(closing.answer),
+            at: closing.answer.at,
+          }),
+        ),
       )
       const made = new Map<string, Task>()
       for (const task of planned) {
@@ -3638,7 +3643,7 @@ export async function openStore({
       const linkedTasks = links.map((link) => updatedTask(link.taskId))
       for (const id of touched) if (!links.some((l) => l.taskId === id)) updatedTask(id)
       for (const { id } of comments) emit({ type: 'comment-posted', comment: requireComment(id) })
-      if (closing) updatedTask(emitComment(closing.commentId).taskId)
+      for (const closing of closings) updatedTask(emitComment(closing.commentId).taskId)
       return { created: made, linked: linkedTasks }
     },
     listTasks: () => listTasks().map(toPublicTask),

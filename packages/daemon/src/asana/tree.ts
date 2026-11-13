@@ -35,6 +35,7 @@ export interface AsanaNode {
   files?: LinearFile[]
   unfetched?: LinearUnfetched[]
   unreadable?: string
+  partial?: string[]
   cut?: boolean
   childrenUnreadable?: string
   children: string[]
@@ -92,9 +93,10 @@ export async function readAsanaTree(input: {
       if (nodes.size > maxListed) return
       const listed = await subtasks(read, node.gid).catch((error: unknown) => {
         node.childrenUnreadable = reasonOf(error)
-        return []
+        return { items: [], more: false }
       })
-      for (const child of listed) {
+      if (listed.more) node.childrenUnreadable = 'Asana didn’t finish listing its subtasks'
+      for (const child of listed.items) {
         if (nodes.has(child.gid)) continue
         const made = { ...child, depth: node.depth + 1, parentGid: node.gid, children: [] }
         nodes.set(made.gid, made)
@@ -114,8 +116,8 @@ export async function readAsanaTree(input: {
   }
   if (tooBig !== undefined) return { rootGid: rootNode.gid, nodes, tooBig }
   await each([...nodes.values()].filter(needsDetail), async (node) => {
-    try {
-      if (node.depth > 0) {
+    if (node.depth > 0) {
+      try {
         const detail = nodeFrom(
           (await read(`/tasks/${node.gid}`, { opt_fields: taskFields })).data,
           node.depth,
@@ -123,11 +125,23 @@ export async function readAsanaTree(input: {
         )
         if (!detail) throw new AsanaReadError('Asana returned an incomplete task')
         Object.assign(node, { ...detail, children: node.children })
+      } catch (error) {
+        node.unreadable = reasonOf(error)
+        return
       }
+    }
+    const partly = (what: string) => (error: unknown) => {
+      node.partial = [...(node.partial ?? []), `TED couldn’t copy ${what}: ${reasonOf(error)}`]
+    }
+    try {
       const discussion = await comments(read, node.gid)
       node.comments = discussion.comments
       if (discussion.cut) node.cut = true
       if (discussion.warning !== undefined) node.commentsWarning = discussion.warning
+    } catch (error) {
+      partly('its comments')(error)
+    }
+    try {
       const attached = await attachments(read, node.gid)
       if (input.files) {
         const got = await fetchAsanaFiles({
@@ -141,7 +155,7 @@ export async function readAsanaTree(input: {
         node.unfetched = attached.unlisted
       }
     } catch (error) {
-      node.unreadable = reasonOf(error)
+      partly('its files')(error)
     }
   })
   return { rootGid: rootNode.gid, nodes }
@@ -223,19 +237,22 @@ async function pages(
 async function subtasks(
   read: AsanaRead,
   gid: string,
-): Promise<Omit<AsanaNode, 'depth' | 'children'>[]> {
+): Promise<{ items: Omit<AsanaNode, 'depth' | 'children'>[]; more: boolean }> {
   const listed = await pages(
     read,
     `/tasks/${gid}/subtasks`,
     { opt_fields: 'gid,name,completed,permalink_url' },
     maxListed + 1,
   )
-  return listed.items.flatMap((item) => {
-    const node = nodeFrom(item, 0, undefined)
-    if (!node) return []
-    const { depth: _depth, children: _children, ...rest } = node
-    return [rest]
-  })
+  return {
+    more: listed.more,
+    items: listed.items.flatMap((item) => {
+      const node = nodeFrom(item, 0, undefined)
+      if (!node) return []
+      const { depth: _depth, children: _children, ...rest } = node
+      return [rest]
+    }),
+  }
 }
 
 async function comments(

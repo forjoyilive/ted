@@ -34,7 +34,7 @@ export function planAsanaImport(input: {
   userGid: string | undefined
   app: boolean
   parentRefusal: (taskId: string) => string | undefined
-  wouldCycle: (childId: string, parentId: string) => boolean
+  blockersOf: (taskId: string) => readonly string[]
 }): AsanaPlan {
   const { tree, tasks, factoryId } = input
   const root = tree.nodes.get(tree.rootGid)
@@ -47,6 +47,22 @@ export function planAsanaImport(input: {
   const holds = new Map<string, { parent: ParentRef; items: AsanaMissing['items'] }>()
   const adopting = new Set<string>()
   const refKey = (ref: ParentRef) => ('gid' in ref ? `gid:${ref.gid}` : `task:${ref.taskId}`)
+  const planned = new Map<string, string[]>()
+  const plan = (parent: ParentRef, child: string) =>
+    planned.set(refKey(parent), [...(planned.get(refKey(parent)) ?? []), child])
+  const reaches = (from: string, target: string) => {
+    const seen = new Set<string>()
+    const walk = (key: string): boolean => {
+      if (key === target) return true
+      if (seen.has(key)) return false
+      seen.add(key)
+      const existing = key.startsWith('task:')
+        ? input.blockersOf(key.slice('task:'.length)).map((id) => `task:${id}`)
+        : []
+      return [...(planned.get(key) ?? []), ...existing].some(walk)
+    }
+    return walk(from)
+  }
   const hold = (parent: ParentRef, item: AsanaMissing['items'][number]) => {
     const key = refKey(parent)
     const entry = holds.get(key) ?? { parent, items: [] }
@@ -118,6 +134,7 @@ export function planAsanaImport(input: {
       } else if (task.parentId === undefined && !cycles(task.id, anchor)) {
         rows.push(row(node, { kind: 'linked', ...ref }))
         links.push({ taskId: task.id, parent: anchor })
+        plan(anchor, `task:${task.id}`)
         if (anchorTask !== undefined) adopt(anchorTask)
         childAnchor = { taskId: task.id }
       } else {
@@ -142,23 +159,14 @@ export function planAsanaImport(input: {
         row(node, { kind: 'archived', taskId: clash.task.id, displayId: clash.task.displayId }),
       )
     } else if (node.unreadable !== undefined) {
-      const under = countUnder(tree, node)
       rows.push(row(node, { kind: 'unreadable', reason: node.unreadable }))
-      hold(anchor, {
-        gid: node.gid,
-        name: node.name,
-        url: node.url,
-        reason:
-          under > 0
-            ? `${node.unreadable}, with ${under} ${under === 1 ? 'item' : 'items'} under it`
-            : node.unreadable,
-      })
-      return
+      hold(anchor, { gid: node.gid, name: node.name, url: node.url, reason: node.unreadable })
     } else if (node.completed) {
       rows.push(row(node, { kind: 'complete' }))
     } else {
       rows.push(row(node, { kind: 'new' }))
       creates.push({ node, parent: anchor })
+      plan(anchor, `gid:${node.gid}`)
       if (anchorTask !== undefined) adopt(anchorTask)
       childAnchor = { gid: node.gid }
     }
@@ -168,8 +176,7 @@ export function planAsanaImport(input: {
       if (child) visit(child, childAnchor)
     }
   }
-  const cycles = (taskId: string, anchor: ParentRef) =>
-    'taskId' in anchor && (anchor.taskId === taskId || input.wouldCycle(taskId, anchor.taskId))
+  const cycles = (taskId: string, anchor: ParentRef) => reaches(`task:${taskId}`, refKey(anchor))
   for (const gid of root.children) {
     const child = tree.nodes.get(gid)
     if (child) visit(child, rootRef)
@@ -205,22 +212,8 @@ export function planAsanaImport(input: {
   }
 }
 
-function countUnder(tree: AsanaTree, node: AsanaNode): number {
-  let count = 0
-  const walk = (gids: readonly string[]) => {
-    for (const gid of gids) {
-      const child = tree.nodes.get(gid)
-      if (!child) continue
-      count++
-      walk(child.children)
-    }
-  }
-  walk(node.children)
-  return count
-}
-
 function problemsOf(node: AsanaNode): string[] {
-  const problems: string[] = []
+  const problems: string[] = [...(node.partial ?? []).map((line) => `${line}.`)]
   if (node.cut) problems.push('TED copies only the start of a very long description or comment.')
   if (node.commentsWarning !== undefined) problems.push(node.commentsWarning)
   const missing = node.unfetched?.length ?? 0
@@ -286,7 +279,9 @@ export function asanaSource(
 }
 
 export function asanaNotes(node: AsanaNode): string[] {
-  const notes: string[] = []
+  const notes: string[] = (node.partial ?? []).map(
+    (line) => `${line}. Read them in Asana: ${node.url}`,
+  )
   if (node.cut) {
     notes.push(
       `This item’s description or a comment was longer than TED copies, so the Task has only the start of it. Read the rest in Asana: ${node.url}`,

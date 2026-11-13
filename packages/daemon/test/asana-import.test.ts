@@ -237,8 +237,35 @@ test('import a nested tree, reuse a tracked subtree, hold the parent on missing 
     kind: 'answered',
     choice: 'Retry',
   })
-  const second = afterRetry.find((c) => c.asanaMissing && !c.answer)
-  expect(second?.asanaMissing?.items.map((i) => i.gid)).toEqual(['507'])
+  const earlier = afterRetry.find((c) => c.asanaMissing && !c.answer)
+  expect(earlier?.asanaMissing?.items.map((i) => i.gid)).toEqual(['507'])
+
+  stub.setTasks([
+    ...['502', '504', '506'].map((gid) => ({ gid, name: `Item ${gid}`, completed: gid === '504' })),
+    {
+      gid: '501',
+      name: 'Checkout redesign',
+      subtasks: ['502', '503', '504', '506', '507', '508'],
+    },
+    { gid: '503', name: 'Order summary', subtasks: ['505'] },
+    { gid: '505', name: 'Tax line' },
+    { gid: '507', name: 'Store credit', status: 404 },
+    { gid: '508', name: 'Receipts' },
+  ])
+  const added = await client.importAsana({
+    url: 'https://app.asana.com/0/0/501',
+    factory: 'NB',
+    addToTree: true,
+  })
+  expect(added.created).toHaveLength(1)
+  const replaced = await client.listComments(root?.id ?? '')
+  expect(replaced.find((c) => c.id === earlier?.id)?.answer).toMatchObject({
+    kind: 'withdrawn',
+    asanaReread: true,
+  })
+  const open = replaced.filter((c) => c.asanaMissing && !c.answer)
+  expect(open).toHaveLength(1)
+  const second = open[0]
 
   await daemon?.stop()
   daemon = undefined
@@ -270,7 +297,8 @@ test('a tree over the limit is refused whole, and a completed root still imports
   stub.setTasks([
     { gid: '600', name: 'Huge', subtasks: children },
     ...children.map((gid) => ({ gid, name: `Child ${gid}` })),
-    { gid: '900', name: 'Already shipped', completed: true },
+    { gid: '900', name: 'Already shipped', completed: true, subtasks: ['901'] },
+    { gid: '901', name: 'Hidden', status: 403 },
   ])
   const refused = await client
     .importAsana({ url: 'https://app.asana.com/0/0/600', factory: 'NB' })
@@ -281,4 +309,11 @@ test('a tree over the limit is refused whole, and a completed root still imports
   expect(done.created).toHaveLength(1)
   const shipped = (await client.listTasks()).find((t) => t.source?.asana?.gid === '900')
   expect(shipped?.source?.asana?.completed).toBe(true)
+  expect((await client.startTask(shipped?.id ?? '')).stage).toBe('backlog')
+  const ask = (await client.listComments(shipped?.id ?? '')).find((c) => c.asanaMissing)
+  await client.answerRequest(ask?.id ?? '', { action: 'answer', choice: 'Go ahead without them' })
+  await waitUntil(
+    async () => (await client.listTasks()).find((t) => t.id === shipped?.id)?.stage !== 'backlog',
+    'the root starts once its question is answered',
+  )
 })

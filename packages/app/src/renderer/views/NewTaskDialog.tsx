@@ -353,7 +353,9 @@ function NewTaskForm({
     asana === undefined ||
     (asana.preview !== undefined &&
       asana.preview.refusal === undefined &&
-      (asana.preview.create > 0 || asana.preview.tracked === undefined))
+      (asana.preview.create > 0 ||
+        asana.preview.tracked === undefined ||
+        asana.preview.rows.some((row) => row.action.kind === 'linked')))
   const fetching = source !== undefined && source.lookup === undefined
   const canCreate =
     ready &&

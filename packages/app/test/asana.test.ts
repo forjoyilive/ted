@@ -86,6 +86,10 @@ test('private configuration stays in main; browser authorization, identity, test
     { gid: '503', name: 'Order summary', assignee: { gid: '200', name: 'Sam' } },
     { gid: '504', name: 'Pick provider', completed: true },
   ])
+  await window
+    .getByRole('navigation', { name: 'Settings' })
+    .getByRole('button', { name: '← Back' })
+    .click()
   await window.keyboard.press('Meta+N')
   const newTask = window.getByRole('dialog', { name: 'New Task' })
   await newTask.getByLabel('Description').fill('https://app.asana.com/0/9/501/f')

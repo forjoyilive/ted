@@ -3962,7 +3962,7 @@ export function createTasks(options: {
           return error instanceof Error ? error.message : String(error)
         }
       },
-      wouldCycle: (childId, parentId) => cycleFrom(childId, parentId) !== undefined,
+      blockersOf: (taskId) => store.blockers(taskId).map((link) => link.blockerId),
     })
   }
 
@@ -4016,6 +4016,23 @@ export function createTasks(options: {
         `Already tracked as ${tracked.displayId}. Add its new children to the existing tree instead.`,
       )
     }
+    const reread = [
+      ...new Set(
+        plan.preview.rows.flatMap((row) =>
+          row.action.kind === 'kept' ||
+          row.action.kind === 'linked' ||
+          row.action.kind === 'conflict'
+            ? [row.action.taskId]
+            : [],
+        ),
+      ),
+    ]
+    const replaced = reread.flatMap((id) =>
+      store
+        .listComments(id)
+        .filter((c) => c.asanaMissing && !c.answer && c.id !== closing?.commentId)
+        .map((c) => c.id),
+    )
     const held = automation !== undefined && (!resolution || runsInBypass(resolution))
     const lead = { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' as const }
     const at = new Date().toISOString()
@@ -4078,12 +4095,20 @@ export function createTasks(options: {
           : []),
       ],
       ...(input.draftRevision !== undefined && { draftRevision: input.draftRevision }),
-      ...(closing && {
-        closing: {
-          commentId: closing.commentId,
-          answer: { kind: 'answered' as const, at, choice: closing.choice },
-        },
-      }),
+      closings: [
+        ...(closing
+          ? [
+              {
+                commentId: closing.commentId,
+                answer: { kind: 'answered' as const, at, choice: closing.choice },
+              },
+            ]
+          : []),
+        ...replaced.map((commentId) => ({
+          commentId,
+          answer: { kind: 'withdrawn' as const, at, asanaReread: true as const },
+        })),
+      ],
     })
     const created = [...result.created.values()]
     const existingParents = new Set([
@@ -4092,7 +4117,12 @@ export function createTasks(options: {
       ),
       ...plan.links.flatMap((link) => ('taskId' in link.parent ? [link.parent.taskId] : [])),
     ])
-    for (const id of existingParents) holdParent(id)
+    const heldIds = plan.holds.flatMap(({ parent }) => {
+      const id = 'taskId' in parent ? parent.taskId : result.created.get(parent.gid)?.id
+      return id === undefined ? [] : [id]
+    })
+    for (const id of new Set([...existingParents, ...heldIds])) holdParent(id)
+    for (const id of reread) if (!heldIds.includes(id)) wakeTask(id)
     tellHierarchyChanged([...existingParents, ...plan.links.map((link) => link.taskId)])
     const startAll =
       resolution !== undefined &&
@@ -4136,6 +4166,7 @@ export function createTasks(options: {
         { kind: 'app' },
         { commentId: comment.id, choice },
       )
+      wakeTask(task.id)
     } else if (choice === asanaGoAheadChoice) {
       store.answerComment(comment.id, { kind: 'answered', at: new Date().toISOString(), choice })
       store.postComment({
@@ -4144,7 +4175,7 @@ export function createTasks(options: {
         author: { kind: 'ted' },
         body: goAheadText(missing.items),
       })
-      wake()
+      wakeTask(task.id)
     } else {
       throw new RequestError(400, `answer with ${asanaRetryChoice} or ${asanaGoAheadChoice}`)
     }
@@ -7462,18 +7493,20 @@ export function createTasks(options: {
 
   function wake(): void {
     const queued = new Set(store.queue().map((q) => q.id))
-    for (const id of store.openBlockedTasks()) {
-      if (queued.has(id) || starting.has(id) || hierarchyBusy.has(id) || deleting.has(id)) continue
-      if (unmergedBlockers(id).length > 0) continue
-      const task = store.getTask(id)
-      if (!task || task.archived || task.stopped) continue
-      if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
-        inBackground(`start ${task.displayId}`, async () => {
-          await start(id)
-        })
-      } else if (task.waitsForBlockers && !liveLead(task)) {
-        store.requeueAfterBlockers(id)
-      }
+    for (const id of store.openBlockedTasks()) wakeTask(id, queued)
+  }
+
+  function wakeTask(id: string, queued = new Set(store.queue().map((q) => q.id))): void {
+    if (queued.has(id) || starting.has(id) || hierarchyBusy.has(id) || deleting.has(id)) return
+    if (unmergedBlockers(id).length > 0) return
+    const task = store.getTask(id)
+    if (!task || task.archived || task.stopped) return
+    if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
+      inBackground(`start ${task.displayId}`, async () => {
+        await start(id)
+      })
+    } else if (task.waitsForBlockers && !liveLead(task)) {
+      store.requeueAfterBlockers(id)
     }
   }
 
