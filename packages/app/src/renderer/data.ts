@@ -758,6 +758,34 @@ export function useCoordinatorChatState(factoryId: string, runIds: readonly stri
   )
 }
 
+export function useCoordinatorConversations(factoryId: string) {
+  return useReloadingState(
+    () => ted.coordinatorConversations(factoryId),
+    (event) =>
+      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
+      (event.type === 'task-updated' && event.task.factoryId === factoryId),
+    factoryId,
+  )
+}
+
+export function useCoordinatorConversationState(factoryId: string, conversationId: string) {
+  return useReloadingState(
+    () => ted.coordinatorConversation(factoryId, conversationId),
+    (event) =>
+      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
+      (event.type === 'task-updated' && event.task.factoryId === factoryId),
+    `${factoryId}:${conversationId}`,
+  )
+}
+
+export function useCoordinatorConversationChatState(factoryId: string, conversationId: string) {
+  return useReloadingState(
+    () => ted.coordinatorConversationChat(factoryId, conversationId),
+    (event) => event.type === 'coordinator-changed' && event.factoryId === factoryId,
+    `${factoryId}:${conversationId}`,
+  )
+}
+
 export function useCoordinatorStatuses(): CoordinatorStatus[] {
   return (
     useReloading(

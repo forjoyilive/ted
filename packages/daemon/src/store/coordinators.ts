@@ -5,7 +5,7 @@ import type {
   RunMessage,
   TaskLead,
 } from '@ted/protocol'
-import { coordinators, events, type schema } from './schema.ts'
+import { coordinatorConversations, coordinators, events, type schema } from './schema.ts'
 
 export interface PromptPart {
   id: string
@@ -22,6 +22,7 @@ export interface StoredCoordinator {
   lead: TaskLead
   phase: 'ready' | 'queued' | 'working' | 'failed'
   opening: string
+  startedAt?: string
   error?: string | undefined
   receipts: CoordinatorReceipt[]
   confirmations?: CoordinatorConfirmation[]
@@ -33,12 +34,29 @@ export interface StoredCoordinator {
   prompts?: Record<string, PromptPart[]>
 }
 
+export interface SavedCoordinatorConversation {
+  id: string
+  startedAt: string
+  endedAt: string
+  chat: StoredCoordinator
+}
+
 export interface CoordinatorStore {
   list(): StoredCoordinator[]
   get(factoryId: string): StoredCoordinator | undefined
   forRun(runId: string): StoredCoordinator | undefined
   save(value: StoredCoordinator, canceled?: readonly RunMessage[]): void
   remove(factoryId: string): void
+  conversations(factoryId: string): SavedCoordinatorConversation[]
+  conversation(id: string): SavedCoordinatorConversation | undefined
+  savedForRun(runId: string): SavedCoordinatorConversation | undefined
+  keep(
+    saved: SavedCoordinatorConversation,
+    canceled: readonly RunMessage[],
+    restore?: SavedCoordinatorConversation,
+  ): void
+  restore(saved: SavedCoordinatorConversation): void
+  forget(id: string): void
 }
 
 export function createCoordinatorStore(options: {
@@ -50,6 +68,21 @@ export function createCoordinatorStore(options: {
     options.store
       .query(queryDb(coordinators))
       .map((row) => JSON.parse(row.data) as StoredCoordinator)
+  const saved = (factoryId?: string) =>
+    options.store
+      .query(
+        queryDb(
+          factoryId === undefined
+            ? coordinatorConversations
+            : coordinatorConversations.where({ factoryId }),
+        ),
+      )
+      .map((row) => JSON.parse(row.data) as SavedCoordinatorConversation)
+      .sort((a, b) => b.endedAt.localeCompare(a.endedAt))
+  const continued = ({ id, chat }: SavedCoordinatorConversation) => [
+    events.coordinatorConversationContinued({ id, factoryId: chat.factoryId }),
+    events.coordinatorChanged({ factoryId: chat.factoryId, data: JSON.stringify(chat) }),
+  ]
   return {
     list,
     get: (id) => list().find((c) => c.factoryId === id),
@@ -67,6 +100,35 @@ export function createCoordinatorStore(options: {
       const current = list().find((c) => c.factoryId === factoryId)
       options.commit(events.coordinatorRemoved({ factoryId, runIds: current?.runIds ?? [] }))
       options.changed(factoryId)
+    },
+    conversations: (factoryId) => saved(factoryId),
+    conversation: (id) => saved().find((c) => c.id === id),
+    savedForRun: (runId) => saved().find((c) => c.chat.runIds.includes(runId)),
+    keep(value, canceled, restore) {
+      const { factoryId } = value.chat
+      options.commit(
+        ...canceled.map(({ id, runId }) =>
+          events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
+        ),
+        events.coordinatorConversationSaved({
+          id: value.id,
+          factoryId,
+          endedAt: value.endedAt,
+          data: JSON.stringify(value),
+        }),
+        ...(restore ? continued(restore) : []),
+      )
+      options.changed(factoryId)
+    },
+    restore(value) {
+      options.commit(...continued(value))
+      options.changed(value.chat.factoryId)
+    },
+    forget(id) {
+      const value = saved().find((c) => c.id === id)
+      if (!value) return
+      options.commit(events.coordinatorConversationDeleted({ id, runIds: value.chat.runIds }))
+      options.changed(value.chat.factoryId)
     },
   }
 }

@@ -65,6 +65,8 @@ import type {
   Coordinator,
   CoordinatorAction,
   CoordinatorConfirmationAnswer,
+  CoordinatorConversation,
+  CoordinatorConversationSummary,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
@@ -421,6 +423,44 @@ export class DaemonClient {
 
   resetCoordinator(factoryId: string): Promise<null> {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
+  }
+
+  coordinatorConversations(factoryId: string): Promise<CoordinatorConversationSummary[]> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations`,
+    )
+  }
+
+  coordinatorConversation(
+    factoryId: string,
+    conversationId: string,
+  ): Promise<CoordinatorConversation> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}`,
+    )
+  }
+
+  coordinatorConversationChat(factoryId: string, conversationId: string): Promise<RunChat> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}/chat`,
+    )
+  }
+
+  continueCoordinatorConversation(factoryId: string, conversationId: string): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}/continue`,
+    )
+  }
+
+  deleteCoordinatorConversation(factoryId: string, conversationId: string): Promise<null> {
+    return this.#request(
+      'DELETE',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}`,
+    )
   }
 
   coordinatorTasks(query: CoordinatorTaskQuery = {}): Promise<{ context: string }> {

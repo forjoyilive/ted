@@ -212,6 +212,8 @@ export type {
   CoordinatorConfirmation,
   CoordinatorConfirmationAnswer,
   CoordinatorConfirmationTask,
+  CoordinatorConversation,
+  CoordinatorConversationSummary,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,

@@ -92,7 +92,12 @@ export function runOutputEnd(store: EndStore, runId: string): RunOutputEnd {
       .sort()[0]
     return closed === undefined ? 'keep' : { at: closed }
   }
-  if (store.coordinators.forRun(runId) || store.automationDrafts.get(runId)) return 'keep'
+  if (
+    store.coordinators.forRun(runId) ||
+    store.coordinators.savedForRun(runId) ||
+    store.automationDrafts.get(runId)
+  )
+    return 'keep'
   const plan = store.plans.get(runId)
   if (plan) {
     return plan.state === 'ended' && plan.outcome !== 'failed'

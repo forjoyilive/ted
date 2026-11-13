@@ -69,6 +69,46 @@ export const coordinatorRoutes: Route[] = [
       return [200, null]
     },
   },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/coordinator\/conversations$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [
+      200,
+      coordinators.conversations(id),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)$/,
+    handle: async ({ params: [id = '', conversation = ''] }, { coordinators }) => [
+      200,
+      coordinators.conversation(id, conversation),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)\/chat$/,
+    handle: async ({ params: [id = '', conversation = ''] }, { coordinators, conversations }) => {
+      coordinators.conversation(id, conversation)
+      return [200, await conversations.savedCoordinatorChat(conversation)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)\/continue$/,
+    handle: async ({ params: [id = '', conversation = ''] }, { coordinators }) => [
+      200,
+      await coordinators.continueConversation(id, conversation),
+    ],
+  },
+  {
+    method: 'DELETE',
+    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)$/,
+    async handle({ params: [id = '', conversation = ''] }, { coordinators }) {
+      await coordinators.deleteConversation(id, conversation)
+      return [200, null]
+    },
+  },
   jsonRoute(parseCoordinatorConfirmationAnswer, {
     method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/confirmations\/([^/]+)$/,
