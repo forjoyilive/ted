@@ -805,7 +805,7 @@ describe('the Checks’ environment', () => {
     }
   }, 90_000)
 
-  test('Checks run in the login shell and environment TED read at start, not the daemon’s own', async () => {
+  test('Checks run in the login shell and environment TED read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
     const loginBin = path.join(scratch, 'login-bin')
     await mkdir(loginBin)
     await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
@@ -817,7 +817,8 @@ describe('the Checks’ environment', () => {
         '#!/bin/sh',
         'if [ "$1" = "-lc" ]; then echo login-shell; exec /bin/sh -c "$2"; fi',
         `PATH='${loginBin}':"$PATH"`,
-        'export PATH',
+        'SHELL_SESSION=$$',
+        'export PATH SHELL_SESSION',
         'exec /bin/sh -c "$4"',
         '',
       ].join('\n'),
@@ -853,6 +854,12 @@ describe('the Checks’ environment', () => {
     expect(states(run)).toEqual([['Tool', 'passed']])
     const output = await ok<{ text: string }>('GET', `/check-runs/${run?.id}/checks/0/output`)
     expect(output.text).toBe('login-shell\nran')
+    const covered = async () =>
+      (await ok<{ satisfied: boolean }>('GET', `/tasks/${task.id}/validation-obligations`))
+        .satisfied
+    await expect.poll(covered).toBe(true)
+    await ok('POST', '/integrations/check')
+    expect(await covered()).toBe(true)
   }, 90_000)
 })
 

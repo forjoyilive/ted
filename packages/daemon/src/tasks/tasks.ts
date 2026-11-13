@@ -8106,7 +8106,8 @@ export function createTasks(options: {
     store,
     failures,
     find,
-    context: checkContext,
+    // Coverage leaves out the login shell's environment: mise sets a new value on every read.
+    context: (task) => checkContext(task, { inherited: false }),
     workflow: (task) => taskWorkflow(task, { fetch: false }),
     plan: checkPlan,
     checkSandbox: async (task) => {
@@ -8439,7 +8440,10 @@ export function createTasks(options: {
     }
     return { ci, ciFailures }
   }
-  async function checkContext(task: Task): Promise<Pick<FailureContext, 'repos' | 'checks'>> {
+  async function checkContext(
+    task: Task,
+    { inherited = true }: { inherited?: boolean } = {},
+  ): Promise<Pick<FailureContext, 'repos' | 'checks'>> {
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(resolution.workflow, factoryOf(task))
     const checks = hashContext({
@@ -8450,9 +8454,9 @@ export function createTasks(options: {
         repo: e.repo,
         name: e.name,
         baseBranch: e.baseBranch,
-        env: Object.entries(checkEnv(task.displayId, e.env, options.env?.() ?? process.env)).sort(
-          ([a], [b]) => a.localeCompare(b),
-        ),
+        env: Object.entries(
+          checkEnv(task.displayId, e.env, inherited ? (options.env?.() ?? process.env) : {}),
+        ).sort(([a], [b]) => a.localeCompare(b)),
       })),
     })
     const repos = await Promise.all(
