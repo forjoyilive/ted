@@ -216,8 +216,8 @@ export function RoundQuestions({
     if (complete && !sending) submit()
   }
   return (
-    <>
-      <div className={styles.questions} {...(!readOnly && { onKeyDown: submitOnCommandEnter })}>
+    <div className={styles.round} {...(!readOnly && { onKeyDown: submitOnCommandEnter })}>
+      <div className={styles.questions}>
         {round.questions.map((question, i) => (
           <Question
             key={question.question}
@@ -241,7 +241,7 @@ export function RoundQuestions({
           </Button>
         </div>
       )}
-    </>
+    </div>
   )
 }
 
