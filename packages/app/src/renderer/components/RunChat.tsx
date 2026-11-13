@@ -1,6 +1,6 @@
 // Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/
-// ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
-// grouping of calls, and Edit rows that expand to their diff.
+// ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, its own
+// grouping of calls (tool-groups.ts), and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
@@ -10,6 +10,7 @@ import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { conversationRows } from '../task-conversations.ts'
 import { readableError, ted } from '../ted.ts'
+import { type ToolGroup, toolGroupSummary, toolGroups } from '../tool-groups.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
@@ -680,6 +681,50 @@ export function Composer({
   )
 }
 
+function ToolGroupRow({
+  group,
+  open,
+  onToggle,
+  children,
+}: {
+  group: ToolGroup
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  const summary = toolGroupSummary(group.items)
+  const marks = summary.additions > 0 || summary.deletions > 0 || summary.failed > 0
+  return (
+    <div className={styles.row} data-tool-group={group.id}>
+      <ActionButton
+        type="button"
+        className={styles.rowHead}
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <ChevronIcon open={open} className={styles.chevron} />
+        <span className={styles.rowLabel}>{summary.calls} tool calls</span>
+        <span className={styles.groupSummary}>{summary.text}</span>
+        {(marks || summary.stopped > 0 || summary.running > 0) && (
+          <span className={`${styles.rowMeta} ${styles.groupMeta}`}>
+            {(summary.additions > 0 || summary.deletions > 0) && (
+              <Counts additions={summary.additions} deletions={summary.deletions} />
+            )}
+            {summary.failed > 0 && <span className={styles.failed}>{summary.failed} failed</span>}
+            {summary.stopped > 0 && (
+              <span className={styles.stopped}>{summary.stopped} stopped</span>
+            )}
+            {summary.running > 0 && (
+              <span className={styles.running}>{summary.running} running</span>
+            )}
+          </span>
+        )}
+      </ActionButton>
+      {open && <div className={`${styles.rowBody} ${styles.groupCalls}`}>{children}</div>}
+    </div>
+  )
+}
+
 export function ChatTimeline({
   chat,
   options = {},
@@ -689,29 +734,51 @@ export function ChatTimeline({
 }) {
   const items = chat?.items ?? []
   const run = chat?.run
-  const rows = conversationRows(items, options.extra ?? [], run?.startedAt ?? '')
+  const rows = toolGroups(conversationRows(items, options.extra ?? [], run?.startedAt ?? ''))
   const ticking = useTicking(
     items.some((item) => item.kind === 'tool' && item.status === 'running'),
   )
   const now = useNow()
+  const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map())
+  const working = run !== undefined && (options.working ?? run.state === 'working')
+  const itemRow = (item: ChatItem, run: RunSummary) => (
+    <div
+      key={`${run.id}:${item.kind}:${item.id}`}
+      data-chat-item={item.id}
+      tabIndex={options.matchItemId === item.id ? -1 : undefined}
+      className={options.matchItemId === item.id ? styles.searchMatch : undefined}
+    >
+      <ChatRow
+        item={item}
+        run={run}
+        now={item.kind === 'tool' && item.status === 'running' ? ticking : now}
+        options={options}
+      />
+    </div>
+  )
   return (
     <>
-      {rows.map((row) =>
-        'item' in row && run ? (
-          <div
-            key={`${run.id}:${row.item.kind}:${row.item.id}`}
-            data-chat-item={row.item.id}
-            tabIndex={options.matchItemId === row.item.id ? -1 : undefined}
-            className={options.matchItemId === row.item.id ? styles.searchMatch : undefined}
-          >
-            <ChatRow
-              item={row.item}
-              run={run}
-              now={row.item.kind === 'tool' && row.item.status === 'running' ? ticking : now}
-              options={options}
-            />
-          </div>
-        ) : 'extra' in row ? (
+      {rows.map((row) => {
+        if ('item' in row) return run ? itemRow(row.item, run) : null
+        if ('group' in row) {
+          if (!run) return null
+          const key = `${run.id}:${row.group.id}`
+          const open =
+            chosen.get(key) ??
+            ((row.group.last && working) ||
+              row.group.items.some((item) => item.id === options.matchItemId))
+          return (
+            <ToolGroupRow
+              key={`group:${key}`}
+              group={row.group}
+              open={open}
+              onToggle={() => setChosen((before) => new Map(before).set(key, !open))}
+            >
+              {row.group.items.map((item) => itemRow(item, run))}
+            </ToolGroupRow>
+          )
+        }
+        return (
           <div
             key={`extra:${row.extra.id}`}
             hidden={row.extra.hidden}
@@ -723,8 +790,8 @@ export function ChatTimeline({
           >
             {row.extra.node}
           </div>
-        ) : null,
-      )}
+        )
+      })}
     </>
   )
 }

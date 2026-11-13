@@ -477,3 +477,25 @@
   background: var(--accent-subtle);
   outline: 2px solid var(--accent-border);
 }
+
+.groupSummary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.groupCalls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
