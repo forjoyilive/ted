@@ -84,6 +84,7 @@ export interface DaemonOptions {
   asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring }
   linear?: { apiUrl?: string; keyring?: Keyring }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
+  heldRequests?: { maxMs?: number }
   linearSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
@@ -457,6 +458,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             new URL(options.asana?.apiOrigin ?? 'https://app.asana.com').hostname === '127.0.0.1',
         },
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
+        ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,

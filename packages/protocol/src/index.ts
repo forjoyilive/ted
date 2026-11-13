@@ -285,6 +285,7 @@ export type {
 export { type Edition, edition, type Identity, identity } from './edition.ts'
 export {
   filterTedEnv,
+  outsideTedEnv,
   remoteExecutionOff,
   remoteExecutionOn,
   tedEnv,

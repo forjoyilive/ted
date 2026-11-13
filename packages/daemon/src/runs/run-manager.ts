@@ -96,6 +96,7 @@ export interface RunObserver {
   accepted?(run: Run, texts: string[]): void
   boundary?(run: Run): void
   settled?(run: Run): void
+  turnEnded?(run: Run): void
   usage?(run: Run, signal: UsageSignal): void
   credential?(run: Run, report: CredentialReport): void
   planUsage?(run: Run, windows: PlanWindow[]): void
@@ -440,6 +441,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     let problem: RunProblem | undefined
     let autoMode: AutoModeSignal | undefined
     let boundary = false
+    let turnEnded = false
     let usage: UsageSignal | undefined
     let retrying: boolean | undefined
     let credential: CredentialReport | undefined
@@ -460,7 +462,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         lastAt = record.at
         const text = agent.acceptedTextFrom(record.line)
         if (text !== undefined) accepted.push(text)
-        state = agent.stateFrom(record.line) ?? state
+        const lineState = agent.stateFrom(record.line)
+        if (lineState === 'idle') turnEnded = true
+        state = lineState ?? state
         sessionId = agent.sessionIdFrom(record.line) ?? sessionId
         problem = agent.problemFrom(record.line) ?? problem
         authFailed ||= agent.authErrorFrom(record.line)
@@ -562,6 +566,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (boundary && state !== 'finished') {
       tellObservers(runId, (observer, run) => observer.boundary?.(run))
     }
+    if (turnEnded) tellObservers(runId, (observer, run) => observer.turnEnded?.(run))
     if (state === 'idle') {
       tellObservers(runId, (observer, run) => observer.settled?.(run))
       if (outdated.has(runId)) void replaceWhenIdle(runId)

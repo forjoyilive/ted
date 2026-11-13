@@ -1,3 +1,4 @@
+import { tedEnv } from '@ted/protocol'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { TedStore } from '../store/index.ts'
 
@@ -23,6 +24,8 @@ export function createHeldRequests(
   runs: RunManager,
   options: { checkEveryMs?: number; maxMs?: number } = {},
 ): HeldRequests {
+  const fromEnv = Number(tedEnv('TED_HOLD_REQUESTS_MS') ?? Number.NaN)
+  const maxMs = options.maxMs ?? (Number.isFinite(fromEnv) ? fromEnv : holdAtMostMs)
   const releaseFor = (runId: string) =>
     store.releaseRequests(
       store
@@ -36,15 +39,15 @@ export function createHeldRequests(
         store.heldRequests(),
         (runId) => store.getRun(runId)?.state === 'working',
         Date.now(),
-        options.maxMs,
+        maxMs,
       ),
     )
   runs.observe({
-    settled: (run) => releaseFor(run.id),
+    turnEnded: (run) => releaseFor(run.id),
     finished: (run) => releaseFor(run.id),
   })
   sweep()
-  const timer = setInterval(sweep, options.checkEveryMs ?? 10_000)
+  const timer = setInterval(sweep, options.checkEveryMs ?? Math.min(10_000, Math.max(maxMs, 25)))
   timer.unref()
   return { close: () => clearInterval(timer) }
 }

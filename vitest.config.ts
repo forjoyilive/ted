@@ -82,6 +82,7 @@ const testOptions = {
     TED_APP_TOKEN: 'test-app-token',
     TED_EDITOR_APP_DIRS: '',
     TED_TEST_FAILURES_FILE: 'off',
+    TED_HOLD_REQUESTS_MS: '0',
     TED_REMOTE_EXECUTION: 'on',
   },
 }

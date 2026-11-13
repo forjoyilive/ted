@@ -52,6 +52,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_SIMULATOR_UDID: 'Task simulator context supplied to App and Run commands.',
   TED_SKIP_FIRST_LAUNCH: false,
   TED_STALL_AFTER_MS: false,
+  TED_HOLD_REQUESTS_MS: false,
   TED_STAY_AWAKE: false,
   TED_SWIFTPM_CACHE:
     'Task Swift package cache folder supplied to Apps, Checks and worktree commands.',
@@ -78,6 +79,10 @@ export function filterTedEnv(env: NodeJS.ProcessEnv, which: Edition = edition): 
       ([name]) => which === 'dev' || !name.toUpperCase().startsWith('TED_') || retained(name),
     ),
   )
+}
+
+export function outsideTedEnv(name: string, env: NodeJS.ProcessEnv): string | undefined {
+  return name.toUpperCase().startsWith('TED_') ? undefined : env[name]
 }
 
 function retained(name: string): boolean {

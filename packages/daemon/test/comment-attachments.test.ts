@@ -12,6 +12,7 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { holdAtMostMs } from '../src/tasks/held-requests.ts'
 import {
   api,
   appClient,
@@ -45,7 +46,12 @@ afterEach(async () => {
 })
 
 async function startTed() {
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    heldRequests: { maxMs: holdAtMostMs },
+  })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)

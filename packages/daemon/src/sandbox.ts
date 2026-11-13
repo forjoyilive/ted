@@ -3,6 +3,7 @@ import { constants, type Stats } from 'node:fs'
 import { access, type FileHandle, lstat, mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { outsideTedEnv } from '@ted/protocol'
 import { redactSecrets } from './redact.ts'
 
 export interface SandboxScope {
@@ -263,7 +264,7 @@ async function allowedSockets(
   const found = new Set<string>()
   for (const entry of entries) {
     const expanded = entry.startsWith('$')
-      ? env[entry.slice(1)]
+      ? outsideTedEnv(entry.slice(1), env)
       : entry.startsWith('~/')
         ? path.join(home, entry.slice(2))
         : entry

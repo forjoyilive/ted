@@ -1,7 +1,13 @@
 import { globSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from 'vitest'
-import { filterTedEnv, remoteExecutionOn, tedEnv, tedEnvironment } from '../src/env.ts'
+import {
+  filterTedEnv,
+  outsideTedEnv,
+  remoteExecutionOn,
+  tedEnv,
+  tedEnvironment,
+} from '../src/env.ts'
 
 test('release accepts only reviewed TED inputs; Dev keeps every test hook', () => {
   for (const [name, reason] of Object.entries(tedEnvironment)) {
@@ -41,6 +47,10 @@ test('new hooks default to Dev-only, including inherited and supplied environmen
   expect(filterTedEnv(env, 'dev')).toEqual(env)
   expect(env.TED_KEYRING_MODULE).toBe('/untrusted/module.js')
   expect(tedEnv('toString', env, 'release')).toBeUndefined()
+
+  expect(outsideTedEnv('SSH_AUTH_SOCK', { SSH_AUTH_SOCK: '/tmp/agent' })).toBe('/tmp/agent')
+  expect(outsideTedEnv('TED_APP_TOKEN', { TED_APP_TOKEN: 'secret' })).toBeUndefined()
+  expect(outsideTedEnv('ted_app_token', { ted_app_token: 'secret' })).toBeUndefined()
 })
 
 function rawReads(source: string): string[] {

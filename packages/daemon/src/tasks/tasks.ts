@@ -688,6 +688,7 @@ export function createTasks(options: {
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
   snoozes?: { now?: () => Date; checkEveryMs?: number }
+  heldRequests?: { maxMs?: number }
   load?: { ratio?: () => number; checkEveryMs?: number }
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
@@ -3866,7 +3867,7 @@ export function createTasks(options: {
     }
   }
 
-  const heldRequests = createHeldRequests(store, runs)
+  const heldRequests = createHeldRequests(store, runs, options.heldRequests)
   const leadLifecycle = createLeadLifecycle({
     store,
     runs,

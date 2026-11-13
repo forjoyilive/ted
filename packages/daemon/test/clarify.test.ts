@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Comment, Factory, InboxItem, Run, Task, TaskGates, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { holdAtMostMs } from '../src/tasks/held-requests.ts'
 import {
   api,
   assistantTexts,
@@ -84,11 +85,16 @@ const syncRound = {
   ],
 }
 
-async function start(clarifyGate = false) {
+async function start(clarifyGate = false, holdRequests = false) {
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': `version: 1\norder: [intake, clarify, work]\nstages:\n  clarify: { gate: ${clarifyGate} }\n`,
   })
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    ...(holdRequests && { heldRequests: { maxMs: holdAtMostMs } }),
+  })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -569,7 +575,7 @@ describe('Clarify rounds', () => {
   })
 
   test('rounds and round answers are checked', async () => {
-    const client = await start()
+    const client = await start(false, true)
     const bad = path.join(scratch, 'bad.json')
     await writeFile(
       bad,
