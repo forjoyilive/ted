@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import {
@@ -459,37 +459,13 @@ describe('TED app', () => {
     expect(await chat.getByRole('button', { name: 'Restart' }).count()).toBe(0)
     const taskHeader = window.getByRole('region', { name: 'Task thread' }).locator('header')
     await taskHeader.getByRole('button', { name: 'Task actions' }).click()
-    expect(await window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled()).toBe(
-      true,
-    )
+    await window.getByRole('menuitem', { name: /Stop Task/ }).waitFor()
+    expect(await window.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(0)
     await chat
       .locator('[data-scroller]')
       .first()
       .evaluate((scroller) => scroller.dispatchEvent(new Event('scroll')))
-    expect(await window.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(1)
-    const runId = (await client.listTasks())[0]?.leadRunId
-    if (runId === undefined) throw new Error('Task has no Lead Run')
-    const { run } = await client.getRun(runId)
-    await writeFile(
-      path.join(ctx.home, 'stub-claude.json'),
-      JSON.stringify({ resumeSteps: [{ say: 'Noted.' }, { endTurn: true }] }),
-    )
-    await window.getByRole('menuitem', { name: 'Restart', exact: true }).click()
-    await expect
-      .poll(
-        async () =>
-          (await readFile(path.join(run.cwd, 'stub-starts.jsonl'), 'utf8')).trim().split('\n')
-            .length,
-      )
-      .toBe(2)
-    expect((await client.listTasks())[0]?.leadRunId).toBe(runId)
-    await window
-      .getByRole('menuitem', { name: 'Restart', exact: true })
-      .waitFor({ state: 'detached' })
-    await taskHeader.getByRole('button', { name: 'Task actions' }).click()
-    await expect
-      .poll(() => window.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())
-      .toBe(true)
+    expect(await window.getByRole('menuitem', { name: /Stop Task/ }).count()).toBe(1)
     await window.keyboard.press('Escape')
 
     const box = chat.getByRole('textbox', { name: 'Message the Task Lead' })
