@@ -132,7 +132,15 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   for (const id of ['NB-1', 'MS-1'])
     fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
   const bar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
+  const more = async (name: string) => {
+    await u.click(bar.getByRole('button', { name: 'More actions' }))
+    await u.click(
+      within(screen.getByRole('menu', { name: 'More actions' })).getByRole('menuitem', { name }),
+    )
+  }
   expect(bar.getByText('2 selected')).toBeTruthy()
+  expect(bar.queryByRole('button', { name: 'Priority' })).toBeNull()
+  expect(bar.queryByRole('button', { name: 'Snooze' })).toBeNull()
   const waitLine = () => document.querySelector('[data-wait-line]')?.textContent
   expect(waitLine()).toBeUndefined()
   await act(async () => a.emit({ type: 'slots-changed', slots: { ...a.state.slots, working: 2 } }))
@@ -143,15 +151,10 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   expect(waitLine()).toBe('1 starts now, 2 wait for a Run slot')
   fireEvent.keyDown(window, { key: 'x' })
   expect(bar.getByText('2 selected')).toBeTruthy()
-  await u.click(bar.getByRole('button', { name: 'Snooze' }))
+  await more('Snooze…')
   const snooze = await screen.findByRole('dialog', { name: 'Snooze 2 Tasks' })
   await u.click(within(snooze).getByRole('button', { name: 'Cancel' }))
-  await u.click(bar.getByRole('button', { name: 'More actions' }))
-  await u.click(
-    within(screen.getByRole('menu', { name: 'More actions' })).getByRole('menuitem', {
-      name: 'Delete…',
-    }),
-  )
+  await more('Delete…')
   const confirm = await screen.findByRole('dialog', { name: 'Delete 2 Tasks?' })
   expect(a.request.mock.calls.some(([name]) => name === 'deleteTask')).toBe(false)
   await u.click(within(confirm).getByRole('button', { name: 'Delete 2 Tasks' }))
@@ -160,12 +163,19 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
       expect(a.request).toHaveBeenCalledWith('deleteTask', id, { blocked: 'unblock' }),
     )
   await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-  await u.click(bar.getByRole('button', { name: 'Priority' }))
-  await u.click(bar.getByRole('menuitem', { name: /^Urgent/ }))
+  await more('Priority')
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Priority' })).getByRole('menuitem', {
+      name: 'Urgent',
+    }),
+  )
   for (const id of ['NB-1', 'MS-1'])
-    expect(a.request).toHaveBeenCalledWith('setPriority', id, 'urgent')
+    await vi.waitFor(() => expect(a.request).toHaveBeenCalledWith('setPriority', id, 'urgent'))
   await u.click(bar.getByRole('button', { name: 'Start' }))
   for (const id of ['NB-1', 'MS-1']) expect(a.request).toHaveBeenCalledWith('startTask', id)
+  await u.click(bar.getByRole('button', { name: 'Archive' }))
+  await u.click(bar.getByRole('button', { name: 'Cancel' }))
+  expect(bar.queryByRole('button', { name: 'Archive 2 Tasks' })).toBeNull()
   await u.click(bar.getByRole('button', { name: 'Archive' }))
   await u.click(bar.getByRole('button', { name: 'Archive 2 Tasks' }))
   for (const id of ['NB-1', 'MS-1'])
@@ -187,7 +197,14 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   expect(screen.getByRole('columnheader', { name: 'Archived' })).toBeTruthy()
   expect(ids().sort()).toEqual(['MS-1', 'NB-1'])
   fireEvent.click(required(document.querySelector('[data-task="NB-1"]')), { metaKey: true })
-  expect(screen.getByRole('toolbar', { name: 'Selected Tasks' })).toBeTruthy()
+  const archivedBar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
+  expect(archivedBar.queryByRole('combobox', { name: 'Autopilot for selected Tasks' })).toBeNull()
+  expect(archivedBar.queryByRole('button', { name: 'Archive' })).toBeNull()
+  await u.click(archivedBar.getByRole('button', { name: 'More actions' }))
+  const archivedMore = within(screen.getByRole('menu', { name: 'More actions' }))
+  expect(archivedMore.queryByRole('menuitem', { name: 'Priority' })).toBeNull()
+  expect(archivedMore.getByRole('menuitem', { name: 'Delete…' })).toBeTruthy()
+  fireEvent.keyDown(screen.getByRole('menu', { name: 'More actions' }), { key: 'Escape' })
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByRole('toolbar', { name: 'Selected Tasks' })).toBeNull()
 })
@@ -372,14 +389,14 @@ test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume
   await u.click(main.getByRole('button', { name: /^Backlog/ }))
 
   expect(bar().queryByRole('button', { name: 'Clear selection' })).toBeNull()
-  await u.click(bar().getByRole('button', { name: 'Prepare through Design' }))
+  await u.click(bar().getByRole('button', { name: 'Prepare' }))
   const dialog = within(screen.getByRole('dialog'))
   expect(dialog.getByText(/Autopilot/)).toBeTruthy()
   await u.click(dialog.getByRole('button', { name: 'Prepare 3 Tasks' }))
   for (const id of ['NB-1', 'NB-2', 'MS-1'])
     expect(a.request).toHaveBeenCalledWith('startTask', id, { prepare: true })
   expect(a.state.settings.preparationNoticeSeen).toBe(true)
-  await u.click(bar().getByRole('button', { name: 'Prepare through Design' }))
+  await u.click(bar().getByRole('button', { name: 'Prepare' }))
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(start).toHaveBeenCalledTimes(6)
   await u.click(main.getByRole('checkbox', { name: 'Select NB-1' }))
@@ -392,9 +409,15 @@ test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume
     task({ status: { kind: 'stopped', prepared: true }, statuses: ['stopped'], stage: 'work' }),
   )
   await u.click(main.getByRole('checkbox', { name: 'Select all Work Tasks' }))
+  expect(bar().queryByRole('button', { name: 'Prepare' })).toBeNull()
   await u.click(bar().getByRole('button', { name: 'Resume' }))
   expect(a.request).toHaveBeenCalledWith('resumeTask', 'NB-1')
   expect(bar().getByRole('button', { name: 'Archive' })).toBeTruthy()
+  await u.click(main.getByRole('checkbox', { name: 'Select all Backlog Tasks' }))
+  expect(bar().getByText('3 selected')).toBeTruthy()
+  await u.click(bar().getByRole('button', { name: 'Start 2 · Resume 1' }))
+  for (const id of ['NB-2', 'MS-1']) expect(a.request).toHaveBeenCalledWith('startTask', id)
+  expect(a.request.mock.calls.filter(([name]) => name === 'resumeTask')).toHaveLength(2)
 })
 
 test('the preparation explanation is shown only once, even when canceled', async () => {
@@ -403,7 +426,7 @@ test('the preparation explanation is shown only once, even when canceled', async
   a.handle('startTask', vi.fn())
   const group = screen.getByRole('checkbox', { name: 'Select all Backlog Tasks' })
   await u.click(group)
-  const prepare = () => screen.getByRole('button', { name: 'Prepare through Design' })
+  const prepare = () => screen.getByRole('button', { name: 'Prepare' })
   await u.click(prepare())
   await u.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
   expect(a.state.settings.preparationNoticeSeen).toBe(true)
