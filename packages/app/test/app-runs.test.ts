@@ -128,6 +128,28 @@ describe('Stop and Resume', () => {
         return Math.abs(bubble.y + bubble.height / 2 - (text.y + text.height / 2))
       }),
     ).toBeLessThan(1)
+    await first.hover()
+    const tooltip = header.page().getByRole('tooltip')
+    await tooltip.waitFor()
+    expect(
+      await tooltip.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        const menu = element.ownerDocument.querySelector('[role="menu"]')?.getBoundingClientRect()
+        const corners = [
+          [box.left + 1, box.top + 1],
+          [box.right - 1, box.top + 1],
+          [box.left + 1, box.bottom - 1],
+          [box.right - 1, box.bottom - 1],
+        ]
+        return {
+          visible: corners.every(([x, y]) => {
+            const hit = document.elementFromPoint(x ?? 0, y ?? 0)
+            return hit === element || element.contains(hit)
+          }),
+          besideMenu: !!menu && (box.right <= menu.left || box.left >= menu.right),
+        }
+      }),
+    ).toEqual({ visible: true, besideMenu: true })
     expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(0)
     await first.click()
 
