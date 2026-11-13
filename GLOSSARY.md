@@ -199,7 +199,7 @@ TED’s background process on each machine, which keeps Runs, Automations and th
 _Avoid_: Server, backend, service
 
 **View**:
-A way of displaying Tasks, such as the Board for one Factory or the List for one Factory or all of them; changing Views never changes a Task’s Stage.
+A way of displaying Tasks, such as the Board for one Factory, the List for one Factory or all of them, or the Map of one Factory’s blockers; changing Views never changes a Task’s Stage.
 _Avoid_: Layout, mode
 
 **Board**:
@@ -209,6 +209,10 @@ _Avoid_: Kanban (as a noun for the data)
 **List**:
 The View that shows Tasks, of one Factory or of every Factory, as rows that can be sorted, grouped and filtered; sorted by Priority and rank, the human can reorder, start and un-start Tasks as on the Board.
 _Avoid_: Table
+
+**Map**:
+The View that draws one Factory’s blockers: each Task that waits for another, or is waited for, as a card, left to right in the order they can start, with a line from each blocker to the Task it blocks. The human removes a blocker from its line and adds one by dragging from one Task to another. Tasks with no blockers stay out of it.
+_Avoid_: Graph, timeline, dependency chart
 
 **Inbox**:
 The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
