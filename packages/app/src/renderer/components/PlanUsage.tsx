@@ -1,9 +1,9 @@
 import type { AgentHealth, AgentKind, Billing } from '@ted/protocol'
 import { agentShortNames, runsPaused } from '@ted/protocol/health'
-import { agentKinds } from '@ted/protocol/run'
 import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import {
   fullestWindow,
+  usageAgents,
   usageEmpty,
   usageReset,
   usageTone,
@@ -17,6 +17,7 @@ import { AgentMark } from './RunIcon.tsx'
 interface UsageProps {
   health: readonly AgentHealth[]
   billing: Readonly<Record<AgentKind, Billing>>
+  agents: readonly AgentKind[]
 }
 
 function freshness(health: AgentHealth | undefined, now: number): string {
@@ -39,11 +40,13 @@ function freshness(health: AgentHealth | undefined, now: number): string {
 export function PlanUsage({
   health,
   billing,
+  enabledAgents,
   open,
   onToggle,
   onClose,
   onSettings,
-}: UsageProps & {
+}: Omit<UsageProps, 'agents'> & {
+  enabledAgents: readonly AgentKind[]
   open: boolean
   onToggle: () => void
   onClose: () => void
@@ -52,7 +55,7 @@ export function PlanUsage({
   const trigger = useRef<HTMLButtonElement>(null)
   const now = useNow()
   const id = useId()
-  const [detailed, setDetailed] = useState(false)
+  const agents = usageAgents(health, enabledAgents)
   return (
     <>
       <button
@@ -60,7 +63,7 @@ export function PlanUsage({
         type="button"
         className={styles.trigger}
         aria-label="Usage"
-        aria-description={agentKinds
+        aria-description={agents
           .map((agent) => {
             const window = fullestWindow(
               usageWindows(
@@ -79,7 +82,7 @@ export function PlanUsage({
         <span className={styles.triggerHead}>
           Usage <span aria-hidden>{open ? '⌄' : '⌃'}</span>
         </span>
-        {agentKinds.map((agent) => {
+        {agents.map((agent) => {
           const known = health.find((h) => h.agent === agent)
           const window = fullestWindow(usageWindows(known, billing[agent]))
           const reset = usageReset(window?.resetsAt, now)
@@ -109,8 +112,7 @@ export function PlanUsage({
           trigger={trigger}
           health={health}
           billing={billing}
-          detailed={detailed}
-          onDetailed={setDetailed}
+          agents={agents}
           onClose={onClose}
           onSettings={onSettings}
         />
@@ -124,21 +126,17 @@ function UsagePopover({
   trigger,
   health,
   billing,
-  detailed,
-  onDetailed,
+  agents,
   onClose,
   onSettings,
 }: UsageProps & {
   id: string
   trigger: RefObject<HTMLButtonElement | null>
-  detailed: boolean
-  onDetailed: (detailed: boolean) => void
   onClose: () => void
   onSettings: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const close = useRef<HTMLButtonElement>(null)
-  const [expanded, setExpanded] = useState<ReadonlySet<AgentKind>>(new Set())
   const [position, setPosition] = useState({ left: 12, bottom: 12 })
   const now = useNow()
   useLayoutEffect(() => {
@@ -189,7 +187,6 @@ function UsagePopover({
     >
       <div className={styles.header}>
         <h2 id={`${id}-title`}>Usage</h2>
-        <span>All agents</span>
         <button
           ref={close}
           type="button"
@@ -200,58 +197,21 @@ function UsagePopover({
           ×
         </button>
       </div>
-      <fieldset className={styles.tabs} aria-label="Usage view">
-        <button type="button" aria-pressed={detailed} onClick={() => onDetailed(true)}>
-          Detailed
-        </button>
-        <button
-          type="button"
-          aria-pressed={!detailed}
-          onClick={() => {
-            onDetailed(false)
-            setExpanded(new Set())
-          }}
-        >
-          Compact
-        </button>
-      </fieldset>
-      {agentKinds.map((agent) => {
+      {agents.length === 0 && <p className={styles.empty}>No agents are set up.</p>}
+      {agents.map((agent) => {
         const known = health.find((h) => h.agent === agent)
-        const windows = usageWindows(known, billing[agent])
-        const top = fullestWindow(windows)
+        const top = fullestWindow(usageWindows(known, billing[agent]))
         const reset = usageReset(top?.resetsAt, now)
-        const shown = detailed || expanded.has(agent)
-        const detailsId = `${id}-${agent}`
         return (
           <section
             key={agent}
             className={styles.agent}
             aria-label={`${agentShortNames[agent]} usage`}
           >
-            <button
-              type="button"
-              className={styles.agentHead}
-              aria-label={`${agentShortNames[agent]} usage details`}
-              aria-expanded={shown}
-              aria-controls={detailsId}
-              aria-describedby={`${detailsId}-summary`}
-              onClick={() => {
-                if (detailed) {
-                  onDetailed(false)
-                  setExpanded(new Set(agentKinds.filter((kind) => kind !== agent)))
-                  return
-                }
-                setExpanded((current) => {
-                  const next = new Set(current)
-                  if (next.has(agent)) next.delete(agent)
-                  else next.add(agent)
-                  return next
-                })
-              }}
-            >
+            <div className={styles.agentHead}>
               <AgentMark agent={agent} size={16} />
               <strong>{agentShortNames[agent]}</strong>
-              <span id={`${detailsId}-summary`} className={styles.summary}>
+              <span className={styles.summary}>
                 {top ? (
                   <>
                     {usageWindowNames[top.window]}{' '}
@@ -264,42 +224,6 @@ function UsagePopover({
                   'No usage yet'
                 )}
               </span>
-              <span aria-hidden>{shown ? '⌄' : '›'}</span>
-            </button>
-            <div id={detailsId} hidden={!shown} className={styles.details}>
-              {windows.map((window) => {
-                const reset = usageReset(window.resetsAt, now)
-                return (
-                  <div
-                    key={window.window}
-                    className={styles.window}
-                    data-tone={usageTone(window.percent)}
-                  >
-                    <div className={styles.labels}>
-                      <span>{usageWindowNames[window.window]}</span>
-                      <span>
-                        {Math.round(window.percent)}%
-                        {reset
-                          ? ` · ${reset === 'Awaiting update' ? reset : `resets in ${reset}`}`
-                          : ''}
-                      </span>
-                    </div>
-                    <div
-                      role="progressbar"
-                      aria-label={`${agentShortNames[agent]} ${usageWindowNames[window.window]}`}
-                      aria-valuenow={Math.min(100, window.percent)}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      className={styles.track}
-                    >
-                      <div
-                        className={styles.fill}
-                        style={{ width: `${Math.min(100, window.percent)}%` }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
             </div>
             {!top && <p className={styles.note}>{usageEmpty(agent, billing[agent])}</p>}
             <p className={styles.note}>{freshness(known, now)}</p>

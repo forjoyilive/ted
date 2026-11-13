@@ -1,5 +1,6 @@
 import type { AgentHealth, AgentKind, Billing, PlanWindow } from '@ted/protocol'
 import { planWarnPercent } from '@ted/protocol/health'
+import { agentKinds } from '@ted/protocol/run'
 
 export const usageWindowNames: Record<PlanWindow['window'], string> = {
   'five-hour': '5-hour window',
@@ -40,4 +41,15 @@ export function usageEmpty(agent: AgentKind, billing: Billing): string {
   return agent === 'claude'
     ? 'Shows once a Run has made a request.'
     : 'Shows once a Run has started.'
+}
+
+export function usageAgents(
+  health: readonly AgentHealth[],
+  enabled: readonly AgentKind[],
+): AgentKind[] {
+  return agentKinds.filter(
+    (agent) =>
+      enabled.includes(agent) &&
+      health.find((known) => known.agent === agent)?.state !== 'not-installed',
+  )
 }

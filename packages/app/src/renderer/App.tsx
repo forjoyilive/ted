@@ -10,6 +10,7 @@ import type {
 import { simulatorsLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
+import { agentKinds } from '@ted/protocol/run'
 import { factoryNotifications } from '@ted/protocol/settings'
 import {
   type ReactNode,
@@ -1271,6 +1272,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
                   antigravity: 'subscription',
                 }
               }
+              enabledAgents={settings?.enabledAgents ?? agentKinds}
               open={usageOpen}
               onToggle={() => {
                 setRunsOpen(false)
