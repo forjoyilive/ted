@@ -492,7 +492,8 @@ export interface Tasks {
   asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
-  markDone(ref: string): Promise<Task>
+  markDone(ref: string, by?: 'human' | 'coordinator'): Promise<Task>
+  leadDone(ref: string, caller: Caller): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
   setUpFactory(factoryId: string): Promise<Task | undefined>
   newSetupTask(factoryId: string): Promise<Task>
@@ -3462,7 +3463,10 @@ export function createTasks(options: {
     return store.getComment(posted.id) ?? posted
   }
 
-  async function markDone(ref: string): Promise<Task> {
+  async function markDone(
+    ref: string,
+    by: 'human' | 'lead' | 'coordinator' = 'human',
+  ): Promise<Task> {
     const id = find(ref).id
     return checksFirst(
       id,
@@ -3523,7 +3527,7 @@ export function createTasks(options: {
       if (changed) {
         throw new RequestError(409, `${changed.where} changed while TED read GitHub; try again`)
       }
-      store.taskMarkedDone(id)
+      store.taskMarkedDone(id, by)
       for (const { name } of left) {
         store.pullRequestMerged(id, name, { noCi: false, byTed: false })
       }
@@ -10018,6 +10022,13 @@ export function createTasks(options: {
     useDefaultModel,
     cancelMerge,
     markDone,
+
+    async leadDone(ref, caller) {
+      const { task } = taskLead(ref, caller, 'marks its Task done')
+      await untilFree(task.id)
+      taskLead(ref, caller, 'marks its Task done')
+      return markDone(task.id, 'lead')
+    },
 
     setRepos,
 

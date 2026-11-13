@@ -303,6 +303,21 @@ describe('importable CLI execution', () => {
   })
 })
 
+describe('marking a merged Task done', () => {
+  test('parses ted task done and ted coordinator done', () => {
+    expect(parseInvocation(['task', 'done'], { TED_TASK: 'NB-1' }).handler).toBe('taskDone')
+    expect(() => parseInvocation(['task', 'done', 'NB-2'], { TED_TASK: 'NB-1' })).toThrow(
+      UsageError,
+    )
+    expect(
+      parseInvocation(['coordinator', 'done', 'NB-1', '--operation', 'op', '--version', 'v'], {})
+        .handler,
+    ).toBe('coordinatorDone')
+    expect(helpText()).toContain('ted task done')
+    expect(helpText()).toContain('ted coordinator done')
+  })
+})
+
 describe('commands merged from the latest base', () => {
   test('registers export and Stage effort while keeping flags command-specific', () => {
     expect(

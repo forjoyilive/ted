@@ -135,6 +135,7 @@ export function parseCoordinatorAction(
     throw new HttpError(400, 'version must come from a current Task read')
   const neighbours = placement(body)
   const base = { operation, version: body.version }
+  if (kind === 'done') return base
   if (kind === 'parent') {
     const parent = parseSetTaskParentRequest({
       parentId: body.parentId,

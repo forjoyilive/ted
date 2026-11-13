@@ -966,6 +966,17 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ),
       )
     },
+    coordinatorDone: async () => {
+      const { operation, version } = options
+      if (!operation || !version) throw new UsageError('operation and version are required')
+      console.log(
+        JSON.stringify(
+          await withDaemon(home, (client) =>
+            client.coordinatorAct(args[0] ?? '', 'done', { operation, version }),
+          ),
+        ),
+      )
+    },
     coordinatorResume: async () => {
       if (!options.operation || !options.version)
         throw new UsageError('operation and version are required')
@@ -1365,6 +1376,11 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (by === undefined) throw new UsageError('name the blocker with --by <id>')
       const task = await withDaemon(home, (client) => client.blockTask(ref, by))
       console.log(`${task.displayId} waits for ${by}`)
+    },
+    taskDone: async () => {
+      const ref = taskRef()
+      const task = await withDaemon(home, (client) => client.leadDone(ref))
+      console.log(`${task.displayId} is Done`)
     },
     unblock: async () => {
       const ref = taskRef(args[0])

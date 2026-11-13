@@ -597,6 +597,15 @@ export const taskRoutes: Route[] = [
   }),
   {
     method: 'POST',
+    path: /^\/tasks\/([^/]+)\/done$/,
+    runToken: true,
+    handle: async ({ params: [ref = ''], caller }, { tasks }) => [
+      200,
+      await tasks.leadDone(ref, caller),
+    ],
+  },
+  {
+    method: 'POST',
     path: /^\/tasks\/([^/]+)\/read$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, { read: tasks.markRead(ref) }],
   },

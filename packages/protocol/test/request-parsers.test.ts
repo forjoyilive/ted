@@ -68,15 +68,17 @@ const completeAction: Required<P.CoordinatorAction> = {
   skipRows: [2],
   startUnblocked: true,
 }
-for (const kind of ['start', 'move', 'tell', 'resume'] as const) {
+for (const kind of ['start', 'move', 'tell', 'resume', 'done'] as const) {
   test(`parseCoordinatorAction keeps every ${kind} field`, () => {
     const base = { operation: 'unique', version }
     const body =
       kind === 'start' || kind === 'move'
         ? { ...base, after: 'TED-1', before: 'TED-3', neighbours: { 'TED-1': version } }
-        : kind === 'tell' || kind === 'resume'
-          ? { ...base, message: 'Continue' }
-          : { ...base, request: 'comment-1', choice: 'Yes', message: 'Continue' }
+        : kind === 'done'
+          ? base
+          : kind === 'tell' || kind === 'resume'
+            ? { ...base, message: 'Continue' }
+            : { ...base, request: 'comment-1', choice: 'Yes', message: 'Continue' }
     expect(P.parseCoordinatorAction(completeAction, kind)).toEqual(body)
   })
 }

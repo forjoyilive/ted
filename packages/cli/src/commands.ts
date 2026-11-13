@@ -279,6 +279,15 @@ export const commands = [
     callers: 'Coordinator Run',
   },
   {
+    name: 'coordinator done',
+    handler: 'coordinatorDone',
+    options: options('operation', 'version'),
+    min: 1,
+    max: 1,
+    help: '  ted coordinator done <id> --operation <id> --version <version>\n                                             Move a Task at Merge to Done once GitHub shows\n                                             every pull request merged (Coordinator only)',
+    callers: 'Coordinator Run',
+  },
+  {
     name: 'help',
     handler: 'help',
     min: 0,
@@ -850,6 +859,15 @@ export const commands = [
     help: '  ted task block [<id>] --by <id>            Make a Task wait until another Task merges',
     callers: 'Task Lead',
     options: options('task', 'by'),
+  },
+  {
+    name: 'task done',
+    handler: 'taskDone',
+    min: 0,
+    max: 0,
+    help: '  ted task done                              At Merge, move this Task to Done once GitHub shows\n                                             every pull request merged',
+    callers: 'Task Lead',
+    options: options(),
   },
   {
     name: 'task unblock',

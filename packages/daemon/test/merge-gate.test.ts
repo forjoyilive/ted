@@ -365,7 +365,7 @@ async function mergeSignoffOrReview(client: Client, task: Task, count: number) {
 }
 
 describe('Sending after sign-off', () => {
-  test('Send and cancel merge cancels the merge, turns auto-merge off and counts as Request changes', async () => {
+  test('Send and cancel merge cancels the merge, turns auto-merge off and counts as Request changes; the Task Lead then marks it done', async () => {
     const clock = new ManualClock()
     const client = await start({
       daemon: { clock },
@@ -442,6 +442,17 @@ describe('Sending after sign-off', () => {
     expect(unchanged.stage).toBe('merge')
     expect(unchanged.repos[0]?.pullRequest?.state).not.toBe('merged')
 
+    const lead = api(port, runToken)
+    const leadOpen = await lead.call('POST', `/tasks/${task.id}/done`)
+    expect(leadOpen.status).toBe(409)
+    expect(JSON.stringify(leadOpen.body)).toContain('acme/widgets#7 is still open on GitHub')
+    const stranger = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue('no-such-run')
+    for (const caller of [api(port, stranger), api(port, await tokenFor(ctx.home))]) {
+      const refused = await caller.call('POST', `/tasks/${task.id}/done`)
+      expect(refused.status).toBeGreaterThanOrEqual(401)
+      expect(refused.status).toBeLessThan(500)
+    }
+
     await commitToOrigin(ctx.scratch, {
       '.ted/workflow.yaml': [
         'version: 1',
@@ -455,12 +466,14 @@ describe('Sending after sign-off', () => {
     await client.ok('GET', `/factories/${task.factoryId}/settings?refresh=first`)
     const checkRuns = await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)
     await setGh({ merged: true })
-    const marked = await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)
+    const answered = await lead.call('POST', `/tasks/${task.id}/done`)
+    expect(answered.status).toBe(200)
+    const marked = answered.body as Task
     expect(await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)).toEqual(checkRuns)
     expect(marked.stage).toBe('done')
     expect(marked.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await lines(client, task)).toContain(
-      'You marked the Task done after its pull requests merged on GitHub',
+      'The Task Lead marked the Task done after its pull requests merged on GitHub',
     )
     expect((await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)).stage).toBe('done')
   })
