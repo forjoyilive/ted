@@ -86,10 +86,9 @@ export function GeneralPage({ settings }: SettingsPageProps) {
 
   return (
     <SettingsPage title="General">
-      <SettingsGroup label="Profile">
+      <SettingsGroup setting="app.general.profile">
         <SettingRow
-          title="Profile picture"
-          help="Shown beside your Comments. TED keeps it on this computer only."
+          setting="app.general.profile.picture"
           leading={<PersonAvatar name={name} photo={picture} size={32} />}
           {...(problem !== undefined && { detail: problem })}
         >
@@ -103,8 +102,8 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </SettingRow>
       </SettingsGroup>
 
-      <SettingsGroup label="Display">
-        <SettingRow title="Appearance">
+      <SettingsGroup setting="app.general.display">
+        <SettingRow setting="app.general.display.appearance">
           <Segmented
             label="Appearance"
             name="appearance"
@@ -113,10 +112,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             onChange={(appearance) => ted.updateSettings({ appearance })}
           />
         </SettingRow>
-        <SettingRow
-          title="Text size"
-          detail="Changes text throughout TED. Terminal font size is separate."
-        >
+        <SettingRow setting="app.general.display.text-size">
           <Stepper
             value={settings.textSize}
             min={textSizeLimits.min}
@@ -134,11 +130,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             Default
           </Button>
         </SettingRow>
-        <SettingRow
-          title="Terminal font size"
-          labelFor="terminal-font-size"
-          help="The size of text in terminals and logs, in points."
-        >
+        <SettingRow setting="app.general.display.terminal-font-size" labelFor="terminal-font-size">
           <Select
             id="terminal-font-size"
             value={settings.terminalFontSize}
@@ -149,8 +141,8 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </SettingRow>
       </SettingsGroup>
 
-      <SettingsGroup label="Date and time">
-        <SettingRow title="Time format" detail="Used throughout TED.">
+      <SettingsGroup setting="app.general.date-and-time">
+        <SettingRow setting="app.general.date-and-time.time-format">
           <Segmented
             label="Time format"
             name="time-format"
@@ -163,11 +155,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             onChange={(timeFormat) => ted.updateSettings({ timeFormat })}
           />
         </SettingRow>
-        <SettingRow
-          title="Time zone"
-          labelFor="time-zone"
-          detail="Used for displayed times and all Automation schedules."
-        >
+        <SettingRow setting="app.general.date-and-time.time-zone" labelFor="time-zone">
           <Select
             id="time-zone"
             value={settings.timeZone}
@@ -185,7 +173,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
         <SettingRow
-          title="Current time"
+          setting="app.general.date-and-time.current-time"
           detail={`${settings.timeZone === 'system' ? 'Following system' : 'Fixed zone'} · ${settings.timeZone === 'system' ? systemZone : settings.timeZone}`}
         >
           <output>{formatTime(new Date(now))}</output>
@@ -196,14 +184,10 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </p>
       </SettingsGroup>
 
-      <SettingsGroup label="Autopilot">
+      <SettingsGroup setting="app.general.autopilot">
         <SettingRow
-          title="Autopilot across all Factories"
-          help="Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; each Factory’s Start Backlog Tasks automatically setting does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed Checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you."
-          detail={
-            overnight.problem ??
-            'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.'
-          }
+          setting="app.general.autopilot.mode"
+          {...(overnight.problem !== undefined && { detail: overnight.problem })}
         >
           <Switch
             label="Autopilot across all Factories"
@@ -214,10 +198,9 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </SettingRow>
       </SettingsGroup>
 
-      <SettingsGroup label="Startup and quitting">
+      <SettingsGroup setting="app.general.startup">
         <SettingRow
-          title="Start TED in the background when you log in"
-          help="TED starts with no window, so notifications and Automations work. It keeps running until you choose Quit TED completely."
+          setting="app.general.startup.login"
           {...(loginNote !== undefined && { detail: loginNote })}
         >
           {loginItem === 'requires-approval' && settings.startAtLogin && (
@@ -229,11 +212,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             onChange={(startAtLogin) => ted.updateSettings({ startAtLogin })}
           />
         </SettingRow>
-        <SettingRow
-          title="When you quit with work running"
-          labelFor="quit-with-work-running"
-          help="Work running means Runs going or Automations on. Keeping TED running in the background lets them carry on with no window open."
-        >
+        <SettingRow setting="app.general.startup.quit" labelFor="quit-with-work-running">
           <Select
             id="quit-with-work-running"
             value={settings.quitWithWorkRunning}
@@ -243,10 +222,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
         {onLinux && (
-          <SettingRow
-            title="Show tray icon"
-            help="Shows TED’s waiting count and problems in the system tray. Some desktops, such as stock GNOME, don’t show tray icons."
-          >
+          <SettingRow setting="app.general.startup.tray">
             <Switch
               label="Show tray icon"
               checked={settings.showTrayIcon}
@@ -254,10 +230,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             />
           </SettingRow>
         )}
-        <SettingRow
-          title="Stay Awake while Runs are working"
-          help="Keeps this computer from going to sleep on its own while any Run is working. Automations don’t keep it awake."
-        >
+        <SettingRow setting="app.general.startup.stay-awake">
           <Switch
             label="Stay Awake while Runs are working"
             checked={settings.stayAwake}

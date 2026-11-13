@@ -36,6 +36,8 @@ import { formatDate } from '../time.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
+import dialogStyles from './ArchiveDialogs.module.css'
+import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
@@ -53,6 +55,7 @@ import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import { QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
 import styles from './RequestCard.module.css'
+import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
@@ -735,6 +738,7 @@ export function RequestCard({
   request,
   task,
   readOnly = false,
+  active = true,
   answerBelow = false,
   onOpenRun,
   onOpenTask,
@@ -750,12 +754,57 @@ export function RequestCard({
   onOpenFile?: ((file: ChangedFile) => void) | undefined
   onAllChanges?: (() => void) | undefined
   readOnly?: boolean
+  active?: boolean
   answerBelow?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenTask?: ((id: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onOpenPlan?: ((planId: string) => void) | undefined
 }) {
+  const [confirmTalk, setConfirmTalk] = useState(false)
+  const [openWhenReady, setOpenWhenReady] = useState(false)
+  const pendingTalkSeen = useRef(false)
+  const previousTalkStartedAt = useRef<string>(undefined)
+  const navigation = useRef(0)
+  useEffect(() => {
+    if (!active) navigation.current += 1
+  }, [active])
+  const activeRef = useRef(active)
+  activeRef.current = active
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  useEffect(() => {
+    if (!openWhenReady) return
+    if (!active || request.answer || task.archived) {
+      setOpenWhenReady(false)
+      return
+    }
+    if (request.talkRequested) {
+      pendingTalkSeen.current = true
+      return
+    }
+    if (
+      request.talk &&
+      request.talk.runId === task.leadRunId &&
+      request.talk.notifiedAt !== undefined &&
+      request.talk.startedAt !== previousTalkStartedAt.current
+    ) {
+      setOpenWhenReady(false)
+      onOpenRun?.(request.talk.runId)
+    } else if (pendingTalkSeen.current) setOpenWhenReady(false)
+  }, [active, openWhenReady, request, task, onOpenRun])
+  const waitingLead = task.runs.find((run) => run.id === task.leadRunId && run.state !== 'finished')
+  const talkWaitReason = waitingLead
+    ? (waitingLead.paused ??
+      (request.talk?.runId === waitingLead.id
+        ? 'Waiting for the Task Lead to receive this request.'
+        : 'Waiting for the Task Lead’s agent or model to be available.'))
+    : task.activity || 'Waiting for a free slot or for the agent to be available.'
   const now = useNow()
   const { send, sending, setSending, sendingRef, setSubmission, error, setError } = useSending(
     request,
@@ -774,15 +823,21 @@ export function RequestCard({
   const below = answerBelow && !readOnly && dockable(request)
   const failure = isFailure(request)
 
-  async function talk() {
+  async function talk(confirmResume = false) {
     if (sendingRef.current) return
     sendingRef.current = true
     setSubmission(undefined)
     setSending(true)
     setError(undefined)
+    const requestedFrom = navigation.current
     try {
-      const talking = await ted.talkThrough(request.id)
-      if (talking.talk) onOpenRun?.(talking.talk.runId)
+      previousTalkStartedAt.current = request.talk?.startedAt
+      pendingTalkSeen.current = false
+      const talking = await ted.talkThrough(request.id, { confirmResume })
+      if (!mounted.current || !activeRef.current || requestedFrom !== navigation.current) return
+      if ('resumeRequired' in talking) setConfirmTalk(true)
+      else if (talking.talkRequested) setOpenWhenReady(true)
+      else if (talking.talk && !talking.answer) onOpenRun?.(talking.talk.runId)
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -818,6 +873,7 @@ export function RequestCard({
       {showingPrevious && changes && !rows && (
         <PreviouslyApprovedSignOff id={changes.since} task={task} />
       )}
+      {!readOnly && request.answer === undefined && <RequestSnoozeLine requestId={request.id} />}
       <h2 className={styles.title}>{headline(request)}</h2>
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
@@ -872,15 +928,48 @@ export function RequestCard({
       {request.kind === 'signoff' && request.stage === 'review' && !readOnly && (
         <PreviewRow task={task} onOpenApp={onOpenApp} />
       )}
+      {confirmTalk && (
+        <Dialog onClose={() => setConfirmTalk(false)}>
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogStyles.heading}>
+                Resume Task to talk?
+              </h2>
+              <p className={dialogStyles.body}>
+                You stopped this Task. Resume its Task Lead to talk through this round. Your answers
+                will stay as they are.
+              </p>
+              <div className={dialogStyles.buttons}>
+                <Button onClick={() => setConfirmTalk(false)}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setConfirmTalk(false)
+                    void talk(true)
+                  }}
+                >
+                  Resume and talk
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
+      {request.talkRequested && !request.answer && !readOnly && (
+        <p className={styles.summary} role="status">
+          Waiting for Task Lead… {talkWaitReason}
+        </p>
+      )}
       {request.round && (
         <RoundQuestions
           round={request.round}
+          waiting={request.talkRequested === true}
           readOnly={readOnly}
           sending={sending}
-          talking={request.talk !== undefined}
+          talking={request.talk?.notifiedAt !== undefined && request.talk.runId === task.leadRunId}
+          onSend={(answer) => void send(answer)}
+          onTalk={onOpenRun && (() => void talk())}
           box={box}
-          onSend={(answer) => send(answer)}
-          onTalk={onOpenRun && (() => talk())}
         />
       )}
       {request.proposal &&

@@ -2,7 +2,13 @@ import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { Factory, Task, ThreadEvent } from '@ted/protocol'
+import {
+  type Comment,
+  type Factory,
+  readDaemonInfo,
+  type Task,
+  type ThreadEvent,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -315,5 +321,76 @@ describe('delete', () => {
 
     expect(three.displayId).toBe('NB-3')
     expect((await client.call('POST', `/tasks/${two.id}/delete`)).status).toBe(404)
+  })
+})
+
+describe('reset', () => {
+  test('discards the worktree, branch, thread and Runs, then starts the same Task again from its original request', async () => {
+    const client = await startTed()
+    const gate = path.join(scratch, 'gate')
+    const blocker = await create(client, 'Earlier')
+    await client.ok('POST', `/tasks/${blocker.id}/archive`)
+    const task = await create(client, steps(commitFile('first.txt'), { waitFor: gate }), {
+      description: 'The original request',
+      priority: 'high',
+      start: true,
+    })
+    const first = await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start')
+    const worktree = path.join(home, 'worktrees', task.displayId, 'widgets')
+    const committed = () =>
+      waitUntil(
+        () =>
+          stat(path.join(worktree, 'first.txt')).then(
+            () => true,
+            () => false,
+          ),
+        'the Task Lead to commit',
+      )
+    await committed()
+    const started = await getTask(client, task.id)
+    const branch = started.repos[0]?.branch
+    const runId = first.leadRunId ?? ''
+    const runDir = path.join(home, 'runs', runId)
+    await writeFile(path.join(worktree, 'stray.txt'), 'uncommitted')
+    await client.ok('PUT', `/tasks/${task.id}`, { description: 'An edited request' })
+    await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'A note' })
+
+    const file = api(daemon?.port ?? 0, (await readDaemonInfo(home))?.token ?? '')
+    expect((await file.call('POST', `/tasks/${task.id}/reset`)).status).toBe(403)
+    expect((await client.call('POST', `/tasks/${blocker.id}/reset`)).status).toBe(409)
+    const idea = await create(client, 'Idea')
+    expect((await client.call('POST', `/tasks/${idea.id}/reset`)).status).toBe(409)
+
+    await client.ok('POST', `/tasks/${task.id}/reset`)
+
+    const fresh = await waitFor(
+      client,
+      task,
+      (t) => t.leadRunId !== undefined && t.leadRunId !== runId && t.repos.length > 0,
+      'to get a fresh Run after the reset',
+    )
+    expect(fresh).toMatchObject({
+      id: task.id,
+      displayId: task.displayId,
+      title: task.title,
+      description: 'The original request',
+      priority: 'high',
+      rank: started.rank,
+      stage: 'intake',
+    })
+    expect(fresh.runs.map((r) => r.id)).toEqual([fresh.leadRunId])
+    expect(fresh.repos[0]).toMatchObject({ branch, worktree })
+    expect(fresh.repos[0]?.removed).toBeUndefined()
+    await committed()
+    await expect(stat(path.join(worktree, 'stray.txt'))).rejects.toThrow()
+    await expect(stat(runDir)).rejects.toThrow()
+    expect((await client.call('GET', `/runs/${runId}`)).status).toBe(404)
+    expect(await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).toEqual([])
+    const texts = await threadTexts(client, task)
+    expect(texts[0]).toBe('Task was reset')
+    expect(texts).not.toContain('You created this Task')
+    const versions = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/descriptions`)
+    expect(versions.map((v) => v.text)).toEqual(['The original request'])
+    await writeFile(gate, '')
   })
 })

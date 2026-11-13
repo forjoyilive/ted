@@ -103,10 +103,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
   return (
     <SettingsPage title="Developer">
       <SettingsGroup>
-        <SettingRow
-          title="Developer mode"
-          help="Shows a compact CPU and memory readout at the bottom left of the main screen, with detailed Run and daemon process readings and logs here. Readings refresh every two seconds while visible."
-        >
+        <SettingRow setting="app.developer.mode">
           <Switch
             label="Developer mode"
             checked={settings.developerMode}
@@ -114,7 +111,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
         <SettingRow
-          title="TED’s folder"
+          setting="app.developer.folder"
           detail={
             folderProblem ?? folder?.path ?? <Loading compact label="Loading TED’s folder…" />
           }
@@ -131,14 +128,13 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           </Button>
         </SettingRow>
         <SettingRow
-          title="Copy report"
-          help="Copies TED’s version, your Runs and the end of the daemon’s log to the clipboard, for you to paste into a bug report. Nothing is uploaded. TED sends no telemetry."
+          setting="app.developer.report"
           {...(report.status !== undefined && { detail: report.status })}
         >
           <Button onClick={report.copy}>Copy report</Button>
         </SettingRow>
         <SettingRow
-          title="Record a CPU profile"
+          setting="app.developer.profile"
           help={`Records where TED’s background process spends its time for ${profileSeconds.default} seconds and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists TED’s own functions and file paths, with no Task content, prompts or tokens. TED keeps the newest five. Nothing is uploaded.`}
           {...(profile.status !== undefined && { detail: profile.status })}
         >
@@ -187,13 +183,14 @@ function DiagnosticsView({
   return (
     <section className={styles.group} aria-label="Diagnostics">
       <div className={styles.groupHeader}>
-        <h2 className={styles.groupLabel}>Diagnostics</h2>
+        <h2 className={styles.groupLabel} data-setting="app.developer.diagnostics">
+          Diagnostics
+        </h2>
         <Button onClick={onCopyReport}>Copy report</Button>
       </div>
       <div className={styles.box}>
         <SettingRow
-          title="System memory usage"
-          help="Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below."
+          setting="app.developer.diagnostics.memory"
           detail={
             memory
               ? `${usedPercent}% in use · ${gigabytes(memory.availableBytes)} available of ${gigabytes(memory.totalBytes)}`
@@ -305,7 +302,7 @@ function LogViewer({ runs }: { runs: string[] }) {
   return (
     <section className={styles.group} aria-label="Logs">
       <div className={styles.groupHeader}>
-        <h2 className={styles.groupLabel}>
+        <h2 className={styles.groupLabel} data-setting="app.developer.logs">
           <label htmlFor="log-source">Log</label>
         </h2>
         <Select id="log-source" value={source} options={options} onChange={setSource} width={260} />

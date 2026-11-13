@@ -144,6 +144,7 @@ test('Run chat and a thread Comment use the text scale', async () => {
   await expect.poll(async () => (await client.listTaskRuns('NB-1')).length).toBeGreaterThan(0)
   const run = (await client.listTaskRuns('NB-1'))[0]
   if (!run) throw new Error('no Task Lead Run')
+  await window.getByRole('tab', { name: 'Runs' }).click()
   await window.locator(`[data-run="${run.id}"]`).getByRole('button').first().click()
   const chat = window.getByRole('region', { name: 'Run chat' })
   await chat.getByText(message, { exact: true }).waitFor()

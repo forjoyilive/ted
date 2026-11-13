@@ -34,6 +34,12 @@ const isDraft = (value: unknown): value is Draft => {
   )
 }
 
+export const writtenText = (draft: Pick<Draft, 'note' | 'other' | 'custom'>): string => {
+  const custom = draft.custom ?? ''
+  if (draft.other) return custom !== '' ? custom : draft.note
+  return draft.note !== '' ? draft.note : custom
+}
+
 function Tag({ changed, onReset }: { changed: boolean; onReset: () => void }) {
   if (!changed) return <span className={styles.tag}>Recommended</span>
   return (
@@ -61,6 +67,8 @@ function Question({
 }) {
   const name = useId()
   const changed = draft.other || draft.answer.trim() !== question.recommended.trim()
+  const text = writtenText(draft)
+  const write = (value: string) => onChange({ ...draft, note: value, custom: value })
   const reset = () => onChange({ ...draft, answer: question.recommended, other: false })
   return (
     <div className={styles.question}>
@@ -118,8 +126,8 @@ function Question({
                   className={styles.text}
                   aria-label={`Your answer ${number}`}
                   placeholder="Your answer…"
-                  value={draft.custom ?? ''}
-                  onChange={(event) => onChange({ ...draft, custom: event.target.value })}
+                  value={text}
+                  onChange={(event) => write(event.target.value)}
                 />
               </div>
             ) : (
@@ -128,8 +136,8 @@ function Question({
                 className={styles.note}
                 aria-label={`Add to answer ${number}`}
                 placeholder="Add to this answer…"
-                value={draft.note}
-                onChange={(event) => onChange({ ...draft, note: event.target.value })}
+                value={text}
+                onChange={(event) => write(event.target.value)}
               />
             )}
           </>
@@ -153,6 +161,7 @@ function Question({
 
 export function RoundQuestions({
   round,
+  waiting = false,
   readOnly,
   sending,
   talking,
@@ -162,6 +171,7 @@ export function RoundQuestions({
 }: {
   round: Round
   box?: MessageBox | undefined
+  waiting?: boolean
   readOnly: boolean
   sending: boolean
   talking: boolean
@@ -178,7 +188,7 @@ export function RoundQuestions({
   )
   const update = (i: number, draft: Draft) =>
     setDrafts(drafts.map((d, at) => (at === i ? draft : d)))
-  const complete = drafts.every((d) => (d.other ? (d.custom ?? '') : d.answer).trim() !== '')
+  const complete = drafts.every((d) => (d.other ? writtenText(d) : d.answer).trim() !== '')
   return (
     <>
       <div className={styles.questions}>
@@ -196,8 +206,8 @@ export function RoundQuestions({
       {!readOnly && (
         <div className={styles.buttons}>
           {onTalk && (
-            <Button className={styles.talk} disabled={sending} onClick={onTalk}>
-              {talking ? 'Open chat' : 'Talk it through'}
+            <Button className={styles.talk} disabled={sending || waiting} onClick={onTalk}>
+              {waiting ? 'Waiting for Task Lead…' : talking ? 'Open chat' : 'Talk it through'}
             </Button>
           )}
           <Button
@@ -206,10 +216,13 @@ export function RoundQuestions({
             onClick={() =>
               onSend({
                 action: 'answer-round',
-                answers: drafts.map((d) => ({
-                  answer: d.other ? (d.custom ?? '') : d.answer,
-                  ...(!d.other && d.note.trim() !== '' && { note: d.note }),
-                })),
+                answers: drafts.map((d) => {
+                  const text = writtenText(d)
+                  return {
+                    answer: d.other ? text : d.answer,
+                    ...(!d.other && text.trim() !== '' && { note: text }),
+                  }
+                }),
               })
             }
           >

@@ -109,6 +109,7 @@ describe('button heights', () => {
       ['components/RequestJumpBar.module.css', 'jump', small],
       ['components/LineComments.module.css', 'chip', small],
       ['views/Inbox.module.css', 'chip', small, 'grows'],
+      ['views/Inbox.module.css', 'snooze', small],
       ['components/Markdown.module.css', 'copy', small],
     ]
 

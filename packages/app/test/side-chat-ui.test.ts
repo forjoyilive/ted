@@ -75,6 +75,7 @@ test('side chat shows beside the original Run, reopens its replies and fits a na
   const list = window.getByRole('navigation', { name: 'Sidebar' })
   await list.getByRole('button', { name: 'List', exact: true }).first().click()
   await window.getByText('Questions beside ongoing work', { exact: true }).first().click()
+  await window.getByRole('tab', { name: 'Runs' }).click()
   await window
     .getByRole('complementary', { name: 'Task details' })
     .getByRole('button', { name: /Task Lead/ })

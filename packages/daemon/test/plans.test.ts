@@ -149,7 +149,7 @@ describe('Planning chats', () => {
     expect(run.run.prompt).toContain('## Write clearly for the user')
     expect(run.run.prompt).toContain('Rewrite dense source wording in plain language')
     for (const guidance of [
-      'question count can vary widely and has no target or minimum',
+      'Put every question you can ask now in one round, up to 12',
       'goal, scope and exclusions, user behavior (including edge cases), constraints, risks and acceptance criteria',
       'ask the user to confirm your understanding and whether to split it into Tasks',
       'Keep the layers needed for that result together',
@@ -391,9 +391,9 @@ describe('Plans list', () => {
       `Plan sharing\n${steps({ run: ['ted', 'ask', '--round', roundFile] }, { endTurn: true })}`,
     )
     const waiting = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
-    expect(waiting.plan.waitingOn).toBe('Round 1 · 2 questions')
+    expect(waiting.plan.waitingOn).toBe('Round 1')
     const [listed] = await client.ok<Plan[]>('GET', '/plans?factory=NB')
-    expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1 · 2 questions' })
+    expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1' })
     await client.ok('POST', `/plans/${plan.id}/stop`)
   })
 

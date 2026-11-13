@@ -240,6 +240,11 @@
   text-align: right;
 }
 
+.countQuiet {
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+}
+
 .countButton:hover {
   background: var(--surface-hover);
 }
@@ -310,6 +315,10 @@
 .sub {
   padding-left: 28px;
   font-size: var(--text-13);
+}
+
+.nested {
+  padding-left: 44px;
 }
 
 .addFactory {

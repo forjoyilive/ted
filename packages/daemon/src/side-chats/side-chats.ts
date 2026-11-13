@@ -311,7 +311,7 @@ export function createSideChats(options: {
       const id = event.type === 'run-updated' ? event.run.id : event.runId
       if (saved.forRun(id)) setImmediate(() => settle(id))
     }
-    if (event.type === 'task-deleted')
+    if (event.type === 'task-deleted' || event.type === 'task-reset')
       void removeTask(event.taskId).catch((error) =>
         console.error(redactSecrets(`Couldn’t stop deleted Task’s side chat: ${String(error)}`)),
       )

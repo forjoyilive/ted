@@ -7,12 +7,16 @@ import type {
   RoundQuestion,
   Task,
   TaskBrief,
+  TaskHierarchy,
   TaskLead,
 } from './task.ts'
 
-export type CoordinatorTaskState = Pick<Task, 'stage' | 'priority' | 'rank' | 'status' | 'archived'>
+export type CoordinatorTaskState = Pick<
+  Task,
+  'stage' | 'priority' | 'rank' | 'status' | 'archived' | 'parentId' | 'childIds'
+>
 
-export type CoordinatorOperation = 'start' | 'move' | 'tell' | 'answer' | 'resume'
+export type CoordinatorOperation = 'start' | 'move' | 'tell' | 'answer' | 'resume' | 'parent'
 
 export interface CoordinatorReceipt {
   id: string
@@ -71,10 +75,21 @@ export interface CoordinatorRequest {
 
 export type CoordinatorTaskSummary = Pick<
   Task,
-  'id' | 'displayId' | 'title' | 'stage' | 'priority' | 'rank' | 'status' | 'blockedBy' | 'archived'
+  | 'id'
+  | 'displayId'
+  | 'title'
+  | 'stage'
+  | 'priority'
+  | 'rank'
+  | 'status'
+  | 'blockedBy'
+  | 'parentId'
+  | 'childIds'
+  | 'archived'
 > & { openRequests?: CoordinatorRequest[]; moreOpenRequests?: number }
 
 export interface CoordinatorTask {
+  hierarchy: TaskHierarchy
   descriptions: DescriptionVersion[]
   task: Task
   brief?: TaskBrief
@@ -87,6 +102,8 @@ export interface CoordinatorTask {
 }
 
 export interface CoordinatorAction extends MoveTaskRequest {
+  parentId?: string | null
+  hierarchyRevision?: string
   operation: string
   version: string
   neighbours?: Record<string, string>

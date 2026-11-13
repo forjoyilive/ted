@@ -16,6 +16,7 @@ function props() {
     onOpenGitHubSettings: vi.fn(),
     onRemoveFactory: vi.fn(),
     onOpenTask: vi.fn(),
+    dispatch: vi.fn(),
   }
 }
 
@@ -381,6 +382,17 @@ test('Agent defaults save a Library override and reset it to the TED default', a
     version: 'v1',
   })
   expect(screen.getByText('Library', { exact: true })).toBeTruthy()
+  await user().selectOptions(screen.getByRole('combobox', { name: 'Reviewer model' }), 'Other…')
+  await user().type(screen.getByRole('textbox', { name: 'Reviewer model' }), 'gpt-5.5{Enter}')
+  expect(api.request).toHaveBeenLastCalledWith('saveLibrary', {
+    changes: { agents: { reviewer: { agent: 'codex', effort: 'high', model: 'gpt-5.5' } } },
+    version: 'v2',
+  })
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('combobox', { name: 'Reviewer model' }) as HTMLSelectElement).value,
+    ).toBe('gpt-5.5'),
+  )
   await user().click(screen.getByRole('button', { name: 'Reset to TED default' }))
   expect(api.request).toHaveBeenLastCalledWith('saveLibrary', {
     changes: { agents: { reviewer: null } },
@@ -639,7 +651,7 @@ test('failed agent-default saves keep their error after refreshing the controls'
   )
   await waitFor(() =>
     expect(
-      (screen.getByRole('textbox', { name: 'Reviewer model' }) as HTMLInputElement).value,
+      (screen.getByRole('combobox', { name: 'Reviewer model' }) as HTMLSelectElement).value,
     ).toBe('fresh'),
   )
   expect(screen.getByText('The Library changed on disk. Try again.')).toBeTruthy()
@@ -742,4 +754,40 @@ test('the page loads once on open, shows a remote change when it has no edits an
   expect(reads).toBe(4)
   expect(api.request).toHaveBeenLastCalledWith('factorySettings', 'f1', { refresh: 'never' })
   expect(screen.queryByText(/unsaved change/)).toBeNull()
+})
+
+test('Factory settings search finds both kinds of setting and marks one on this screen', async () => {
+  const p = props()
+  bridge({
+    getSettings: () => defaultMachineSettings,
+    getLinear: () => ({ state: 'no-key' }),
+    factorySettings: settingsView,
+    homeFolder: () => '/test',
+    tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+  })
+  render(<FactorySettings {...p} />)
+  await screen.findByRole('heading', { name: 'Workflow' })
+  const nav = within(screen.getByRole('navigation', { name: 'Jump to a section' }))
+  const field = nav.getByRole<HTMLInputElement>('combobox', { name: 'Search settings' })
+
+  fireEvent.change(field, { target: { value: 'awake' } })
+  expect(nav.queryByRole('button', { name: 'Workflow' })).toBeNull()
+  await user().click(nav.getByRole('option'))
+  expect(p.dispatch).toHaveBeenCalledWith({ type: 'open-settings', section: 'general' })
+  expect(nav.getByRole('button', { name: 'Workflow' })).toBeTruthy()
+
+  fireEvent.change(field, { target: { value: 'teardown' } })
+  const option = nav.getAllByRole('option')[0] as HTMLElement
+  expect(option.textContent).toBe('Teardown commandwidgets › Settings › Repos')
+  await user().click(option)
+  expect(p.dispatch).toHaveBeenLastCalledWith({
+    type: 'open',
+    screen: { kind: 'factory', factoryId: 'f1', view: 'settings' },
+  })
+  const row = document.querySelector('[data-setting="factory.repos.worktree.teardown"]')
+  await waitFor(() => expect(row?.hasAttribute('data-found')).toBe(true))
+
+  field.focus()
+  await user().keyboard('{Escape}')
+  expect(document.activeElement).not.toBe(field)
 })

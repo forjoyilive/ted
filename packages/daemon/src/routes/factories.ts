@@ -1,5 +1,6 @@
 import {
   agentStageIds,
+  factoryNotifications,
   parseAddFactoryRequest,
   parseAutoStartBacklogRequest,
   parseCheckRepoRequest,
@@ -12,6 +13,7 @@ import {
   parseReorderFactoriesRequest,
   parseSaveSettingsRequest,
   parseSetFactoryLinearIntakeRequest,
+  parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
@@ -30,8 +32,8 @@ export const factoryRoutes: Route[] = [
     async handle({ params: [id = ''], req }, { store }) {
       if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
       const range = new URL(req.url ?? '', 'http://localhost').searchParams.get('range') ?? '30d'
-      if (range !== '7d' && range !== '30d' && range !== 'all')
-        throw new HttpError(400, 'Choose 7d, 30d or all')
+      if (range !== 'today' && range !== '7d' && range !== '30d' && range !== 'all')
+        throw new HttpError(400, 'Choose today, 7d, 30d or all')
       return [200, store.factoryDashboard(id, range)]
     },
   },
@@ -40,6 +42,23 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/export$/,
     handle: async ({ params: [id = ''] }, { store }) => [200, factoryExport(store, id)],
   },
+  jsonRoute(parseSetFactoryNotificationsRequest, {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/notifications$/,
+    async handle({ body, params: [id = ''] }, { store }) {
+      if (!store.getFactory(id)) throw new HttpError(404, 'no such Factory')
+      const settings = store.settings()
+      return [
+        200,
+        store.updateSettings({
+          factoryNotifications: {
+            ...settings.factoryNotifications,
+            [id]: { ...factoryNotifications(settings, id), ...body },
+          },
+        }),
+      ]
+    },
+  }),
   jsonRoute(parseSetFactoryPermissionsRequest, {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/permissions$/,

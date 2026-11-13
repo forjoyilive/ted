@@ -98,14 +98,8 @@ export function plansFailedByFactory(
   return new Set(plans.filter((p) => p.status === 'failed').map((p) => p.factoryId))
 }
 
-export function requestHeading(request: PlanRequest): { kind: string; detail: string } {
-  if (request.kind === 'round') {
-    const count = request.round?.questions.length ?? 0
-    return {
-      kind: `Round ${request.round?.number ?? ''}`,
-      detail: `${count} ${count === 1 ? 'question' : 'questions'}`,
-    }
-  }
+export function requestHeading(request: PlanRequest): { kind: string; detail?: string } {
+  if (request.kind === 'round') return { kind: `Round ${request.round?.number ?? ''}` }
   const count = request.proposal?.rows.length ?? 0
   return { kind: 'Proposal', detail: `${count} ${count === 1 ? 'Task' : 'Tasks'}` }
 }
@@ -123,7 +117,11 @@ export function requestState(request: PlanRequest, latest: boolean): string {
 
 export function inboxLabel(request: PlanRequest): string {
   const { kind, detail } = requestHeading(request)
-  return `Plan · ${kind} · ${detail}`
+  return dotted('Plan', kind, detail)
+}
+
+export function dotted(...parts: (string | undefined)[]): string {
+  return parts.filter((part) => part !== undefined && part !== '').join(' · ')
 }
 
 export function chatActivity(items: readonly ChatItem[]): string | undefined {

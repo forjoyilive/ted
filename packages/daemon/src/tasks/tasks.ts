@@ -26,6 +26,7 @@ import type {
   ClarifyDepth,
   Comment,
   CommentAnswer,
+  CommitChanges,
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -65,34 +66,43 @@ import type {
   SetClarifyDepthRequest,
   SetTaskAutopilotRequest,
   SetTaskGatesRequest,
+  SetTaskParentRequest,
   SetTaskReposRequest,
   SetupProposal,
   SignOffChanges,
   SimulatorSlots,
   SizeCheckInput,
   SlotHolder,
+  SnoozedRequest,
   StageId,
   StartAppRequest,
   StartSubAgentRequest,
   SubAgent,
   SubAgentWait,
+  TalkThroughRequest,
+  TalkThroughResult,
   Task,
   TaskApp,
   TaskBrief,
   TaskChanges,
+  TaskCommit,
   TaskDefaults,
   TaskFileContent,
   TaskFiles,
   TaskGateOverrides,
   TaskGates,
+  TaskHierarchy,
+  TaskHierarchyPreview,
   TaskLead,
   TaskRepo,
   TaskReposResult,
   TaskSource,
   TedStoppedTask,
   ThreadEvent,
+  UnarchiveTaskRequest,
   ValidateJudgments,
   ValidationObligations,
+  WaitingRequest,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
@@ -102,6 +112,8 @@ import {
   clarifyDepths,
   clarifyIsOver,
   parseLinearUrl,
+  type ResetRefusal,
+  resetRefusal,
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -117,7 +129,7 @@ import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
-import type { Gh } from '../github/gh.ts'
+import { type Gh, GhError } from '../github/gh.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
@@ -180,7 +192,7 @@ import {
   noConflictFound,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
-import { fileDiffs, taskChanges } from './changes.ts'
+import { commitChanges, fileDiffs, taskChanges, taskCommits } from './changes.ts'
 import type { CheckSlots } from './check-slots.ts'
 import {
   type CheckRunnerResult,
@@ -202,6 +214,7 @@ import {
   unscoped,
   withoutCheckName,
 } from './ci-failures.ts'
+import { coalesced } from './coalesced.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
 import {
@@ -237,6 +250,7 @@ import {
   byHuman,
   waiting as waitingItems,
 } from './inbox.ts'
+import { type AdoptedBase, baseStep, firstWorkEntry, latestBaseNote } from './latest-base.ts'
 import {
   atIdlePoint,
   continueMessage,
@@ -253,6 +267,7 @@ import { createLocalLifecycle } from './local-lifecycle.ts'
 import {
   chooseMethod,
   defaultHost,
+  deleteBranch,
   nextStep,
   type PullRequestRead,
   type PullRequestRef,
@@ -355,7 +370,7 @@ export interface TaskPlanning {
     id: string
     title: string
   }>
-  taskGone(taskId: string, reason: 'archived' | 'deleted'): void
+  taskGone(taskId: string, reason: 'archived' | 'deleted' | 'reset'): void
 }
 
 export interface PlanApproval {
@@ -459,6 +474,7 @@ export interface Tasks {
   answerTedStops(request: AnswerTedStopsRequest): Promise<TedStoppedTask[]>
   move(ref: string, request: MoveTaskRequest): Task
   setTaskSnooze(ref: string, until: string | null): Task
+  snoozeRequest(requestId: string, until: string | null): WaitingRequest | SnoozedRequest
   setPriority(ref: string, priority: Priority): Task
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
@@ -467,7 +483,11 @@ export interface Tasks {
   allowLinearTeam(factoryId: string, team: string): MachineSettings
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
-  unarchive(ref: string): Promise<Task>
+  hierarchy(ref: string, caller?: Caller): TaskHierarchy
+  hierarchyPreview(ref: string): TaskHierarchyPreview
+  setParent(ref: string, input: SetTaskParentRequest): Task
+  unarchive(ref: string, input?: UnarchiveTaskRequest): Promise<Task>
+  reset(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
@@ -504,7 +524,7 @@ export interface Tasks {
   coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
   coordinatorResume(ref: string, comment?: string): Promise<Task>
   isFailureDecision(commentId: string): boolean
-  talkThrough(commentId: string): Promise<Comment>
+  talkThrough(commentId: string, request: TalkThroughRequest): Promise<TalkThroughResult>
   doneTalking(commentId: string): Promise<Comment>
   closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
@@ -521,6 +541,8 @@ export interface Tasks {
   files(ref: string): Promise<TaskFiles>
   file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
+  commits(ref: string, ids: readonly string[]): Promise<TaskCommit[]>
+  commitChanges(ref: string, id: string): Promise<CommitChanges>
   lineComments(ref: string): Promise<LineComment[]>
   draftLineComment(ref: string, request: DraftLineCommentRequest): Promise<LineComment>
   editLineComment(id: string, body: string): LineComment
@@ -887,6 +909,7 @@ export function createTasks(options: {
   const pullRequestQueue = new Map<string, Promise<void>>()
   const clearingAway = new Map<string, Promise<void>>()
   const deleting = new Set<string>()
+  const hierarchyBusy = new Set<string>()
   const removingFactories = new Set<string>()
   const merging = new Set<string>()
   const mergePollMs = options.mergePollMs ?? 30_000
@@ -942,7 +965,12 @@ export function createTasks(options: {
       released = true
       const left = (holds.get(taskId) ?? 1) - 1
       if (left > 0) holds.set(taskId, left)
-      else holds.delete(taskId)
+      else {
+        holds.delete(taskId)
+        setImmediate(() => {
+          if (!closed) pendingTalks(taskId)
+        })
+      }
       void pump()
     }
   }
@@ -1326,11 +1354,23 @@ export function createTasks(options: {
       store.tasksWithQueuedContinuations().flatMap((id) => {
         const task = taskNow(id)
         if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
-        if (holds.has(id) || advancing.has(id) || leadLifecycle.applying(id)) return []
+        if (
+          holds.has(id) ||
+          advancing.has(id) ||
+          leadLifecycle.applying(id) ||
+          hierarchyBusy.has(id) ||
+          deleting.has(id) ||
+          unfinishedChildren(id)
+        )
+          return []
         if (!includeFailures && continuationFailures.has(id)) return []
         if (
           !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
-          !queuedAnswers(id).length
+          !queuedAnswers(id).length &&
+          !(
+            availableTalkLead(task) &&
+            store.listComments(id).some((comment) => comment.talkRequested && !comment.answer)
+          )
         )
           return []
         const run = liveLeadOf(store, task)
@@ -1401,6 +1441,69 @@ export function createTasks(options: {
             await store.persisted()
           }
         }
+        const talking = liveLeadOf(store, find(taskId))
+        if (talking) {
+          pendingTalks(taskId, true)
+          const pending = store.pendingRoundTalks(talking.id)
+          if (pending.length > 0) {
+            await store.persisted()
+            let accepted = false
+            while (!closed && !stopping.signal.aborted) {
+              const current = store.getTask(taskId)
+              const live = store.getRun(talking.id)
+              if (
+                !current ||
+                current.stopped ||
+                current.archived ||
+                current.stage === 'done' ||
+                current.stage === 'backlog' ||
+                current.waitsForBlockers ||
+                current.leadRunId !== talking.id ||
+                !live ||
+                live.state === 'finished' ||
+                live.problem ||
+                store.agentPauses()[live.agent] !== undefined ||
+                !store
+                  .pendingRoundTalks(talking.id)
+                  .some(({ messageId }) =>
+                    pending.some((message) => message.messageId === messageId),
+                  )
+              )
+                break
+              if (
+                store.newWorkHold() === undefined &&
+                availableTalkLead(current, true)?.id === talking.id
+              ) {
+                accepted = await runs.dispatch(
+                  talking.id,
+                  pending.map(({ messageId, round }) => ({ id: messageId, text: talkLine(round) })),
+                  false,
+                  (id) => {
+                    const current = find(taskId)
+                    return (
+                      store.newWorkHold() === undefined &&
+                      !current.waitsForBlockers &&
+                      availableTalkLead(current, true)?.id === talking.id &&
+                      store
+                        .pendingRoundTalks(talking.id)
+                        .some(({ messageId }) => id === undefined || id === messageId)
+                    )
+                  },
+                  { revocable: true, signal: stopping.signal },
+                )
+                if (accepted) break
+              }
+              await clockWait(clock, 150, stopping.signal)
+            }
+            if (accepted) {
+              for (const { messageId, round } of store.pendingRoundTalks(talking.id)) {
+                if (pending.some((message) => message.messageId === messageId))
+                  store.roundTalkNotified(round.id, talking.id, messageId)
+              }
+              await store.persisted()
+            }
+          }
+        }
       } catch (error) {
         continuationFailures.add(taskId)
         throw error
@@ -1434,7 +1537,14 @@ export function createTasks(options: {
         holds.has(task.id)
       )
         return []
-      if (task.waitsForBlockers || task.stopped) return []
+      if (
+        task.waitsForBlockers ||
+        task.stopped ||
+        hierarchyBusy.has(task.id) ||
+        deleting.has(task.id) ||
+        unfinishedChildren(task.id)
+      )
+        return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
   }
@@ -1446,7 +1556,10 @@ export function createTasks(options: {
       .flatMap(({ taskId, factoryId, agent }) =>
         agentStartHold(store, agent, taskNow(taskId)?.leadRunId) ||
         paused[agent] !== undefined ||
-        holds.has(taskId)
+        holds.has(taskId) ||
+        hierarchyBusy.has(taskId) ||
+        deleting.has(taskId) ||
+        unfinishedChildren(taskId)
           ? []
           : [{ id: taskId, kind: 'task' as const, rank: -1, factoryId }],
       )
@@ -1464,6 +1577,7 @@ export function createTasks(options: {
       !holds.has(task.id) &&
       !autoStartFailures.has(task.id) &&
       !deleting.has(task.id) &&
+      !hierarchyBusy.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (task.snoozedUntil !== undefined ||
@@ -1485,6 +1599,7 @@ export function createTasks(options: {
       !starting.has(task.id) &&
       !holds.has(task.id) &&
       !deleting.has(task.id) &&
+      !hierarchyBusy.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
       (agent === undefined || store.agentPauses()[agent] === undefined) &&
@@ -1509,8 +1624,32 @@ export function createTasks(options: {
     loadTimer = undefined
   }
 
+  let restoreTalkAdmissions = true
   async function fill(): Promise<void> {
-    if (closed || store.newWorkHold() !== undefined) return
+    if (closed) return
+    if (restoreTalkAdmissions) {
+      restoreTalkAdmissions = false
+      for (const id of store.tasksWithQueuedContinuations()) {
+        const task = store.getTask(id)
+        if (
+          !task ||
+          task.stopped ||
+          task.archived ||
+          task.stage === 'done' ||
+          task.stage === 'backlog' ||
+          task.waitsForBlockers ||
+          holds.has(id)
+        )
+          continue
+        const run = liveLeadOf(store, task)
+        if (!run || run.problem || store.agentPauses()[run.agent] !== undefined) continue
+        const pending = store.pendingRoundTalks(run.id)
+        if (pending.length === 0) continue
+        const consumed = new Set(runs.consumedInputs(run.id))
+        if (pending.some(({ messageId }) => consumed.has(messageId))) beginContinuation(id)
+      }
+    }
+    if (store.newWorkHold() !== undefined) return
     for (const id of store.preparedTasks()) {
       const task = taskNow(id)
       if (!task || task.archived || task.preparation !== 'ready') continue
@@ -1549,6 +1688,8 @@ export function createTasks(options: {
       sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
     )
     for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+      if (hierarchyBusy.has(entry.id) || deleting.has(entry.id) || unfinishedChildren(entry.id))
+        continue
       if (reviveIds.has(entry.id)) {
         inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
       } else if (heldIds.has(entry.id)) relaunch(entry.id)
@@ -1593,7 +1734,10 @@ export function createTasks(options: {
   function runnable<T extends { id: string }>(entries: readonly T[]): T[] {
     const paused = store.agentPauses()
     return entries.filter((entry) => {
-      const agent = taskNow(entry.id)?.lead?.agent
+      const task = taskNow(entry.id)
+      if (hierarchyBusy.has(entry.id) || deleting.has(entry.id)) return false
+      if (task && unfinishedChildren(task.id)) return false
+      const agent = task?.lead?.agent
       return agent === undefined || (!agentStartHold(store, agent) && paused[agent] === undefined)
     })
   }
@@ -2240,6 +2384,7 @@ export function createTasks(options: {
   const manyRepos = (task: StoredTask) => task.repos.filter((r) => !r.removed).length > 1
 
   const baseTips = new Map<string, string>()
+  const baseNotes = new Map<string, string>()
   const baseTipKey = (taskId: string, repo: string) => `${taskId}\n${repo}`
 
   function foundConflict(task: StoredTask, conflict: BaseConflict): FoundConflict {
@@ -2282,6 +2427,73 @@ export function createTasks(options: {
       }
     }
     return undefined
+  }
+
+  async function adoptLatestBase(task: StoredTask): Promise<string | undefined> {
+    const moved: AdoptedBase[] = []
+    try {
+      await execution.local(task.id)
+      const factory = factoryOf(task)
+      const { workflow } = await taskWorkflow(find(task.id), { fetch: false })
+      const entries = factoryRepos(workflow, factory)
+      for (const target of await pullRequestTargets(task)) {
+        try {
+          const repo = task.repos.find((r) => r.name === target.name)
+          const entry = repo && repoEntry(entries, repo)
+          if (!repo || !entry || repo.pullRequest !== undefined) continue
+          await worktreeFileScope(worktreesDir, target.worktree)
+          const head = await git.headCommit(target.worktree)
+          const tracked = () =>
+            git.revParse(target.worktree, `origin/${target.base}`).catch(() => undefined)
+          const known = await tracked()
+          const tip = await git.fetchBranch(target.worktree, {
+            url: target.url,
+            branch: target.base,
+            haves: [head, ...(known === undefined ? [] : [known])],
+            timeoutMs: baseCheckTimeoutMs,
+          })
+          if (tip === head) continue
+          const headInTip = await git.isAncestor(target.worktree, head, tip)
+          const inClone = async () => {
+            const at = await tracked()
+            return (
+              at !== undefined && (at === tip || (await git.isAncestor(target.worktree, tip, at)))
+            )
+          }
+          let tipInClone = headInTip && (await inClone())
+          if (headInTip && !tipInClone) {
+            await git.fetch(await cloneFor(task, factory, entry), baseCheckTimeoutMs)
+            tipInClone = await inClone()
+          }
+          const step = baseStep({ head, tip, headInTip, tipInClone })
+          if (step === 'clone-behind') {
+            console.error(
+              `left ${task.displayId}’s ${target.name} where it was: TED’s clone doesn’t have the latest ${redactSecrets(clean(target.base, 200))}`,
+            )
+          }
+          if (step !== 'move') continue
+          await worktreeFileScope(worktreesDir, target.worktree)
+          if ((await git.headCommit(target.worktree)) !== head) continue
+          if (!(await git.moveBranchTo(target.worktree, tip, head))) continue
+          baseTips.set(baseTipKey(task.id, target.name), tip)
+          moved.push({ repo: target.name, base: clean(target.base, 200), from: head, to: tip })
+        } catch (error) {
+          console.error(
+            `couldn’t move ${task.displayId}’s ${target.name} to the latest ${redactSecrets(clean(target.base, 200))}:`,
+            redactSecrets(textOf(error)),
+          )
+        }
+      }
+      if (moved.length === 0) return undefined
+      store.baseAdopted(task.id, moved)
+      return latestBaseNote(moved, manyRepos(task))
+    } catch (error) {
+      console.error(
+        `couldn’t move ${task.displayId} to the latest base branch:`,
+        redactSecrets(textOf(error)),
+      )
+      return moved.length > 0 ? latestBaseNote(moved, manyRepos(task)) : undefined
+    }
   }
 
   function pullRequestTask(task: StoredTask): PullRequestTask {
@@ -2773,7 +2985,13 @@ export function createTasks(options: {
     const name = find(taskId).displayId
     const canAct = () => {
       const current = taskNow(taskId)
-      return !current?.stopped && !checking.has(taskId) && !holdsMerge(taskId)
+      return (
+        !current?.stopped &&
+        !checking.has(taskId) &&
+        !holdsMerge(taskId) &&
+        !hierarchyBusy.has(taskId) &&
+        !unfinishedChildren(taskId)
+      )
     }
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
@@ -3178,6 +3396,8 @@ export function createTasks(options: {
   ): Promise<TaskReposResult> {
     await beginning.get(taskId)?.catch(() => undefined)
     const task = find(taskId)
+    if (hierarchyBusy.has(task.id) || deleting.has(task.id))
+      throw new RequestError(409, `${task.displayId} has a hierarchy operation underway; try again`)
     if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
     if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
     const factory = factoryOf(task)
@@ -3376,7 +3596,10 @@ export function createTasks(options: {
     local: (id) => execution.local(id),
     beforeLeadStart: async (id) =>
       (await incorporateRepairs(find(id))) ? taskWorkflow(find(id), { fetch: false }) : undefined,
-    afterLeadStart: scheduleRepairChecks,
+    afterLeadStart: (id) => {
+      baseNotes.delete(id)
+      scheduleRepairChecks(id)
+    },
     workflow: (task) => taskWorkflow(task, { fetch: false }),
     entries: (task, resolution) => factoryRepos(resolution.workflow, factoryOf(task)),
     defaultLead: leadFrom,
@@ -3425,7 +3648,10 @@ export function createTasks(options: {
 
   const liveLead = (task: StoredTask) => liveLeadOf(store, task)
   const acknowledgeLeadMessages = (run: Run) => leadLifecycle.acknowledgeLeadMessages(run)
-  const applyLead = (taskId: string) => leadLifecycle.applyLead(taskId)
+  const applyLead = async (taskId: string) => {
+    await leadLifecycle.applyLead(taskId)
+    pendingTalks(taskId)
+  }
 
   async function askAboutModel(updated: Run): Promise<void> {
     if (updated.taskId === undefined) return
@@ -3467,6 +3693,7 @@ export function createTasks(options: {
   async function useDefaultModel(ref: string): Promise<Task> {
     const task = find(ref)
     await leadLifecycle.useDefaultModel(task)
+    pendingTalks(task.id)
     return publicTask(task.id)
   }
 
@@ -3480,6 +3707,7 @@ export function createTasks(options: {
       inBackground('update the model request', () => askAboutModel(run))
       if (run.taskId !== undefined) {
         const taskId = run.taskId
+        pendingTalks(taskId)
         inBackground('apply the Task Lead setting', () => applyLead(taskId))
       }
     })
@@ -3774,6 +4002,7 @@ export function createTasks(options: {
     if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
     const overnightMode = taskAutopilot(task)
     const pending = current.pendingLeadMessages
+    const baseNote = baseNotes.get(task.id)
     const round =
       resumeSession === undefined && current.stage === 'validate'
         ? await validateRound(current, resolution.workflow)
@@ -3802,6 +4031,7 @@ export function createTasks(options: {
             ...(note !== undefined ? [note] : []),
           ]
         : [continueMessage, ...editedSince(current)]),
+      ...(baseNote !== undefined ? [baseNote] : []),
       ...(since !== undefined ? [since] : []),
       ...(resumeSession !== undefined && movedByApproval(current, waiting.answers)
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
@@ -3935,6 +4165,7 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
+    pendingTalks(taskId)
     const waiting = waitingForRun(taskId)
     if (waiting.comments.length > 0 || waiting.answers.some((c) => c.answerDelivery))
       await sendComment(run.id)
@@ -4271,7 +4502,10 @@ export function createTasks(options: {
         backMessage,
         leaveWorkToDiagnose,
         settleDependents,
-        archiveNow,
+        beforeArchive: (task) => {
+          archivePlan(task.id)
+        },
+        archiveNow: (task, close) => archiveHierarchy(task.id, { closePullRequests: close }),
         wake,
         sendNudge,
         useDefaultModel,
@@ -4512,6 +4746,8 @@ export function createTasks(options: {
   }
 
   async function holding<T>(task: Task, work: () => Promise<T>): Promise<T> {
+    if (hierarchyBusy.has(task.id) || deleting.has(task.id))
+      throw new RequestError(409, `${task.displayId} has a hierarchy operation underway; try again`)
     if (advancing.has(task.id)) {
       throw new RequestError(409, `${task.displayId} is already moving; try again`)
     }
@@ -4622,7 +4858,9 @@ export function createTasks(options: {
     const run = store.getRun(runId)
     if (!run) return 0
     const within = (at: string | undefined) => at !== undefined && at >= since && at <= until
-    const human = store.runMessages(runId).filter((m) => m.queued !== true && within(m.at))
+    const human = store
+      .runMessages(runId)
+      .filter((m) => m.from !== 'ted' && m.queued !== true && within(m.at))
     const agent = agents
       .get(run.agent)
       .chat(runs.output.entries(runId), run.cwd)
@@ -4630,16 +4868,85 @@ export function createTasks(options: {
     return human.length + agent.length
   }
 
-  async function talkThrough(commentId: string): Promise<Comment> {
-    const { task, round } = openTalkRound(commentId)
-    const run = talkLead(task)
-    if (round.talk?.runId === run.id) return round
-    const talking = store.startRoundTalk(round.id, run.id)
-    await deliver(
-      task,
-      `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
+  function availableTalkLead(task: StoredTask, admitted = false): Run | undefined {
+    const run = liveLead(task)
+    if (
+      !run ||
+      task.stopped ||
+      task.archived ||
+      task.stage === 'done' ||
+      task.stage === 'backlog' ||
+      run.problem ||
+      store.agentPauses()[run.agent] ||
+      (holds.has(task.id) && !admitted) ||
+      leadLifecycle.applying(task.id) ||
+      leadLifecycle.recovering(run.id) ||
+      task.leadRestartPending
     )
+      return undefined
+    return run
+  }
+
+  function talkLine(round: Comment): string {
+    return `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`
+  }
+
+  function bindRoundTalk(task: StoredTask, round: Comment): Comment {
+    const run = talkLead(task)
+    const bound =
+      round.talk?.runId === run.id &&
+      (!round.talkRequested ||
+        store.pendingRoundTalks(run.id).some((pending) => pending.round.id === round.id))
+    const talking = bound ? round : store.startRoundTalk(round.id, run.id, talkLine(round))
+    inBackground('deliver the talk request', () => options.steering.changed(run.id))
+    void pump()
     return talking
+  }
+
+  function pendingTalks(taskId: string, admitted = false): void {
+    const task = store.getTask(taskId)
+    if (!task || stoppingByHand.has(task.id) || !availableTalkLead(task, admitted)) return
+    for (const round of store.listComments(taskId)) {
+      if (round.kind === 'round' && !round.answer && round.talkRequested) bindRoundTalk(task, round)
+    }
+  }
+
+  async function talkThrough(
+    commentId: string,
+    request: TalkThroughRequest,
+  ): Promise<TalkThroughResult> {
+    const { task, round } = openTalkRound(commentId)
+    if (task.archived || task.stage === 'done' || task.stage === 'backlog') {
+      throw new RequestError(409, 'this Task is no longer available for a talk')
+    }
+    if (stoppingByHand.has(task.id))
+      throw new RequestError(409, 'the Task is still stopping; try again')
+    const stoppedByTed = store.tedStopPending(task.id)
+    if (
+      (stoppedByTed || (task.stopped && store.taskStoppedByHuman(task.id))) &&
+      !request.confirmResume
+    )
+      return { resumeRequired: true }
+    if (availableTalkLead(task)) return bindRoundTalk(task, round)
+    if (task.status?.kind === 'failed') {
+      throw new RequestError(409, 'retry the failed Task before talking it through')
+    }
+    if (
+      task.stopped ||
+      (!liveLead(task) &&
+        canStartFresh(task) &&
+        !leadLifecycle.pendingRevive(task.id) &&
+        !leadLifecycle.recovering(task.leadRunId ?? ''))
+    ) {
+      if (stoppedByTed) store.answerTedStop(task.id, 'restart')
+      store.resumeTask(task.id, {
+        waitForBlockers: unmergedBlockers(task.id).length > 0,
+        talkCommentId: round.id,
+      })
+    } else if (!round.talkRequested) store.requestRoundTalk(round.id)
+    await store.persisted()
+    void pump()
+    return store.getComment(round.id) ?? round
   }
 
   async function doneTalking(commentId: string): Promise<Comment> {
@@ -4754,6 +5061,9 @@ export function createTasks(options: {
       )
         throw new RequestError(409, 'Preparation must stop before Work')
     }
+    const baseNote = firstWorkEntry(next, store.listStageEntries(task.id))
+      ? await adoptLatestBase(task)
+      : undefined
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (task.stage === 'merge' && next !== 'done') {
       for (const repo of task.repos) {
@@ -4775,8 +5085,13 @@ export function createTasks(options: {
         validation.enter(task.id, message, checked),
       )
     } else if (message !== undefined) {
-      await deliver(task, message, waitForSlot)
-    }
+      const told = await deliver(
+        task,
+        baseNote === undefined ? message : `${message}\n\n${baseNote}`,
+        waitForSlot,
+      )
+      if (!told && baseNote !== undefined) baseNotes.set(task.id, baseNote)
+    } else if (baseNote !== undefined) baseNotes.set(task.id, baseNote)
     if (next === 'merge') {
       const { workflow } = await gateWorkflow(find(task.id), { fetch: false })
       if (tedMerges(moved, workflow)) startMerging(moved, workflow)
@@ -5496,8 +5811,198 @@ export function createTasks(options: {
 
   function live(ref: string): StoredTask {
     const task = find(ref)
+    if (hierarchyBusy.has(task.id) || deleting.has(task.id))
+      throw new RequestError(409, `${task.displayId} has a hierarchy operation underway; try again`)
     if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
     return task
+  }
+
+  function hierarchyRevision(factoryId: string): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify(
+          store
+            .listTasks()
+            .filter((task) => task.factoryId === factoryId)
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map((task) => [
+              task.id,
+              task.parentId,
+              task.childIds,
+              task.stage,
+              task.archived,
+              task.blockedBy,
+              task.status,
+              task.runs,
+              task.updatedAt,
+              task.merged,
+            ]),
+        ),
+      )
+      .digest('hex')
+  }
+
+  function hierarchy(ref: string, caller?: Caller): TaskHierarchy {
+    const task = caller?.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+    return {
+      parentId: task.parentId ?? null,
+      childIds: store.childrenOf(task.id),
+      revision: hierarchyRevision(task.factoryId),
+    }
+  }
+
+  function descendants(taskId: string): string[] {
+    const found: string[] = []
+    const seen = new Set([taskId])
+    const walk = (id: string) => {
+      for (const child of store.childrenOf(id)) {
+        if (seen.has(child)) throw new RequestError(409, 'Task hierarchy contains a cycle')
+        seen.add(child)
+        found.push(child)
+        walk(child)
+      }
+    }
+    walk(taskId)
+    return found
+  }
+
+  function hierarchyPreview(ref: string): TaskHierarchyPreview {
+    const task = find(ref)
+    return {
+      revision: hierarchyRevision(task.factoryId),
+      descendants: descendants(task.id).map((id) => {
+        const child = find(id)
+        return { id, displayId: child.displayId, title: child.title }
+      }),
+    }
+  }
+
+  function requireHierarchyRevision(task: StoredTask, revision?: string): void {
+    if (!revision || revision !== hierarchyRevision(task.factoryId))
+      throw new RequestError(
+        409,
+        'Hierarchy changed or was not confirmed; read the hierarchy preview and confirm again',
+      )
+  }
+
+  function safeParent(task: StoredTask): void {
+    const queued = store.queue().some((entry) => entry.id === task.id)
+    if (
+      task.archived ||
+      task.stage === 'done' ||
+      hasLiveRun(task) ||
+      hierarchyBusy.has(task.id) ||
+      deleting.has(task.id) ||
+      advancing.has(task.id) ||
+      beginning.has(task.id) ||
+      holds.has(task.id) ||
+      stoppingByHand.has(task.id) ||
+      mergeWatcher.inFlight(task.id) ||
+      store.mergePending(task.id) ||
+      !(task.stage === 'backlog' || queued || task.stopped || task.waitsForBlockers)
+    ) {
+      throw new RequestError(
+        409,
+        `${task.displayId} cannot change its children now. ${task.stage === 'done' ? 'Done parents stay closed; use Unlink and restore for an archived child.' : task.archived ? 'Restore the parent first.' : 'Stop the parent and wait for its Runs, Checks and transitions to finish, then try again.'}`,
+      )
+    }
+  }
+
+  function requireHierarchyIdle(ids: readonly string[]): void {
+    for (const id of ids) {
+      if (hierarchyBusy.has(id) || deleting.has(id) || removingFactories.has(find(id).factoryId))
+        throw new RequestError(
+          409,
+          `${find(id).displayId} has a hierarchy operation underway; try again`,
+        )
+    }
+  }
+
+  function holdParent(taskId: string): void {
+    if (unmergedBlockers(taskId).length > 0 && store.queue().some((q) => q.id === taskId))
+      store.waitForBlockers(taskId)
+  }
+
+  function releaseParent(taskId: string, wasBlocked: boolean): void {
+    const task = find(taskId)
+    if (!wasBlocked) return
+    if (
+      unmergedBlockers(taskId).length > 0 &&
+      (task.preparation !== 'ready' || store.childrenOf(taskId).length > 0)
+    )
+      return
+    if (task.stage === 'backlog') {
+      if (task.startRequested) store.setStartRequested(taskId, false)
+      store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+    } else if (
+      (task.preparation === 'ready' ||
+        task.waitsForBlockers ||
+        store.queue().some((entry) => entry.id === taskId)) &&
+      !liveLead(task) &&
+      !task.archived
+    )
+      store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+  }
+
+  function setParent(ref: string, input: SetTaskParentRequest): Task {
+    const task = find(ref)
+    requireHierarchyRevision(task, input.revision)
+    const parent = input.parentId === null ? undefined : find(input.parentId)
+    const old = task.parentId ? find(task.parentId) : undefined
+    requireHierarchyIdle([task.id, ...[old, parent].flatMap((t) => (t ? [t.id] : []))])
+    if (parent?.factoryId !== undefined && parent.factoryId !== task.factoryId)
+      throw new RequestError(409, 'Parent and child must belong to the same Factory')
+    if (parent?.id === task.id) throw new RequestError(409, 'A Task cannot parent itself')
+    if (parent?.id === old?.id) return publicTask(task.id)
+    if (old) safeParent(old)
+    if (parent) {
+      safeParent(parent)
+      if (cycleFrom(task.id, parent.id))
+        throw new RequestError(409, 'Parent link would create a hierarchy or blocker cycle')
+    }
+    const wasBlocked = old !== undefined && unmergedBlockers(old.id).length > 0
+    store.setTaskParent(task.id, parent?.id ?? null)
+    if (old) releaseParent(old.id, wasBlocked)
+    if (parent) holdParent(parent.id)
+    return publicTask(task.id)
+  }
+
+  function archivePlan(ref: string, revision?: string) {
+    const task = live(ref)
+    const children = descendants(task.id)
+    if (children.length > 0) requireHierarchyRevision(task, revision)
+    const ids = [task.id, ...children]
+    requireHierarchyIdle(ids)
+    const parent = task.parentId ? find(task.parentId) : undefined
+    if (parent && !store.isMerged(task.id)) safeParent(parent)
+    return {
+      task,
+      ids,
+      parent,
+      wasBlocked: parent !== undefined && unmergedBlockers(parent.id).length > 0,
+    }
+  }
+
+  function archiveHierarchy(
+    ref: string,
+    {
+      closePullRequests = false,
+      blocked = 'unblock',
+      hierarchyRevision: revision,
+    }: ArchiveTaskRequest = {},
+  ): Task {
+    const { task, ids, parent, wasBlocked } = archivePlan(ref, revision)
+    for (const id of [...ids].reverse()) {
+      const current = find(id)
+      if (current.archived) continue
+      settleDependents(id, blocked)
+      if (store.childrenOf(id).length > 0 && current.startRequested)
+        store.setStartRequested(id, false)
+      archiveNow(find(id), closePullRequests)
+    }
+    if (parent) releaseParent(parent.id, wasBlocked)
+    wake()
+    return publicTask(task.id)
   }
 
   function repairNotice(taskId: string, blockerId: string, explanation: string): void {
@@ -5523,7 +6028,7 @@ export function createTasks(options: {
     blockerId?: string,
     reason = 'was unblocked without merging. Use Resume when ready to reassess the failure.',
   ): void {
-    const links = store.blockers(taskId)
+    const links = store.blockers(taskId).filter((link) => link.kind !== 'child')
     const wasBlocked = links.some((l) => !l.merged)
     const runId = caller.kind === 'run' ? caller.runId : undefined
     for (const link of links) {
@@ -5536,7 +6041,12 @@ export function createTasks(options: {
     if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(taskId).length === 0) {
       if (current.stage === 'backlog' && current.startRequested) {
         store.setStartRequested(taskId, false)
-      } else if (current.waitsForBlockers && !liveLead(current) && !current.archived) {
+      } else if (
+        (current.waitsForBlockers ||
+          (current.preparation === 'ready' && store.childrenOf(taskId).length > 0)) &&
+        !liveLead(current) &&
+        !current.archived
+      ) {
         store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
       }
     }
@@ -5577,7 +6087,12 @@ export function createTasks(options: {
     if (!task || task.archived || task.stage === 'done' || deleting.has(taskId)) return
     const marked = `${issue.identifier} was marked ${issue.state} in Linear`
     const pastSignOff = task.stage === 'merge'
-    if (!pastSignOff && !hasLiveRun(task)) {
+    if (
+      !pastSignOff &&
+      !hasLiveRun(task) &&
+      !task.parentId &&
+      store.childrenOf(task.id).length === 0
+    ) {
       settleDependents(task.id, 'unblock')
       archiveNow(task, false, marked)
       wake()
@@ -5655,31 +6170,79 @@ export function createTasks(options: {
     return archived
   }
 
-  async function unarchive(ref: string): Promise<Task> {
+  async function unarchive(ref: string, input: UnarchiveTaskRequest = {}): Promise<Task> {
     const task = find(ref)
     if (!task.archived || deleting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} isn’t archived`)
     }
-    await clearingAway.get(task.id)?.catch(() => undefined)
-    await pullRequestQueue.get(task.id)
-    const current = find(task.id)
-    if (!current.archived || deleting.has(task.id)) {
-      throw new RequestError(409, `${task.displayId} isn’t archived`)
+    const parent = task.parentId ? find(task.parentId) : undefined
+    const affected = [task.id, ...(parent ? [parent.id] : [])]
+    requireHierarchyIdle(affected)
+    if (parent && input.unlinkParent) {
+      requireHierarchyRevision(task, input.hierarchyRevision)
+      if (parent.stage !== 'done') safeParent(parent)
     }
-    const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
-    store.unarchiveTask(task.id, {
-      queue: midFlow,
-      waitForBlockers: midFlow && unmergedBlockers(task.id).length > 0,
-    })
-    if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
-      pullRequestWork(task.id, 'reopen')
+    if (parent && !input.unlinkParent && !store.isMerged(task.id)) safeParent(parent)
+    for (const id of affected) hierarchyBusy.add(id)
+    try {
+      await clearingAway.get(task.id)?.catch(() => undefined)
+      await pullRequestQueue.get(task.id)
+      const current = find(task.id)
+      if (!current.archived || deleting.has(task.id)) {
+        throw new RequestError(409, `${task.displayId} isn’t archived`)
+      }
+      if (parent && input.unlinkParent) store.setTaskParent(task.id, null)
+      const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
+      store.unarchiveTask(task.id, {
+        queue: midFlow,
+        waitForBlockers: midFlow && unmergedBlockers(task.id).length > 0,
+      })
+      if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
+        pullRequestWork(task.id, 'reopen')
+      }
+      if (parent && !input.unlinkParent) holdParent(parent.id)
+    } finally {
+      for (const id of affected) hierarchyBusy.delete(id)
     }
     await pump()
     wake()
     return publicTask(task.id)
   }
 
-  async function remove(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
+  async function remove(ref: string, input: DeleteTaskRequest): Promise<void> {
+    const task = find(ref)
+    if (removingFactories.has(task.factoryId)) return removeOne(ref, input)
+    const children = descendants(task.id)
+    if (children.length > 0) {
+      requireHierarchyRevision(task, input.hierarchyRevision)
+      if (!input.children)
+        throw new RequestError(
+          409,
+          'Choose whether to delete descendants or unparent direct children, or cancel',
+        )
+    }
+    const parent = task.parentId ? find(task.parentId) : undefined
+    if (parent) safeParent(parent)
+    const ids = input.children === 'delete' ? [task.id, ...children] : [task.id]
+    const affected = [...new Set([...ids, ...children, ...(parent ? [parent.id] : [])])]
+    requireHierarchyIdle(affected)
+    const wasBlocked = parent !== undefined && unmergedBlockers(parent.id).length > 0
+    for (const id of affected) hierarchyBusy.add(id)
+    try {
+      if (parent) store.setTaskParent(task.id, null)
+      if (input.children !== 'delete') {
+        for (const id of store.childrenOf(task.id)) store.setTaskParent(id, null)
+      }
+      if (parent) releaseParent(parent.id, wasBlocked)
+      for (const id of [...ids].reverse()) await removeOne(id, input)
+    } finally {
+      if (parent) releaseParent(parent.id, wasBlocked)
+      for (const id of affected) hierarchyBusy.delete(id)
+    }
+    wake()
+  }
+
+  async function removeOne(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
     const task = find(ref)
     if (deleting.has(task.id))
       throw new RequestError(409, `${task.displayId} is already being deleted`)
@@ -5703,6 +6266,114 @@ export function createTasks(options: {
       deleting.delete(task.id)
     }
     wake()
+  }
+
+  const resetRefusals: Record<ResetRefusal, string> = {
+    archived: 'is archived',
+    done: 'is Done',
+    merged: 'has a merged pull request',
+    'not-started': 'hasn’t started',
+  }
+
+  async function reset(ref: string): Promise<Task> {
+    const { id, displayId } = find(ref)
+    const checksRunning = () => {
+      if (checking.has(id)) {
+        throw new RequestError(409, `${displayId}’s Checks are running; try again when they finish`)
+      }
+    }
+    checksRunning()
+    await untilFree(id)
+    const task = find(id)
+    const refused = resetRefusal(publicTask(id))
+    if (refused) {
+      throw new RequestError(
+        409,
+        `${task.displayId} ${resetRefusals[refused]}, so it can’t be reset`,
+      )
+    }
+    checksRunning()
+    if (deleting.has(id)) {
+      throw new RequestError(409, `${task.displayId} is being deleted or reset`)
+    }
+    deleting.add(id)
+    try {
+      await holding(task, async () => {
+        if (!task.stopped) store.stopTask(id, { runs: task.runs.length, why: 'human' })
+        await mergeWatcher.settled(id)
+        await pullRequestQueue.get(id)
+        const open = (current: StoredTask) =>
+          current.repos.filter(
+            (r) =>
+              r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged',
+          )
+        if (resetRefusal(publicTask(id)) === 'merged') {
+          throw new RequestError(409, `${task.displayId} has a merged pull request`)
+        }
+        if (open(find(id)).length > 0) {
+          pullRequestWork(id, 'close')
+          await pullRequestQueue.get(id)
+        }
+        const left = open(find(id))
+        if (left.length > 0 || resetRefusal(publicTask(id)) === 'merged') {
+          throw new RequestError(
+            409,
+            `TED couldn’t close ${left.map((r) => `${r.repo}#${r.pullRequest?.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t reset. It is stopped and nothing was discarded.`,
+          )
+        }
+        options.planning?.()?.taskGone(id, 'reset')
+        browser.cancel(id)
+        browserApps.delete(id)
+        await clearing(id)
+        const last = find(id)
+        await removeBranches(last)
+        await lifecycle.cleanFolders(await execution.local(id))
+        const runIds = store.taskRunList(id).map((r) => r.id)
+        const files = [...store.taskFiles(id), ...store.messageDraftFiles(id)]
+        failures.forget(id)
+        autoStartFailures.delete(id)
+        continuationFailures.delete(id)
+        for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
+        for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
+        store.resetTask(id)
+        await store.persisted()
+        await removeFiles(last, runIds, files)
+      })
+    } finally {
+      deleting.delete(id)
+    }
+    if (task.setup) reportSetup(task.factoryId)
+    if (await queueStart(id, undefined, false, true)) {
+      await pump()
+      await beginning.get(id)
+    }
+    return publicTask(id)
+  }
+
+  async function removeBranches(task: StoredTask): Promise<void> {
+    const gh = options.gh
+    const refuse = (where: string, branch: string, error: unknown) =>
+      new RequestError(
+        409,
+        `TED couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t reset: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
+      )
+    for (const repo of task.repos) {
+      if (gh && (repo.pushed || repo.pullRequest)) {
+        await deleteBranch(gh, repo).catch((error: unknown) => {
+          const status = error instanceof GhError ? error.status : undefined
+          const gone =
+            status === 404 ||
+            (status === 422 &&
+              error instanceof Error &&
+              /reference does not exist/i.test(error.message))
+          if (!gone) throw refuse(`on ${repo.repo}`, repo.branch, error)
+        })
+      }
+      await git.deleteBranch(clonePath(reposDir, repo), repo.branch).catch((error: unknown) => {
+        const text = error instanceof Error ? error.message : String(error)
+        if (!/not found/i.test(text)) throw refuse(`in ${repo.name}’s clone`, repo.branch, error)
+      })
+    }
   }
 
   async function removeFactoryTasks(
@@ -5876,7 +6547,12 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  async function queueStart(ref: string, version?: number, prepare = false): Promise<boolean> {
+  async function queueStart(
+    ref: string,
+    version?: number,
+    prepare = false,
+    keepRank = false,
+  ): Promise<boolean> {
     const automatic = version !== undefined
     const task = live(ref)
     const factory = factoryOf(task)
@@ -5946,7 +6622,7 @@ export function createTasks(options: {
           prepare,
         })
       } else {
-        store.queueTask(task.id, stage, { prepare })
+        store.queueTask(task.id, stage, { prepare, keepRank })
       }
     } finally {
       starting.delete(task.id)
@@ -5959,6 +6635,10 @@ export function createTasks(options: {
     const task = find(taskId)
     const factory = factoryOf(task)
     if (task.repos.some((r) => !r.removed)) {
+      if (task.stage === 'work' && store.heldBeforeWork(task.id)) {
+        const note = await adoptLatestBase(task)
+        if (note !== undefined) baseNotes.set(task.id, note)
+      }
       await leadLifecycle.prepare(task.id, { kind: 'existing' })
       store.dequeue(task.id)
       if (store.freshRunRequest(task.id)?.kind === 'github') {
@@ -6264,8 +6944,14 @@ export function createTasks(options: {
     return walk(blockerId)
   }
 
+  function unfinishedChildren(taskId: string): boolean {
+    return store
+      .blockers(taskId)
+      .some((link) => link.kind === 'child' && !link.merged && !link.satisfied)
+  }
+
   function unmergedBlockers(taskId: string) {
-    return store.blockers(taskId).filter((b) => !b.merged)
+    return store.blockers(taskId).filter((b) => !b.merged && !b.satisfied)
   }
 
   function shouldStopForBlockers(task: StoredTask, run: Run): boolean {
@@ -6296,7 +6982,7 @@ export function createTasks(options: {
   function wake(): void {
     const queued = new Set(store.queue().map((q) => q.id))
     for (const id of store.openBlockedTasks()) {
-      if (queued.has(id) || starting.has(id)) continue
+      if (queued.has(id) || starting.has(id) || hierarchyBusy.has(id) || deleting.has(id)) continue
       if (unmergedBlockers(id).length > 0) continue
       const task = store.getTask(id)
       if (!task || task.archived || task.stopped) continue
@@ -6557,6 +7243,29 @@ export function createTasks(options: {
   })
 
   options.steering.addSource({
+    acknowledged: true,
+    revocable: true,
+    signal: stopping.signal,
+    pending(run) {
+      if (store.getRun(run.id)?.state !== 'working' || continuing.has(run.taskId ?? '')) return []
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || stoppingByHand.has(task.id) || availableTalkLead(task)?.id !== run.id) return []
+      return store.pendingRoundTalks(run.id).map(({ messageId, round }) => ({
+        id: messageId,
+        text: talkLine(round),
+        at: round.talk?.startedAt ?? round.createdAt,
+      }))
+    },
+    delivered(run, ids) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || availableTalkLead(task)?.id !== run.id) return
+      for (const { messageId, round } of store.pendingRoundTalks(run.id)) {
+        if (ids.includes(messageId)) store.roundTalkNotified(round.id, run.id, messageId)
+      }
+    },
+  })
+
+  options.steering.addSource({
     pending(run) {
       const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!task || liveLead(task)?.id !== run.id) return []
@@ -6640,6 +7349,7 @@ export function createTasks(options: {
         run.taskId !== undefined &&
         store.getTask(run.taskId)?.leadRunId === run.id
       ) {
+        pendingTalks(run.taskId)
         inBackground('refresh reply delivery after agent recovery', () =>
           options.steering.refresh(run.id),
         )
@@ -6822,6 +7532,9 @@ export function createTasks(options: {
   }
 
   leadLifecycle.recoverStartup()
+  for (const task of store.listTasks()) {
+    if (store.listComments(task.id).some((c) => c.talkRequested)) pendingTalks(task.id)
+  }
 
   const interruptedHandOffs = store
     .listCheckRuns()
@@ -6856,10 +7569,14 @@ export function createTasks(options: {
   let snoozeTimer: Timer | undefined
   let releaseSnoozeIdle: (() => void) | undefined
   function refreshSnoozes(): void {
-    const pending = store.backlogTasks().some((task) => task.snoozed)
+    const pending =
+      store.backlogTasks().some((task) => task.snoozed) || store.requestSnoozesPending()
     if (pending && !snoozeTimer) {
       releaseSnoozeIdle = options.idle?.hold()
-      snoozeTimer = clock.interval(() => void pump(), options.snoozes?.checkEveryMs ?? 30_000)
+      snoozeTimer = clock.interval(() => {
+        store.returnDueRequests(snoozeNow())
+        void pump()
+      }, options.snoozes?.checkEveryMs ?? 30_000)
       snoozeTimer.unref()
     } else if (!pending && snoozeTimer) {
       snoozeTimer.cancel()
@@ -6868,8 +7585,36 @@ export function createTasks(options: {
       releaseSnoozeIdle = undefined
     }
   }
+  store.returnDueRequests(snoozeNow())
   refreshSnoozes()
+  const wakeSoon = coalesced(() => {
+    if (!closed) wake()
+  })
+  const reportSetupSoon = coalesced((factoryId: string) => {
+    if (!closed) reportSetup(factoryId)
+  })
   const stopPumping = store.subscribe((event) => {
+    if (
+      event.type === 'comment-updated' ||
+      event.type === 'task-updated' ||
+      event.type === 'task-deleted'
+    ) {
+      const taskId =
+        event.type === 'comment-updated'
+          ? event.comment.taskId
+          : event.type === 'task-updated'
+            ? event.task.id
+            : event.taskId
+      const task = store.getTask(taskId)
+      for (const run of store.listRuns().filter((run) => run.taskId === taskId)) {
+        const ids =
+          task && !task.stopped && !task.archived && task.leadRunId === run.id
+            ? store.pendingRoundTalks(run.id).map(({ messageId }) => messageId)
+            : []
+        runs.retainRevocableInputs(run.id, ids)
+      }
+    }
+
     if (
       event.type === 'settings-changed' ||
       event.type === 'task-updated' ||
@@ -6889,6 +7634,7 @@ export function createTasks(options: {
       }
     }
     if (
+      event.type === 'inbox-changed' ||
       event.type === 'task-created' ||
       event.type === 'task-updated' ||
       event.type === 'task-deleted' ||
@@ -6941,11 +7687,7 @@ export function createTasks(options: {
         if (!closed) inBackground('stop a blocked Task Lead', () => stopForBlockers(taskId))
       })
     }
-    if (event.type === 'task-updated' && event.task.stage === 'done') {
-      setImmediate(() => {
-        if (!closed) wake()
-      })
-    }
+    if (event.type === 'task-updated' && event.task.stage === 'done') wakeSoon()
     if (event.type === 'task-updated' && watch) {
       setImmediate(() => {
         if (!closed) watch.poke()
@@ -6963,10 +7705,7 @@ export function createTasks(options: {
       void pump()
     }
     if ((event.type === 'task-created' || event.type === 'task-updated') && event.task.setup) {
-      const { factoryId } = event.task
-      setImmediate(() => {
-        if (!closed) reportSetup(factoryId)
-      })
+      reportSetupSoon(event.task.factoryId)
     }
   })
   banners.onAction(setupProblem, async ({ factoryId }) => {
@@ -7101,6 +7840,11 @@ export function createTasks(options: {
     observed?: PullRequestRead,
     target?: string,
   ): Promise<void> {
+    if (unfinishedChildren(task.id))
+      throw new RequestError(
+        409,
+        `${task.displayId} must wait for its unfinished children to merge before moving on`,
+      )
     let repair = false
     if (target && target !== 'done') {
       const workflow = (await taskWorkflow(find(task.id), { fetch: false })).workflow
@@ -7737,6 +8481,15 @@ export function createTasks(options: {
       autoStartFailures.delete(task.id)
       return store.setTaskSnooze(task.id, until)
     },
+    snoozeRequest(requestId, until) {
+      if (until !== null && Date.parse(until) <= snoozeNow()) {
+        throw new RequestError(400, 'Choose a future date and time')
+      }
+      const request = store.snoozeRequest(requestId, until)
+      if (!request) throw new RequestError(404, 'No open request has that ID')
+      refreshSnoozes()
+      return request
+    },
     setPriority(ref, priority) {
       return store.setPriority(live(ref).id, priority)
     },
@@ -7774,17 +8527,14 @@ export function createTasks(options: {
       return allowLinearTeam(factoryId, team.toUpperCase())
     },
 
-    archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {
-      const task = live(ref)
-      if (deleting.has(task.id)) throw new RequestError(409, `${task.displayId} is being deleted`)
-      settleDependents(task.id, blocked)
-      const archived = archiveNow(find(task.id), closePullRequests)
-      wake()
-      return archived
-    },
+    hierarchy,
+    hierarchyPreview,
+    setParent,
+    archive: archiveHierarchy,
 
     unarchive,
     delete: remove,
+    reset,
     removeFactoryTasks,
 
     archiveDone(key) {
@@ -7792,7 +8542,13 @@ export function createTasks(options: {
       if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
       const done = store
         .listTasks()
-        .filter((t) => t.factoryId === factory.id && t.stage === 'done' && !t.archived)
+        .filter(
+          (t) =>
+            t.factoryId === factory.id &&
+            t.stage === 'done' &&
+            !t.archived &&
+            descendants(t.id).every((id) => find(id).archived),
+        )
       for (const task of done) archiveNow(find(task.id), false)
       if (done.length > 0) wake()
       return { archived: done.length }
@@ -7855,7 +8611,9 @@ export function createTasks(options: {
       }
       const current = find(task.id)
       const runId = caller.kind === 'run' ? caller.runId : undefined
-      const existing = store.blockers(task.id).find((b) => b.blockerId === blocker.id)
+      const existing = store
+        .blockers(task.id)
+        .find((b) => b.kind !== 'child' && b.blockerId === blocker.id)
       if (existing && (runId === undefined || existing.setByRunId === runId)) {
         return publicTask(task.id)
       }
@@ -7875,7 +8633,7 @@ export function createTasks(options: {
     unblock(ref, caller, by) {
       const task =
         caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
-      const links = store.blockers(task.id)
+      const links = store.blockers(task.id).filter((link) => link.kind !== 'child')
       const deleted = links.find(
         (l) => l.ended === 'deleted' && (l.blockerId === by || l.displayId === by),
       )
@@ -8190,7 +8948,7 @@ export function createTasks(options: {
       return answeredItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))), now)
     },
 
-    talkThrough: (id) => talkThrough(id),
+    talkThrough: (id, request) => talkThrough(id, request),
     doneTalking: (id) => doneTalking(id),
     closeRound: (ref, caller, summary) => closeRound(ref, caller, summary),
 
@@ -8613,6 +9371,23 @@ export function createTasks(options: {
     async file(ref, name, relative) {
       const { fileScope } = await this.worktreeAccess(ref, name)
       return readTaskFile(fileScope, relative)
+    },
+
+    async commits(ref, ids) {
+      return taskCommits(
+        find(ref).repos.filter((r) => !r.removed),
+        ids,
+      )
+    },
+
+    async commitChanges(ref, id) {
+      const task = find(ref)
+      const changes = await commitChanges(
+        task.repos.filter((r) => !r.removed),
+        id,
+      )
+      if (!changes) throw new RequestError(404, `${task.displayId}’s repos have no such commit`)
+      return changes
     },
 
     async fileDiffs(ref, name, file) {

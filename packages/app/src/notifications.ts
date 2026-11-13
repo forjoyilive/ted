@@ -1,5 +1,11 @@
 import { appendFileSync } from 'node:fs'
-import type { Banner, MachineSettings, Task, WaitingRequest } from '@ted/protocol'
+import {
+  type Banner,
+  factoryNotifications,
+  type MachineSettings,
+  type Task,
+  type WaitingRequest,
+} from '@ted/protocol'
 import {
   foldedNotice,
   inboxNotice,
@@ -85,7 +91,7 @@ export function createNotifications(options: NotificationsOptions): Notification
       seen = ids
       if (fresh.length > 0 && !asked()) markAsked()
       if (!settings().notifyInboxItems) return
-      for (const request of fresh) send(inboxNotice(request))
+      for (const request of fresh) if (!request.uncounted) send(inboxNotice(request))
     },
     problem(banner) {
       const notice = problemNotice(banner)
@@ -96,7 +102,9 @@ export function createNotifications(options: NotificationsOptions): Notification
       const notice = mergedNotice(task, now())
       if (!notice || merged.has(task.id)) return
       merged.add(task.id)
-      if (!settings().notifyTaskMerged || !mayNotify()) return
+      const current = settings()
+      if (!current.notifyTaskMerged || !mayNotify()) return
+      if (!factoryNotifications(current, task.factoryId).taskMerged) return
       send(notice)
     },
     tedStops(count, windowHidden) {

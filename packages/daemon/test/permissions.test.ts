@@ -18,6 +18,7 @@ import type {
   Comment,
   Factory,
   InboxItem,
+  MachineSettings,
   Run,
   SubAgent,
   Task,
@@ -689,6 +690,20 @@ describe('local Factory permission consent', () => {
         })
       ).status,
     ).toBe(400)
+    const notifications = `/factories/${task.factoryId}/notifications`
+    for (const caller of [asRun, client.fileToken]) {
+      expect((await caller.call('PUT', notifications, { inboxItems: false })).status).toBe(403)
+    }
+    expect((await client.call('PUT', notifications, {})).status).toBe(400)
+    expect(
+      (await client.call('PUT', '/factories/missing/notifications', { inboxItems: false })).status,
+    ).toBe(404)
+    await client.ok('PUT', notifications, { inboxItems: false })
+    expect(
+      await client.ok<MachineSettings>('PUT', notifications, { taskMerged: true }),
+    ).toMatchObject({
+      factoryNotifications: { [task.factoryId]: { inboxItems: false, taskMerged: true } },
+    })
     await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
     expect((await banners()).some((b) => b.problem === 'repo-requests-bypass')).toBe(false)
     await subAgent('bypass')

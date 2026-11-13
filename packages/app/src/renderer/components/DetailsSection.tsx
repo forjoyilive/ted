@@ -1,45 +1,28 @@
 import type { ReactNode } from 'react'
-import { type DetailsSectionId, useCollapsed } from '../details.ts'
+import { type DetailsTabId, detailsTabNames } from '../details.ts'
 import styles from './DetailsSection.module.css'
-import { ChevronIcon } from './icons.tsx'
+import { detailsPanelId } from './DetailsTabs.tsx'
 
 export function DetailsSection({
   id,
-  title,
   summary,
-  collapsedSummary = summary,
   action,
   children,
 }: {
-  id: DetailsSectionId
-  title: string
+  id: DetailsTabId
   summary?: string | undefined
-  collapsedSummary?: string | undefined
   action?: ReactNode
   children: ReactNode
 }) {
-  const [collapsed, toggle] = useCollapsed(id)
-  const shown = collapsed ? collapsedSummary : summary
+  const title = detailsTabNames[id]
   return (
-    <section className={styles.section} aria-label={title} data-collapsed={collapsed || undefined}>
+    <section className={styles.section} role="tabpanel" id={detailsPanelId(id)} aria-label={title}>
       <div className={styles.headingRow}>
-        <h2 className={styles.heading}>
-          <button
-            type="button"
-            className={styles.toggle}
-            aria-expanded={!collapsed}
-            onClick={toggle}
-          >
-            <span className={styles.title}>{title}</span>
-            {shown !== undefined && shown !== '' && (
-              <span className={styles.summary}> · {shown}</span>
-            )}
-            <ChevronIcon open={!collapsed} className={styles.chevron} />
-          </button>
-        </h2>
-        {!collapsed && action}
+        <h2 className={styles.heading}>{title}</h2>
+        {action}
       </div>
-      {!collapsed && children}
+      {summary !== undefined && summary !== '' && <p className={styles.summary}>{summary}</p>}
+      <div className={styles.body}>{children}</div>
     </section>
   )
 }

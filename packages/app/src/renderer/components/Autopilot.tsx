@@ -31,6 +31,7 @@ export function AutopilotField({ task }: { task: Task }) {
   return (
     <div className={styles.field}>
       <Select
+        className={styles.select}
         aria-label="Autopilot"
         value={choice}
         disabled={busy || !!task.archived || task.stage === 'done'}

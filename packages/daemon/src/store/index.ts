@@ -60,7 +60,9 @@ import {
   type Factory,
   type FailureCase,
   type FindingSeverity,
+  factoryNotifications,
   failureChoices,
+  firstFactoryNotifications,
   type GitHubWait,
   type LayerKind,
   type LayerUse,
@@ -85,6 +87,7 @@ import {
   type SendBackCause,
   type SimulatorAsk,
   type SizeCheck,
+  type SnoozedRequest,
   type StageEntry,
   type StageId,
   type Task,
@@ -105,6 +108,7 @@ import { isDiskFullError } from '../disk.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
+  statusWithoutBlocker,
   type TaskFacts,
   taskActivity,
   taskCanResume,
@@ -160,6 +164,7 @@ import {
   plans,
   planTasks,
   pullRequests,
+  requestSnoozes,
   reviewers,
   reviewScopes,
   runInterrupts,
@@ -182,6 +187,7 @@ import {
   taskDraftConsumptions,
   taskDrafts,
   taskLog,
+  taskParents,
   taskQueue,
   taskRepos,
   taskSources,
@@ -332,6 +338,8 @@ export interface SeenStageFile {
 export type StopReason = 'human' | 'blockers-removed' | 'repair-incorporation' | 'prepared'
 
 export interface BlockerLink {
+  kind?: 'child'
+  satisfied?: boolean
   blockerId: string
   displayId: string
   merged: boolean
@@ -660,7 +668,11 @@ export interface TedStore extends TaskHistory {
   removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
-  queueTask(taskId: string, stage: StageId, options?: { prepare?: boolean }): Task
+  queueTask(
+    taskId: string,
+    stage: StageId,
+    options?: { prepare?: boolean; keepRank?: boolean },
+  ): Task
   moveToBacklog(taskId: string): Task
   needsPlanning(taskId: string, runId: string): Task
   startAfterPlanning(
@@ -685,10 +697,14 @@ export interface TedStore extends TaskHistory {
   archiveTask(taskId: string, record?: { closing: string[]; branches: number; why?: string }): Task
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
+  resetTask(taskId: string): Task
   blockedBy(blockerId: string): string[]
   openBlockedTasks(): string[]
   queue(): QueuedTask[]
   dequeue(taskId: string): Task
+  parentOf(taskId: string): string | undefined
+  childrenOf(taskId: string): string[]
+  setTaskParent(taskId: string, parentId: string | null): Task
   blockers(taskId: string): BlockerLink[]
   addBlocker(
     taskId: string,
@@ -700,8 +716,12 @@ export interface TedStore extends TaskHistory {
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
   requeueAfterBlockers(taskId: string): Task
+  taskStoppedByHuman(taskId: string): boolean
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
-  resumeTask(taskId: string, options: { waitForBlockers: boolean; overnight?: boolean }): Task
+  resumeTask(
+    taskId: string,
+    options: { waitForBlockers: boolean; overnight?: boolean; talkCommentId?: string },
+  ): Task
   taskStoppedByTed(
     taskId: string,
     runId: string,
@@ -813,7 +833,11 @@ export interface TedStore extends TaskHistory {
   commentsDelivered(ids: readonly string[], runId: string): void
   commentsRead(ids: readonly string[]): void
   holdAnswer(id: string): void
-  startRoundTalk(id: string, runId: string): Comment
+  requestRoundTalk(id: string): Comment
+  startRoundTalk(id: string, runId: string, text: string): Comment
+  roundTalkMessageIds(runId: string): string[]
+  pendingRoundTalks(runId: string): { messageId: string; round: Comment }[]
+  roundTalkNotified(id: string, runId: string, messageId: string): void
   roundTalkDone(id: string): Comment
   heldAnswers(taskId: string): Comment[]
   answersDelivered(ids: readonly string[], runId: string): void
@@ -840,6 +864,10 @@ export interface TedStore extends TaskHistory {
   listSendBacks(taskId: string): SendBack[]
   recordBaseConflict(taskId: string, conflict: FoundConflict): BaseConflictFound
   baseConflicts(taskId?: string): BaseConflictFound[]
+  baseAdopted(
+    taskId: string,
+    moved: readonly { repo: string; base: string; from: string; to: string }[],
+  ): void
   declareSeverity(input: {
     taskId: string
     runId: string
@@ -970,6 +998,13 @@ export interface TedStore extends TaskHistory {
   settings(): MachineSettings
   activity(): Activity
   waiting(): WaitingRequest[]
+  snoozed(): SnoozedRequest[]
+  snoozeRequest(
+    requestId: string,
+    until: string | null,
+  ): SnoozedRequest | WaitingRequest | undefined
+  returnDueRequests(now: number): string[]
+  requestSnoozesPending(): boolean
   setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
@@ -1352,6 +1387,10 @@ export async function openStore({
   const blockerRows = (taskId: string) =>
     store.query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
 
+  const parentRow = (taskId: string) => store.query(queryDb(taskParents.where({ taskId }))).at(0)
+  const childRows = (parentId: string) =>
+    store.query(queryDb(taskParents.where({ parentId }).orderBy('taskId', 'asc')))
+
   const deletedRows = (id: string) => store.query(queryDb(deletedTasks.where({ id })))
 
   const blockerOf = (id: string, reads: TaskReads = perTask) => {
@@ -1371,11 +1410,20 @@ export async function openStore({
     }
   }
 
-  const blockerLinks = (taskId: string): BlockerLink[] =>
-    blockerRows(taskId).map((row) => {
-      const { displayId, merged, ended } = blockerOf(row.blockerId)
+  const blockerLinks = (taskId: string, reads: TaskReads = perTask): BlockerLink[] =>
+    [
+      ...reads.blockers(taskId),
+      ...reads.children(taskId).map((row) => ({
+        ...row,
+        blockerId: row.taskId,
+        setByRunId: null,
+        kind: 'child' as const,
+      })),
+    ].map((row) => {
+      const { displayId, merged, ended } = blockerOf(row.blockerId, reads)
       return {
         blockerId: row.blockerId,
+        ...('kind' in row && { kind: row.kind, satisfied: ended === 'archived' }),
         displayId,
         merged,
         ...(ended !== undefined && { ended }),
@@ -1464,6 +1512,7 @@ export async function openStore({
         return held.value
       }
     }
+    const everyParent = once(() => store.query(queryDb(taskParents.orderBy('taskId', 'asc'))))
     const everyPullRequest = once(() => store.query(queryDb(pullRequests)))
     const factories = once(listFactories)
     return {
@@ -1479,6 +1528,12 @@ export async function openStore({
         () => store.query(queryDb(stageEntries.orderBy('at', 'asc'))),
         (r) => r.taskId,
       ),
+      parents: rows(
+        (taskId) => store.query(queryDb(taskParents.where({ taskId }))),
+        everyParent,
+        (r) => r.taskId,
+      ),
+      children: rows(childRows, everyParent, (r) => r.parentId),
       blockers: rows(
         blockerRows,
         () => store.query(queryDb(taskBlockers.orderBy('at', 'asc'))),
@@ -1639,11 +1694,12 @@ export async function openStore({
     const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
     const entries = reads.entries(row.id)
+    const parentId = reads.parents(row.id).at(0)?.parentId
     const blockedBy = reads.blockers(row.id).map((b) => b.blockerId)
     const repos = reads
       .repos(row.id)
       .map((repo) => toTaskRepo(repo, reads.pullRequest(repo.id).at(0)))
-    const unmerged = blockedBy.map((id) => blockerOf(id, reads)).filter((b) => !b.merged)
+    const unmerged = blockerLinks(row.id, reads).filter((b) => !b.merged && !b.satisfied)
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
     const github =
@@ -1767,6 +1823,10 @@ export async function openStore({
       pausedRuns,
       runs: live.map((r) => r.state as RunState),
       openRequests: requests.filter((r) => r.linearTeam === null).length,
+      ...requestsSnoozed(
+        row.id,
+        requests.filter((r) => r.linearTeam === null),
+      ),
       ...permissionWait(requests, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
@@ -1790,6 +1850,7 @@ export async function openStore({
     }
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
+    const unblocked = statusWithoutBlocker(facts, status)
     const shown = taskActivity(facts)
     const tabs: ConversationTab[] = reads.tabs(row.id).flatMap((tab) => {
       const run = all.find((r) => r.id === tab.runId)
@@ -1879,6 +1940,8 @@ export async function openStore({
       ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
       pendingLeadMessages: pendingMessages,
       blockedBy,
+      ...(parentId !== undefined && { parentId }),
+      childIds: reads.children(row.id).map((child) => child.taskId),
       waitsForBlockers,
       stopped: stoppedAt !== null,
       ...((preparation === 'preparing' || preparation === 'ready') && { preparation }),
@@ -1909,6 +1972,7 @@ export async function openStore({
       ...(worktree !== null && { worktree }),
       ...(lead !== undefined && { leadRunId: lead.id }),
       ...(status !== undefined && { status }),
+      ...(unblocked !== undefined && { statusWithoutBlocker: unblocked }),
       statuses: taskStatuses(facts),
       markers: taskMarkers(facts, status),
       ...(shown !== undefined && { activity: shown }),
@@ -2073,6 +2137,9 @@ export async function openStore({
     answerSentRunId,
     answerSentAt,
     failedRunId,
+    talkRequested,
+    talkMessageId: _talkMessageId,
+    talkNotifiedAt,
     talkRunId,
     talkStartedAt,
     talkDoneAt,
@@ -2094,11 +2161,13 @@ export async function openStore({
         ...(title !== null && { title }),
         ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
         ...(round !== null && { round: JSON.parse(round) as Round }),
+        ...(talkRequested && { talkRequested: true as const }),
         ...(talkRunId !== null &&
           talkStartedAt !== null && {
             talk: {
               runId: talkRunId,
               startedAt: talkStartedAt,
+              ...(talkNotifiedAt !== null && { notifiedAt: talkNotifiedAt }),
               ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
             },
           }),
@@ -2208,6 +2277,21 @@ export async function openStore({
     )
 
   const isOpenRequest = (row: typeof comments.Type) => row.kind !== 'note' && row.answer === null
+
+  const requestsSnoozed = (
+    taskId: string,
+    open: readonly { id: string }[],
+  ): { requestsSnoozedUntil?: string } => {
+    if (open.length === 0) return {}
+    const until = new Map(
+      store
+        .query(queryDb(requestSnoozes.where({ ownerId: taskId })))
+        .map((row) => [row.requestId, row.until]),
+    )
+    const times = open.flatMap((request) => until.get(request.id) ?? [])
+    const first = times.sort()[0]
+    return times.length < open.length || first === undefined ? {} : { requestsSnoozedUntil: first }
+  }
 
   const openRequestRows = (taskId?: string) => commentRows(taskId).filter(isOpenRequest)
 
@@ -2586,6 +2670,8 @@ export async function openStore({
   }
 
   const updatedDependents = (blockerId: string) => {
+    const parent = parentRow(blockerId)?.parentId
+    if (parent && taskRow(parent)) updatedTask(parent)
     for (const { taskId } of store.query(queryDb(taskBlockers.where({ blockerId })))) {
       if (taskRow(taskId)) updatedTask(taskId)
     }
@@ -2721,7 +2807,7 @@ export async function openStore({
       shellsRunning,
     }
   }
-  const waiting = (): WaitingRequest[] => {
+  const openRequests = (): WaitingRequest[] => {
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveTasks = new Map(
       store
@@ -2794,11 +2880,49 @@ export async function openStore({
           },
         ]
       })
-    return [...fromTasks, ...fromAutomations, ...fromPlans].sort((a, b) =>
-      a.createdAt.localeCompare(b.createdAt),
+    const current = settings()
+    return [...fromTasks, ...fromAutomations, ...fromPlans]
+      .map(
+        (request): WaitingRequest =>
+          factoryNotifications(current, request.factoryId).inboxItems
+            ? request
+            : { ...request, uncounted: true },
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  }
+  if (
+    store.query(queryDb(machineSettingValues.where({ name: 'factoryNotifications' }))).length === 0
+  ) {
+    commit(
+      events.machineSettingsChanged({
+        changes: JSON.stringify({
+          factoryNotifications: firstFactoryNotifications(
+            store.query(allFactories).map((f) => f.id),
+            settings().notifyTaskMerged,
+          ),
+        }),
+        at: new Date().toISOString(),
+      }),
     )
   }
-  let lastWaiting: WaitingRequest[] | undefined
+  const inbox = (): { waiting: WaitingRequest[]; snoozed: SnoozedRequest[] } => {
+    const until = new Map(
+      store.query(queryDb(requestSnoozes.select())).map((row) => [row.requestId, row.until]),
+    )
+    const open = openRequests()
+    return {
+      waiting: open.filter((request) => !until.has(request.id)),
+      snoozed: open
+        .flatMap((request): SnoozedRequest[] => {
+          const snoozedUntil = until.get(request.id)
+          return snoozedUntil === undefined ? [] : [{ ...request, snoozedUntil }]
+        })
+        .sort((a, b) => a.snoozedUntil.localeCompare(b.snoozedUntil)),
+    }
+  }
+  const waiting = (): WaitingRequest[] => inbox().waiting
+  const snoozed = (): SnoozedRequest[] => inbox().snoozed
+  let lastWaiting: { waiting: WaitingRequest[]; snoozed: SnoozedRequest[] } | undefined
   let waitingNoted = false
   noteWaiting = () => {
     if (waitingNoted) return
@@ -2806,13 +2930,13 @@ export async function openStore({
     queueMicrotask(() => {
       waitingNoted = false
       if (shutDown) return
-      const next = waiting()
+      const next = inbox()
       if (lastWaiting !== undefined && isDeepStrictEqual(next, lastWaiting)) return
       lastWaiting = next
-      emit({ type: 'inbox-changed', waiting: next })
+      emit({ type: 'inbox-changed', ...next })
     })
   }
-  lastWaiting = waiting()
+  lastWaiting = inbox()
 
   let lastActivity = activity()
   const noteActivity = () => {
@@ -3312,12 +3436,14 @@ export async function openStore({
       return task
     },
     queueTask(taskId, stage, options) {
-      const rank = nextRank()
+      const kept = options?.keepRank ? taskRow(taskId)?.rank : null
+      const rank = kept ?? nextRank()
       const at = new Date().toISOString()
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...(taskRow(taskId)?.stoppedAt !== null ? [events.taskResumed({ taskId, rank, at })] : []),
         ...startRequestUsed(taskId, at),
-        events.taskRanked({ taskId, rank, at }),
+        ...(kept == null ? [events.taskRanked({ taskId, rank, at })] : []),
         events.taskQueued({ taskId, stage, rank, at }),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
           ? [
@@ -3458,11 +3584,17 @@ export async function openStore({
       return task
     },
     deleteTask(taskId) {
+      const oldParent = parentRow(taskId)?.parentId
+      const oldChildren = childRows(taskId).map((row) => row.taskId)
       const row = taskRow(taskId)
       if (!row) return
       checkingTasks.delete(taskId)
       const at = new Date().toISOString()
       commit(
+        ...[
+          ...childRows(taskId).map((row) => row.taskId),
+          ...(parentRow(taskId) ? [taskId] : []),
+        ].map((id) => events.taskParentChanged({ taskId: id, parentId: null, at })),
         events.taskExecutionForgotten({ taskId, at }),
         events.taskDeleted({
           taskId,
@@ -3473,14 +3605,44 @@ export async function openStore({
           at,
         }),
       )
+      if (oldParent && taskRow(oldParent)) updatedTask(oldParent)
+      for (const id of oldChildren) if (taskRow(id)) updatedTask(id)
       emit({ type: 'task-deleted', taskId })
       updatedQueue()
       updatedDependents(taskId)
     },
+    resetTask(taskId) {
+      const row = requireTaskRow(taskId)
+      checkingTasks.delete(taskId)
+      const runIds = taskRuns(taskId).map((r) => r.id)
+      const human = history.humanClarifyDepth(taskId)
+      const byLead = row.clarifyDepthBy === 'task-lead'
+      commit(
+        events.taskReset({
+          taskId,
+          description: descriptionRows(taskId).at(0)?.text ?? row.description,
+          clarifyDepth: byLead ? (human ?? 'auto') : row.clarifyDepth,
+          clarifyDepthBy: byLead ? (human === undefined ? null : 'human') : row.clarifyDepthBy,
+          runIds,
+          checkRunIds: checkRunRows(taskId).map((r) => r.id),
+          at: new Date().toISOString(),
+        }),
+      )
+      emit({ type: 'task-reset', taskId })
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      updatedDependents(taskId)
+      return task
+    },
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),
     openBlockedTasks: () =>
-      [...new Set(store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId))]
+      [
+        ...new Set([
+          ...store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId),
+          ...store.query(queryDb(taskParents.orderBy('taskId', 'asc'))).map((row) => row.parentId),
+        ]),
+      ]
         .flatMap((id) => taskRow(id) ?? [])
         .filter((row) => row.stage !== 'done' && row.archivedAt === null)
         .sort((a, b) => a.number - b.number)
@@ -3490,6 +3652,15 @@ export async function openStore({
       commit(events.taskDequeued({ taskId, at: new Date().toISOString() }))
       const task = updatedTask(taskId)
       updatedQueue(taskId)
+      return task
+    },
+    parentOf: (taskId) => parentRow(taskId)?.parentId,
+    childrenOf: (taskId) => childRows(taskId).map((row) => row.taskId),
+    setTaskParent(taskId, parentId) {
+      const old = parentRow(taskId)?.parentId
+      commit(events.taskParentChanged({ taskId, parentId, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      for (const id of new Set([old, parentId])) if (id && taskRow(id)) updatedTask(id)
       return task
     },
     blockers: blockerLinks,
@@ -3530,7 +3701,15 @@ export async function openStore({
       return updatedTask(taskId)
     },
     setStartRequested(taskId, startRequested) {
+      const row = taskRow(taskId)
+      const at = new Date().toISOString()
       commit(
+        ...(startRequested && row?.stage === 'backlog' && row.stoppedAt !== null
+          ? [
+              events.taskResumed({ taskId, rank: row.rank ?? row.number, at }),
+              events.taskDequeued({ taskId, at }),
+            ]
+          : []),
         ...(startRequested && taskRow(taskId)?.snoozedUntil
           ? [events.taskSnoozeCleared({ taskId, at: new Date().toISOString() })]
           : []),
@@ -3551,28 +3730,37 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    taskStoppedByHuman(taskId) {
+      const row = requireTaskRow(taskId)
+      return row.stoppedAt !== null && (row.stoppedWhy === 'human' || row.stoppedWhy === null)
+    },
     stopTask(taskId, { runs, why }) {
+      const pendingTalks = store.query(queryDb(comments.where({ taskId, talkRequested: true })))
       const at = new Date().toISOString()
       commit(
         events.taskStopped({ taskId, runs, why, at }),
-        ...(why === 'human' && taskRow(taskId)?.preparation === 'ready'
+        ...((why === 'human' || why === 'blockers-removed') &&
+        taskRow(taskId)?.preparation === 'ready'
           ? [events.taskPreparationChanged({ taskId, state: null, at })]
           : []),
       )
+      for (const { id } of pendingTalks) emitComment(id)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
-    resumeTask(taskId, { waitForBlockers, overnight }) {
+    resumeTask(taskId, { waitForBlockers, overnight, talkCommentId }) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
       const at = new Date().toISOString()
       commit(
+        ...(talkCommentId ? [events.roundTalkRequested({ id: talkCommentId, at })] : []),
         (overnight ? events.taskResumedOvernight : events.taskResumed)({ taskId, rank, at }),
         ...(taskRow(taskId)?.preparation === 'ready'
           ? [events.taskPreparationChanged({ taskId, state: null, at })]
           : []),
         ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
       )
+      if (talkCommentId) emitComment(talkCommentId)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
@@ -4157,13 +4345,7 @@ export async function openStore({
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       if (options?.prepare) updatedQueue(taskId)
-      if (stage === 'done') {
-        for (const { taskId: waiting } of store.query(
-          queryDb(taskBlockers.where({ blockerId: taskId })),
-        )) {
-          updatedTask(waiting)
-        }
-      }
+      if (stage === 'done') updatedDependents(taskId)
       return task
     },
     factoryDashboard(factoryId, range, asOf = Date.now()) {
@@ -4240,6 +4422,9 @@ export async function openStore({
         ...store
           .query(queryDb(comments.where({ answerHeld: true })))
           .filter((comment) => comment.answerQueuedAt !== null)
+          .map((comment) => comment.taskId),
+        ...store
+          .query(queryDb(comments.where({ talkRequested: true, answer: null })))
           .map((comment) => comment.taskId),
       ]),
     ],
@@ -4502,9 +4687,51 @@ export async function openStore({
       commit(events.commentsRead({ ids, at: new Date().toISOString() }))
       for (const id of ids) emitComment(id)
     },
-    startRoundTalk(id, runId) {
-      commit(events.roundTalkStarted({ id, runId, at: new Date().toISOString() }))
+    requestRoundTalk(id) {
+      commit(events.roundTalkRequested({ id, at: new Date().toISOString() }))
       return emitComment(id)
+    },
+    startRoundTalk(id, runId, text) {
+      const at = new Date().toISOString()
+      const messageId = randomUUID()
+      const taskId = taskIdOfRun(runId) ?? null
+      commit(
+        events.runMessageQueuedV2({ id: messageId, runId, taskId, text, at, from: 'ted' }),
+        events.roundTalkStartedV2({
+          id,
+          runId,
+          messageId,
+          at,
+        }),
+      )
+      emit({ type: 'run-output', runId })
+      return emitComment(id)
+    },
+    roundTalkMessageIds(runId) {
+      return store
+        .query(
+          queryDb(runMessages.where({ runId, roundId: { op: '!=', value: null }, queued: true })),
+        )
+        .map((message) => message.id)
+    },
+    pendingRoundTalks(runId) {
+      return store
+        .query(queryDb(comments.where({ talkRunId: runId, talkRequested: true, answer: null })))
+        .flatMap((row) =>
+          row.talkMessageId === null
+            ? []
+            : [{ messageId: row.talkMessageId, round: toComment(row) }],
+        )
+    },
+    roundTalkNotified(id, runId, messageId) {
+      const at = new Date().toISOString()
+      const taskId = taskIdOfRun(runId) ?? null
+      commit(
+        events.runMessageDelivered({ id: messageId, runId, taskId, lead: false, at }),
+        events.roundTalkNotified({ id, runId, messageId, at }),
+      )
+      emit({ type: 'run-output', runId })
+      emitComment(id)
     },
     roundTalkDone(id) {
       commit(events.roundTalkDone({ id, at: new Date().toISOString() }))
@@ -4675,6 +4902,12 @@ export async function openStore({
           ),
         )
         .map(toBaseConflict),
+    baseAdopted(taskId, moved) {
+      if (moved.length === 0) return
+      const at = new Date().toISOString()
+      commit(...moved.map((row) => events.baseBranchAdopted({ taskId, ...row, at })))
+      updatedTask(taskId)
+    },
     listSendBacks(taskId) {
       const declared = store.query(
         queryDb(severityDeclarations.where({ taskId }).orderBy('at', 'asc')),
@@ -5409,6 +5642,44 @@ export async function openStore({
     settings,
     activity,
     waiting,
+    snoozed,
+    snoozeRequest(requestId, until) {
+      const request = openRequests().find((r) => r.id === requestId)
+      if (!request) return undefined
+      const at = new Date().toISOString()
+      const ownerId =
+        request.source === 'task'
+          ? request.taskId
+          : request.source === 'plan'
+            ? request.planId
+            : request.automationId
+      commit(
+        until === null
+          ? events.requestSnoozeCleared({ requestId, at })
+          : events.requestSnoozed({
+              requestId,
+              ownerId,
+              factoryId: request.factoryId,
+              until,
+              at,
+            }),
+      )
+      if (request.source === 'task') updatedTask(request.taskId)
+      return until === null ? request : { ...request, snoozedUntil: until }
+    },
+    returnDueRequests(now) {
+      const due = store
+        .query(queryDb(requestSnoozes.select()))
+        .filter((row) => Date.parse(row.until) <= now)
+      if (due.length === 0) return []
+      const at = new Date().toISOString()
+      commit(...due.map((row) => events.requestSnoozeCleared({ requestId: row.requestId, at })))
+      for (const ownerId of new Set(due.map((row) => row.ownerId))) {
+        if (taskRow(ownerId)) updatedTask(ownerId)
+      }
+      return due.map((row) => row.requestId)
+    },
+    requestSnoozesPending: () => store.query(queryDb(requestSnoozes.select())).length > 0,
     setQueueActivity(value) {
       const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, entry.place]))
       const after = new Map(value.taskPlaces?.map((entry) => [entry.id, entry.place]))

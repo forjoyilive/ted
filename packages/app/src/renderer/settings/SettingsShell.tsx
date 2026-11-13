@@ -1,8 +1,11 @@
 import type { Factory, MachineSettings } from '@ted/protocol'
+import { useRef } from 'react'
 import { DotIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { ResizableSidebar } from '../components/ResizableSidebar.tsx'
+import { SettingsSearch } from '../components/SettingsSearch.tsx'
 import type { NavigationAction, SettingsSectionId } from '../navigation.ts'
+import { useShownSetting } from '../setting-focus.ts'
 import { SettingsPage } from './controls.tsx'
 import { NotBuiltYet, settingsSections } from './sections.tsx'
 import styles from './settings.module.css'
@@ -13,6 +16,7 @@ interface SettingsShellProps {
   error?: string | undefined
   retry?: (() => void) | undefined
   factories: readonly Factory[]
+  searchFactory?: Factory | undefined
   inboxCount: number
   stopsWork?: Partial<Record<SettingsSectionId, boolean>>
   counts?: Partial<Record<SettingsSectionId, number>>
@@ -25,12 +29,15 @@ export function SettingsShell({
   error,
   retry,
   factories,
+  searchFactory,
   inboxCount,
   stopsWork = {},
   counts = {},
   dispatch,
 }: SettingsShellProps) {
   const current = settingsSections.find((s) => s.id === section) ?? settingsSections[0]
+  const main = useRef<HTMLElement>(null)
+  useShownSetting(main, 'app')
 
   return (
     <div className={styles.shell}>
@@ -51,43 +58,49 @@ export function SettingsShell({
             )}
           </button>
 
-          <h2 className={styles.sidebarHeading}>Settings</h2>
-          {settingsSections.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              className={styles.sidebarRow}
-              onClick={() => dispatch({ type: 'open-settings', section: id })}
-              {...(id === current?.id && { 'aria-current': 'page' as const })}
-            >
-              <span className={styles.sidebarLabel}>{label}</span>
-              {stopsWork[id] && <DotIcon className={styles.stopsWork} />}
-              {(counts[id] ?? 0) > 0 && <span className={styles.sidebarCount}>{counts[id]}</span>}
-            </button>
-          ))}
+          <SettingsSearch
+            factory={searchFactory}
+            dispatch={dispatch}
+            onLeave={() => dispatch({ type: 'close-settings' })}
+          >
+            <h2 className={styles.sidebarHeading}>Settings</h2>
+            {settingsSections.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                className={styles.sidebarRow}
+                onClick={() => dispatch({ type: 'open-settings', section: id })}
+                {...(id === current?.id && { 'aria-current': 'page' as const })}
+              >
+                <span className={styles.sidebarLabel}>{label}</span>
+                {stopsWork[id] && <DotIcon className={styles.stopsWork} />}
+                {(counts[id] ?? 0) > 0 && <span className={styles.sidebarCount}>{counts[id]}</span>}
+              </button>
+            ))}
 
-          {factories.length > 0 && <h2 className={styles.sidebarHeading}>Factories</h2>}
-          {factories.map((factory) => (
-            <button
-              key={factory.id}
-              type="button"
-              className={styles.sidebarRow}
-              onClick={() =>
-                dispatch({
-                  type: 'open',
-                  screen: { kind: 'factory', factoryId: factory.id, view: 'settings' },
-                })
-              }
-            >
-              <span className={styles.sidebarLabel}>{factory.name}</span>
-              <span className={styles.leave} aria-hidden>
-                ↗
-              </span>
-            </button>
-          ))}
+            {factories.length > 0 && <h2 className={styles.sidebarHeading}>Factories</h2>}
+            {factories.map((factory) => (
+              <button
+                key={factory.id}
+                type="button"
+                className={styles.sidebarRow}
+                onClick={() =>
+                  dispatch({
+                    type: 'open',
+                    screen: { kind: 'factory', factoryId: factory.id, view: 'settings' },
+                  })
+                }
+              >
+                <span className={styles.sidebarLabel}>{factory.name}</span>
+                <span className={styles.leave} aria-hidden>
+                  ↗
+                </span>
+              </button>
+            ))}
+          </SettingsSearch>
         </nav>
       </ResizableSidebar>
-      <main className={styles.main} aria-label={current?.label}>
+      <main ref={main} className={styles.main} aria-label={current?.label}>
         {!settings && (
           <SettingsPage title={current?.label ?? 'Settings'}>
             {error && retry ? (

@@ -13,6 +13,7 @@ import { StatusChip } from './StatusChip.tsx'
 
 export interface FactoryBadges {
   waiting?: number
+  uncounted?: boolean
   failed?: boolean
   plansFailed?: boolean
   stopsWork?: boolean
@@ -121,11 +122,13 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
   )
 }
 
-const factoryViews: { view: FactoryView; label: string }[] = [
+const factoryViews: { view: FactoryView | 'tasks'; label: string; nested?: true }[] = [
   { view: 'dashboard', label: 'Dashboard' },
   { view: 'coordinator', label: 'Coordinator' },
-  { view: 'board', label: 'Board' },
-  { view: 'list', label: 'List' },
+  { view: 'tasks', label: 'Tasks' },
+  { view: 'board', label: 'Board', nested: true },
+  { view: 'list', label: 'List', nested: true },
+  { view: 'map', label: 'Map', nested: true },
   { view: 'plans', label: 'Plans' },
   { view: 'automations', label: 'Automations' },
   { view: 'settings', label: 'Settings' },
@@ -320,9 +323,13 @@ export function Sidebar({
                     {waiting > 0 && (
                       <ActionButton
                         type="button"
-                        className={styles.countButton}
-                        aria-label={`${waiting} waiting in ${factory.name}`}
-                        title="Show in the Inbox"
+                        className={`${styles.countButton} ${badge.uncounted ? styles.countQuiet : ''}`}
+                        aria-label={`${waiting} waiting in ${factory.name}${badge.uncounted ? ', not counted in the Inbox' : ''}`}
+                        title={
+                          badge.uncounted
+                            ? 'Not counted: Inbox items are off for this Factory. Show in the Inbox'
+                            : 'Show in the Inbox'
+                        }
                         onClick={() => open({ kind: 'inbox', factoryId: factory.id })}
                       >
                         {waiting}
@@ -345,13 +352,25 @@ export function Sidebar({
                 </article>
               )}
               {expanded &&
-                factoryViews.map(({ view, label }) => {
+                factoryViews.map(({ view, label, nested }) => {
+                  if (view === 'tasks') {
+                    return (
+                      <button
+                        key={view}
+                        type="button"
+                        className={`${styles.row} ${styles.sub}`}
+                        onClick={() => dispatch({ type: 'open-tasks', factoryId: factory.id })}
+                      >
+                        <span className={styles.label}>{label}</span>
+                      </button>
+                    )
+                  }
                   const screen: Screen = { kind: 'factory', factoryId: factory.id, view }
                   return (
                     <ActionButton
                       key={view}
                       type="button"
-                      className={`${styles.row} ${styles.sub}`}
+                      className={`${styles.row} ${styles.sub} ${nested ? styles.nested : ''}`}
                       onClick={() => open(screen)}
                       {...current(screen)}
                     >
