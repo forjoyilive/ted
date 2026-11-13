@@ -179,7 +179,7 @@ h2.groupHeading::before {
 .error {
   display: block;
   margin-top: 4px;
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
   font-size: var(--text-12);
 }
 
@@ -260,7 +260,7 @@ h2.groupHeading::before {
 }
 
 .danger {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .confirmText {

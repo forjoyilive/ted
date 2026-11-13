@@ -16,6 +16,19 @@ async function sources(): Promise<{ file: string; text: string }[]> {
   return Promise.all(files.map(async (file) => ({ file, text: await readFile(file, 'utf8') })))
 }
 
+function luminance(hex: string): number {
+  const [r = 0, g = 0, b = 0] = [1, 3, 5].map((at) => {
+    const c = Number.parseInt(hex.slice(at, at + 2), 16) / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrast(a: string, b: string): number {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05)
+}
+
 async function tokens(): Promise<Map<string, string>> {
   const text = await readFile(tokensPath, 'utf8')
   return new Map(
@@ -58,6 +71,97 @@ describe('theme tokens', () => {
     expect([...used].filter((name) => !defined.has(name))).toEqual([])
   })
 
+  test('text, icons and control borders meet WCAG AA contrast in light and dark mode', async () => {
+    const defined = await tokens()
+    const surfaces = [
+      '--surface-app',
+      '--surface-sidebar',
+      '--surface-pane',
+      '--surface-card',
+      '--surface-raised',
+      '--surface-column',
+      '--surface-inset',
+      '--surface-hover',
+      '--surface-selected',
+      '--surface-neutral',
+    ]
+    const onSurfaces = (names: string[], minimum: number) =>
+      names.flatMap((name) => surfaces.map((surface) => [name, surface, minimum] as const))
+    const pairs: (readonly [foreground: string, background: string, minimum: number])[] = [
+      ...onSurfaces(
+        [
+          '--text-primary',
+          '--text-secondary',
+          '--text-tertiary',
+          '--text-caption',
+          '--text-muted',
+          '--accent-text',
+          '--accent-link',
+          '--status-testing-fg',
+          '--status-working-fg',
+          '--status-waiting-fg',
+          '--status-warning-text',
+          '--status-failed-fg',
+          '--status-destructive-text',
+          '--status-neutral-fg',
+          '--status-success-fg',
+          '--diff-added-count',
+          '--diff-removed-count',
+        ],
+        4.5,
+      ),
+      ...onSurfaces(
+        [
+          '--text-faint',
+          '--border-control',
+          '--focus-ring',
+          '--event-neutral',
+          '--priority-none',
+          '--agent-ring-paused',
+          '--agent-ring-idle',
+        ],
+        3,
+      ),
+      ['--status-testing-fg', '--status-testing-bg', 4.5],
+      ['--status-working-fg', '--status-working-bg', 4.5],
+      ['--status-waiting-fg', '--status-waiting-bg', 4.5],
+      ['--status-warning-text', '--status-waiting-bg', 4.5],
+      ['--status-failed-fg', '--status-failed-bg', 4.5],
+      ['--status-neutral-fg', '--status-neutral-bg', 4.5],
+      ['--status-success-fg', '--status-success-bg', 4.5],
+      ['--accent-text', '--accent-subtle', 4.5],
+      ['--diff-added-count', '--diff-added-line', 4.5],
+      ['--diff-removed-count', '--diff-removed-line', 4.5],
+      ['--text-on-accent', '--accent-default', 4.5],
+      ['--text-on-accent-muted', '--accent-default', 4.5],
+      ['--text-on-accent', '--status-destructive', 4.5],
+      ['--text-on-inverse', '--surface-inverse', 4.5],
+      ['--text-on-inverse-muted', '--surface-inverse', 4.5],
+      ['--control-selected-fg', '--control-selected-bg', 4.5],
+      ['--text-primary', '--control-segment-selected', 4.5],
+      ['--text-primary', '--find-match', 4.5],
+      ['--text-primary', '--find-current', 4.5],
+      ['--terminal-fg', '--terminal-bg', 4.5],
+      ['--terminal-muted', '--terminal-bg', 4.5],
+    ]
+    const themes = (name: string): [light: string, dark: string] => {
+      const found = defined.get(name)?.match(/^light-dark\((#[0-9a-f]{6}), (#[0-9a-f]{6})\)$/)
+      if (!found?.[1] || !found[2]) throw new Error(`${name} is not an opaque light-dark() colour`)
+      return [found[1], found[2]]
+    }
+
+    const failures = pairs.flatMap(([foreground, background, minimum]) =>
+      (['light', 'dark'] as const).flatMap((theme, i) => {
+        const ratio = contrast(themes(foreground)[i] ?? '', themes(background)[i] ?? '')
+        return ratio < minimum
+          ? [`${theme} ${foreground} on ${background}: ${ratio.toFixed(2)} < ${minimum}`]
+          : []
+      }),
+    )
+
+    expect(failures).toEqual([])
+  })
+
   test('status colours, diff green and red, and the agent marks are tokens', async () => {
     const defined = await tokens()
 
@@ -72,6 +176,50 @@ describe('theme tokens', () => {
       '--agent-mark-strong',
     ]) {
       expect(defined.has(name), name).toBe(true)
+    }
+  })
+})
+
+describe('disabled and control styles', () => {
+  test('no disabled state fades a control with opacity', async () => {
+    const faded = (await sources())
+      .filter(({ file }) => file.endsWith('.css'))
+      .flatMap(({ file, text }) =>
+        [...text.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+          .filter((m) => /disabled/.test(m[1] ?? '') && /(^|\n)\s*opacity:/.test(m[2] ?? ''))
+          .map((m) => `${path.relative(rendererDir, file)} ${(m[1] ?? '').trim()}`),
+      )
+
+    expect(faded).toEqual([])
+  })
+
+  test('inputs, selects, buttons and switches are outlined with the control border', async () => {
+    const controls: [file: string, selector: string][] = [
+      ['settings/editor.module.css', '.field'],
+      ['settings/linear.module.css', '.field'],
+      ['settings/settings.module.css', '.button'],
+      ['settings/settings.module.css', '.select'],
+      ['settings/settings.module.css', '.stepper'],
+      ['settings/settings.module.css', '.switch'],
+      ['components/SettingsSearch.module.css', '.input'],
+      ['components/Sidebar.module.css', '.search'],
+      ['views/Inbox.module.css', '.chip'],
+      ['views/FactorySettings.module.css', '.timeoutInput'],
+      ['views/FactorySettingsSections.module.css', '.switch'],
+      ['views/Automations.module.css', '.switch'],
+      ['views/TaskList.module.css', '.search'],
+      ['views/DataScreen.module.css', '.secondary'],
+    ]
+
+    for (const [file, selector] of controls) {
+      const text = await readFile(path.join(rendererDir, file), 'utf8')
+      const bodies = [...text.matchAll(/(?:^|\n)([^{}\n]+) \{([^}]*)\}/g)]
+        .filter((m) => m[1] === selector)
+        .map((m) => m[2] ?? '')
+      expect(
+        bodies.some((body) => body.includes('var(--border-control)')),
+        `${file} ${selector}`,
+      ).toBe(true)
     }
   })
 })

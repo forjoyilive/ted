@@ -19,6 +19,11 @@ export const checkLimits = { min: 1, max: 16 } as const
 
 export const textSizeLimits = { min: 80, max: 200, step: 5 } as const
 
+// 100% draws text at 110% of the CSS sizes; integer maths keeps the CSS value exact.
+export function textScale(textSize: number): number {
+  return (textSize * 11) / 1000
+}
+
 export const terminalFontSizes = { min: 10, max: 20 } as const
 
 export const runOutputDayLimits = { min: 1, max: 365 } as const

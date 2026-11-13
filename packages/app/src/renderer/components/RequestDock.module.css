@@ -65,7 +65,7 @@
 }
 
 .step:disabled {
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .link {

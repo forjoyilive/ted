@@ -162,7 +162,7 @@
   padding: 0;
   border: none;
   border-radius: var(--radius-pill);
-  background: var(--border-strong);
+  background: var(--border-control);
   cursor: pointer;
   transition: background-color 120ms;
 }
@@ -361,7 +361,7 @@
 }
 
 .danger {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .detail {

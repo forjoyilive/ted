@@ -51,7 +51,7 @@
 .error {
   margin: 0;
   padding: 10px 16px;
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
   font-size: var(--text-13);
 }
 .actions {

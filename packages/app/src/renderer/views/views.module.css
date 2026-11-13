@@ -168,11 +168,11 @@
 }
 
 .archivedAction:disabled {
-  opacity: 0.5;
+  color: var(--text-faint);
 }
 
 .archivedError {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .taskHeader {

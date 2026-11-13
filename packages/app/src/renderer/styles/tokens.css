@@ -21,16 +21,16 @@
   --border-subtle: light-dark(#e6e5e1, #2a2a28);
   --border-default: light-dark(#dcdbd6, #33332f);
   --border-strong: light-dark(#d6d5d0, #3e3e3a);
-  --border-control: light-dark(#c4c3bd, #55544f);
+  --border-control: light-dark(#8a8984, #767570);
 
   --text-primary: light-dark(#1c1c1a, #ecebe6);
   --text-secondary: light-dark(#53524d, #c2c0b9);
-  --text-tertiary: light-dark(#6c6b66, #adaba4);
-  --text-caption: light-dark(#77756f, #a3a19a);
-  --text-muted: light-dark(#a19f99, #8f8d86);
-  --text-faint: light-dark(#c9c8c3, #5e5d58);
+  --text-tertiary: light-dark(#61605b, #adaba4);
+  --text-caption: light-dark(#676560, #a3a19a);
+  --text-muted: light-dark(#6c6b65, #96948d);
+  --text-faint: light-dark(#8a8985, #767570);
   --text-on-accent: light-dark(#ffffff, #ffffff);
-  --text-on-accent-muted: light-dark(#c9cdf3, #d4d8fa);
+  --text-on-accent-muted: light-dark(#e0e5ff, #f7fbff);
   --text-on-inverse: light-dark(#ffffff, #ecebe6);
   --text-on-inverse-muted: light-dark(#c8c7c2, #b5b3ac);
 
@@ -47,7 +47,7 @@
   --status-testing-fg: light-dark(#7952b3, #c4a3ee);
   --status-working-fg: light-dark(#3a45b0, #9aa4f5);
   --status-working-bg: light-dark(#eef0fb, #232845);
-  --status-waiting-fg: light-dark(#b86e12, #e3a04a);
+  --status-waiting-fg: light-dark(#a15800, #e3a04a);
   --status-waiting-bg: light-dark(#fbf2e4, #3a2b16);
   --status-warning-border: light-dark(#efd9b5, #5e4520);
   --status-warning-text: light-dark(#7a4a0c, #f0c27a);
@@ -55,38 +55,39 @@
   --status-failed-bg: light-dark(#fbeae8, #3d1f1b);
   --status-failed-border: light-dark(#f0c9c4, #6a2e27);
   --status-destructive: light-dark(#b4372a, #c9483a);
-  --status-neutral-fg: light-dark(#6c6b66, #adaba4);
+  --status-destructive-text: light-dark(#b4372a, #f0705f);
+  --status-neutral-fg: light-dark(#6b6a65, #adaba4);
   --status-neutral-bg: light-dark(#efeee9, #2c2c2a);
-  --status-success-fg: light-dark(#2d8456, #5cc38a);
+  --status-success-fg: light-dark(#1f794c, #5cc38a);
   --status-success-bg: light-dark(#e6f2eb, #1c3326);
 
   --event-created: light-dark(#2d8456, #4fb57f);
   --event-run: light-dark(#4d59cf, #6e7aea);
   --event-failed: light-dark(#c0392b, #e5604f);
   --event-waiting: light-dark(#b86e12, #d9953f);
-  --event-neutral: light-dark(#a19f99, #7e7c76);
+  --event-neutral: light-dark(#8b8983, #7e7c76);
   --event-hollow: light-dark(#c4c3bd, #6b6a64);
 
   --diff-added-line: light-dark(#e9f5ee, #17301f);
-  --diff-added-count: light-dark(#2d8456, #5cc38a);
+  --diff-added-count: light-dark(#1f794c, #5cc38a);
   --diff-removed-line: light-dark(#fbeae8, #3a1d1a);
   --diff-removed-count: light-dark(#c0392b, #f07a6a);
   --diff-hunk: light-dark(#f1f2f8, #20222e);
 
   --find-match: light-dark(#fbe7a6, #6a5418);
-  --find-current: light-dark(#f5b942, #b8892a);
+  --find-current: light-dark(#f5b942, #8d6000);
 
   --priority-bar: light-dark(#6c6b66, #adaba4);
   --priority-bar-dim: light-dark(#d6d5d0, #4a4945);
-  --priority-none: light-dark(#a19f99, #7e7c76);
+  --priority-none: light-dark(#8b8983, #7e7c76);
   --priority-urgent: light-dark(#d9622b, #dd6a3d);
   --priority-urgent-glyph: light-dark(#ffffff, #ffffff);
 
   --agent-ring-bg: light-dark(#ffffff, #1c1c1b);
   --agent-ring-working: light-dark(#4d59cf, #7682f0);
   --agent-ring-waiting: light-dark(#b86e12, #e3a04a);
-  --agent-ring-idle: light-dark(#d6d5d0, #55544f);
-  --agent-ring-paused: light-dark(#a19f99, #6e6d67);
+  --agent-ring-idle: light-dark(#898883, #777671);
+  --agent-ring-paused: light-dark(#6c6b65, #96948d);
   --agent-ring-failed: light-dark(#c0392b, #f0705f);
   --agent-mark: light-dark(#53524d, #d4d2cb);
   --agent-mark-strong: light-dark(#1c1c1a, #ecebe6);
@@ -110,7 +111,7 @@
   --font-sans: -apple-system, BlinkMacSystemFont, 'Geist Variable', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Geist Mono Variable', monospace;
 
-  --text-scale: 1;
+  --text-scale: 1.1;
   --text-8: calc(8px * var(--text-scale));
   --text-9: calc(9px * var(--text-scale));
   --text-10: calc(10px * var(--text-scale));

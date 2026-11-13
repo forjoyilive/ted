@@ -17,7 +17,7 @@
   width: 320px;
   max-width: 100%;
   padding: 4px 8px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
   background: var(--surface-card);
   color: var(--text-primary);
