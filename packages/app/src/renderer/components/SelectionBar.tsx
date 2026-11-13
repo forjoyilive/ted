@@ -7,12 +7,10 @@ import { statusAction } from '../task-actions.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from '../views/TaskList.module.css'
-import { ActionButton } from './ActionButton.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import { ContextMenu, MenuItems, type MenuPosition } from './ContextMenu.tsx'
-import { PriorityIcon } from './PriorityIcon.tsx'
 import { Select } from './Select.tsx'
 import { SnoozeTaskDialog } from './SnoozeTaskDialog.tsx'
 import { BulkConfirmDialog } from './TaskContextMenu.tsx'
@@ -33,6 +31,27 @@ function MoreIcon() {
 
 const counted = (label: string, part: readonly Task[], all: readonly Task[]) =>
   part.length === all.length || part.length === 0 ? label : `${label} ${part.length}`
+
+export function startResumeLabel(
+  startable: readonly Task[],
+  resumable: readonly Task[],
+  all: readonly Task[],
+) {
+  if (startable.length > 0 && resumable.length > 0)
+    return `Start ${startable.length} · Resume ${resumable.length}`
+  if (resumable.length > 0) return counted('Resume', resumable, all)
+  return counted('Start', startable, all)
+}
+
+function startResumeTitle(startable: readonly Task[], resumable: readonly Task[]) {
+  const tasks = (n: number, kind: string) => `${n} ${kind}${n === 1 ? '' : 's'}`
+  const parts = [
+    startable.length > 0 ? `starts ${tasks(startable.length, 'Backlog Task')}` : '',
+    resumable.length > 0 ? `resumes ${tasks(resumable.length, 'stopped or prepared Task')}` : '',
+  ].filter(Boolean)
+  const text = parts.join(' and ')
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`
+}
 
 export function SelectionBar({
   scope,
@@ -57,7 +76,6 @@ export function SelectionBar({
   const [preparing, setPreparing] = useState(false)
   const [prepareError, setPrepareError] = useState<string>()
   const [closePullRequests, setClosePullRequests] = useState(true)
-  const [priorityOpen, setPriorityOpen] = useState(false)
   const [moreAt, setMoreAt] = useState<MenuPosition>()
   const moreWasOpen = useRef(false)
   useLayoutEffect(() => {
@@ -74,13 +92,16 @@ export function SelectionBar({
   useEffect(() => {
     if (!none) return
     setConfirmArchive(false)
-    setPriorityOpen(false)
     setMoreAt(undefined)
+    setAutopilotResult(undefined)
+    setPrepareError(undefined)
   }, [none])
 
   const startable = chosen.filter((t) => t.stage === 'backlog' && !t.statuses.includes('blocked'))
   const preparable = startable.filter((t) => !t.archived && !t.setup)
-  const resumable = chosen.filter((t) => statusAction(t)?.kind === 'resume')
+  const resumable = chosen.filter(
+    (t) => statusAction(t)?.kind === 'resume' && !startable.includes(t),
+  )
   const archivable = chosen.filter((t) => !t.archived)
   const snoozable = archivable.filter((t) => t.stage === 'backlog' && !t.setup)
   const openPullRequests = archivable.flatMap((t) =>
@@ -159,8 +180,39 @@ export function SelectionBar({
             className={styles.selectionControls}
           >
             <span className={styles.selectionCount}>{chosen.length} selected</span>
+            {(startable.length > 0 || resumable.length > 0) && (
+              <Button
+                variant="primary"
+                title={startResumeTitle(startable, resumable)}
+                onClick={() =>
+                  bulk(
+                    (t) => (startable.includes(t) ? ted.startTask(t.id) : ted.resumeTask(t.id)),
+                    [...startable, ...resumable],
+                  ).catch(report)
+                }
+              >
+                {startResumeLabel(startable, resumable, chosen)}
+              </Button>
+            )}
+            {preparable.length > 0 && (
+              <Button
+                disabled={preparing}
+                title="Runs through Design, then waits before Work. Resume or Autopilot lets it continue."
+                onClick={() => {
+                  if (settings?.preparationNoticeSeen || noticeSeen) return prepareTasks()
+                  setNoticeSeen(true)
+                  setPrepareNotice(true)
+                  return ted
+                    .updateSettings({ preparationNoticeSeen: true })
+                    .catch((error: unknown) => setPrepareError(readableError(error)))
+                }}
+              >
+                {counted('Prepare', preparable, chosen)}
+              </Button>
+            )}
             <Select
               aria-label="Autopilot for selected Tasks"
+              title="Autopilot makes routine decisions and carries started work through Merge. Turning it on also handles requests already waiting."
               value=""
               disabled={autopilotBusy || !chosen.some((t) => !t.archived && t.stage !== 'done')}
               onChange={(event) => {
@@ -174,106 +226,31 @@ export function SelectionBar({
               <option value="off">Autopilot off</option>
               <option value="inherit">Use global setting</option>
             </Select>
-            <small>
-              Turning on also handles waiting routine requests. Start and Resume stay separate.
-            </small>
-            <Button
-              disabled={startable.length === 0}
-              onClick={() => bulk((t) => ted.startTask(t.id), startable).catch(report)}
-            >
-              {counted('Start', startable, chosen)}
-            </Button>
-            <Button
-              disabled={preparable.length === 0 || preparing}
-              title="Runs through Design, then waits before Work. Resume or Autopilot lets it continue."
-              onClick={() => {
-                if (settings?.preparationNoticeSeen || noticeSeen) return prepareTasks()
-                setNoticeSeen(true)
-                setPrepareNotice(true)
-                return ted
-                  .updateSettings({ preparationNoticeSeen: true })
-                  .catch((error: unknown) => setPrepareError(readableError(error)))
-              }}
-            >
-              {counted('Prepare through Design', preparable, chosen)}
-            </Button>
-            {resumable.length > 0 && (
-              <Button
-                onClick={() => bulk((task) => ted.resumeTask(task.id), resumable).catch(report)}
-              >
-                {counted('Resume', resumable, chosen)}
-              </Button>
-            )}
-            <div className={styles.menuAnchor}>
-              <Button
-                aria-haspopup="menu"
-                aria-expanded={priorityOpen}
-                onClick={() => setPriorityOpen((o) => !o)}
-              >
-                Priority
-              </Button>
-              {priorityOpen && (
-                <div
-                  className={`${styles.menu} ${styles.upward}`}
-                  role="menu"
-                  aria-label="Priority"
-                >
-                  {priorities.map((priority) => (
-                    <ActionButton
-                      key={priority}
-                      type="button"
-                      role="menuitem"
-                      className={styles.menuItem}
-                      onClick={() =>
-                        bulk((t) => ted.setPriority(t.id, priority), archivable)
-                          .then(() => setPriorityOpen(false))
-                          .catch(report)
-                      }
-                    >
-                      <PriorityIcon priority={priority} />
-                      <span className={styles.menuLabel}>
-                        {priority === 'none' ? 'No priority' : priorityLabels[priority]}
-                      </span>
-                    </ActionButton>
-                  ))}
-                </div>
-              )}
-            </div>
-            <Button disabled={snoozable.length === 0} onClick={() => setSnoozing(true)}>
-              {counted('Snooze', snoozable, chosen)}
-            </Button>
-            {confirmArchive && openPullRequests.length > 0 && (
-              <label className={styles.closePullRequests} title={openPullRequests.join(', ')}>
-                <input
-                  type="checkbox"
-                  checked={closePullRequests}
-                  onChange={(event) => setClosePullRequests(event.target.checked)}
-                />
-                {`Close ${openPullRequests.length === 1 ? 'the pull request' : `${openPullRequests.length} pull requests`} on GitHub`}
-              </label>
-            )}
             {confirmArchive ? (
-              <Button
-                variant="primary"
-                onClick={() => {
-                  const close = closePullRequests && openPullRequests.length > 0
-                  return bulk(
-                    (t) => ted.archiveTask(t.id, { closePullRequests: close }),
-                    archivable,
-                  )
-                    .then(() => {
-                      onSelect([])
-                      setConfirmArchive(false)
-                    })
-                    .catch(report)
-                }}
-              >
-                {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
-              </Button>
+              <>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    const close = closePullRequests && openPullRequests.length > 0
+                    return bulk(
+                      (t) => ted.archiveTask(t.id, { closePullRequests: close }),
+                      archivable,
+                    )
+                      .then(() => {
+                        onSelect([])
+                        setConfirmArchive(false)
+                      })
+                      .catch(report)
+                  }}
+                >
+                  {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
+                </Button>
+                <Button onClick={() => setConfirmArchive(false)}>Cancel</Button>
+              </>
             ) : (
-              <Button disabled={archivable.length === 0} onClick={() => setConfirmArchive(true)}>
-                Archive
-              </Button>
+              archivable.length > 0 && (
+                <Button onClick={() => setConfirmArchive(true)}>Archive</Button>
+              )
             )}
             <Button
               aria-label="More actions"
@@ -289,24 +266,66 @@ export function SelectionBar({
                   return
                 }
                 const box = event.currentTarget.getBoundingClientRect()
-                setPriorityOpen(false)
                 setMoreAt({ x: box.left, y: box.top - 86, trigger: event.currentTarget })
               }}
             >
               <MoreIcon />
             </Button>
+            {confirmArchive && openPullRequests.length > 0 && (
+              <label className={styles.selectionNote} title={openPullRequests.join(', ')}>
+                <input
+                  type="checkbox"
+                  checked={closePullRequests}
+                  onChange={(event) => setClosePullRequests(event.target.checked)}
+                />
+                {`Close ${openPullRequests.length === 1 ? 'the pull request' : `${openPullRequests.length} pull requests`} on GitHub`}
+              </label>
+            )}
             {waitLine !== undefined && (
-              <span className={styles.selectionWait} role="status" data-wait-line>
+              <span className={styles.selectionNote} role="status" data-wait-line>
                 {waitLine}
               </span>
             )}
           </fieldset>
+          {autopilotResult && (
+            <p className={styles.selectionNote} role="status">
+              {autopilotResult}
+              <Button size="small" variant="quiet" onClick={() => setAutopilotResult(undefined)}>
+                Dismiss
+              </Button>
+            </p>
+          )}
+          {prepareError && (
+            <p className={`${styles.selectionNote} ${styles.selectionAlert}`} role="alert">
+              {prepareError}
+              <Button size="small" variant="quiet" onClick={() => setPrepareError(undefined)}>
+                Dismiss
+              </Button>
+            </p>
+          )}
         </div>
       )}
       {moreAt && !none && (
         <ContextMenu at={moreAt} label="More actions" onClose={() => setMoreAt(undefined)}>
           <MenuItems
-            items={[{ label: 'Delete…', danger: true, action: () => setDeleting('delete') }]}
+            items={[
+              {
+                label: 'Priority',
+                items: priorities.map((priority) => ({
+                  label: priority === 'none' ? 'No priority' : priorityLabels[priority],
+                  action: () => bulk((t) => ted.setPriority(t.id, priority), archivable),
+                })),
+              },
+              ...(snoozable.length > 0
+                ? [
+                    {
+                      label: `${counted('Snooze', snoozable, chosen)}…`,
+                      action: () => setSnoozing(true),
+                    },
+                  ]
+                : []),
+              { label: 'Delete…', danger: true, action: () => setDeleting('delete') },
+            ]}
             choose={(item) => {
               setMoreAt(undefined)
               item.action?.()
@@ -328,12 +347,6 @@ export function SelectionBar({
           kind={deleting}
           onKind={setDeleting}
         />
-      )}
-      {autopilotResult && <p role="status">{autopilotResult}</p>}
-      {prepareError && (
-        <p role="alert" className={dialogStyles.error}>
-          {prepareError}
-        </p>
       )}
       {prepareNotice && (
         <Dialog onClose={() => !preparing && setPrepareNotice(false)}>
