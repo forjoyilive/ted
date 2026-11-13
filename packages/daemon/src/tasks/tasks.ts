@@ -5031,7 +5031,7 @@ export function createTasks(options: {
     automatic = false,
     expectedLead?: string,
   ): Promise<Comment> {
-    return createRequestAnswers(
+    const answered = await createRequestAnswers(
       {
         store,
         untilFree,
@@ -5079,6 +5079,17 @@ export function createTasks(options: {
       },
       automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
     )(id, request, sendDrafts, mark)
+    await resumeAfterAnswer(answered.taskId)
+    return answered
+  }
+
+  async function resumeAfterAnswer(taskId: string): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || stoppingByHand.has(taskId) || !interrupted(task)) return
+    if (store.tedStopPending(taskId)) store.answerTedStop(taskId, 'restart')
+    store.resumeTask(taskId, { waitForBlockers: unmergedBlockers(taskId).length > 0 })
+    await store.persisted()
+    await pump()
   }
 
   async function guardAutopilotAnswer(comment: Comment, expectedLead?: string): Promise<void> {

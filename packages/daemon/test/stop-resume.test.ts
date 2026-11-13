@@ -224,14 +224,14 @@ test('interrupted Resume uses the queue and refuses duplicate and Run-token requ
   expect(notes.filter((c) => c.body === 'Carry on once.')).toHaveLength(1)
 })
 
-test('interrupted Resume cannot bypass an unanswered request', async () => {
+test('an answer restarts a Task Lead stopped while it waited, unless the user stopped the Task', async () => {
   const client = await startTed()
-  const task = await create(
-    client,
-    steps({ run: ['ted', 'outcome', 'ask', 'Which endpoint?'] }, { endTurn: true }),
-    { start: true },
-  )
-  await waitFor(client, task, (t) => t.status?.kind === 'waiting-on-you', 'to ask')
+  const ask = steps({ run: ['ted', 'outcome', 'ask', 'Which endpoint?'] }, { endTurn: true })
+  const task = await create(client, ask, { start: true })
+  const byHand = await create(client, ask, { start: true })
+  const asked = await waitFor(client, task, (t) => t.status?.kind === 'waiting-on-you', 'to ask')
+  await waitFor(client, byHand, (t) => t.status?.kind === 'waiting-on-you', 'to ask')
+  await client.ok('POST', `/tasks/${byHand.id}/stop`)
   await client.ok('POST', '/shutdown')
   const waiting = await getTask(client, task.id)
   expect(waiting).toMatchObject({ status: { kind: 'waiting-on-you' }, runs: [] })
@@ -239,6 +239,36 @@ test('interrupted Resume cannot bypass an unanswered request', async () => {
   expect(await client.ok('GET', '/ted-stops')).toEqual([])
   expect((await client.call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(409)
   expect((await comments(client, task)).find((c) => c.kind === 'question')?.answer).toBeUndefined()
+
+  await daemon?.stop()
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const reopened = api(daemon.port, { appKey: daemon.appToken })
+  const tasks = async () => (await reopened.call('GET', '/tasks')).body as Task[]
+  const answer = async (id: string, text: string) => {
+    const all = (await reopened.call('GET', `/tasks/${id}/comments`)).body as Comment[]
+    const question = all.find((c) => c.kind === 'question')
+    const res = await reopened.call('POST', `/comments/${question?.id}/answer`, {
+      action: 'answer',
+      text,
+    })
+    expect(res.status).toBe(200)
+  }
+  await answer(task.id, 'Use /v2/notes.')
+  await answer(byHand.id, 'Use /v3/notes.')
+
+  const restarted = await waitUntil(async () => {
+    const current = (await tasks()).find((t) => t.id === task.id)
+    return current && current.runs.length > 0 && current.leadRunId !== asked.leadRunId
+      ? current
+      : undefined
+  }, 'a fresh Task Lead after the answer')
+  expect(restarted).not.toHaveProperty('canResume', true)
+  const run = (await reopened.getRun(restarted.leadRunId ?? '')).run as { prompt?: string }
+  expect(run.prompt).toContain('Use /v2/notes.')
+  expect((await tasks()).find((t) => t.id === byHand.id)).toMatchObject({
+    status: { kind: 'stopped' },
+    runs: [],
+  })
 })
 
 test('after a quit TED offers the Tasks that were working, restarts the chosen ones and leaves the rest', async () => {
