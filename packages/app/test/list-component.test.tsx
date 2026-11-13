@@ -128,10 +128,38 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   a.handle('setPriority', vi.fn())
   a.handle('startTask', vi.fn())
   a.handle('archiveTask', vi.fn())
+  a.handle('deleteTask', vi.fn())
   for (const id of ['NB-1', 'MS-1'])
     fireEvent.click(required(document.querySelector(`[data-task="${id}"]`)), { metaKey: true })
   const bar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
   expect(bar.getByText('2 selected')).toBeTruthy()
+  const waitLine = () => document.querySelector('[data-wait-line]')?.textContent
+  expect(waitLine()).toBeUndefined()
+  await act(async () => a.emit({ type: 'slots-changed', slots: { ...a.state.slots, working: 2 } }))
+  expect(waitLine()).toBe('1 starts now, 1 waits for a Run slot')
+  fireEvent.pointerMove(required(document.querySelector('[data-task="NB-2"] td:last-child')))
+  fireEvent.keyDown(window, { key: 'x' })
+  expect(bar.getByText('3 selected')).toBeTruthy()
+  expect(waitLine()).toBe('1 starts now, 2 wait for a Run slot')
+  fireEvent.keyDown(window, { key: 'x' })
+  expect(bar.getByText('2 selected')).toBeTruthy()
+  await u.click(bar.getByRole('button', { name: 'Snooze' }))
+  const snooze = await screen.findByRole('dialog', { name: 'Snooze 2 Tasks' })
+  await u.click(within(snooze).getByRole('button', { name: 'Cancel' }))
+  await u.click(bar.getByRole('button', { name: 'More actions' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'More actions' })).getByRole('menuitem', {
+      name: 'Delete…',
+    }),
+  )
+  const confirm = await screen.findByRole('dialog', { name: 'Delete 2 Tasks?' })
+  expect(a.request.mock.calls.some(([name]) => name === 'deleteTask')).toBe(false)
+  await u.click(within(confirm).getByRole('button', { name: 'Delete 2 Tasks' }))
+  for (const id of ['NB-1', 'MS-1'])
+    await vi.waitFor(() =>
+      expect(a.request).toHaveBeenCalledWith('deleteTask', id, { blocked: 'unblock' }),
+    )
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   await u.click(bar.getByRole('button', { name: 'Priority' }))
   await u.click(bar.getByRole('menuitem', { name: /^Urgent/ }))
   for (const id of ['NB-1', 'MS-1'])
@@ -158,6 +186,10 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.getByRole('columnheader', { name: 'Archived' })).toBeTruthy()
   expect(ids().sort()).toEqual(['MS-1', 'NB-1'])
+  fireEvent.click(required(document.querySelector('[data-task="NB-1"]')), { metaKey: true })
+  expect(screen.getByRole('toolbar', { name: 'Selected Tasks' })).toBeTruthy()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('toolbar', { name: 'Selected Tasks' })).toBeNull()
 })
 
 test('Show empty groups is saved per List and includes groups emptied by search', async () => {
@@ -445,45 +477,36 @@ test.each(['Archive', 'Delete'])(
   },
 )
 
-test('bulk Restart identifies a later Task failure and stops before the next Task', async () => {
+test('bulk Stop Task identifies a later Task failure and stops before the next Task', async () => {
   const a = await list()
   a.handle(
-    'restartRun',
+    'stopTask',
     vi.fn(async (id: unknown) => {
-      if (id === 'lead-NB-2') throw new Error('Restart refused')
+      if (id === 'NB-2') throw new Error('Stop refused')
     }),
   )
   for (const current of [...a.state.tasks]) {
     await a.emitTask({
       ...current,
       stage: 'work',
-      leadRunId: `lead-${current.id}`,
-      runs: [
-        {
-          id: `lead-${current.id}`,
-          agent: 'codex',
-          role: 'lead',
-          name: 'Task Lead',
-          state: 'idle',
-        },
-      ],
+      preparation: 'ready',
+      statuses: ['stopped'],
+      status: { kind: 'stopped', at: '2026-11-11T00:00:00Z', prepared: true },
     })
     fireEvent.click(required(document.querySelector(`[data-task="${current.id}"]`)), {
       metaKey: true,
     })
   }
   fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
-  await user().click(
-    within(await screen.findByRole('menu', { name: '3 selected Tasks' })).getByRole('menuitem', {
-      name: 'Restart',
-    }),
-  )
+  const menu = await screen.findByRole('menu', { name: '3 selected Tasks' })
+  expect(within(menu).queryByRole('menuitem', { name: 'Restart' })).toBeNull()
+  await user().click(within(menu).getByRole('menuitem', { name: 'Stop Task' }))
   const error = await screen.findByRole('alert')
-  expect(error.textContent).toContain('NB-2: Restart refused')
+  expect(error.textContent).toContain('NB-2: Stop refused')
   expect(error.textContent).toContain('Some selected Tasks may already have changed.')
-  expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-1')
-  expect(a.request).toHaveBeenCalledWith('restartRun', 'lead-NB-2')
-  expect(a.request).not.toHaveBeenCalledWith('restartRun', 'lead-MS-1')
+  expect(a.request).toHaveBeenCalledWith('stopTask', 'NB-1')
+  expect(a.request).toHaveBeenCalledWith('stopTask', 'NB-2')
+  expect(a.request).not.toHaveBeenCalledWith('stopTask', 'MS-1')
 })
 
 test('bulk Autopilot keeps successful changes and selects only failed Tasks for retry', async () => {

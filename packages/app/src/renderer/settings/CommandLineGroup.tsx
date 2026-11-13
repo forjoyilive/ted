@@ -9,8 +9,6 @@ import styles from './command-line.module.css'
 import { Button, SettingRow, SettingsGroup } from './controls.tsx'
 import settingsStyles from './settings.module.css'
 
-const commandHelp = 'Lets you use ted in any terminal. Agents always have it in their Runs.'
-
 function errorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
@@ -44,7 +42,7 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
   const install = () => {
     setBusy(true)
     setProblem(undefined)
-    ted
+    return ted
       .installCommandLine()
       .then(setStatus, (error: unknown) => setProblem(errorText(error)))
       .finally(() => setBusy(false))
@@ -56,11 +54,10 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
   )
 
   return (
-    <SettingsGroup label="Editor and command line">
+    <SettingsGroup setting="app.general.editor">
       {children}
       <SettingRow
-        title="The ted command"
-        help={commandHelp}
+        setting="app.general.editor.ted-command"
         {...(detail !== undefined && { detail })}
       >
         {status?.state === 'not-installed' && (
@@ -71,7 +68,7 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
       </SettingRow>
       {addToPath !== undefined && (
         <SettingRow
-          title="Add ~/.local/bin to your PATH"
+          setting="app.general.editor.path"
           detail={
             <>
               Your login shell doesn’t look there yet. Add this line to your shell’s profile:{' '}
@@ -79,7 +76,7 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
             </>
           }
         >
-          <Button onClick={() => void ted.copyText(addToPath)}>Copy</Button>
+          <Button onClick={() => ted.copyText(addToPath)}>Copy</Button>
         </SettingRow>
       )}
     </SettingsGroup>
@@ -96,7 +93,7 @@ function UpdateRow() {
   const check = () => {
     setChecking(true)
     setProblem(undefined)
-    ted
+    return ted
       .checkForUpdates()
       .catch((error: unknown) => setProblem(errorText(error)))
       .finally(() => setChecking(false))
@@ -118,7 +115,7 @@ function UpdateRow() {
           primary
           disabled={busy}
           onClick={() =>
-            void ted.restartToUpdate().catch((error: unknown) => setProblem(errorText(error)))
+            ted.restartToUpdate().catch((error: unknown) => setProblem(errorText(error)))
           }
         >
           Restart to update
@@ -136,18 +133,17 @@ export function AboutGroup() {
   const view = () => {
     setProblem(undefined)
     setLoading(true)
-    ted
+    return ted
       .thirdPartyLicenses()
       .then(setLicenses, (error: unknown) => setProblem(errorText(error)))
       .finally(() => setLoading(false))
   }
 
   return (
-    <SettingsGroup label="About and updates">
+    <SettingsGroup setting="app.general.about">
       <UpdateRow />
       <SettingRow
-        title="Third-party licenses"
-        help="The open-source code TED is built from, and the license for each part."
+        setting="app.general.about.licenses"
         {...(problem !== undefined && { detail: problem })}
       >
         <Button onClick={view} disabled={loading}>

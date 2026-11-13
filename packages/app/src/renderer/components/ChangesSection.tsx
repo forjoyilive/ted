@@ -40,7 +40,6 @@ export function ChangesSection({
   hasPullRequest?: boolean
   refresh?: () => void
 }) {
-  if ((!changes || changes.repos.length === 0) && !hasPullRequest) return null
   const count = !changes
     ? 'Loading…'
     : changes.repos.length > 0 && changes.repos.every((r) => r.unavailable)
@@ -51,7 +50,6 @@ export function ChangesSection({
   return (
     <DetailsSection
       id="changes"
-      title="Changes"
       summary={count}
       action={
         onExpandAll &&
@@ -65,16 +63,11 @@ export function ChangesSection({
       {onSource && (
         <>
           <fieldset className={styles.sources} aria-label="Changes source">
-            <Button
-              size="small"
-              aria-pressed={source === 'local'}
-              onClick={() => onSource('local')}
-            >
+            <Button aria-pressed={source === 'local'} onClick={() => onSource('local')}>
               Local changes
             </Button>
             {hasPullRequest && (
               <Button
-                size="small"
                 aria-pressed={source === 'pull-request'}
                 onClick={() => onSource('pull-request')}
               >
@@ -88,7 +81,7 @@ export function ChangesSection({
               : 'Only changes pushed to the PR.'}
           </p>
           {source === 'pull-request' && (
-            <Button size="small" onClick={refresh}>
+            <Button onClick={refresh}>
               {changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
             </Button>
           )}
@@ -96,6 +89,8 @@ export function ChangesSection({
       )}
       {!changes ? (
         <Loading label="Loading changes…" />
+      ) : changes.repos.length === 0 && !hasPullRequest ? (
+        <p className={styles.empty}>No changes yet</p>
       ) : changes.repos.length === 0 ? (
         <p className={styles.empty}>
           Local changes are unavailable. The worktree may have been removed.

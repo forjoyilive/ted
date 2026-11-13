@@ -8,12 +8,14 @@ import type {
   PlanRequest,
   TaskLead,
 } from '@ted/protocol'
-import { agentKinds } from '@ted/protocol/run'
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
@@ -26,7 +28,9 @@ import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import {
+  dotted,
   planEnded,
   planStartedLine,
   planStatusChip,
@@ -35,7 +39,7 @@ import {
   when,
 } from '../plans.ts'
 import { ago, clockTime, useNow } from '../requests.ts'
-import { agentLabels, modelChoices } from '../task-fields.ts'
+import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './PlanChat.module.css'
 import { stageName } from './TaskViews.tsx'
@@ -105,9 +109,9 @@ function FromPlan({
   return (
     <p className={styles.paneText}>
       {'More from '}
-      <button type="button" className={styles.link} onClick={() => onOpenPlan(from.id)}>
+      <ActionButton type="button" className={styles.link} onClick={() => onOpenPlan(from.id)}>
         {from.title}
-      </button>
+      </ActionButton>
     </p>
   )
 }
@@ -119,7 +123,6 @@ export function LeadSelects({
   lead: TaskLead
   onChange: (lead: TaskLead) => void
 }) {
-  const models = [...new Set([...modelChoices[lead.agent], ...(lead.model ? [lead.model] : [])])]
   const set = (agent: AgentKind, model: string, effort: string) =>
     onChange({
       agent,
@@ -133,24 +136,14 @@ export function LeadSelects({
         value={lead.agent}
         onChange={(event) => set(event.target.value as AgentKind, '', lead.effort ?? '')}
       >
-        {agentKinds.map((agent) => (
-          <option key={agent} value={agent}>
-            {agentLabels[agent]}
-          </option>
-        ))}
+        <AgentOptions current={lead.agent} />
       </Select>
-      <Select
+      <ModelSelect
         aria-label="Model"
+        agent={lead.agent}
         value={lead.model ?? ''}
-        onChange={(event) => set(lead.agent, event.target.value, lead.effort ?? '')}
-      >
-        <option value="">Default model</option>
-        {models.map((model) => (
-          <option key={model} value={model}>
-            {model}
-          </option>
-        ))}
-      </Select>
+        onChange={(model) => set(lead.agent, model, lead.effort ?? '')}
+      />
       <Select
         aria-label="Effort"
         value={lead.effort ?? ''}
@@ -170,9 +163,9 @@ export function LeadSelects({
 
 function Back({ onBack, label = '← Plans' }: { onBack: () => void; label?: string }) {
   return (
-    <button type="button" className={styles.back} onClick={onBack}>
+    <ActionButton type="button" className={styles.back} onClick={onBack}>
       {label}
-    </button>
+    </ActionButton>
   )
 }
 
@@ -191,7 +184,8 @@ function NewPlanChat({
 }) {
   const earlier = usePlan(from)?.plan
   const [lead, setLead] = useState<TaskLead>()
-  const [text, setText] = useState('')
+  const draft = useMessageDraft({ kind: 'new-plan', id: factory.id })
+  const { text, setText } = draft
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const cloning = !factory.cloned
@@ -229,6 +223,7 @@ function NewPlanChat({
         ...(lead?.model !== undefined && { model: lead.model }),
         ...(lead?.effort !== undefined && { effort: lead.effort }),
       })
+      draft.clear()
       onStarted(plan.id)
     } catch (failed) {
       setError(readableError(failed))
@@ -273,7 +268,7 @@ function NewPlanChat({
             value={text}
             disabled={sending || cloning}
             onChange={(event) => setText(event.target.value)}
-            onKeyDown={sendOnEnter(() => void send())}
+            onKeyDown={sendOnEnter(() => send())}
           />
           {error !== undefined && (
             <p className={styles.error} role="alert">
@@ -283,10 +278,10 @@ function NewPlanChat({
           <div className={styles.composerButtons}>
             <Button
               variant="primary"
-              size="small"
               shortcut="↵"
               disabled={sending || cloning || text.trim() === ''}
-              onClick={() => void send()}
+              pending={sending}
+              onClick={() => send()}
             >
               Send
             </Button>
@@ -358,7 +353,7 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
   if (!editing) {
     return (
       <h1 className={styles.title}>
-        <button
+        <ActionButton
           type="button"
           className={styles.titleButton}
           title="Rename"
@@ -368,7 +363,7 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
           }}
         >
           {plan.title}
-        </button>
+        </ActionButton>
       </h1>
     )
   }
@@ -380,9 +375,9 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
         aria-label="Title"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        onBlur={() => void save()}
+        onBlur={() => save()}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') void save()
+          if (event.key === 'Enter') save()
           if (event.key === 'Escape') {
             setEditing(false)
             setValue(plan.title)
@@ -422,30 +417,30 @@ function MoreMenu({
 
   return (
     <span className={styles.more}>
-      <Button size="small" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <Button aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>
         ⋯
       </Button>
       {open && !confirming && (
         <div className={styles.menu} role="menu">
-          <button
+          <ActionButton
             type="button"
             role="menuitem"
             className={styles.menuItem}
             onClick={() => {
               setOpen(false)
-              onRename()
+              return onRename()
             }}
           >
             Rename
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             role="menuitem"
             className={`${styles.menuItem} ${styles.danger}`}
             onClick={() => setConfirming(true)}
           >
             Delete…
-          </button>
+          </ActionButton>
         </div>
       )}
       {open && confirming && (
@@ -462,7 +457,6 @@ function MoreMenu({
           )}
           <div className={styles.confirmButtons}>
             <Button
-              size="small"
               onClick={() => {
                 setConfirming(false)
                 setOpen(false)
@@ -470,7 +464,7 @@ function MoreMenu({
             >
               Cancel
             </Button>
-            <Button size="small" variant="danger" onClick={() => void remove()}>
+            <Button variant="danger" onClick={() => remove()}>
               Delete
             </Button>
           </div>
@@ -489,9 +483,9 @@ function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
       {from.gone === 'deleted' ? (
         from.displayId
       ) : (
-        <button type="button" className={styles.link} onClick={() => onOpenTask(from.id)}>
+        <ActionButton type="button" className={styles.link} onClick={() => onOpenTask(from.id)}>
           {from.displayId}
-        </button>
+        </ActionButton>
       )}
       {` ${when(plan.createdAt)}`}
     </>
@@ -552,7 +546,7 @@ function PlanHeader({
           {[agentLabels[plan.agent], plan.model, plan.effort].filter(Boolean).join(' · ')}
         </span>
         {!ended && (
-          <Button size="small" disabled={stopping} onClick={() => void stop()}>
+          <Button disabled={stopping} onClick={() => stop()}>
             Stop
           </Button>
         )}
@@ -594,7 +588,7 @@ function OneLiner({
       <div className={`${styles.card} ${styles.approved}`}>
         <div className={styles.cardHead}>
           <span className={styles.approvedKind}>{kind}</span>
-          <span>{`${detail} · ${state}`}</span>
+          <span>{dotted(detail, state)}</span>
         </div>
         {request.title !== undefined && <p className={styles.cardTitle}>{request.title}</p>}
         <ProposalRows
@@ -616,12 +610,12 @@ function OneLiner({
     <div className={pending ? `${styles.line} ${styles.pending}` : styles.line}>
       <div className={styles.lineHead}>
         <span className={styles.lineKind}>{kind}</span>
-        <span className={styles.lineText}>{` · ${detail} · ${state}`}</span>
+        <span className={styles.lineText}>{` · ${dotted(detail, state)}`}</span>
         <span className={styles.spacer} />
         {canShow && (
-          <button type="button" className={styles.link} onClick={() => setOpen(!open)}>
+          <ActionButton type="button" className={styles.link} onClick={() => setOpen(!open)}>
             {open ? 'Hide' : showLabel}
-          </button>
+          </ActionButton>
         )}
       </div>
       {open && request.kind === 'round' && request.answer?.kind === 'answered' && (
@@ -673,7 +667,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
     >
       <div className={styles.cardHead}>
         <span className={styles.pendingKind}>{kind}</span>
-        <span>{`· ${detail} · from the planner · ${ago(request.createdAt, now)}`}</span>
+        <span>{`· ${dotted(detail, 'from the planner', ago(request.createdAt, now))}`}</span>
       </div>
       {request.title !== undefined && request.title !== '' && (
         <p className={styles.cardTitle}>{request.title}</p>
@@ -687,7 +681,8 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
             sending={sending}
             talking={false}
             onTalk={undefined}
-            onSend={(answer) => void send(answer)}
+            box={{ kind: 'plan-request', id: request.id }}
+            onSend={(answer) => send(answer)}
           />
           <p className={styles.talkHint}>Typing below talks it through with the planner.</p>
         </>
@@ -697,7 +692,8 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
           proposal={request.proposal}
           readOnly={false}
           sending={sending}
-          onSend={(answer) => void send(answer)}
+          box={{ kind: 'plan-request', id: request.id }}
+          onSend={(answer) => send(answer)}
         />
       )}
       {error !== undefined && (
@@ -783,11 +779,11 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
         </span>
       )}
       {failed ? (
-        <Button size="small" variant="primary" disabled={retrying} onClick={() => void retry()}>
+        <Button variant="primary" disabled={retrying} onClick={() => retry()}>
           Retry
         </Button>
       ) : (
-        <Button size="small" variant="primary" onClick={() => onPlanMore(plan.id)}>
+        <Button variant="primary" onClick={() => onPlanMore(plan.id)}>
           Plan more from here
         </Button>
       )}
@@ -882,7 +878,8 @@ function QueuedChat({ plan }: { plan: Plan }) {
         </div>
         <p className={styles.waitNote}>
           {plan.status === 'queued'
-            ? 'Your message is kept. The planner starts when a working slot frees up.'
+            ? (plan.paused ??
+              'Your message is kept. The planner starts when a working slot frees up.')
             : plan.status === 'paused'
               ? `The planner is paused: ${plan.paused ?? 'usage limit'}.`
               : 'The planner didn’t start.'}
@@ -917,14 +914,14 @@ function PlanPane({
           <ul className={styles.paneList}>
             {tasks.map((task) => (
               <li key={task.id}>
-                <button
+                <ActionButton
                   type="button"
                   className={styles.paneTask}
                   onClick={() => onOpenTask(task.id)}
                 >
                   <span className={styles.paneId}>{task.displayId}</span>
                   {task.title}
-                </button>
+                </ActionButton>
                 <span className={styles.paneMuted}>
                   {[
                     task.stage.charAt(0).toUpperCase() + task.stage.slice(1),
@@ -983,10 +980,10 @@ function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
           {from.title}
         </span>
       ) : (
-        <button type="button" className={styles.paneTask} onClick={() => onOpenTask(from.id)}>
+        <ActionButton type="button" className={styles.paneTask} onClick={() => onOpenTask(from.id)}>
           <span className={styles.paneId}>{from.displayId}</span>
           {from.title}
-        </button>
+        </ActionButton>
       )}
       {state.length > 0 && <span className={styles.paneMuted}>{state.join(' · ')}</span>}
     </div>

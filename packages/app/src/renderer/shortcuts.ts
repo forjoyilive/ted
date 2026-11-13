@@ -1,5 +1,6 @@
 export interface PressedKey {
   key: string
+  code?: string
   metaKey: boolean
   ctrlKey: boolean
   altKey: boolean
@@ -55,9 +56,13 @@ function isLetter(key: string): boolean {
   return /^[a-z]$/.test(key)
 }
 
+function sameKey(chord: Chord, pressed: PressedKey): boolean {
+  if (pressed.key.toLowerCase() === chord.key) return true
+  return chord.alt && /^[0-9]$/.test(chord.key) && pressed.code === `Digit${chord.key}`
+}
+
 function matches(chord: Chord, pressed: PressedKey): boolean {
-  const key = pressed.key.toLowerCase()
-  if (key !== chord.key) return false
+  if (!sameKey(chord, pressed)) return false
   if (chord.command ? !(pressed.metaKey || pressed.ctrlKey) : pressed.metaKey) return false
   if (chord.control && (!pressed.ctrlKey || pressed.metaKey)) return false
   if (!chord.command && !chord.control && pressed.ctrlKey) return false

@@ -5,6 +5,7 @@ export {
   type RunCounts,
   workRunning,
 } from './activity.ts'
+export * from './agent-availability.ts'
 export type * from './api-cost.ts'
 export {
   type AppCapture,
@@ -96,6 +97,14 @@ export {
 } from './banner.ts'
 export { parseBannerActionInput } from './banner-parsers.ts'
 export {
+  type BoardCardSize,
+  type BoardField,
+  type BoardView,
+  boardCardSizes,
+  boardFields,
+  defaultBoardView,
+} from './board-view.ts'
+export {
   type BrowserAction,
   type BrowserCommand,
   type BrowserPollRequest,
@@ -113,6 +122,7 @@ export {
 export {
   type ChangeFile,
   type ChangesSource,
+  type CommitChanges,
   changeKey,
   type DiffHunk,
   type DiffRow,
@@ -120,13 +130,16 @@ export {
   type DraftLineCommentRequest,
   type EditLineCommentRequest,
   type FileDiff,
+  isCommitId,
   type LineAnchor,
   type LineComment,
   type LineSide,
   lineLabel,
+  maxCommitLookups,
   type PullRequestChanges,
   type RepoChanges,
   type TaskChanges,
+  type TaskCommit,
 } from './changes.ts'
 export {
   maxLineCommentLength,
@@ -284,6 +297,7 @@ export {
   type RepoSetup,
   type RepoSource,
   repoNamePattern,
+  type SetFactoryNotificationsRequest,
   type SetFactoryPermissionsRequest,
   type SetLocalFolderRequest,
   suggestFactoryName,
@@ -305,6 +319,7 @@ export {
   parseReorderFactoriesRequest,
   parseSaveLibraryRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
@@ -367,7 +382,12 @@ export {
   parseVerifyFailureRequest,
 } from './failure-parsers.ts'
 export type * from './failures.ts'
-export { failureChoices, validateFailureChoices, validationExecution } from './failures.ts'
+export {
+  ciFailureLabel,
+  failureChoices,
+  validateFailureChoices,
+  validationExecution,
+} from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
@@ -453,6 +473,19 @@ export {
   listSorts,
   type StatusFilter,
 } from './list-view.ts'
+export {
+  emptyMessageDraft,
+  type MessageBox,
+  type MessageBoxKind,
+  type MessageDraft,
+  type MessageDraftState,
+  maxMessageDraftFields,
+  maxMessageDraftText,
+  messageBoxKinds,
+  parseMessageBox,
+  parseSaveMessageDraftRequest,
+  type SaveMessageDraftRequest,
+} from './message-draft.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
@@ -549,7 +582,11 @@ export {
   type Appearance,
   appearances,
   checkLimits,
+  defaultFactoryNotifications,
   defaultMachineSettings,
+  type FactoryNotifications,
+  factoryNotifications,
+  firstFactoryNotifications,
   type MachineSettings,
   type Profile,
   type QuitChoice,
@@ -624,6 +661,7 @@ export type { DesignFileSpec, LocalDesignReviewInput, SaveTaskDraftRequest } fro
 export {
   type AgentStageId,
   type AnswerRequest,
+  type AnswerTedStopsRequest,
   type ArchiveDoneResult,
   type ArchiveTaskRequest,
   type Attachment,
@@ -672,6 +710,7 @@ export {
   type MergeMethod,
   type MergeRow,
   type MoveTaskRequest,
+  maxTedStopAnswers,
   mergeMethods,
   type NewTaskDraft,
   type Outcome,
@@ -687,11 +726,13 @@ export {
   type ProposalRowInput,
   type PullRequestPreview,
   parseSetTaskSnoozeRequest,
+  parseSnoozeRequestRequest,
   priorities,
   type ReportOutcomeRequest,
   type RepoSetupReport,
   type RepoToConfirm,
   type RequestPurpose,
+  type ResetRefusal,
   type ResumeTaskRequest,
   type Round,
   type RoundAnswer,
@@ -699,10 +740,12 @@ export {
   type RoundInput,
   type RoundQuestion,
   type RoundTalk,
+  resetRefusal,
   type SetActivityRequest,
   type SetClarifyDepthRequest,
   type SetPriorityRequest,
   type SetTaskLeadRequest,
+  type SetTaskParentRequest,
   type SetTaskReposRequest,
   type SetTaskSnoozeRequest,
   type SetupAppTried,
@@ -713,16 +756,21 @@ export {
   type SignOffChanges,
   type SizeCheck,
   type SizeCheckInput,
+  type SnoozeRequestRequest,
   type StageId,
   type StartTaskRequest,
   sizeChoices,
   type TalkedThrough,
+  type TalkThroughRequest,
+  type TalkThroughResult,
   type Task,
   type TaskArchive,
   type TaskBrief,
   type TaskDefaults,
   type TaskDraftState,
   type TaskEnding,
+  type TaskHierarchy,
+  type TaskHierarchyPreview,
   type TaskLead,
   type TaskLink,
   type TaskMarker,
@@ -735,11 +783,13 @@ export {
   type TaskSource,
   type TaskStatus,
   type TaskStatusKind,
+  type TedStoppedTask,
   type ThreadEvent,
   type ThreadEventTone,
   type TrackStage,
   type TrackState,
   taskStatusKinds,
+  type UnarchiveTaskRequest,
   type ValidateJudgments,
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
@@ -767,6 +817,7 @@ export type {
 } from './task-intervals.ts'
 export {
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAttachmentRefs,
   parseBlockTaskRequest,
@@ -791,10 +842,13 @@ export {
   parseSetClarifyDepthRequest,
   parseSetPriorityRequest,
   parseSetTaskGatesRequest,
+  parseSetTaskParentRequest,
   parseSetTaskReposRequest,
   parseSizeCheckInput,
   parseStartTaskRequest,
+  parseTalkThroughRequest,
   parseTaskLead,
+  parseUnarchiveTaskRequest,
   parseWriteBriefRequest,
 } from './task-parsers.ts'
 export * from './test-invocations.ts'
@@ -809,7 +863,7 @@ export {
 export type { UpdateWork } from './update.ts'
 export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
-export type { WaitingRequest } from './waiting.ts'
+export { countWaiting, type SnoozedRequest, type WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,

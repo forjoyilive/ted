@@ -1,6 +1,9 @@
 import { type ReactNode, useId } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Help } from '../components/Help.tsx'
 import { Select as Dropdown } from '../components/Select.tsx'
+import { usePendingAction } from '../pending-action.ts'
+import { type SettingId, settingEntry } from '../settings-search.ts'
 import styles from './settings.module.css'
 
 export function SettingsPage({
@@ -36,12 +39,14 @@ export function SettingsPage({
 }
 
 export function SettingsGroup({
-  label,
-  help,
+  setting,
+  label = setting && settingEntry(setting).name,
+  help = setting && settingEntry(setting).help,
   action,
   children,
 }: {
-  label?: string
+  setting?: SettingId
+  label?: string | undefined
   help?: ReactNode
   action?: ReactNode
   children: ReactNode
@@ -55,7 +60,7 @@ export function SettingsGroup({
       {label !== undefined && (
         <div className={styles.groupHeader}>
           <div className={styles.titleLine}>
-            <h2 className={styles.groupLabel} id={id}>
+            <h2 className={styles.groupLabel} id={id} data-setting={setting}>
               {label}
             </h2>
             {help !== undefined && <Help>{help}</Help>}
@@ -69,14 +74,14 @@ export function SettingsGroup({
 }
 
 export function SettingRow({
-  title,
-  help,
-  detail,
+  setting,
+  title = setting && settingEntry(setting).name,
+  help = setting && settingEntry(setting).help,
+  detail = setting && settingEntry(setting).detail,
   leading,
   labelFor,
   children,
-}: {
-  title: ReactNode
+}: ({ setting: SettingId; title?: ReactNode } | { setting?: undefined; title: ReactNode }) & {
   help?: ReactNode
   detail?: ReactNode
   leading?: ReactNode
@@ -91,7 +96,7 @@ export function SettingRow({
     <span className={styles.rowTitle}>{title}</span>
   )
   return (
-    <div className={styles.row}>
+    <div className={styles.row} data-setting={setting}>
       {leading}
       <div className={styles.rowText}>
         <div className={styles.titleLine}>
@@ -119,14 +124,14 @@ export function Button({
   disabled?: boolean
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       className={`${styles.button} ${primary ? styles.primary : ''} ${danger ? styles.danger : ''}`}
       onClick={onClick}
       disabled={disabled}
     >
       {children}
-    </button>
+    </ActionButton>
   )
 }
 
@@ -147,31 +152,32 @@ export function Stepper({
   max: number
   lessLabel: string
   moreLabel: string
-  onChange: (value: number) => void
+  onChange: (value: number) => unknown
 }) {
+  const activity = usePendingAction()
   return (
     <div className={styles.stepper}>
-      <button
+      <ActionButton
         type="button"
         className={styles.step}
         aria-label={lessLabel}
-        disabled={value <= min}
-        onClick={() => onChange(Math.max(min, value - step))}
+        disabled={activity.pending || value <= min}
+        onClick={() => activity.run(() => onChange(Math.max(min, value - step)))}
       >
         −
-      </button>
+      </ActionButton>
       <output className={styles.stepValue} aria-live="polite">
         {format(value)}
       </output>
-      <button
+      <ActionButton
         type="button"
         className={styles.step}
         aria-label={moreLabel}
-        disabled={value >= max}
-        onClick={() => onChange(Math.min(max, value + step))}
+        disabled={activity.pending || value >= max}
+        onClick={() => activity.run(() => onChange(Math.min(max, value + step)))}
       >
         +
-      </button>
+      </ActionButton>
     </div>
   )
 }
@@ -188,7 +194,7 @@ export function Switch({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="switch"
       aria-label={label}
@@ -198,7 +204,7 @@ export function Switch({
       onClick={() => onChange(!checked)}
     >
       <span className={styles.knob} />
-    </button>
+    </ActionButton>
   )
 }
 

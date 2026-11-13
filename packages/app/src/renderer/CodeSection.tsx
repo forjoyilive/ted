@@ -1,5 +1,6 @@
 import type { Task, TaskRepo } from '@ted/protocol'
 import { useState } from 'react'
+import { ActionButton } from './components/ActionButton.tsx'
 import { DetailsSection } from './components/DetailsSection.tsx'
 import { codeSummary } from './details.ts'
 import { openInEditor } from './editor.ts'
@@ -15,7 +16,7 @@ export function CodeSection({
 }) {
   const repos = task.repos.filter((repo) => !repo.removed)
   return (
-    <DetailsSection id="code" title="Code" collapsedSummary={codeSummary(task)}>
+    <DetailsSection id="code" summary={codeSummary(task)}>
       {repos.length === 0 ? (
         <>
           <p className={styles.empty}>
@@ -58,14 +59,14 @@ function PullRequestLine({ task, repo }: { task: Task; repo: TaskRepo }) {
     return (
       <>
         <p className={styles.pullRequest}>
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
             title={pr.url}
-            onClick={() => void ted.openPullRequest(task.id, repo.name)}
+            onClick={() => ted.openPullRequest(task.id, repo.name)}
           >
             {`Pull request #${pr.number}`}
-          </button>{' '}
+          </ActionButton>{' '}
           <span className={styles.prState}>{pullRequestState[pr.state]}</span>
         </p>
         {failed}
@@ -96,7 +97,7 @@ function RepoRow({
 
   const edit = () => {
     setProblem(undefined)
-    openInEditor({ taskId: task.id, repo: repo.name }).catch((error: unknown) =>
+    return openInEditor({ taskId: task.id, repo: repo.name }).catch((error: unknown) =>
       setProblem(readableError(error)),
     )
   }
@@ -112,17 +113,17 @@ function RepoRow({
       <span className={styles.repoLine}>
         <span className={styles.repoName}>{repo.name}</span>
         <span className={styles.repoActions}>
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
             title="Open your login shell in this worktree (⌃`)"
             onClick={() => onOpenShell(repo.name)}
           >
             Shell
-          </button>
-          <button type="button" className={styles.link} onClick={edit}>
+          </ActionButton>
+          <ActionButton type="button" className={styles.link} onClick={edit}>
             Open in editor
-          </button>
+          </ActionButton>
         </span>
       </span>
       {problem !== undefined && (
@@ -130,26 +131,41 @@ function RepoRow({
           {problem}
         </p>
       )}
-      <PullRequestLine task={task} repo={repo} />
-      <code className={styles.branch}>{repo.branch}</code>
-      <button
-        type="button"
-        className={styles.path}
-        title={copied ? 'Copied' : 'Click to copy'}
-        onClick={() => void copyPath()}
-      >
-        {repo.worktree}
-      </button>
+      <dl className={styles.fields}>
+        {(repo.pullRequest || repo.pushFailed) && (
+          <>
+            <dt>Pull request</dt>
+            <dd>
+              <PullRequestLine task={task} repo={repo} />
+            </dd>
+          </>
+        )}
+        <dt>Branch</dt>
+        <dd>
+          <code className={styles.branch}>{repo.branch}</code>
+        </dd>
+        <dt>Worktree</dt>
+        <dd>
+          <ActionButton
+            type="button"
+            className={styles.path}
+            title={copied ? 'Copied' : 'Click to copy'}
+            onClick={() => copyPath()}
+          >
+            {repo.worktree}
+          </ActionButton>
+        </dd>
+      </dl>
       {repo.setup && repo.setup.state !== 'passed' && (
         <p className={styles.setup}>
           {setupLabel[repo.setup.state]}{' '}
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
-            onClick={() => void ted.setupLog(task.id, repo.name).then(setLog)}
+            onClick={() => ted.setupLog(task.id, repo.name).then(setLog)}
           >
             Setup log
-          </button>
+          </ActionButton>
         </p>
       )}
       {log !== undefined && <pre className={styles.log}>{log}</pre>}

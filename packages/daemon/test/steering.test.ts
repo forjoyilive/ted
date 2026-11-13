@@ -1,12 +1,14 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type ChatItem,
+  type Comment,
   type Factory,
   type RunChat,
   type RunMessage,
+  type RunSlots,
   type Task,
   type ThreadEvent,
   tedPaths,
@@ -27,6 +29,7 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -46,9 +49,14 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startTed() {
+async function startTed(
+  online?: Parameters<typeof startDaemon>[0]['online'],
+  timing: { clock?: ManualClock; nudgeAfterMs?: number } = {},
+) {
   daemon = await startDaemon({
     home,
+    ...timing,
+    ...(online && { online }),
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
@@ -356,4 +364,212 @@ describe('Steering a working Run', () => {
     expect((await client.call('POST', '/runs/run-1/boundary')).status).toBe(403)
     expect((await client.call('POST', '/runs/nope/interrupt')).status).toBe(404)
   })
+})
+
+async function questionDuringWork(
+  client: Client,
+  beforeReply?: (task: Task, runId: string) => Promise<void>,
+  continuation: unknown[] = [],
+) {
+  const origin = await makeOriginRepo(scratch)
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+  })
+  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const task = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({
+      steps: [
+        { everyMessage: continuation },
+        { say: 'ready for a question' },
+        { waitFor: file('answer-boundary') },
+        { tool: 'Bash' },
+        { waitFor: file('finish-answer') },
+        { endTurn: true },
+      ],
+    }),
+    factory: 'NB',
+    start: true,
+  })
+  const runId = await waitUntil(async () => {
+    const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+    return current?.leadRunId
+  }, 'the Task Lead')
+  await said(client, runId, 'ready for a question')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const lead = api(daemon?.port ?? 0, tokens.issue(runId))
+  const posted = await lead.call('POST', `/tasks/${task.id}/comments`, {
+    body: 'Should tools be disabled?',
+    choices: ['Yes', 'No'],
+  })
+  expect(posted.status).toBe(201)
+  const question = posted.body as Comment
+  await beforeReply?.(task, runId)
+  const reply = 'Tell me more about why it is helpful for tools to be disabled'
+  const saved = await client.ok<Comment>('POST', `/comments/${question.id}/answer`, {
+    action: 'answer',
+    text: reply,
+  })
+  const current = async () =>
+    (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+      (c) => c.id === question.id,
+    )
+  return { task, runId, lead, saved, current, reply }
+}
+
+test('question replies wait for a safe boundary and survive a failed transport before retry', async () => {
+  const client = await startTed()
+  const { runId, lead, saved, current, reply } = await questionDuringWork(client)
+  expect(saved.answerDelivery).toEqual({ queuedAt: saved.answer?.at })
+  const input = path.join(home, 'runs', runId, 'input.jsonl')
+  await writeFile(input, '', { flag: 'a', mode: 0o600 })
+  const original = await readFile(input)
+  const mode = (await stat(input)).mode & 0o777
+  const revivedAt = (await client.getRun(runId)).run.revivedAt
+  await chmod(input, 0o400)
+  try {
+    const failure = await lead.call('POST', `/runs/${runId}/boundary`)
+    expect(failure.status).toBe(500)
+    expect((await current())?.answerDelivery?.sent).toBeUndefined()
+    expect(await readFile(input)).toEqual(original)
+  } finally {
+    await chmod(input, mode)
+  }
+  await writeFile(file('answer-boundary'), '')
+  const receipt = await waitUntil(async () => (await current())?.answerDelivery?.sent, 'reply sent')
+  expect(receipt.runId).toBe(runId)
+  await waitUntil(async () => {
+    const texts = assistantTexts((await client.getRun(runId)).conversation)
+    return texts.some((text) => text.includes(`Read: The user replied`) && text.includes(reply))
+      ? true
+      : undefined
+  }, 'the reply at the boundary')
+  await writeFile(file('finish-answer'), '')
+  await waitForState(client, runId, 'idle')
+  const finished = await client.getRun(runId)
+  expect(finished.run.revivedAt).toBe(revivedAt)
+  expect(
+    assistantTexts(finished.conversation).filter(
+      (text) => text.includes('Read: The user replied') && text.includes(reply),
+    ),
+  ).toHaveLength(1)
+})
+
+test('an unsent question reply reaches a replacement Task Lead in its starting prompt', async () => {
+  const client = await startTed()
+  const { task, runId, current, reply } = await questionDuringWork(client)
+  await client.ok('POST', `/tasks/${task.id}/stop`)
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  await client.ok('POST', `/tasks/${task.id}/resume`, {})
+  const sent = await waitUntil(
+    async () => (await current())?.answerDelivery?.sent,
+    'replacement delivery',
+  )
+  expect(sent.runId).not.toBe(runId)
+  const replacement = await client.getRun(sent.runId)
+  expect(replacement.run.prompt).toContain(reply)
+  expect(replacement.run.prompt).toContain('ask it again')
+  expect(replacement.run.prompt).toContain('A request for explanation gives no consent')
+  await said(client, sent.runId, 'ready for a question')
+  await writeFile(file('answer-boundary'), '')
+  await writeFile(file('finish-answer'), '')
+})
+
+test('a reply saved while its idle Task Lead is offline is sent when health recovers', async () => {
+  let online = true
+  const client = await startTed({
+    isOnline: async () => online,
+    onlineEveryMs: 20,
+    offlineEveryMs: 20,
+  })
+  const { runId, saved, current } = await questionDuringWork(client, async (task, runId) => {
+    await writeFile(file('answer-boundary'), '')
+    await writeFile(file('finish-answer'), '')
+    await waitForState(client, runId, 'idle')
+    online = false
+    await waitUntil(async () => {
+      const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+      return current?.runs.find((r) => r.id === runId)?.paused ? true : undefined
+    }, 'the idle Task Lead to be paused')
+  })
+  expect(saved.answerDelivery?.sent).toBeUndefined()
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  online = true
+  const sent = await waitUntil(
+    async () => (await current())?.answerDelivery?.sent,
+    'reply after recovery',
+  )
+  expect(sent.runId).toBe(runId)
+})
+
+test('an idle question reply stays queued past the nudge deadline until a working slot admits it', async () => {
+  const clock = new ManualClock()
+  const client = await startTed(undefined, { clock, nudgeAfterMs: 1000 })
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  let blocker: Task | undefined
+  let blockerRunId: string | undefined
+  const { task, runId, saved, current, reply } = await questionDuringWork(
+    client,
+    async (_task, runId) => {
+      await writeFile(file('answer-boundary'), '')
+      await writeFile(file('finish-answer'), '')
+      await waitForState(client, runId, 'idle')
+      blocker = await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        start: true,
+        title: JSON.stringify({
+          steps: [
+            { say: 'slot occupied' },
+            { waitFor: file('after-nudge-deadline') },
+            { tool: 'Bash' },
+            { say: 'still occupying the slot' },
+            { waitFor: file('keep-slot') },
+            { endTurn: true },
+          ],
+        }),
+      })
+      const blockerRun = await waitUntil(async () => {
+        const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === blocker?.id)
+        return task?.leadRunId
+      }, 'the blocking Task Lead')
+      blockerRunId = blockerRun
+      await said(client, blockerRun, 'slot occupied')
+    },
+    [{ say: 'admitted reply received' }, { endTurn: true }],
+  )
+  expect(saved.answerDelivery?.sent).toBeUndefined()
+  await waitUntil(async () => {
+    const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+    return current?.status?.kind === 'queued' ? true : undefined
+  }, 'the reply to wait for a slot')
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  if (!blocker || !blockerRunId) throw new Error('the blocking Task was not created')
+  clock.advance(1001)
+  await writeFile(file('after-nudge-deadline'), '')
+  await said(client, blockerRunId, 'still occupying the slot')
+  expect((await client.getRun(runId)).run.state).toBe('idle')
+  expect((await current())?.answerDelivery?.sent).toBeUndefined()
+  expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1, queued: 1 })
+  expect(
+    (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).filter((event) =>
+      event.text.startsWith('TED nudged the Task Lead'),
+    ),
+  ).toEqual([])
+  await client.ok('POST', `/tasks/${blocker.id}/stop`)
+  const sent = await waitUntil(
+    async () => (await current())?.answerDelivery?.sent,
+    'admitted reply',
+  )
+  expect(sent.runId).toBe(runId)
+  await said(client, runId, 'admitted reply received')
+  await waitForState(client, runId, 'idle')
+  expect(
+    (await client.getRun(runId)).conversation.filter(({ line }) => {
+      const entry = JSON.parse(line) as { type?: string; message?: { content?: unknown } }
+      return (
+        entry.type === 'user' &&
+        typeof entry.message?.content === 'string' &&
+        entry.message.content.includes(reply)
+      )
+    }),
+  ).toHaveLength(1)
 })

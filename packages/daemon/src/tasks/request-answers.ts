@@ -17,6 +17,7 @@ import type { StoredTask, TedStore } from '../store/index.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/workflow.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
+import { answerMessage } from './answer-message.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
 import { mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
@@ -84,6 +85,7 @@ export interface RequestAnswerPort {
   ): string
   leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
   settleDependents(id: string, choice: 'unblock'): void
+  beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
   wake(): void
   sendNudge(task: StoredTask, run: Run): Promise<void>
@@ -140,7 +142,17 @@ export function createRequestAnswers(
     comment: Comment,
     answer: CommentAnswer,
     lineComments?: readonly string[],
-  ) => answerTaskRequest(store, task, comment, answer, lineComments, automatic !== undefined)
+    queueAnswer = false,
+  ) =>
+    answerTaskRequest(
+      store,
+      task,
+      comment,
+      answer,
+      lineComments,
+      automatic !== undefined,
+      queueAnswer,
+    )
   const linearArchiveChoice = 'Archive'
   const nudgeAgainChoice = 'Nudge again'
   const useDefaultChoice = 'Use the default model'
@@ -726,6 +738,8 @@ export function createRequestAnswers(
         if (answered) return answered
       }
       if (comment.purpose?.kind === 'linear-closed' && choice !== undefined) {
+        if (choice === linearArchiveChoice && !find(task.id).archived)
+          port.beforeArchive?.(find(task.id))
         const answered = answerRequest(task, comment, {
           kind: 'answered',
           at,
@@ -775,20 +789,12 @@ export function createRequestAnswers(
           ...(text !== '' && { text }),
         },
         text !== '' && !aboutModel && sendDrafts ? drafts(task.id) : undefined,
+        !aboutModel,
       )
       if (aboutModel) return answered
       const lines = linesText(answered)
-      await deliverAnswer(
-        task,
-        comment,
-        [
-          `${automatic ? 'Autopilot' : 'The human'} answered “${comment.title ?? firstLine(comment.body)}”:`,
-          ...(choice !== undefined ? [choice] : []),
-          ...(text !== '' ? [text] : []),
-          ...(lines !== undefined ? [lines] : []),
-        ].join('\n\n'),
-      )
-      return answered
+      await deliverAnswer(task, comment, answerMessage(answered, lines))
+      return store.getComment(comment.id) ?? answered
     })
   }
 
@@ -846,8 +852,9 @@ export function answerTaskRequest(
   answer: CommentAnswer,
   lineComments?: readonly string[],
   autopilot = false,
+  queueAnswer = false,
 ): Comment {
-  const answered = store.answerComment(comment.id, answer, lineComments, autopilot)
+  const answered = store.answerComment(comment.id, answer, lineComments, autopilot, queueAnswer)
   if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
   return answered
 }

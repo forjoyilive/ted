@@ -26,11 +26,13 @@ import {
   useState,
 } from 'react'
 import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
+import { SettingsSearch } from '../components/SettingsSearch.tsx'
 import { useEventValue } from '../data.ts'
 import {
   editedFields,
@@ -43,6 +45,10 @@ import {
   unsavedChanges,
   unsavedSummary,
 } from '../factory-settings.ts'
+import type { NavigationAction } from '../navigation.ts'
+import { usePendingAction } from '../pending-action.ts'
+import { useShownSetting } from '../setting-focus.ts'
+import { factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
 import styles from './FactorySettings.module.css'
@@ -51,6 +57,7 @@ import {
   ChecksSection,
   InvalidNotice,
   NotesSection,
+  NotificationsSection,
   PermissionsSection,
   Toggle,
   WorkflowSection,
@@ -59,17 +66,6 @@ import { LinearIntakeSection } from './LinearIntakeSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
-
-const sections = [
-  ['linear-intake', 'Linear intake'],
-  ['repos', 'Repos'],
-  ['workflow', 'Workflow'],
-  ['checks', 'Checks'],
-  ['agents', 'Agents'],
-  ['permissions', 'Permissions'],
-  ['notes', 'Factory notes'],
-  ['danger-zone', 'Danger zone'],
-] as const
 
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'
 const appKindLabels = { web: 'web', command: 'command', 'ios-simulator': 'iOS simulator' }
@@ -86,6 +82,7 @@ interface FactorySettingsProps {
   onOpenGitHubSettings: () => void
   onRemoveFactory: () => void
   onOpenTask: (task: Task) => void
+  dispatch: (action: NavigationAction) => void
 }
 
 export function FactorySettings({
@@ -95,6 +92,7 @@ export function FactorySettings({
   onOpenGitHubSettings,
   onRemoveFactory,
   onOpenTask,
+  dispatch,
 }: FactorySettingsProps) {
   const [loadError, setLoadError] = useState<string>()
   const [draft, setDraft] = useState<SettingsDraft>()
@@ -296,6 +294,7 @@ export function FactorySettings({
     }
   }
 
+  useShownSetting(scroller, 'factory')
   const scrollTo = (id: string) =>
     scroller.current?.querySelector(`#${id}`)?.scrollIntoView({ block: 'start' })
 
@@ -314,10 +313,9 @@ export function FactorySettings({
           </span>
         )}
         <Button
-          size="small"
           onClick={() => {
             setSetupError(undefined)
-            ted
+            return ted
               .newSetupTask(factory.id)
               .then(onOpenTask, (error: unknown) => setSetupError(readableError(error)))
           }}
@@ -328,19 +326,23 @@ export function FactorySettings({
       {banners}
       <div className={styles.page}>
         <nav className={styles.nav} aria-label="Jump to a section">
-          <button type="button" className={styles.navItem} onClick={() => scrollTo('general')}>
-            General
-          </button>
-          {sections.map(([id, label]) => (
-            <button key={id} type="button" className={styles.navItem} onClick={() => scrollTo(id)}>
-              {label}
-              {id === 'workflow' && drifted > 0 && (
-                <span className={styles.navCount} title="Inherited Stage files that changed">
-                  {drifted}
-                </span>
-              )}
-            </button>
-          ))}
+          <SettingsSearch factory={factory} dispatch={dispatch}>
+            {factorySections.map(([id, label]) => (
+              <ActionButton
+                key={id}
+                type="button"
+                className={styles.navItem}
+                onClick={() => scrollTo(id)}
+              >
+                {label}
+                {id === 'workflow' && drifted > 0 && (
+                  <span className={styles.navCount} title="Inherited Stage files that changed">
+                    {drifted}
+                  </span>
+                )}
+              </ActionButton>
+            ))}
+          </SettingsSearch>
         </nav>
         <div className={styles.scroller} ref={scroller}>
           <div className={styles.column}>
@@ -351,7 +353,7 @@ export function FactorySettings({
                 merging={merging}
                 hasEdits={count > 0}
                 error={mergeError}
-                onMerge={() => void mergeSaved()}
+                onMerge={() => mergeSaved()}
                 onDismiss={() => {
                   setSaved(undefined)
                   setMergeError(undefined)
@@ -418,6 +420,7 @@ export function FactorySettings({
                     onDraft={onDraft}
                     onMode={onMode}
                   />
+                  <NotificationsSection factoryId={factory.id} />
                   <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
                 </>
               )}
@@ -434,10 +437,8 @@ export function FactorySettings({
             <p className={styles.saveHint}>Review your changes before creating a pull request.</p>
           </div>
           <span className={views.headerSpacer} />
-          <Button size="small" onClick={() => restart(view)}>
-            Discard
-          </Button>
-          <Button size="small" variant="primary" onClick={() => setReviewing(true)}>
+          <Button onClick={() => restart(view)}>Discard</Button>
+          <Button variant="primary" onClick={() => setReviewing(true)}>
             Review and save…
           </Button>
         </footer>
@@ -451,7 +452,7 @@ export function FactorySettings({
           onClose={() => setReviewing(false)}
           onSaved={(result) => {
             setReviewing(false)
-            void afterSave(result)
+            return afterSave(result)
           }}
         />
       )}
@@ -504,16 +505,14 @@ function SavedNotice({
         {error && <p role="alert">{error}</p>}
         <div className={styles.noticeActions}>
           {!result.merged && result.receipt && (
-            <Button size="small" variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
+            <Button variant="primary" disabled={merging || hasEdits} onClick={onMerge}>
               {merging ? 'Merging…' : 'Merge pull request'}
             </Button>
           )}
-          <Button size="small" onClick={() => void ted.openOnGitHub(url)}>
-            Open on GitHub
-          </Button>
+          <Button onClick={() => ted.openOnGitHub(url)}>Open on GitHub</Button>
         </div>
       </div>
-      <button
+      <ActionButton
         type="button"
         className={styles.iconButton}
         aria-label="Dismiss"
@@ -521,7 +520,7 @@ function SavedNotice({
         onClick={onDismiss}
       >
         <CloseIcon size={12} />
-      </button>
+      </ActionButton>
     </div>
   )
 }
@@ -536,17 +535,19 @@ function Chip({ where }: { where: 'machine' | 'repo' }) {
 
 function SectionHeading({
   id,
+  setting,
   title,
   help,
   where,
 }: {
   id: string
+  setting: SettingId
   title: string
   help?: ReactNode
   where: 'machine' | 'repo'
 }) {
   return (
-    <div className={styles.sectionHeading}>
+    <div className={styles.sectionHeading} data-setting={setting}>
       <h2 id={id} className={styles.sectionTitle}>
         {title}
       </h2>
@@ -593,9 +594,9 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
 
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="general">
-      <SectionHeading id="general" title="General" where="machine" />
+      <SectionHeading id="general" setting="factory.general" title="General" where="machine" />
       <div className={styles.fieldRow}>
-        <div className={styles.field}>
+        <div className={styles.field} data-setting="factory.general.name">
           <label className={styles.label} htmlFor={nameId}>
             Name <Help>Shown in the sidebar and the Inbox. Task IDs don’t change.</Help>
           </label>
@@ -605,7 +606,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
             value={name}
             maxLength={60}
             onChange={(event) => setName(event.target.value)}
-            onBlur={() => void saveName()}
+            onBlur={() => saveName()}
             onKeyDown={(event) => {
               if (event.key === 'Enter') event.currentTarget.blur()
               if (event.key === 'Escape') setName(factory.name)
@@ -625,7 +626,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
           />
         </div>
       </div>
-      <div className={styles.autoStartRow}>
+      <div className={styles.autoStartRow} data-setting="factory.general.auto-start">
         <div className={styles.field}>
           <span className={styles.label}>Start Backlog Tasks automatically</span>
           <span className={styles.caption}>
@@ -645,7 +646,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
           label="Start Backlog Tasks automatically"
           checked={autoStartBacklog}
           disabled={savingAutoStart}
-          onChange={(enabled) => void saveAutoStart(enabled)}
+          onChange={(enabled) => saveAutoStart(enabled)}
         />
       </div>
     </section>
@@ -655,8 +656,13 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
 const DangerZoneSection = memo(function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="danger-zone">
-      <SectionHeading id="danger-zone" title="Danger zone" where="machine" />
-      <div className={styles.removeRow}>
+      <SectionHeading
+        id="danger-zone"
+        setting="factory.danger-zone"
+        title="Danger zone"
+        where="machine"
+      />
+      <div className={styles.removeRow} data-setting="factory.danger-zone.remove">
         <span className={styles.label}>
           Remove Factory{' '}
           <Help>
@@ -665,9 +671,9 @@ const DangerZoneSection = memo(function DangerZoneSection({ onRemove }: { onRemo
           </Help>
         </span>
         <span className={views.headerSpacer} />
-        <button type="button" className={styles.dangerButton} onClick={onRemove}>
+        <ActionButton type="button" className={styles.dangerButton} onClick={onRemove}>
           Remove Factory…
-        </button>
+        </ActionButton>
       </div>
     </section>
   )
@@ -738,6 +744,7 @@ const ReposSection = memo(function ReposSection({
     <section className={`${styles.section} ${styles.wideSection}`} aria-labelledby="repos">
       <SectionHeading
         id="repos"
+        setting="factory.repos"
         title="Repos"
         where="repo"
         help="Saved in .ted/workflow.yaml on the primary repo’s default branch. Changes go through a pull request."
@@ -762,7 +769,7 @@ const ReposSection = memo(function ReposSection({
             }}
             onChange={(change) => onRepo(index, change)}
             onRemoveNew={() => onDraft((current) => current.filter((_, i) => i !== index))}
-            onRemove={() => void askToRemove(repo)}
+            onRemove={() => askToRemove(repo)}
             onFolder={shown ? (folder) => onFolder(shown, folder) : undefined}
           />
         )
@@ -804,9 +811,9 @@ const ReposSection = memo(function ReposSection({
         />
       ) : (
         <div className={styles.addRepoLine}>
-          <button type="button" className={styles.link} onClick={() => setAdding(true)}>
+          <ActionButton type="button" className={styles.link} onClick={() => setAdding(true)}>
             + Add repo
-          </button>
+          </ActionButton>
           <Help>
             Adds a repo through the same Save. Afterwards a New setup Task can set up its Checks and
             Apps.
@@ -900,14 +907,14 @@ function RepoCard({
         {isNew && <span className={styles.newChip}>Added when you save</span>}
         <span className={views.headerSpacer} />
         {isNew ? (
-          <button
+          <ActionButton
             type="button"
             className={styles.iconButton}
             aria-label={`Don’t add ${repo.repo}`}
             onClick={onRemoveNew}
           >
             <CloseIcon size={12} />
-          </button>
+          </ActionButton>
         ) : (
           !primary && <RepoMenu repo={repo.repo} onRemove={onRemove} />
         )}
@@ -925,7 +932,7 @@ function RepoCard({
             onChange={(event) => set({ name: event.target.value })}
           />
         </div>
-        <div className={styles.field}>
+        <div className={styles.field} data-setting="factory.repos.base-branch">
           <label className={styles.label} htmlFor={`${id}-base`}>
             Base branch <Edited when={edited.has('baseBranch')} />
           </label>
@@ -937,7 +944,7 @@ function RepoCard({
             onChange={(event) => set({ baseBranch: event.target.value })}
           />
         </div>
-        <div className={styles.field}>
+        <div className={styles.field} data-setting="factory.repos.merge-method">
           <label className={styles.label} htmlFor={`${id}-merge`}>
             Merge method <Edited when={edited.has('mergeMethod')} />
           </label>
@@ -966,9 +973,12 @@ function RepoCard({
         </div>
       </div>
 
-      <h3 className={styles.groupLabel}>Worktree</h3>
+      <h3 className={styles.groupLabel} data-setting="factory.repos.worktree">
+        Worktree
+      </h3>
       <div className={styles.twoColumns}>
         <CommandField
+          setting="factory.repos.worktree.setup"
           label="Setup command"
           help="Runs once in each new worktree, after copying files, before any Run uses it."
           value={repo.setup}
@@ -977,6 +987,7 @@ function RepoCard({
           onChange={(setup) => onChange((r) => withCommand(r, 'setup', setup))}
         />
         <CommandField
+          setting="factory.repos.worktree.teardown"
           label="Teardown command"
           help="Runs before TED removes a worktree. If it fails, TED logs it and removes the worktree anyway."
           value={repo.teardown}
@@ -1020,6 +1031,7 @@ function withCommand(
 }
 
 function CommandField({
+  setting,
   label,
   help,
   value,
@@ -1028,6 +1040,7 @@ function CommandField({
   edited,
   onChange,
 }: {
+  setting: SettingId
   label: string
   help: string
   value: RepoSettingsInput['setup']
@@ -1046,7 +1059,7 @@ function CommandField({
         : { run: next.run, ...(next.timeout ? { timeout: next.timeout } : {}) },
     )
   return (
-    <div className={styles.field}>
+    <div className={styles.field} data-setting={setting}>
       <label className={styles.label} htmlFor={id}>
         {label} <Help>{help}</Help> <Edited when={edited} />
       </label>
@@ -1087,7 +1100,7 @@ function EnvTable({
   const set = (index: number, field: 'name' | 'value', text: string) =>
     onChange(env.map((v, i) => (i === index ? { ...v, [field]: text } : v)))
   return (
-    <div className={styles.block}>
+    <div className={styles.block} data-setting="factory.repos.env">
       <span className={styles.label}>
         Environment variables{' '}
         <Help>Committed to the repo, so no secrets. Put secrets in a file to copy.</Help>{' '}
@@ -1110,26 +1123,26 @@ function EnvTable({
               value={variable.value}
               onChange={(event) => set(index, 'value', event.target.value)}
             />
-            <button
+            <ActionButton
               type="button"
               className={styles.iconButton}
               aria-label={`Remove ${variable.name || 'this variable'}`}
               onClick={() => {
                 rows.removed(index)
-                onChange(env.filter((_, i) => i !== index))
+                return onChange(env.filter((_, i) => i !== index))
               }}
             >
               <CloseIcon size={12} />
-            </button>
+            </ActionButton>
           </div>
         ))}
-        <button
+        <ActionButton
           type="button"
           className={`${styles.link} ${styles.tableAdd}`}
           onClick={() => onChange([...env, { name: '', value: '' }])}
         >
           + Add variable
-        </button>
+        </ActionButton>
       </div>
     </div>
   )
@@ -1151,7 +1164,7 @@ function CopyList({
     setAdding(undefined)
   }
   return (
-    <div className={styles.block}>
+    <div className={styles.block} data-setting="factory.repos.copy">
       <span className={styles.label}>
         Files to copy from the local folder{' '}
         <Help>Untracked files such as .env, copied into each new worktree. Paths or globs.</Help>{' '}
@@ -1161,20 +1174,20 @@ function CopyList({
         {copy.map((file) => (
           <span className={styles.fileChip} key={file}>
             {file}
-            <button
+            <ActionButton
               type="button"
               className={styles.chipRemove}
               aria-label={`Don’t copy ${file}`}
               onClick={() => onChange(copy.filter((f) => f !== file))}
             >
               <CloseIcon size={10} />
-            </button>
+            </ActionButton>
           </span>
         ))}
         {adding === undefined ? (
-          <button type="button" className={styles.link} onClick={() => setAdding('')}>
+          <ActionButton type="button" className={styles.link} onClick={() => setAdding('')}>
             + Add
-          </button>
+          </ActionButton>
         ) : (
           <input
             aria-label="File to copy"
@@ -1233,14 +1246,8 @@ function LocalFolder({
             : 'None. Files to copy come from this folder on this machine.'}
         </span>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={() => void choose()}>
-          {missing ? 'Locate…' : 'Choose…'}
-        </Button>
-        {folder && (
-          <Button size="small" onClick={() => void act(undefined)}>
-            Clear
-          </Button>
-        )}
+        <Button onClick={() => choose()}>{missing ? 'Locate…' : 'Choose…'}</Button>
+        {folder && <Button onClick={() => act(undefined)}>Clear</Button>}
       </div>
       {missing && (
         <p className={styles.folderWarning}>
@@ -1271,7 +1278,7 @@ function Apps({
   const rows = useRowKeys(apps.length)
   return (
     <div className={styles.block}>
-      <h3 className={styles.groupLabel}>
+      <h3 className={styles.groupLabel} data-setting="factory.repos.apps">
         Apps <Edited when={edited} />
       </h3>
       <div className={styles.apps}>
@@ -1293,14 +1300,14 @@ function Apps({
               <span className={styles.appName}>{app.name || 'Unnamed App'}</span>
               <span className={styles.appKind}>{appKindLabels[app.kind]}</span>
               <span className={styles.appRun}>{app.run}</span>
-              <button type="button" className={styles.link} onClick={() => setEditing(index)}>
+              <ActionButton type="button" className={styles.link} onClick={() => setEditing(index)}>
                 Edit
-              </button>
+              </ActionButton>
             </div>
           ),
         )}
       </div>
-      <button
+      <ActionButton
         type="button"
         className={styles.link}
         onClick={() => {
@@ -1309,7 +1316,7 @@ function Apps({
         }}
       >
         + Add App
-      </button>
+      </ActionButton>
     </div>
   )
 }
@@ -1392,13 +1399,11 @@ function AppEditor({
         </div>
       )}
       <div className={styles.appActions}>
-        <button type="button" className={styles.dangerLink} onClick={onRemove}>
+        <ActionButton type="button" className={styles.dangerLink} onClick={onRemove}>
           Remove App
-        </button>
+        </ActionButton>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={onDone}>
-          Done
-        </Button>
+        <Button onClick={onDone}>Done</Button>
       </div>
     </fieldset>
   )
@@ -1445,12 +1450,13 @@ function RepoInUseDialog({ removal, onClose }: { removal: RepoRemoval; onClose: 
 }
 
 function RepoMenu({ repo, onRemove }: { repo: string; onRemove: () => void }) {
+  const activity = usePendingAction(`repo-menu:${repo}`)
   const [open, setOpen] = useState(false)
   const close = useCallback(() => setOpen(false), [])
   const ref = usePopover(open, close)
   return (
     <div ref={ref} className={styles.menuAnchor}>
-      <button
+      <ActionButton
         type="button"
         className={styles.iconButton}
         aria-label={`More for ${repo}`}
@@ -1459,31 +1465,32 @@ function RepoMenu({ repo, onRemove }: { repo: string; onRemove: () => void }) {
         onClick={() => setOpen((o) => !o)}
       >
         ⋯
-      </button>
+      </ActionButton>
       {open && (
         <div className={styles.menu} role="menu" aria-label={repo}>
-          <button
+          <ActionButton
             type="button"
             role="menuitem"
+            disabled={activity.pending}
             className={styles.menuItem}
             onClick={() => {
-              close()
-              void ted.openOnGitHub(`https://github.com/${repo}`)
+              return activity.run(() => ted.openOnGitHub(`https://github.com/${repo}`))?.then(close)
             }}
           >
             Open on GitHub
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             role="menuitem"
+            disabled={activity.pending}
             className={`${styles.menuItem} ${styles.menuDanger}`}
             onClick={() => {
               close()
-              onRemove()
+              return onRemove()
             }}
           >
             Remove from Factory…
-          </button>
+          </ActionButton>
         </div>
       )}
     </div>
@@ -1560,13 +1567,13 @@ function AddRepo({
   const fix = (chosen: RepoFix) => {
     if (chosen.kind === 'open-factory') onOpenFactory(chosen.factoryId)
     else if (chosen.kind === 'github-settings') onOpenGitHubSettings()
-    else if (chosen.kind === 'choose-folder') void chooseFolder()
-    else if (row.source) void check(row.source)
+    else if (chosen.kind === 'choose-folder') return chooseFolder()
+    else if (row.source) return check(row.source)
   }
 
   async function chooseFolder() {
     const folder = await ted.chooseFolder('Choose the repo’s folder')
-    if (folder !== undefined) void check({ folder })
+    if (folder !== undefined) await check({ folder })
   }
 
   const rows = [...others, row]
@@ -1590,26 +1597,23 @@ function AddRepo({
         onText={(text) => setRow((r) => ({ ...r, text }))}
         onSubmitRemote={() => {
           const text = row.text.trim()
-          if (text !== '') void check({ remote: text })
+          if (text !== '') check({ remote: text })
         }}
-        onChooseFolder={() => void chooseFolder()}
+        onChooseFolder={() => chooseFolder()}
         onName={(name) => setRow((r) => ({ ...r, name, nameEdited: true }))}
         onRemove={onCancel}
         onFix={fix}
       />
       <div className={styles.addActions}>
         <span className={views.headerSpacer} />
-        <Button size="small" onClick={onCancel}>
-          Cancel
-        </Button>
+        <Button onClick={onCancel}>Cancel</Button>
         <Button
-          size="small"
           variant="primary"
           disabled={!ready}
           onClick={() => {
             const repo = row.check?.repo
             if (!ready || repo === undefined) return
-            onAdd(
+            return onAdd(
               {
                 repo,
                 remote: remoteFor(

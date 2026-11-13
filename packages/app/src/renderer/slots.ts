@@ -1,4 +1,4 @@
-import type { RunSlots, SimulatorSlots } from '@ted/protocol'
+import type { RunSlots, SimulatorSlots, Task } from '@ted/protocol'
 import { busyHold } from '@ted/protocol/slots'
 import { plural } from './words.ts'
 
@@ -29,4 +29,38 @@ export function factoryCapLine(slots: RunSlots | undefined, factoryId: string): 
 
 export function slotCount(runs: number): string {
   return runs === 0 ? '1 slot' : plural(runs, 'Run')
+}
+
+export function startSplit(
+  slots: RunSlots,
+  tasks: readonly Pick<Task, 'factoryId'>[],
+): { now: number; wait: number } {
+  let working = slots.working
+  const caps = new Map(slots.factories.map((f) => [f.factoryId, f.cap]))
+  const byFactory = new Map(slots.factories.map((f) => [f.factoryId, f.working]))
+  const take = (factoryId: string) => {
+    working++
+    byFactory.set(factoryId, (byFactory.get(factoryId) ?? 0) + 1)
+  }
+  const starts = (factoryId: string) => {
+    if (working >= slots.limit) return false
+    if (slots.heldForLoad && working > 0) return false
+    const cap = caps.get(factoryId)
+    if (cap !== undefined && (byFactory.get(factoryId) ?? 0) >= cap) return false
+    take(factoryId)
+    return true
+  }
+  for (const entry of slots.queue) {
+    if (entry.kind === 'automation' || entry.kind === 'automation-draft') take(entry.factoryId)
+    else starts(entry.factoryId)
+  }
+  const now = tasks.filter((task) => starts(task.factoryId)).length
+  return { now, wait: tasks.length - now }
+}
+
+export function startWaitLine(split: { now: number; wait: number }): string | undefined {
+  const { now, wait } = split
+  if (wait === 0) return undefined
+  if (now === 0) return wait === 1 ? 'It waits for a Run slot' : `All ${wait} wait for a Run slot`
+  return `${now} ${now === 1 ? 'starts' : 'start'} now, ${wait} ${wait === 1 ? 'waits' : 'wait'} for a Run slot`
 }

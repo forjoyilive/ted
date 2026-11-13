@@ -21,6 +21,7 @@
   flex-direction: column;
   gap: 2px;
   padding: 24px 14px;
+  overflow-y: auto;
 }
 
 .navItem {
@@ -231,13 +232,14 @@
 }
 
 .dangerButton {
-  padding: 6px 14px;
+  height: var(--button-height);
+  padding: 0 12px;
   border: 1px solid var(--status-failed-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-card);
   color: var(--status-destructive);
   font: inherit;
-  font-size: var(--text-13-5);
+  font-size: var(--text-13);
 }
 
 .dangerButton:disabled {

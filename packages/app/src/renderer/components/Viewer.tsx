@@ -139,7 +139,6 @@ export function ImageViewer({
         images.length > 1 && (
           <div className={styles.navigation}>
             <Button
-              size="small"
               aria-label="Previous image"
               title="Previous image (←)"
               data-image-direction="previous"
@@ -151,7 +150,6 @@ export function ImageViewer({
               {index + 1} of {images.length}
             </span>
             <Button
-              size="small"
               aria-label="Next image"
               title="Next image (→)"
               data-image-direction="next"

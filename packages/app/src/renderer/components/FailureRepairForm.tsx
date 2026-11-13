@@ -1,7 +1,8 @@
-import type { Comment, RepairSelection, Task } from '@ted/protocol'
+import type { Comment, MessageBox, RepairSelection, Task } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { useId, useRef, useState } from 'react'
 import { useFailures, useTasks } from '../data.ts'
+import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { readableError, ted } from '../ted.ts'
 import { BlockerPicker } from './BlockerPicker.tsx'
 import { Button } from './Button.tsx'
@@ -15,8 +16,10 @@ export function FailureRepairForm({
   onCancel,
   reason,
   onSendingChange,
+  box,
 }: {
   id: string
+  box?: MessageBox | undefined
   active: boolean
   task: Task
   request: Comment
@@ -30,11 +33,29 @@ export function FailureRepairForm({
   const tasks = useTasks().filter(
     (t) => t.factoryId === task.factoryId && t.id !== task.id && !t.archived && t.stage !== 'done',
   )
-  const [kind, setKind] = useState<'existing' | 'new'>('existing')
-  const [selected, setSelected] = useState<string>()
-  const [title, setTitle] = useState<string>()
-  const [description, setDescription] = useState<string>()
-  const [start, setStart] = useState(true)
+  const kept = useMessageDraft(box)
+  const optionalText = (value: unknown): value is string | undefined =>
+    value === undefined || typeof value === 'string'
+  const [kind, setKind] = draftField<'existing' | 'new'>(
+    kept,
+    'repairKind',
+    'existing',
+    (value): value is 'existing' | 'new' => value === 'existing' || value === 'new',
+  )
+  const [selected, setSelected] = draftField(kept, 'repairTask', undefined, optionalText)
+  const [title, setTitle] = draftField(kept, 'repairTitle', undefined, optionalText)
+  const [description, setDescription] = draftField(
+    kept,
+    'repairDescription',
+    undefined,
+    optionalText,
+  )
+  const [start, setStart] = draftField(
+    kept,
+    'repairStart',
+    true,
+    (value): value is boolean => typeof value === 'boolean',
+  )
   const [sending, setSending] = useState(false)
   const inFlight = useRef(false)
   const [done, setDone] = useState(false)
@@ -187,7 +208,12 @@ export function FailureRepairForm({
           <Button disabled={sending || !active} onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" type="submit" disabled={sending || !active || !valid}>
+          <Button
+            variant="primary"
+            type="submit"
+            pending={sending}
+            disabled={sending || !active || !valid}
+          >
             Send
           </Button>
         </div>

@@ -1,7 +1,8 @@
+import type { BoardView } from './board-view.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
-import type { AgentKind, PermissionMode } from './run.ts'
+import { type AgentKind, agentKinds, type PermissionMode } from './run.ts'
 import type { EditorChoice } from './shell.ts'
 
 export const timeFormats = ['system', '12-hour', '24-hour'] as const
@@ -26,6 +27,34 @@ export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 
 export type QuitChoice = (typeof quitChoices)[number]
 
+export interface FactoryNotifications {
+  inboxItems: boolean
+  taskMerged: boolean
+}
+
+export const defaultFactoryNotifications: FactoryNotifications = {
+  inboxItems: true,
+  taskMerged: false,
+}
+
+export function factoryNotifications(
+  settings: Pick<MachineSettings, 'factoryNotifications'>,
+  factoryId: string,
+): FactoryNotifications {
+  return { ...defaultFactoryNotifications, ...settings.factoryNotifications[factoryId] }
+}
+
+export function firstFactoryNotifications(
+  factoryIds: readonly string[],
+  notifyTaskMerged: boolean,
+): Record<string, FactoryNotifications> {
+  return notifyTaskMerged
+    ? Object.fromEntries(
+        factoryIds.map((id) => [id, { ...defaultFactoryNotifications, taskMerged: true }]),
+      )
+    : {}
+}
+
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string
@@ -49,8 +78,11 @@ export interface MachineSettings {
   notifyProblems: boolean
   notifyTaskMerged: boolean
   notifySound: boolean
+  factoryNotifications: Readonly<Record<string, FactoryNotifications>>
   listViews: Readonly<Record<string, ListView>>
+  boardViews: Readonly<Record<string, BoardView>>
   firstLaunchDone: boolean
+  enabledAgents: readonly AgentKind[]
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
   editorCommand: string
@@ -88,8 +120,11 @@ export const defaultMachineSettings: MachineSettings = {
   notifyProblems: true,
   notifyTaskMerged: false,
   notifySound: false,
+  factoryNotifications: {},
   listViews: {},
+  boardViews: {},
   firstLaunchDone: false,
+  enabledAgents: [...agentKinds],
   billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },
   editor: null,
   editorCommand: '',

@@ -48,7 +48,33 @@ const timestamp = (at: string) =>
     fractionalSecondDigits: new Date(at).getUTCMilliseconds() === 0 ? undefined : 3,
     timeZoneName: 'short',
   })
-const shortDate = (at: string) => formatDate(at, { month: 'short', day: 'numeric' })
+const machineDate = (at: string | Date, options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat('en-GB', {
+    ...options,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }).format(typeof at === 'string' ? new Date(at) : at)
+const shortDate = (at: string) => machineDate(at, { month: 'short', day: 'numeric' })
+const clock = (at: number) => formatDate(new Date(at), { hour: '2-digit', minute: '2-digit' })
+const hourMs = 3_600_000
+const dayMs = 86_400_000
+const lastDay = (bucket: DashboardBucket) => new Date(Date.parse(bucket.to) - 1)
+const calendarDate = (at: Date) =>
+  machineDate(at, { year: 'numeric', month: 'numeric', day: 'numeric' })
+const dayCount = (bucket: DashboardBucket) =>
+  Math.round((Date.parse(bucket.to) - Date.parse(bucket.from)) / dayMs)
+
+function dayLabel(bucket: DashboardBucket, asOf: string): string {
+  const first = new Date(bucket.from)
+  const last = lastDay(bucket)
+  const soFar = bucket.to === asOf ? ' (today so far)' : ''
+  if (calendarDate(first) === calendarDate(last))
+    return `${machineDate(first, { weekday: 'short', day: 'numeric', month: 'short' })}${soFar}`
+  const sameMonth =
+    machineDate(first, { year: 'numeric', month: 'numeric' }) ===
+    machineDate(last, { year: 'numeric', month: 'numeric' })
+  const start = sameMonth ? machineDate(first, { day: 'numeric' }) : shortDate(bucket.from)
+  return `${start}–${shortDate(last.toISOString())}${soFar}`
+}
 const metricValue = (period: DashboardPeriod | DashboardBucket, metric: DashboardMetric) =>
   metric === 'completed' ? period.taskIds.length : period[metric].value
 const idsOf = (
@@ -68,10 +94,12 @@ function Change({
   change,
   metric,
   all,
+  today,
 }: {
   change: DashboardChange | undefined
   metric: DashboardMetric
   all: boolean
+  today: boolean
 }) {
   const percent = change?.percent
   const good =
@@ -95,7 +123,7 @@ function Change({
             {Number(percent.toFixed(1))}%
           </strong>
           <span>
-            {metric === 'completed' ? 'vs previous period' : 'elapsed time vs previous period'}
+            {`${metric === 'completed' ? '' : 'elapsed time '}${today ? 'vs yesterday to this time' : 'vs previous period'}`}
           </span>
         </>
       )}
@@ -121,7 +149,12 @@ function Chart({
   if (a.length === 0) return <p className={styles.chartEmpty}>No recorded completions to plot.</p>
   const rawMaximum = Math.max(metric === 'completed' ? 1 : 60_000, ...values)
   const maximum = metric === 'completed' ? Math.ceil(rawMaximum / 2) * 2 : rawMaximum
-  const x = (i: number) => 42 + (i * 438) / Math.max(1, a.length - 1)
+  const today = data.range === 'today'
+  const start = Date.parse(data.current.from ?? data.asOf)
+  const steps = today ? Math.max(1, a.length, b.length) : Math.max(1, a.length - 1)
+  const x = (i: number) => 42 + (i * 438) / steps
+  const now = x((Date.parse(data.asOf) - start) / hourMs)
+  const rows = Array.from({ length: today ? Math.max(a.length, b.length) : a.length }, (_, i) => i)
   const y = (value: number) => 150 - (value / maximum) * 120
   const path = (buckets: DashboardBucket[]) => {
     let gap = true
@@ -140,7 +173,11 @@ function Chart({
   }
   const unit = metric === 'completed' ? 'Tasks' : 'Median elapsed time'
   const bounds = (bucket: DashboardBucket) =>
-    `${timestamp(bucket.from)} – ${timestamp(bucket.to)} (end excluded)`
+    today
+      ? `${timestamp(bucket.from)} – ${timestamp(bucket.to)} (end excluded)`
+      : dayLabel(bucket, data.asOf)
+  const perPoint = Math.max(1, a[0] ? dayCount(a[0]) : 1)
+  const last = a.at(-1)
   const number = (value: number) =>
     metric === 'completed' ? String(Math.round(value)) : duration(value)
   return (
@@ -148,18 +185,21 @@ function Chart({
       <div className={styles.legend}>
         <span>
           <i />
-          Selected period
+          {today
+            ? 'Today'
+            : last &&
+              `${shortDate(a[0]?.from ?? data.asOf)} – ${shortDate(lastDay(last).toISOString())}`}
         </span>
         {data.previous && (
           <span>
             <i className={styles.previousKey} />
-            Previous · aligned by day
+            {today ? 'Yesterday · aligned by hour' : 'Previous · aligned by day'}
           </span>
         )}
       </div>
       <svg
         viewBox="0 0 500 185"
-        aria-label={`${labels[metric]} by ${data.range === 'all' ? 'interval' : 'rolling day'}`}
+        aria-label={`${labels[metric]} by ${today ? 'hour' : perPoint === 1 ? 'day' : `${perPoint} days`}`}
       >
         <title>
           {unit}.{' '}
@@ -181,6 +221,14 @@ function Chart({
             </text>
           </g>
         ))}
+        {today && (
+          <>
+            <line className={styles.nowLine} x1={now} x2={now} y1="26" y2="150" />
+            <text x={now} y="20" textAnchor="middle">
+              Now
+            </text>
+          </>
+        )}
         {data.previous && <path className={styles.previousLine} d={path(b)} />}
         <path className={styles.currentLine} d={path(a)} />
         {(
@@ -211,67 +259,102 @@ function Chart({
             )
           }),
         )}
-        <text x="42" y="175">
-          {shortDate(a[0]?.from ?? data.asOf)}
-        </text>
-        <text x="480" y="175" textAnchor="end">
-          {shortDate(data.asOf)}
-        </text>
+        {today
+          ? [0, 6, 12, 18, steps].map((i) => (
+              <text
+                key={i}
+                x={x(i)}
+                y="175"
+                textAnchor={i === 0 ? 'start' : i === steps ? 'end' : 'middle'}
+              >
+                {clock(start + i * hourMs)}
+              </text>
+            ))
+          : (data.range === '7d'
+              ? a.map((_, i) => i)
+              : [...new Set([0, Math.floor((a.length - 1) / 2), a.length - 1])]
+            ).map((i) => {
+              const bucket = a[i]
+              if (!bucket) return null
+              const end = i === a.length - 1 && i > 0
+              return (
+                <text
+                  key={i}
+                  x={x(i)}
+                  y="175"
+                  textAnchor={i === 0 ? 'start' : end ? 'end' : 'middle'}
+                >
+                  {data.range === '7d'
+                    ? machineDate(bucket.from, { weekday: 'short', day: 'numeric' })
+                    : shortDate(end ? lastDay(bucket).toISOString() : bucket.from)}
+                </text>
+              )
+            })}
       </svg>
       <p className={styles.caption}>
         {data.range === 'all'
-          ? 'Equal intervals across retained history.'
-          : 'Consecutive 24-hour intervals ending at the as-of time.'}{' '}
+          ? `${perPoint === 1 ? 'One point per calendar day' : `Each point covers ${perPoint} calendar days`}, midnight to midnight. The last point runs to now.`
+          : today
+            ? 'One point per hour since midnight. Today’s last hour is still running. Yesterday’s line shows the whole day; the figures above count it only to this time.'
+            : 'One point per calendar day, midnight to midnight. Today is not included.'}{' '}
         {metric === 'completed'
-          ? 'Tasks per interval.'
-          : 'Graph shows interval medians, not the whole-period median above. No sample = gap.'}
+          ? 'Tasks per point.'
+          : 'Graph shows medians per point, not the whole-period median above. No sample = gap.'}
       </p>
       <details className={styles.dataTable}>
         <summary>Graph data and samples</summary>
         <table>
-          <caption>{unit} · Interval end timestamps are excluded</caption>
+          <caption>
+            {unit} ·{' '}
+            {today ? 'Interval end timestamps are excluded' : 'Days run midnight to midnight'}
+          </caption>
           <thead>
             <tr>
-              <th>Interval</th>
-              <th>Selected</th>
-              {data.previous && <th>Previous</th>}
+              <th>{today ? 'Interval' : perPoint === 1 ? 'Day' : 'Days'}</th>
+              <th>{today ? 'Today' : 'Selected'}</th>
+              {data.previous && <th>{today ? 'Yesterday' : 'Previous'}</th>}
             </tr>
           </thead>
           <tbody>
-            {a.map((bucket, index) => (
-              <tr key={bucket.from}>
-                <th scope="row">{bounds(bucket)}</th>
-                <td>
-                  <button
-                    type="button"
-                    data-nav-item
-                    className={styles.link}
-                    onClick={() => select({ metric, period: 'current', bucket: index })}
-                  >
-                    {showValue(metric, metricValue(bucket, metric))} ·{' '}
-                    {idsOf(bucket, metric).length} Tasks
-                  </button>
-                </td>
-                {data.previous && (
+            {rows.map((index) => {
+              const bucket = a[index]
+              return (
+                <tr key={index}>
+                  <th scope="row">{bucket ? bounds(bucket) : 'Not reached yet today'}</th>
                   <td>
-                    {b[index] && (
+                    {bucket && (
                       <button
                         type="button"
                         data-nav-item
                         className={styles.link}
-                        title={bounds(b[index])}
-                        onClick={() => select({ metric, period: 'previous', bucket: index })}
+                        onClick={() => select({ metric, period: 'current', bucket: index })}
                       >
-                        {showValue(metric, metricValue(b[index], metric))} ·{' '}
-                        {idsOf(b[index], metric).length} Tasks
-                        <br />
-                        {bounds(b[index])}
+                        {showValue(metric, metricValue(bucket, metric))} ·{' '}
+                        {idsOf(bucket, metric).length} Tasks
                       </button>
                     )}
                   </td>
-                )}
-              </tr>
-            ))}
+                  {data.previous && (
+                    <td>
+                      {b[index] && (
+                        <button
+                          type="button"
+                          data-nav-item
+                          className={styles.link}
+                          title={bounds(b[index])}
+                          onClick={() => select({ metric, period: 'previous', bucket: index })}
+                        >
+                          {showValue(metric, metricValue(b[index], metric))} ·{' '}
+                          {idsOf(b[index], metric).length} Tasks
+                          <br />
+                          {bounds(b[index])}
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </details>
@@ -310,7 +393,12 @@ function MetricPanel({
         >
           {showValue(metric, value)}
         </button>
-        <Change change={change} metric={metric} all={previous === null} />
+        <Change
+          change={change}
+          metric={metric}
+          all={previous === null}
+          today={data.range === 'today'}
+        />
         {previous && (
           <details className={styles.comparison}>
             <summary>Comparison details</summary>
@@ -425,10 +513,19 @@ function Sample({
         ? idsOf(sample, selection.metric, selection.missing)
         : []
   const records = new Map(data.tasks.map((task) => [task.id, task]))
+  const days = data.range !== 'today' && bucket !== undefined
   const title =
     selection.metric === 'unavailable'
       ? 'Unavailable completion history'
-      : `${labels[selection.metric]} · ${selection.missing ? 'Missing starts' : selection.period === 'current' ? 'Selected period' : 'Previous period'}`
+      : `${labels[selection.metric]} · ${
+          selection.missing
+            ? 'Missing starts'
+            : days
+              ? `${selection.period === 'previous' ? 'Previous · ' : ''}${dayLabel(bucket, data.asOf)}`
+              : selection.period === 'current'
+                ? 'Selected period'
+                : 'Previous period'
+        }`
   const describe = (task: DashboardTask) =>
     selection.metric === 'unavailable'
       ? 'Done timestamp unavailable'
@@ -469,7 +566,9 @@ function Sample({
       </p>
       {sample?.from && (
         <p className={styles.caption}>
-          {timestamp(sample.from)} – {timestamp(sample.to)} (end excluded)
+          {days && bucket && bucket.to !== data.asOf && dayCount(bucket) === 1
+            ? 'Midnight to midnight'
+            : `${timestamp(sample.from)} – ${timestamp(sample.to)} (end excluded)`}
         </p>
       )}
       <p className={styles.caption}>
@@ -536,10 +635,11 @@ export function Dashboard({
           value={state.range}
           onChange={(event) => {
             const range = event.target.value
-            if (range === '7d' || range === '30d' || range === 'all')
+            if (range === 'today' || range === '7d' || range === '30d' || range === 'all')
               onChange({ range, ...(state.panel && { panel: state.panel }) })
           }}
         >
+          <option value="today">Today</option>
           <option value="30d">Last 30 days</option>
           <option value="7d">Last 7 days</option>
           <option value="all">All retained history</option>

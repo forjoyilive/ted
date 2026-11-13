@@ -1,0 +1,58 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  min-width: 0;
+  align-items: center;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.wrap > .control {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding-right: 26px;
+}
+
+.input {
+  padding: 5px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  line-height: var(--leading-tight);
+}
+
+.input:focus-visible,
+.back:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.back {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  transform: translateY(-50%);
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-caption);
+  cursor: pointer;
+}
+
+.back:hover {
+  background: var(--surface-inset);
+  color: var(--text-primary);
+}

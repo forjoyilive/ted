@@ -2,7 +2,7 @@ import type { Comment, CommentAnswer, InboxItem, Task } from '@ted/protocol'
 
 export const answeredDays = 30
 
-const byHuman: ReadonlySet<CommentAnswer['kind']> = new Set([
+export const byHuman: ReadonlySet<CommentAnswer['kind']> = new Set([
   'answered',
   'approved',
   'changes-requested',

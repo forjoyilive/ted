@@ -10,8 +10,10 @@ import {
   needsSlot,
 } from '../apps.ts'
 import { useSimulators, useTaskApps } from '../data.ts'
+import { isPromise } from '../pending-action.ts'
 import { useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './Apps.module.css'
 import { Button } from './Button.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
@@ -37,12 +39,18 @@ export function AppsSection({
   const apps = useTaskApps(task.id)
   const simulators = useSimulators()
   const hosted = hostedPreviews(task)
-  if (apps.length === 0 && hosted.length === 0) return null
+  if (apps.length === 0 && hosted.length === 0) {
+    return (
+      <DetailsSection id="apps">
+        <p className={styles.empty}>No Apps for this Task</p>
+      </DetailsSection>
+    )
+  }
   const repos = [...new Set([...apps.map((a) => a.repo), ...hosted.map((h) => h.repo)])]
   const grouped = task.repos.filter((r) => !r.removed).length > 1 || repos.length > 1
   const summary = appsSummary(apps, hosted.length)
   return (
-    <DetailsSection id="apps" title="Apps" summary={summary}>
+    <DetailsSection id="apps" summary={summary}>
       {repos.map((repo) => (
         <div key={repo} className={styles.group}>
           {grouped && <h3 className={styles.repo}>{repo}</h3>}
@@ -81,7 +89,7 @@ export function useAppActions(task: Task, app: TaskApp) {
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
@@ -133,11 +141,11 @@ function AppRow({
   const run = () => {
     const rect = row.current?.getBoundingClientRect()
     if (needsSlot(app, simulators) && rect) setChoosing(rect)
-    else actions.start()
+    else return actions.start()
   }
   return (
     <li ref={row} className={styles.row} data-selected={selected || undefined}>
-      <button
+      <ActionButton
         type="button"
         className={styles.open}
         title={`Show ${app.name}’s log`}
@@ -155,10 +163,10 @@ function AppRow({
             </span>
           )}
         </span>
-      </button>
+      </ActionButton>
       <span className={styles.actions}>
         {app.kind === 'web' && (
-          <button
+          <ActionButton
             type="button"
             className={styles.action}
             aria-label={`Preview ${app.name}`}
@@ -167,10 +175,10 @@ function AppRow({
             onClick={actions.preview}
           >
             <OpenIcon />
-          </button>
+          </ActionButton>
         )}
         {isSimulatorApp(app) && (
-          <button
+          <ActionButton
             type="button"
             className={styles.action}
             aria-label={`Show ${app.name}`}
@@ -179,10 +187,10 @@ function AppRow({
             onClick={actions.show}
           >
             <OpenIcon />
-          </button>
+          </ActionButton>
         )}
         {live ? (
-          <button
+          <ActionButton
             type="button"
             className={styles.action}
             aria-label={`Stop ${app.name}`}
@@ -191,9 +199,9 @@ function AppRow({
             onClick={actions.stop}
           >
             <StopIcon />
-          </button>
+          </ActionButton>
         ) : (
-          <button
+          <ActionButton
             type="button"
             className={styles.action}
             aria-label={`Run ${app.name}`}
@@ -203,9 +211,9 @@ function AppRow({
             onClick={run}
           >
             <PlayIcon />
-          </button>
+          </ActionButton>
         )}
-        <button
+        <ActionButton
           type="button"
           className={styles.action}
           aria-label={`Restart ${app.name}`}
@@ -214,7 +222,7 @@ function AppRow({
           onClick={actions.restart}
         >
           <RestartIcon />
-        </button>
+        </ActionButton>
       </span>
       {actions.dialog}
       {choosing && simulators && (
@@ -225,8 +233,10 @@ function AppRow({
           anchor={choosing}
           onCancel={() => setChoosing(undefined)}
           onRun={(udid) => {
+            const result = actions.start(udid)
+            if (isPromise(result))
+              return Promise.resolve(result).finally(() => setChoosing(undefined))
             setChoosing(undefined)
-            actions.start(udid)
           }}
         />
       )}
@@ -318,19 +328,19 @@ function HostedRow({ task, hosted }: { task: Task; hosted: HostedPreview }) {
         </span>
       </span>
       <span className={styles.actions}>
-        <button
+        <ActionButton
           type="button"
           className={styles.action}
           aria-label={`Open ${hosted.preview.label}`}
           title={hosted.preview.url}
           onClick={() =>
-            void ted
+            ted
               .openHostedPreview(task.id, hosted.repo)
               .catch((failed: unknown) => setError(readableError(failed)))
           }
         >
           <OpenIcon />
-        </button>
+        </ActionButton>
       </span>
     </li>
   )

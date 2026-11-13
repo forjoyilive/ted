@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { systemClock } from '../src/clock.ts'
+import { RequestError } from '../src/errors.ts'
 import { type Gh, GhError } from '../src/github/gh.ts'
 import { type NewStageEntry, openStore, type TedStore } from '../src/store/index.ts'
 import type { PullRequestRead, RemotePullRequest } from '../src/tasks/merge.ts'
@@ -189,8 +190,9 @@ test('waits for CI then merges when the poller reports success', async () => {
   expect(pr()?.merged?.noCi).toBe(false)
 })
 
-test('failed required CI sends back before any merge', async () => {
+test('failed CI without an attempt identity sends back before any merge', async () => {
   ci()
+  port.ciFailures = vi.fn(async () => {})
   await watcher.cycle(
     id,
     read(remote({ checks: [{ ...pending, required: true, state: 'failed' }] })),
@@ -198,6 +200,27 @@ test('failed required CI sends back before any merge', async () => {
   expect(current().stage).toBe('work')
   expect(port.sendBack).toHaveBeenCalledWith(id, expect.stringContaining('CI failed'))
   expect(gh.run).not.toHaveBeenCalled()
+})
+
+test('failed CI with attempt identities is handed to diagnosis; acceptance merges only when GitHub allows', async () => {
+  ci()
+  const failed = { ...pending, required: true, state: 'failed' as const, identity: 'run-1:a:b' }
+  const scoped = (over: Partial<RemotePullRequest> = {}) =>
+    read(remote({ checks: [failed], checksComplete: true, ...over }))
+  port.ciFailures = vi.fn(async () => {})
+  port.ciBlocked = vi.fn(async () => {})
+  expect(await watcher.cycle(id, scoped())).toBe('wait')
+  expect(port.ciFailures).toHaveBeenCalledTimes(1)
+  expect(port.sendBack).not.toHaveBeenCalled()
+  expect(current().stage).toBe('merge')
+  port.acceptedCi = () => new Set(['run-1:a:b'])
+  expect(await watcher.cycle(id, scoped({ mergeStateStatus: 'BLOCKED' }))).toBe('wait')
+  expect(pr()?.waiting).toBe('required-check')
+  expect(port.ciBlocked).toHaveBeenCalledWith(id, expect.anything(), expect.anything(), [failed])
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(await watcher.cycle(id, scoped({ mergeStateStatus: 'UNSTABLE' }))).toBe('done')
+  expect(gh.run).toHaveBeenCalledTimes(1)
+  expect(port.sendBack).not.toHaveBeenCalled()
 })
 
 test.each([
@@ -232,13 +255,27 @@ test('missing reads or pull requests wait without merging', async () => {
   expect(gh.run).not.toHaveBeenCalled()
 })
 
-test('read authentication errors set the sign-in wait and release the in-flight cycle', async () => {
+test('read authentication errors set the sign-in wait and release the in-flight cycle; a good read clears it while obligations hold the merge, and the hold is logged once', async () => {
   const failed = read()
   failed.failed.set('github.com', new GhError('auth', 'sign in'))
   await expect(watcher.cycle(id, failed)).rejects.toThrow('sign in')
   expect(pr()?.waiting).toBe('sign-in')
   expect(watcher.inFlightCount()).toBe(0)
   await watcher.settled(id)
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.mocked(port.requireObligations).mockRejectedValue(
+    new RequestError(409, 'Unresolved failure cases hold this Task: abc'),
+  )
+  await expect(watcher.cycle(id, read())).rejects.toThrow('Unresolved')
+  expect(pr()?.waiting).toBeUndefined()
+  await expect(watcher.cycle(id, read())).rejects.toThrow('Unresolved')
+  expect(log.mock.calls).toEqual([
+    [expect.stringContaining('merge is waiting: Unresolved failure cases hold this Task: abc')],
+  ])
+  expect(gh.run).not.toHaveBeenCalled()
+  vi.mocked(port.requireObligations).mockResolvedValue(undefined)
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(pr()?.state).toBe('merged')
 })
 
 test('auto-merge uses an allowed method once and observes an external merge', async () => {
@@ -457,6 +494,7 @@ test('a requested rebase is remembered and a previously recorded rebase reruns C
   expect(gh.graphql).toHaveBeenCalledTimes(1)
   expect(pr()?.waiting).toBe('ci')
   store.branchRebased(id, 'widgets', { commit: 'rebased', onto: 'main' })
+  vi.mocked(port.checks).mockClear()
   vi.mocked(port.checks).mockResolvedValue(false)
   expect(await watcher.cycle(id, read(remote({ headRefOid: 'rebased' })))).toBe('wait')
   expect(port.checks).toHaveBeenCalledTimes(1)
@@ -553,12 +591,14 @@ test('an already posted Gate remains active overnight and forced unseen Gates st
   expect(mergeMode(store, current(), resolution.workflow)).toBe('gate')
 })
 
-test('mutation authentication failure waits for sign-in without claiming a merge', async () => {
+test('mutation authentication failure waits for sign-in without claiming a merge, and the next cycle merges', async () => {
   vi.mocked(gh.run).mockRejectedValueOnce(new GhError('auth', 'sign in'))
   await expect(watcher.cycle(id, read())).rejects.toThrow('sign in')
   expect(pr()?.waiting).toBe('sign-in')
   expect(port.read).not.toHaveBeenCalled()
   expect(pr()?.state).toBe('ready')
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(pr()?.state).toBe('merged')
 })
 
 test.each(['pure', 'extra commit', 'file mode', 'local commit'] as const)(
@@ -624,12 +664,15 @@ test.each(['pure', 'extra commit', 'file mode', 'local commit'] as const)(
       data: { updatePullRequestBranch: { pullRequest: { headRefOid: rebased } } },
     })
     await watcher.cycle(id, read(remote({ headRefOid: signed, mergeStateStatus: 'BEHIND' })))
+    vi.mocked(port.checks).mockResolvedValue(false)
+    vi.mocked(port.requireObligations).mockRejectedValue(new Error('old consent is stale'))
     const result = await watcher.cycle(id, read(remote({ headRefOid: rebased })))
     if (variant === 'pure') {
       expect(result).toBe('busy')
       expect(await git(work, 'rev-parse', 'HEAD')).toBe(rebased)
       expect(store.latestRebase(id, '')).toBeDefined()
       expect(pr()?.signedOff).toBe(rebased)
+      expect(await watcher.cycle(id, read(remote({ headRefOid: rebased })))).toBe('wait')
     } else {
       expect(result).toBe('done')
       expect(current().stage).toBe('validate')
@@ -639,3 +682,68 @@ test.each(['pure', 'extra commit', 'file mode', 'local commit'] as const)(
     expect(gh.run).not.toHaveBeenCalled()
   },
 )
+
+test('a historical passing post-rebase run cannot bypass the current Check determination', async () => {
+  store.branchRebased(id, 'widgets', { commit: head, onto: 'main' })
+  const previous = store.startChecks({ taskId: id, trigger: 'merge', stage: 'merge', checks: [] })
+  store.finishChecks(previous.id, 'passed')
+  vi.mocked(port.checks).mockResolvedValue(false)
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.checks).toHaveBeenCalledTimes(1)
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(port.postGate).not.toHaveBeenCalled()
+})
+
+test('all repos wait for current local Check obligations before the first merge', async () => {
+  secondRepo()
+  store.branchRebased(id, 'widgets', { commit: head, onto: 'main' })
+  vi.mocked(port.checks).mockResolvedValue(false)
+  await watcher.cycle(id, both())
+  await watcher.cycle(id, both())
+  expect(gh.run).not.toHaveBeenCalled()
+  vi.mocked(port.checks).mockResolvedValue(true)
+  expect(await watcher.cycle(id, both())).toBe('done')
+  expect(vi.mocked(gh.run).mock.calls.map(([args]) => args[2])).toEqual(['7', '8'])
+})
+
+test('post-rebase Check decisions hold the Merge Gate and cannot override cancellation or Merge off', async () => {
+  gate()
+  store.branchRebased(id, 'widgets', { commit: head, onto: 'main' })
+  vi.mocked(port.checks).mockResolvedValue(false)
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.postGate).not.toHaveBeenCalled()
+  vi.mocked(port.checks).mockResolvedValue(true)
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.postGate).toHaveBeenCalledTimes(1)
+  expect(gh.run).not.toHaveBeenCalled()
+  vi.mocked(port.checks).mockClear()
+  store.mergeCanceled(id, 'human-cancellation')
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(port.checks).not.toHaveBeenCalled()
+  resolution.workflow.stages = ['work', 'validate', 'review']
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.checks).not.toHaveBeenCalled()
+  expect(gh.run).not.toHaveBeenCalled()
+})
+
+test('cancelling while local Check coverage settles prevents posting a Merge sign-off', async () => {
+  gate()
+  vi.mocked(port.checks).mockImplementation(async () => {
+    store.mergeCanceled(id, 'human-cancellation')
+    return true
+  })
+  expect(await watcher.cycle(id, read())).toBe('busy')
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(port.postGate).not.toHaveBeenCalled()
+  expect(gh.run).not.toHaveBeenCalled()
+})
+
+test('pending requests hold merging while incorporated repair Checks can be verified', async () => {
+  port.held = () => true
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.checks).toHaveBeenCalledTimes(1)
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(port.postGate).not.toHaveBeenCalled()
+  port.held = () => false
+  expect(await watcher.cycle(id, read())).toBe('done')
+})

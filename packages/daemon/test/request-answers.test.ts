@@ -955,3 +955,67 @@ test('a preparation Sign-off validates its Workflow before recording approval', 
   expect(store.getComment(comment.id)?.answer?.kind).toBe('approved')
   expect(effects).toEqual(['obligations', 'approval', 'moved'])
 })
+
+test('an explanation request is saved for delivery with guidance to answer and ask again', async () => {
+  const question = post({ kind: 'question' }, { choices: ['Disable tools', 'Keep tools'] })
+  const deliver = vi.fn(port.deliverAnswer)
+  port.deliverAnswer = deliver
+  const replied = await answer(question, {
+    action: 'answer',
+    text: 'Tell me more about why it is helpful for tools to be disabled',
+  })
+  expect(replied.answer).toMatchObject({ kind: 'answered' })
+  expect(replied.answer).not.toHaveProperty('choice')
+  expect(replied.answerDelivery).toEqual({ queuedAt: replied.answer?.at })
+  expect(store.heldAnswers(taskId).map((c) => c.id)).toEqual([question.id])
+  const message = deliver.mock.calls[0]?.[2]
+  expect(message).toContain('answer it in the Task Thread with `ted comment`')
+  expect(message).toContain('ask it again')
+  expect(message).toContain('A request for explanation gives no consent')
+  await store.persisted()
+  await store.close()
+  store = await openStore({ directory })
+  expect(store.getComment(question.id)?.answerDelivery).toEqual(replied.answerDelivery)
+  expect(store.heldAnswers(taskId).map((c) => c.id)).toEqual([question.id])
+  const updates: string[] = []
+  const stop = store.subscribe((event) => {
+    if (event.type === 'comment-updated') updates.push(event.comment.id)
+  })
+  store.answersDelivered([question.id], 'replacement-lead')
+  stop()
+  expect(updates).toContain(question.id)
+  expect(store.getComment(question.id)?.answerDelivery?.sent).toMatchObject({
+    runId: 'replacement-lead',
+  })
+  expect(store.heldAnswers(taskId)).toEqual([])
+  await store.persisted()
+  await store.close()
+  store = await openStore({ directory })
+  expect(store.getComment(question.id)?.answerDelivery?.sent?.runId).toBe('replacement-lead')
+})
+
+test('explicit choices retain their meaning, and older answers acquire no invented receipt', async () => {
+  const explicit = post({ kind: 'question' }, { choices: ['Continue'] })
+  const replied = await answer(explicit)
+  expect(replied.answer).toMatchObject({ kind: 'answered', choice: 'Continue' })
+  expect(replied.answerDelivery?.sent).toBeUndefined()
+  const legacy = post({ kind: 'question' })
+  finish(legacy)
+  store.holdAnswer(legacy.id)
+  store.answersDelivered([legacy.id], 'lead')
+  expect(store.getComment(legacy.id)?.answerDelivery).toBeUndefined()
+})
+
+test('queued Autopilot answers preserve their attribution after merging continuation handling', async () => {
+  const question = post({ kind: 'question' }, { choices: ['Continue'] })
+  const deliver = vi.fn(port.deliverAnswer)
+  port.deliverAnswer = deliver
+  const replied = await createRequestAnswers(port, { guard: async () => {} })(
+    question.id,
+    { action: 'answer', choice: 'Continue' },
+    true,
+  )
+  expect(replied.autopilotAnswered).toBe(true)
+  expect(replied.answerDelivery?.queuedAt).toBe(replied.answer?.at)
+  expect(deliver.mock.calls[0]?.[2]).toContain('Autopilot replied')
+})

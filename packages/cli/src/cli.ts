@@ -4,13 +4,6 @@ import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
-import {
-  executionHome,
-  serveExecution,
-  startExecutionService,
-  stopExecutionService,
-  workerRequest,
-} from '@ted/daemon/execution'
 import { withDaemon as connectDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
@@ -802,17 +795,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
   }
 
-  function workerHome(): string {
+  // Imported only here: the module reaches node:sqlite, whose warning would be on every command.
+  const execution = () => import('@ted/daemon/execution')
+  async function workerHome(): Promise<string> {
     if (
       ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN'].some((name) =>
         tedEnv(name, env),
       )
     )
       throw new UsageError('Execution service control is not available inside a Run')
-    return executionHome(env)
+    return (await execution()).executionHome(env)
   }
   async function workerOutput(operation: 'start' | 'status' | 'stop' | 'pair'): Promise<void> {
-    const root = workerHome()
+    const root = await workerHome()
+    const { startExecutionService, stopExecutionService, workerRequest } = await execution()
     let status: import('@ted/protocol').WorkerStatus
     if (operation === 'start') {
       await startExecutionService(root, env)
@@ -841,7 +837,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     executionStatus: () => workerOutput('status'),
     executionPair: () => workerOutput('pair'),
     executionServe: async () => {
-      const service = await serveExecution(workerHome(), env)
+      const { serveExecution } = await execution()
+      const service = await serveExecution(await workerHome(), env)
       const close = () => void service.close()
       process.once('SIGTERM', close)
       process.once('SIGINT', close)
@@ -941,6 +938,24 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
 
     export: async () => {
       console.log(await exportCommand(home, options))
+    },
+    coordinatorParent: async () => {
+      const { operation, version } = options
+      const revision = options['hierarchy-revision']
+      if (!operation || !version || !revision)
+        throw new UsageError('operation, version and hierarchy-revision are required')
+      console.log(
+        JSON.stringify(
+          await withDaemon(home, (client) =>
+            client.coordinatorAct(args[0] ?? '', 'parent', {
+              operation,
+              version,
+              parentId: args[1] === 'none' ? null : (args[1] ?? ''),
+              hierarchyRevision: revision,
+            }),
+          ),
+        ),
+      )
     },
     coordinatorResume: async () => {
       if (!options.operation || !options.version)

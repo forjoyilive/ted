@@ -16,12 +16,16 @@ import type {
   StageRowView,
 } from '@ted/protocol'
 import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
+import { FactoryNotificationChoices } from '../components/FactoryNotifications.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
-import { useEventValue } from '../data.ts'
+import { useEventValue, useSettings } from '../data.ts'
 import {
   agentEdited,
   driftLine,
@@ -33,6 +37,8 @@ import {
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
 import { OvernightNotice } from '../overnight.tsx'
+import { usePendingAction } from '../pending-action.ts'
+import type { SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import styles from './FactorySettingsSections.module.css'
@@ -92,7 +98,7 @@ export function Toggle({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <button
+    <ActionButton
       type="button"
       role="switch"
       aria-label={label}
@@ -103,7 +109,7 @@ export function Toggle({
       onClick={() => onChange(!checked)}
     >
       <span className={styles.knob} />
-    </button>
+    </ActionButton>
   )
 }
 
@@ -119,7 +125,7 @@ export function ValidateRounds({
   if (from !== false && !rounds.includes(from)) rounds.push(from)
   return (
     <div className={styles.validateRounds}>
-      <span className={styles.roundSetting}>
+      <span className={styles.roundSetting} data-setting="factory.workflow.p1-only">
         Send back only for P1 Findings
         <select
           aria-label="Validate sends back only for P1 Findings"
@@ -147,7 +153,7 @@ export function ValidateRounds({
           Validate found can merge if you approve without reading the notes.
         </Help>
       </span>
-      <span className={styles.roundSetting}>
+      <span className={styles.roundSetting} data-setting="factory.workflow.validate-sub-agents">
         Other sub-agents in Validate
         <Toggle
           label="Other sub-agents in Validate"
@@ -174,7 +180,7 @@ export function WorkFailures({
 }) {
   return (
     <div className={styles.validateRounds}>
-      <span className={styles.roundSetting}>
+      <span className={styles.roundSetting} data-setting="factory.workflow.lead-closes-failures">
         Task Lead closes its own fixed failures
         <Toggle
           label="Task Lead closes its own fixed failures"
@@ -208,9 +214,7 @@ export function InvalidNotice({
         <span className={styles.invalidTitle}>{invalid.file} has an error</span>
         <span className={base.spacer} />
         {invalid.url !== undefined && (
-          <Button size="small" onClick={() => void ted.openOnGitHub(invalid.url ?? '')}>
-            Open on GitHub
-          </Button>
+          <Button onClick={() => ted.openOnGitHub(invalid.url ?? '')}>Open on GitHub</Button>
         )}
       </div>
       <p className={styles.invalidLine}>
@@ -228,17 +232,19 @@ export function InvalidNotice({
 
 function SectionHeading({
   id,
+  setting,
   title: heading,
   help,
   where = 'repo',
 }: {
   id: string
+  setting: SettingId
   title: string
   help: ReactNode
   where?: 'repo' | 'machine'
 }) {
   return (
-    <div className={base.sectionHeading}>
+    <div className={base.sectionHeading} data-setting={setting}>
       <h2 id={id} className={base.sectionTitle}>
         {heading}
       </h2>
@@ -287,6 +293,7 @@ function WorkflowSectionView({
     <section className={base.section} aria-labelledby="workflow">
       <SectionHeading
         id="workflow"
+        setting="factory.workflow"
         title="Workflow"
         help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort."
       />
@@ -472,33 +479,33 @@ function StageRow({
           {row.id === 'backlog' && <span className={styles.always}>Always first</span>}
           {row.id === 'done' && <span className={styles.always}>Always last</span>}
           {agent && file === null && row.inherited && (
-            <button
+            <ActionButton
               type="button"
               className={base.link}
               onClick={() => {
                 onFile(row.inherited?.text ?? '')
-                onEdit(true)
+                return onEdit(true)
               }}
             >
               Override
-            </button>
+            </ActionButton>
           )}
           {agent && file !== null && (
             <>
-              <button type="button" className={base.link} onClick={() => onEdit(!editing)}>
+              <ActionButton type="button" className={base.link} onClick={() => onEdit(!editing)}>
                 {editing ? 'Close file' : 'Edit file'}
-              </button>
+              </ActionButton>
               {row.inherited && (
-                <button
+                <ActionButton
                   type="button"
                   className={base.link}
                   onClick={() => {
                     onFile(null)
-                    onEdit(false)
+                    return onEdit(false)
                   }}
                 >
                   Reset to inherited
-                </button>
+                </ActionButton>
               )}
             </>
           )}
@@ -592,19 +599,11 @@ export function DriftNotice({
         <DiffLines lines={drift.diff} />
       </div>
       <div className={styles.driftActions}>
-        <Button size="small" onClick={onKeep}>
-          Keep mine
-        </Button>
-        <Button size="small" onClick={onUse}>
-          {useLabel}
-        </Button>
+        <Button onClick={onKeep}>Keep mine</Button>
+        <Button onClick={onUse}>{useLabel}</Button>
         {factoryId !== undefined && (
           <>
-            <Button
-              size="small"
-              disabled={busy || created !== undefined}
-              onClick={() => void merge()}
-            >
+            <Button disabled={busy || created !== undefined} onClick={() => merge()}>
               Merge with an agent
             </Button>
             <Help>
@@ -634,6 +633,7 @@ function ChecksSectionView({
   tries: CheckTry[]
   onDraft: Update
 }) {
+  const starting = usePendingAction(`check-try:${view.factoryId}`)
   const [now, setNow] = useState(Date.now())
   const [error, setError] = useState<string>()
   const [output, setOutput] = useState<string>()
@@ -659,26 +659,29 @@ function ChecksSectionView({
       }),
     }))
 
-  async function runNow(check: CheckInput) {
-    setError(undefined)
-    try {
-      await ted.tryCheck(view.factoryId, {
-        name: check.name.trim(),
-        run: check.run.trim(),
-        ...(check.repo !== undefined && { repo: check.repo }),
-        ...(check.timeout !== undefined &&
-          check.timeout.trim() !== '' && { timeout: check.timeout.trim() }),
-      })
-      setNow(Date.now())
-    } catch (failure) {
-      setError(readableError(failure))
-    }
+  function runNow(check: CheckInput) {
+    return starting.run(async () => {
+      setError(undefined)
+      try {
+        await ted.tryCheck(view.factoryId, {
+          name: check.name.trim(),
+          run: check.run.trim(),
+          ...(check.repo !== undefined && { repo: check.repo }),
+          ...(check.timeout !== undefined &&
+            check.timeout.trim() !== '' && { timeout: check.timeout.trim() }),
+        })
+        setNow(Date.now())
+      } catch (failure) {
+        setError(readableError(failure))
+      }
+    })
   }
 
   return (
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="checks">
       <SectionHeading
         id="checks"
+        setting="factory.checks"
         title="Checks"
         help="Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
       />
@@ -745,18 +748,18 @@ function ChecksSectionView({
                   {last && last.state !== 'running' && (
                     <>
                       {' · '}
-                      <button
+                      <ActionButton
                         type="button"
                         className={base.link}
                         onClick={() =>
-                          void ted.checkTryOutput(view.factoryId, last.name).then(
+                          ted.checkTryOutput(view.factoryId, last.name).then(
                             (shown) => setOutput(shown.text || 'No output.'),
                             (failure: unknown) => setError(readableError(failure)),
                           )
                         }
                       >
                         Output
-                      </button>
+                      </ActionButton>
                     </>
                   )}
                 </span>
@@ -765,7 +768,7 @@ function ChecksSectionView({
                     <Button
                       size="small"
                       onClick={() =>
-                        void ted
+                        ted
                           .stopCheckTry(view.factoryId, last.name)
                           .catch((failure: unknown) => setError(readableError(failure)))
                       }
@@ -775,24 +778,27 @@ function ChecksSectionView({
                   ) : (
                     <Button
                       size="small"
-                      disabled={!ready || running}
+                      disabled={!ready || running || starting.pending}
                       title={running ? 'Another Check is running.' : undefined}
-                      onClick={() => void runNow(check)}
+                      onClick={() => runNow(check)}
                     >
                       Run now
                     </Button>
                   )}
-                  <button
+                  <ActionButton
                     type="button"
                     className={base.iconButton}
                     aria-label={`Remove ${check.name || 'this Check'}`}
                     onClick={() => {
                       keys.current.splice(index, 1)
-                      onDraft((d) => ({ ...d, checks: d.checks.filter((_, i) => i !== index) }))
+                      return onDraft((d) => ({
+                        ...d,
+                        checks: d.checks.filter((_, i) => i !== index),
+                      }))
                     }}
                   >
                     <CloseIcon size={12} />
-                  </button>
+                  </ActionButton>
                 </span>
               </div>
             )
@@ -809,13 +815,13 @@ function ChecksSectionView({
         </div>
       </div>
       <div>
-        <button
+        <ActionButton
           type="button"
           className={base.link}
           onClick={() => onDraft((d) => ({ ...d, checks: [...d.checks, { name: '', run: '' }] }))}
         >
           + Add Check
-        </button>
+        </ActionButton>
       </div>
       {error !== undefined && (
         <p className={base.fieldError} role="alert">
@@ -882,6 +888,7 @@ function AgentsSectionView({
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="agents">
       <SectionHeading
         id="agents"
+        setting="factory.agents"
         title="Agents"
         help="Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
       />
@@ -914,19 +921,6 @@ function AgentRow({
   const shown = own ?? row.inherited
   const locked = own === null
   const name = roleNames[row.role]
-  const agents =
-    row.role === 'reviewer'
-      ? [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-          ['same', 'Same as Task Lead'],
-        ]
-      : [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-        ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...(own ?? {}), ...fields }
     for (const key of ['model', 'effort'] as const) if (!next[key]) delete next[key]
@@ -946,21 +940,20 @@ function AgentRow({
         controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.agent ?? 'claude'}
-        onChange={(event) => update({ agent: event.target.value })}
+        onChange={(event) => update({ agent: event.target.value, model: '' })}
       >
-        {agents.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
+        <AgentOptions current={shown.agent} same={row.role === 'reviewer'} />
       </Select>
-      <input
+      <ModelSelect
+        fullWidth
         aria-label={`${name} model`}
-        className={`${styles.cellInput} ${base.mono}`}
-        placeholder="default model"
+        controlClassName={styles.cellSelect}
+        inputClassName={`${styles.cellInput} ${base.mono}`}
+        defaultLabel="default model"
         disabled={locked}
+        agent={shown.agent ?? 'claude'}
         value={shown.model ?? ''}
-        onChange={(event) => update({ model: event.target.value })}
+        onChange={(model) => update({ model })}
       />
       <Select
         fullWidth
@@ -986,17 +979,17 @@ function AgentRow({
       <FromChip layer={own ? 'factory' : row.inheritedFrom} />
       <span className={styles.actions}>
         {own ? (
-          <button type="button" className={base.link} onClick={() => onChange(null)}>
+          <ActionButton type="button" className={base.link} onClick={() => onChange(null)}>
             Reset to inherited
-          </button>
+          </ActionButton>
         ) : (
-          <button
+          <ActionButton
             type="button"
             className={base.link}
             onClick={() => onChange({ ...row.inherited })}
           >
             Override
-          </button>
+          </ActionButton>
         )}
       </span>
     </div>
@@ -1057,6 +1050,7 @@ function PermissionsSectionView({
       <section className={`${base.section} ${base.compactSection}`} aria-labelledby="permissions">
         <SectionHeading
           id="permissions"
+          setting="factory.permissions"
           title="Permission mode"
           where="machine"
           help="Permission mode is saved only on this computer, separately for each Factory."
@@ -1081,7 +1075,7 @@ function PermissionsSectionView({
               Agents act without asking: they can run any command, change any file and use the
               network on {machine}. Agent-started Checks and Apps run outside TED’s sandbox.
             </p>
-            <Button disabled={busy} onClick={() => void save('auto')}>
+            <Button disabled={busy} onClick={() => save('auto')}>
               Use Auto
             </Button>
           </>
@@ -1148,7 +1142,7 @@ function PermissionsSectionView({
               <Button
                 variant="primary"
                 disabled={busy || !confirmed}
-                onClick={() => void save('bypass')}
+                onClick={() => save('bypass')}
               >
                 Enable Bypass
               </Button>
@@ -1162,6 +1156,7 @@ function PermissionsSectionView({
       >
         <SectionHeading
           id={`${id}-limits`}
+          setting="factory.permissions.working-run-limit"
           title="Working Run limit"
           help="This Factory’s limit follows its Workflow."
         />
@@ -1205,13 +1200,14 @@ function NotesSectionView({
     <section className={`${base.section} ${base.wideSection}`} aria-labelledby="notes">
       <SectionHeading
         id="notes"
+        setting="factory.notes"
         title="Factory notes"
         help="Facts about the product, given to every Run in this Factory: how to run it, conventions, risky areas. Stage instructions belong in Stage files."
       />
       <div className={styles.notes}>
         <div className={styles.notesBar}>
           <div className={styles.tabs} role="tablist" aria-label="Factory notes view">
-            <button
+            <ActionButton
               type="button"
               role="tab"
               aria-selected={!preview}
@@ -1219,8 +1215,8 @@ function NotesSectionView({
               onClick={() => setPreview(false)}
             >
               Edit
-            </button>
-            <button
+            </ActionButton>
+            <ActionButton
               type="button"
               role="tab"
               aria-selected={preview}
@@ -1228,7 +1224,7 @@ function NotesSectionView({
               onClick={() => setPreview(true)}
             >
               Preview
-            </button>
+            </ActionButton>
           </div>
           <span className={base.spacer} />
           <span className={base.caption}>.ted/notes.md · Markdown</span>
@@ -1349,5 +1345,25 @@ export const WorkflowSection = memo(
 )
 export const ChecksSection = memo(ChecksSectionView, sameDraft('checks', 'repos'))
 export const AgentsSection = memo(AgentsSectionView, sameDraft('agents'))
+export function NotificationsSection({ factoryId }: { factoryId: string }) {
+  const settings = useSettings()
+  return (
+    <section className={`${base.section} ${base.compactSection}`} aria-labelledby="notifications">
+      <SectionHeading
+        id="notifications"
+        setting="factory.notifications"
+        title="Notifications"
+        where="machine"
+        help="Which of this Factory’s events notify you. The same choices are in Settings → Notifications, under By Factory."
+      />
+      <p className={base.caption}>
+        Saved here immediately. A notification is sent only when it is also on in Settings →
+        Notifications.
+      </p>
+      {settings && <FactoryNotificationChoices settings={settings} factoryId={factoryId} />}
+    </section>
+  )
+}
+
 export const PermissionsSection = memo(PermissionsSectionView, sameDraft('maxWorkingRuns'))
 export const NotesSection = memo(NotesSectionView, sameDraft('notes'))

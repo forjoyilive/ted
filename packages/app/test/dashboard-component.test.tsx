@@ -93,34 +93,96 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
   await u.click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
 })
 
-test.each([
-  ['2026-11-08T12:00:45.500Z', '12:00:45.500 UTC'],
-  ['2026-11-08T12:00:45.000Z', '12:00:45 UTC'],
-])('bucket controls and sample bounds preserve exact time for %s', async (at, end) => {
+test('graph points and their samples name the calendar days they cover', async () => {
   const preferences = timePreferences()
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
   setTimePreferences({ timeZone: 'UTC', timeFormat: '24-hour' })
   try {
-    const data = dashboardFixture()
-    data.asOf = at
-    data.current.to = at
-    data.current.buckets = data.current.buckets.map((bucket) => ({
+    const day = dashboardFixture()
+    day.asOf = '2026-11-12T22:26:00.000Z'
+    day.current.from = '2026-11-11T08:00:00.000Z'
+    day.current.to = '2026-11-12T08:00:00.000Z'
+    day.current.buckets = day.current.buckets.map((bucket) => ({
       ...bucket,
-      from: '2026-11-01T12:00:30.125Z',
-      to: at,
+      from: '2026-11-11T08:00:00.000Z',
+      to: '2026-11-12T08:00:00.000Z',
     }))
-    bridge({ factoryDashboard: () => data })
-    render(<DashboardView open={vi.fn()} />)
-    const completed = await screen.findByRole('region', { name: 'Tasks completed' })
-    const point = within(completed).getByRole('button', { name: /^Selected.*2 tasks/ })
-    expect(point.getAttribute('aria-label')).toContain('12:00:30.125 UTC')
-    expect(point.getAttribute('aria-label')).toContain(end)
-    expect(point.getAttribute('title')).toContain(end)
-    await user().click(point)
-    const sample = screen.getByRole('dialog')
-    expect(sample.textContent).toContain('12:00:30.125 UTC')
-    expect(sample.textContent).toContain(`${end} (end excluded)`)
+    const all = structuredClone(day)
+    all.range = 'all'
+    all.previous = null
+    all.comparison = null
+    all.current.from = '2026-11-09T08:00:00.000Z'
+    all.current.to = all.asOf
+    all.current.buckets = all.current.buckets.map((bucket) => ({
+      ...bucket,
+      from: '2026-11-09T08:00:00.000Z',
+      to: all.asOf,
+    }))
+    const early = structuredClone(all)
+    early.asOf = '2026-11-12T14:00:00.000Z'
+    early.current.from = '2026-11-12T08:00:00.000Z'
+    early.current.to = early.asOf
+    early.current.buckets = early.current.buckets.map((bucket) => ({
+      ...bucket,
+      from: '2026-11-12T08:00:00.000Z',
+      to: early.asOf,
+    }))
+    const today = structuredClone(day)
+    today.range = 'today'
+    today.asOf = '2026-11-12T14:26:45.500Z'
+    today.current.buckets = today.current.buckets.map((bucket) => ({
+      ...bucket,
+      from: '2026-11-12T14:00:30.125Z',
+      to: today.asOf,
+    }))
+    for (const [data, label, heading, bounds, caption] of [
+      [
+        day,
+        'Wed 11 Nov',
+        'Tasks completed · Wed 11 Nov',
+        'Midnight to midnight',
+        'One point per calendar day, midnight to midnight. Today is not included.',
+      ],
+      [
+        all,
+        '9–12 Nov (today so far)',
+        'Tasks completed · 9–12 Nov (today so far)',
+        '22:26:00 UTC (end excluded)',
+        'Each point covers 4 calendar days',
+      ],
+      [
+        early,
+        'Thu 12 Nov (today so far)',
+        'Tasks completed · Thu 12 Nov (today so far)',
+        '14:00:00 UTC (end excluded)',
+        'One point per calendar day, midnight to midnight. The last point runs to now.',
+      ],
+      [
+        today,
+        '14:00:30.125 UTC',
+        'Tasks completed · Selected period',
+        '14:26:45.500 UTC (end excluded)',
+        'One point per hour since midnight.',
+      ],
+    ] as const) {
+      bridge({ factoryDashboard: () => data })
+      const view = render(<DashboardView open={vi.fn()} />)
+      const completed = await screen.findByRole('region', { name: 'Tasks completed' })
+      expect(completed.textContent).toContain(caption)
+      const point = within(completed).getByRole('button', { name: /^Selected.*2 tasks/ })
+      expect(point.getAttribute('aria-label')).toContain(label)
+      expect(point.getAttribute('title')).toContain(label)
+      await user().click(point)
+      const sample = screen.getByRole('dialog')
+      expect(within(sample).getByRole('heading', { name: heading })).toBeTruthy()
+      expect(sample.textContent).toContain(bounds)
+      view.unmount()
+    }
   } finally {
     setTimePreferences(preferences)
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
   }
 })
 
@@ -245,16 +307,64 @@ test('unavailable completion history never assigns an unrecorded completion to t
 })
 
 test('Flow keeps its open-Task sample separate, shows distributions and opens exact clipped intervals', async () => {
-  bridge({ factoryDashboard: () => dashboardFixture() })
+  const data = dashboardFixture()
+  data.flow.current.stages.push({
+    stage: 'review',
+    totalMs: 3_600_000,
+    medianMs: 3_600_000,
+    p25Ms: 3_600_000,
+    p75Ms: 3_600_000,
+    samples: [
+      {
+        taskId: 't2',
+        elapsedMs: 3_600_000,
+        intervals: [{ from: '2026-11-05T00:00:00.000Z', to: '2026-11-05T01:00:00.000Z' }],
+      },
+    ],
+  })
+  bridge({ factoryDashboard: () => data })
   const open = vi.fn()
-  render(<DashboardView open={open} />)
+  const view = render(<DashboardView open={open} />)
   await user().click(await screen.findByRole('tab', { name: 'Stages' }))
   const region = await screen.findByRole('region', { name: 'Elapsed time by Stage' })
-  expect(within(region).getByText('14h')).toBeTruthy()
-  const opener = within(region).getByRole('button', { name: '2 Tasks' })
-  await user().click(opener)
+  const waits = () =>
+    within(screen.getByRole('region', { name: 'Elapsed time by Stage' })).getByRole('checkbox', {
+      name: 'Include time waiting for me',
+    }) as HTMLInputElement
+  expect(waits().checked).toBe(false)
+  expect(within(region).getByText('9h')).toBeTruthy()
+  expect(within(region).queryByText('14h')).toBeNull()
+  expect(within(region).getByRole('button', { name: '0 Tasks' })).toBeTruthy()
+  expect(screen.getByText(/without the time Tasks spent waiting for you/)).toBeTruthy()
+  expect(region.textContent).toContain('Tasks without a complete record of those requests')
+  await user().click(within(region).getByRole('button', { name: '2 Tasks' }))
   let sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Without time waiting for you.')
+  expect(sample.textContent).toContain('6h · 1 measured visit · 3h waiting for you left out')
+  expect(sample.textContent).toContain('4.5h')
+  expect(sample.textContent).toContain('3.75h – 5.25h')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  await user().click(within(region).getByRole('button', { name: '1 Task is left out' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
+  expect(sample.textContent).toContain('No record of requests to you for this Task.')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  await user().click(waits())
+  expect(within(region).queryByRole('button', { name: /left out/ })).toBeNull()
+  expect(within(region).getByRole('button', { name: '1 Task' })).toBeTruthy()
+  expect(screen.getByText(/including time waiting for you and repeat visits/)).toBeTruthy()
+  view.unmount()
+  render(<DashboardView open={open} />)
+  await user().click(await screen.findByRole('tab', { name: 'Stages' }))
+  expect(waits().checked).toBe(true)
+  const region2 = screen.getByRole('region', { name: 'Elapsed time by Stage' })
+  expect(within(region2).getByText('14h')).toBeTruthy()
+  const opener = within(region2).getByRole('button', { name: '2 Tasks' })
+  await user().click(opener)
+  sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Includes time waiting for you.')
   expect(sample.textContent).toContain('9h · 1 measured visit')
+  expect(sample.textContent).not.toContain('left out')
   expect(sample.textContent).toContain('7h')
   expect(sample.textContent).toContain('6h – 8h')
   expect(sample.textContent).toContain('Open at the as-of instant')
@@ -334,6 +444,7 @@ test('previous-period Flow samples retain their own period and restore focus aft
       ],
     },
   ]
+  localStorage.setItem('ted.dashboard.stage-waits', 'true')
   bridge({ factoryDashboard: () => data })
   render(<DashboardView open={vi.fn()} />)
   await user().click(await screen.findByRole('tab', { name: 'Stages' }))
@@ -525,4 +636,48 @@ test('percentage changes preserve sign/color and zero/missing baselines without 
   expect(screen.getByText('No baseline')).toBeTruthy()
   view.rerender(<TimingChange current={1} previous={null} />)
   expect(screen.getByText('Unavailable')).toBeTruthy()
+})
+
+test('Today draws hours against all of yesterday and compares with yesterday to this time', async () => {
+  const data = dashboardFixture()
+  const at = (day: number, hours: number, minutes = 0) =>
+    new Date(2026, 10, day, hours, minutes).toISOString()
+  const hours = (day: number, count: number, end: string) =>
+    Array.from({ length: count }, (_, index) => ({
+      from: at(day, index),
+      to: index === count - 1 ? end : at(day, index + 1),
+      taskIds: index === 1 ? ['t1'] : [],
+      created: { value: null, taskIds: [], missingIds: [] },
+      intake: { value: null, taskIds: [], missingIds: [] },
+    }))
+  data.range = 'today'
+  data.asOf = at(12, 2, 30)
+  data.current = { ...data.current, from: at(12, 0), to: data.asOf }
+  data.current.buckets = hours(12, 3, data.asOf)
+  if (!data.previous || !data.comparison) throw new Error('The fixture has no previous period')
+  data.previous = { ...data.previous, from: at(11, 0), to: at(11, 2, 30), taskIds: ['t1'] }
+  data.previous.buckets = hours(11, 24, at(12, 0))
+  data.comparison.completed = { absolute: 1, percent: 100 }
+  const api = bridge({ factoryDashboard: () => data })
+  const change = vi.fn()
+  render(
+    <Dashboard
+      factoryId="f1"
+      title="Widgets"
+      state={{ range: 'today' }}
+      onChange={change}
+      onOpenTask={vi.fn()}
+    />,
+  )
+  const completed = await screen.findByRole('region', { name: 'Tasks completed' })
+  expect(api.request).toHaveBeenCalledWith('factoryDashboard', 'f1', 'today')
+  expect(completed.textContent).toContain('vs yesterday to this time')
+  expect(completed.textContent).toContain('Yesterday · aligned by hour')
+  expect(completed.textContent).toContain('Now')
+  expect(completed.querySelectorAll('tbody tr')).toHaveLength(24)
+  expect(within(completed).getAllByText('Not reached yet today')).toHaveLength(21)
+  const select = screen.getByRole('combobox', { name: 'Historical period' })
+  expect(within(select).getByRole('option', { name: 'Today' })).toBeTruthy()
+  await user().selectOptions(select, '7d')
+  expect(change).toHaveBeenCalledWith({ range: '7d' })
 })

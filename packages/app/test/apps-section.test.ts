@@ -92,9 +92,10 @@ test('the Apps section runs a Web App, shows its log in the middle pane, and sto
     .getByRole('button', { name: 'All Tasks' })
     .click()
   await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
+  await window.getByRole('tab', { name: 'Apps' }).click()
   const section = window
     .getByRole('complementary', { name: 'Task details' })
-    .getByRole('region', { name: 'Apps' })
+    .getByRole('tabpanel', { name: 'Apps' })
   await section.getByText('Not running').first().waitFor()
 
   await section.getByRole('button', { name: 'Run Web' }).click()
@@ -188,9 +189,10 @@ test('the sign-off’s Preview row opens a command App after one confirmation, t
 
   await card.getByRole('button', { name: 'Running' }).waitFor()
   expect((await client.getSettings()).appsOutsideSandbox[factory.id]).toEqual(['Desk'])
+  await window.getByRole('tab', { name: 'Apps' }).click()
   const section = window
     .getByRole('complementary', { name: 'Task details' })
-    .getByRole('region', { name: 'Apps' })
+    .getByRole('tabpanel', { name: 'Apps' })
   await section.getByRole('button', { name: 'Stop Desk' }).click()
   await card.getByRole('button', { name: 'Open Desk' }).waitFor()
   await section.getByRole('button', { name: 'Run Desk' }).click()

@@ -54,7 +54,7 @@ export function ExportGroup() {
 
   return (
     <div className={styles.group}>
-      <SettingsGroup label="Export a Factory">
+      <SettingsGroup setting="app.storage.export">
         {factories === undefined ? (
           <SettingRow title={error ? 'Couldn’t load Factories' : 'Loading Factories…'}>
             {error && <Button onClick={() => setRetry((value) => value + 1)}>Try again</Button>}
@@ -63,7 +63,7 @@ export function ExportGroup() {
           <SettingRow title="Add a Factory to export its work." />
         ) : (
           <>
-            <SettingRow title="Factory" labelFor={`${id}-factory`}>
+            <SettingRow setting="app.storage.export.factory" labelFor={`${id}-factory`}>
               <Select
                 id={`${id}-factory`}
                 value={selected}
@@ -76,7 +76,7 @@ export function ExportGroup() {
               />
             </SettingRow>
             <SettingRow
-              title="Format"
+              setting="app.storage.export.format"
               labelFor={`${id}-format`}
               detail={
                 format === 'json'
@@ -98,11 +98,8 @@ export function ExportGroup() {
                 }}
               />
             </SettingRow>
-            <SettingRow
-              title="Tasks, Comments, briefs and Run metadata"
-              detail="Includes Done and archived Tasks, answers and saved versions."
-            >
-              <Button disabled={busy || !selected} onClick={() => void save()}>
+            <SettingRow setting="app.storage.export.save">
+              <Button disabled={busy || !selected} onClick={() => save()}>
                 {busy ? 'Exporting…' : 'Export…'}
               </Button>
             </SettingRow>

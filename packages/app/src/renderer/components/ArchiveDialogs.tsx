@@ -2,13 +2,16 @@ import type { BlockedChoice, Task } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTaskRuns, useTasks } from '../data.ts'
 import { stageName } from '../list-view.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './ArchiveDialogs.module.css'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 
 export const archiveTaskEvent = 'ted:archive-task'
 export const deleteTaskEvent = 'ted:delete-task'
+export const resetTaskEvent = 'ted:reset-task'
 export const followUpTaskEvent = 'ted:follow-up-task'
 
 function joinAnd(items: readonly string[]): string {
@@ -191,7 +194,7 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
           )}
           <div className={styles.buttons}>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => void archive()}>
+            <Button variant="primary" disabled={busy} onClick={() => archive()}>
               Archive
             </Button>
           </div>
@@ -215,6 +218,7 @@ export function DeleteDialog({
   const prs = openPullRequests(task)
   const [choice, setChoice] = useState<BlockedChoice>('unblock')
   const [busy, setBusy] = useState(false)
+  const removing = useRef(false)
   const [error, setError] = useState<string>()
   const removed = [
     'the Task',
@@ -228,6 +232,8 @@ export function DeleteDialog({
   ]
 
   async function remove() {
+    if (removing.current) return
+    removing.current = true
     setBusy(true)
     setError(undefined)
     try {
@@ -236,11 +242,13 @@ export function DeleteDialog({
     } catch (failure) {
       setError(readableError(failure))
       setBusy(false)
+    } finally {
+      removing.current = false
     }
   }
 
   return (
-    <Dialog onClose={onClose}>
+    <Dialog onClose={() => !removing.current && !busy && onClose()}>
       {(headingId) => (
         <>
           <h2 id={headingId} className={styles.heading}>{`Delete ${task.displayId}?`}</h2>
@@ -268,13 +276,125 @@ export function DeleteDialog({
           )}
           <div className={styles.buttons}>
             {!task.archived && (
-              <button type="button" className={styles.instead} onClick={onArchiveInstead}>
+              <ActionButton
+                type="button"
+                className={styles.instead}
+                disabled={busy}
+                onClick={onArchiveInstead}
+              >
                 Archive instead
-              </button>
+              </ActionButton>
             )}
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="danger" disabled={busy} onClick={() => remove()}>
               {busy ? 'Deleting…' : `Delete ${task.displayId}`}
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const runs = useTaskRuns(task.id).length
+  const narrowed = useTasks().some((t) => t.splitFrom?.id === task.id)
+  const prs = openPullRequests(task)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const resetting = useRef(false)
+  const worktrees = task.repos.filter((r) => !r.removed)
+  const branches = [...new Set(task.repos.map((r) => r.branch))]
+  const thread = [
+    'Comments',
+    'questions and answers',
+    'the Task brief',
+    'Findings',
+    ...(runs === 0
+      ? []
+      : [
+          runs === 1
+            ? 'the Run with its Conversation'
+            : `its ${runs} Runs with their Conversations`,
+        ]),
+  ]
+  const lost = [
+    ...(worktrees.length > 0
+      ? [
+          `The ${worktrees.length === 1 ? 'worktree' : 'worktrees'} and any uncommitted work in ${worktrees.length === 1 ? 'it' : 'them'}`,
+        ]
+      : []),
+    ...(branches.length > 0
+      ? [
+          `The ${branches.length === 1 ? 'branch' : 'branches'} ${joinAnd(branches)} and ${branches.length === 1 ? 'its' : 'their'} commits, here and on GitHub`,
+        ]
+      : []),
+    ...(prs.length > 0
+      ? [
+          `${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ repo, pr }) => `${repo.name} #${pr.number}`))}, which TED closes on GitHub`,
+        ]
+      : []),
+    `The thread: ${joinAnd(thread)}`,
+    'Edits to the description, and files attached in Comments',
+  ]
+  const files =
+    task.attachments.length === 0
+      ? ''
+      : ` and its ${task.attachments.length === 1 ? 'attachment' : `${task.attachments.length} attachments`}`
+
+  async function reset() {
+    if (resetting.current) return
+    resetting.current = true
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ted.resetTask(task.id)
+      onClose()
+    } catch (failure) {
+      setError(readableError(failure))
+      setBusy(false)
+    } finally {
+      resetting.current = false
+    }
+  }
+
+  return (
+    <Dialog onClose={() => !resetting.current && !busy && onClose()}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={styles.heading}>{`Reset ${task.displayId}?`}</h2>
+          <p className={styles.body}>
+            {`${task.title}. TED throws away what this Task has done and starts it again from the first Stage with its original request. This can’t be undone.`}
+          </p>
+          <section className={styles.lost} aria-label="What is lost">
+            <h3 className={styles.lostHeading}>What is lost</h3>
+            <ul className={styles.lostList}>
+              {lost.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </section>
+          {narrowed && (
+            <p className={styles.warning}>
+              {`Split it narrowed this Task. A reset goes back to the request from before the split, so the new attempt covers the whole request again. The Tasks the split created stay as they are, and the title stays “${task.title}”.`}
+            </p>
+          )}
+          <p className={styles.kept}>
+            {`Kept: the Task ID, title, source link, priority, place in the list, blockers, and the original description${files}.`}
+          </p>
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="danger" disabled={busy} onClick={() => reset()}>
+              {busy ? 'Resetting…' : 'Reset Task'}
             </Button>
           </div>
         </>
@@ -292,26 +412,32 @@ export function FollowUpDialog({
   onClose: () => void
   onCreated?: (created: Task) => void
 }) {
-  const [text, setText] = useState('')
+  const draft = useMessageDraft({ kind: 'follow-up', id: task.id })
+  const { text, setText } = draft
   const [busy, setBusy] = useState(false)
+  const submitting = useRef(false)
   const [error, setError] = useState<string>()
 
   async function followUp() {
-    if (busy) return
+    if (submitting.current) return
+    submitting.current = true
     setBusy(true)
     setError(undefined)
     try {
       const created = await ted.followUpTask(task.id, text.trim() === '' ? undefined : text)
+      draft.clear()
       onClose()
       onCreated?.(created)
     } catch (failure) {
       setError(readableError(failure))
       setBusy(false)
+    } finally {
+      submitting.current = false
     }
   }
 
   return (
-    <Dialog onClose={onClose}>
+    <Dialog onClose={() => !submitting.current && !busy && onClose()}>
       {(headingId) => (
         <>
           <h2 id={headingId} className={styles.heading}>{`Follow up ${task.displayId}?`}</h2>
@@ -327,7 +453,7 @@ export function FollowUpDialog({
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
               event.preventDefault()
-              void followUp()
+              return followUp()
             }}
           />
           {error !== undefined && (
@@ -336,8 +462,10 @@ export function FollowUpDialog({
             </p>
           )}
           <div className={styles.buttons}>
-            <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => void followUp()}>
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="primary" pending={busy} disabled={busy} onClick={() => followUp()}>
               Follow up
             </Button>
           </div>
@@ -388,7 +516,7 @@ export function ArchiveDoneDialog({
           )}
           <div className={styles.buttons}>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => void archive()}>
+            <Button variant="primary" disabled={busy} onClick={() => archive()}>
               {`Archive ${count}`}
             </Button>
           </div>

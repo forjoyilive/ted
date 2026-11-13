@@ -156,3 +156,8 @@
   font-size: var(--text-12-5);
   cursor: pointer;
 }
+
+.empty {
+  margin: 0;
+  color: var(--text-tertiary);
+}

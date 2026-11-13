@@ -31,6 +31,7 @@ import type {
 } from '@ted/protocol'
 import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
 import { chatToolPolicy } from '@ted/protocol/run'
+import { AgentDisabledError } from '../agent-eligibility.ts'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -60,6 +61,7 @@ import {
   readQueuedInput,
   runFiles,
 } from './host-files.ts'
+import { grantInput, inputConsumed, inputPending, revokeInput } from './input-permits.ts'
 import {
   initializeLaunchAuthority,
   launchAuthority,
@@ -89,6 +91,7 @@ export interface RunManagerOptions {
 
 export interface RunObserver {
   finished?(run: Run, ending: { stopped: boolean; lastLines: string[] }): void
+  stoppedOutside?(run: Run, at: string | undefined): void
   authFailed?(run: Run): void
   accepted?(run: Run, texts: string[]): void
   boundary?(run: Run): void
@@ -102,6 +105,7 @@ export interface RunObserver {
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   agent: AgentKind
+  onStarting?: () => void
   prompt: string
   cwd: string
   taskId?: string
@@ -123,6 +127,7 @@ export interface ReviveRunInput {
 
 export interface RunManager {
   output: RunOutputReader
+  serializeStarts<T>(work: () => T | Promise<T>): Promise<T>
   start(input: StartRunInput): Promise<Run>
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
@@ -133,8 +138,11 @@ export interface RunManager {
     messages: readonly { id: string; text: string }[],
     steer: boolean,
     canDispatch: (messageId?: string) => boolean,
+    options?: { revocable: boolean; signal?: AbortSignal },
   ): Promise<boolean>
+  retainRevocableInputs(runId: string, ids: readonly string[]): void
   inputDispatched(runId: string, messageId: string): boolean
+  consumedInputs(runId: string): string[]
   acceptedInputs(runId: string): string[]
   initialInputIds(runId: string): string[]
   interrupt(runId: string): Promise<void>
@@ -177,6 +185,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const launchStops = new Map<string, AbortController>()
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
+  const stoppedOutsideUntold: { runId: string; at: string | undefined }[] = []
   const outdated = new Set<string>()
   const replacing = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
@@ -439,6 +448,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const closedPermissions: string[] = []
     const accepted: string[] = []
     let exit: Extract<HostRecord, { t: 'exit' }> | undefined
+    let stateAtExit: RunState | undefined
     const startedWith = generation.count
     generation.readTo = batch.toOffset
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
@@ -486,12 +496,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         generation.sessionSeen = false
         generation.errors = []
       } else if (record.t === 'exit') {
+        stateAtExit = state
         state = 'finished'
         exit = record
       }
     }
     if (hostGone) state = 'finished'
     const run = store.getRun(runId)
+    const outputAtBefore = store.lastOutputAt(runId)
+    const stoppedOutside =
+      exit?.stopped === true &&
+      !stopRequested.has(runId) &&
+      (stateAtExit ?? run?.state) === 'working'
     const askable = run?.taskId !== undefined
     const refused =
       state === 'finished' ? [] : prompts.filter((prompt) => !askable || prompt.refuse === true)
@@ -553,6 +569,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (authFailed) tell('authFailed', runId)
     if (state === 'finished') {
       heard.delete(runId)
+      if (stoppedOutside) {
+        const at = exit?.at ?? lastAt ?? outputAtBefore
+        // Runs that ended before the daemon started are read before any observer is added.
+        if ([...observers].some((observer) => observer.stoppedOutside)) {
+          tellObservers(runId, (observer, run) => observer.stoppedOutside?.(run, at))
+        } else stoppedOutsideUntold.push({ runId, at })
+      }
       tell('finished', runId)
     }
     return state === 'finished'
@@ -781,10 +804,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     record: QueuedInput,
     records: readonly QueuedInput[],
   ): boolean {
+    if (record.permit && !inputConsumed(path.join(runsDir, runId), record.permit)) return false
     const run = store.getRun(runId)
     if (!run) return false
     const siblings = records.filter(
-      (r) => r.text === record.text && r.outputFrom === record.outputFrom,
+      (r) =>
+        r.text === record.text &&
+        r.outputFrom === record.outputFrom &&
+        (!r.permit || inputConsumed(path.join(runsDir, runId), r.permit)),
     )
     const required = siblings.indexOf(record) + 1
     const { chat } = parsedOutput(output, agents, run)
@@ -815,10 +842,19 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
+  let starts: Promise<unknown> = Promise.resolve()
+  function serializeStarts<T>(work: () => T | Promise<T>): Promise<T> {
+    const next = starts.then(work)
+    starts = next.catch(() => undefined)
+    return next
+  }
+
   const manager: RunManager = {
+    serializeStarts,
     output,
     async start({
       agent: kind,
+      onStarting,
       prompt,
       cwd,
       taskId,
@@ -832,63 +868,72 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       permissions = 'auto',
       messageIds,
     }) {
-      refuseWhileShuttingDown()
-      const agent = agents.get(kind)
-      const release = await acquireRunPermissions(store, { taskId })
-      let handedOff = false
-      try {
-        const runDir = path.join(runsDir, id)
-        await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
-        permissions = runPermissions(store, { taskId })
-        const launch = agent.launch({
-          prompt,
-          runDir,
-          env: runEnv(id, env),
-          ...(resume !== undefined && { resume }),
-          ...(model !== undefined && { model }),
-          ...(effort !== undefined && { effort }),
-          permissions,
-          ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
-            tools: chatToolPolicy(kind),
-          }),
-          billing: launchBilling(kind),
-        })
-        await writeLaunch(
-          runDir,
-          cwd,
-          launch,
-          permissions,
-          undefined,
-          messageIds && { ids: messageIds, text: prompt },
-        )
-        await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
-
+      return serializeStarts(async () => {
         refuseWhileShuttingDown()
-        const run = store.startRun({
-          id,
-          agent: agent.kind,
-          ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
-          prompt,
-          cwd: launch.cwd ?? cwd,
-          ...(taskId !== undefined && { taskId }),
-          ...(model !== undefined && { model }),
-          ...(effort !== undefined && { effort }),
-          ...(parentRunId !== undefined && { parentRunId }),
-          ...(name !== undefined && { name }),
-          permissions,
-        })
-        const host = spawnHost(runDir, launch.env)
-        follow(id)
-        handedOff = true
-        void waitForStart(id, 0, () => {
-          killSpawnedHostGroup(host)
-        })
-          .catch((error: unknown) => console.error('The Run host did not start:', error))
-          .finally(release)
-        return run
-      } finally {
-        if (!handedOff) release()
-      }
+        if (!store.settings().enabledAgents.includes(kind)) throw new AgentDisabledError(kind)
+        if (taskId && store.getTask(taskId)?.stopped)
+          throw new Error('The Task was stopped before this Run could start')
+        const agent = agents.get(kind)
+        const release = await acquireRunPermissions(store, { taskId })
+        let handedOff = false
+        try {
+          const runDir = path.join(runsDir, id)
+          await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
+          permissions = runPermissions(store, { taskId })
+          const launch = agent.launch({
+            prompt,
+            runDir,
+            env: runEnv(id, env),
+            ...(resume !== undefined && { resume }),
+            ...(model !== undefined && { model }),
+            ...(effort !== undefined && { effort }),
+            permissions,
+            ...((store.automationDrafts.get(id) || store.sideChats.forRun(id)) && {
+              tools: chatToolPolicy(kind),
+            }),
+            billing: launchBilling(kind),
+          })
+          await writeLaunch(
+            runDir,
+            cwd,
+            launch,
+            permissions,
+            undefined,
+            messageIds && { ids: messageIds, text: prompt },
+          )
+          await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
+
+          refuseWhileShuttingDown()
+          if (taskId && store.getTask(taskId)?.stopped)
+            throw new Error('The Task was stopped before this Run could start')
+          // Record the owner only after admission, so a refused start stays queued.
+          onStarting?.()
+          const run = store.startRun({
+            id,
+            agent: agent.kind,
+            ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
+            prompt,
+            cwd: launch.cwd ?? cwd,
+            ...(taskId !== undefined && { taskId }),
+            ...(model !== undefined && { model }),
+            ...(effort !== undefined && { effort }),
+            ...(parentRunId !== undefined && { parentRunId }),
+            ...(name !== undefined && { name }),
+            permissions,
+          })
+          const host = spawnHost(runDir, launch.env)
+          follow(id)
+          handedOff = true
+          void waitForStart(id, 0, () => {
+            killSpawnedHostGroup(host)
+          })
+            .catch((error: unknown) => console.error('The Run host did not start:', error))
+            .finally(release)
+          return run
+        } finally {
+          if (!handedOff) release()
+        }
+      })
     },
     async revive(runId, { prompt, env = {}, messageIds, flags }) {
       refuseWhileShuttingDown()
@@ -1015,7 +1060,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
     },
     lastHeard: (runId) => heard.get(runId),
-    async dispatch(runId, messages, steer, canDispatch) {
+    async dispatch(runId, messages, steer, canDispatch, options) {
+      if (options?.signal?.aborted) return false
+      const runDir = path.join(runsDir, runId)
       const run = store.getRun(runId)
       if (!run || run.state === 'finished') throw new Error(`no live Run ${runId}`)
       const agent = agents.get(run.agent)
@@ -1040,7 +1087,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const records = inputRecords(runId, inputBytes)
       const accepted = (record: QueuedInput) => inputAccepted(runId, record, records)
       const usable = records.filter(
-        (record) => record.forGeneration === generation || accepted(record),
+        (record) =>
+          accepted(record) ||
+          (record.forGeneration === generation &&
+            (!record.permit ||
+              inputPending(runDir, record.permit) ||
+              inputConsumed(runDir, record.permit))),
       )
       const missing = messages.filter(
         (message) =>
@@ -1049,13 +1101,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
       if (missing.length > 0) {
         const outputFrom = statSync(files.log).size
-        const additions = missing.map((message) => ({
-          forGeneration: generation,
-          deliveryIds: [message.id],
-          text: message.text,
-          outputFrom,
-          line: steer ? agent.steer(message.text) : agent.message(message.text),
-        }))
+        const additions = missing.map((message) => {
+          const permit = options?.revocable ? randomUUID() : undefined
+          if (permit) grantInput(runDir, permit)
+          return {
+            forGeneration: generation,
+            ...(permit && { permit }),
+            deliveryIds: [message.id],
+            text: message.text,
+            outputFrom,
+            line: steer ? agent.steer(message.text) : agent.message(message.text),
+          }
+        })
         const buffer = Buffer.from(
           `${additions.map((record) => JSON.stringify(record)).join('\n')}\n`,
         )
@@ -1077,13 +1134,49 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
       if (relevant.length === 0) return false
       for (let waited = 0; !relevant.every(accepted); waited += pollMs) {
-        if (waited >= inputAckMs || store.getRun(runId)?.state === 'finished')
+        if (options?.revocable) {
+          for (const record of relevant) {
+            if (record.permit && !record.deliveryIds.every((id) => canDispatch(id)))
+              revokeInput(runDir, record.permit)
+          }
+          if (
+            relevant.some(
+              (record) =>
+                record.permit &&
+                !accepted(record) &&
+                !inputPending(runDir, record.permit) &&
+                !inputConsumed(runDir, record.permit),
+            )
+          )
+            return false
+        }
+        if (closed || options?.signal?.aborted) return false
+        const currentGeneration = generations.get(runId)
+        if (
+          options?.revocable &&
+          currentGeneration &&
+          currentGeneration.count + startsFrom(files.log, currentGeneration.readTo) > generation
+        )
+          return manager.dispatch(runId, messages, steer, canDispatch, options)
+        const consumed = () =>
+          relevant.some((record) => record.permit && inputConsumed(runDir, record.permit))
+        if (waited >= inputAckMs && options?.revocable && !consumed())
+          for (const record of relevant) if (record.permit) revokeInput(runDir, record.permit)
+        if ((!consumed() && waited >= inputAckMs) || store.getRun(runId)?.state === 'finished') {
           throw new Error(
             'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
           )
+        }
         await sleep(pollMs)
       }
       return true
+    },
+    retainRevocableInputs(runId, ids) {
+      const allowed = new Set(ids)
+      for (const record of inputRecords(runId)) {
+        if (record.permit && !record.deliveryIds.every((id) => allowed.has(id)))
+          revokeInput(path.join(runsDir, runId), record.permit)
+      }
     },
     inputDispatched(runId, messageId) {
       return inputRecords(runId).some((record) => record.deliveryIds.includes(messageId))
@@ -1092,6 +1185,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const run = store.getRun(runId)
       return inputRecords(runId, Buffer.alloc(0))
         .filter((record) => record.forGeneration === 1 && record.text === run?.prompt)
+        .flatMap((record) => record.deliveryIds)
+    },
+    consumedInputs(runId) {
+      const runDir = path.join(runsDir, runId)
+      return inputRecords(runId)
+        .filter((record) => record.permit && inputConsumed(runDir, record.permit))
         .flatMap((record) => record.deliveryIds)
     },
     acceptedInputs(runId) {
@@ -1180,6 +1279,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     },
     observe(observer) {
       observers.add(observer)
+      if (!observer.stoppedOutside) return
+      for (const { runId, at } of stoppedOutsideUntold.splice(0)) {
+        const run = store.getRun(runId)
+        if (run) observer.stoppedOutside(run, at)
+      }
     },
     environment,
     async stopAll() {

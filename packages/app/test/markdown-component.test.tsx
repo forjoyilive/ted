@@ -95,7 +95,11 @@ test('copies each block literally by keyboard and confirms only a successful cop
   await user().keyboard('{Enter}')
   expect(api.request).toHaveBeenCalledExactlyOnceWith('copyText', '  echo "**raw**"\n\necho done\n')
   expect(first).toHaveProperty('disabled', true)
-  expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual(['', ''])
+  expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual([
+    'Working…',
+    '',
+    '',
+  ])
   await act(async () => pending.resolve())
   expect(first.title).toBe('Copied')
   expect(screen.getAllByRole('status').map((item) => item.textContent)).toEqual(['Copied', ''])
@@ -113,4 +117,10 @@ test('copies each block literally by keyboard and confirms only a successful cop
   view.rerender(<Markdown text={'```\nstreaming latest\n```'} />)
   await user().click(screen.getByRole('button', { name: 'Copy code' }))
   expect(api.request).toHaveBeenLastCalledWith('copyText', 'streaming latest\n')
+})
+
+test('outside a Task, commits, Task IDs and paths in Markdown stay plain text', () => {
+  const { container } = render(<Markdown text={'On `195e5ce2` see NB-2 and src/hello.ts.'} />)
+  expect(container.querySelector('button, [data-reference]')).toBeNull()
+  expect(container.textContent).toBe('On 195e5ce2 see NB-2 and src/hello.ts.')
 })

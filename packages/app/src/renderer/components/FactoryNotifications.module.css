@@ -1,0 +1,86 @@
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.choice input,
+.table input {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-default);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  color: var(--text-primary);
+  font-size: var(--text-13-5);
+  font-weight: var(--weight-medium);
+}
+
+.help {
+  color: var(--text-caption);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+}
+
+.note {
+  color: var(--status-warning-text);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-13);
+}
+
+.table th,
+.table td {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-subtle);
+  text-align: center;
+}
+
+.table thead th {
+  border-top: none;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}
+
+.table th:first-child {
+  text-align: left;
+}
+
+.table tbody th {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.table td {
+  width: 120px;
+}
+
+.table input {
+  margin: 0;
+}
+
+.dim {
+  opacity: 0.45;
+}

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   commentBox,
+  statusWithoutBlocker,
   type TaskFacts,
   taskActivity,
   taskCanResume,
@@ -76,6 +77,16 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ runs: ['waiting', 'working'] }))).toEqual({ kind: 'waiting-on-you' })
   })
 
+  test('when every open request is snoozed, Waiting on you carries the first return time', () => {
+    const until = '2099-11-11T09:00:00.000Z'
+    expect(
+      taskStatus(at({ openRequests: 2, runs: ['waiting'], requestsSnoozedUntil: until })),
+    ).toEqual({ kind: 'waiting-on-you', snoozedUntil: until })
+    expect(taskStatus(at({ failed: true, openRequests: 1, requestsSnoozedUntil: until }))).toEqual({
+      kind: 'failed',
+    })
+  })
+
   test('each status wins over every status below it', () => {
     const ladder: [Partial<TaskFacts>, string][] = [
       [{ failed: true }, 'failed'],
@@ -93,6 +104,24 @@ describe('taskStatus', () => {
       expect(taskStatus(at({ stage: 'merge', ...withEverythingBelow }))?.kind).toBe(kind)
       expect(taskStatus(at({ stage: 'merge', ...facts }))?.kind).toBe(kind)
     }
+  })
+
+  test('a blocked Task also carries the status it would have without its blocker', () => {
+    const without = (facts: Partial<TaskFacts>) => {
+      const all = at(facts)
+      return statusWithoutBlocker(all, taskStatus(all))
+    }
+    expect(without({ stage: 'intake', blockedBy: ['NB-44'], queue: { place: 2 } })).toEqual({
+      kind: 'queued',
+      place: 2,
+    })
+    expect(without({ blockedBy: ['NB-44'], github: 'ci' })).toEqual({
+      kind: 'waiting-for-github',
+      on: 'ci',
+    })
+    expect(without({ blockedBy: ['NB-44'] })).toBeUndefined()
+    expect(without({ blockedBy: ['NB-44'], runs: ['working'] })).toBeUndefined()
+    expect(without({ stage: 'intake', queue: { place: 2 } })).toBeUndefined()
   })
 
   test('statuses carry what their chip shows', () => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol/settings'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
 import { GeneralPage } from '../src/renderer/settings/GeneralPage.tsx'
@@ -182,7 +182,9 @@ test('notification switches and an OS-disabled event show the settings action', 
   const open = vi.fn()
   const api = bridge({
     notificationsOff: () => false,
+    listFactories: () => [{ id: 'nb', name: 'notebook' }],
     updateSettings: update,
+    setFactoryNotifications: (...args) => update(...args),
     openNotificationSettings: open,
   })
   render(<NotificationsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -194,6 +196,18 @@ test('notification switches and an OS-disabled event show the settings action', 
     [{ notifyProblems: false }],
     [{ notifyTaskMerged: true }],
     [{ notifySound: true }],
+  ])
+  update.mockClear()
+  const byFactory = await screen.findByRole('group', { name: 'By Factory' })
+  const inboxItems = within(byFactory).getByRole<HTMLInputElement>('checkbox', {
+    name: 'Inbox items for notebook',
+  })
+  expect(inboxItems.checked).toBe(true)
+  await u.click(inboxItems)
+  await u.click(within(byFactory).getByRole('checkbox', { name: 'Task merged for notebook' }))
+  expect(update.mock.calls).toEqual([
+    ['nb', { inboxItems: false }],
+    ['nb', { taskMerged: true }],
   ])
   await act(async () => api.emit({ type: 'notifications-off', off: true }))
   expect(screen.getByRole('alert').textContent).toContain('Notifications are off for TED')
@@ -271,7 +285,9 @@ test('Record a CPU profile asks for one profile at a time and shows where it was
   render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
   expect(api.request).toHaveBeenCalledWith('recordProfile', 30)
-  expect(screen.getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+  const recording = screen.getByRole('button', { name: 'Record 30 seconds' })
+  expect(recording.hasAttribute('disabled')).toBe(true)
+  expect(recording.getAttribute('aria-busy')).toBe('true')
   await act(async () =>
     result.resolve({ file: '~/.ted/logs/profiles/daemon-1.cpuprofile', seconds: 30, bytes: 10 }),
   )
@@ -396,4 +412,96 @@ test('App settings navigation selects real pages and Factory settings leaves the
   await screen.findByRole('heading', { name: /widgets.*Settings/, level: 1 })
   expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
   expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeTruthy()
+})
+
+const found = (setting: string) =>
+  document.querySelector(`[data-setting="${setting}"]`)?.hasAttribute('data-found') === true
+
+test('Settings search lists a setting with its page, opens that page and marks the row', async () => {
+  const a = appState()
+  a.mount()
+  await a.settings()
+  const nav = within(screen.getByRole('navigation', { name: 'Settings' }))
+  const field = nav.getByRole<HTMLInputElement>('combobox', { name: 'Search settings' })
+
+  fireEvent.change(field, { target: { value: 'checks running' } })
+  const options = nav.getAllByRole('option')
+  expect(options[0]?.textContent).toBe('Checks running at onceSettings › Limits')
+  expect(options[0]?.getAttribute('aria-selected')).toBe('true')
+  expect(nav.queryByRole('button', { name: 'General' })).toBeNull()
+  field.focus()
+  await user().keyboard('{Enter}')
+  await screen.findByRole('heading', { name: 'Limits' })
+  await waitFor(() => expect(found('app.limits.checks')).toBe(true))
+  expect(field.value).toBe('')
+  expect(nav.getByRole('button', { name: 'Limits' }).getAttribute('aria-current')).toBe('page')
+
+  fireEvent.change(field, { target: { value: 'teardown' } })
+  expect(nav.getAllByRole('option')[0]?.textContent).toBe(
+    'Teardown commandwidgets › Settings › Repos',
+  )
+
+  fireEvent.change(field, { target: { value: 'run' } })
+  await user().keyboard('{ArrowUp}')
+  const last = nav.getAllByRole('option').at(-1)
+  expect(last?.getAttribute('aria-selected')).toBe('true')
+  expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts).toContain(last)
+
+  fireEvent.change(field, { target: { value: 'zzz' } })
+  expect(nav.getByText('No settings match ‘zzz’')).toBeTruthy()
+  await user().keyboard('{Escape}')
+  expect(field.value).toBe('')
+  expect(nav.getByRole('button', { name: 'General' })).toBeTruthy()
+  expect(document.activeElement).toBe(field)
+  await user().keyboard('{Escape}')
+  expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
+})
+
+test('⌘K lists a matching setting with its page and opens it', async () => {
+  const a = appState()
+  a.handle('search', (query) => ({
+    query,
+    tasks: [],
+    comments: [],
+    plans: [],
+    automations: [],
+    factories: [],
+  }))
+  a.mount()
+  await screen.findByRole('button', { name: 'widgets' })
+  fireEvent.keyDown(window, { key: 'k', metaKey: true })
+  const palette = await screen.findByRole('dialog', { name: 'Search and commands' })
+  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: 'autopilot' } })
+  const group = within(palette).getByRole('group', { name: 'Settings' })
+  const options = within(group).getAllByRole('option')
+  expect(options.map((option) => option.getAttribute('aria-label'))).toEqual([
+    'Autopilot across all Factories, Settings › General',
+    'Autopilot, Settings › General',
+  ])
+  await user().click(options[0] as HTMLElement)
+  expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
+  await screen.findByRole('heading', { name: 'General' })
+  await waitFor(() => expect(found('app.general.autopilot.mode')).toBe(true))
+})
+
+test('an asynchronous settings switch acknowledges activation and blocks repeat saves', async () => {
+  const completion = deferred<unknown>()
+  const update = vi.fn(() => completion.promise)
+  bridge({
+    updateSettings: update,
+    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    simulators: () => ({ supported: false }),
+  })
+  render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const toggle = screen.getByRole('switch', { name: 'Start fewer Runs when this computer is busy' })
+  await user().click(toggle)
+  expect(toggle.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(toggle)
+  expect(update).toHaveBeenCalledTimes(1)
+  await user().click(screen.getByRole('button', { name: 'More working Runs' }))
+  expect(update).toHaveBeenCalledWith({
+    adjustRunsToLoad: !defaultMachineSettings.adjustRunsToLoad,
+  })
+  await act(async () => completion.resolve({}))
+  expect(toggle.getAttribute('aria-busy')).toBeNull()
 })

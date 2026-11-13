@@ -8,6 +8,9 @@ import { runFiles } from './host-files.ts'
 import type { RunManager } from './run-manager.ts'
 
 export interface SteeringSource {
+  acknowledged?: true
+  revocable?: true
+  signal?: AbortSignal
   pending(run: Run): { id: string; text: string; at: string }[]
   delivered(run: Run, ids: string[]): void
 }
@@ -66,7 +69,10 @@ export function createSteering(options: {
     return next
   }
 
-  const queued = (runId: string) => store.runMessages(runId).filter((m) => m.queued === true)
+  const queued = (runId: string) => {
+    const roundMessages = new Set(store.roundTalkMessageIds(runId))
+    return store.runMessages(runId).filter((m) => m.queued === true && !roundMessages.has(m.id))
+  }
 
   function releaseState(runId: string) {
     const release = store.runSteeringRelease(runId)
@@ -171,10 +177,46 @@ export function createSteering(options: {
     if (!options.canDeliver(run.id, admitted)) return 0
     const current = store.getRun(run.id)
     if (!current || current.state === 'finished') return 0
+    const pending = pendingSources(run.id, includeHeld)
+    let acknowledged = 0
+    for (const source of sources) {
+      if (!source.acknowledged) continue
+      const messages = pending.filter((message) => message.source === source)
+      if (messages.length === 0) continue
+      await store.persisted()
+      if (
+        await runs.dispatch(
+          run.id,
+          messages,
+          true,
+          (id) =>
+            options.canDeliver(run.id, admitted) &&
+            source.pending(run).some((message) => id === undefined || message.id === id),
+          {
+            revocable: source.revocable === true,
+            ...(source.signal !== undefined && { signal: source.signal }),
+          },
+        )
+      ) {
+        source.delivered(
+          run,
+          messages.map((message) => message.id),
+        )
+        await store.persisted()
+        acknowledged += messages.length
+      }
+    }
+    if (!options.canDeliver(run.id, admitted) || store.getRun(run.id)?.state === 'finished')
+      return acknowledged
     const still = new Set(queued(run.id).map((m) => m.id))
     const sending = messages.filter((m) => still.has(m.id))
-    const extra = pendingSources(run.id, includeHeld)
-    if (sending.length === 0 && extra.length === 0) return 0
+    const extra = pendingSources(run.id, includeHeld).filter(
+      (message) => !message.source.acknowledged,
+    )
+    if (sending.length === 0 && extra.length === 0) {
+      syncFlag(run.id)
+      return acknowledged
+    }
     if (store.coordinators.forRun(run.id)) {
       delivering.add(run.id)
       syncFlag(run.id)
@@ -234,8 +276,9 @@ export function createSteering(options: {
       const ids = extra.filter((m) => m.source === source).map((m) => m.id)
       if (ids.length > 0) source.delivered(run, ids)
     }
+    await store.persisted()
     syncFlag(run.id)
-    return ordered.length
+    return ordered.length + acknowledged
   }
 
   async function turnEnded(runId: string): Promise<void> {

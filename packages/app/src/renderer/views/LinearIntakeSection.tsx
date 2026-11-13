@@ -83,7 +83,11 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
       className={`${styles.section} ${styles.compactSection}`}
       aria-labelledby={`${id}-heading`}
     >
-      <div className={styles.sectionHeading} id="linear-intake">
+      <div
+        className={styles.sectionHeading}
+        id="linear-intake"
+        data-setting="factory.linear-intake"
+      >
         <h2 id={`${id}-heading`} className={styles.sectionTitle}>
           Linear intake
         </h2>
@@ -94,7 +98,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
       <span className={styles.caption}>
         Choose which Linear issues Automations can bring into this Factory.
       </span>
-      <div className={styles.field}>
+      <div className={styles.field} data-setting="factory.linear-intake.scope">
         <label className={styles.label} htmlFor={`${id}-kind`}>
           Scope
         </label>
@@ -109,7 +113,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
             if (value !== 'none' && value !== 'team' && value !== 'project') return
             setDraftKind(value)
             setSaveError(undefined)
-            if (value === 'none') void save(null)
+            if (value === 'none') save(null)
           }}
         >
           <option value="none">Unscoped</option>
@@ -131,7 +135,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
             onChange={(event) => {
               const target = targets?.find((target) => target.id === event.target.value)
               if (!choices || !target) return
-              void save({
+              return save({
                 kind,
                 id: target.id,
                 name: target.name,
@@ -171,9 +175,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
       {loadError && (
         <div>
           <p className={styles.fieldError}>{loadError} A saved scope stays in effect.</p>
-          <Button size="small" onClick={() => setRetry((value) => value + 1)}>
-            Try again
-          </Button>
+          <Button onClick={() => setRetry((value) => value + 1)}>Try again</Button>
         </div>
       )}
       {saveError && (

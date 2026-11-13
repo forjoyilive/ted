@@ -3,6 +3,7 @@ import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
+import { useRefreshAction } from '../refresh-action.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button, Select, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
@@ -16,7 +17,7 @@ function usePolled<T>(load: () => Promise<T>) {
     value?: T | undefined
     error?: string
   }>()
-  const [attempt, setAttempt] = useState(0)
+  const { revision: attempt, refresh: retry, settled } = useRefreshAction()
   useEffect(() => {
     void attempt
     let stopped = false
@@ -38,17 +39,18 @@ function usePolled<T>(load: () => Promise<T>) {
           running = false
         })
     }
-    void tick()
+    void tick()?.finally(() => settled(attempt))
     const timer = setInterval(tick, refreshMs)
     return () => {
       stopped = true
+      settled(attempt)
       clearInterval(timer)
     }
-  }, [load, attempt])
+  }, [load, attempt, settled])
   return {
     value: state?.load === load ? state.value : undefined,
     error: state?.load === load ? state.error : undefined,
-    retry: () => setAttempt((n) => n + 1),
+    retry,
   }
 }
 
@@ -60,7 +62,7 @@ function useCopyReport() {
   const [status, setStatus] = useState<string>()
   const copy = () => {
     setStatus(undefined)
-    ted.copyReport().then(
+    return ted.copyReport().then(
       () => setStatus('Report copied.'),
       (error: unknown) =>
         setStatus(`Couldn’t copy the report: ${error instanceof Error ? error.message : error}`),
@@ -75,7 +77,7 @@ function useProfile() {
   const record = () => {
     setRecording(true)
     setStatus(undefined)
-    ted
+    return ted
       .recordProfile(profileSeconds.default)
       .then(
         ({ file }) => setStatus(`Saved to ${file}`),
@@ -101,18 +103,15 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
   return (
     <SettingsPage title="Developer">
       <SettingsGroup>
-        <SettingRow
-          title="Developer mode"
-          help="Shows a compact CPU and memory readout at the bottom left of the main screen, with detailed Run and daemon process readings and logs here. Readings refresh every two seconds while visible."
-        >
+        <SettingRow setting="app.developer.mode">
           <Switch
             label="Developer mode"
             checked={settings.developerMode}
-            onChange={(developerMode) => void ted.updateSettings({ developerMode })}
+            onChange={(developerMode) => ted.updateSettings({ developerMode })}
           />
         </SettingRow>
         <SettingRow
-          title="TED’s folder"
+          setting="app.developer.folder"
           detail={
             folderProblem ?? folder?.path ?? <Loading compact label="Loading TED’s folder…" />
           }
@@ -120,7 +119,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           <Button
             onClick={() => {
               setFolderProblem(undefined)
-              ted.showTedFolder().catch((error: unknown) => {
+              return ted.showTedFolder().catch((error: unknown) => {
                 setFolderProblem(error instanceof Error ? error.message : String(error))
               })
             }}
@@ -129,14 +128,13 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           </Button>
         </SettingRow>
         <SettingRow
-          title="Copy report"
-          help="Copies TED’s version, your Runs and the end of the daemon’s log to the clipboard, for you to paste into a bug report. Nothing is uploaded. TED sends no telemetry."
+          setting="app.developer.report"
           {...(report.status !== undefined && { detail: report.status })}
         >
           <Button onClick={report.copy}>Copy report</Button>
         </SettingRow>
         <SettingRow
-          title="Record a CPU profile"
+          setting="app.developer.profile"
           help={`Records where TED’s background process spends its time for ${profileSeconds.default} seconds and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists TED’s own functions and file paths, with no Task content, prompts or tokens. TED keeps the newest five. Nothing is uploaded.`}
           {...(profile.status !== undefined && { detail: profile.status })}
         >
@@ -185,13 +183,14 @@ function DiagnosticsView({
   return (
     <section className={styles.group} aria-label="Diagnostics">
       <div className={styles.groupHeader}>
-        <h2 className={styles.groupLabel}>Diagnostics</h2>
+        <h2 className={styles.groupLabel} data-setting="app.developer.diagnostics">
+          Diagnostics
+        </h2>
         <Button onClick={onCopyReport}>Copy report</Button>
       </div>
       <div className={styles.box}>
         <SettingRow
-          title="System memory usage"
-          help="Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below."
+          setting="app.developer.diagnostics.memory"
           detail={
             memory
               ? `${usedPercent}% in use · ${gigabytes(memory.availableBytes)} available of ${gigabytes(memory.totalBytes)}`
@@ -303,7 +302,7 @@ function LogViewer({ runs }: { runs: string[] }) {
   return (
     <section className={styles.group} aria-label="Logs">
       <div className={styles.groupHeader}>
-        <h2 className={styles.groupLabel}>
+        <h2 className={styles.groupLabel} data-setting="app.developer.logs">
           <label htmlFor="log-source">Log</label>
         </h2>
         <Select id="log-source" value={source} options={options} onChange={setSource} width={260} />

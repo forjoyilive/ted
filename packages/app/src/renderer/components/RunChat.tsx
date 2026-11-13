@@ -1,14 +1,16 @@
 // Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/
 // ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
 // grouping of calls, and Edit rows that expand to their diff.
-import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
+import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { conversationRows } from '../task-conversations.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
@@ -58,15 +60,7 @@ export function runMeta(run: RunSummary): string {
     .join(' · ')
 }
 
-function RunBar({
-  run,
-  onStopTask,
-  action,
-}: {
-  run: RunSummary
-  onStopTask: (() => void) | undefined
-  action?: ReactNode
-}) {
+function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void) | undefined }) {
   const now = useNow()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -74,7 +68,7 @@ function RunBar({
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
@@ -89,38 +83,25 @@ function RunBar({
           {!live && ' · finished'}
         </span>
       </div>
-      {action}
       {error !== undefined && (
         <span className={styles.barError} role="alert">
           {error}
         </span>
       )}
-      {live && (
-        <>
+      {live &&
+        (run.role === 'lead' && run.current ? (
           <Button
-            size="small"
-            disabled={busy || run.state === 'working'}
-            title={run.state === 'working' ? 'Restart works when the Run is idle' : undefined}
-            onClick={() => act(() => ted.restartRun(run.id))}
+            disabled={onStopTask === undefined}
+            title={onStopTask === undefined ? 'Stopping a Task isn’t available yet' : undefined}
+            onClick={onStopTask}
           >
-            Restart
+            Stop Task
           </Button>
-          {run.role === 'lead' && run.current ? (
-            <Button
-              size="small"
-              disabled={onStopTask === undefined}
-              title={onStopTask === undefined ? 'Stopping a Task isn’t available yet' : undefined}
-              onClick={onStopTask}
-            >
-              Stop Task
-            </Button>
-          ) : (
-            <Button size="small" disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
-              Stop Run
-            </Button>
-          )}
-        </>
-      )}
+        ) : (
+          <Button disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
+            Stop Run
+          </Button>
+        ))}
     </div>
   )
 }
@@ -144,7 +125,7 @@ function Collapsible({
   const empty = children === undefined || children === false || children === null
   return (
     <div className={styles.row} data-tone={tone}>
-      <button
+      <ActionButton
         type="button"
         className={styles.rowHead}
         aria-expanded={empty ? undefined : open}
@@ -155,7 +136,7 @@ function Collapsible({
         <span className={styles.rowLabel}>{label}</span>
         {mono !== undefined && <span className={styles.rowMono}>{mono}</span>}
         {meta !== undefined && <span className={styles.rowMeta}>{meta}</span>}
-      </button>
+      </ActionButton>
       {open && !empty && <div className={styles.rowBody}>{children}</div>}
     </div>
   )
@@ -278,7 +259,7 @@ function QueuedActions({
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
@@ -290,23 +271,23 @@ function QueuedActions({
         </span>
       )}
       {sendNow && (
-        <button
+        <ActionButton
           type="button"
           className={styles.link}
           disabled={busy}
           onClick={() => act(() => ted.sendQueuedMessageNow(runId, messageId))}
         >
           Send now
-        </button>
+        </ActionButton>
       )}
-      <button
+      <ActionButton
         type="button"
         className={styles.quietLink}
         disabled={busy}
         onClick={() => act(() => ted.deleteQueuedMessage(runId, messageId))}
       >
         Delete
-      </button>
+      </ActionButton>
       <Help>Only until the agent has read it.</Help>
     </span>
   )
@@ -445,10 +426,10 @@ function PermissionRow({
               {error}
             </span>
           )}
-          <Button disabled={sending} onClick={() => void send('deny')}>
+          <Button disabled={sending} onClick={() => send('deny')}>
             Deny
           </Button>
-          <Button variant="primary" disabled={sending} onClick={() => void send('approve')}>
+          <Button variant="primary" disabled={sending} onClick={() => send('approve')}>
             Approve
           </Button>
         </div>
@@ -531,7 +512,6 @@ export interface ChatExtra {
 }
 
 export interface ChatOptions {
-  headerAction?: ReactNode
   inspect?: boolean
   matchItemId?: string
 
@@ -553,6 +533,7 @@ export interface ChatOptions {
   interrupt?: false
   send?: (text: string) => Promise<unknown>
   stopTurn?: () => Promise<unknown>
+  box?: MessageBox
 }
 
 function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }) {
@@ -570,6 +551,7 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       }
       endedNote={options.endedNote}
       interrupt={options.interrupt !== false}
+      box={options.box ?? { kind: 'run', id: run.id }}
       send={
         options.send ??
         ((text, interrupt) => ted.sendRunMessage(run.id, text, { interrupt: interrupt && working }))
@@ -588,8 +570,7 @@ export function Composer({
   help,
   endedNote,
   interrupt = true,
-  value,
-  onValue,
+  box,
   send: sendText,
   stopTurn: stopRequest,
 }: {
@@ -601,26 +582,26 @@ export function Composer({
   help: string
   endedNote?: string | undefined
   interrupt?: boolean
-  value?: string
-  onValue?: (text: string) => void
+  box?: MessageBox | undefined
   send: (text: string, interrupt: boolean) => Promise<unknown>
   stopTurn: () => Promise<unknown>
 }) {
-  const [own, setOwn] = useState('')
-  const text = value ?? own
-  const setText = onValue ?? setOwn
+  const draft = useMessageDraft(box)
+  const { text, setText } = draft
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
+  const [interrupting, setInterrupting] = useState(false)
   const [error, setError] = useState<string>()
   const typed = text.trim() !== ''
 
   async function send(interrupting: boolean) {
     if (!typed || sending || !live) return
     setSending(true)
+    setInterrupting(interrupting)
     setError(undefined)
     try {
       await sendText(text, interrupting)
-      setText('')
+      draft.clear()
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -651,7 +632,7 @@ export function Composer({
           disabled={!live}
           value={text}
           onChange={(event) => setText(event.target.value)}
-          onKeyDown={sendOnEnter((command) => void send(command))}
+          onKeyDown={sendOnEnter((command) => send(command))}
         />
         <span className={styles.boxHelp}>
           <Help>{help}</Help>
@@ -665,33 +646,32 @@ export function Composer({
       <div className={styles.buttons}>
         {live && (
           <Button
-            size="small"
             className={styles.stopTurn}
             aria-label="Stop the turn"
             title="Stop the turn without sending"
             disabled={stopping || !working}
-            onClick={() => void stopTurn()}
+            onClick={() => stopTurn()}
           >
             <StopIcon />
           </Button>
         )}
         {live && interrupt && (
           <Button
-            size="small"
             shortcut="⌘↵"
             disabled={sending || !typed || !working}
-            onClick={() => void send(true)}
+            pending={sending && interrupting}
+            onClick={() => send(true)}
           >
             Interrupt and send
           </Button>
         )}
         <Button
           variant="primary"
-          size="small"
           shortcut="↵"
           title={working ? 'Queues the message for the agent’s next step' : undefined}
           disabled={sending || !typed || !live}
-          onClick={() => void send(false)}
+          pending={sending && !interrupting}
+          onClick={() => send(false)}
         >
           Send
         </Button>
@@ -771,9 +751,7 @@ export function ChatBody({
       {!options.inspect &&
         (options.header
           ? options.header(run)
-          : options.bar !== false && (
-              <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
-            ))}
+          : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />)}
       <RequestJumpBar
         requests={options.requests ?? []}
         onJump={(id) => {

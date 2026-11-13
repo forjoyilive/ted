@@ -2,10 +2,10 @@ import type { RunSummary } from '@ted/protocol'
 import { useState } from 'react'
 import { runStateWord, runsCollapsedSummary } from '../details.ts'
 import { ago, useNow } from '../requests.ts'
-import { activeSubAgentCount, activeSubAgentLabel } from '../sub-agents.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
-import { ChevronIcon, RestartIcon, StopIcon } from './icons.tsx'
+import { ChevronIcon, StopIcon } from './icons.tsx'
 import { tokenCount } from './RunChat.tsx'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import styles from './RunsSection.module.css'
@@ -43,16 +43,17 @@ export function usageLine(run: RunSummary): string | undefined {
   return shown.length > 0 ? shown.join(' · ') : undefined
 }
 
-export function runsSummary(runs: readonly RunSummary[]): string {
+export function runsTabSummary(runs: readonly RunSummary[]): string {
   const tokens = runs.reduce((sum, r) => sum + (r.tokens ?? 0), 0)
   const keyed = runs.filter((r) => r.cost !== undefined)
   const cost = keyed.reduce((sum, r) => sum + (r.cost ?? 0), 0)
   return [
-    runs.length === 1 ? '1 Run' : `${runs.length} Runs`,
-    activeSubAgentLabel(activeSubAgentCount(runs)),
+    runsCollapsedSummary(runs),
     ...(tokens > 0 ? [tokenCount(tokens)] : []),
     ...(keyed.length > 0 ? [`${dollars(cost)} on API key`] : []),
-  ].join(' · ')
+  ]
+    .filter((part) => part !== '')
+    .join(' · ')
 }
 
 export function liveOrder(runs: readonly RunSummary[]): { run: RunSummary; nested: boolean }[] {
@@ -82,18 +83,19 @@ export function RunsSection({
   onOpenRun: (runId: string) => void
 }) {
   const [showStopped, setShowStopped] = useState(false)
-  if (runs.length === 0) return null
+  if (runs.length === 0) {
+    return (
+      <DetailsSection id="runs">
+        <p className={styles.empty}>No Runs yet</p>
+      </DetailsSection>
+    )
+  }
   const live = liveOrder(runs)
   const stopped = runs
     .filter((r) => r.state === 'finished')
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
   return (
-    <DetailsSection
-      id="runs"
-      title="Runs"
-      summary={runsSummary(runs)}
-      collapsedSummary={runsCollapsedSummary(runs)}
-    >
+    <DetailsSection id="runs" summary={runsTabSummary(runs)}>
       <ul className={styles.list}>
         {live.map(({ run, nested }) => (
           <RunRow key={run.id} run={run} nested={nested} onOpen={() => onOpenRun(run.id)} />
@@ -101,7 +103,7 @@ export function RunsSection({
       </ul>
       {stopped.length > 0 && (
         <>
-          <button
+          <ActionButton
             type="button"
             className={styles.toggle}
             aria-expanded={showStopped}
@@ -109,7 +111,7 @@ export function RunsSection({
           >
             <ChevronIcon open={showStopped} />
             {stopped.length === 1 ? '1 stopped Run' : `${stopped.length} stopped Runs`}
-          </button>
+          </ActionButton>
           {showStopped && (
             <ul className={styles.list}>
               {stopped.map((run) => (
@@ -133,13 +135,13 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
   return (
     <li className={nested ? `${styles.row} ${styles.nested}` : styles.row} data-run={run.id}>
-      <button type="button" className={styles.open} onClick={onOpen}>
+      <ActionButton type="button" className={styles.open} onClick={onOpen}>
         <RunIcon agent={run.agent} state={runIconState(run)} />
         <span className={styles.text}>
           <span className={styles.top}>
@@ -164,20 +166,10 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
             </span>
           )}
         </span>
-      </button>
+      </ActionButton>
       {live && !isLead && (
         <span className={styles.actions}>
-          <button
-            type="button"
-            className={styles.action}
-            aria-label="Restart"
-            title={run.state === 'working' ? 'Restart works when the Run is idle' : 'Restart'}
-            disabled={busy || run.state === 'working'}
-            onClick={() => act(() => ted.restartRun(run.id))}
-          >
-            <RestartIcon />
-          </button>
-          <button
+          <ActionButton
             type="button"
             className={styles.action}
             aria-label="Stop Run"
@@ -186,7 +178,7 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
             onClick={() => act(() => ted.stopRun(run.id))}
           >
             <StopIcon />
-          </button>
+          </ActionButton>
         </span>
       )}
     </li>

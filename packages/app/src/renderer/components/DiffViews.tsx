@@ -1,4 +1,4 @@
-import type { FileDiff, LineSide, TaskChanges } from '@ted/protocol'
+import type { CommitChanges, FileDiff, LineSide, TaskChanges, TaskCommit } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import {
   type ChangedFile,
@@ -6,8 +6,10 @@ import {
   type PullRequestChangesState,
   splitPath,
 } from '../changes.ts'
+import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
-import { formatTime } from '../time.ts'
+import { formatDate, formatTime } from '../time.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList, DiffCounts } from './ChangesSection.tsx'
 import { FileDiffBody, type Gutter, type RowExtra } from './DiffTable.tsx'
@@ -98,7 +100,7 @@ function OpenInEditor({
         disabled={!open}
         onClick={() => {
           setProblem(undefined)
-          open?.(file, line).catch((error: unknown) => setProblem(readableError(error)))
+          return open?.(file, line).catch((error: unknown) => setProblem(readableError(error)))
         }}
       >
         Open in editor ↗
@@ -123,7 +125,7 @@ function PullRequestSummary({ remote, repo }: { remote: PullRequestChangesState;
           {s.limited && ' · Showing the first 1,000 files only.'}
         </p>
       ))}
-      <Button size="small" onClick={remote.refresh}>
+      <Button onClick={remote.refresh}>
         {remote.changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
       </Button>
     </div>
@@ -176,9 +178,9 @@ export function DiffView({
   return (
     <section className={styles.pane} aria-label="Diff">
       <header className={styles.header}>
-        <button type="button" className={styles.back} onClick={onBack}>
+        <ActionButton type="button" className={styles.back} onClick={onBack}>
           {backLabel}
-        </button>
+        </ActionButton>
         <div className={styles.titleRow}>
           <FilePath path={current.path} />
           <span className={styles.repoChip}>{current.repo}</span>
@@ -189,7 +191,7 @@ export function DiffView({
               {index + 1} of {files.length}
             </span>
           )}
-          <button
+          <ActionButton
             type="button"
             className={styles.step}
             aria-label="Previous file"
@@ -197,8 +199,8 @@ export function DiffView({
             onClick={() => previous && onOpen(previous)}
           >
             <ChevronIcon open className={styles.up} />
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             className={styles.step}
             aria-label="Next file"
@@ -206,7 +208,7 @@ export function DiffView({
             onClick={() => next && onOpen(next)}
           >
             <ChevronIcon open />
-          </button>
+          </ActionButton>
           {remote === undefined && (
             <OpenInEditor
               file={current}
@@ -285,9 +287,7 @@ export function AllChanges({
           {files.length === 1 ? '1 file' : `${files.length} files`}
         </h2>
         <span className={styles.spacer} />
-        <Button size="small" onClick={onCollapse}>
-          {backLabel}
-        </Button>
+        <Button onClick={onCollapse}>{backLabel}</Button>
       </header>
       {remote && <PullRequestSummary remote={remote} />}
       <div className={styles.allBody}>
@@ -373,4 +373,85 @@ function RepoDiffs({
       </article>
     )
   })
+}
+
+export function CommitView({
+  taskId,
+  commit,
+  onBack,
+  backLabel = '← Task Lead',
+}: {
+  taskId: string
+  commit: TaskCommit
+  onBack: () => void
+  backLabel?: string
+}) {
+  const { epoch } = useConnection()
+  const key = `${taskId}\0${commit.commit}\0${epoch}`
+  const [state, setState] = useState<{ key: string; changes?: CommitChanges; error?: string }>()
+  useEffect(() => {
+    let live = true
+    void ted.commitChanges(taskId, commit.commit).then(
+      (changes) => {
+        if (live) setState({ key, changes })
+      },
+      (error: unknown) => {
+        if (live) setState({ key, error: readableError(error) })
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [taskId, commit.commit, key])
+  const { changes, error } = state?.key === key ? state : {}
+  const count = changes?.files.length ?? 0
+  return (
+    <section className={styles.pane} aria-label="Commit">
+      <header className={styles.header}>
+        <button type="button" className={styles.back} onClick={onBack}>
+          {backLabel}
+        </button>
+        <div className={styles.titleRow}>
+          <h2 className={styles.allTitle}>
+            {changes?.subject || `Commit ${commit.commit.slice(0, 8)}`}
+          </h2>
+          <span className={styles.repoChip}>{commit.repo}</span>
+        </div>
+        {changes && (
+          <p className={styles.against}>
+            {changes.commit.slice(0, 8)} · {changes.author} ·{' '}
+            {!Number.isNaN(Date.parse(changes.date)) &&
+              `${formatDate(changes.date, {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })} · `}
+            {count === 1 ? '1 file' : `${count} files`} · Read-only
+            {changes.merge && ' · Merge commit, shown against its first parent'}
+            {changes.limited && ' · Showing the first 200 files only'}
+          </p>
+        )}
+      </header>
+      <div className={styles.body}>
+        {error !== undefined && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
+        {!changes && error === undefined && <Loading label="Loading commit…" />}
+        {changes && count === 0 && <p className={styles.note}>This commit changes no files.</p>}
+        {changes?.diffs.map((diff) => (
+          <article key={diff.path} className={styles.fileDiff}>
+            <header className={styles.fileHeader}>
+              <h3 className={styles.fileTitle}>{diff.path}</h3>
+              <DiffCounts added={diff.added} removed={diff.removed} />
+            </header>
+            <FileDiffBody diff={diff} />
+          </article>
+        ))}
+      </div>
+    </section>
+  )
 }

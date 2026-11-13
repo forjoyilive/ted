@@ -3,7 +3,10 @@ import {
   agentStageIds,
   appearances,
   archivedFilters,
+  type BoardView,
   billings,
+  boardCardSizes,
+  boardFields,
   checkLimits,
   createdByKinds,
   editorIds,
@@ -17,6 +20,7 @@ import {
   listSorts,
   type MachineSettings,
   parseBannerActionInput,
+  parseChangeAgentAvailabilityRequest,
   priorities,
   quitChoices,
   runOutputDayLimits,
@@ -34,6 +38,20 @@ import { readProfile } from '../profile.ts'
 import { jsonRoute, type Route, readJson } from './route.ts'
 
 export const machineRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/agents\/availability$/,
+    handle: async ({ caller }, { agentAvailability }) => {
+      if (caller.kind !== 'app')
+        throw new HttpError(403, 'Only the app can inspect agent availability')
+      return [200, agentAvailability.list()]
+    },
+  },
+  jsonRoute(parseChangeAgentAvailabilityRequest, {
+    method: 'POST',
+    path: /^\/agents\/availability$/,
+    handle: async ({ body }, { agentAvailability }) => [200, await agentAvailability.change(body)],
+  }),
   {
     method: 'GET',
     path: /^\/settings$/,
@@ -183,7 +201,31 @@ function listView(value: unknown): ListView {
   }
 }
 
+function boardView(value: unknown): BoardView {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'a Board view must be an object')
+  }
+  const view = value as Record<string, unknown>
+  const cardSize = boardCardSizes.find((s) => s === view.cardSize)
+  if (!cardSize) throw new HttpError(400, `cardSize must be ${boardCardSizes.join(', ')}`)
+  if (typeof view.hideEmpty !== 'boolean') {
+    throw new HttpError(400, 'hideEmpty must be true or false')
+  }
+  return {
+    cardSize,
+    fields: [...new Set(oneOfList('fields', view.fields, boardFields))],
+    hiddenStages: [...new Set(oneOfList('hiddenStages', view.hiddenStages, stageIds))],
+    hideEmpty: view.hideEmpty,
+  }
+}
+
 const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+  enabledAgents() {
+    throw new HttpError(
+      400,
+      'Change agents through Settings → Agents so existing Runs are accounted for.',
+    )
+  },
   timeFormat(value) {
     const format = timeFormats.find((format) => format === value)
     if (!format) throw new HttpError(400, `timeFormat must be ${timeFormats.join(', ')}`)
@@ -203,6 +245,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       Object.entries(value as Record<string, unknown>).map(([scope, view]) => [
         scope,
         listView(view),
+      ]),
+    )
+  },
+  boardViews(value) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new HttpError(400, 'boardViews must be an object of Board views by Factory')
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([factoryId, view]) => [
+        factoryId,
+        boardView(view),
       ]),
     )
   },
@@ -282,6 +335,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyProblems: onOff('notifyProblems'),
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
+  factoryNotifications() {
+    throw new HttpError(400, 'Change a Factory’s notifications through its own route')
+  },
   firstLaunchDone: onOff('firstLaunchDone'),
   linearIntakeScopes(value) {
     if (
