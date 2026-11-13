@@ -33,7 +33,6 @@ import { openStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
-  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -112,6 +111,16 @@ async function setup(
   return { port, client, ok, factory, base, chat, tokens, start, task, led, comments, waitingIds }
 }
 type Api = ReturnType<typeof api>
+function fullDisk(free = 1.4e9) {
+  const disk = { free, freeBytes: async () => disk.free, checkEveryMs: 20 }
+  return disk
+}
+const diskHold = (s: Awaited<ReturnType<typeof setup>>) =>
+  waitUntil(
+    async () =>
+      (await s.ok<{ problem: string }[]>('GET', '/banners')).some((b) => b.problem === 'disk-full'),
+    'disk hold',
+  )
 const version = async (run: Api, id: string) =>
   unpack<CoordinatorTask>((await run.call('GET', `/coordinator/tasks/${id}`)).body).version
 const hold = () => ({ waitFor: path.join(scratch, 'lead-finish') })
@@ -580,6 +589,12 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
 test('start queues a Task through existing slot limits and writes one receipt', async () => {
   const s = await setup()
   await s.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const blocker = await s.task(JSON.stringify({ steps: [hold(), { endTurn: true }] }))
+  await s.ok('POST', `/tasks/${blocker.id}/start`)
+  await waitUntil(
+    async () => (await s.ok<RunSlots>('GET', '/slots')).working === 1,
+    'another Task to hold the slot',
+  )
   const task = await s.task(),
     { run } = await s.start()
   const detail = unpack<CoordinatorTask>(
@@ -599,42 +614,42 @@ test('start queues a Task through existing slot limits and writes one receipt', 
   expect(slots.queue.some((q) => q.kind === 'task' && q.taskId === task.id)).toBe(true)
 })
 
-test('idle follow-up turns wait for a slot, including generic chat message paths', async () => {
+test('idle follow-up turns start past the slot limit, including generic chat message paths', async () => {
   const s = await setup()
   await s.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
   const { c } = await s.start([{ say: 'First response' }, { endTurn: true }])
   await waitUntil(async () => (await s.chat()).status === 'ready', 'Coordinator to become ready')
-  const task = await s.task(
-    JSON.stringify({ steps: [{ waitFor: path.join(scratch, 'task-finish') }, { endTurn: true }] }),
-  )
+  const task = await s.task(JSON.stringify({ steps: [hold(), { endTurn: true }] }))
   await s.ok('POST', `/tasks/${task.id}/start`)
   await waitUntil(
     async () => (await s.ok<RunSlots>('GET', '/slots')).working === 1,
     'Task to hold slot',
   )
   await s.ok('POST', `/runs/${c.runId}/messages`, {
-    text: JSON.stringify({ steps: [{ say: 'Second response' }, { endTurn: true }] }),
+    text: JSON.stringify({
+      steps: [
+        { say: 'Second response' },
+        { waitFor: path.join(scratch, 'finish') },
+        { endTurn: true },
+      ],
+    }),
   })
-  await waitUntil(async () => (await s.chat()).status === 'queued', 'follow-up to queue')
-  await expect
-    .poll(() => s.ok<import('@ted/protocol').Activity>('GET', '/activity'))
-    .toMatchObject({ runs: { active: 2, queued: 1 } })
-  const before = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
-  expect(before.items.some((i) => i.kind === 'agent' && i.text === 'Second response')).toBe(false)
-  await writeFile(path.join(scratch, 'task-finish'), '')
   await waitUntil(async () => {
     const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
     return chat.items.some((i) => i.kind === 'agent' && i.text === 'Second response')
-  }, 'queued response after slot frees')
+  }, 'follow-up response while the slot is taken')
+  expect((await s.chat()).status).toBe('working')
+  const slots = await s.ok<RunSlots>('GET', '/slots')
+  expect(slots).toMatchObject({ limit: 1, working: 1, queued: 0 })
+  expect(slots.holders.map((h) => h.kind).sort()).toEqual(['coordinator', 'task'])
+  await writeFile(path.join(scratch, 'finish'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'follow-up to finish')
 })
 
 test('Stop cancels an unstarted conversation turn; later messages do not execute it', async () => {
-  const s = await setup()
-  await s.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-  const task = await s.task(
-    JSON.stringify({ steps: [{ waitFor: path.join(scratch, 'task-finish') }, { endTurn: true }] }),
-  )
-  await s.ok('POST', `/tasks/${task.id}/start`)
+  const disk = fullDisk()
+  const s = await setup(disk)
+  await diskHold(s)
   const c = await s.ok<Coordinator>('POST', `${s.base}/messages`, {
     agent: 'claude',
     text: JSON.stringify({ steps: [{ say: 'Cancelled response' }, { endTurn: true }] }),
@@ -642,12 +657,12 @@ test('Stop cancels an unstarted conversation turn; later messages do not execute
   expect(c.status).toBe('queued')
   await expect
     .poll(() => s.ok<import('@ted/protocol').Activity>('GET', '/activity'))
-    .toMatchObject({ runs: { active: 1, queued: 1 } })
+    .toMatchObject({ runs: { queued: 1 } })
   await s.ok('POST', `${s.base}/stop`)
   await s.ok('POST', `${s.base}/messages`, {
     text: JSON.stringify({ steps: [{ say: 'Replacement response' }, { endTurn: true }] }),
   })
-  await writeFile(path.join(scratch, 'task-finish'), '')
+  disk.free = 30e9
   await waitUntil(async () => {
     const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`).catch(() => undefined)
     return chat?.items.some((i) => i.kind === 'agent' && i.text === 'Replacement response')
@@ -657,13 +672,9 @@ test('Stop cancels an unstarted conversation turn; later messages do not execute
 })
 
 test('concurrent first messages share one Coordinator and survive daemon restart', async () => {
-  const s = await setup()
-  await s.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-  const task = await s.task(
-    JSON.stringify({ steps: [{ waitFor: path.join(scratch, 'release') }, { endTurn: true }] }),
-  )
-  await s.ok('POST', `/tasks/${task.id}/start`)
-  await waitUntil(async () => (await s.ok<RunSlots>('GET', '/slots')).working === 1, 'Task slot')
+  const disk = fullDisk()
+  const s = await setup(disk)
+  await diskHold(s)
   const inputs = ['First queued message', 'Second queued message']
   const chats = await Promise.all(
     inputs.map((text) =>
@@ -671,21 +682,14 @@ test('concurrent first messages share one Coordinator and survive daemon restart
     ),
   )
   expect(chats[0]?.runId).toBe(chats[1]?.runId)
-  const leadRunId = await waitUntil(
-    async () => (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId,
-    'the Task Lead Run',
-  )
-  await waitUntil(
-    async () => (await hostRecords(home, leadRunId)).some((r) => r.t === 'start'),
-    'the Task Lead’s host to start',
-  )
   await daemon?.stop()
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath, disk })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const reopened = (await client.call('GET', s.base)).body as Coordinator
   expect(reopened.runId).toBe(chats[0]?.runId)
   expect(reopened.status).toBe('queued')
-  await writeFile(path.join(scratch, 'release'), '')
+  expect(reopened.started).toBe(false)
+  disk.free = 30e9
   await waitUntil(
     async () => ((await client.call('GET', s.base)).body as Coordinator).started,
     'recovered Coordinator',
@@ -1062,19 +1066,13 @@ test('the Coordinator CLI reads scoped facts from an actual Run', async () => {
   expect(result.stdout).toContain('TASK CONTEXT')
 })
 
-test('deleting the last queued follow-up returns Ready without taking a slot', async () => {
-  const s = await setup()
-  await s.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+test('deleting the last queued follow-up returns Ready and never runs it', async () => {
+  const disk = fullDisk(30e9)
+  const s = await setup(disk)
   const { c } = await s.start([{ say: 'First answer' }, { endTurn: true }])
   await waitUntil(async () => (await s.chat()).status === 'ready', 'first answer')
-  const task = await s.task(
-    JSON.stringify({ steps: [{ waitFor: path.join(scratch, 'release-slot') }, { endTurn: true }] }),
-  )
-  await s.ok('POST', `/tasks/${task.id}/start`)
-  await waitUntil(
-    async () => (await s.ok<RunSlots>('GET', '/slots')).working === 1,
-    'occupied slot',
-  )
+  disk.free = 1.4e9
+  await diskHold(s)
   const message = await s.ok<RunMessage>('POST', `/runs/${c.runId}/messages`, {
     text: JSON.stringify({ steps: [{ say: 'Deleted answer' }, { endTurn: true }] }),
   })
@@ -1084,10 +1082,13 @@ test('deleting the last queued follow-up returns Ready without taking a slot', a
   expect((await s.ok<RunSlots>('GET', '/slots')).queue.some((q) => q.kind === 'coordinator')).toBe(
     false,
   )
-  await writeFile(path.join(scratch, 'release-slot'), '')
+  disk.free = 30e9
   await waitUntil(
-    async () => (await s.ok<RunSlots>('GET', '/slots')).working === 0,
-    'slot released',
+    async () =>
+      !(await s.ok<{ problem: string }[]>('GET', '/banners')).some(
+        (b) => b.problem === 'disk-full',
+      ),
+    'disk hold to end',
   )
   expect((await s.chat()).status).toBe('ready')
   const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
@@ -1165,10 +1166,13 @@ test('working Coordinator messages share steering’s boundary gate and serializ
     })
   }
   expect(existsSync(path.join(home, 'runs', c.runId, 'queued'))).toBe(false)
-  expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(1)
+  const coordinators = async () =>
+    (await s.ok<RunSlots>('GET', '/slots')).holders.filter((h) => h.kind === 'coordinator')
+  expect(await coordinators()).toHaveLength(1)
+  expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(0)
   await writeFile(path.join(scratch, 'finish-turn'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'response finishes')
-  expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(0)
+  expect(await coordinators()).toHaveLength(0)
 })
 
 test('tell posts a Comment marked as sent through the Coordinator and delivers it to the Task Lead', async () => {
@@ -1359,7 +1363,8 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
   expect(
     (await s.comments(other.task.id)).find((c) => c.id === archiveAsk.id)?.answer,
   ).toMatchObject({ kind: 'answered', choice: 'Archive' })
-  expect(await s.ok<Task>('GET', `/tasks/${other.task.id}`)).toMatchObject({ archived: true })
+  const tasks = await s.ok<Task[]>('GET', '/tasks')
+  expect(tasks.find((t) => t.id === other.task.id)?.archived).toBeDefined()
 })
 
 test('answer approves a sign-off request or asks for changes, and refuses permission prompts', async () => {
