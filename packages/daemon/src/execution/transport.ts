@@ -15,6 +15,7 @@ export async function executionRequest(
     cert?: string
     signal?: AbortSignal
     timeoutMs?: number
+    maxBytes?: number
     onVerified?: () => void
   } = {},
 ): Promise<unknown> {
@@ -66,7 +67,8 @@ export async function executionRequest(
           let length = 0
           res.on('data', (chunk: Buffer) => {
             length += chunk.length
-            if (length > 32 * 1024) res.destroy(new Error('Execution response exceeded limit'))
+            if (length > (options.maxBytes ?? 32 * 1024))
+              res.destroy(new Error('Execution response exceeded limit'))
             else chunks.push(chunk)
           })
           res.on('error', reject)

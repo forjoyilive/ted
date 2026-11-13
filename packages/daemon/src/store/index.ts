@@ -125,6 +125,7 @@ import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
+import { createOperationStore, type OperationStore } from './execution-operations.ts'
 import { createPairingStore, type PairingStore } from './execution-pairing.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
@@ -551,6 +552,7 @@ export interface HeldRun {
 
 export interface TedStore extends TaskHistory {
   execution: ExecutionStore
+  operations: OperationStore
   pairing: PairingStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
@@ -3141,6 +3143,7 @@ export async function openStore({
 
   return {
     execution,
+    operations: createOperationStore(store, commit, (id) => taskRow(id) !== undefined),
     pairing: createPairingStore(store, commit),
     sideChats: createSideChatStore({
       store,
@@ -3597,6 +3600,7 @@ export async function openStore({
           ...(parentRow(taskId) ? [taskId] : []),
         ].map((id) => events.taskParentChanged({ taskId: id, parentId: null, at })),
         events.taskExecutionForgotten({ taskId, at }),
+        events.executionOperationsForgotten({ taskId, at }),
         events.taskDeleted({
           taskId,
           factoryId: row.factoryId,

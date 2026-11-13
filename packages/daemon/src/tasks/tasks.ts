@@ -2984,16 +2984,16 @@ export function createTasks(options: {
     if (merging.has(taskId) || closed) return
     merging.add(taskId)
     const name = find(taskId).displayId
-    const canAct = () => {
+    const canWatch = () => {
       const current = taskNow(taskId)
       return (
         !current?.stopped &&
         !checking.has(taskId) &&
-        !holdsMerge(taskId) &&
         !hierarchyBusy.has(taskId) &&
         !unfinishedChildren(taskId)
       )
     }
+    const canAct = () => canWatch() && !holdsMerge(taskId)
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
         let urgent = true
@@ -3003,7 +3003,7 @@ export function createTasks(options: {
           await pullRequestQueue.get(taskId)
           let next: MergeCycle = 'wait'
           let read: PullRequestRead | undefined
-          if (canAct() && watch) {
+          if (canWatch() && watch) {
             read = await watch.next({ now: urgent })
             if (closed || !watched(taskNow(taskId))) return
           }
@@ -3013,12 +3013,18 @@ export function createTasks(options: {
             !current.stopped &&
             !checking.has(taskId) &&
             validation.pendingRepair(current)
-          if (canAct() || repair) {
-            next = await mergeWatcher.cycle(taskId, read).catch((error: unknown) => {
-              if (error instanceof RequestError && error.status === 409) return 'busy' as const
-              console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))
-              return 'wait' as const
-            })
+          const onlyMergedOutside = !canAct() && !repair
+          if (canWatch() || repair) {
+            next = await mergeWatcher
+              .cycle(taskId, read, { onlyMergedOutside })
+              .catch((error: unknown) => {
+                if (error instanceof RequestError && error.status === 409) return 'busy' as const
+                console.error(
+                  `couldn’t merge ${name}’s pull requests:`,
+                  redactSecrets(textOf(error)),
+                )
+                return 'wait' as const
+              })
           }
           if (next === 'done') return
           busy = next === 'busy' ? busy + 1 : 0
@@ -7225,7 +7231,12 @@ export function createTasks(options: {
     if (run?.state !== 'idle' || run.problem !== undefined || run.taskId === undefined) return
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
-    if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
+    if (task.stage === 'backlog' || task.stage === 'done' || task.stage === 'merge') return
+    if (advancing.has(task.id)) return
+    if (tedWorkingFor(task, run)) {
+      watchIdle(run)
+      return
+    }
     if (
       merging.has(task.id) ||
       task.pendingLeadMessages.length > 0 ||
@@ -7239,6 +7250,15 @@ export function createTasks(options: {
     const nudged = store.latestNudge(task.id, run.id)
     if (nudged === undefined || heardSince(task, nudged)) await sendNudge(task, run)
     else askAboutIdle(task, run)
+  }
+
+  function tedWorkingFor(task: StoredTask, lead: Run): boolean {
+    return (
+      task.runs.some((r) => r.id !== lead.id && r.state === 'working') ||
+      store.subAgentRequests().some((r) => r.taskId === task.id) ||
+      pendingLoopCheck(task.id) !== undefined ||
+      store.listCheckRuns(task.id).some((c) => c.finishedAt === undefined)
+    )
   }
 
   function heardSince(task: StoredTask, at: string): boolean {

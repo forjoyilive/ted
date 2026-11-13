@@ -62,3 +62,10 @@ export function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
+
+export function withoutStageName(activity: string, stage: string): string {
+  const prefix = `${stage}:`
+  if (!activity.toLowerCase().startsWith(prefix.toLowerCase())) return activity
+  const rest = activity.slice(prefix.length).trimStart()
+  return rest === '' ? activity : rest.charAt(0).toUpperCase() + rest.slice(1)
+}

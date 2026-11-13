@@ -37,6 +37,17 @@ const old: RunSummary = {
   startedAt: '2026-11-08T12:00:00.000Z',
 }
 
+async function openHistory() {
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(screen.getByRole('menuitem', { name: /^History/ }))
+  return within(screen.getByRole('menu', { name: /^History/ }))
+}
+
+async function chooseSideChat() {
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  await user().click(screen.getByRole('menuitem', { name: 'Side chat' }))
+}
+
 function discussion(started = true) {
   const a = appState()
   let current = started
@@ -165,10 +176,11 @@ test('History expands an earlier conversation inline and reports unavailable ret
     text: 'TED kept only the newest part of this Run’s output.',
   })
   const view = within(await a.open())
-  await user().click(view.getByRole('button', { name: /^History/ }))
-  const history = within(screen.getByRole('region', { name: 'Conversation history' }))
+  expect(view.queryByRole('button', { name: /^History/ })).toBeNull()
+  const history = await openHistory()
+  expect(screen.getByRole('menuitem', { name: 'History · 1' })).toBeTruthy()
   expect(history.getByText('Earlier conversations')).toBeTruthy()
-  await user().click(history.getByRole('button', { name: /Earlier conversation/ }))
+  await user().click(history.getByRole('menuitem', { name: /Earlier conversation/ }))
   await view.findByText('Yesterday’s exchange.')
   expect(view.getByText('Current exchange.')).toBeTruthy()
   expect(view.getByText('Earlier output no longer kept')).toBeTruthy()
@@ -184,13 +196,7 @@ test('a selected sub-agent stays open when it finishes and reopens from History 
   expect(view.getByRole('tab', { name: /Reviewer/ }).getAttribute('aria-selected')).toBe('true')
   await user().click(view.getByRole('tab', { name: 'Task Lead' }))
   expect(view.queryByRole('tab', { name: /Reviewer/ })).toBeNull()
-  await user().click(view.getByRole('button', { name: /^History/ }))
-  await user().click(
-    await within(screen.getByRole('region', { name: 'Conversation history' })).findByRole(
-      'button',
-      { name: /Reviewer/ },
-    ),
-  )
+  await user().click((await openHistory()).getByRole('menuitem', { name: /Reviewer/ }))
   await view.findByText('Reviewing the change.')
   expect(view.getByRole('textbox', { name: 'Message to this Run' })).toHaveProperty(
     'disabled',
@@ -268,17 +274,9 @@ test('Comments stay visible if the live chat fails, and History has a retryable 
   expect(await screen.findByText('Conversation unavailable')).toBeTruthy()
   a.handle('listTaskRuns', () => Promise.reject(new Error('History unavailable')))
   await act(async () => a.emit({ type: 'task-updated', task: a.state.tasks[0] ?? task() }))
-  await user().click(
-    within(screen.getByRole('region', { name: 'Task thread' })).getByRole('button', {
-      name: /^History/,
-    }),
-  )
-  await screen.findByText('History unavailable')
-  expect(
-    within(screen.getByRole('region', { name: 'Conversation history' })).getByRole('button', {
-      name: 'Try again',
-    }),
-  ).toBeTruthy()
+  const history = await openHistory()
+  await history.findByText('History unavailable')
+  expect(history.getByRole('button', { name: 'Try again' })).toBeTruthy()
 })
 
 test('mixing Task rows preserves Run order, dated ties, undated context and queued tail', () => {
@@ -408,6 +406,12 @@ test('starting the first Task Lead preserves message, attachment and request dra
     size: 5,
   }))
   const view = within(await a.open())
+  await user().click(screen.getByRole('button', { name: 'Task actions' }))
+  for (const name of [/^History/, /^Side chat/]) {
+    expect(screen.getByRole('menuitem', { name }).getAttribute('aria-disabled')).toBe('true')
+  }
+  expect(screen.getByRole('menuitem', { name: /^History/ }).textContent).toContain('Nothing yet')
+  await user().keyboard('{Escape}')
   const answer = view.getByRole('textbox', { name: 'Your answer' })
   fireEvent.change(answer, { target: { value: 'Keep the existing choice.' } })
   expect(view.queryByRole('textbox', { name: 'Comment' })).toBeNull()
@@ -491,7 +495,11 @@ test('the combined Task Lead view preserves side-chat routing', async () => {
   a.handle('openSideChat', () => side)
   a.handle('sendSideChat', () => side)
   const view = within(await a.open())
-  await user().click(view.getByRole('button', { name: 'Side chat' }))
+  expect(view.queryByRole('button', { name: /side chat/i })).toBeNull()
+  await user().click(view.getByRole('tab', { name: /Reviewer/ }))
+  await view.findByText('Reviewing the change.')
+  await chooseSideChat()
+  expect(view.getByRole('tab', { name: 'Task Lead' }).getAttribute('aria-selected')).toBe('true')
   const panel = within(await screen.findByRole('region', { name: 'Side chat' }))
   await panel.findByText('A separate snapshot answer.')
   fireEvent.change(panel.getByRole('textbox', { name: 'Question for this side chat' }), {
@@ -528,11 +536,8 @@ test('earlier conversations can be reopened repeatedly from History', async () =
   a.handle('sendSideChat', () => side)
   const view = within(await a.open())
   const openEarlier = async () => {
-    await user().click(view.getByRole('button', { name: /^History/ }))
     await user().click(
-      within(screen.getByRole('region', { name: 'Conversation history' })).getByRole('button', {
-        name: /Earlier conversation/,
-      }),
+      (await openHistory()).getByRole('menuitem', { name: /Earlier conversation/ }),
     )
     await view.findByText('Yesterday’s exchange.')
   }
@@ -544,7 +549,13 @@ test('earlier conversations can be reopened repeatedly from History', async () =
     true,
   )
   const earlier = within(required(view.getByText(/^Earlier conversation ·/).closest('details')))
-  await user().click(await earlier.findByRole('button', { name: 'Open side chat' }))
+  expect(earlier.queryByRole('button', { name: /side chat/i })).toBeNull()
+  await user().click(view.getByText(/^Earlier conversation ·/))
+  expect(required(view.getByText(/^Earlier conversation ·/).closest('details'))).toHaveProperty(
+    'open',
+    false,
+  )
+  await chooseSideChat()
   const panel = within(await earlier.findByRole('region', { name: 'Side chat' }))
   await panel.findByText('An earlier side-chat answer.')
   fireEvent.change(panel.getByRole('textbox', { name: 'Question for this side chat' }), {

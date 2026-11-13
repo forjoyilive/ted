@@ -212,6 +212,34 @@ The module tests are `scripts/execution-lab.test.ts`. Validate should run that f
 and `scripts/validate-execution.test.ts`, plus Typecheck/Lint. Real two-Mac acceptance
 must also run through the lab CLI; fake SSH tests cannot satisfy that requirement.
 
+## Product commands checkpoint (TED-113)
+
+```sh
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/validate-execution-lab.ts \
+  --opt-in --config "$HOME/.config/ted-validation-lab/lab.json" \
+  --action acceptance --scenario product-commands
+```
+
+This runs the pairing checkpoint below with one change: the execution Mac connects
+to an owned relay on the controller’s verified local address, which forwards to the
+product TLS listener on the same Mac. After the worker restart check it:
+
+1. assigns a synthetic Task to the paired Mac and issues one dummy operation that waits;
+2. makes the relay swallow the controller’s answers, releases the operation and waits
+   until the controller has saved the result while the execution Mac still holds it
+   unconfirmed;
+3. cuts the relay (only the product connection; SSH and the network stay up);
+4. restarts the execution service, then the controller, each by itself;
+5. restores the relay and waits for the confirmation;
+6. reads the counter on the execution Mac, which must be one;
+7. sends a command at generation 2 and then one at generation 1, which must be refused
+   as stale with no side effect.
+
+Expected invariants, besides the four pairing ones: `two-mac-command-once`,
+`two-mac-service-restarts` and `two-mac-stale-refused`. The report records the
+operation ID, both execution-service PIDs, the counter and the refusal, with no
+credentials.
+
 ## Product pairing checkpoint (TED-112)
 
 In Validate, deploy a clean committed candidate and run:

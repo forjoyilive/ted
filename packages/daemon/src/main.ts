@@ -5,8 +5,9 @@ import { edition, tedEnv, tedHome, tedPaths, tedVersion } from '@ted/protocol'
 import { watchExitWith } from './exit-with.ts'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
-import { daemonAlreadyRunningExitCode } from './launch.ts'
+import { daemonAlreadyRunningExitCode, tedQuitExitCode } from './launch.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
+import { QuitMarkedError } from './quit-mark.ts'
 import { holdAwakeWithOs } from './stay-awake.ts'
 
 closeInheritedFds()
@@ -110,6 +111,10 @@ try {
   if (error instanceof DaemonAlreadyRunningError) {
     console.error(error.message)
     process.exit(daemonAlreadyRunningExitCode)
+  }
+  if (error instanceof QuitMarkedError) {
+    console.error(error.message)
+    process.exit(tedQuitExitCode)
   }
   throw error
 }

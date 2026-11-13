@@ -217,7 +217,11 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     }
   }
 
-  async function removeMergedBranch(gh: Gh, target: MergeWork, pr: RemotePullRequest) {
+  async function removeMergedBranch(
+    gh: Gh,
+    target: Pick<MergeTarget, 'repo' | 'branch'>,
+    pr: RemotePullRequest,
+  ) {
     if (pr.deleteBranchOnMerge) return
     await deleteBranch(gh, target).catch((error: unknown) =>
       console.error(
@@ -343,9 +347,48 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     return found
   }
 
+  async function mergedOutside(
+    taskId: string,
+    read: PullRequestRead | undefined,
+  ): Promise<boolean> {
+    const opened = find(taskId).repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    if (opened.length === 0) return false
+    const open = opened.filter((r) => r.pullRequest?.state !== 'merged')
+    if (open.length === 0) return true
+    if (!read) return false
+    let remote: Map<string, RemotePullRequest>
+    try {
+      remote = remoteOf(taskId, open, read)
+    } catch {
+      return false
+    }
+    if (!open.every((r) => remote.get(r.name)?.state === 'MERGED')) return false
+    for (const repo of open) {
+      const method = repo.pullRequest?.autoMerge
+      rebaseAsked.delete(`${taskId}:${repo.name}`)
+      store.pullRequestMerged(taskId, repo.name, {
+        ...(method !== undefined && { method }),
+        noCi: false,
+        byTed: false,
+      })
+    }
+    const gh = options.gh
+    if (gh) {
+      for (const repo of open) {
+        const pr = remote.get(repo.name)
+        if (pr) await removeMergedBranch(gh, repo, pr)
+      }
+    }
+    return true
+  }
+
   async function watchOnlyCycle(
     taskId: string,
     read: PullRequestRead | undefined,
+    {
+      markWaiting = true,
+      deleteBranches = false,
+    }: { markWaiting?: boolean; deleteBranches?: boolean } = {},
   ): Promise<MergeCycle> {
     const task = find(taskId)
     const open = task.repos.filter(
@@ -385,10 +428,11 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       const pr = remote.get(target.name)
       if (pr?.state === 'MERGED') {
         store.pullRequestMerged(taskId, target.name, { noCi: false, byTed: false })
+        if (deleteBranches && options.gh) await removeMergedBranch(options.gh, target, pr)
         continue
       }
       left++
-      if (task.stage === 'merge') setWait(taskId, target.name, 'merge')
+      if (markWaiting && task.stage === 'merge') setWait(taskId, target.name, 'merge')
     }
     if (left > 0) return 'wait'
     return task.stage === 'merge' ? finishMerge(taskId) : 'done'
@@ -397,15 +441,22 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   async function mergeCycle(
     taskId: string,
     read: PullRequestRead | undefined,
+    onlyMergedOutside: boolean,
   ): Promise<MergeCycle> {
     if (store.failures.list(taskId).length > 0) await untilFree(taskId)
     const task = find(taskId)
     if (port.busy(taskId)) return 'busy'
     if (task.stage === 'done') return watchOnlyCycle(taskId, read)
+    if (task.stage === 'merge' && !task.archived && (await mergedOutside(taskId, read)))
+      return finishMerge(taskId)
+    if (onlyMergedOutside) return 'wait'
     const resolution = await port.resolve(task)
     const mode = mergeMode(store, task, resolution.workflow)
     if (mode === undefined) return 'done'
-    if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
+    if (mode === 'canceled') {
+      if ((await turnOffAutoMerge(taskId)).length > 0) return 'wait'
+      return watchOnlyCycle(taskId, read, { markWaiting: false, deleteBranches: true })
+    }
     if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
     if (mode !== 'off' && read && port.ciFailures) {
       await port.ciFailures(taskId, read)
@@ -596,8 +647,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       await port.beforeMerge?.(taskId)
       const fresh = await port.resolve(find(taskId))
       const now = mergeMode(store, find(taskId), fresh.workflow)
-      if (now === 'gate') return 'busy'
-      if (now !== 'merge') return 'done'
+      if (now !== 'merge') return 'busy'
       const method = chooseMethod(target.method, pr.allowed)
       if (!method) {
         console.error(`GitHub allows no merge method on ${target.repo}`)
@@ -645,10 +695,14 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   }
 
   return {
-    cycle(taskId: string, read: PullRequestRead | undefined): Promise<MergeCycle> {
+    cycle(
+      taskId: string,
+      read: PullRequestRead | undefined,
+      { onlyMergedOutside = false }: { onlyMergedOutside?: boolean } = {},
+    ): Promise<MergeCycle> {
       if (inFlight.has(taskId)) return Promise.resolve('busy')
       const cycle = Promise.resolve()
-        .then(() => mergeCycle(taskId, read))
+        .then(() => mergeCycle(taskId, read, onlyMergedOutside))
         .then(
           (next) => {
             if (next === 'done') held.delete(taskId)

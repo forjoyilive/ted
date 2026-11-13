@@ -50,6 +50,15 @@ function Description({ task }: { task: Task }) {
     observer?.observe(element)
     return () => observer?.disconnect()
   }, [original, open])
+  const seeMore = (open || overflow || links || files.length > 0) && versions !== undefined
+  const blank = original.trim() === '' && images.length === 0 && files.length === 0
+  if (
+    blank &&
+    !descriptions.error &&
+    (versions === undefined ? task.description.trim() === '' : edits === 0)
+  ) {
+    return null
+  }
   return (
     <section className={styles.request} aria-label="Original request">
       {descriptions.error && <LoadingError error={descriptions.error} retry={descriptions.retry} />}
@@ -78,24 +87,26 @@ function Description({ task }: { task: Task }) {
           {open && files.length > 0 && <CommentFiles files={files} />}
         </div>
       )}
-      <div className={styles.controls}>
-        {(open || overflow || links || files.length > 0) && versions !== undefined && (
-          <button
-            type="button"
-            className={styles.link}
-            aria-expanded={open}
-            aria-controls={contentId}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? 'See less' : 'See more'}
-          </button>
-        )}
-        <button type="button" className={styles.link} onClick={() => setHistory(true)}>
-          {edits === 0
-            ? 'Description history'
-            : `Description history · ${edits} ${edits === 1 ? 'edit' : 'edits'}`}
-        </button>
-      </div>
+      {(seeMore || edits > 0) && (
+        <div className={styles.controls}>
+          {seeMore && (
+            <button
+              type="button"
+              className={styles.link}
+              aria-expanded={open}
+              aria-controls={contentId}
+              onClick={() => setOpen((value) => !value)}
+            >
+              {open ? 'See less' : 'See more'}
+            </button>
+          )}
+          {edits > 0 && (
+            <button type="button" className={styles.link} onClick={() => setHistory(true)}>
+              {`Edited ${edits === 1 ? 'once' : `${edits} times`} · history`}
+            </button>
+          )}
+        </div>
+      )}
       {history && (
         <DescriptionHistory
           task={task}
