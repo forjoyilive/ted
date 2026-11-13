@@ -212,9 +212,12 @@ describe('Checks before a Task leaves Work', () => {
     const client = await startTed()
     const task = await startTask(
       client,
-      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance, {
-        endTurn: true,
-      }),
+      steps(
+        { everyMessage: [advance, { endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > a.txt'] },
+        advance,
+        { endTurn: true },
+      ),
     )
 
     const questions = () =>

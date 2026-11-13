@@ -540,7 +540,7 @@ describe('outcomes', () => {
 
     const answer = await waitUntil(
       async () =>
-        (await userMessages(client, task)).find((m) => m.startsWith('The human answered')),
+        (await userMessages(client, task)).find((m) => m.startsWith('The user replied to')),
       'the answer to reach the Task Lead',
     )
     expect(answer).toContain('Send it back to Design')
