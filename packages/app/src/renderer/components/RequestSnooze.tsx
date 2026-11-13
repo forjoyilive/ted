@@ -120,15 +120,7 @@ export function RequestSnoozeLine({ requestId }: { requestId: string }) {
   const [error, setError] = useState<string>()
   const menu = (trigger: HTMLElement) =>
     openSnoozeMenu({ requestId, at: buttonPosition(trigger), snoozedUntil })
-  if (snoozedUntil === undefined) {
-    return (
-      <div className={styles.line}>
-        <Button size="small" variant="quiet" onClick={(event) => menu(event.currentTarget)}>
-          Snooze…
-        </Button>
-      </div>
-    )
-  }
+  if (snoozedUntil === undefined) return null
   return (
     <div className={`${styles.line} ${styles.snoozed}`}>
       <span className={styles.text}>
