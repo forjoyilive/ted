@@ -162,13 +162,32 @@ describe('New Task dialog', () => {
     await open
       .getByRole('button', { name: /Drop files here/ })
       .dispatchEvent('drop', { dataTransfer: dropped })
-    await open.getByText('notes.txt').waitFor()
-    await open.getByLabel('Attach files').setInputFiles({
-      name: 'cafe.png',
-      mimeType: 'image/png',
-      buffer: Buffer.from('png'),
-    })
-    await open.getByText('cafe.png').waitFor()
+    const tiles = open.getByRole('list', { name: 'Attached files' })
+    await tiles.getByRole('button', { name: 'Remove notes.txt' }).waitFor()
+    expect(await tiles.locator('[data-attachment="notes.txt"]').textContent()).toContain('TXT')
+    await open.getByLabel('Attach files').setInputFiles([
+      { name: 'cafe.png', mimeType: 'image/png', buffer: Buffer.from('png') },
+      { name: 'map.png', mimeType: 'image/png', buffer: Buffer.from('map') },
+    ])
+    await tiles.locator('img[alt="map.png"]').waitFor()
+    await tiles.locator('img[alt="cafe.png"]').waitFor()
+
+    await tiles.getByRole('button', { name: 'View cafe.png' }).click()
+    await window.getByRole('dialog', { name: 'cafe.png' }).waitFor()
+    await window.keyboard.press('ArrowRight')
+    await window.getByRole('dialog', { name: 'map.png' }).waitFor()
+    await window.keyboard.press('Escape')
+    await window.getByRole('dialog', { name: 'map.png' }).waitFor({ state: 'detached' })
+    await tiles.getByRole('button', { name: 'View cafe.png' }).focus()
+    await window.keyboard.press('ArrowRight')
+    expect(
+      await tiles
+        .getByRole('button', { name: 'View map.png' })
+        .evaluate((b) => b === document.activeElement),
+    ).toBe(true)
+    await tiles.getByRole('button', { name: 'Remove map.png' }).click()
+    await tiles.locator('img[alt="map.png"]').waitFor({ state: 'detached' })
+
     await open.getByLabel('Description').fill('With files')
     await open.getByLabel('Start now').uncheck()
     await open.getByRole('button', { name: 'Create', exact: true }).click()
@@ -178,5 +197,16 @@ describe('New Task dialog', () => {
     await details.getByText('notes.txt').waitFor()
     await details.getByText('cafe.png').waitFor()
     expect((await tasks())[0]?.attachments.map((a) => a.name)).toEqual(['notes.txt', 'cafe.png'])
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByLabel('Choose files to attach').setInputFiles({
+      name: 'reply.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('reply'),
+    })
+    await thread
+      .getByRole('list', { name: 'Attached files' })
+      .locator('img[alt="reply.png"]')
+      .waitFor()
   })
 })

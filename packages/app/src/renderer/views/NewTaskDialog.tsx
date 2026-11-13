@@ -30,6 +30,7 @@ import {
   type AsanaPreviewState,
   asanaCreateLabel,
 } from '../components/AsanaImportPreview.tsx'
+import { AttachmentTiles } from '../components/AttachmentTiles.tsx'
 import pickerStyles from '../components/BlockerPicker.module.css'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -40,13 +41,7 @@ import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { setupNotice, setupNoticeText } from '../setup-notice.ts'
 import { emptyTaskDraft, taskDraftSession } from '../task-draft.ts'
-import {
-  agentLabels,
-  clarifyDepthLabels,
-  formatSize,
-  leadSummary,
-  priorityLabels,
-} from '../task-fields.ts'
+import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './NewTaskDialog.module.css'
 import views from './views.module.css'
@@ -663,28 +658,20 @@ function NewTaskForm({
           onDragOver={(event) => event.preventDefault()}
           onDrop={onDrop}
           onClick={(event) => {
-            if (event.target instanceof Element && event.target.closest('button, input')) return
+            if (
+              event.target instanceof Element &&
+              event.target.closest('button, input, dialog, [data-attachment]')
+            )
+              return
             if (uploading === 0) fileInput.current?.click()
           }}
         >
           <PaperclipIcon className={styles.clip} />
-          {attachments.map((a) => (
-            <span key={`${a.hash}:${a.name}`} className={styles.chip}>
-              {a.name}
-              <span className={styles.chipMeta}>{formatSize(a.size)}</span>
-              <ActionButton
-                type="button"
-                className={styles.chipRemove}
-                aria-label={`Remove ${a.name}`}
-                onClick={() => setAttachments((current) => current.filter((c) => c !== a))}
-              >
-                <CloseIcon size={11} />
-              </ActionButton>
-            </span>
-          ))}
-          {(uploading > 0 || heldFiles.length > 0) && (
-            <span className={styles.chipMeta}>Attaching…</span>
-          )}
+          <AttachmentTiles
+            files={attachments}
+            uploading={uploading > 0 || heldFiles.length > 0}
+            onRemove={(a) => setAttachments((current) => current.filter((c) => c !== a))}
+          />
           <ActionButton
             type="button"
             className={styles.attach}

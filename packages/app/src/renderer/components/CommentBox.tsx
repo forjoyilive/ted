@@ -2,13 +2,13 @@ import type { CommentBox as BoxState, RunSummary, Task } from '@ted/protocol'
 import { type ClipboardEvent, type DragEvent, useRef, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useMessageDraft } from '../message-drafts.ts'
-import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
+import { AttachmentTiles } from './AttachmentTiles.tsx'
 import { Button } from './Button.tsx'
 import styles from './CommentBox.module.css'
 import { Help } from './Help.tsx'
-import { CloseIcon, PaperclipIcon, StopIcon } from './icons.tsx'
+import { PaperclipIcon, StopIcon } from './icons.tsx'
 
 const maxAttachmentBytes = 25 * 1024 * 1024
 
@@ -184,23 +184,13 @@ export function CommentBox({
         )}
       />
       {(files.length > 0 || uploading > 0) && (
-        <ul className={styles.files} aria-label="Attached files">
-          {files.map((a) => (
-            <li key={`${a.hash}:${a.name}`} className={styles.chip}>
-              {a.name}
-              <span className={styles.chipMeta}>{formatSize(a.size)}</span>
-              <ActionButton
-                type="button"
-                className={styles.chipRemove}
-                aria-label={`Remove ${a.name}`}
-                onClick={() => setFiles((current) => current.filter((c) => c !== a))}
-              >
-                <CloseIcon size={11} />
-              </ActionButton>
-            </li>
-          ))}
-          {uploading > 0 && <li className={styles.chipMeta}>Attaching…</li>}
-        </ul>
+        <div className={styles.files}>
+          <AttachmentTiles
+            files={files}
+            uploading={uploading > 0}
+            onRemove={(a) => setFiles((current) => current.filter((c) => c !== a))}
+          />
+        </div>
       )}
       {error !== undefined && (
         <p className={styles.error} role="alert">
