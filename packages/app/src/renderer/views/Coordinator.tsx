@@ -154,13 +154,17 @@ export function CoordinatorView({
                 node: (
                   <p className={styles.event}>
                     <span className={styles.dot} aria-hidden />
-                    <ActionButton
-                      type="button"
-                      className={styles.eventText}
-                      onClick={() => onOpenTask(receipt.taskId)}
-                    >
-                      {receipt.text}
-                    </ActionButton>
+                    {receipt.taskId === undefined ? (
+                      <span className={styles.eventPlain}>{receipt.text}</span>
+                    ) : (
+                      <ActionButton
+                        type="button"
+                        className={styles.eventText}
+                        onClick={() => receipt.taskId && onOpenTask(receipt.taskId)}
+                      >
+                        {receipt.text}
+                      </ActionButton>
+                    )}
                     <time className={styles.eventTime}>{clockTime(receipt.at)}</time>
                   </p>
                 ),

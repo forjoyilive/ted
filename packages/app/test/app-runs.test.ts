@@ -128,6 +128,35 @@ describe('Stop and Resume', () => {
         return Math.abs(bubble.y + bubble.height / 2 - (text.y + text.height / 2))
       }),
     ).toBeLessThan(1)
+    await first.hover()
+    const tooltip = header.page().getByRole('tooltip')
+    await tooltip.waitFor()
+    expect(
+      await tooltip.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        const menu = element.ownerDocument.querySelector('[role="menu"]')?.getBoundingClientRect()
+        const middleX = box.left + box.width / 2
+        const middleY = box.top + box.height / 2
+        const edges = [
+          [box.left + 2, middleY],
+          [box.right - 2, middleY],
+          [middleX, box.top + 2],
+          [middleX, box.bottom - 2],
+        ]
+        const style = (element as HTMLElement).style
+        const pointerEvents = style.pointerEvents
+        style.pointerEvents = 'auto'
+        const visible = edges.every(([x, y]) => {
+          const hit = document.elementFromPoint(x ?? 0, y ?? 0)
+          return hit === element || element.contains(hit)
+        })
+        style.pointerEvents = pointerEvents
+        return {
+          visible,
+          besideMenu: !!menu && (box.right <= menu.left || box.left >= menu.right),
+        }
+      }),
+    ).toEqual({ visible: true, besideMenu: true })
     expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(0)
     await first.click()
 

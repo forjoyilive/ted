@@ -1,4 +1,10 @@
-import { type Priority, priorities, type QueuedForSlot, type SlotHolder } from '@ted/protocol'
+import {
+  isChat,
+  type Priority,
+  priorities,
+  type QueuedForSlot,
+  type SlotHolder,
+} from '@ted/protocol'
 
 export const queueKinds = [
   'setup-task',
@@ -60,6 +66,10 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
   const byFactory = { ...use.byFactory }
   const started: T[] = []
   for (const entry of ordered) {
+    if (isChat(entry.kind)) {
+      started.push(entry)
+      continue
+    }
     const factory = entry.factoryId
     if (
       entry.kind !== 'automation' &&

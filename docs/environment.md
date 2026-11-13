@@ -49,6 +49,8 @@ This separates local session storage from personal history. ChatGPT’s discover
 
 ## Execution worker storage
 
+Remote execution is shelved. `TED_REMOTE_EXECUTION=on` turns it back on in TED Dev: Settings → Machines, the worker window, `ted execution …`, the daemon’s execution listener and its pairing routes. Release ignores it, so a release build never offers remote execution. Without it the daemon opens no execution port, even with a saved endpoint, and keeps any saved pairing unused. Tests set it in `vitest.config.ts`; read it only through `remoteExecutionOn` in `packages/protocol/src/env.ts`.
+
 `TED_EXECUTION_HOME` is a retained override for the isolated worker’s home. By default,
 TED derives an adjacent execution home from its edition and optional `TED_HOME`:
 `~/.ted-dev-execution` for TED Dev, `~/.ted-execution` for release, or

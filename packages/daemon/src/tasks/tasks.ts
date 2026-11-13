@@ -114,6 +114,7 @@ import {
   briefHeadings,
   clarifyDepths,
   clarifyIsOver,
+  isChat,
   parseAsanaTaskUrl,
   parseLinearUrl,
   type ResetRefusal,
@@ -434,6 +435,7 @@ export interface CreateTaskInput
   parent?: string
   attachments?: Attachment[]
   start?: boolean
+  startInBackground?: boolean
 }
 
 export interface WorktreeAccess {
@@ -553,6 +555,11 @@ export interface Tasks {
   coordinatorTell(ref: string, body: string): Promise<Comment>
   coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
   coordinatorResume(ref: string, comment?: string): Promise<Task>
+  coordinatorCreate(
+    factoryId: string,
+    input: Omit<CreateTaskInput, 'factory' | 'coordinatorOperation'>,
+    operation: string,
+  ): Promise<Task>
   isFailureDecision(commentId: string): boolean
   talkThrough(commentId: string, request: TalkThroughRequest): Promise<TalkThroughResult>
   doneTalking(commentId: string): Promise<Comment>
@@ -1294,6 +1301,13 @@ export function createTasks(options: {
     builtList = undefined
     builtAt = version
   }
+  function sameSource(url: string): Task[] {
+    const key = sourceKey(url)
+    const ids = store
+      .taskSourceUrls()
+      .flatMap((source) => (sourceKey(source.url) === key ? [source.taskId] : []))
+    return store.tasksIn(new Set(ids))
+  }
   function taskNow(id: string): StoredTask | undefined {
     builtNow()
     if (!built.has(id)) built.set(id, store.getTask(id))
@@ -1329,21 +1343,22 @@ export function createTasks(options: {
       byFactory[task.factoryId] = (byFactory[task.factoryId] ?? 0) + slots
     }
     const others = sources.flatMap((source) => source.holders())
-    for (const { factoryId, runs } of others) {
+    const counted = others.filter((h) => !isChat(h.kind))
+    for (const { factoryId, runs } of counted) {
       byFactory[factoryId] = (byFactory[factoryId] ?? 0) + runs
     }
     const capsNow: Record<string, number | undefined> = {}
     for (const id of new Set([
       ...factoryIds,
       ...holders.map((h) => h.task.factoryId),
-      ...others.map((h) => h.factoryId),
+      ...counted.map((h) => h.factoryId),
     ])) {
       capsNow[id] = await capOf(id)
     }
     const use: SlotUse = {
       limit: store.settings().maxWorkingRuns,
       working:
-        holders.reduce((sum, h) => sum + h.slots, 0) + others.reduce((sum, h) => sum + h.runs, 0),
+        holders.reduce((sum, h) => sum + h.slots, 0) + counted.reduce((sum, h) => sum + h.runs, 0),
       byFactory,
       caps: capsNow,
       handoffs: slotHandoffs(
@@ -4997,6 +5012,12 @@ export function createTasks(options: {
     }
   }
 
+  function autopilotCandidates(): string[] {
+    const ids = new Set(store.listOpenRequests().map((comment) => comment.taskId))
+    for (const key of automaticNotified) ids.add(key.slice(0, key.indexOf(':')))
+    return [...ids]
+  }
+
   function requireCommentable(task: StoredTask): void {
     if (task.archived) {
       throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
@@ -7000,6 +7021,13 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
+  async function queueAndAnswer(ref: string): Promise<Task> {
+    const task = live(ref)
+    autoStartFailures.delete(task.id)
+    if (await queueStart(task.id)) void pump()
+    return publicTask(task.id)
+  }
+
   async function queueStart(
     ref: string,
     version?: number,
@@ -7321,7 +7349,7 @@ export function createTasks(options: {
     }
     const refuseOpen = () => {
       if (url === undefined) return
-      const clash = sourceClash(store.listTasks(), original.factoryId, url)
+      const clash = sourceClash(sameSource(url), original.factoryId, url)
       if (clash?.kind === 'open') throw new RequestError(409, clashMessage(clash))
     }
     refuseOpen()
@@ -8089,7 +8117,7 @@ export function createTasks(options: {
     ) {
       const ids =
         event.type === 'settings-changed'
-          ? store.listTasks().map((t) => t.id)
+          ? autopilotCandidates()
           : [event.type === 'task-updated' ? event.task.id : event.comment.taskId]
       for (const id of ids)
         setImmediate(() => {
@@ -8743,6 +8771,7 @@ export function createTasks(options: {
         factory: givenKey,
         blockedBy = [],
         start: startNow,
+        startInBackground,
         lead,
         source: sourceUrl,
         sentryId,
@@ -8797,7 +8826,7 @@ export function createTasks(options: {
       }
       const refuseTracked = () => {
         if (sourceUrl === undefined || !factory || caller.kind === 'app') return
-        const clash = sourceClash(store.listTasks(), factory.id, sourceUrl)
+        const clash = sourceClash(sameSource(sourceUrl), factory.id, sourceUrl)
         if (clash) throw new RequestError(409, clashMessage(clash))
       }
       refuseTracked()
@@ -8879,7 +8908,8 @@ export function createTasks(options: {
       }
       if (!resolution || unmergedBlockers(task.id).length > 0) return task
       const hasBacklog = resolution.workflow.stages.includes('backlog')
-      return hasBacklog && startNow !== true ? task : start(task.id)
+      if (hasBacklog && startNow !== true) return task
+      return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
     },
 
     asanaPreview,
@@ -9467,6 +9497,15 @@ export function createTasks(options: {
 
     coordinatorResume: (ref, comment) =>
       resumeByHand(ref, { ...(comment !== undefined && { comment }), sendDrafts: false }),
+
+    coordinatorCreate(factoryId, input, operation) {
+      const factory = store.getFactory(factoryId)
+      if (!factory) throw new RequestError(404, 'no such Factory')
+      return this.create(
+        { ...input, factory: factory.key, coordinatorOperation: operation },
+        { kind: 'file' },
+      )
+    },
 
     async coordinatorTell(ref, body) {
       const task = find(ref)

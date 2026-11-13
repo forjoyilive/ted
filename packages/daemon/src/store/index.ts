@@ -408,6 +408,7 @@ export interface NewTask {
   automation?: { automationId: string; firingId: string }
   plan?: { planId: string; row: number }
   setup?: boolean
+  coordinatorOperation?: string
   linearConsent?: boolean
 }
 
@@ -595,6 +596,7 @@ export interface TedStore extends TaskHistory {
   createTaskTree(input: NewTaskTree): { created: Map<string, Task>; linked: Task[] }
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
+  coordinatorCreated(factoryId: string, operation: string): StoredTask | undefined
   startTask(input: {
     taskId: string
     stage: StageId
@@ -1009,6 +1011,8 @@ export interface TedStore extends TaskHistory {
   taskVersion(): number
   taskBuilds(): number
   sourcedTaskIds(): string[]
+  taskSourceUrls(): { taskId: string; url: string }[]
+  taskPullRequestUrls(taskId: string): string[]
   runReadOffset(id: string): number
   recordRunUsage(usage: {
     runId: string
@@ -1104,6 +1108,12 @@ export interface OpenProgress {
   total: number
 }
 
+let tasksBuiltHere = 0
+
+export function tasksBuiltInProcess(): number {
+  return tasksBuiltHere
+}
+
 export async function openStore({
   directory,
   onProgress,
@@ -1160,6 +1170,15 @@ export async function openStore({
       throw error
     }
   }) as typeof store.commit
+
+  const commitDraft: typeof store.commit = (...args: unknown[]) => {
+    waitingUnchanged = true
+    try {
+      return (commit as (...a: unknown[]) => unknown)(...args)
+    } finally {
+      waitingUnchanged = false
+    }
+  }
 
   const internals = store[StoreInternalsSymbol]
   const persisted = async () => {
@@ -1731,12 +1750,14 @@ export async function openStore({
       needsPlanningAt,
       partlyMergedAt,
       setup,
+      coordinatorOperation,
       ...row
     }: typeof tasks.Type,
     observe = false,
     reads: TaskReads = taskReads(false, true),
   ): StoredTask => {
     taskBuilds += 1
+    tasksBuiltHere += 1
     const stage = row.stage as StageId
     const pendingMessages: LeadMessage[] =
       pendingLeadDeliveries !== null
@@ -1966,15 +1987,17 @@ export async function openStore({
         : undefined
     const createdBy: CreatedBy = setup
       ? 'setup'
-      : followUpOf !== null
-        ? 'follow-up'
-        : splitFrom !== null
-          ? 'split'
-          : reads.automationLinks(row.id).length > 0
-            ? 'automation'
-            : planLink
-              ? 'planning'
-              : 'human'
+      : coordinatorOperation !== null
+        ? 'coordinator'
+        : followUpOf !== null
+          ? 'follow-up'
+          : splitFrom !== null
+            ? 'split'
+            : reads.automationLinks(row.id).length > 0
+              ? 'automation'
+              : planLink
+                ? 'planning'
+                : 'human'
     const linearSync = linearSyncOf(row, source, reads)
     return {
       ...row,
@@ -2732,6 +2755,14 @@ export async function openStore({
     }
   }
 
+  const tasksWaitingForSlots = (): string[] => [
+    ...new Set([
+      ...queue().map(({ id }) => id),
+      ...(queueActivity.taskPlaces ?? []).map(({ id }) => id),
+      ...store.query(queryDb(subAgentRequests.select('taskId'))),
+    ]),
+  ]
+
   const updatedQueue = (except?: string) => {
     updatedTasks(queue().flatMap(({ id }) => (id === except ? [] : [id])))
     noteActivity()
@@ -3362,6 +3393,7 @@ export async function openStore({
       automation,
       plan,
       setup = false,
+      coordinatorOperation,
     }) {
       const inFactory = store.query(queryDb(tasks.where({ factoryId })))
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -3473,6 +3505,16 @@ export async function openStore({
         ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
         ...(plan ? [events.planTaskCreated({ ...plan, taskId: id, at })] : []),
         ...(setup ? [events.setupTaskCreated({ taskId: id, factoryId, at })] : []),
+        ...(coordinatorOperation !== undefined
+          ? [
+              events.taskCreatedByCoordinator({
+                taskId: id,
+                factoryId,
+                operation: coordinatorOperation,
+                at,
+              }),
+            ]
+          : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
@@ -3604,6 +3646,12 @@ export async function openStore({
       const row = taskRow(ref)
       const found = row ?? taskRowByDisplayId(ref)
       return found && toTask(found)
+    },
+    coordinatorCreated(factoryId, operation) {
+      const row = store
+        .query(queryDb(tasks.where({ factoryId, coordinatorOperation: operation })))
+        .at(0)
+      return row && toTask(row)
     },
     startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
@@ -4715,7 +4763,7 @@ export async function openStore({
         state.clearedRevision !== draft.revision &&
         !state.clearedRevisions?.includes(draft.revision)
       ) {
-        commit(
+        commitDraft(
           events.taskDraftSavedV2({
             factoryId,
             draft: JSON.stringify(draft),
@@ -4735,12 +4783,12 @@ export async function openStore({
       const at = new Date().toISOString()
       const kept = messageDraft(box)
       if (emptyMessageDraft(draft)) {
-        if (kept) commit(events.messageDraftCleared({ key, at }))
+        if (kept) commitDraft(events.messageDraftCleared({ key, at }))
         return null
       }
       const text = JSON.stringify(draft)
       if (kept === null || JSON.stringify(kept) !== text) {
-        commit(
+        commitDraft(
           events.messageDraftSaved({
             key,
             factoryId: owner.factoryId ?? null,
@@ -5711,6 +5759,12 @@ export async function openStore({
     taskVersion: () => stateCommits,
     taskBuilds: () => taskBuilds,
     sourcedTaskIds: () => store.query(queryDb(taskSources)).map((row) => row.taskId),
+    taskSourceUrls: () =>
+      store.query(queryDb(taskSources)).map(({ taskId, url }) => ({ taskId, url })),
+    taskPullRequestUrls: (taskId) =>
+      reposOf(taskId).flatMap((repo) =>
+        repo.pullRequest && !repo.removed ? [repo.pullRequest.url] : [],
+      ),
     runReadOffset: (id) => Math.max(runRow(id)?.readOffset ?? 0, heldOutput.get(id)?.toOffset ?? 0),
     recordRunUsage({ runId, agent, model, input, output, cost }) {
       commit(
@@ -6023,14 +6077,14 @@ export async function openStore({
       if (reason === newWorkHeld) return
       newWorkHeld = reason
       stateCommits += 1
-      for (const row of store.query(allTasks)) updatedTask(row.id)
+      updatedTasks(tasksWaitingForSlots())
     },
     newWorkHold: () => newWorkHeld,
     holdForLoad(held) {
       if (held === heldForLoad) return
       heldForLoad = held
       stateCommits += 1
-      for (const row of store.query(allTasks)) updatedTask(row.id)
+      updatedTasks(tasksWaitingForSlots())
     },
     setTaskChecking(taskId, on) {
       if (checkingTasks.has(taskId) === on) return

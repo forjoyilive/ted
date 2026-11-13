@@ -80,7 +80,7 @@ function Description({ task }: { task: Task }) {
             <p className={styles.empty}>No description.</p>
           ) : null}
           {images.length > 0 && (
-            <div className={open ? styles.expandedImages : styles.images}>
+            <div className={open ? styles.expandedImages : undefined}>
               <CommentFiles files={images} />
             </div>
           )}

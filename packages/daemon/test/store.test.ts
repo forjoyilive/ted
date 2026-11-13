@@ -176,6 +176,44 @@ describe('TedStore', () => {
     }
   })
 
+  test('a load or disk hold sends again only the Tasks waiting for a slot', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const queued = await store.createTask({ title: 'Queued' })
+      const reviewing = await store.createTask({ title: 'Reviewing' })
+      await store.createTask({ title: 'Idle' })
+      store.queueTask(queued.id, 'intake')
+      store.requestSubAgent({
+        id: 'child',
+        taskId: reviewing.id,
+        parentRunId: 'lead',
+        name: 'Reviewer',
+        agent: 'claude',
+        prompt: '',
+        ownWorktree: false,
+      })
+      const seen: Task[] = []
+      store.subscribe((event) => {
+        if (event.type === 'task-updated') seen.push(event.task)
+      })
+      store.holdForLoad(true)
+      expect(seen.map((task) => task.id).sort()).toEqual([queued.id, reviewing.id].sort())
+      expect(seen.find((task) => task.id === queued.id)?.status).toMatchObject({
+        kind: 'queued',
+        hold: expect.any(String),
+      })
+      seen.length = 0
+      store.holdNewWork('disk full')
+      expect(seen.map((task) => task.id).sort()).toEqual([queued.id, reviewing.id].sort())
+      expect(seen.find((task) => task.id === queued.id)?.status).toMatchObject({
+        kind: 'queued',
+        hold: 'disk full',
+      })
+    } finally {
+      await store.close()
+    }
+  })
+
   test('queued work and start holds count once and disappear as real Runs start', async () => {
     const store = await openStore({ directory: dir })
     try {
@@ -690,6 +728,13 @@ describe('TedStore', () => {
       expect(store.taskOutlines().map((t) => t.id)).toEqual(ids)
       expect(store.factoryOfTask(working.id)).toBe(working.factoryId)
       expect(store.sourcedTaskIds()).toEqual([working.id])
+      expect(store.taskSourceUrls()).toEqual([
+        { taskId: working.id, url: 'https://linear.app/acme/issue/ENG-7/fix-login' },
+      ])
+      expect(store.taskPullRequestUrls(working.id)).toEqual([
+        'https://github.com/acme/widgets/pull/7',
+      ])
+      expect(store.taskPullRequestUrls(blocked.id)).toEqual([])
       expect(
         store
           .commentTexts()

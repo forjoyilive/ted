@@ -91,6 +91,7 @@ export const createdByKinds = [
   'split',
   'follow-up',
   'setup',
+  'coordinator',
 ] as const
 
 export type CreatedBy = (typeof createdByKinds)[number]
@@ -504,6 +505,7 @@ export interface CreateTaskRequest {
   sentryId?: string
   followUp?: string
   start?: boolean
+  startInBackground?: boolean
 }
 
 export interface ResumeTaskRequest {

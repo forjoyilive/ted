@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto'
 import type { CoordinatorOperation } from '@ted/protocol'
 import {
   type CoordinatorAction,
+  type CoordinatorCreate,
   parseCoordinatorAction,
+  parseCoordinatorCreate,
   parseCoordinatorMessage,
+  parseCoordinatorTaskQuery,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -63,11 +66,16 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'GET',
-    path: /^\/coordinator\/tasks(?:\?offset=(\d{1,8}))?$/,
+    path: /^\/coordinator\/tasks(?:\?[^#]{0,2000})?$/,
     runToken: true,
-    handle: async ({ caller, params: [page] }, { coordinators }) => [
+    handle: async ({ req, caller }, { coordinators }) => [
       200,
-      context(coordinators.list(caller, offset(page))),
+      context(
+        coordinators.list(
+          caller,
+          parseCoordinatorTaskQuery(new URL(req.url ?? '/', 'http://localhost').search),
+        ),
+      ),
     ],
   },
   {
@@ -79,6 +87,14 @@ export const coordinatorRoutes: Route[] = [
       context(coordinators.task(caller, ref, offset(page))),
     ],
   },
+  jsonRoute(parseCoordinatorCreate, {
+    method: 'POST',
+    path: /^\/coordinator\/tasks$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [201, await coordinators.create(caller, redactedCreate(body))]
+    },
+  }),
   jsonRoute(
     (value, { params: [, kind = ''] }) =>
       parseCoordinatorAction(value, kind as CoordinatorOperation),
@@ -107,5 +123,13 @@ function redactedAction(action: CoordinatorAction): CoordinatorAction {
         ...(note !== undefined && { note: redactSecrets(note) }),
       })),
     }),
+  }
+}
+
+function redactedCreate(input: CoordinatorCreate): CoordinatorCreate {
+  return {
+    ...input,
+    title: redactSecrets(input.title),
+    ...(input.description !== undefined && { description: redactSecrets(input.description) }),
   }
 }

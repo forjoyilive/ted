@@ -44,6 +44,7 @@ test('a setting is found by its name, group, page and description, with its page
   expect(find('STAY  awake')).toHaveLength(1)
   expect(find('   ')).toEqual([])
   expect(find('zzz')).toEqual([])
+  expect(find('connect another mac')).toEqual([])
 })
 
 test('a name match comes first, a setting before a heading with the same words', () => {

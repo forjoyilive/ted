@@ -1,7 +1,7 @@
 import { globSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from 'vitest'
-import { filterTedEnv, tedEnv, tedEnvironment } from '../src/env.ts'
+import { filterTedEnv, remoteExecutionOn, tedEnv, tedEnvironment } from '../src/env.ts'
 
 test('release accepts only reviewed TED inputs; Dev keeps every test hook', () => {
   for (const [name, reason] of Object.entries(tedEnvironment)) {
@@ -11,6 +11,13 @@ test('release accepts only reviewed TED inputs; Dev keeps every test hook', () =
     expect(filterTedEnv(env, 'release'), name).toEqual(reason === false ? {} : env)
     if (reason !== false) expect(reason.length).toBeGreaterThan(20)
   }
+})
+
+test('remote execution is on only in Dev with TED_REMOTE_EXECUTION=on', () => {
+  expect(remoteExecutionOn({ TED_REMOTE_EXECUTION: 'on' }, 'dev')).toBe(true)
+  expect(remoteExecutionOn({ TED_REMOTE_EXECUTION: 'on' }, 'release')).toBe(false)
+  expect(remoteExecutionOn({ TED_REMOTE_EXECUTION: '1' }, 'dev')).toBe(false)
+  expect(remoteExecutionOn({}, 'dev')).toBe(false)
 })
 
 test('new hooks default to Dev-only, including inherited and supplied environment objects', () => {

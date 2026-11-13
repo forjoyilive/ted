@@ -1,10 +1,12 @@
 import type { RunSummary, Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
-import { type ReactNode, useEffect, useId, useState } from 'react'
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTasks } from '../data.ts'
 import { newChildTask, pickChildEvent, pickParentEvent } from '../hierarchy.ts'
 import { keysFor } from '../keymap.ts'
+import { besideMenu } from '../menu-tooltip.ts'
 import { usePendingAction } from '../pending-action.ts'
 import { clockTime } from '../requests.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
@@ -50,9 +52,31 @@ function MoreIcon() {
 function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () => void }) {
   const [hover, setHover] = useState(false)
   const id = useId()
+  const button = useRef<HTMLButtonElement>(null)
+  const tip = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const item = button.current
+    const bubble = tip.current
+    const menu = item?.closest('[role="menu"]')
+    if (!hover || !item || !bubble || !menu) return
+    const place = () => {
+      const { left, top } = besideMenu(
+        item.getBoundingClientRect(),
+        menu.getBoundingClientRect(),
+        bubble.getBoundingClientRect(),
+        { width: window.innerWidth, height: window.innerHeight },
+      )
+      bubble.style.left = `${left}px`
+      bubble.style.top = `${top}px`
+    }
+    place()
+    menu.addEventListener('scroll', place)
+    return () => menu.removeEventListener('scroll', place)
+  }, [hover])
   return (
     <div className={styles.first}>
       <ActionButton
+        ref={button}
         type="button"
         role="menuitem"
         className={styles.item}
@@ -75,9 +99,12 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
           )}
       </ActionButton>
       {hover ? (
-        <Tooltip id={id} className={styles.tooltip}>
-          {action.help}
-        </Tooltip>
+        createPortal(
+          <Tooltip ref={tip} id={id} className={styles.tooltip}>
+            {action.help}
+          </Tooltip>,
+          document.body,
+        )
       ) : (
         <span id={id} hidden>
           {action.help}

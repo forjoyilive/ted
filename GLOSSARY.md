@@ -9,10 +9,12 @@ The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions w
 _Avoid_: Primary server, master
 
 **Execution machine**:
+_Shelved: remote execution is on hold. The code is kept but hidden; don’t build new work on it._
 The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
 _Avoid_: Worker node, remote host
 
 **Execution operation**:
+_Shelved: remote execution is on hold. The code is kept but hidden; don’t build new work on it._
 One piece of work the controller asks an execution machine to do for a Task, identified by an operation ID and journaled on both machines so it runs once.
 _Avoid_: Job, remote command
 
@@ -149,7 +151,7 @@ How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Tas
 _Avoid_: Severity, importance
 
 **Queued**:
-The status of a started Task, or of a new Automation or Planning Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy when **Start fewer Runs when this computer is busy** is on; a newly started queued Task waits at the start of Intake, and an answered Task can wait in its current Stage before its Run continues. A status, not a Stage.
+The status of a started Task, or of a new Automation Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy when **Start fewer Runs when this computer is busy** is on; a newly started queued Task waits at the start of Intake, and an answered Task can wait in its current Stage before its Run continues. A status, not a Stage.
 _Avoid_: Pending, ready
 
 **Paused**:
@@ -169,7 +171,7 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead.
+The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead.
 _Avoid_: Foreman, manager, supervisor
 
 **Sub-agent**:

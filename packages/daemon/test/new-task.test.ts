@@ -149,6 +149,18 @@ describe('creating a Task from the New Task dialog', () => {
     expect(later.stage).toBe('backlog')
     expect(now.stage).toBe('intake')
     expect(now.leadRunId).toBeDefined()
+
+    const soon = await client.createTask({
+      factory: 'NB',
+      description: `Soon\n${steps({ endTurn: true })}`,
+      start: true,
+      startInBackground: true,
+    })
+    expect(soon.stage).toBe('intake')
+    expect(soon.leadRunId).toBeUndefined()
+    const listed = async () => (await client.listTasks()).find((task) => task.id === soon.id)
+    await expect.poll(async () => (await listed())?.leadRunId).toEqual(expect.any(String))
+    expect((await listed())?.stage).toBe('intake')
   })
 
   test('the Task Lead gets the description, the chosen Clarify depth and the attachment paths', async () => {

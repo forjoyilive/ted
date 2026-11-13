@@ -207,15 +207,24 @@ export type { CommandLineStatus } from './command-line.ts'
 export type {
   Coordinator,
   CoordinatorAction,
+  CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
   CoordinatorReceipt,
   CoordinatorRequest,
   CoordinatorStatus,
   CoordinatorTask,
+  CoordinatorTaskList,
+  CoordinatorTaskQuery,
   CoordinatorTaskSummary,
 } from './coordinator.ts'
-export { parseCoordinatorAction, parseCoordinatorMessage } from './coordinator-parsers.ts'
+export {
+  coordinatorTaskSearch,
+  parseCoordinatorAction,
+  parseCoordinatorCreate,
+  parseCoordinatorMessage,
+  parseCoordinatorTaskQuery,
+} from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
   DashboardBucket,
@@ -262,7 +271,13 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export { type Edition, edition, type Identity, identity } from './edition.ts'
-export { filterTedEnv, tedEnv, tedEnvironment } from './env.ts'
+export {
+  filterTedEnv,
+  remoteExecutionOff,
+  remoteExecutionOn,
+  tedEnv,
+  tedEnvironment,
+} from './env.ts'
 export type { DaemonEvent } from './events.ts'
 export {
   type AssignmentId,
@@ -649,8 +664,8 @@ export {
   type SideChat,
   type SideChatMessageRequest,
 } from './side-chat.ts'
-export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
-export { busyHold } from './slots.ts'
+export type { ChatKind, FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
+export { busyHold, chatKinds, isChat } from './slots.ts'
 export {
   type ProfileRequest,
   type ProfileResult,

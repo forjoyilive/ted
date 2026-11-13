@@ -1,5 +1,5 @@
 import { foldText, matchesTerms, searchTerms } from '@ted/protocol/search'
-import type { SettingsSectionId } from './navigation.ts'
+import { type SettingsSectionId, shownSettingsSectionIds } from './navigation.ts'
 
 export const settingsPageNames: Record<SettingsSectionId, string> = {
   general: 'General',
@@ -418,6 +418,8 @@ export function findSettings(
     if (entry.platform !== undefined && entry.platform !== options.platform) continue
     const place = placeOf(id)
     if (place.kind === 'factory' && !factory) continue
+    if (place.kind === 'app' && !shownSettingsSectionIds.some((shown) => shown === place.section))
+      continue
     const text = [
       entry.name,
       entry.keywords,

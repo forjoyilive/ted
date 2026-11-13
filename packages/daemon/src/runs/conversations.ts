@@ -386,7 +386,7 @@ export function createConversations(options: {
     return usage
   }
 
-  const summary = (run: Run): RunSummary => {
+  const summary = (run: Run, leadRunId?: string): RunSummary => {
     const usage = usageOf(run)
     const tokens = usage.tokens
     const billing =
@@ -419,7 +419,9 @@ export function createConversations(options: {
       ...(run.failure !== undefined && { failed: true }),
       startedAt: run.startedAt,
       current:
-        run.taskId === undefined || isCurrentLead(run) || (subAgent && run.state !== 'finished'),
+        run.taskId === undefined ||
+        (leadRunId === undefined ? isCurrentLead(run) : leadRunId === run.id) ||
+        (subAgent && run.state !== 'finished'),
     }
   }
 
@@ -530,7 +532,7 @@ export function createConversations(options: {
     },
     taskRuns(ref) {
       const task = requireTask(ref)
-      return store.taskRunList(task.id).map((run) => summary(run))
+      return store.taskRunList(task.id).map((run) => summary(run, task.leadRunId ?? ''))
     },
     async send(runId, text, { interrupt = false } = {}) {
       if (store.sideChats.forRun(runId))

@@ -9,6 +9,8 @@ import {
   type CoordinatorReceipt,
   type CoordinatorRequest,
   type CoordinatorTask,
+  type CoordinatorTaskList,
+  coordinatorTaskSearch,
   type Factory,
   type LineComment,
   type RunChat,
@@ -131,6 +133,34 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   expect(conversation.run.prompt).toContain('## Write clearly for the user')
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
+  const badge = await s.task('Offline badge')
+  const shelved = await s.task('Shelved idea')
+  await s.ok('POST', `/tasks/${shelved.id}/archive`)
+  const tasksWhere = async (query: string) =>
+    unpack<CoordinatorTaskList>((await run.call('GET', `/coordinator/tasks${query}`)).body)
+  expect(await tasksWhere('')).toMatchObject({
+    tasks: [{ id: task.id }, { id: badge.id }],
+    matching: 2,
+    stageCounts: { backlog: 2 },
+  })
+  expect(await tasksWhere('?all=1')).toMatchObject({ matching: 3, archived: 1 })
+  expect((await tasksWhere('?search=OFFLINE')).tasks.map((t) => t.id)).toEqual([badge.id])
+  expect(
+    (await tasksWhere(`?search=${encodeURIComponent(badge.displayId)}`)).tasks.map((t) => t.id),
+  ).toEqual([badge.id])
+  expect(await tasksWhere('?stage=work&stage=review')).toMatchObject({
+    tasks: [],
+    stageCounts: { backlog: 2 },
+  })
+  expect((await tasksWhere('?status=working')).matching).toBe(0)
+  expect((await tasksWhere('?waiting=1')).matching).toBe(0)
+  expect((await run.call('GET', '/coordinator/tasks?stage=nowhere')).status).toBe(400)
+  const symbols = await s.task('Sync & retry C++ at 100%')
+  expect(
+    (await tasksWhere(coordinatorTaskSearch({ search: '& retry C++ at 100%' }))).tasks.map(
+      (t) => t.id,
+    ),
+  ).toEqual([symbols.id])
   expect((await run.call('GET', `/coordinator/tasks/${other.id}`)).status).toBe(404)
   await s.ok('POST', `/tasks/${task.id}/comments`, { body: 'Fresh context from the human' })
   const read = unpack<CoordinatorTask>(
@@ -141,7 +171,12 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
     text: 'Compare these Tasks',
   })
   expect(again.runId).toBe(c.runId)
-  expect((await s.chat()).tasks.map((t) => t.id)).toEqual([task.id])
+  expect((await s.chat()).tasks.map((t) => t.id)).toEqual([
+    task.id,
+    badge.id,
+    shelved.id,
+    symbols.id,
+  ])
 })
 
 test('Coordinator tokens cannot use generic reads, mutations, or human-only actions', async () => {
@@ -176,7 +211,7 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
   expect((await file.call('POST', `/coordinator/tasks/${task.id}/start`, {})).status).toBe(403)
 })
 
-test('actions reject stale state and cross-Factory neighbours; moves retry receipts from before hierarchy support', async () => {
+test('actions reject stale state and cross-Factory neighbours; moves and creates retry receipts after a restart', async () => {
   const s = await setup(),
     a = await s.task('A'),
     b = await s.task('B'),
@@ -223,6 +258,49 @@ test('actions reject stale state and cross-Factory neighbours; moves retry recei
     ).status,
   ).toBe(404)
 
+  const create = {
+    operation: 'create-1',
+    title: 'C',
+    description: 'From the Coordinator',
+    parentId: a.id,
+    blockedBy: [b.id],
+    after: b.id,
+    neighbours: { [b.id]: (await read(b.id)).version },
+  }
+  const made = await run.call('POST', '/coordinator/tasks', create)
+  expect(made.status).toBe(201)
+  const createReceipt = made.body as CoordinatorReceipt
+  expect(createReceipt.text).toMatch(/^Created NB-\d+ “C” · Backlog · Priority high$/)
+  const titled = async (title: string) =>
+    (await s.ok<Task[]>('GET', '/tasks')).filter((t) => t.title === title)
+  expect(await titled('C')).toMatchObject([
+    {
+      id: createReceipt.taskId,
+      description: 'From the Coordinator',
+      stage: 'backlog',
+      createdBy: 'coordinator',
+      parentId: a.id,
+      blockedBy: [b.id],
+      priority: 'high',
+    },
+  ])
+  expect((await run.call('POST', '/coordinator/tasks', create)).body).toEqual(made.body)
+  expect((await run.call('POST', '/coordinator/tasks', { ...create, title: 'D' })).status).toBe(409)
+  expect(
+    (
+      await run.call('POST', '/coordinator/tasks', {
+        operation: 'create-foreign',
+        title: 'E',
+        blockedBy: [foreign.id],
+      })
+    ).status,
+  ).toBe(404)
+  expect(await titled('C')).toHaveLength(1)
+  expect(await titled('E')).toHaveLength(0)
+  expect(
+    (await s.client.call('POST', '/coordinator/tasks', { operation: 'x', title: 'F' })).status,
+  ).toBe(403)
+
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {
     ...receipt,
@@ -239,9 +317,33 @@ test('actions reject stale state and cross-Factory neighbours; moves retry recei
   try {
     const saved = store.coordinators.get(s.factory.id)
     if (!saved) throw new Error('missing saved Coordinator')
+    await store.createTask({
+      title: 'Crashed',
+      factoryId: s.factory.id,
+      coordinatorOperation: 'create-crash',
+    })
+    const crashed: CoordinatorReceipt = {
+      id: 'create-crash',
+      operation: 'create',
+      text: 'Action interrupted before its result was saved.',
+      at: new Date().toISOString(),
+      fingerprint: createHash('sha256')
+        .update(
+          JSON.stringify([
+            'create',
+            'Crashed',
+            createHash('sha256').update('').digest('hex'),
+            ...Array(10).fill(undefined),
+          ]),
+        )
+        .digest('hex'),
+    }
     store.coordinators.save({
       ...saved,
-      receipts: saved.receipts.map((r) => (r.id === legacyReceipt.id ? legacyReceipt : r)),
+      receipts: [
+        ...saved.receipts.map((r) => (r.id === legacyReceipt.id ? legacyReceipt : r)),
+        crashed,
+      ],
     })
     await store.persisted()
   } finally {
@@ -265,6 +367,18 @@ test('actions reject stale state and cross-Factory neighbours; moves retry recei
     return current.started && current.status === 'working' ? current : undefined
   }, 'Coordinator to resume after replay')
   const retry = api(daemon.port, s.tokens.issue(resumed.runId))
+  const recovered = await retry.call('POST', '/coordinator/tasks', {
+    operation: 'create-crash',
+    title: 'Crashed',
+  })
+  const crashedTasks = ((await client.call('GET', '/tasks')).body as Task[]).filter(
+    (t) => t.title === 'Crashed',
+  )
+  expect(crashedTasks).toHaveLength(1)
+  expect(recovered.body).toMatchObject({ taskId: crashedTasks[0]?.id, operation: 'create' })
+  expect((recovered.body as CoordinatorReceipt).text).toContain(
+    'the rest of the action was interrupted',
+  )
   const repeated = await retry.call('POST', `/coordinator/tasks/${a.id}/move`, input)
   expect(repeated.status).toBe(200)
   expect(repeated.body).toEqual(legacyReceipt)

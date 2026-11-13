@@ -319,6 +319,7 @@ describe('commands merged from the latest base', () => {
       UsageError,
     )
     expect(helpText()).toContain('ted coordinator resume')
+    expect(helpText()).toContain('ted coordinator create')
     expect(helpText()).toContain('--recommended')
   })
 
@@ -437,6 +438,12 @@ describe('commands merged from the latest base', () => {
         ['peers', '--offset', '3'],
         ['peers', 'inbox', '--offset', '4'],
         ['coordinator', 'tasks', '--offset', '5'],
+        [
+          'coordinator',
+          'tasks',
+          ...['--stage', 'backlog', '--stage', 'work', '--status', 'failed'],
+          ...['--waiting', '--search', 'offline badge', '--all'],
+        ],
         ['coordinator', 'task', 'NB-1', '--offset', '6'],
         ['coordinator', 'move', ...common, '--after', 'NB-0', '--neighbours', '{"NB-0":"rank"}'],
       ])
@@ -447,10 +454,55 @@ describe('commands merged from the latest base', () => {
           stdin: async () => '  Keep going  ',
         }),
       ).toBe(0)
+      expect(
+        await runCli(
+          [
+            'coordinator',
+            'create',
+            '--operation',
+            'op',
+            '--description',
+            '-',
+            '--parent',
+            'NB-1',
+            '--blocked-by',
+            'NB-2',
+            '--blocked-by',
+            'NB-3',
+            '--priority',
+            'high',
+            '--agent',
+            'codex',
+            '--effort',
+            'high',
+            '--start',
+            'Offline',
+            'badge',
+          ],
+          { ...runtime, stdin: async () => ' Show a badge. ' },
+        ),
+      ).toBe(0)
+      expect(
+        await runCli(
+          ['coordinator', 'create', '--operation', 'op', '--effort', 'high', 'T'],
+          runtime,
+        ),
+      ).toBe(2)
+      expect(
+        await runCli(
+          ['coordinator', 'create', '--operation', 'op', '--priority', 'big', 'T'],
+          runtime,
+        ),
+      ).toBe(2)
+      expect(await runCli(['coordinator', 'tasks', '--stage', 'queued'], runtime)).toBe(2)
       expect(requests.slice(4)).toEqual([
         { url: '/peers?offset=3', body: undefined },
         { url: '/peers/inbox?offset=4', body: undefined },
         { url: '/coordinator/tasks?offset=5', body: undefined },
+        {
+          url: '/coordinator/tasks?all=1&stage=backlog&stage=work&status=failed&waiting=1&search=offline+badge',
+          body: undefined,
+        },
         { url: '/coordinator/tasks/NB-1?offset=6', body: undefined },
         {
           url: '/coordinator/tasks/NB-1/move',
@@ -464,6 +516,19 @@ describe('commands merged from the latest base', () => {
         {
           url: '/coordinator/tasks/NB-1/tell',
           body: { operation: 'op', version: 'version', message: 'Keep going' },
+        },
+        {
+          url: '/coordinator/tasks',
+          body: {
+            operation: 'op',
+            title: 'Offline badge',
+            description: 'Show a badge.',
+            parentId: 'NB-1',
+            blockedBy: ['NB-2', 'NB-3'],
+            priority: 'high',
+            lead: { agent: 'codex', effort: 'high' },
+            start: true,
+          },
         },
       ])
     } finally {
@@ -673,11 +738,21 @@ test('failure input and missing Task are refused before connecting', async () =>
   }
 })
 
-test('execution controls are terminal-only and never offer CLI approval', async () => {
+test('execution controls are hidden and off without the flag, terminal-only with it, and never offer CLI approval', async () => {
+  expect(helpText()).not.toContain('ted execution')
   for (const command of ['start', 'stop', 'status', 'serve', 'pair']) {
+    const off: string[] = []
+    expect(
+      await runCli(['execution', command], {
+        env: {},
+        stdout: (value) => off.push(value),
+        stderr: (value) => off.push(value),
+      }),
+    ).toBe(2)
+    expect(off.join('')).toContain('Remote execution is turned off in this version of TED.')
     const output: string[] = []
     const code = await runCli(['execution', command], {
-      env: { TED_RUN_CAPABILITY: 'private-capability' },
+      env: { TED_RUN_CAPABILITY: 'private-capability', TED_REMOTE_EXECUTION: 'on' },
       stdout: (value) => output.push(value),
       stderr: (value) => output.push(value),
     })

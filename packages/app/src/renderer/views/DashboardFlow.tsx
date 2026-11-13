@@ -6,7 +6,7 @@ import type { FlowSelection } from '../dashboard.ts'
 import { stageName as label } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
-import { hours, StatisticsHelp, TimingChange } from './DashboardMeasures.tsx'
+import { hours, StatisticsHelp, share, TimingChange } from './DashboardMeasures.tsx'
 import { coverageLabel, reasonNames, reasonValue, TimingOverview } from './DashboardTiming.tsx'
 import { flowWithoutUserWaits, type LeftOutTask, useIncludeUserWaits } from './stage-waits.ts'
 
@@ -48,10 +48,20 @@ function StageTable({
   previous: FlowPeriod | null
   select: (s: FlowSelection) => void
 }) {
+  const total = period.stages.reduce((sum, s) => sum + (totalValue(s) ?? 0), 0)
   return (
     <>
       <p className={styles.caption}>{bounds(period)}</p>
-      <ul className={styles.timingRows}>
+      <ul className={`${styles.timingRows} ${styles.stageRows}`}>
+        {period.stages.length > 0 && (
+          <li className={`${styles.timingRow} ${styles.stageColumns}`}>
+            <span>Stage</span>
+            <span className={styles.stageNumber}>Share</span>
+            <span className={styles.stageNumber}>Time</span>
+            <span>{previous && 'vs previous'}</span>
+            <span />
+          </li>
+        )}
         {period.stages.map((s) => {
           const prior = previous?.stages.find((p) => p.stage === s.stage)
           const choose = () => select({ kind: 'stage', stage: s.stage, period: 'current' })
@@ -67,19 +77,20 @@ function StageTable({
                   </button>
                 </p>
               </div>
-              <div className={styles.timingNumber}>
-                <strong>{hours(totalValue(s))}</strong>
+              <strong className={styles.stageNumber}>{share(totalValue(s), total)}</strong>
+              <span className={styles.stageNumber}>{hours(totalValue(s))}</span>
+              <span>
                 {previous && <TimingChange current={totalValue(s)} previous={totalValue(prior)} />}
-                <button
-                  type="button"
-                  data-nav-item
-                  className={styles.link}
-                  aria-label={`Inspect ${label(s.stage)} Stage`}
-                  onClick={choose}
-                >
-                  →
-                </button>
-              </div>
+              </span>
+              <button
+                type="button"
+                data-nav-item
+                className={styles.link}
+                aria-label={`Inspect ${label(s.stage)} Stage`}
+                onClick={choose}
+              >
+                →
+              </button>
             </li>
           )
         })}

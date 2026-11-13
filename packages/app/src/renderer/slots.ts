@@ -1,5 +1,5 @@
 import type { RunSlots, SimulatorSlots, Task } from '@ted/protocol'
-import { busyHold } from '@ted/protocol/slots'
+import { busyHold, isChat } from '@ted/protocol/slots'
 import { plural } from './words.ts'
 
 function counts(slots: RunSlots): string {
@@ -51,6 +51,7 @@ export function startSplit(
     return true
   }
   for (const entry of slots.queue) {
+    if (isChat(entry.kind)) continue
     if (entry.kind === 'automation' || entry.kind === 'automation-draft') take(entry.factoryId)
     else starts(entry.factoryId)
   }

@@ -334,6 +334,8 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(waits().checked).toBe(false)
   expect(within(region).getByText('9h')).toBeTruthy()
   expect(within(region).queryByText('14h')).toBeNull()
+  expect(within(region).getByText('100%')).toBeTruthy()
+  expect(within(region).getByText('Share')).toBeTruthy()
   expect(within(region).getByRole('button', { name: '0 Tasks' })).toBeTruthy()
   expect(screen.getByText(/without the time Tasks spent waiting for you/)).toBeTruthy()
   expect(region.textContent).toContain('Tasks without a complete record of those requests')
@@ -680,4 +682,13 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
   expect(within(select).getByRole('option', { name: 'Today' })).toBeTruthy()
   await user().selectOptions(select, '7d')
   expect(change).toHaveBeenCalledWith({ range: '7d' })
+})
+
+test('a Stage share is a whole-number percentage of all Stage time', async () => {
+  const { share } = await import('../src/renderer/views/DashboardMeasures.tsx')
+  expect(share(489.75, 1387.34)).toBe('35%')
+  expect(share(3, 1000)).toBe('<1%')
+  expect(share(0, 1000)).toBe('0%')
+  expect(share(null, 1000)).toBe('—')
+  expect(share(0, 0)).toBe('—')
 })
