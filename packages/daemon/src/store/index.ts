@@ -830,6 +830,8 @@ export interface TedStore extends TaskHistory {
   ): Task
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
+  heldRequests(): { id: string; runId: string; createdAt: string }[]
+  releaseRequests(ids: readonly string[]): void
   listComments(taskId: string): Comment[]
   commentTexts(): {
     id: string
@@ -1081,7 +1083,12 @@ export interface TedStore extends TaskHistory {
   testInvocations: TestInvocationStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
-  postFailureDecision(value: FailureCase, body: string, canAccept?: boolean): FailureCase
+  postFailureDecision(
+    value: FailureCase,
+    body: string,
+    canAccept?: boolean,
+    askedBy?: string,
+  ): FailureCase
   resolveFailure(
     value: FailureCase,
     commentId: string,
@@ -1847,7 +1854,7 @@ export async function openStore({
       partlyMergedAt !== null && mergedRepos.length > 0 && openRepos.length > 0
         ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
         : undefined
-    const requests = taskComments.filter(isOpenRequest)
+    const requests = taskComments.filter((row) => isOpenRequest(row) && row.heldFor === null)
     const facts: TaskFacts = {
       ...(preparation === 'preparing' && { preparing: true }),
       ...(snoozedUntil !== null && { snoozedUntil }),
@@ -2230,6 +2237,7 @@ export async function openStore({
     linearTeam,
     asanaMissing,
     purpose,
+    heldFor,
     ...row
   }: typeof comments.Type): Comment =>
     withPurpose(
@@ -2240,6 +2248,7 @@ export async function openStore({
           authorKind === 'run' && authorRunId !== null
             ? { kind: 'run', runId: authorRunId }
             : { kind: authorKind === 'ted' ? 'ted' : 'human' },
+        ...(heldFor !== null && { held: true as const }),
         ...(stage !== null && { stage: stage as StageId }),
         ...(title !== null && { title }),
         ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
@@ -2378,6 +2387,7 @@ export async function openStore({
   }
 
   const openRequestRows = (taskId?: string) => commentRows(taskId).filter(isOpenRequest)
+  const shownRequestRows = () => openRequestRows().filter((row) => row.heldFor === null)
 
   const toBrief = ({ runId, stage, id: _, ...row }: typeof taskBriefs.Type): TaskBrief => ({
     ...row,
@@ -2631,6 +2641,7 @@ export async function openStore({
       purpose,
     }: NewComment,
     createdAt: string,
+    askedBy = author.kind === 'run' ? author.runId : undefined,
   ) => {
     const id = randomUUID()
     const fields = {
@@ -2677,7 +2688,15 @@ export async function openStore({
         ...(linearTeam && { linearTeam }),
         ...(asanaMissing && { asanaMissing }),
       })
+    const heldFor =
+      askedBy !== undefined &&
+      kind !== 'note' &&
+      kind !== 'permission' &&
+      runRow(askedBy)?.state === 'working'
+        ? askedBy
+        : undefined
     const attached = [
+      ...(heldFor === undefined ? [] : [events.requestHeld({ commentId: id, runId: heldFor })]),
       ...(recordedPurpose
         ? [
             events.commentPurposeRecorded({
@@ -2737,7 +2756,7 @@ export async function openStore({
   }
   const emitComment = (id: string) => {
     const comment = requireComment(id)
-    emit({ type: 'comment-updated', comment })
+    if (!comment.held) emit({ type: 'comment-updated', comment })
     return comment
   }
 
@@ -2917,7 +2936,7 @@ export async function openStore({
         .filter((t) => t.archivedAt === null)
         .map((t) => [t.id, t]),
     )
-    const fromTasks = openRequestRows().flatMap((row): WaitingRequest[] => {
+    const fromTasks = shownRequestRows().flatMap((row): WaitingRequest[] => {
       const task = liveTasks.get(row.taskId)
       if (!task) return []
       return [
@@ -3302,7 +3321,7 @@ export async function openStore({
       updatedQueue(approval.failure.taskId)
       return next
     },
-    postFailureDecision(value, body, canAccept = true) {
+    postFailureDecision(value, body, canAccept = true, askedBy) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
@@ -3324,6 +3343,7 @@ export async function openStore({
           author: { kind: 'ted' },
         },
         at,
+        askedBy,
       )
       const next = {
         ...value,
@@ -3337,7 +3357,8 @@ export async function openStore({
         ],
       }
       commit(event, ...attached, failureStore.event(next, 'requested'))
-      emit({ type: 'comment-posted', comment: requireComment(id) })
+      const comment = requireComment(id)
+      if (!comment.held) emit({ type: 'comment-posted', comment })
       updatedTask(value.taskId)
       return next
     },
@@ -4834,7 +4855,7 @@ export async function openStore({
       const { id, event, attached } = commentPosted(input, at)
       commit(event, ...attached, ...lineCommentsSent(input.lineComments, id, at))
       const comment = requireComment(id)
-      emit({ type: 'comment-posted', comment })
+      if (!comment.held) emit({ type: 'comment-posted', comment })
       if (comment.kind !== 'note') updatedTask(input.taskId)
       for (const taskId of new Set(comment.lineComments?.map((c) => c.taskId))) {
         emit({ type: 'line-comments-changed', taskId })
@@ -4851,10 +4872,28 @@ export async function openStore({
         events.commentAnswered({ id: oldId, answer: JSON.stringify(answer), at }),
       )
       const comment = requireComment(id)
-      emit({ type: 'comment-posted', comment })
+      if (!comment.held) emit({ type: 'comment-posted', comment })
       emitComment(oldId)
       updatedTask(input.taskId)
       return comment
+    },
+    heldRequests: () =>
+      store
+        .query(queryDb(comments.where({ heldFor: { op: '!=', value: null } })))
+        .map(({ id, heldFor, createdAt }) => ({ id, runId: heldFor ?? '', createdAt })),
+    releaseRequests(ids) {
+      const held = ids.flatMap((id) => {
+        const row = store.query(queryDb(comments.where({ id }))).at(0)
+        return row?.heldFor ? [row] : []
+      })
+      if (held.length === 0) return
+      const at = new Date().toISOString()
+      commit(...held.map((row) => events.requestReleased({ commentId: row.id, at })))
+      for (const row of held) {
+        const comment = requireComment(row.id)
+        emit({ type: 'comment-posted', comment })
+        updatedTask(row.taskId)
+      }
     },
     listComments: (taskId) =>
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
@@ -5070,7 +5109,7 @@ export async function openStore({
       })
     },
     taskLog: readTaskLog,
-    listOpenRequests: () => openRequestRows().map(toComment),
+    listOpenRequests: () => shownRequestRows().map(toComment),
     listAnsweredRequests: (since, kinds) =>
       commentRows()
         .filter((row) => {

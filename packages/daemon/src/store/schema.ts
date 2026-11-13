@@ -506,6 +506,7 @@ export const comments = State.SQLite.table({
     linearTeam: State.SQLite.text({ nullable: true }),
     asanaMissing: State.SQLite.text({ nullable: true }),
     purpose: State.SQLite.text({ nullable: true }),
+    heldFor: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -1722,6 +1723,14 @@ export const events = {
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
+  }),
+  requestHeld: Events.synced({
+    name: 'v1.RequestHeld',
+    schema: Schema.Struct({ commentId: Schema.String, runId: Schema.String }),
+  }),
+  requestReleased: Events.synced({
+    name: 'v1.RequestReleased',
+    schema: Schema.Struct({ commentId: Schema.String, at: Schema.String }),
   }),
   commentPurposeRecorded: Events.synced({
     name: 'v1.CommentPurposeRecorded',
@@ -3754,6 +3763,10 @@ const materializers = counted(
         comments.update({ linearTeam: JSON.stringify({ key, name }) }).where({ id: commentId }),
       'v1.CommentAsanaMissingAsked': ({ commentId, missing }) =>
         comments.update({ asanaMissing: missing }).where({ id: commentId }),
+      'v1.RequestHeld': ({ commentId, runId }) =>
+        comments.update({ heldFor: runId }).where({ id: commentId }),
+      'v1.RequestReleased': ({ commentId, at }) =>
+        comments.update({ heldFor: null, createdAt: at }).where({ id: commentId }),
       'v1.CommentDesignAttached': ({ commentId, design }) =>
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>

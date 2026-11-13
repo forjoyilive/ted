@@ -996,7 +996,7 @@ export function createCoordinators(options: {
       const c = actor(caller),
         task = target(c, ref)
       touch(c, [task.id])
-      const all = store.listComments(task.id)
+      const all = store.listComments(task.id).filter((c) => !c.held)
       const brief = store.latestBrief(task.id)
       return {
         task,

@@ -117,23 +117,43 @@ describe('an agent attaching files', () => {
   test('ted comment --attach stores the file by hash, once, and the Comment lists it', async () => {
     const client = await startTed()
     const shot = path.join(scratch, 'shot.png')
+    const gate = path.join(scratch, 'gate')
     await writeFile(shot, 'not really a png')
     const attach = ['ted', 'comment', '--attach', shot, 'Here is the screen']
     const task = await create(
       client,
-      steps({ run: attach }, { run: ['ted', 'comment', '--attach', shot] }, { endTurn: true }),
+      steps(
+        { run: ['ted', 'comment', '--choice', 'A', '--choice', 'B', 'Which one?'] },
+        { run: attach },
+        { waitFor: gate },
+        { run: ['ted', 'comment', '--attach', shot] },
+        { endTurn: true },
+      ),
       { start: true },
     )
 
+    await waitUntil(async () => {
+      const list = (await comments(client, task)).filter((c) => c.author.kind === 'run')
+      return list.length === 1 ? list : undefined
+    }, 'the agent’s first note')
+    expect(
+      (await client.ok<{ taskId?: string }[]>('GET', '/inbox/waiting')).filter(
+        (r) => r.taskId === task.id,
+      ),
+    ).toEqual([])
+    await writeFile(gate, '')
+
     const posted = await waitUntil(async () => {
       const list = (await comments(client, task)).filter((c) => c.author.kind === 'run')
-      return list.length === 2 ? list : undefined
-    }, 'the agent’s two Comments')
+      return list.length === 3 ? list : undefined
+    }, 'the agent’s two Comments and its question')
 
     const hash = sha('not really a png')
     const expected: Attachment = { hash, name: 'shot.png', size: 16, mediaType: 'image/png' }
     expect(posted[0]).toMatchObject({ body: 'Here is the screen', attachments: [expected] })
     expect(posted[1]).toMatchObject({ body: '', attachments: [expected] })
+    expect(posted[2]).toMatchObject({ kind: 'question', body: 'Which one?' })
+    expect(posted[2]?.held).toBeUndefined()
     expect(await readdir(path.join(home, 'attachments'))).toEqual([`${hash}.png`])
   })
 

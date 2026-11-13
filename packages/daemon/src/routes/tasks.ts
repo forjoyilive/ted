@@ -439,7 +439,7 @@ export const taskRoutes: Route[] = [
     async handle({ params: [ref = ''] }, { store }) {
       const task = store.getTask(ref)
       if (!task) throw new HttpError(404, `no Task ${ref}`)
-      return [200, store.listComments(task.id)]
+      return [200, store.listComments(task.id).filter((c) => !c.held)]
     },
   },
   {
