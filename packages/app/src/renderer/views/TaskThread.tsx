@@ -780,6 +780,9 @@ export function TaskThread({
         hidden={!shownItems.has(item)}
       >
         <RequestCard
+          active={
+            !hidden && shownRun === undefined && shownApp === undefined && shownItems.has(item)
+          }
           taskChanges={taskChanges}
           onOpenFile={onOpenFile}
           onAllChanges={onAllChanges}

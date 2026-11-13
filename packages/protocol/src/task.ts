@@ -606,9 +606,16 @@ export interface RoundAnswer {
   changed: boolean
 }
 
+export interface TalkThroughRequest {
+  confirmResume?: boolean
+}
+
+export type TalkThroughResult = Comment | { resumeRequired: true }
+
 export interface RoundTalk {
   runId: string
   startedAt: string
+  notifiedAt?: string
   doneAt?: string
 }
 
@@ -684,6 +691,7 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
+  talkRequested?: true
   talk?: RoundTalk
   proposal?: Proposal
   sizeCheck?: SizeCheck
