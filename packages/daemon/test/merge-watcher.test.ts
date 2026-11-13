@@ -345,7 +345,7 @@ test('changes requested prevents merging or a replacement Gate', async () => {
     text: 'Fix it',
     at: new Date().toISOString(),
   })
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(gh.run).not.toHaveBeenCalled()
   expect(port.postGate).not.toHaveBeenCalled()
 })
@@ -366,14 +366,14 @@ test('legacy Done Tasks with open pull requests are observed without a second fi
   expect(port.finish).not.toHaveBeenCalled()
 })
 
-test('canceled auto-merge retries disabling after a failure', async () => {
+test('a canceled merge retries disabling auto-merge, keeps watching and finishes when GitHub merges by hand', async () => {
   store.autoMergeEnabled(id, 'widgets', { method: 'squash', requested: 'squash' })
   store.mergeCanceled(id, 'comment')
   vi.mocked(gh.run).mockRejectedValueOnce(new Error('offline'))
   vi.spyOn(console, 'error').mockImplementation(() => {})
   expect(await watcher.cycle(id, read())).toBe('wait')
   expect(pr()?.autoMerge).toBe('squash')
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(pr()?.autoMerge).toBeUndefined()
   expect(gh.run).toHaveBeenLastCalledWith([
     'pr',
@@ -383,13 +383,20 @@ test('canceled auto-merge retries disabling after a failure', async () => {
     'acme/widgets',
     '--disable-auto',
   ])
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(pr()?.waiting).toBeUndefined()
+  expect(current().stage).toBe('merge')
+  expect(await watcher.cycle(id, read(remote({ state: 'MERGED' })))).toBe('done')
+  expect(pr()).toMatchObject({ state: 'merged', merged: { noCi: false } })
+  expect(current().stage).toBe('done')
+  expect(gh.run).toHaveBeenCalledTimes(2)
 })
 
 test('mode is checked again immediately before merging', async () => {
   port.beforeMerge = async () => {
     store.mergeCanceled(id, 'comment')
   }
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('busy')
   expect(gh.run).not.toHaveBeenCalled()
   expect(pr()?.state).toBe('ready')
 })
@@ -718,7 +725,7 @@ test('post-rebase Check decisions hold the Merge Gate and cannot override cancel
   expect(gh.run).not.toHaveBeenCalled()
   vi.mocked(port.checks).mockClear()
   store.mergeCanceled(id, 'human-cancellation')
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(port.checks).not.toHaveBeenCalled()
   resolution.workflow.stages = ['work', 'validate', 'review']
   expect(await watcher.cycle(id, read())).toBe('wait')
@@ -733,7 +740,7 @@ test('cancelling while local Check coverage settles prevents posting a Merge sig
     return true
   })
   expect(await watcher.cycle(id, read())).toBe('busy')
-  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(await watcher.cycle(id, read())).toBe('wait')
   expect(port.postGate).not.toHaveBeenCalled()
   expect(gh.run).not.toHaveBeenCalled()
 })
@@ -746,4 +753,46 @@ test('pending requests hold merging while incorporated repair Checks can be veri
   expect(port.postGate).not.toHaveBeenCalled()
   port.held = () => false
   expect(await watcher.cycle(id, read())).toBe('done')
+})
+
+test('a pull request merged outside TED finishes the Task before any other merge step, even while held', async () => {
+  port.held = () => true
+  gate()
+  ci()
+  expect(await watcher.cycle(id, read(), { onlyMergedOutside: true })).toBe('wait')
+  expect(port.checks).not.toHaveBeenCalled()
+  expect(port.recordPullRequests).not.toHaveBeenCalled()
+  vi.mocked(port.checks).mockResolvedValue(false)
+  expect(
+    await watcher.cycle(id, read(remote({ state: 'MERGED', headRefOid: 'other' })), {
+      onlyMergedOutside: true,
+    }),
+  ).toBe('done')
+  expect(pr()).toMatchObject({ state: 'merged', merged: { noCi: false } })
+  expect(current().stage).toBe('done')
+  expect(gh.api).toHaveBeenCalledWith('repos/acme/widgets/git/refs/heads/task', {
+    method: 'DELETE',
+  })
+  expect(port.checks).not.toHaveBeenCalled()
+  expect(port.sendBack).not.toHaveBeenCalled()
+  expect(port.postGate).not.toHaveBeenCalled()
+  expect(gh.run).not.toHaveBeenCalled()
+})
+
+test('a multi-repo Task merged only partly outside TED takes the usual path', async () => {
+  secondRepo()
+  port.held = () => true
+  expect(
+    await watcher.cycle(id, both(remote({ state: 'MERGED' })), { onlyMergedOutside: true }),
+  ).toBe('wait')
+  expect(pr()?.state).toBe('ready')
+  const failed = both(remote({ state: 'MERGED' }))
+  failed.hostOf.set(`${id}:api`, 'ghe.example')
+  failed.failed.set('ghe.example', new Error('host down'))
+  expect(await watcher.cycle(id, failed, { onlyMergedOutside: true })).toBe('wait')
+  expect(
+    await watcher.cycle(id, both(remote({ state: 'MERGED' })), { onlyMergedOutside: false }),
+  ).toBe('wait')
+  expect(current().stage).toBe('merge')
+  expect(gh.run).not.toHaveBeenCalled()
 })
