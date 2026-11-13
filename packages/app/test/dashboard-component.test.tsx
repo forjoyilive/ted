@@ -93,32 +93,65 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
   await u.click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
 })
 
-test.each([
-  ['2026-11-08T12:00:45.500Z', '12:00:45.500 UTC'],
-  ['2026-11-08T12:00:45.000Z', '12:00:45 UTC'],
-])('bucket controls and sample bounds preserve exact time for %s', async (at, end) => {
+test('graph points and their samples name the calendar days they cover', async () => {
   const preferences = timePreferences()
   setTimePreferences({ timeZone: 'UTC', timeFormat: '24-hour' })
   try {
-    const data = dashboardFixture()
-    data.asOf = at
-    data.current.to = at
-    data.current.buckets = data.current.buckets.map((bucket) => ({
+    const day = dashboardFixture()
+    day.asOf = '2026-11-12T14:26:00.000Z'
+    day.current.from = '2026-11-11T00:00:00.000Z'
+    day.current.to = '2026-11-12T00:00:00.000Z'
+    day.current.buckets = day.current.buckets.map((bucket) => ({
       ...bucket,
-      from: '2026-11-01T12:00:30.125Z',
-      to: at,
+      from: '2026-11-11T00:00:00.000Z',
+      to: '2026-11-12T00:00:00.000Z',
     }))
-    bridge({ factoryDashboard: () => data })
-    render(<DashboardView open={vi.fn()} />)
-    const completed = await screen.findByRole('region', { name: 'Tasks completed' })
-    const point = within(completed).getByRole('button', { name: /^Selected.*2 tasks/ })
-    expect(point.getAttribute('aria-label')).toContain('12:00:30.125 UTC')
-    expect(point.getAttribute('aria-label')).toContain(end)
-    expect(point.getAttribute('title')).toContain(end)
-    await user().click(point)
-    const sample = screen.getByRole('dialog')
-    expect(sample.textContent).toContain('12:00:30.125 UTC')
-    expect(sample.textContent).toContain(`${end} (end excluded)`)
+    const all = structuredClone(day)
+    all.range = 'all'
+    all.previous = null
+    all.comparison = null
+    all.current.from = '2026-11-09T00:00:00.000Z'
+    all.current.to = all.asOf
+    all.current.buckets = all.current.buckets.map((bucket) => ({
+      ...bucket,
+      from: '2026-11-09T00:00:00.000Z',
+      to: all.asOf,
+    }))
+    const today = structuredClone(day)
+    today.range = 'today'
+    today.asOf = '2026-11-12T14:26:45.500Z'
+    today.current.buckets = today.current.buckets.map((bucket) => ({
+      ...bucket,
+      from: '2026-11-12T14:00:30.125Z',
+      to: today.asOf,
+    }))
+    for (const [data, label, heading, bounds] of [
+      [day, 'Wed 11 Nov', 'Tasks completed · Wed 11 Nov', 'Midnight to midnight'],
+      [
+        all,
+        '9–12 Nov (today so far)',
+        'Tasks completed · 9–12 Nov (today so far)',
+        '14:26:00 UTC (end excluded)',
+      ],
+      [
+        today,
+        '14:00:30.125 UTC',
+        'Tasks completed · Selected period',
+        '14:26:45.500 UTC (end excluded)',
+      ],
+    ] as const) {
+      bridge({ factoryDashboard: () => data })
+      const view = render(<DashboardView open={vi.fn()} />)
+      const completed = await screen.findByRole('region', { name: 'Tasks completed' })
+      const point = within(completed).getByRole('button', { name: /^Selected.*2 tasks/ })
+      expect(point.getAttribute('aria-label')).toContain(label)
+      expect(point.getAttribute('title')).toContain(label)
+      await user().click(point)
+      const sample = screen.getByRole('dialog')
+      expect(within(sample).getByRole('heading', { name: heading })).toBeTruthy()
+      expect(sample.textContent).toContain(bounds)
+      view.unmount()
+    }
   } finally {
     setTimePreferences(preferences)
   }
