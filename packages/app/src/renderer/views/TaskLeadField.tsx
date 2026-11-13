@@ -1,6 +1,6 @@
 import type { AgentKind, Effort, Run, Task, TaskLead } from '@ted/protocol'
 import { efforts } from '@ted/protocol/task'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
@@ -34,8 +34,13 @@ export function TaskLeadField({ task }: { task: Task }) {
   const [error, setError] = useState<string | undefined>()
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(0)
+  const savingNow = useRef(0)
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const latest = useRef({ agent: savedAgent, model: lead?.model ?? '', effort: savedEffort })
+  latest.current = { agent: savedAgent, model: lead?.model ?? '', effort: savedEffort }
 
   useEffect(() => {
+    if (savingNow.current > 0) return
     setAgent(savedAgent)
     setModel(lead?.model ?? '')
     setEffort(savedEffort)
@@ -65,19 +70,24 @@ export function TaskLeadField({ task }: { task: Task }) {
           ? { effort: next.effort }
           : {}),
     }
+    savingNow.current += 1
     setSaving((n) => n + 1)
-    void ted
-      .setTaskLead(task.id, choice)
-      .finally(() => setSaving((n) => n - 1))
+    const sent = queue.current.then(() => ted.setTaskLead(task.id, choice))
+    queue.current = sent.catch(() => {})
+    void sent
+      .finally(() => {
+        savingNow.current -= 1
+        setSaving((n) => n - 1)
+      })
       .then(
         () => {
           setError(undefined)
           setSaved(true)
         },
         (e: unknown) => {
-          setAgent(savedAgent)
-          setModel(lead?.model ?? '')
-          setEffort(savedEffort)
+          setAgent(latest.current.agent)
+          setModel(latest.current.model)
+          setEffort(latest.current.effort)
           setError(errorText(e))
         },
       )

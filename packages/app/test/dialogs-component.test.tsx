@@ -370,6 +370,29 @@ test('Model unavailable offers the default model and sends the human’s choice'
   expect(screen.queryByText('Model unavailable')).toBeNull()
 })
 
+test('a late save’s update doesn’t replace a newer pick, and saves go one at a time', async () => {
+  const first = deferred<Task>()
+  const second = deferred<Task>()
+  const replies = [first, second]
+  const setTaskLead = vi.fn(() => replies.shift()?.promise)
+  bridge({ setTaskLead })
+  const view = render(<TaskLeadField task={task({ lead: { agent: 'claude' } })} />)
+  const effort = () => screen.getByLabelText('Effort') as HTMLSelectElement
+  const u = user()
+  await u.selectOptions(effort(), 'low')
+  await u.selectOptions(effort(), 'high')
+  expect(setTaskLead).toHaveBeenCalledTimes(1)
+  view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', effort: 'low' } })} />)
+  expect(effort().value).toBe('high')
+  await act(async () => first.resolve(task()))
+  expect(setTaskLead).toHaveBeenCalledTimes(2)
+  expect(setTaskLead).toHaveBeenLastCalledWith('NB-1', { agent: 'claude', effort: 'high' })
+  expect(effort().value).toBe('high')
+  await act(async () => second.resolve(task()))
+  view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', effort: 'high' } })} />)
+  expect(effort().value).toBe('high')
+})
+
 test('Restart now shows only while the live Task Lead differs from the saved choice', async () => {
   const run: import('@ted/protocol').Run = {
     id: 'r1',

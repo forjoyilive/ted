@@ -140,7 +140,8 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
     deliver: async () => {},
     editedSince: () => [],
     freshRunNote: () => store.latestBrief(taskId)?.text ?? 'Pick up this Task',
-    agentChangeNote: async (_task, run, agent) => `Switched from ${run.agent} to ${agent}`,
+    agentChangeNote: async (_task, run, agent, unread) =>
+      [`Switched from ${run.agent} to ${agent}`, ...unread.map((m) => m.text)].join('\n'),
     failedSetupReports: async () => [],
     setUp: async (task, steps) => {
       for (const { repo, setup } of steps) {
@@ -542,10 +543,25 @@ test('a saved Task Lead change waits for Restart now, which interrupts a working
   lifecycle.close()
 })
 
+test('a saved Agent that is turned off doesn’t hold messages for the running Task Lead', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  store.setTaskLead(taskId, { agent: 'claude' })
+  store.updateSettings({ enabledAgents: ['codex'] })
+  store.holdLeadMessage(taskId, 'The user answered')
+  const { lifecycle, sent, starts } = harness()
+  await lifecycle.applyLead(taskId)
+  expect(sent.map(({ text }) => text)).toEqual(['The user answered'])
+  expect(starts).toEqual([])
+  await expect(lifecycle.restartNow(taskId)).rejects.toThrow('claude is off')
+  lifecycle.close()
+})
+
 test('Restart now after an Agent change starts a new Run with the carried conversation', async () => {
   startLead()
   store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
   store.setTaskLead(taskId, { agent: 'claude' })
+  store.queueRunMessage({ runId: 'lead', text: 'Also check the empty state' })
   const { lifecycle, starts, stopped } = harness()
   await lifecycle.applyLead(taskId)
   expect(starts).toEqual([])
@@ -553,6 +569,8 @@ test('Restart now after an Agent change starts a new Run with the carried conver
   expect(stopped).toEqual(['lead'])
   expect(store.getRun('fresh-0')).toMatchObject({ agent: 'claude' })
   expect(store.getRun('fresh-0')?.prompt).toContain('Switched from codex to claude')
+  expect(store.getRun('fresh-0')?.prompt).toContain('Also check the empty state')
+  expect(store.runMessages('lead').filter((m) => m.queued)).toEqual([])
   lifecycle.close()
 })
 

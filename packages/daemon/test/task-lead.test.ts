@@ -946,6 +946,7 @@ describe('Stage effort', () => {
     const initial = await waitForRun(client, task, (r) => r.state === 'idle', 'fixed effort')
     expect(initial.effort).toBe('low')
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude' })
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     await waitForRun(
       client,
       task,
@@ -953,6 +954,7 @@ describe('Stage effort', () => {
       'explicit CLI default',
     )
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', effortMode: 'stage' })
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     await waitForRun(client, task, (r) => r.effort === 'high' && r.state === 'idle', 'Stage effort')
     await waitUntil(
       async () => (await claudeStarts()).length === 3,

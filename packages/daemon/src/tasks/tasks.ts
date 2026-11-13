@@ -63,6 +63,7 @@ import type {
   ResolveFailureRequest,
   RoundInput,
   Run,
+  RunMessage,
   RunSlots,
   SendBack,
   SendBackCause,
@@ -1446,7 +1447,10 @@ export function createTasks(options: {
           return []
         const run = liveLeadOf(store, task)
         if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
-        const nextAgent = task.lead?.agent ?? run.agent
+        const nextAgent =
+          task.leadRestartPending || leadLifecycle.restartWaiting(task.id)
+            ? (task.lead?.agent ?? run.agent)
+            : run.agent
         if (
           !includeFailures &&
           agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
@@ -3961,7 +3965,12 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  async function agentChangeNote(task: StoredTask, run: Run, agent: AgentKind): Promise<string> {
+  async function agentChangeNote(
+    task: StoredTask,
+    run: Run,
+    agent: AgentKind,
+    unread: readonly RunMessage[],
+  ): Promise<string> {
     const items = chatItems({
       run,
       entries: parsedOutput(runs.output, agents, run).chat.entries(),
@@ -3988,6 +3997,13 @@ export function createTasks(options: {
         why: `The human switched this Task’s Task Lead from ${agentShortNames[run.agent]} to ${name}.`,
       }),
       ...(text !== '' ? [`## The conversation so far\n\n${text}`] : []),
+      ...(unread.length > 0
+        ? [
+            `## Messages the old Task Lead hadn’t read\n\n${unread
+              .map((m) => `${m.from === 'ted' ? 'TED' : 'The user'}: ${m.text.trim()}`)
+              .join('\n\n')}`,
+          ]
+        : []),
     ].join('\n\n')
   }
 

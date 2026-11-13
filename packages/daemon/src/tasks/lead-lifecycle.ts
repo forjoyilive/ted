@@ -1,4 +1,4 @@
-import type { AgentKind, Comment, Run, TaskLead, TaskRepo } from '@ted/protocol'
+import type { AgentKind, Comment, Run, RunMessage, TaskLead, TaskRepo } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Clock, Timer } from '../clock.ts'
@@ -66,7 +66,12 @@ export interface LeadLifecycleOptions {
   deliver(taskId: string): Promise<void>
   editedSince(task: StoredTask): string[]
   freshRunNote(task: StoredTask): string
-  agentChangeNote(task: StoredTask, run: Run, agent: AgentKind): Promise<string>
+  agentChangeNote(
+    task: StoredTask,
+    run: Run,
+    agent: AgentKind,
+    unread: readonly RunMessage[],
+  ): Promise<string>
   failedSetupReports(task: StoredTask): Promise<string[]>
   setUp(task: StoredTask, steps: readonly SetupStep[]): Promise<string[] | undefined>
   setUpAdded(taskId: string, step: SetupStep): Promise<{ report?: string } | undefined>
@@ -196,7 +201,14 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const task = run && acknowledgeLeadMessages(run, previous) ? store.getTask(taskId) : previous
     const lead = task && effectiveLead(task)
     if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
-    if (agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)) return
+    const restartWanted =
+      task.leadRestartPending ||
+      ((restartAsked.has(taskId) || run.problem === 'model-unavailable') && !sameChoice(lead, run))
+    if (
+      restartWanted &&
+      agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)
+    )
+      return
     if (options.mayContinue?.(taskId) === false) return
     applying.add(taskId)
     try {
@@ -288,9 +300,13 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
     const resolution = await workflow(find(task.id))
     const env = leadEnv(task, entries(task, resolution))
-    const pickUp = await agentChangeNote(task, run, agent)
+    const unread = store.runMessages(run.id).filter((message) => message.queued === true)
+    const pickUp = await agentChangeNote(task, run, agent, unread)
     await runs.stop(run.id)
     await launch(task, resolution, env, undefined, { pickUp })
+    if (find(task.id).leadRunId === run.id) return
+    for (const message of unread) store.deleteRunMessage(run.id, message.id)
+    await store.persisted()
   }
 
   async function restartNow(taskId: string): Promise<void> {
