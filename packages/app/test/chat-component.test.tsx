@@ -504,3 +504,78 @@ test('live and saved conversations share Markdown while tool output stays litera
   expect(screen.getByRole('heading', { name: 'Progress' })).toBeTruthy()
   expect(screen.getByText('Ready').tagName).toBe('STRONG')
 })
+
+test('runs of tool calls fold into one row, the live run stays open and a search match opens its run', async () => {
+  const items: RunChat['items'] = [
+    { kind: 'agent', id: 'a1', text: 'Checking the lint first.' },
+    { kind: 'tool', id: 't1', tool: 'Bash', title: 'pnpm lint', status: 'done' },
+    {
+      kind: 'tool',
+      id: 't2',
+      tool: 'Edit',
+      title: 'sync.ts',
+      status: 'done',
+      diffs: [{ path: 'sync.ts', additions: 3, deletions: 1, lines: [] }],
+    },
+    {
+      kind: 'tool',
+      id: 't3',
+      tool: 'Bash',
+      title: 'pnpm typecheck',
+      status: 'failed',
+      output: 'sync.ts(4,2): type error',
+    },
+    { kind: 'agent', id: 'a2', text: 'Running the tests.' },
+    { kind: 'tool', id: 't4', tool: 'Read', title: 'sync.test.ts', status: 'done' },
+    { kind: 'tool', id: 't5', tool: 'Bash', title: 'pnpm vitest', status: 'running' },
+  ]
+  let chat: RunChat = { run: lead, items }
+  const api = bridge({ getRunChat: () => chat })
+  const view = render(<Conversation runId="r1" />)
+  const done = await screen.findByRole('button', { name: /^3 tool calls/ })
+  expect(done.textContent).toBe('3 tool calls2 commands, 1 edit+3−11 failed')
+  expect(done.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByText('pnpm lint')).toBeNull()
+  const live = screen.getByRole('button', { name: /^2 tool calls/ })
+  expect(live.getAttribute('aria-expanded')).toBe('true')
+  expect(within(live).getByText('1 running')).toBeTruthy()
+  expect(screen.getByText('pnpm vitest')).toBeTruthy()
+
+  await user().click(done)
+  expect(done.getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByText('pnpm lint')).toBeTruthy()
+
+  await act(async () => {
+    chat = {
+      run: lead,
+      items: [
+        ...items.slice(0, -1),
+        { kind: 'tool', id: 't5', tool: 'Bash', title: 'pnpm vitest', status: 'done' },
+        { kind: 'agent', id: 'a3', text: 'Tests pass.' },
+      ],
+    }
+    api.emit({ type: 'run-output', runId: 'r1' })
+  })
+  await screen.findByText('Tests pass.')
+  expect(screen.getByRole('button', { name: /^2 tool calls/ }).getAttribute('aria-expanded')).toBe(
+    'false',
+  )
+  expect(screen.queryByText('pnpm vitest')).toBeNull()
+  expect(screen.getByRole('button', { name: /^3 tool calls/ }).getAttribute('aria-expanded')).toBe(
+    'true',
+  )
+
+  view.unmount()
+  render(<Conversation runId="r1" inspect matchItemId="t3" />)
+  const match = required(
+    (await screen.findByText('pnpm typecheck')).closest<HTMLElement>('[data-chat-item]'),
+  )
+  expect(match.dataset.chatItem).toBe('t3')
+  expect(within(match).getByText('sync.ts(4,2): type error').tagName).toBe('PRE')
+  expect(screen.getByRole('button', { name: /^3 tool calls/ }).getAttribute('aria-expanded')).toBe(
+    'true',
+  )
+  expect(screen.getByRole('button', { name: /^2 tool calls/ }).getAttribute('aria-expanded')).toBe(
+    'false',
+  )
+})
