@@ -140,7 +140,8 @@ describe('Follow up', () => {
     expect(followUp.followUpOf).toEqual({ id: done.id, displayId: done.displayId })
     expect(followUp.priority).toBe('high')
     expect(followUp.stage).not.toBe('backlog')
-    expect(followUp.description).toContain('Also export the tags.')
+    expect(followUp.title).toBe(never())
+    expect(followUp.description).toBe('Also export the tags.')
 
     const running = await waitFor(
       client,

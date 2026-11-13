@@ -75,7 +75,7 @@ const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
 const bytes = (text: string) => new TextEncoder().encode(text)
 
 describe('creating a Task from the New Task dialog', () => {
-  test('a blank title takes the description’s first line', async () => {
+  test('a blank title takes the description’s first line out of the description', async () => {
     const { client } = await withFactory()
 
     const task = await client.createTask({
@@ -85,7 +85,17 @@ describe('creating a Task from the New Task dialog', () => {
     })
 
     expect(task.title).toBe('Search ignores accents')
-    expect(task.description).toBe('Search ignores accents  \nTyping “cafe” should find “Café”.')
+    expect(task.description).toBe('Typing “cafe” should find “Café”.')
+    expect((await client.taskDescriptions(task.id)).map((v) => v.text)).toEqual([
+      'Typing “cafe” should find “Café”.',
+    ])
+
+    const titled = await client.createTask({
+      factory: 'NB',
+      title: 'Accents',
+      description: 'Search ignores accents\nTyping “cafe” should find “Café”.',
+    })
+    expect(titled.description).toBe('Search ignores accents\nTyping “cafe” should find “Café”.')
   })
 
   test('a Task needs a title or a description', async () => {

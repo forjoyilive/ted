@@ -377,6 +377,7 @@ import {
   splitApprovedSummary,
 } from './split.ts'
 import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
+import { titleFromText } from './task-title.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
 import {
   noEarlierFindingRefusal,
@@ -7536,8 +7537,7 @@ export function createTasks(options: {
     refuseOpen()
     intakeUnchanged()
     const task = await store.createTask({
-      title: input.title?.trim() || firstLine(text) || `Follow-up to ${original.displayId}`,
-      description: text,
+      ...followUpText(input.title, text, original.displayId),
       priority: original.priority,
       lead,
       factoryId: original.factoryId,
@@ -9008,8 +9008,9 @@ export function createTasks(options: {
       refuseTracked()
       const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
       const linearFiles = await storedFiles(issue?.files ?? [])
-      const name =
-        title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
+      const given = title?.trim() || issue?.title
+      const fromText = given ? undefined : titleFromText(fields.description ?? '')
+      const name = given || fromText?.title || sourceUrl || ''
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
       const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
       const parentFor = () => {
@@ -9048,7 +9049,9 @@ export function createTasks(options: {
       const parent = parentFor()
       const task = await store.createTask({
         ...fields,
-        ...(fields.description !== undefined && { description: fields.description.trim() }),
+        ...(fields.description !== undefined && {
+          description: fromText?.title ? fromText.description : fields.description.trim(),
+        }),
         ...(linearFiles.length > 0 && {
           attachments: withoutRepeats([...(fields.attachments ?? []), ...linearFiles]),
         }),
@@ -9284,8 +9287,7 @@ export function createTasks(options: {
         original.lead ??
         leadFrom((await taskWorkflow(original, { fetch: false })).workflow.settings)
       const task = await store.createTask({
-        title: firstLine(text) || `Follow-up to ${original.displayId}`,
-        description: text,
+        ...followUpText(undefined, text, original.displayId),
         priority: original.priority,
         lead,
         factoryId: original.factoryId,
@@ -10654,6 +10656,17 @@ function answerText(comment: Comment): string | undefined {
     return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
   }
   return undefined
+}
+
+function followUpText(
+  title: string | undefined,
+  text: string,
+  displayId: string,
+): { title: string; description: string } {
+  const given = title?.trim()
+  if (given) return { title: given, description: text }
+  const split = titleFromText(text)
+  return split.title ? split : { title: `Follow-up to ${displayId}`, description: text }
 }
 
 function firstLine(text: string): string {
