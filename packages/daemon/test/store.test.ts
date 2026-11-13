@@ -176,6 +176,44 @@ describe('TedStore', () => {
     }
   })
 
+  test('a load or disk hold sends again only the Tasks waiting for a slot', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const queued = await store.createTask({ title: 'Queued' })
+      const reviewing = await store.createTask({ title: 'Reviewing' })
+      await store.createTask({ title: 'Idle' })
+      store.queueTask(queued.id, 'intake')
+      store.requestSubAgent({
+        id: 'child',
+        taskId: reviewing.id,
+        parentRunId: 'lead',
+        name: 'Reviewer',
+        agent: 'claude',
+        prompt: '',
+        ownWorktree: false,
+      })
+      const seen: Task[] = []
+      store.subscribe((event) => {
+        if (event.type === 'task-updated') seen.push(event.task)
+      })
+      store.holdForLoad(true)
+      expect(seen.map((task) => task.id).sort()).toEqual([queued.id, reviewing.id].sort())
+      expect(seen.find((task) => task.id === queued.id)?.status).toMatchObject({
+        kind: 'queued',
+        hold: expect.any(String),
+      })
+      seen.length = 0
+      store.holdNewWork('disk full')
+      expect(seen.map((task) => task.id).sort()).toEqual([queued.id, reviewing.id].sort())
+      expect(seen.find((task) => task.id === queued.id)?.status).toMatchObject({
+        kind: 'queued',
+        hold: 'disk full',
+      })
+    } finally {
+      await store.close()
+    }
+  })
+
   test('queued work and start holds count once and disappear as real Runs start', async () => {
     const store = await openStore({ directory: dir })
     try {

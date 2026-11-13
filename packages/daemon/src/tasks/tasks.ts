@@ -416,6 +416,7 @@ export interface CreateTaskInput
   parent?: string
   attachments?: Attachment[]
   start?: boolean
+  startInBackground?: boolean
 }
 
 export interface WorktreeAccess {
@@ -6711,6 +6712,13 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
+  async function queueAndAnswer(ref: string): Promise<Task> {
+    const task = live(ref)
+    autoStartFailures.delete(task.id)
+    if (await queueStart(task.id)) void pump()
+    return publicTask(task.id)
+  }
+
   async function queueStart(
     ref: string,
     version?: number,
@@ -8454,6 +8462,7 @@ export function createTasks(options: {
         factory: givenKey,
         blockedBy = [],
         start: startNow,
+        startInBackground,
         lead,
         source: sourceUrl,
         sentryId,
@@ -8577,7 +8586,8 @@ export function createTasks(options: {
       }
       if (!resolution || unmergedBlockers(task.id).length > 0) return task
       const hasBacklog = resolution.workflow.stages.includes('backlog')
-      return hasBacklog && startNow !== true ? task : start(task.id)
+      if (hasBacklog && startNow !== true) return task
+      return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
     },
 
     async setUpFactory(factoryId) {

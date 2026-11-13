@@ -397,6 +397,7 @@ function NewTaskForm({
         attachments: attachments.map(({ hash, name, mediaType }) => ({ hash, name, mediaType })),
         ...(source && { source: source.url }),
         start,
+        startInBackground: true,
       })
       created = true
       session.consumed(revision)
