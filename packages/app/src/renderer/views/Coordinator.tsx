@@ -1,4 +1,4 @@
-import type { Coordinator, Factory, TaskLead } from '@ted/protocol'
+import type { Coordinator, Factory, MessageBox, TaskLead } from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
@@ -9,6 +9,7 @@ import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { useCoordinatorChatState, useCoordinatorState } from '../data.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Coordinator.module.css'
@@ -41,7 +42,8 @@ export function CoordinatorView({
   const coordinator = resource.value
   const chatResource = useCoordinatorChatState(factory.id, coordinator?.runIds ?? [])
   const chat = chatResource.value
-  const [text, setText] = useState('')
+  const box: MessageBox = { kind: 'coordinator', id: factory.id }
+  const { setText } = useMessageDraft(box)
   const [lead, setLead] = useState<TaskLead>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -101,12 +103,12 @@ export function CoordinatorView({
               chat && <span className={styles.meta}>{runMeta(chat.run)}</span>
             )}
             {status === 'failed' && (
-              <Button size="small" disabled={busy} onClick={() => retry()}>
+              <Button disabled={busy} onClick={() => retry()}>
                 Retry
               </Button>
             )}
             {coordinator && (
-              <Button size="small" disabled={busy} onClick={() => setResetting(true)}>
+              <Button disabled={busy} onClick={() => setResetting(true)}>
                 New conversation
               </Button>
             )}
@@ -121,7 +123,7 @@ export function CoordinatorView({
               <p>
                 I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.
               </p>
-              <Button size="small" onClick={() => setText('What should we work on next?')}>
+              <Button onClick={() => setText('What should we work on next?')}>
                 What should we work on next?
               </Button>
             </div>
@@ -133,8 +135,7 @@ export function CoordinatorView({
               endedPlaceholder={placeholder}
               help={help}
               interrupt={false}
-              value={text}
-              onValue={setText}
+              box={box}
               send={(message) => ted.messageCoordinator(factory.id, { text: message, ...lead })}
               stopTurn={() => ted.stopCoordinator(factory.id)}
             />
@@ -171,6 +172,7 @@ export function CoordinatorView({
               live: status !== 'failed',
               working: status === 'working' || status === 'queued' || status === 'paused',
               interrupt: false,
+              box,
               send: (message) => ted.messageCoordinator(factory.id, { text: message }),
               stopTurn: () => ted.stopCoordinator(factory.id),
             }}

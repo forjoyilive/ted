@@ -54,10 +54,7 @@ export function AsanaGroup() {
       .finally(() => setBusy(false))
   }
   return (
-    <SettingsGroup
-      label="Asana"
-      help="Connect one account for this installation. Import and synchronization will follow separately. Agents never receive your credentials."
-    >
+    <SettingsGroup setting="app.integrations.asana">
       {confirmation && (
         <Dialog onClose={() => setConfirmation(undefined)}>
           {(headingId) => (
@@ -67,11 +64,8 @@ export function AsanaGroup() {
               </h2>
               <p className={dialogStyles.body}>{confirmation.text}</p>
               <div className={dialogStyles.buttons}>
-                <Button size="small" onClick={() => setConfirmation(undefined)}>
-                  Cancel
-                </Button>
+                <Button onClick={() => setConfirmation(undefined)}>Cancel</Button>
                 <Button
-                  size="small"
                   variant="danger"
                   onClick={() => {
                     const work = confirmation.work
@@ -106,9 +100,7 @@ export function AsanaGroup() {
             permissions to 0600, import it below, then delete the temporary file. TED keeps the
             secret and refresh credentials in your OS keyring.
           </p>
-          <Button size="small" onClick={() => void ted.openAsanaSetup()}>
-            Asana setup instructions ↗
-          </Button>
+          <Button onClick={() => void ted.openAsanaSetup()}>Asana setup instructions ↗</Button>
         </details>
         <p role="status" className={styles.explain}>
           {status?.state === 'authorizing'
@@ -128,7 +120,6 @@ export function AsanaGroup() {
         )}
         <div className={own.controls}>
           <Button
-            size="small"
             disabled={busy || status?.state === 'authorizing'}
             onClick={() =>
               status?.configured
@@ -143,17 +134,12 @@ export function AsanaGroup() {
             Import app configuration
           </Button>
           {status?.storageProblem === 'no-keyring' && (
-            <Button
-              size="small"
-              disabled={busy}
-              onClick={() => act(() => ted.importAsanaConfiguration(true))}
-            >
+            <Button disabled={busy} onClick={() => act(() => ted.importAsanaConfiguration(true))}>
               Import and store in a private file
             </Button>
           )}
           {status?.configured && status.state !== 'authorizing' && (
             <Button
-              size="small"
               variant="primary"
               disabled={busy}
               onClick={() =>
@@ -170,23 +156,22 @@ export function AsanaGroup() {
             </Button>
           )}
           {status?.state === 'authorizing' && (
-            <Button size="small" disabled={busy} onClick={() => act(ted.cancelAsana)}>
+            <Button disabled={busy} onClick={() => act(ted.cancelAsana)}>
               Cancel authorization
             </Button>
           )}
           {status?.user && (
             <>
-              <Button size="small" disabled={busy} onClick={() => act(ted.testAsana)}>
+              <Button disabled={busy} onClick={() => act(ted.testAsana)}>
                 Test connection
               </Button>
-              <Button size="small" disabled={busy} onClick={() => act(ted.disconnectAsana)}>
+              <Button disabled={busy} onClick={() => act(ted.disconnectAsana)}>
                 Disconnect
               </Button>
             </>
           )}
           {status?.configured && (
             <Button
-              size="small"
               variant="danger"
               disabled={busy}
               onClick={() =>

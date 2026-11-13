@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { shortReference } from '@ted/protocol/reference'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import { createPeers, type Peers } from '../src/tasks/peers.ts'
@@ -145,7 +146,7 @@ test('message and attributed Comment are atomic, replay-safe and survive a daemo
   })
   const wrappedBody = store.getComment(sent.id)?.body
   expect(wrappedBody).toContain('Peer message from DEV-1')
-  expect(wrappedBody).toContain(`(Run ${sent.senderRunId})`)
+  expect(wrappedBody).toContain(`(Run ${shortReference(sent.senderRunId)})`)
   expect(wrappedBody).toMatch(/<<<PEER ([\w-]+)>>>\n.*\n<<<END PEER \1>>>/s)
   expect(posted).toEqual([store.getComment(sent.id)])
   expect(store.listComments(recipient)[0]?.peer).toEqual({ sender: 'DEV-1', text: input.text })
@@ -244,13 +245,24 @@ test('size, backlog and lifecycle limits prevent unbounded or obsolete coordinat
   )
 })
 
-test('production snapshots read the Task list once, and details do not rebuild it', async () => {
-  for (let i = 0; i < 30; i++) await store.createTask({ title: `Extra peer ${i}` })
+test('snapshots build only this Factory’s Tasks, and details build one peer', async () => {
+  const factory = store.createFactory({
+    key: 'OTHER',
+    name: 'Other',
+    repos: [],
+    defaultBranch: 'main',
+    showTutorial: false,
+  })
+  for (let i = 0; i < 12; i++) {
+    await store.createTask({ factoryId: factory.id, title: `Other Factory ${i}` })
+  }
   const reads = vi.spyOn(store, 'listTasks')
-  peers.list(caller)
-  expect(reads).toHaveBeenCalledTimes(1)
-  reads.mockClear()
+  let builds = store.taskBuilds()
+  expect(peers.list(caller).tasks.map((t) => t.id)).toEqual([recipient])
+  expect(store.taskBuilds() - builds).toBe(2)
+  builds = store.taskBuilds()
   peers.show(caller, recipient)
+  expect(store.taskBuilds() - builds).toBe(2)
   expect(reads).not.toHaveBeenCalled()
 })
 
@@ -264,7 +276,7 @@ test('watch ignores raw output and other Factories, and coalesces relevant updat
   })
   const other = await store.createTask({ factoryId: factory.id, title: 'Unrelated peer' })
   const cursor = peers.list(caller).cursor
-  const reads = vi.spyOn(store, 'listTasks')
+  const reads = vi.spyOn(store, 'tasksIn')
   const controller = new AbortController()
   const pending = peers.watch(caller, cursor, 1, controller.signal)
   try {

@@ -67,8 +67,7 @@ test('pairing review starts with no repo grants, requires identity confirmation,
     }),
   )
   const summary = screen.getByText('How connecting Macs works')
-  summary.focus()
-  await user().keyboard('{Enter}')
+  await user().click(summary)
   expect(summary.closest('details')?.open).toBe(true)
 })
 

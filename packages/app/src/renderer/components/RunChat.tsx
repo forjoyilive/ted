@@ -1,10 +1,11 @@
 // Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/
 // ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
 // grouping of calls, and Edit rows that expand to their diff.
-import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
+import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
 import { memo, type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChatState } from '../data.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { conversationRows } from '../task-conversations.ts'
@@ -99,7 +100,6 @@ function RunBar({
       {live && (
         <>
           <Button
-            size="small"
             disabled={busy || run.state === 'working'}
             title={run.state === 'working' ? 'Restart works when the Run is idle' : undefined}
             onClick={() => act(() => ted.restartRun(run.id))}
@@ -108,7 +108,6 @@ function RunBar({
           </Button>
           {run.role === 'lead' && run.current ? (
             <Button
-              size="small"
               disabled={onStopTask === undefined}
               title={onStopTask === undefined ? 'Stopping a Task isn’t available yet' : undefined}
               onClick={onStopTask}
@@ -116,7 +115,7 @@ function RunBar({
               Stop Task
             </Button>
           ) : (
-            <Button size="small" disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
+            <Button disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
               Stop Run
             </Button>
           )}
@@ -554,6 +553,7 @@ export interface ChatOptions {
   interrupt?: false
   send?: (text: string) => Promise<unknown>
   stopTurn?: () => Promise<unknown>
+  box?: MessageBox
 }
 
 function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }) {
@@ -571,6 +571,7 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       }
       endedNote={options.endedNote}
       interrupt={options.interrupt !== false}
+      box={options.box ?? { kind: 'run', id: run.id }}
       send={
         options.send ??
         ((text, interrupt) => ted.sendRunMessage(run.id, text, { interrupt: interrupt && working }))
@@ -589,8 +590,7 @@ export function Composer({
   help,
   endedNote,
   interrupt = true,
-  value,
-  onValue,
+  box,
   send: sendText,
   stopTurn: stopRequest,
 }: {
@@ -602,14 +602,12 @@ export function Composer({
   help: string
   endedNote?: string | undefined
   interrupt?: boolean
-  value?: string
-  onValue?: (text: string) => void
+  box?: MessageBox | undefined
   send: (text: string, interrupt: boolean) => Promise<unknown>
   stopTurn: () => Promise<unknown>
 }) {
-  const [own, setOwn] = useState('')
-  const text = value ?? own
-  const setText = onValue ?? setOwn
+  const draft = useMessageDraft(box)
+  const { text, setText } = draft
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [interrupting, setInterrupting] = useState(false)
@@ -623,7 +621,7 @@ export function Composer({
     setError(undefined)
     try {
       await sendText(text, interrupting)
-      setText('')
+      draft.clear()
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -668,7 +666,6 @@ export function Composer({
       <div className={styles.buttons}>
         {live && (
           <Button
-            size="small"
             className={styles.stopTurn}
             aria-label="Stop the turn"
             title="Stop the turn without sending"
@@ -680,7 +677,6 @@ export function Composer({
         )}
         {live && interrupt && (
           <Button
-            size="small"
             shortcut="⌘↵"
             disabled={sending || !typed || !working}
             pending={sending && interrupting}
@@ -691,7 +687,6 @@ export function Composer({
         )}
         <Button
           variant="primary"
-          size="small"
           shortcut="↵"
           title={working ? 'Queues the message for the agent’s next step' : undefined}
           disabled={sending || !typed || !live}

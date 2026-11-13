@@ -1,5 +1,5 @@
 import type { TaskFileContent, TaskFileRef } from '@ted/protocol'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useConnection } from '../data.ts'
 import { openInEditor } from '../editor.ts'
 import { readableError, ted } from '../ted.ts'
@@ -14,10 +14,11 @@ export function FileView({
   backLabel = '← Task Lead',
 }: {
   taskId: string
-  file: TaskFileRef
+  file: TaskFileRef & { line?: number }
   onBack: () => void
   backLabel?: string
 }) {
+  const target = useRef<HTMLSpanElement>(null)
   const [content, setContent] = useState<TaskFileContent>()
   const [error, setError] = useState<string>()
   const [revision, setRevision] = useState(0)
@@ -47,6 +48,10 @@ export function FileView({
       window.removeEventListener('focus', load)
     }
   }, [taskId, file.repo, file.path, revision, epoch])
+  const shown = content?.kind === 'text'
+  useEffect(() => {
+    if (shown && file.line !== undefined) target.current?.scrollIntoView({ block: 'center' })
+  }, [shown, file.line])
   const lines =
     content?.kind === 'text'
       ? content.text.split('\n').map((text, index) => ({ number: index + 1, text }))
@@ -54,18 +59,17 @@ export function FileView({
   return (
     <section className={styles.pane} aria-label="File contents">
       <header className={styles.header}>
-        <Button variant="quiet" size="small" onClick={onBack}>
+        <Button variant="quiet" onClick={onBack}>
           {backLabel}
         </Button>
         <div className={styles.toolbar}>
           <span className={styles.path}>
             {file.repo} / {file.path}
           </span>
-          <Button size="small" variant="quiet" onClick={() => setRevision((r) => r + 1)}>
+          <Button variant="quiet" onClick={() => setRevision((r) => r + 1)}>
             Refresh
           </Button>
           <Button
-            size="small"
             variant="quiet"
             disabled={content?.kind !== 'text'}
             onClick={() => {
@@ -94,7 +98,11 @@ export function FileView({
       ) : content.kind === 'text' ? (
         <pre className={styles.content}>
           {lines.map((line) => (
-            <span className={styles.line} key={line.number}>
+            <span
+              className={styles.line}
+              key={line.number}
+              {...(line.number === file.line && { ref: target, 'data-target': true })}
+            >
               <span aria-hidden className={styles.number}>
                 {line.number}
               </span>

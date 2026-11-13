@@ -163,7 +163,11 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
       {view && draft && loaded && (
         <>
           <section className={styles.group} aria-labelledby="library-workflow">
-            <h2 id="library-workflow" className={styles.groupLabel}>
+            <h2
+              id="library-workflow"
+              className={styles.groupLabel}
+              data-setting="app.library.workflow"
+            >
               Workflow
             </h2>
             <div className={`${sections.table} ${sections.workflowTable}`}>
@@ -217,7 +221,11 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
           </section>
 
           <section className={styles.group} aria-labelledby="library-stage-files">
-            <h2 id="library-stage-files" className={styles.groupLabel}>
+            <h2
+              id="library-stage-files"
+              className={styles.groupLabel}
+              data-setting="app.library.stage-files"
+            >
               Stage files
             </h2>
             <div className={sections.table}>
@@ -269,7 +277,6 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
           <span>{unsavedLibraryLine(count)}</span>
           <span className={base.spacer} />
           <Button
-            size="small"
             disabled={saving}
             onClick={() => {
               setDraft(loaded)
@@ -283,7 +290,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
           >
             Discard
           </Button>
-          <Button size="small" variant="primary" disabled={saving} onClick={() => save()}>
+          <Button variant="primary" disabled={saving} onClick={() => save()}>
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </footer>
@@ -413,16 +420,8 @@ function StageLine({
         <span className={sections.actions}>
           {row.id === 'backlog' && <span className={sections.always}>Always first</span>}
           {row.id === 'done' && <span className={sections.always}>Always last</span>}
-          {agent && file === null && (
-            <Button size="small" onClick={onOverride}>
-              Override in Library
-            </Button>
-          )}
-          {agent && file !== null && (
-            <Button size="small" onClick={onReset}>
-              Reset to default
-            </Button>
-          )}
+          {agent && file === null && <Button onClick={onOverride}>Override in Library</Button>}
+          {agent && file !== null && <Button onClick={onReset}>Reset to default</Button>}
         </span>
       </div>
       {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}

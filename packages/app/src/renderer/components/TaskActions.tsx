@@ -1,6 +1,6 @@
 import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
-import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
+import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useState } from 'react'
 import { keysFor } from '../keymap.ts'
 import { usePendingAction } from '../pending-action.ts'
@@ -9,6 +9,7 @@ import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '..
 import { readableError, ted } from '../ted.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
 import { ActionButton } from './ActionButton.tsx'
+import { useEnabledAgents } from './AgentOptions.tsx'
 import {
   ArchiveDialog,
   archiveTaskEvent,
@@ -16,6 +17,8 @@ import {
   deleteTaskEvent,
   FollowUpDialog,
   followUpTaskEvent,
+  ResetDialog,
+  resetTaskEvent,
 } from './ArchiveDialogs.tsx'
 import menuStyles from './ContextMenu.module.css'
 import { buttonPosition, ContextMenu, type MenuPosition, MenuSubmenu } from './ContextMenu.tsx'
@@ -87,9 +90,11 @@ function Choice({
   label,
   checked,
   onChoose,
+  disabled,
 }: {
   label: string
   checked: boolean
+  disabled?: boolean
   onChoose: () => void
 }) {
   return (
@@ -97,6 +102,7 @@ function Choice({
       type="button"
       role="menuitemradio"
       aria-checked={checked}
+      disabled={disabled}
       className={styles.item}
       onClick={onChoose}
     >
@@ -108,7 +114,7 @@ function Choice({
   )
 }
 
-export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up' | 'snooze'
+export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up' | 'reset' | 'snooze'
 
 export function TaskDialog({
   task,
@@ -125,6 +131,7 @@ export function TaskDialog({
   if (kind === 'snooze') return <SnoozeTaskDialog task={task} onClose={close} />
   if (kind === 'archive') return <ArchiveDialog task={task} onClose={close} />
   if (kind === 'edit') return <EditTaskDialog task={task} onClose={close} />
+  if (kind === 'reset') return <ResetDialog task={task} onClose={close} />
   if (kind === 'delete') {
     return <DeleteDialog task={task} onClose={close} onArchiveInstead={() => onKind('archive')} />
   }
@@ -154,6 +161,7 @@ export function TaskActionsMenu({
   onFollowedUp?: (followUp: Task) => void
   onOpenBrief?: (() => void) | undefined
 }) {
+  const enabledAgents = useEnabledAgents()
   const [position, setPosition] = useState<MenuPosition>()
   const open = position !== undefined
   const close = () => {
@@ -187,6 +195,16 @@ export function TaskActionsMenu({
         setDialog('delete')
       }
     }
+    const onReset = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        event.detail === task.id &&
+        resetRefusal(task) === undefined
+      ) {
+        close()
+        setDialog('reset')
+      }
+    }
     const onFollowUp = (event: Event) => {
       if (event instanceof CustomEvent && event.detail === task.id && task.stage === 'done') {
         close()
@@ -208,17 +226,20 @@ export function TaskActionsMenu({
     window.addEventListener(archiveTaskEvent, onArchive)
     window.addEventListener(editTaskEvent, onEdit)
     window.addEventListener(deleteTaskEvent, onDelete)
+    window.addEventListener(resetTaskEvent, onReset)
     window.addEventListener(followUpTaskEvent, onFollowUp)
     return () => {
       window.removeEventListener(snoozeTaskEvent, onSnooze)
       window.removeEventListener(archiveTaskEvent, onArchive)
       window.removeEventListener(editTaskEvent, onEdit)
       window.removeEventListener(deleteTaskEvent, onDelete)
+      window.removeEventListener(resetTaskEvent, onReset)
       window.removeEventListener(followUpTaskEvent, onFollowUp)
     }
-  }, [task.id, task.archived, task.stage, contextOnly])
+  }, [task, contextOnly])
 
   const action = statusAction(task)
+  const refusal = resetRefusal(task)
   const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
   const [restarting, setRestarting] = useState(false)
   const linear = task.source?.linear
@@ -228,7 +249,10 @@ export function TaskActionsMenu({
     setError(undefined)
     return activity.run(work)?.then(
       () => close(),
-      (failure: unknown) => setError(readableError(failure)),
+      (failure: unknown) => {
+        close()
+        setError(readableError(failure))
+      },
     )
   }
 
@@ -413,7 +437,7 @@ export function TaskActionsMenu({
                   type="button"
                   role="menuitem"
                   className={styles.item}
-                  title="Restores normal Backlog behavior. Automatic starts or Autopilot may start it immediately."
+                  title="Restores normal Backlog behavior. Automatic starts may start it immediately."
                   onClick={() => act(() => ted.setTaskSnooze(task.id, null))}
                 >
                   <span className={styles.label}>Cancel snooze</span>
@@ -434,20 +458,23 @@ export function TaskActionsMenu({
           </Submenu>
           {task.stage !== 'done' && (
             <Submenu label="Task Lead" hint={task.lead ? leadSummary(task.lead) : 'Default'}>
-              {agentKinds.map((agent) => (
-                <Choice
-                  key={agent}
-                  label={agentLabels[agent]}
-                  checked={task.lead?.agent === agent}
-                  onChoose={() =>
-                    act(() =>
-                      task.lead?.agent === agent
-                        ? Promise.resolve()
-                        : ted.setTaskLead(task.id, { agent }),
-                    )
-                  }
-                />
-              ))}
+              {agentKinds
+                .filter((agent) => enabledAgents.includes(agent) || task.lead?.agent === agent)
+                .map((agent) => (
+                  <Choice
+                    key={agent}
+                    label={`${agentLabels[agent]}${enabledAgents.includes(agent) ? '' : ' · Off — new Runs wait'}`}
+                    disabled={!enabledAgents.includes(agent)}
+                    checked={task.lead?.agent === agent}
+                    onChoose={() =>
+                      act(() =>
+                        task.lead?.agent === agent
+                          ? Promise.resolve()
+                          : ted.setTaskLead(task.id, { agent }),
+                      )
+                    }
+                  />
+                ))}
             </Submenu>
           )}
           {task.stage !== 'done' &&
@@ -546,6 +573,28 @@ export function TaskActionsMenu({
             </>
           )}
           <hr className={styles.separator} />
+          {refusal === undefined && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => choose('reset')}
+            >
+              <span className={styles.label}>Reset…</span>
+            </ActionButton>
+          )}
+          {refusal === 'merged' && (
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              aria-disabled
+              title="A pull request has merged, so this Task can’t be reset."
+            >
+              <span className={styles.label}>Reset…</span>
+              <span className={styles.hint}>A pull request has merged</span>
+            </button>
+          )}
           <ActionButton
             type="button"
             role="menuitem"

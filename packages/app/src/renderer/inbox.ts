@@ -1,4 +1,12 @@
-import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
+import type {
+  AutomationRequest,
+  Comment,
+  Factory,
+  InboxItem,
+  PlanInboxItem,
+  StageId,
+} from '@ted/protocol'
+import { stageName, stageOrder } from './list-view.ts'
 
 export interface InboxChip {
   factoryId?: string
@@ -64,4 +72,102 @@ export function nextSelection<T extends { request: { id: string } }>(
     now[0] ??
     null
   )
+}
+
+export const inboxGroupings = ['none', 'kind', 'age', 'stage'] as const
+
+export type InboxGrouping = (typeof inboxGroupings)[number]
+
+export const inboxGroupingLabels: Record<InboxGrouping, string> = {
+  none: 'None',
+  kind: 'Kind',
+  age: 'Age',
+  stage: 'Stage',
+}
+
+export type InboxKind = 'blocking' | 'question' | 'signoff'
+
+export interface Grouped {
+  kind: InboxKind
+  at: string
+  stage?: StageId | undefined
+}
+
+export interface InboxGroup<T> {
+  key: string
+  label: string
+  rows: T[]
+  old?: true
+}
+
+export function requestKind(
+  request: Pick<Comment, 'kind' | 'failed' | 'purpose' | 'gate'>,
+): InboxKind {
+  const purpose = request.purpose?.kind
+  if (
+    request.kind === 'permission' ||
+    request.failed !== undefined ||
+    purpose === 'failure' ||
+    purpose === 'failed-run'
+  ) {
+    return 'blocking'
+  }
+  if (
+    request.kind === 'signoff' ||
+    request.kind === 'review' ||
+    request.gate !== undefined ||
+    purpose === 'gate'
+  ) {
+    return 'signoff'
+  }
+  return 'question'
+}
+
+const kindHeadings: readonly (readonly [InboxKind, string])[] = [
+  ['blocking', 'Blocking a Run'],
+  ['question', 'Questions'],
+  ['signoff', 'Sign-offs'],
+]
+
+export function groupInbox<T extends { grouped: Grouped }>(
+  rows: readonly T[],
+  grouping: InboxGrouping,
+  now: number,
+): InboxGroup<T>[] {
+  if (grouping === 'none') return rows.length ? [{ key: 'all', label: '', rows: [...rows] }] : []
+  const pick = (
+    headings: readonly (readonly [string, string])[],
+    keyOf: (row: T) => string,
+  ): InboxGroup<T>[] =>
+    headings
+      .map(([key, label]) => ({ key, label, rows: rows.filter((row) => keyOf(row) === key) }))
+      .filter((group) => group.rows.length > 0)
+  if (grouping === 'kind') return pick(kindHeadings, (row) => row.grouped.kind)
+  if (grouping === 'stage') {
+    const known = (row: T) => {
+      const stage = row.grouped.stage
+      return stage !== undefined && stageOrder.includes(stage) ? stage : 'none'
+    }
+    return pick(
+      [...stageOrder.map((stage) => [stage, stageName(stage)] as const), ['none', 'No Stage']],
+      known,
+    )
+  }
+  const day = new Date(now)
+  day.setHours(0, 0, 0, 0)
+  const today = day.getTime()
+  day.setDate(day.getDate() - 6)
+  const week = day.getTime()
+  const bucket = (row: T) => {
+    const at = Date.parse(row.grouped.at)
+    return at >= today ? 'today' : at >= week ? 'week' : 'older'
+  }
+  return pick(
+    [
+      ['today', 'Today'],
+      ['week', 'Earlier this week'],
+      ['older', 'Older'],
+    ],
+    bucket,
+  ).map((group) => (group.key === 'older' ? { ...group, old: true as const } : group))
 }

@@ -31,3 +31,31 @@ kbd,
 pre {
   font-family: var(--font-mono);
 }
+
+@keyframes setting-found-inside {
+  0%,
+  55% {
+    background-color: var(--accent-subtle);
+    box-shadow: inset 0 0 0 1.5px var(--accent-default);
+  }
+}
+
+@keyframes setting-found-around {
+  0%,
+  55% {
+    background-color: var(--accent-subtle);
+    box-shadow:
+      0 0 0 4px var(--accent-subtle),
+      0 0 0 5.5px var(--accent-default);
+  }
+}
+
+[data-setting][data-found] {
+  border-radius: 8px;
+  animation: setting-found-inside 2.2s ease-out;
+}
+
+[data-setting][data-found='around'] {
+  border-radius: 4px;
+  animation-name: setting-found-around;
+}

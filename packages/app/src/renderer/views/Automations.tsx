@@ -156,7 +156,7 @@ function Breadcrumb({
         {count !== undefined && count > 0 && <span className={styles.crumbCount}>{count}</span>}
       </h1>
       <span className={views.headerSpacer} />
-      <Button variant="primary" size="small" onClick={onNew}>
+      <Button variant="primary" onClick={onNew}>
         New Automation
       </Button>
     </header>
@@ -407,7 +407,6 @@ export function AutomationsEmpty({
             <p className={styles.cardText}>{template.summary}</p>
             <span className={styles.cardSchedule}>{templateScheduleText(template.schedule)}</span>
             <Button
-              size="small"
               aria-label={`Use template: ${template.name}`}
               onClick={() => onNew(template.id)}
             >
@@ -419,9 +418,7 @@ export function AutomationsEmpty({
           <h3 className={styles.cardTitle}>Blank</h3>
           <p className={styles.cardText}>Write your own prompt and schedule.</p>
           <span className={styles.cardSchedule}>Pick a schedule</span>
-          <Button size="small" onClick={() => onNew('blank')}>
-            Start blank
-          </Button>
+          <Button onClick={() => onNew('blank')}>Start blank</Button>
         </li>
       </ul>
     </div>
@@ -685,7 +682,6 @@ export function AutomationView({
             </h1>
             <span className={views.headerSpacer} />
             <Button
-              size="small"
               disabled={activity.pending}
               pending={activity.pending && activity.label === 'Run now'}
               onClick={() =>
@@ -694,11 +690,10 @@ export function AutomationView({
             >
               Run now
             </Button>
-            <Button size="small" disabled={activity.pending} onClick={() => onEdit(automation)}>
+            <Button disabled={activity.pending} onClick={() => onEdit(automation)}>
               Edit
             </Button>
             <Button
-              size="small"
               aria-label="Automation actions"
               aria-expanded={menu.isOpen}
               aria-haspopup="menu"
@@ -956,7 +951,6 @@ export function QuestionCard({
       <div className={styles.questionButtons}>
         <Button
           variant="primary"
-          size="small"
           shortcut="↵"
           disabled={busy || !ready}
           pending={busy}
@@ -1090,9 +1084,7 @@ export function AutomationRunView({
             {runChip(run, open.length > 0)}
             <span className={views.headerSpacer} />
             {run.state !== 'finished' && (
-              <Button size="small" onClick={() => act(() => ted.stopRun(run.id), setError)}>
-                Stop
-              </Button>
+              <Button onClick={() => act(() => ted.stopRun(run.id), setError)}>Stop</Button>
             )}
           </div>
           <p className={styles.line}>

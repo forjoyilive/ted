@@ -138,9 +138,7 @@ function CommandLine({
   return (
     <div className={styles.command}>
       <code className={styles.code}>{command}</code>
-      <Button size="small" onClick={onCopy}>
-        Copy
-      </Button>
+      <Button onClick={onCopy}>Copy</Button>
       {children}
     </div>
   )
@@ -195,10 +193,8 @@ function AgentRow({
         meta={join(health.version, health.path)}
         below={
           <div className={styles.buttons}>
-            <Button size="small" onClick={() => onBilling('api-key')}>
-              Use API-key billing
-            </Button>
-            <Button size="small" onClick={() => onBilling('subscription')}>
+            <Button onClick={() => onBilling('api-key')}>Use API-key billing</Button>
+            <Button onClick={() => onBilling('subscription')}>
               Sign in with a subscription instead
             </Button>
           </div>
@@ -228,9 +224,7 @@ function AgentRow({
         below={
           fix && (
             <CommandLine command={fix.command} onCopy={() => actions.copy(fix.command)}>
-              <Button size="small" onClick={onFix}>
-                Open Terminal
-              </Button>
+              <Button onClick={onFix}>Open Terminal</Button>
             </CommandLine>
           )
         }
@@ -315,17 +309,13 @@ function GitHubRow({
         below={
           cli.fix &&
           ('url' in cli.fix ? (
-            <Button size="small" onClick={() => onFix('gh-install')}>
-              {cli.fix.label}
-            </Button>
+            <Button onClick={() => onFix('gh-install')}>{cli.fix.label}</Button>
           ) : (
             <CommandLine
               command={cli.fix.command}
               onCopy={() => actions.copy(cli.fix && 'command' in cli.fix ? cli.fix.command : '')}
             >
-              <Button size="small" onClick={() => onFix('gh-install')}>
-                Open Terminal
-              </Button>
+              <Button onClick={() => onFix('gh-install')}>Open Terminal</Button>
             </CommandLine>
           ))
         }
@@ -411,17 +401,13 @@ function GitRow({
         below={
           git.fix &&
           ('url' in git.fix ? (
-            <Button size="small" onClick={() => onFix('git-install')}>
-              {git.fix.label}
-            </Button>
+            <Button onClick={() => onFix('git-install')}>{git.fix.label}</Button>
           ) : (
             <CommandLine
               command={git.fix.command}
               onCopy={() => actions.copy(git.fix && 'command' in git.fix ? git.fix.command : '')}
             >
-              <Button size="small" onClick={() => onFix('git-install')}>
-                Open Terminal
-              </Button>
+              <Button onClick={() => onFix('git-install')}>Open Terminal</Button>
             </CommandLine>
           ))
         }

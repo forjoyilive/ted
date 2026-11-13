@@ -1,6 +1,5 @@
 import type {
   ArchivedFilter,
-  AutopilotChoice,
   Factory,
   ListColumn,
   ListFilters,
@@ -9,6 +8,7 @@ import type {
   ListView,
   MachineSettings,
   Priority,
+  RunSlots,
   StatusFilter,
   Task,
 } from '@ted/protocol'
@@ -24,8 +24,6 @@ import {
   useState,
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
-import dialogStyles from '../components/ArchiveDialogs.module.css'
-import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { AutopilotLabel } from '../components/Autopilot.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
@@ -33,7 +31,7 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
-import { Select } from '../components/Select.tsx'
+import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
@@ -64,13 +62,12 @@ import {
   viewFor,
   viewKey,
 } from '../list-view.ts'
-import { usePendingAction } from '../pending-action.ts'
 import { age, useNow } from '../requests.ts'
+import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
 import { activeSubAgentCount } from '../sub-agents.ts'
-import { statusAction } from '../task-actions.ts'
 import { priorityLabels } from '../task-fields.ts'
-import { readableError, ted } from '../ted.ts'
+import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import styles from './TaskList.module.css'
 import views from './views.module.css'
@@ -156,12 +153,7 @@ export function MenuButton({
   const ref = usePopover(open, close)
   return (
     <div ref={ref} className={styles.menuAnchor}>
-      <Button
-        size="small"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
+      <Button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {icon}
         {label}
         {badge !== undefined && badge > 0 && <span className={styles.badge}>{badge}</span>}
@@ -198,7 +190,7 @@ function Submenu({
   )
 }
 
-function CheckItem({
+export function CheckItem({
   label,
   checked,
   disabled,
@@ -436,7 +428,7 @@ export function FilterIcon() {
   )
 }
 
-function DisplayIcon() {
+export function DisplayIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <rect x="1.75" y="2.75" width="10.5" height="8.5" rx="1.5" stroke="currentColor" />
@@ -474,6 +466,7 @@ export function TaskList({
   onPlan,
   banners,
   capLine,
+  slots,
 }: {
   scope: string
   title: string
@@ -487,6 +480,7 @@ export function TaskList({
   onPlan?: () => void
   banners?: ReactNode
   capLine?: string | undefined
+  slots?: RunSlots | undefined
 }) {
   const now = useNow()
   const allTasks = isAllTasks(scope)
@@ -499,25 +493,12 @@ export function TaskList({
   }, [savedKey])
   const [text, setText] = useState('')
   const collapse = useListCollapsed(scope, view.group)
-  const [selected, setSelected] = useState<string[]>([])
-  const [autopilotBusy, setAutopilotBusy] = useState(false)
-  const [autopilotResult, setAutopilotResult] = useState<string>()
-  const [anchor, setAnchor] = useState<string>()
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
   const [spot, setSpot] = useState<DropSpot>()
-  const [confirmArchive, setConfirmArchive] = useState(false)
-  const [prepareNotice, setPrepareNotice] = useState(false)
-  const [noticeSeen, setNoticeSeen] = useState(false)
-  const [preparing, setPreparing] = useState(false)
-  const [prepareError, setPrepareError] = useState<string>()
-  const [closePullRequests, setClosePullRequests] = useState(true)
-  const [priorityOpen, setPriorityOpen] = useState(false)
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
 
   useEffect(() => {
     void scope
-    setSelected([])
-    setAnchor(undefined)
     setText('')
   }, [scope])
 
@@ -547,6 +528,7 @@ export function TaskList({
   ].join(' ')
   const chips = filterChips(view.filters, factories)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
+  const { selected, setSelected, anchor, setAnchor, toggle } = useSelection(ordered, scope)
   const chosen = tasks.filter((t) => selected.includes(t.id))
 
   function select(task: Task, event: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) {
@@ -555,8 +537,7 @@ export function TaskList({
       return true
     }
     if (event.metaKey || event.ctrlKey) {
-      setSelected((current) => toggled(current, task.id))
-      setAnchor(task.id)
+      toggle(task.id)
       return true
     }
     return false
@@ -578,9 +559,6 @@ export function TaskList({
         setSelected(selectionRange(ordered, start, next.id))
       }
       rowRefs.current.get(next.id)?.focus()
-    } else if (event.key === 'Escape' && selected.length > 0) {
-      event.preventDefault()
-      setSelected([])
     }
   }
 
@@ -700,6 +678,7 @@ export function TaskList({
         )}
         data-task={task.displayId}
         data-nav-item
+        {...selectionTarget(task.displayId)}
         className={[
           styles.row,
           isSelected ? styles.selected : '',
@@ -740,13 +719,11 @@ export function TaskList({
           <input
             type="checkbox"
             className={styles.selectionCheckbox}
+            data-selection-box
             aria-label={`Select ${task.displayId}`}
             checked={isSelected}
             onClick={(event) => event.stopPropagation()}
-            onChange={() => {
-              setSelected((current) => toggled(current, task.id))
-              setAnchor(task.id)
-            }}
+            onChange={() => toggle(task.id)}
           />
         </td>
         {queueMode && (
@@ -795,87 +772,14 @@ export function TaskList({
     return items
   }
 
-  const startable = chosen.filter((t) => t.stage === 'backlog' && !t.statuses.includes('blocked'))
-  const preparable = startable.filter((t) => !t.archived && !t.setup)
-  const resumable = chosen.filter((t) => statusAction(t)?.kind === 'resume')
-  const archivable = chosen.filter((t) => !t.archived)
-  const openPullRequests = archivable.flatMap((t) =>
-    t.repos.flatMap((r) =>
-      r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
-        ? [`${r.repo}#${r.pullRequest.number}`]
-        : [],
-    ),
-  )
-
-  const bulkActivity = usePendingAction(`bulk-tasks:${scope}`)
-  async function setAutopilot(choice: AutopilotChoice) {
-    const eligible = chosen.filter((t) => !t.archived && t.stage !== 'done')
-    setAutopilotBusy(true)
-    setAutopilotResult(undefined)
-    const failed: string[] = []
-    const errors: string[] = []
-    try {
-      for (const task of eligible) {
-        try {
-          await ted.setTaskAutopilot(task.id, { choice })
-        } catch (error) {
-          failed.push(task.id)
-          errors.push(`${task.displayId}: ${readableError(error)}`)
-        }
-      }
-      setAutopilotResult(
-        `Updated ${eligible.length - failed.length} Tasks. ${chosen.length - eligible.length} finished or archived Tasks skipped.${errors.length ? ` ${errors.join(' · ')}` : ''}`,
-      )
-      if (failed.length) setSelected(failed)
-    } finally {
-      setAutopilotBusy(false)
-    }
-  }
-
-  async function bulk(action: (task: Task) => Promise<unknown>, on: readonly Task[]) {
-    return bulkActivity.run(() => Promise.all(on.map((task) => action(task).catch(report))))
-  }
-
-  async function prepareTasks() {
-    setPreparing(true)
-    setPrepareError(undefined)
-    try {
-      if (!settings?.preparationNoticeSeen && !noticeSeen) {
-        await ted.updateSettings({ preparationNoticeSeen: true })
-        setNoticeSeen(true)
-      }
-      const failures = await Promise.all(
-        preparable.map(async (task) => {
-          try {
-            await ted.startTask(task.id, { prepare: true })
-            return undefined
-          } catch (error) {
-            return `${task.displayId}: ${readableError(error)}`
-          }
-        }),
-      )
-      const errors = failures.filter((error) => error !== undefined)
-      if (errors.length > 0) setPrepareError(errors.join('\n'))
-      else setPrepareNotice(false)
-    } catch (error) {
-      setPrepareError(readableError(error))
-    } finally {
-      setPreparing(false)
-    }
-  }
-
   function empty() {
     if (inScope.length === 0) {
       return (
         <EmptyState title="No Tasks yet">
-          <Button variant="primary" size="small" onClick={onNewTask}>
+          <Button variant="primary" onClick={onNewTask}>
             New Task
           </Button>
-          {onPlan && (
-            <Button size="small" onClick={onPlan}>
-              Plan
-            </Button>
-          )}
+          {onPlan && <Button onClick={onPlan}>Plan</Button>}
         </EmptyState>
       )
     }
@@ -885,7 +789,6 @@ export function TaskList({
     return (
       <EmptyState title="No Tasks match these filters">
         <Button
-          size="small"
           onClick={() => {
             setText('')
             return changeFilters({})
@@ -901,17 +804,6 @@ export function TaskList({
     <section
       className={`${views.pane} ${styles.listPane} ${chosen.length > 0 ? styles.selecting : ''}`}
       aria-label={title}
-      onKeyDown={(event) => {
-        if (
-          event.key === 'Escape' &&
-          chosen.length > 0 &&
-          !document.querySelector('dialog[open], [role="menu"]')
-        ) {
-          setSelected([])
-          setConfirmArchive(false)
-          setPriorityOpen(false)
-        }
-      }}
     >
       <header className={views.header}>
         <h1 className={views.title}>
@@ -939,12 +831,8 @@ export function TaskList({
         <MenuButton label="Display" icon={<DisplayIcon />}>
           {() => <DisplayMenu view={view} onChange={change} />}
         </MenuButton>
-        {onPlan && (
-          <Button size="small" onClick={onPlan}>
-            Plan
-          </Button>
-        )}
-        <Button size="small" variant="primary" onClick={onNewTask}>
+        {onPlan && <Button onClick={onPlan}>Plan</Button>}
+        <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
           New Task
         </Button>
@@ -1049,6 +937,7 @@ export function TaskList({
                         <input
                           type="checkbox"
                           className={styles.selectionCheckbox}
+                          data-selection-box
                           aria-label={`Select all ${group.label} Tasks`}
                           aria-checked={
                             group.tasks.some((t) => selected.includes(t.id)) &&
@@ -1102,184 +991,14 @@ export function TaskList({
           </table>
         </div>
       )}
-      {chosen.length > 0 && (
-        <div className={styles.selectionBar} role="toolbar" aria-label="Selected Tasks">
-          <fieldset
-            disabled={bulkActivity.pending || preparing || autopilotBusy}
-            className={styles.selectionControls}
-          >
-            <span className={styles.selectionCount}>{chosen.length} selected</span>
-            <Select
-              aria-label="Autopilot for selected Tasks"
-              value=""
-              disabled={autopilotBusy || !chosen.some((t) => !t.archived && t.stage !== 'done')}
-              onChange={(event) => {
-                if (event.target.value) void setAutopilot(event.target.value as AutopilotChoice)
-              }}
-            >
-              <option value="" disabled>
-                {autopilotBusy ? 'Updating Autopilot…' : 'Autopilot…'}
-              </option>
-              <option value="on">Autopilot on</option>
-              <option value="off">Autopilot off</option>
-              <option value="inherit">Use global setting</option>
-            </Select>
-            <small>
-              Turning on also handles waiting routine requests. Start and Resume stay separate.
-            </small>
-            <Button
-              size="small"
-              disabled={startable.length === 0}
-              onClick={() => bulk((t) => ted.startTask(t.id), startable).catch(report)}
-            >
-              {startable.length === chosen.length || startable.length === 0
-                ? 'Start'
-                : `Start ${startable.length}`}
-            </Button>
-            <Button
-              size="small"
-              disabled={preparable.length === 0 || preparing}
-              title="Runs through Design, then waits before Work. Resume or Autopilot lets it continue."
-              onClick={() => {
-                if (settings?.preparationNoticeSeen || noticeSeen) return prepareTasks()
-                else {
-                  setNoticeSeen(true)
-                  setPrepareNotice(true)
-                  return ted
-                    .updateSettings({ preparationNoticeSeen: true })
-                    .catch((error: unknown) => setPrepareError(readableError(error)))
-                }
-              }}
-            >
-              {preparable.length === chosen.length || preparable.length === 0
-                ? 'Prepare through Design'
-                : `Prepare through Design ${preparable.length}`}
-            </Button>
-            {resumable.length > 0 && (
-              <Button
-                size="small"
-                onClick={() => bulk((task) => ted.resumeTask(task.id), resumable).catch(report)}
-              >
-                {resumable.length === chosen.length ? 'Resume' : `Resume ${resumable.length}`}
-              </Button>
-            )}
-            <div className={styles.menuAnchor}>
-              <Button
-                size="small"
-                aria-haspopup="menu"
-                aria-expanded={priorityOpen}
-                onClick={() => setPriorityOpen((o) => !o)}
-              >
-                Priority
-              </Button>
-              {priorityOpen && (
-                <div
-                  className={`${styles.menu} ${styles.upward}`}
-                  role="menu"
-                  aria-label="Priority"
-                >
-                  {priorities.map((priority) => (
-                    <ActionButton
-                      key={priority}
-                      type="button"
-                      role="menuitem"
-                      className={styles.menuItem}
-                      onClick={() => {
-                        return bulk((t) => ted.setPriority(t.id, priority), archivable)
-                          .then(() => setPriorityOpen(false))
-                          .catch(report)
-                      }}
-                    >
-                      <PriorityIcon priority={priority} />
-                      <span className={styles.menuLabel}>
-                        {priority === 'none' ? 'No priority' : priorityLabels[priority]}
-                      </span>
-                    </ActionButton>
-                  ))}
-                </div>
-              )}
-            </div>
-            {confirmArchive && openPullRequests.length > 0 && (
-              <label className={styles.closePullRequests} title={openPullRequests.join(', ')}>
-                <input
-                  type="checkbox"
-                  checked={closePullRequests}
-                  onChange={(event) => setClosePullRequests(event.target.checked)}
-                />
-                {`Close ${openPullRequests.length === 1 ? 'the pull request' : `${openPullRequests.length} pull requests`} on GitHub`}
-              </label>
-            )}
-            {confirmArchive ? (
-              <Button
-                size="small"
-                variant="primary"
-                onClick={() => {
-                  const close = closePullRequests && openPullRequests.length > 0
-                  return bulk(
-                    (t) => ted.archiveTask(t.id, { closePullRequests: close }),
-                    archivable,
-                  )
-                    .then(() => {
-                      setSelected([])
-                      setConfirmArchive(false)
-                    })
-                    .catch(report)
-                }}
-              >
-                {`Archive ${archivable.length} ${archivable.length === 1 ? 'Task' : 'Tasks'}`}
-              </Button>
-            ) : (
-              <Button
-                size="small"
-                disabled={archivable.length === 0}
-                onClick={() => setConfirmArchive(true)}
-              >
-                Archive
-              </Button>
-            )}
-          </fieldset>
-        </div>
-      )}
-      {autopilotResult && <p role="status">{autopilotResult}</p>}
-      {prepareError && (
-        <p role="alert" className={dialogStyles.error}>
-          {prepareError}
-        </p>
-      )}
-      {prepareNotice && (
-        <Dialog onClose={() => !preparing && setPrepareNotice(false)}>
-          {(headingId) => (
-            <>
-              <h2 id={headingId} className={dialogStyles.heading}>
-                Prepare through Design
-              </h2>
-              <p className={dialogStyles.body}>
-                Settle questions and review designs now. Each Task enters Work and waits before
-                implementation starts.
-              </p>
-              <p className={dialogStyles.body}>
-                Answer questions and approve sign-offs as usual. Resume prepared Tasks individually
-                or in bulk, or turn on Autopilot to let them continue.
-              </p>
-              {settings?.overnightMode && (
-                <p className={dialogStyles.body}>
-                  Autopilot is on, so these Tasks can continue into Work as soon as Design finishes.
-                </p>
-              )}
-              <div className={dialogStyles.buttons}>
-                <Button disabled={preparing} onClick={() => setPrepareNotice(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  disabled={preparing || preparable.length === 0}
-                  onClick={() => prepareTasks()}
-                >{`Prepare ${preparable.length} ${preparable.length === 1 ? 'Task' : 'Tasks'}`}</Button>
-              </div>
-            </>
-          )}
-        </Dialog>
-      )}
+      <SelectionBar
+        scope={scope}
+        chosen={chosen}
+        allTasks={tasks}
+        slots={slots}
+        settings={settings}
+        onSelect={setSelected}
+      />
     </section>
   )
 }

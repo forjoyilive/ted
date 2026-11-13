@@ -10,6 +10,7 @@ import type {
   ValidationObligations,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
+import { shortReference } from '@ted/protocol/reference'
 import { expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, waitUntil } from './helpers.ts'
@@ -182,7 +183,7 @@ test('approved repair creation is idempotent, stops the Lead and retains failure
   })
   const brief = await s.client.ok<TaskBrief>('GET', `${s.root}/brief`)
   expect(brief.text).toContain(created.displayId)
-  expect(brief.text).toContain(s.failure.id)
+  expect(brief.text).toContain(shortReference(s.failure.id))
   expect((await s.resolve({ ...repair, title: 'Different repair' })).status).toBe(409)
 })
 

@@ -10,7 +10,7 @@ import type {
   Task,
   ValidationObligations,
 } from '@ted/protocol'
-import { failureChoices, validateFailureChoices } from '@ted/protocol'
+import { ciFailureLabel, failureChoices, validateFailureChoices } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -26,9 +26,13 @@ export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' 
 
 export const failureNoticeTitle = 'Failure acceptance invalidated'
 export const failureRefusedTitle = 'Failure acceptance refused'
+export const mergeFailureNoticeTitle = 'Merge Check failed'
+export const ciFailureNoticeTitle = 'CI failed at Merge'
 export const failureNoticeTitles: readonly (string | undefined)[] = [
   failureNoticeTitle,
   failureRefusedTitle,
+  mergeFailureNoticeTitle,
+  ciFailureNoticeTitle,
 ]
 
 const testedInputs = (context: FailureContext) =>
@@ -42,6 +46,23 @@ const testedInputs = (context: FailureContext) =>
 
 export const sameTested = (a: FailureContext, b: FailureContext) =>
   testedInputs(a) === testedInputs(b)
+
+const localInputs = (context: FailureContext) =>
+  JSON.stringify([
+    context.version,
+    context.repos.map(({ repo, head, tree, mergeBase }) => [repo, head, tree, mergeBase]),
+    context.checks,
+  ])
+
+export function sameTestedFor(source: FailureSource, a: FailureContext, b: FailureContext) {
+  if (source.kind !== 'github-ci') return sameTested(a, b)
+  const key = ciFailureKey(source)
+  return (
+    localInputs(a) === localInputs(b) &&
+    a.ciFailures?.includes(key) === true &&
+    b.ciFailures?.includes(key) === true
+  )
+}
 
 const otherChoices = (validation: boolean) =>
   validation
@@ -75,7 +96,10 @@ const assessmentWords: Record<AssessFailureRequest['assessment'], string> = {
 function whatFailed(value: FailureCase): string {
   const { source } = value
   if (source.kind === 'finding') return `Failed: ${source.finding}`
-  if (source.kind === 'github-ci') return `Failed: CI on ${source.repo}#${source.number}`
+  if (source.kind === 'github-ci') {
+    const label = ciFailureLabel(source, false)
+    return `Failed: ${label.startsWith('A ') ? `a ${label.slice(2)}` : label}`
+  }
   return `Failed: the ${value.originalCheck?.name ?? 'Factory'} Check`
 }
 
@@ -270,7 +294,7 @@ export function createFailureCases(options: {
   function verify(
     task: Task,
     current: FailureContext | null | undefined,
-    observedCi?: { value: string | null | undefined },
+    observedCi?: { value: string | null | undefined; failures?: readonly string[] },
   ) {
     current = verifiedContext(task, current)
     const values = store.failures.list(task.id)
@@ -309,12 +333,19 @@ export function createFailureCases(options: {
           : observedCi
             ? observedCi.value === null
               ? 'unknown'
-              : observedCi.value === context.ci
+              : // A CI case TED recorded at Merge is closed or replaced from the same read by
+                // the Tasks module, so a rerun must not first count as a changed context here.
+                (
+                    value.source.kind === 'github-ci'
+                      ? value.source.checkKey !== undefined ||
+                        observedCi.failures?.includes(ciFailureKey(value.source)) === true
+                      : observedCi.value === context.ci
+                  )
                 ? 'current'
                 : 'changed'
             : !current
               ? 'unknown'
-              : sameTested(current, context)
+              : sameTestedFor(value.source, current, context)
                 ? 'current'
                 : 'changed'
       if (resolution?.resolution === 'accepted' && !value.verifications?.length) {
@@ -465,7 +496,11 @@ export function createFailureCases(options: {
       ...(originalCheck && { originalCheck }),
       ...(context && { contextId: context.id }),
       createdAt: new Date().toISOString(),
-      ...(task.stage === 'validate' && { validation: true }),
+      ...((task.stage === 'validate' ||
+        (task.stage === 'merge' &&
+          (source.kind === 'post-rebase-check' || (source.kind === 'github-ci' && generated)))) && {
+        validation: true,
+      }),
       assessments: [],
       additions: [],
       decisions: [],
@@ -473,12 +508,19 @@ export function createFailureCases(options: {
       invalidations: [],
     }
     store.failures.save(value, 'recorded')
-    if (value.validation)
+    if (value.validation && value.source.kind === 'github-ci')
       store.postComment({
         taskId: task.id,
         author: { kind: 'ted' },
-        title: 'Validate failure recorded',
-        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in Validate for investigation. No send-back was recorded.`,
+        title: ciFailureNoticeTitle,
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in Merge for investigation. No send-back was recorded.\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with \`ted failure ask <id>\`. Retry means the user or GitHub’s CI reruns the job: never start a GitHub workflow yourself. TED closes this failure when a later attempt of the same check passes. Only the merge watcher can progress Merge; do not advance, merge or approve.`,
+      })
+    else if (value.validation)
+      store.postComment({
+        taskId: task.id,
+        author: { kind: 'ted' },
+        title: task.stage === 'merge' ? mergeFailureNoticeTitle : 'Validate failure recorded',
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in ${task.stage === 'merge' ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.${task.stage === 'merge' ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
       })
     await store.persisted()
     await options.onHold(task)
@@ -516,14 +558,25 @@ export function createFailureCases(options: {
     obligations,
     snapshot,
     forget: (taskId: string) => observations.delete(taskId),
-    async observeCi(task: Task, ci: string | null | undefined) {
+    recordCi(task: Task, runId: string, request: RecordFailureRequest, context: FailureContext) {
+      if (request.source.kind !== 'github-ci')
+        throw new RequestError(400, 'a CI failure needs a GitHub CI source')
+      if (!verifiedContext(task, context))
+        throw new RequestError(409, 'tested context was superseded during capture')
+      store.failures.capture(context)
+      return record(task, runId, { ...request, contextId: context.id }, true)
+    },
+    async observeCi(task: Task, ci: string | null | undefined, ciFailures?: readonly string[]) {
       const previous = observations.get(task.id)
       observations.set(task.id, {
         ci,
         generation: (previous?.generation ?? 0) + (previous && previous.ci !== ci ? 1 : 0),
       })
       if (store.failures.list(task.id).length === 0) return
-      const verification = verify(task, undefined, { value: ci })
+      const verification = verify(task, undefined, {
+        value: ci,
+        ...(ciFailures && { failures: ciFailures }),
+      })
       if (verification.invalidated.length > 0) await applyHold(task, verification)
     },
     async capture(task: Task, runId: string) {
@@ -542,7 +595,7 @@ export function createFailureCases(options: {
     },
     record,
     recordCheck(task: Task, runId: string, request: RecordFailureRequest) {
-      if (request.source.kind !== 'factory-check')
+      if (request.source.kind !== 'factory-check' && request.source.kind !== 'post-rebase-check')
         throw new RequestError(400, 'automatic evidence requires a stored Factory Check')
       return record(task, runId, request, true)
     },
@@ -622,7 +675,7 @@ export function createFailureCases(options: {
         )
       const bound = tested(task, assessment.contextId)
       const current = verifiedContext(task, observed)
-      const stale = !!bound && !!current && !sameTested(bound, current)
+      const stale = !!bound && !!current && !sameTestedFor(value.source, bound, current)
       if (stale && attachable(task, value, current))
         throw new RequestError(
           409,
@@ -641,11 +694,13 @@ export function createFailureCases(options: {
           `Recommendation: ${assessment.recommendation}`,
           why
             ? value.validation
-              ? `Retry runs the failed step again. Fix in this Task sends it back to Work. ${why}`
+              ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; TED never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
               : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
-            : value.validation
-              ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
-              : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
+            : value.validation && value.source.kind === 'github-ci'
+              ? 'Retry waits for the check to be rerun on GitHub; TED never starts it. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for this commit and this attempt of the check; it doesn’t count as passed, approve a merge or override a check GitHub requires.'
+              : value.validation
+                ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
+                : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
           `Failure ${shortReference(value.id)}`,
           'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
         ].join('\n\n'),
@@ -696,7 +751,7 @@ export function createFailureCases(options: {
             throw new RequestError(409, acceptRefusals.unknown)
           }
           if (!current) throw new RequestError(409, acceptRefusals.unverified)
-          if (!sameTested(context, current)) {
+          if (!sameTestedFor(value.source, context, current)) {
             refused = {
               value,
               why: 'the Task’s code, Checks or CI changed since the tested context this decision is bound to.',

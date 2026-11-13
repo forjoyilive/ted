@@ -91,6 +91,76 @@ test('Backlog cards show blocked explanations and only start available Tasks', a
   expect(document.querySelector('[data-task="NB-1"]')?.hasAttribute('data-nav-item')).toBe(true)
 })
 
+test('Display sets card size, card fields and columns, and saves them for the Factory', async () => {
+  const a = api()
+  a.handle('updateSettings', () => ({}))
+  render(
+    <Board
+      {...props()}
+      tasks={[
+        task({
+          markers: [{ kind: 'blocked-by', by: 'NB-9' }],
+          activity: 'Starts when NB-9 merges',
+        }),
+        task({
+          id: 'NB-2',
+          displayId: 'NB-2',
+          title: 'Export notes',
+          stage: 'work',
+          statuses: ['waiting-on-you'],
+          status: { kind: 'waiting-on-you' },
+          activity: 'Asked a question',
+        }),
+      ]}
+    />,
+  )
+  await screen.findByRole('region', { name: 'Review' })
+  expect(screen.queryByRole('button', { name: 'Plan' })).toBeNull()
+  const stagesShown = () =>
+    [...document.querySelectorAll('[data-stage]')].map((e) => e.getAttribute('aria-label'))
+  const card = (id: string) => {
+    const found = document.querySelector<HTMLElement>(`[data-task="${id}"]`)
+    if (!found) throw new Error(`Missing card ${id}`)
+    return within(found)
+  }
+  const u = user()
+  await u.click(screen.getByRole('button', { name: 'Display' }))
+  const item = (name: string) => screen.getByRole('menuitemcheckbox', { name: new RegExp(name) })
+
+  await u.click(item('Activity line'))
+  expect(screen.queryByText('Asked a question')).toBeNull()
+  expect(card('NB-1').getByText('Blocked by')).toBeTruthy()
+  await u.click(item('Blockers'))
+  expect(card('NB-1').queryByText('Blocked by')).toBeNull()
+
+  await u.click(screen.getByRole('menuitemradio', { name: 'Compact' }))
+  expect(card('NB-1').getByText('Blocked by')).toBeTruthy()
+  expect(screen.queryByText('Starts when NB-9 merges')).toBeNull()
+  expect(item('Activity line')).toHaveProperty('disabled', true)
+
+  await u.click(item('Work'))
+  expect(stagesShown()).toEqual(['Backlog', 'Intake', 'Review', 'Done'])
+  const hidden = within(screen.getByRole('complementary', { name: 'Hidden columns' }))
+  expect(hidden.getByTitle('Show Work').textContent).toBe('Work11 needs you')
+  expect(hidden.getByTitle('Show Work').hasAttribute('data-nav-item')).toBe(true)
+  await u.click(item('Hide empty columns'))
+  expect(stagesShown()).toEqual(['Backlog'])
+
+  await u.click(hidden.getByTitle('Show Work'))
+  expect(stagesShown()).toEqual(['Backlog', 'Work'])
+  expect(screen.queryByRole('complementary', { name: 'Hidden columns' })).toBeNull()
+  expect(a.request).toHaveBeenLastCalledWith('updateSettings', {
+    boardViews: {
+      f1: {
+        cardSize: 'compact',
+        fields: ['priority', 'sub-agents'],
+        hiddenStages: [],
+        hideEmpty: true,
+      },
+    },
+  })
+})
+
 test('Board filters matching nothing offer Clear filters', async () => {
   api()
   const p = props()
@@ -328,13 +398,13 @@ test('List and Board keep the user request beside purple running and neutral wai
   await screen.findByRole('region', { name: 'Work' })
   const verify = () => {
     expect(screen.getByText('Waiting on you')).toBeTruthy()
-    for (const label of ['Running Checks', 'Running tests']) {
+    for (const label of ['Running checks', 'Running tests']) {
       const chip = screen.getByText(label)
       expect(chip.className).toContain('testing')
       expect(chip.querySelector('svg')?.className.baseVal).toContain('spinning')
     }
     expect(screen.getByText('Waiting for tests').className).toContain('neutral')
-    expect(screen.getByText('Running Checks').title).toBe('Typecheck · 1 of 2 Checks')
+    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 Checks')
     expect(screen.getByText('Running tests').title).toBe('2 supported test commands running')
     expect(
       screen.getByText('Waiting for tests').querySelector('svg')?.className.baseVal,
@@ -380,7 +450,7 @@ test('List and Board keep the user request beside purple running and neutral wai
   const labels = (markers: TaskMarker[]) =>
     markers.filter((m) => m.kind === 'test-activity').map((m) => m.label)
   expect(labels(taskMarkers({ ...facts, checksWaiting: { place: 2 } }, current.status))).toEqual([
-    'Waiting for Checks',
+    'Waiting for checks',
     'Running tests',
     'Waiting for tests',
   ])
@@ -391,7 +461,7 @@ test('List and Board keep the user request beside purple running and neutral wai
         current.status,
       ),
     ),
-  ).toEqual(['Waiting for Checks'])
+  ).toEqual(['Waiting for checks'])
   expect(
     taskActivity({ ...facts, testActivity: { running: 0, waiting: 0, checksWaiting: true } }),
   ).toContain('shared test slot')
@@ -400,4 +470,88 @@ test('List and Board keep the user request beside purple running and neutral wai
   ).toEqual([])
   expect(labels(taskMarkers({ ...facts, stage: 'done' }, undefined))).toEqual([])
   expect(taskMarkers({ ...facts, archived: true }, undefined)).toEqual([])
+})
+
+test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s bar and menu', async () => {
+  const a = appState()
+  a.state.slots = { ...a.state.slots, working: 2 }
+  a.state.tasks = [
+    task({ title: 'One' }),
+    task({ id: 'NB-2', displayId: 'NB-2', number: 2, title: 'Two', rank: 2 }),
+    task({ id: 'NB-3', displayId: 'NB-3', number: 3, title: 'Three', rank: 3 }),
+    task({ id: 'NB-4', displayId: 'NB-4', number: 4, title: 'Four', stage: 'work', rank: 4 }),
+  ]
+  a.handle('factoryBoard', () => ({
+    stages: [
+      { id: 'backlog', enabled: true, gate: false },
+      { id: 'intake', enabled: true, gate: false },
+      { id: 'work', enabled: true, gate: false },
+      { id: 'done', enabled: true, gate: false },
+    ],
+  }))
+  a.handle('startTask', vi.fn())
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Board',
+    }),
+  )
+  await screen.findByRole('region', { name: 'Work' })
+  const card = (id: string) => {
+    const found = document.querySelector<HTMLElement>(`article[data-task="${id}"]`)
+    if (!found) throw new Error(`Missing card ${id}`)
+    return found
+  }
+  const title = (id: string) => {
+    const found = card(id).querySelector<HTMLElement>('[data-card-title]')
+    if (!found) throw new Error(`Missing title of ${id}`)
+    return found
+  }
+  const picked = () =>
+    [...document.querySelectorAll('article[data-selected]')].map((e) => e.getAttribute('data-task'))
+
+  fireEvent.click(title('NB-1'), { metaKey: true })
+  fireEvent.click(screen.getByRole('button', { name: 'Start NB-2' }), { metaKey: true })
+  expect(picked()).toEqual(['NB-1', 'NB-2'])
+  expect(a.request.mock.calls.some(([name]) => name === 'startTask')).toBe(false)
+  const search = screen.getByRole('searchbox', { name: 'Filter by ID or title' })
+  fireEvent.change(search, { target: { value: 'Two' } })
+  expect(picked()).toEqual(['NB-2'])
+  fireEvent.change(search, { target: { value: '' } })
+  expect(picked()).toEqual(['NB-2'])
+  fireEvent.click(title('NB-2'), { metaKey: true })
+  expect(picked()).toEqual([])
+
+  fireEvent.click(title('NB-1'), { metaKey: true })
+  fireEvent.click(title('NB-3'), { shiftKey: true })
+  expect(picked()).toEqual(['NB-1', 'NB-2', 'NB-3'])
+  fireEvent.click(title('NB-4'), { shiftKey: true })
+  expect(picked()).toEqual(['NB-1', 'NB-2', 'NB-3', 'NB-4'])
+  const bar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
+  expect(bar.getByText('4 selected')).toBeTruthy()
+  expect(bar.getByRole('button', { name: 'Start 3' })).toBeTruthy()
+  expect(document.querySelector('[data-wait-line]')?.textContent).toBe(
+    '1 starts now, 2 wait for a Run slot',
+  )
+
+  fireEvent.pointerMove(card('NB-4'))
+  fireEvent.keyDown(window, { key: 'x' })
+  expect(picked()).toEqual(['NB-1', 'NB-2', 'NB-3'])
+
+  fireEvent.contextMenu(card('NB-2'), { clientX: 50, clientY: 80 })
+  const menu = await screen.findByRole('menu', { name: '3 selected Tasks' })
+  fireEvent.keyDown(menu, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: '3 selected Tasks' })).toBeNull()
+  expect(picked()).toHaveLength(3)
+
+  await u.click(bar.getByRole('button', { name: 'Start' }))
+  for (const id of ['NB-1', 'NB-2', 'NB-3']) expect(a.request).toHaveBeenCalledWith('startTask', id)
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(picked()).toEqual([])
+  expect(screen.queryByRole('toolbar', { name: 'Selected Tasks' })).toBeNull()
+
+  await u.click(title('NB-4'))
+  expect(await screen.findByRole('region', { name: 'Task thread' })).toBeTruthy()
 })

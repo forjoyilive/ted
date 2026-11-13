@@ -1,6 +1,7 @@
-import type { Attachment, CommentBox as BoxState, RunSummary, Task } from '@ted/protocol'
+import type { CommentBox as BoxState, RunSummary, Task } from '@ted/protocol'
 import { type ClipboardEvent, type DragEvent, useRef, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
@@ -34,17 +35,17 @@ export function CommentBox({
   hasLineComments?: boolean
   onFollowedUp?: (followUp: Task) => void
 }) {
-  const [text, setText] = useState('')
+  const state = task.commentBox
+  const draft = useMessageDraft(state === 'archived' ? undefined : { kind: 'comment', id: task.id })
+  const { text, setText, attachments: files, setAttachments: setFiles } = draft
   const [sending, setSending] = useState(false)
   const [submission, setSubmission] = useState<'comment' | 'resume' | 'follow-up' | 'interrupt'>()
   const submitting = useRef(false)
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
-  const [files, setFiles] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
-  const state = task.commentBox
   const direct =
     state === 'live' &&
     run !== undefined &&
@@ -125,8 +126,7 @@ export function CommentBox({
       } else {
         await ted.postComment(task.id, { body: text, attachments: refs })
       }
-      setText('')
-      setFiles([])
+      draft.clear()
       if (direct && run && (refs.length > 0 || hasLineComments) && interrupting && working) {
         try {
           await ted.interruptRun(run.id)
@@ -230,7 +230,6 @@ export function CommentBox({
         />
         {direct && run && (
           <Button
-            size="small"
             aria-label="Stop the turn"
             disabled={stopping || !working}
             onClick={async () => {
@@ -251,7 +250,6 @@ export function CommentBox({
         <span className={styles.spacer} />
         {direct && (
           <Button
-            size="small"
             shortcut="⌘↵"
             disabled={sending || !ready || !working}
             pending={sending && submission === 'interrupt'}

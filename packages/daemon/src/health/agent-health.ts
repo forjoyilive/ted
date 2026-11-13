@@ -94,6 +94,17 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   let closed = false
 
   const emit = (event: DaemonEvent) => options.emit?.(event)
+  const enabled = (kind: AgentKind) => store.settings().enabledAgents.includes(kind)
+  const retained = (kind: AgentKind) =>
+    store.listRuns().some((run) => run.agent === kind && run.state !== 'finished')
+  const placeholder = (kind: AgentKind): AgentHealth => ({
+    agent: kind,
+    minimumVersion: agents.get(kind).health.minimumVersion,
+    state: 'ready',
+    checkedAt: new Date(0).toISOString(),
+    pausedRuns: 0,
+  })
+  for (const kind of agentKinds) if (!enabled(kind)) inspected.set(kind, placeholder(kind))
   const announced = new Map<AgentKind, { shown: string; usageAt: number }>()
   const shownAs = (health: AgentHealth) =>
     JSON.stringify({ ...health, planUsage: health.planUsage && { ...health.planUsage, at: '' } })
@@ -196,6 +207,11 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   function showBanners(health: AgentHealth): void {
     const ref = { problem: agentProblem, subject: health.agent }
     const limitRef = { problem: usageLimitProblem, subject: health.agent }
+    if (!enabled(health.agent) && !retained(health.agent)) {
+      banners.clear(ref)
+      banners.clear(limitRef)
+      return
+    }
     const count = health.pausedRuns > 0 ? ` · ${runsPaused(health.pausedRuns)}` : ''
     if (health.state === 'usage-limit') {
       const resets =
@@ -247,7 +263,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const before = latest.get(kind)
     const health = compose(kind)
     if (!health) return undefined
-    store.pauseAgent(kind, health.reason)
+    store.pauseAgent(kind, !enabled(kind) && !retained(kind) ? undefined : health.reason)
     const counted = { ...health, pausedRuns: store.pausedRunCount(kind) }
     latest.set(kind, counted)
     showBanners(counted)
@@ -276,7 +292,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   function scheduleUsage(kind: AgentKind): void {
     clearTimeout(usageTimers.get(kind))
     usageTimers.delete(kind)
-    if (closed || !agents.get(kind).readPlanUsage) return
+    if (closed || !enabled(kind) || !agents.get(kind).readPlanUsage) return
     const resets = (usage.get(kind)?.windows ?? [])
       .flatMap((window) => (window.resetsAt ? [Date.parse(window.resetsAt)] : []))
       .filter((at) => at + resetMarginMs > Date.now())
@@ -301,6 +317,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const agent = agents.get(kind)
     if (
       closed ||
+      !enabled(kind) ||
       offline ||
       health.state !== 'ready' ||
       wrongKeys.has(kind) ||
@@ -360,9 +377,15 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   ): Promise<AgentHealth[]> {
     if (reloadEnv) {
       await environment.reload()
-      for (const kind of kinds) wrongKeys.delete(kind)
+      for (const kind of kinds) if (enabled(kind) || retained(kind)) wrongKeys.delete(kind)
     }
-    return Promise.all(kinds.map(checkOne))
+    return Promise.all(
+      kinds.map((kind) =>
+        enabled(kind) || (retained(kind) && store.agentPauses()[kind] !== undefined)
+          ? checkOne(kind)
+          : Promise.resolve(latest.get(kind) ?? placeholder(kind)),
+      ),
+    )
   }
 
   function stopWatching(kind: AgentKind): void {
@@ -441,10 +464,29 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     JSON.stringify([settings.billing, settings.antigravityPlanAccepted])
   let billedAs = billed(store.settings())
   // Before the first check finishes, queued work asks the store whether a kind is paused.
-  if (billing('antigravity') === 'subscription' && !store.settings().antigravityPlanAccepted)
+  if (
+    (enabled('antigravity') || retained('antigravity')) &&
+    billing('antigravity') === 'subscription' &&
+    !store.settings().antigravityPlanAccepted
+  )
     store.pauseAgent('antigravity', antigravityPlanNotice)
+  let enabledBefore = [...store.settings().enabledAgents]
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'settings-changed') {
+      const newlyEnabled = event.settings.enabledAgents.filter(
+        (kind) => !enabledBefore.includes(kind),
+      )
+      enabledBefore = [...event.settings.enabledAgents]
+      for (const kind of agentKinds) {
+        if (!enabled(kind)) {
+          if (!retained(kind)) stopWatching(kind)
+          clearTimeout(usageTimers.get(kind))
+          usageTimers.delete(kind)
+          publish(kind)
+        }
+      }
+      if (newlyEnabled.length)
+        void check(newlyEnabled).catch((error: unknown) => console.error(error))
       const display = JSON.stringify([event.settings.timeFormat, event.settings.timeZone])
       if (display !== displayedAs) {
         displayedAs = display
@@ -459,6 +501,8 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       void check().catch((error: unknown) => console.error('agent health check failed:', error))
       return
     }
+    if (event.type === 'run-updated' && event.run.state === 'finished' && !enabled(event.run.agent))
+      publish(event.run.agent)
     if (event.type !== 'task-updated') return
     for (const health of latest.values()) {
       if (health.state === 'ready') continue
@@ -492,9 +536,11 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   }
 
   return {
-    list: () => agentKinds.flatMap((kind) => latest.get(kind) ?? []),
+    list: () =>
+      agentKinds.flatMap((kind) => latest.get(kind) ?? (!enabled(kind) ? [placeholder(kind)] : [])),
     check,
     async ready(kind) {
+      if (!enabled(kind) && !retained(kind)) return false
       const known = latest.get(kind)
       const fresh =
         known?.state === 'ready' && Date.now() - Date.parse(known.checkedAt) < freshForMs

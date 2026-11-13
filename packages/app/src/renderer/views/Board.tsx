@@ -1,7 +1,20 @@
-import type { BoardStage, Factory, ListFilters, QueuedForSlot, StageId, Task } from '@ted/protocol'
+import type {
+  BoardField,
+  BoardStage,
+  BoardView,
+  Factory,
+  ListFilters,
+  MachineSettings,
+  QueuedForSlot,
+  RunSlots,
+  StageId,
+  Task,
+} from '@ted/protocol'
+import { boardCardSizes, boardFields } from '@ted/protocol/board-view'
 import {
   type DragEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -14,6 +27,8 @@ import {
   type BoardDrop,
   boardColumns,
   boardDrop,
+  boardLayout,
+  boardViewFor,
   builtInStages,
   canStart,
   cardActivity,
@@ -22,6 +37,7 @@ import {
   placeCard,
   startPlace,
   startStage,
+  withoutBlockers,
 } from '../board.ts'
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -29,18 +45,34 @@ import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
-import { ordinal, RunIcons } from '../components/TaskStatus.tsx'
+import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useConnection } from '../data.ts'
 import { boardEmpty } from '../empty-states.ts'
-import { activeFilterCount, filterChips, filterTasks, stageName } from '../list-view.ts'
+import {
+  activeFilterCount,
+  columnSelection,
+  filterChips,
+  filterTasks,
+  stageName,
+  toggled,
+} from '../list-view.ts'
 import { useNow } from '../requests.ts'
+import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
 import { ted } from '../ted.ts'
 import styles from './Board.module.css'
 import listStyles from './TaskList.module.css'
-import { FilterIcon, FilterMenu, MenuButton, usePopover } from './TaskList.tsx'
+import {
+  CheckItem,
+  DisplayIcon,
+  FilterIcon,
+  FilterMenu,
+  MenuButton,
+  usePopover,
+} from './TaskList.tsx'
 import { SetupPanel } from './TaskViews.tsx'
 import views from './views.module.css'
 
@@ -55,6 +87,19 @@ interface Target {
   stage: StageId
   drop: BoardDrop
   placement: Placement
+}
+
+const cardSizeLabels: Record<BoardView['cardSize'], string> = { full: 'Full', compact: 'Compact' }
+
+const fieldLabels: Record<BoardField, string> = {
+  priority: 'Priority',
+  activity: 'Activity line',
+  'sub-agents': 'Sub-agent count',
+  blockers: 'Blockers',
+}
+
+function without<T>(list: readonly T[], item: T): T[] {
+  return list.filter((other) => other !== item)
 }
 
 function report(error: unknown) {
@@ -105,6 +150,22 @@ function RefusedDrop({ x, y, dragging }: { x: number; y: number; dragging: Dragg
     <span ref={ref} className={styles.refused}>
       <RefusedIcon />
       Can’t drop here
+    </span>
+  )
+}
+
+function SelectedTick() {
+  return (
+    <span className={styles.tick}>
+      <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-hidden>
+        <path
+          d="M1.5 4.7 3.6 6.8 7.5 2.4"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </span>
   )
 }
@@ -182,6 +243,8 @@ export function Board({
   tasks,
   factories,
   queue,
+  slots,
+  settings,
   capLine,
   banners,
   filters,
@@ -198,6 +261,8 @@ export function Board({
   tasks: readonly Task[]
   factories: readonly Factory[]
   queue: readonly QueuedForSlot[]
+  slots?: RunSlots | undefined
+  settings?: MachineSettings | undefined
   capLine?: string | undefined
   banners?: ReactNode
   filters: ListFilters
@@ -222,6 +287,75 @@ export function Board({
   const [refused, setRefused] = useState<{ x: number; y: number }>()
   const chips = filterChips(filters, factories)
   const empty = boardEmpty(tasks, filters, text)
+  const saved = boardViewFor(settings?.boardViews, factoryId)
+  const [draft, setDraft] = useState<{ factoryId: string; view: BoardView }>()
+  const view = draft?.factoryId === factoryId ? draft.view : saved
+  const savedKey = JSON.stringify(saved)
+  useEffect(() => {
+    setDraft((current) =>
+      current && JSON.stringify(current.view) === savedKey ? undefined : current,
+    )
+  }, [savedKey])
+  const compact = view.cardSize === 'compact'
+  const shows = (field: BoardField) => !compact && view.fields.includes(field)
+  const isDragging = dragging !== undefined
+  const [dropsShown, setDropsShown] = useState(false)
+  // Chromium ends a drag when its source element moves during dragstart, so
+  // an empty column that takes the drop is drawn one tick later.
+  useEffect(() => {
+    if (!isDragging) {
+      setDropsShown(false)
+      return
+    }
+    const timer = setTimeout(() => setDropsShown(true), 0)
+    return () => clearTimeout(timer)
+  }, [isDragging])
+  const layout = boardLayout(
+    columns,
+    view,
+    dragging && dropsShown
+      ? (stage) => boardDrop(dragging.task, dragging.from, stage, start) !== undefined
+      : undefined,
+  )
+
+  function changeView(next: BoardView) {
+    setDraft({ factoryId, view: next })
+    ted.updateSettings({ boardViews: { ...settings?.boardViews, [factoryId]: next } }).catch(report)
+  }
+  const selectable = shown.filter((t) => !view.hiddenStages.includes(t.stage))
+  const { selected, setSelected, anchor, setAnchor, toggle, clear } = useSelection(
+    selectable,
+    factoryId,
+  )
+  const chosen = selectable.filter((t) => selected.includes(t.id))
+
+  const shownIds = selectable.map((t) => t.id).join('\n')
+  useEffect(() => {
+    const ids = new Set(shownIds.split('\n'))
+    setSelected((current) => {
+      const kept = current.filter((id) => ids.has(id))
+      return kept.length === current.length ? current : kept
+    })
+  }, [shownIds, setSelected])
+
+  function selectOnModifiedClick(event: MouseEvent<HTMLElement>, task: Task, column: BoardColumn) {
+    if (event.shiftKey) {
+      const inColumn = anchor !== undefined && column.tasks.some((t) => t.id === anchor)
+      setSelected(columnSelection(selected, column.tasks, anchor, task.id))
+      if (!inColumn) setAnchor(task.id)
+    } else if (event.metaKey || event.ctrlKey) toggle(task.id)
+    else return
+    event.stopPropagation()
+  }
+
+  function onCardClick(event: MouseEvent<HTMLElement>, task: Task) {
+    if (!(event.target as HTMLElement).closest('button[data-card-title]')) return
+    clear()
+    onOpen(task)
+  }
+
+  const menuFor = (task: Task) =>
+    selected.includes(task.id) && chosen.length > 1 ? chosen.map((t) => t.id) : [task.id]
 
   function endDrag() {
     setDragging(undefined)
@@ -310,16 +444,26 @@ export function Board({
   function card(task: Task, column: BoardColumn) {
     const activity = cardActivity(task, now)
     const startable = canStart(task) && start !== undefined
+    const isSelected = selected.includes(task.id)
     return (
       <article
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
-        {...contextMenu((at) => openTaskActions(at, [task.id]))}
+        {...contextMenu((at) => openTaskActions(at, menuFor(task)))}
         data-task={task.displayId}
         data-nav-item
+        data-selected={isSelected || undefined}
+        {...selectionTarget(task.displayId)}
         tabIndex={-1}
         onKeyDown={(event) => openOnEnter(event, task)}
-        className={`${styles.card} ${dragging?.task.id === task.id ? styles.dragged : ''}`}
+        onClickCapture={(event) => selectOnModifiedClick(event, task, column)}
+        onClick={(event) => onCardClick(event, task)}
+        className={[
+          styles.card,
+          compact ? styles.compact : '',
+          dragging?.task.id === task.id ? styles.dragged : '',
+          isSelected ? styles.selected : '',
+        ].join(' ')}
         draggable={!task.archived}
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = 'move'
@@ -331,53 +475,80 @@ export function Board({
         }}
         onDragEnd={endDrag}
       >
-        <span className={styles.cardTop}>
-          <PriorityIcon priority={task.priority} />
-          <span className={styles.cardId}>{task.displayId}</span>
-          <span className={styles.cardEnd}>
-            {startable ? (
+        {compact ? (
+          <>
+            <span className={styles.compactTop}>
+              <span className={styles.cardId}>{task.displayId}</span>
               <button
                 type="button"
-                className={styles.start}
-                aria-label={`Start ${task.displayId}`}
-                title="Start"
-                onClick={() => {
-                  startTask(task).catch(report)
-                }}
+                data-card-title
+                className={`${styles.cardTitle} ${styles.compactTitle}`}
               >
-                <PlayIcon />
+                {task.title}
               </button>
-            ) : (
-              <RunIcons runs={task.runs} stacked />
+              {isSelected && <SelectedTick />}
+            </span>
+            <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+          </>
+        ) : (
+          <>
+            <span className={styles.cardTop}>
+              {shows('priority') && <PriorityIcon priority={task.priority} />}
+              <span className={styles.cardId}>{task.displayId}</span>
+              <span className={styles.cardEnd}>
+                {isSelected && <SelectedTick />}
+                {startable ? (
+                  <button
+                    type="button"
+                    className={styles.start}
+                    aria-label={`Start ${task.displayId}`}
+                    title="Start"
+                    onClick={() => {
+                      startTask(task).catch(report)
+                    }}
+                  >
+                    <PlayIcon />
+                  </button>
+                ) : (
+                  <RunIcons runs={task.runs} stacked />
+                )}
+              </span>
+            </span>
+            <button type="button" data-card-title className={styles.cardTitle}>
+              {task.title}
+            </button>
+            <TaskStatusWithSubAgents
+              task={shows('blockers') ? task : withoutBlockers(task)}
+              subAgents={shows('sub-agents')}
+              onOpenTask={onOpenTask}
+            />
+            {shows('activity') && activity !== undefined && (
+              <span className={styles.cardActivity}>{activity}</span>
             )}
-          </span>
-        </span>
-        <button type="button" className={styles.cardTitle} onClick={() => onOpen(task)}>
-          {task.title}
-        </button>
-        <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
-        {activity !== undefined && <span className={styles.cardActivity}>{activity}</span>}
+          </>
+        )}
       </article>
     )
   }
 
-  function doneCard(task: Task) {
+  function doneCard(task: Task, column: BoardColumn) {
+    const isSelected = selected.includes(task.id)
     return (
       <article
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
-        {...contextMenu((at) => openTaskActions(at, [task.id]))}
+        {...contextMenu((at) => openTaskActions(at, menuFor(task)))}
         data-task={task.displayId}
         data-nav-item
+        data-selected={isSelected || undefined}
+        {...selectionTarget(task.displayId)}
         tabIndex={-1}
         onKeyDown={(event) => openOnEnter(event, task)}
-        className={`${styles.card} ${styles.doneCard}`}
+        onClickCapture={(event) => selectOnModifiedClick(event, task, column)}
+        onClick={(event) => onCardClick(event, task)}
+        className={[styles.card, styles.doneCard, isSelected ? styles.selected : ''].join(' ')}
       >
-        <button
-          type="button"
-          className={`${styles.cardTitle} ${styles.doneTitle}`}
-          onClick={() => onOpen(task)}
-        >
+        <button type="button" data-card-title className={`${styles.cardTitle} ${styles.doneTitle}`}>
           {task.title}
         </button>
         <span className={styles.cardActivity}>{doneCardLine(task, now)}</span>
@@ -388,7 +559,7 @@ export function Board({
   function cards(column: BoardColumn) {
     if (column.stage === 'done') {
       return [
-        ...column.tasks.map(doneCard),
+        ...column.tasks.map((task) => doneCard(task, column)),
         ...((column.allDone ?? 0) > 0
           ? [
               <button
@@ -440,10 +611,65 @@ export function Board({
             />
           )}
         </MenuButton>
-        <Button size="small" onClick={onPlan}>
-          Plan
-        </Button>
-        <Button size="small" variant="primary" onClick={onNewTask}>
+        <MenuButton label="Display" icon={<DisplayIcon />}>
+          {() => (
+            <>
+              <div className={listStyles.menuHeading}>Card size</div>
+              <fieldset className={listStyles.segments} aria-label="Card size">
+                {boardCardSizes.map((cardSize) => (
+                  <button
+                    key={cardSize}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={view.cardSize === cardSize}
+                    className={listStyles.segment}
+                    onClick={() => changeView({ ...view, cardSize })}
+                  >
+                    {cardSizeLabels[cardSize]}
+                  </button>
+                ))}
+              </fieldset>
+              <div className={listStyles.menuHeading}>Card fields</div>
+              {boardFields.map((field) => (
+                <CheckItem
+                  key={field}
+                  label={fieldLabels[field]}
+                  checked={view.fields.includes(field)}
+                  disabled={compact}
+                  onChange={() => changeView({ ...view, fields: toggled(view.fields, field) })}
+                />
+              ))}
+              {compact && (
+                <div className={styles.menuNote}>
+                  Compact cards show the ID, title and status only.
+                </div>
+              )}
+              <div className={listStyles.menuDivider} />
+              <div className={listStyles.menuHeading}>Columns</div>
+              {columns.map((column) => (
+                <CheckItem
+                  key={column.stage}
+                  label={stageName(column.stage)}
+                  checked={!view.hiddenStages.includes(column.stage)}
+                  count={column.tasks.length}
+                  onChange={() =>
+                    changeView({
+                      ...view,
+                      hiddenStages: toggled(view.hiddenStages, column.stage),
+                    })
+                  }
+                />
+              ))}
+              <div className={listStyles.menuDivider} />
+              <CheckItem
+                label="Hide empty columns"
+                checked={view.hideEmpty}
+                onChange={() => changeView({ ...view, hideEmpty: !view.hideEmpty })}
+              />
+            </>
+          )}
+        </MenuButton>
+        <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
           New Task
         </Button>
@@ -488,8 +714,11 @@ export function Board({
         </span>
       </div>
       <div className={styles.boardArea}>
-        <div className={styles.board} data-rank-order>
-          {columns.map((column) => {
+        <div
+          className={`${styles.board} ${chosen.length > 0 ? styles.selecting : ''}`}
+          data-rank-order
+        >
+          {layout.columns.map((column) => {
             const state = columnState(column)
             return (
               <section
@@ -527,7 +756,40 @@ export function Board({
               </section>
             )
           })}
+          {layout.hidden.length > 0 && (
+            <aside className={styles.hiddenColumns} aria-label="Hidden columns">
+              <h2 className={styles.hiddenTitle}>Hidden columns</h2>
+              {layout.hidden.map(({ stage, count, needsYou }) => (
+                <button
+                  key={stage}
+                  type="button"
+                  className={styles.hiddenRow}
+                  data-nav-item
+                  title={`Show ${stageName(stage)}`}
+                  onClick={() =>
+                    changeView({ ...view, hiddenStages: without(view.hiddenStages, stage) })
+                  }
+                >
+                  <span>{stageName(stage)}</span>
+                  <span className={styles.columnCount}>{count}</span>
+                  {needsYou > 0 && (
+                    <span className={styles.needsYou}>
+                      {needsYou === 1 ? '1 needs you' : `${needsYou} need you`}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </aside>
+          )}
         </div>
+        <SelectionBar
+          scope={factoryId}
+          chosen={chosen}
+          allTasks={tasks}
+          slots={slots}
+          settings={settings}
+          onSelect={setSelected}
+        />
         {empty === 'no-tasks' && (
           <div className={styles.emptyOverlay}>
             <EmptyState
@@ -535,12 +797,10 @@ export function Board({
               title="No Tasks yet"
               help="A Task is one piece of work that agents carry through this Factory’s Stages, from request to merge. Plan helps split a piece of work too big for one Task."
             >
-              <Button variant="primary" size="small" onClick={onNewTask}>
+              <Button variant="primary" onClick={onNewTask}>
                 New Task
               </Button>
-              <Button size="small" onClick={onPlan}>
-                Plan
-              </Button>
+              <Button onClick={onPlan}>Plan</Button>
             </EmptyState>
           </div>
         )}
@@ -548,7 +808,6 @@ export function Board({
           <div className={styles.emptyOverlay}>
             <EmptyState card title="No Tasks match these filters">
               <Button
-                size="small"
                 onClick={() => {
                   setText('')
                   onFilters({})
