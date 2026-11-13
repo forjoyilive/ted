@@ -1,4 +1,5 @@
-import type { AgentKind, Comment, Run, TaskLead, TaskRepo } from '@ted/protocol'
+import type { AgentKind, Comment, Run, RunMessage, TaskLead, TaskRepo } from '@ted/protocol'
+import { agentShortNames } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Clock, Timer } from '../clock.ts'
@@ -38,6 +39,7 @@ export interface LeadLifecycleOptions {
     | 'lastHeard'
     | 'output'
     | 'stop'
+    | 'interrupt'
   >
   health: Pick<AgentHealthMonitor, 'ready' | 'check' | 'limited'>
   agents: Pick<Agents, 'get'>
@@ -65,6 +67,12 @@ export interface LeadLifecycleOptions {
   deliver(taskId: string): Promise<void>
   editedSince(task: StoredTask): string[]
   freshRunNote(task: StoredTask): string
+  agentChangeNote(
+    task: StoredTask,
+    run: Run,
+    agent: AgentKind,
+    unread: readonly RunMessage[],
+  ): Promise<string>
   failedSetupReports(task: StoredTask): Promise<string[]>
   setUp(task: StoredTask, steps: readonly SetupStep[]): Promise<string[] | undefined>
   setUpAdded(taskId: string, step: SetupStep): Promise<{ report?: string } | undefined>
@@ -94,6 +102,11 @@ export const sameChoice = (lead: TaskLead, run: Run) =>
 export const atIdlePoint = (run: Run) =>
   run.state === 'idle' || (run.problem !== undefined && run.state === 'waiting')
 
+const turnEndMs = 30_000
+
+export const restartedMessage =
+  'The human restarted you with new Task Lead settings, which interrupted your last turn. Carry on where you left off.'
+
 export const continueMessage =
   'TED paused you because your agent couldn’t run (a usage limit, no connection, or a sign-in, version or credential problem). It can run again now. Carry on where you left off.'
 
@@ -117,6 +130,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     deliver,
     editedSince,
     freshRunNote,
+    agentChangeNote,
     failedSetupReports,
     setUp,
     setUpAdded,
@@ -137,6 +151,8 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   const recovering = new Set<string>()
   const awaitingRevive = new Set<string>()
   const applying = new Set<string>()
+  const restartAsked = new Set<string>()
+  const interruptedForRestart = new Set<string>()
   let closed = false
   let silenceTimer: Timer | undefined
   const find = (id: string): StoredTask => {
@@ -178,21 +194,33 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     return true
   }
 
-  async function applyLead(taskId: string): Promise<void> {
+  async function applyLead(taskId: string, { restart = false } = {}): Promise<void> {
+    if (restart) restartAsked.add(taskId)
     if (applying.has(taskId)) return
     const previous = store.getTask(taskId)
     const run = previous && liveLead(previous)
     const task = run && acknowledgeLeadMessages(run, previous) ? store.getTask(taskId) : previous
     const lead = task && effectiveLead(task)
     if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
-    if (agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)) return
+    const restartWanted =
+      task.leadRestartPending ||
+      ((restartAsked.has(taskId) || run.problem === 'model-unavailable') && !sameChoice(lead, run))
+    if (
+      restartWanted &&
+      agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)
+    )
+      return
     if (options.mayContinue?.(taskId) === false) return
     applying.add(taskId)
     try {
-      if (!sameChoice(lead, run) || task.leadRestartPending) {
+      if (sameChoice(lead, run) && !task.leadRestartPending) restartAsked.delete(taskId)
+      else if (run.problem === 'model-unavailable') restartAsked.add(taskId)
+      if (restartAsked.has(taskId) || task.leadRestartPending) {
         if (lead.agent !== run.agent) {
           if (store.newWorkHold() !== undefined) return
-          await freshLead(task, run)
+          if (!(await freshLead(task, run, lead.agent))) return
+          restartAsked.delete(taskId)
+          interruptedForRestart.delete(run.id)
           return
         }
         store.setLeadRestartPending(taskId, true)
@@ -202,14 +230,16 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
           ...(lead.effort !== undefined && { effort: lead.effort }),
           usesDefaultModel: run.usesDefaultModel === true && run.model === lead.model,
         })
+        restartAsked.delete(taskId)
         store.setLeadRestartPending(taskId, false)
         await store.persisted()
+        if (interruptedForRestart.delete(run.id)) await runs.send(run.id, restartedMessage)
       }
       const current = find(taskId)
       const live = liveLead(current)
       const choice = effectiveLead(current)
       if (!live || !choice) return
-      if (current.pendingLeadMessages.length > 0 && sameChoice(choice, live)) {
+      if (current.pendingLeadMessages.length > 0 && !restartAsked.has(taskId)) {
         const accepted = await runs
           .dispatch(live.id, current.pendingLeadMessages, false, () => {
             const now = find(taskId)
@@ -246,7 +276,12 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     const after = find(taskId)
     const live = liveLead(after)
     const choice = effectiveLead(after)
-    if (live && choice && (!sameChoice(choice, live) || after.pendingLeadMessages.length > 0))
+    if (
+      live &&
+      choice &&
+      ((restartAsked.has(taskId) && !sameChoice(choice, live)) ||
+        after.pendingLeadMessages.length > 0)
+    )
       await applyLead(taskId)
     await refreshSteering(run.id)
   }
@@ -262,12 +297,51 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     }
   }
 
-  async function freshLead(task: StoredTask, run: Run): Promise<void> {
+  async function freshLead(task: StoredTask, run: Run, agent: AgentKind): Promise<boolean> {
     if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
+    if (!(await health.ready(agent))) return false
     const resolution = await workflow(find(task.id))
     const env = leadEnv(task, entries(task, resolution))
+    const unread = store.runMessages(run.id).filter((message) => message.queued === true)
+    const pickUp = await agentChangeNote(task, run, agent, unread)
     await runs.stop(run.id)
-    await launch(task, resolution, env)
+    await launch(task, resolution, env, undefined, { pickUp })
+    if (find(task.id).leadRunId === run.id) return true
+    for (const message of unread) store.deleteRunMessage(run.id, message.id)
+    await store.persisted()
+    return true
+  }
+
+  async function restartNow(taskId: string): Promise<void> {
+    const task = find(taskId)
+    const run = liveLead(task)
+    const lead = effectiveLead(task)
+    if (task.stopped || task.archived || !run || !lead)
+      throw new RequestError(409, `${task.displayId} has no running Task Lead to restart`)
+    if (sameChoice(lead, run) && !task.leadRestartPending)
+      throw new RequestError(409, `${task.displayId}’s Task Lead already uses these settings`)
+    const off = agentStartHold(store, lead.agent, lead.agent === run.agent ? run.id : undefined)
+    if (off !== undefined) throw new RequestError(409, off)
+    if (lead.agent !== run.agent && !(await health.ready(lead.agent)))
+      throw new RequestError(
+        409,
+        `${agentShortNames[lead.agent]} isn’t ready. Check Settings → Agents.`,
+      )
+    if (lead.agent !== run.agent && store.newWorkHold() !== undefined)
+      throw new RequestError(
+        409,
+        'TED isn’t starting new work right now, so it can’t switch agents',
+      )
+    if (run.state === 'working') {
+      if (lead.agent === run.agent) interruptedForRestart.add(run.id)
+      store.recordTurnInterrupted(run.id, false)
+      await runs.interrupt(run.id)
+      for (let waited = 0; waited < turnEndMs; waited += 100) {
+        if (store.getRun(run.id)?.state !== 'working') break
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    }
+    await applyLead(taskId, { restart: true })
   }
 
   async function launch(
@@ -619,6 +693,13 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   }
   function ready(agent: AgentKind): void {
     wake()
+    for (const listed of store.listTasks()) {
+      const task = store.getTask(listed.id)
+      if (!task || (!task.leadRestartPending && !restartAsked.has(task.id))) continue
+      const run = liveLead(task)
+      if (!run || !atIdlePoint(run) || effectiveLead(task)?.agent !== agent) continue
+      background(`switch ${task.displayId}’s Task Lead to ${agent}`, () => applyLead(task.id))
+    }
     for (const runId of [...interrupted]) {
       const run = store.getRun(runId)
       if (run && run.state !== 'finished' && run.agent !== agent) continue
@@ -679,12 +760,14 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   return {
     prepare,
     applyLead,
+    restartNow,
     acknowledgeLeadMessages,
     interruptedSetups,
     pendingRevive: (taskId: string) => pendingRevive(taskId) !== undefined,
     pendingRecoveryTaskIds: (): readonly string[] =>
       [...awaitingRevive].filter((taskId) => pendingRevive(taskId) !== undefined),
     applying: (taskId: string) => applying.has(taskId),
+    restartWaiting: (taskId: string) => restartAsked.has(taskId),
     failed: leadFailed,
     recovering: (runId: string) => recovering.has(runId),
     async resume(taskId: string): Promise<void> {

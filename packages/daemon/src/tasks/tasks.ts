@@ -63,6 +63,7 @@ import type {
   ResolveFailureRequest,
   RoundInput,
   Run,
+  RunMessage,
   RunSlots,
   SendBack,
   SendBackCause,
@@ -109,6 +110,7 @@ import type {
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
+  agentShortNames,
   agentStageIds,
   bannerId,
   briefHeadings,
@@ -147,6 +149,8 @@ import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts
 import { redactSecrets } from '../redact.ts'
 import { resolveReference } from '../references.ts'
 import { type WorktreeFileScope, worktreeFileScope } from '../regular-file.ts'
+import { chatItems } from '../runs/conversations.ts'
+import { parsedOutput } from '../runs/parsed-output.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
@@ -185,6 +189,7 @@ import {
   backStageMessage,
   loopCheckInstructions,
   nextStageMessage,
+  preambleText,
   setupInstructions,
   stageTitle,
   taskLeadPrompt,
@@ -212,6 +217,7 @@ import {
   noConflictFound,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
+import { conversationText } from './carry-over.ts'
 import { commitChanges, fileDiffs, taskChanges, taskCommits } from './changes.ts'
 import type { CheckSlots } from './check-slots.ts'
 import {
@@ -575,6 +581,7 @@ export interface Tasks {
   answered(): InboxItem[]
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
+  restartLead(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
   worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
   changes(ref: string): Promise<TaskChanges>
@@ -1448,7 +1455,10 @@ export function createTasks(options: {
           return []
         const run = liveLeadOf(store, task)
         if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
-        const nextAgent = task.lead?.agent ?? run.agent
+        const nextAgent =
+          task.leadRestartPending || leadLifecycle.restartWaiting(task.id)
+            ? (task.lead?.agent ?? run.agent)
+            : run.agent
         if (
           !includeFailures &&
           agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
@@ -3883,6 +3893,7 @@ export function createTasks(options: {
     deliver: sendWaiting,
     editedSince,
     freshRunNote,
+    agentChangeNote,
     failedSetupReports,
     setUp: runSetups,
     setUpAdded: performAddedSetup,
@@ -3914,8 +3925,8 @@ export function createTasks(options: {
 
   const liveLead = (task: StoredTask) => liveLeadOf(store, task)
   const acknowledgeLeadMessages = (run: Run) => leadLifecycle.acknowledgeLeadMessages(run)
-  const applyLead = async (taskId: string) => {
-    await leadLifecycle.applyLead(taskId)
+  const applyLead = async (taskId: string, options?: { restart?: boolean }) => {
+    await leadLifecycle.applyLead(taskId, options)
     pendingTalks(taskId)
   }
 
@@ -3954,6 +3965,54 @@ export function createTasks(options: {
       body: `The Task Lead asked for the model “${run.model}”, which your plan doesn’t include. TED won’t switch models on its own, so the Run is waiting. Choose Use the default model to run this Run on the CLI’s default model, or Change setting to pick another model in the Task Lead field.`,
       choices: [useDefaultChoice, 'Change setting'],
     })
+  }
+
+  async function restartLead(ref: string): Promise<Task> {
+    const task = find(ref)
+    await leadLifecycle.restartNow(task.id)
+    return publicTask(task.id)
+  }
+
+  async function agentChangeNote(
+    task: StoredTask,
+    run: Run,
+    agent: AgentKind,
+    unread: readonly RunMessage[],
+  ): Promise<string> {
+    const items = chatItems({
+      run,
+      entries: parsedOutput(runs.output, agents, run).chat.entries(),
+      messages: store.runMessages(run.id),
+      interrupts: store.runInterrupts(run.id),
+      preamble: await preambleText().catch(() => ''),
+    })
+    const { text, cut, leftOut } = conversationText(items)
+    const name = agentShortNames[agent]
+    if (cut) {
+      const middle =
+        leftOut > 0
+          ? `; ${leftOut} ${leftOut === 1 ? 'message' : 'messages'} in the middle were left out`
+          : ''
+      tedNote(
+        task.id,
+        `Part of the conversation was left out. It was too long to pass to ${name} whole, so the new Task Lead got the Task brief, the start of the conversation and the newest part${middle}.`,
+      )
+      await store.persisted()
+    }
+    return [
+      fromTheBrief(task, {
+        heading: 'Picking up after an agent change',
+        why: `The human switched this Task’s Task Lead from ${agentShortNames[run.agent]} to ${name}.`,
+      }),
+      ...(text !== '' ? [`## The conversation so far\n\n${text}`] : []),
+      ...(unread.length > 0
+        ? [
+            `## Messages the old Task Lead hadn’t read\n\n${unread
+              .map((m) => `${m.from === 'ted' ? 'TED' : 'The user'}: ${m.text.trim()}`)
+              .join('\n\n')}`,
+          ]
+        : []),
+    ].join('\n\n')
   }
 
   async function useDefaultModel(ref: string): Promise<Task> {
@@ -5416,14 +5475,14 @@ export function createTasks(options: {
       void pump()
     } else if (
       lead &&
-      (!sameChoice(lead, run) ||
-        leadLifecycle.applying(task.id) ||
+      (leadLifecycle.applying(task.id) ||
+        leadLifecycle.restartWaiting(task.id) ||
         current.leadRestartPending ||
         current.pendingLeadMessages.length > 0)
     ) {
       store.holdLeadMessage(task.id, message)
       await store.persisted()
-      inBackground('apply effort before Stage delivery', () => applyLead(task.id))
+      inBackground('apply the Task Lead settings before delivery', () => applyLead(task.id))
     } else await runs.send(run.id, message)
     overnightSeen.set(run.id, mode)
     return true
@@ -5670,6 +5729,10 @@ export function createTasks(options: {
       ? await adoptLatestBase(task)
       : undefined
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    const waitingLead = liveLead(find(task.id))
+    const choice = effectiveLead(find(task.id))
+    if (next !== 'done' && waitingLead && choice && !sameChoice(choice, waitingLead))
+      store.setLeadRestartPending(task.id, true)
     if (task.stage === 'merge' && next !== 'done') {
       for (const repo of task.repos) {
         if (repo.pullRequest?.signedOff !== undefined) {
@@ -8973,12 +9036,11 @@ export function createTasks(options: {
       const run = store.getRun(runId)
       const task = run?.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!run || !task || task.leadRunId !== runId) return true
-      const lead = effectiveLead(task)
       return (
         !leadLifecycle.applying(task.id) &&
         !task.leadRestartPending &&
-        task.pendingLeadMessages.length === 0 &&
-        (!lead || sameChoice(lead, run))
+        !leadLifecycle.restartWaiting(task.id) &&
+        task.pendingLeadMessages.length === 0
       )
     },
 
@@ -10067,6 +10129,7 @@ export function createTasks(options: {
     },
 
     useDefaultModel,
+    restartLead,
     cancelMerge,
     markDone,
 

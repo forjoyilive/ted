@@ -211,7 +211,7 @@ describe('lead from workflow.yaml', () => {
 })
 
 describe('changing the Task Lead field', () => {
-  test('a model or effort change waits for the turn to end, then resumes the same Run with new flags', async () => {
+  test('a model or effort change waits for Restart now, then resumes the same Run with new flags', async () => {
     const client = await startTed()
     const go = path.join(scratch, 'go')
     const task = await client.ok<Task>('POST', '/tasks', {
@@ -227,12 +227,13 @@ describe('changing the Task Lead field', () => {
       effort: 'low',
     })
     expect(changed.lead).toEqual({ agent: 'claude', model: 'opus', effort: 'low' })
-    await waitUntil(async () => (await claudeStarts()).length > 0, 'the agent’s first start')
+    await writeFile(go, '')
+    await waitForRun(client, task, (r) => r.state === 'idle', 'the turn to end')
     await sleep(500)
     expect(await claudeStarts()).toHaveLength(1)
     expect((await leadRun(client, task)).model).toBeUndefined()
 
-    await writeFile(go, '')
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     const starts = await waitUntil(async () => {
       const all = await claudeStarts()
       return all.length === 2 ? all : undefined
@@ -242,30 +243,12 @@ describe('changing the Task Lead field', () => {
     expect(flag(argv, '--model')).toBe('opus')
     expect(flag(argv, '--effort')).toBe('low')
     const after = await leadRun(client, task)
-    expect(after).toMatchObject({ id: working.id, model: 'opus', effort: 'low', state: 'idle' })
-    await sleep(300)
-    expect(await claudeStarts()).toHaveLength(2)
+    expect(after).toMatchObject({ id: working.id, model: 'opus', effort: 'low' })
+    const again = await client.call('POST', `/tasks/${task.id}/lead/restart`)
+    expect(again.status).toBe(409)
   })
 
-  test('a change made while the Run is idle applies at once', async () => {
-    const client = await startTed()
-    const task = await client.ok<Task>('POST', '/tasks', {
-      title: steps({ endTurn: true }),
-      factory: 'NB',
-    })
-    await client.ok('POST', `/tasks/${task.id}/start`)
-    const idle = await waitForRun(client, task, (r) => r.state === 'idle', 'an idle Run')
-
-    await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', effort: 'xhigh' })
-    await waitUntil(async () => (await claudeStarts()).length === 2, 'the agent to restart')
-    const restarted = await waitUntil(async () => {
-      const run = await leadRun(client, task)
-      return run.effort === 'xhigh' ? run : undefined
-    }, 'the new effort')
-    expect(restarted.id).toBe(idle.id)
-  })
-
-  test('an agent change stops the Run and starts a fresh one with the new agent from the Task', async () => {
+  test('an agent change waits for Restart now, then starts a fresh Run with the brief and conversation', async () => {
     const client = await startTed()
     const task = await client.ok<Task>('POST', '/tasks', {
       title: steps({ endTurn: true }),
@@ -275,11 +258,15 @@ describe('changing the Task Lead field', () => {
     const first = await waitForRun(client, task, (r) => r.state === 'idle', 'an idle Run')
 
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'codex', effort: 'high' })
+    await sleep(500)
+    expect((await leadRun(client, task)).id).toBe(first.id)
 
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     const fresh = await waitForRun(client, task, (r) => r.id !== first.id, 'a fresh Run')
     expect(fresh).toMatchObject({ agent: 'codex', effort: 'high' })
     expect(fresh.prompt).toContain('# Your Task: NB-1')
-    expect(fresh.prompt).toContain('# Intake')
+    expect(fresh.prompt).toContain('# Picking up after an agent change')
+    expect(fresh.prompt).toContain('from Claude to Codex')
     await waitUntil(
       async () => (await client.getRun(first.id)).run.state === 'finished' || undefined,
       'the old Run to stop',
@@ -498,13 +485,11 @@ describe('Stage effort', () => {
         await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', effort: 'high' })
       }
       await client.ok('POST', `/runs/${run.id}/interrupt`)
-      await waitForRun(
-        client,
-        task,
-        (r) => r.state === 'idle' && (release === 'send-now' || r.effort === 'high'),
-        'Stop and pending effort applied',
-        60_000,
-      )
+      await waitForRun(client, task, (r) => r.state === 'idle', 'Stop', 60_000)
+      if (release === 'new-message') {
+        await client.ok('POST', `/tasks/${task.id}/lead/restart`)
+        await waitForRun(client, task, (r) => r.effort === 'high', 'pending effort applied')
+      }
       if (release === 'new-message')
         await waitUntil(
           async () => (await claudeStarts()).length === 2,
@@ -614,7 +599,7 @@ describe('Stage effort', () => {
     },
   )
 
-  test('delivers an unheld human message after an idle effort restart', async () => {
+  test('delivers a human message while a saved effort change waits for Restart now', async () => {
     const client = await startTed()
     const finish = path.join(scratch, 'finish-turn')
     const task = await client.ok<Task>('POST', '/tasks', {
@@ -639,10 +624,10 @@ describe('Stage effort', () => {
     await writeFile(finish, '')
     await waitUntil(
       async () => (await userMessages(client, run.id)).includes(text),
-      'unheld note delivery after restart',
+      'note delivery without a restart',
     )
-    expect((await leadRun(client, task)).effort).toBe('high')
-    expect(await claudeStarts()).toHaveLength(2)
+    expect((await leadRun(client, task)).effort).toBeUndefined()
+    expect(await claudeStarts()).toHaveLength(1)
   })
 
   test.each([false, true])(
@@ -961,6 +946,7 @@ describe('Stage effort', () => {
     const initial = await waitForRun(client, task, (r) => r.state === 'idle', 'fixed effort')
     expect(initial.effort).toBe('low')
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude' })
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     await waitForRun(
       client,
       task,
@@ -968,6 +954,7 @@ describe('Stage effort', () => {
       'explicit CLI default',
     )
     await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', effortMode: 'stage' })
+    await client.ok('POST', `/tasks/${task.id}/lead/restart`)
     await waitForRun(client, task, (r) => r.effort === 'high' && r.state === 'idle', 'Stage effort')
     await waitUntil(
       async () => (await claudeStarts()).length === 3,

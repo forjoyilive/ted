@@ -159,7 +159,7 @@ test('a blocker from another Factory is sent with its waiting explanation', asyn
   expect(created).toHaveBeenCalledWith(expect.objectContaining({ blockedBy: ['DEV-1'] }))
 })
 
-test('Task Lead saves agent/model/effort and follows external updates', async () => {
+test('Task Lead saves each pick without a Save button and follows external updates', async () => {
   const save = vi.fn()
   const api = bridge({ setTaskLead: save })
   const view = render(<TaskLeadField task={task()} />)
@@ -168,7 +168,12 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
   const listed = () => [...model().options].map((option) => option.text)
   expect(listed()).toEqual(['Default model', 'fable', 'opus', 'sonnet', 'haiku', 'Other…'])
   await u.selectOptions(model(), 'opus')
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', 'NB-1', {
+    agent: 'claude',
+    model: 'opus',
+  })
   await u.selectOptions(screen.getByLabelText('Agent'), 'codex')
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', 'NB-1', { agent: 'codex' })
   expect(model().value).toBe('')
   expect(listed()).toEqual([
     'Default model',
@@ -179,6 +184,7 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
     'Other…',
   ])
   await u.selectOptions(model(), 'gpt-6.1-sol')
+  const saves = save.mock.calls.length
   await u.selectOptions(model(), 'Other…')
   await u.type(screen.getByLabelText('Model'), 'not-kept{Escape}')
   expect(model().value).toBe('gpt-6.1-sol')
@@ -189,13 +195,17 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
   await u.keyboard('{Enter}')
   expect(model().value).toBe('gpt-6.1-sol')
   await u.selectOptions(model(), 'Other…')
+  expect(save).toHaveBeenCalledTimes(saves)
   await u.type(screen.getByLabelText('Model'), ' gpt-6-mini {Enter}')
-  expect(save).not.toHaveBeenCalled()
   expect(model().value).toBe('gpt-6-mini')
   expect(listed().slice(-2)).toEqual(['gpt-6-mini', 'Other…'])
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', 'NB-1', {
+    agent: 'codex',
+    model: 'gpt-6-mini',
+  })
   await u.selectOptions(screen.getByLabelText('Effort'), 'low')
-  await u.click(screen.getByRole('button', { name: 'Save' }))
-  expect(api.request).toHaveBeenCalledWith('setTaskLead', 'NB-1', {
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', 'NB-1', {
     agent: 'codex',
     model: 'gpt-6-mini',
     effort: 'low',
@@ -360,6 +370,80 @@ test('Model unavailable offers the default model and sends the human’s choice'
   expect(screen.queryByText('Model unavailable')).toBeNull()
 })
 
+test('a late save’s update doesn’t replace a newer pick, and saves go one at a time', async () => {
+  const first = deferred<Task>()
+  const second = deferred<Task>()
+  const replies = [first, second]
+  const setTaskLead = vi.fn(() => replies.shift()?.promise)
+  bridge({ setTaskLead })
+  const view = render(<TaskLeadField task={task({ lead: { agent: 'claude' } })} />)
+  const effort = () => screen.getByLabelText('Effort') as HTMLSelectElement
+  const u = user()
+  await u.selectOptions(effort(), 'low')
+  await u.selectOptions(effort(), 'high')
+  expect(setTaskLead).toHaveBeenCalledTimes(1)
+  view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', effort: 'low' } })} />)
+  expect(effort().value).toBe('high')
+  await act(async () => first.resolve(task()))
+  expect(setTaskLead).toHaveBeenCalledTimes(2)
+  expect(setTaskLead).toHaveBeenLastCalledWith('NB-1', { agent: 'claude', effort: 'high' })
+  expect(effort().value).toBe('high')
+  await act(async () => second.resolve(task()))
+  view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', effort: 'high' } })} />)
+  expect(effort().value).toBe('high')
+})
+
+test('a failed save doesn’t put back older values while a newer save waits', async () => {
+  const first = deferred<Task>()
+  const second = deferred<Task>()
+  const replies = [first, second]
+  const setTaskLead = vi.fn(() => replies.shift()?.promise)
+  bridge({ setTaskLead })
+  render(<TaskLeadField task={task({ lead: { agent: 'claude' } })} />)
+  const effort = () => screen.getByLabelText('Effort') as HTMLSelectElement
+  const u = user()
+  await u.selectOptions(effort(), 'low')
+  await u.selectOptions(effort(), 'high')
+  await act(async () => first.reject(new Error('The daemon isn’t answering')))
+  expect(effort().value).toBe('high')
+  expect(screen.getByRole('alert').textContent).toContain('The daemon isn’t answering')
+  await act(async () => second.reject(new Error('Still not answering')))
+  expect(effort().value).toBe('')
+})
+
+test('Restart now shows only while the live Task Lead differs from the saved choice', async () => {
+  const run: import('@ted/protocol').Run = {
+    id: 'r1',
+    agent: 'claude',
+    effort: 'low',
+    permissions: 'auto',
+    prompt: '',
+    cwd: '/test',
+    state: 'working',
+    startedAt: createdAt,
+  }
+  const api = bridge({
+    getRun: () => ({ run, conversation: [] }),
+    restartTaskLead: vi.fn(),
+  })
+  const view = render(
+    <TaskLeadField
+      task={task({ stage: 'work', leadRunId: 'r1', lead: { agent: 'claude', effort: 'low' } })}
+    />,
+  )
+  await act(async () => api.emit({ type: 'run-updated', run }))
+  expect(screen.queryByRole('button', { name: 'Restart now to apply changes' })).toBeNull()
+  view.rerender(
+    <TaskLeadField
+      task={task({ stage: 'work', leadRunId: 'r1', lead: { agent: 'claude', effort: 'high' } })}
+    />,
+  )
+  await user().click(screen.getByRole('button', { name: 'Restart now to apply changes' }))
+  expect(api.request).toHaveBeenCalledWith('restartTaskLead', 'NB-1')
+  await act(async () => api.emit({ type: 'run-updated', run: { ...run, effort: 'high' } }))
+  expect(screen.queryByRole('button', { name: 'Restart now to apply changes' })).toBeNull()
+})
+
 test('following Stage effort survives a model edit and can be replaced with explicit CLI default', async () => {
   const api = bridge({ setTaskLead: () => task() })
   render(
@@ -373,7 +457,6 @@ test('following Stage effort survives a model edit and can be replaced with expl
   expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
   const u = user()
   await u.selectOptions(screen.getByLabelText('Model'), 'sonnet')
-  await u.click(screen.getByRole('button', { name: 'Save' }))
   expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
     agent: 'claude',
     model: 'sonnet',
@@ -381,7 +464,6 @@ test('following Stage effort survives a model edit and can be replaced with expl
     effortMode: 'stage',
   })
   await u.selectOptions(screen.getByLabelText('Effort'), '')
-  await u.click(screen.getByRole('button', { name: 'Save' }))
   expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
     agent: 'claude',
     model: 'sonnet',
