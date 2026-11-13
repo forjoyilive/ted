@@ -779,18 +779,22 @@ describe('Talk it through', () => {
     let client = await start()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const blockerGate = path.join(scratch, 'acknowledge-competing-talk')
-    const blocker = await startTask(
-      client,
-      advance,
-      few,
-      ask(client.storageFile),
-      reply,
-      { readNextAfter: blockerGate },
-      { endTurn: true },
-    )
+    const blocker = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      priority: 'urgent',
+      title: steps(
+        advance,
+        few,
+        ask(client.storageFile),
+        reply,
+        { readNextAfter: blockerGate },
+        { endTurn: true },
+      ),
+    })
+    await client.ok('POST', `/tasks/${blocker.id}/start`)
+    expect(blocker.priority).toBe('urgent')
     const blockerRound = (await openRound(client, 1)).request
     const blockerLead = await leadId(client, blocker)
-    await client.ok('PUT', `/tasks/${blocker.id}`, { priority: 'urgent' })
     await waitUntil(
       async () => (await client.getRun(blockerLead)).run.state === 'idle',
       'the higher-priority Lead to wait before requesting either talk',
