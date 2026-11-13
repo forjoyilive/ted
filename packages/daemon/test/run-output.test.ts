@@ -225,6 +225,10 @@ test('a finished Run whose host.log was cut to its tail answers with the tail', 
     (chat.body.items as { id: string; title?: string }[]).find((i) => i.id === 'output-not-kept')
       ?.title,
   ).toBe('Earlier output no longer kept')
+
+  const shorter = whole.slice(-5)
+  await writeFile(logFile(run.id), log.subarray(shorter[0]?.offset))
+  expect((await client.getRun(run.id)).conversation).toEqual(shorter)
 })
 
 test('killing the daemon mid-Run neither loses a line nor repeats one', async () => {
