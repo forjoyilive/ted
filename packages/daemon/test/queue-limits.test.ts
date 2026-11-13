@@ -275,6 +275,7 @@ describe('the queue', () => {
       return question && signoff ? { question, signoff } : undefined
     }, 'the question and sign-off requests')
     await client.ok('PUT', `/tasks/${low.id}/lead`, { agent: 'claude', model: 'unavailable' })
+    await client.ok('POST', `/tasks/${low.id}/lead/restart`)
     const lowWithLead = await waitForLead(client, low)
     if (!lowWithLead.leadRunId) throw new Error('missing low Task Lead')
     const lowRunId = lowWithLead.leadRunId
