@@ -2052,7 +2052,10 @@ export function createTasks(options: {
       if (movingOn.get(taskId) === waiting) dropWaitingMove(taskId)
       throw error
     }
-    if (movingOn.get(taskId) !== waiting) return
+    if (movingOn.get(taskId) !== waiting) {
+      void done.catch(() => undefined)
+      return
+    }
     const before = find(taskId)
     inBackground(`move ${before.displayId} on after its Checks`, async () => {
       const result = await done.catch(() => undefined)
