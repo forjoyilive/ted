@@ -172,7 +172,7 @@
 }
 
 .archivedError {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .taskHeader {

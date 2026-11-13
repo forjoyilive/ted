@@ -361,7 +361,7 @@
 }
 
 .danger {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .detail {

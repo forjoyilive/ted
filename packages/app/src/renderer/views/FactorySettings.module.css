@@ -257,7 +257,7 @@
   border: 1px solid var(--status-failed-border);
   border-radius: var(--radius-control);
   background: var(--surface-card);
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
   font: inherit;
   font-size: var(--text-13);
 }
@@ -382,7 +382,7 @@
 }
 
 .dangerLink {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .link:hover,
@@ -610,7 +610,7 @@
 }
 
 .menuDanger {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .menuItem:disabled {

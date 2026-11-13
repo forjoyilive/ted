@@ -252,7 +252,7 @@
 }
 
 .button:disabled {
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .button:focus-visible,
@@ -269,7 +269,7 @@
 }
 
 .danger:not(:disabled) {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .select {

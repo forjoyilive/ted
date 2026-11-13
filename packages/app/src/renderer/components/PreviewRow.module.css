@@ -18,7 +18,7 @@
   height: 26px;
   border-radius: 6px;
   background: var(--accent-subtle);
-  color: var(--accent-default);
+  color: var(--accent-text);
 }
 
 .text {

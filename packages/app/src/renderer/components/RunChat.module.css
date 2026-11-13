@@ -44,7 +44,7 @@
 }
 
 .barError {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
   font-size: var(--text-12);
 }
 
@@ -161,7 +161,7 @@
 }
 
 .failed {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .diff {
@@ -291,7 +291,7 @@
 
 .error {
   margin: 0;
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
   font-size: var(--text-12);
 }
 

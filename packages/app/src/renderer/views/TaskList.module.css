@@ -100,7 +100,7 @@
 }
 
 .menuItem:disabled {
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .menuLabel {
@@ -585,7 +585,7 @@ label.selectionNote {
 }
 
 .selectionAlert {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .selecting .body {

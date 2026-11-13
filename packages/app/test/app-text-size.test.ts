@@ -36,9 +36,9 @@ test('text size changes by 5%, survives relaunch, and keeps terminal size and pa
   const sidebarWidth = () => settingsNav(window).evaluate((el) => el.getBoundingClientRect().width)
   const baseWidth = await sidebarWidth()
   expect(await textSize().textContent()).toBe('100%')
-  expect(await titleSize()).toBe('22px')
+  expect(await titleSize()).toBe('24.2px')
   await window.getByRole('button', { name: 'Increase text size' }).click()
-  await expect.poll(() => titleSize()).toBe('23.1px')
+  await expect.poll(() => titleSize()).toBe('25.41px')
   await expect
     .poll(() => client.getSettings())
     .toMatchObject({ textSize: 105, terminalFontSize: 13 })
@@ -51,7 +51,7 @@ test('text size changes by 5%, survives relaunch, and keeps terminal size and pa
   for (const size of [80, 100, 150, 200]) {
     await client.updateSettings({ textSize: size })
     await expect.poll(() => textSize().textContent()).toBe(`${size}%`)
-    await expect.poll(() => titleSize()).toBe(`${(22 * size) / 100}px`)
+    await expect.poll(() => titleSize()).toBe(`${(22 * size * 11) / 1000}px`)
     expect(await sidebarWidth()).toBe(baseWidth)
     expect(
       await window.evaluate(() =>
@@ -70,7 +70,7 @@ test('text size changes by 5%, survives relaunch, and keeps terminal size and pa
     await window.screenshot({ path: path.join(captures, `settings-${size}.png`) })
   }
   await window.getByRole('button', { name: 'Default', exact: true }).click()
-  await expect.poll(() => titleSize()).toBe('22px')
+  await expect.poll(() => titleSize()).toBe('24.2px')
   await expect.poll(() => client.getSettings()).toMatchObject({ textSize: 100 })
 })
 
@@ -83,7 +83,7 @@ test('large app text fits settings controls, Task lists, details and a new Task 
   await client.updateSettings({ textSize: 200, appearance: 'dark' })
   await expect
     .poll(() => window.evaluate(() => getComputedStyle(document.body).fontSize))
-    .toBe('28px')
+    .toBe('30.8px')
   await openAllTasks(window)
   await taskRow(window, 'NB-1').waitFor()
   await mkdir(captures, { recursive: true })
@@ -140,7 +140,7 @@ test('Run chat and a thread Comment use the text scale', async () => {
   const thread = window.getByRole('region', { name: 'Task thread' })
   const comment = thread.getByText('A readable Comment in the Task thread.', { exact: true })
   await comment.waitFor()
-  expect(await comment.evaluate((el) => getComputedStyle(el).fontSize)).toBe('28px')
+  expect(await comment.evaluate((el) => getComputedStyle(el).fontSize)).toBe('30.8px')
   await expect.poll(async () => (await client.listTaskRuns('NB-1')).length).toBeGreaterThan(0)
   const run = (await client.listTaskRuns('NB-1'))[0]
   if (!run) throw new Error('no Task Lead Run')
@@ -155,5 +155,5 @@ test('Run chat and a thread Comment use the text scale', async () => {
     .poll(() =>
       chat.getByText(message, { exact: true }).evaluate((el) => getComputedStyle(el).fontSize),
     )
-    .toBe('14px')
+    .toBe('15.4px')
 })

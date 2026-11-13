@@ -11,7 +11,7 @@ import { simulatorsLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { agentKinds } from '@ted/protocol/run'
-import { factoryNotifications } from '@ted/protocol/settings'
+import { factoryNotifications, textScale } from '@ted/protocol/settings'
 import {
   type ReactNode,
   useCallback,
@@ -370,7 +370,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   useEffect(() => {
     if (settings === undefined) return
-    document.documentElement.style.setProperty('--text-scale', String(settings.textSize / 100))
+    document.documentElement.style.setProperty('--text-scale', String(textScale(settings.textSize)))
     document.documentElement.style.setProperty(
       '--terminal-font-size',
       `${settings.terminalFontSize}px`,
