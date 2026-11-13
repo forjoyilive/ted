@@ -642,9 +642,19 @@ test('the execution Mac refuses work at its limits, keeps what it stored and say
     await waitUntil(async () => (await stateOf(7)) === 'stopped', 'operation 7 stopped')
     await operations.handle(answer([command(8, {})]))
     await waitUntil(async () => (await stateOf(8)) === 'finished', 'operation 8 finished')
+
+    operations.allow(false)
+    await operations.handle(answer([command(9, {})]))
+    const stopQueued = operations.handle({ ...answer([]), stops: [stop(command(9))] })
+    await new Promise((resolve) => setImmediate(resolve))
+    operations.allow(true)
+    await stopQueued
+    await operations.handle(answer([{ ...command(10, {}), ref: command(9).ref, order: 2 }]))
+    await waitUntil(async () => (await stateOf(10)) === 'finished', 'operation 10 finished')
     const effects = await readFile(path.join(home, 'probe', 'effects.log'), 'utf8')
-    expect(effects.split('\n').filter(Boolean)).toEqual(['op-6', 'op-8'])
+    expect(effects.split('\n').filter(Boolean)).toEqual(['op-6', 'op-8', 'op-10'])
     expect(await stateOf(7)).toBe('stopped')
+    expect(await stateOf(9)).toBe('stopped')
 
     expect(
       machineOperationsText(

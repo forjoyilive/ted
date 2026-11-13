@@ -93,6 +93,7 @@ export async function createExecutionOperations(options: {
   const journal = await openJournal(options.home, limits)
   const probeRoot = await privateDirectory(path.join(options.home, 'probe'))
   const running = new Map<string, AbortController>()
+  const stopping = new Set<string>()
   let refusals: ExecutionReport[] = []
   let allowed = false
   let lowDisk = false
@@ -174,7 +175,12 @@ export async function createExecutionOperations(options: {
       return
     const starting = running.get(operation.id)
     if (operation.state === 'accepted' && !starting) {
-      await journal.record('stopped', operation.id)
+      stopping.add(operation.id)
+      try {
+        await journal.record('stopped', operation.id)
+      } finally {
+        stopping.delete(operation.id)
+      }
       return
     }
     if ((operation.state !== 'running' && !starting) || operation.stopRequested) return
@@ -222,7 +228,7 @@ export async function createExecutionOperations(options: {
       const next = operations
         .filter((o) => o.state === 'accepted' && o.ref.machineId === grantId)
         .sort((a, b) => a.order - b.order)[0]
-      if (next?.command && !running.has(next.id))
+      if (next?.command && !running.has(next.id) && !stopping.has(next.id))
         void run({ ...next, command: next.command }).catch((error: unknown) =>
           console.error(
             'execution operation could not be journaled:',
