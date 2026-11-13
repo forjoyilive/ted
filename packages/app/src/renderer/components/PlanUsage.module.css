@@ -71,13 +71,8 @@
   font-weight: var(--weight-semibold);
 }
 
-.header > span {
-  margin-left: auto;
-  color: var(--text-caption);
-  font-size: var(--text-12);
-}
-
 .close {
+  margin-left: auto;
   padding: 0 4px;
   font-size: var(--text-21);
 }
@@ -100,28 +95,6 @@
   outline-offset: -2px;
 }
 
-.tabs {
-  display: flex;
-  margin: 0 16px 12px;
-  padding: 3px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-control);
-  background: var(--surface-inset);
-}
-
-.tabs button {
-  flex: 1;
-  padding: 6px;
-  font-size: var(--text-12);
-  color: var(--text-tertiary);
-}
-
-.tabs button[aria-pressed='true'] {
-  background: var(--control-segment-selected);
-  color: var(--text-primary);
-  font-weight: var(--weight-semibold);
-}
-
 .agent {
   border-top: 1px solid var(--border-subtle);
   padding-bottom: 12px;
@@ -130,10 +103,8 @@
 .agentHead {
   display: flex;
   align-items: center;
-  width: 100%;
   gap: 8px;
   padding: 14px 16px 8px;
-  text-align: left;
   font-size: var(--text-13);
 }
 
@@ -161,34 +132,6 @@
   font-weight: var(--weight-semibold);
 }
 
-.details {
-  padding: 0 16px 4px 40px;
-}
-
-.window {
-  margin-top: 6px;
-}
-
-.labels {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-  font-size: var(--text-12);
-}
-
-.track {
-  height: 4px;
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: var(--surface-neutral);
-}
-
-.fill {
-  height: 100%;
-  background: var(--accent-default);
-}
-
 [data-tone='warn'] > strong, .summary b[data-tone='warn'] {
   color: var(--status-waiting-fg);
 }
@@ -197,18 +140,18 @@
   color: var(--status-failed-fg);
 }
 
-.window[data-tone='warn'] .fill {
-  background: var(--status-waiting-fg);
-}
-
-.window[data-tone='full'] .fill {
-  background: var(--status-failed-fg);
-}
-
 .note {
   margin: 4px 16px 0;
   color: var(--text-caption);
   font-size: var(--text-11);
+}
+
+.empty {
+  margin: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding: 14px 16px;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
 }
 
 .footer {

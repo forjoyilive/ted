@@ -131,3 +131,15 @@ test('tracker reset countdowns stop at expiration and tolerate absent or invalid
   expect(usageReset('invalid', time)).toBeUndefined()
   expect(usageReset(undefined, time)).toBeUndefined()
 })
+
+test('usage lists turned-on agents that are installed or not yet checked', async () => {
+  const { usageAgents } = await import('../src/renderer/plan-usage.ts')
+  const missing = health({ agent: 'antigravity', state: 'not-installed' })
+  const signedOut = health({ agent: 'codex', state: 'signed-out' })
+  expect(usageAgents([missing, signedOut], ['claude', 'codex', 'antigravity'])).toEqual([
+    'claude',
+    'codex',
+  ])
+  expect(usageAgents([], ['antigravity', 'claude'])).toEqual(['claude', 'antigravity'])
+  expect(usageAgents([], [])).toEqual([])
+})

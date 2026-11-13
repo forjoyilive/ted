@@ -41,13 +41,16 @@ test('usage below the warning threshold remains visible and follows live reports
   const u = user()
   await u.click(tracker())
   expect(document.activeElement).toBe(within(panel()).getByRole('button', { name: 'Close usage' }))
+  expect(within(panel()).getByRole('region', { name: 'Claude usage' }).textContent).toMatch(
+    /Weekly 2d \dh 8%/,
+  )
   expect(within(panel()).queryByRole('progressbar')).toBeNull()
-  await u.click(within(panel()).getByRole('button', { name: 'Claude usage details' }))
-  expect(within(panel()).getAllByRole('progressbar')).toHaveLength(2)
-  await u.click(within(panel()).getByRole('button', { name: 'Detailed' }))
   expect(
-    within(panel()).getByRole('button', { name: 'Detailed' }).getAttribute('aria-pressed'),
-  ).toBe('true')
+    within(panel())
+      .getAllByRole('button')
+      .map((b) => b.textContent),
+  ).toEqual(['×', 'Agent settings →'])
+  expect(within(panel()).queryByText('All agents')).toBeNull()
   await act(async () =>
     a.emit({
       type: 'agent-health-changed',
@@ -73,8 +76,9 @@ test('usage below the warning threshold remains visible and follows live reports
   expect(
     within(panel()).getByText('Claude usage limit · 2 Runs paused · From last Run · just now'),
   ).toBeTruthy()
-  expect(within(panel()).getByText(/100% · Awaiting update/)).toBeTruthy()
-  expect(within(panel()).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100')
+  expect(within(panel()).getByRole('region', { name: 'Claude usage' }).textContent).toContain(
+    '5-hour window Update due 100%',
+  )
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByRole('dialog', { name: 'Usage' })).toBeNull()
   expect(document.activeElement).toBe(tracker())
@@ -109,6 +113,33 @@ test('empty, API-key and offline states are explicit; settings navigation uses t
     within(panel()).getByText('Subscription usage isn’t available with API key billing.'),
   ).toBeTruthy()
   expect(tracker().textContent).not.toContain('8%')
+  expect(within(panel()).getByRole('region', { name: 'Antigravity usage' })).toBeTruthy()
+  await act(async () =>
+    a.emit({
+      type: 'agent-health-changed',
+      health: usage({ agent: 'antigravity', state: 'not-installed' }),
+    }),
+  )
+  expect(within(panel()).queryByRole('region', { name: 'Antigravity usage' })).toBeNull()
+  expect(tracker().textContent).not.toContain('Antigravity')
+  const billing = { ...a.state.settings.billing, claude: 'api-key', codex: 'subscription' } as const
+  await act(async () =>
+    a.emit({
+      type: 'settings-changed',
+      settings: { ...a.state.settings, billing, enabledAgents: ['claude'] },
+    }),
+  )
+  expect(within(panel()).queryByRole('region', { name: 'Codex usage' })).toBeNull()
+  expect(tracker().textContent).not.toContain('Codex')
+  expect(within(panel()).getByRole('region', { name: 'Claude usage' })).toBeTruthy()
+  await act(async () =>
+    a.emit({
+      type: 'settings-changed',
+      settings: { ...a.state.settings, billing, enabledAgents: [] },
+    }),
+  )
+  expect(within(panel()).getByText('No agents are set up.')).toBeTruthy()
+  expect(within(panel()).queryAllByRole('region')).toHaveLength(0)
   await u.click(within(panel()).getByRole('button', { name: 'Agent settings' }))
   expect(await screen.findByRole('main', { name: 'Agents' })).toBeTruthy()
   expect(screen.queryByRole('dialog', { name: 'Usage' })).toBeNull()
