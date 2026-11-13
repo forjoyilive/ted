@@ -693,6 +693,13 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   }
   function ready(agent: AgentKind): void {
     wake()
+    for (const listed of store.listTasks()) {
+      const task = store.getTask(listed.id)
+      if (!task || (!task.leadRestartPending && !restartAsked.has(task.id))) continue
+      const run = liveLead(task)
+      if (!run || !atIdlePoint(run) || effectiveLead(task)?.agent !== agent) continue
+      background(`switch ${task.displayId}’s Task Lead to ${agent}`, () => applyLead(task.id))
+    }
     for (const runId of [...interrupted]) {
       const run = store.getRun(runId)
       if (run && run.state !== 'finished' && run.agent !== agent) continue

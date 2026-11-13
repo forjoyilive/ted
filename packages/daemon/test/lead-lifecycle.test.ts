@@ -581,7 +581,7 @@ test('an Agent switch keeps the old Run until the new agent is ready', async () 
   store.setTaskLead(taskId, { agent: 'claude' })
   store.queueRunMessage({ runId: 'lead', text: 'Keep me' })
   let ready = false
-  const { lifecycle, starts, stopped } = harness({
+  const { lifecycle, starts, stopped, work } = harness({
     health: {
       ready: async () => ready,
       check: async () => [],
@@ -596,7 +596,8 @@ test('an Agent switch keeps the old Run until the new agent is ready', async () 
   expect(starts).toEqual([])
   expect(store.runMessages('lead').filter((m) => m.queued)).toHaveLength(1)
   ready = true
-  await lifecycle.applyLead(taskId)
+  lifecycle.ready('claude')
+  await Promise.all(work)
   expect(stopped).toEqual(['lead'])
   expect(store.getRun('fresh-0')?.prompt).toContain('Keep me')
   lifecycle.close()
