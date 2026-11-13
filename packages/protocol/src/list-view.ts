@@ -45,6 +45,7 @@ export interface ListView {
   sort: ListSort
   group: ListGroup
   showEmptyGroups?: boolean
+  nested?: boolean
   columns: ListColumn[]
   columnsVersion?: 2
   filters: ListFilters

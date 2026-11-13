@@ -71,6 +71,7 @@ roundTrip(P.parseCreateTaskRequest, {
   clarifyDepth: 'few',
   lead,
   blockedBy: ['TED-1'],
+  parent: 'TED-2',
   attachments: [file],
   source: 'https://example.com/issue',
   sentryId: 'APP-1',
@@ -89,17 +90,33 @@ roundTrip(P.parseSaveTaskDraftRequest, {
   clarifyDepth: 'few',
   lead,
   source: 'https://example.com/issue',
+  parent: 'TED-2',
   dismissed: ['old'],
   filled: { title: 'Source title', priority: 'high' },
 })
+roundTrip(P.parseSaveMessageDraftRequest, {
+  text: 'Not sent yet',
+  attachments: [file],
+  fields: '{"skip":[2]}',
+})
 roundTrip(P.parseTaskLead, lead)
 roundTrip(P.parseResumeTaskRequest, { comment: 'Continue', attachments: [file] })
+roundTrip(P.parseAnswerTedStopsRequest, { restart: ['task-1'], leave: ['task-2'] })
 roundTrip(P.parseFollowUpRequest, { comment: 'Next', attachments: [file] })
 roundTrip(P.parseMoveTaskRequest, { after: 'TED-1', before: 'TED-3' })
 roundTrip(P.parseSetPriorityRequest, { priority: 'high' })
 roundTrip(P.parseEditTaskRequest, { title: 'Title', description: 'Details' })
-roundTrip(P.parseArchiveTaskRequest, { closePullRequests: true, blocked: 'keep' })
-roundTrip(P.parseDeleteTaskRequest, { blocked: 'unblock' })
+roundTrip(P.parseArchiveTaskRequest, {
+  closePullRequests: true,
+  blocked: 'keep',
+  children: 'detach',
+  hierarchyRevision: 'a'.repeat(64),
+})
+roundTrip(P.parseDeleteTaskRequest, {
+  blocked: 'unblock',
+  children: 'delete',
+  hierarchyRevision: 'a'.repeat(64),
+})
 roundTrip(P.parseBlockTaskRequest, { by: 'TED-1' })
 roundTrip(P.parseSetTaskReposRequest, { set: ['ted'], confirm: true })
 roundTrip(P.parseSetTaskReposRequest, { add: ['ted'] })
@@ -120,8 +137,18 @@ variants(P.parsePostCommentRequest, [
   { body: 'Files', attachments: [file] },
 ])
 roundTrip(P.parseCancelMergeRequest, { comment: 'Change this', attachments: [file] })
+roundTrip(P.parseMarkDoneRequest, {})
+test('parseMarkDoneRequest accepts an empty body', () => {
+  expect(P.parseMarkDoneRequest(undefined)).toEqual({})
+  expect(P.parseMarkDoneRequest(null)).toEqual({})
+})
+rejects(P.parseMarkDoneRequest, { force: true }, 'marking a Task done takes no fields')
+rejects(P.parseMarkDoneRequest, [], 'marking a Task done takes no fields')
 roundTrip(P.parseWriteBriefRequest, { text: 'Brief\n' })
 roundTrip(P.parseCloseRoundRequest, { summary: 'Agreed' })
+roundTrip(P.parseTalkThroughRequest, { confirmResume: true })
+variants(P.parseTalkThroughRequest, [{}, { confirmResume: false }])
+rejects(P.parseTalkThroughRequest, { confirmResume: 'yes' }, 'confirmResume must be a boolean')
 roundTrip(P.parseSetActivityRequest, { text: 'Working' })
 roundTrip(P.parseRunChecksRequest, { name: 'Typecheck' })
 roundTrip(P.parseDesignReviewInput, design)
@@ -200,7 +227,19 @@ rejects(
   'severity must be one of p1, unfixed',
 )
 rejects(P.parseSaveTaskDraftRequest, {}, 'invalid draft priority')
+rejects(P.parseSaveMessageDraftRequest, { attachments: [] }, 'text must be text')
+rejects(
+  P.parseSaveMessageDraftRequest,
+  { text: 'x'.repeat(P.maxMessageDraftText + 1) },
+  'text is too long to keep',
+)
+rejects(P.parseSaveMessageDraftRequest, { text: '', fields: {} }, 'fields must be text')
+rejects(() => P.parseMessageBox('settings', 'a'), undefined, 'no such message box')
+rejects(() => P.parseMessageBox('comment', ''), undefined, 'invalid message box')
 rejects(P.parseResumeTaskRequest, { comment: 2 }, 'comment must be text')
+rejects(P.parseAnswerTedStopsRequest, {}, 'name at least one Task')
+rejects(P.parseAnswerTedStopsRequest, { restart: [1] }, 'restart must be a list of Task IDs')
+rejects(P.parseAnswerTedStopsRequest, { restart: ['a'], leave: ['a'] }, 'can’t be both')
 rejects(P.parseFollowUpRequest, { attachments: {} }, 'attachments must be a list')
 rejects(P.parseMoveTaskRequest, { after: 2 }, 'after must be a Task ID')
 rejects(P.parseSetPriorityRequest, {}, 'priority must be')
@@ -264,4 +303,27 @@ test('start requests preserve the normal default and validate preparation intent
   expect(P.parseStartTaskRequest({ prepare: true })).toEqual({ prepare: true })
   expect(P.parseStartTaskRequest({ prepare: false })).toEqual({ prepare: false })
   expect(() => P.parseStartTaskRequest({ prepare: 'yes' })).toThrow('prepare')
+})
+
+roundTrip(P.parseSetTaskParentRequest, { parentId: 'TED-1', revision: 'a'.repeat(64) })
+roundTrip(P.parseUnarchiveTaskRequest, {
+  unlinkParent: true,
+  children: 'restore',
+  hierarchyRevision: 'a'.repeat(64),
+})
+rejects(P.parseUnarchiveTaskRequest, { children: 'all' }, 'children must be restore')
+rejects(P.parseArchiveTaskRequest, { children: 'keep' }, 'children must be archive or detach')
+rejects(P.parseCreateTaskRequest, { title: 'T', parent: 7 }, 'parent must be text')
+rejects(P.parseSetTaskParentRequest, { parentId: 'TED-1' }, 'hierarchyRevision')
+rejects(P.parseSetTaskParentRequest, { revision: 'a'.repeat(64) }, 'parentId')
+rejects(P.parseSetTaskParentRequest, { parentId: [], revision: 'a'.repeat(64) }, 'parentId')
+rejects(P.parseUnarchiveTaskRequest, { unlinkParent: 'yes' }, 'unlinkParent')
+rejects(P.parseArchiveTaskRequest, { hierarchyRevision: 'old' }, 'hierarchyRevision')
+rejects(P.parseDeleteTaskRequest, { children: 'cancel' }, 'children')
+test('unlinking requires an explicit null parent; ordinary restoration needs no options', () => {
+  expect(P.parseSetTaskParentRequest({ parentId: null, revision: 'b'.repeat(64) })).toEqual({
+    parentId: null,
+    revision: 'b'.repeat(64),
+  })
+  expect(P.parseUnarchiveTaskRequest({})).toEqual({})
 })

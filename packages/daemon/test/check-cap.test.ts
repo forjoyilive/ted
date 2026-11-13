@@ -139,6 +139,9 @@ describe('Checks running at once', () => {
     const client = await startTed(1)
     const first = await startTask(client)
     await running(client, first)
+    const reset = await client.call('POST', `/tasks/${first.id}/reset`)
+    expect(reset.status).toBe(409)
+    expect(JSON.stringify(reset.body)).toContain('Checks are running')
     const second = await startTask(client)
     await waitingAt(client, second, '1st')
 

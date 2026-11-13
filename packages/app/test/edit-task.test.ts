@@ -98,7 +98,7 @@ describe('Editing a Task', () => {
 
     const request = thread.getByRole('region', { name: 'Original request' })
     await request.getByText(/Only in titles\./).waitFor()
-    await request.getByRole('button', { name: 'Description history · 1 edit' }).click()
+    await request.getByRole('button', { name: 'Edited once · history' }).click()
     const history = window.getByRole('dialog', { name: 'NB-1 description history' })
     await history.getByText(/^Version 2 · edited by you .* · current$/).waitFor()
     await history.getByText(/^Original request · /).waitFor()

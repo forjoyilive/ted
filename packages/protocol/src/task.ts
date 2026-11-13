@@ -68,7 +68,7 @@ export interface TaskDefaults {
   clarifyDepth: ClarifyDepth
 }
 
-export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in'
+export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in' | 'rerun' | 'required-check'
 
 export const taskStatusKinds = [
   'failed',
@@ -91,6 +91,7 @@ export const createdByKinds = [
   'split',
   'follow-up',
   'setup',
+  'coordinator',
 ] as const
 
 export type CreatedBy = (typeof createdByKinds)[number]
@@ -109,7 +110,7 @@ export interface TaskArchive {
 export type TaskStatus =
   | { kind: 'failed' }
   | { kind: 'partly-merged' }
-  | { kind: 'waiting-on-you' }
+  | { kind: 'waiting-on-you'; snoozedUntil?: string }
   | { kind: 'paused'; reason: string }
   | { kind: 'working' }
   | { kind: 'stopped'; at?: string; prepared?: true }
@@ -192,6 +193,27 @@ export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest 
   return { snoozedUntil: until }
 }
 
+export interface SnoozeRequestRequest {
+  until: string | null
+}
+
+export function parseSnoozeRequestRequest(value: unknown): SnoozeRequestRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new RequestValidationError(400, 'body must be a JSON object')
+  }
+  const until = (value as Record<string, unknown>).until
+  if (until === null) return { until: null }
+  if (
+    typeof until !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(until) ||
+    !Number.isFinite(Date.parse(until)) ||
+    new Date(until).toISOString() !== until
+  ) {
+    throw new RequestValidationError(400, 'until must be an ISO instant or null')
+  }
+  return { until }
+}
+
 export interface Task {
   snoozedUntil?: string
   autopilot?: import('./autopilot.ts').TaskAutopilot
@@ -208,6 +230,8 @@ export interface Task {
   lead?: TaskLead
   stageEffort?: Effort
   blockedBy: string[]
+  parentId?: string
+  childIds?: string[]
   attachments: Attachment[]
   source?: TaskSource
   linearSync?: 'on' | 'ask'
@@ -216,6 +240,7 @@ export interface Task {
   leadRunId?: string
   rank: number
   status?: TaskStatus
+  statusWithoutBlocker?: TaskStatus
   preparation?: 'preparing' | 'ready'
   statuses: TaskStatusKind[]
   markers: TaskMarker[]
@@ -237,6 +262,26 @@ export interface Task {
   startedAt?: string
   updatedAt: string
   archived?: TaskArchive
+}
+
+export type ResetRefusal = 'archived' | 'done' | 'merged' | 'not-started'
+
+export function resetRefusal(
+  task: Pick<Task, 'archived' | 'stage' | 'statuses' | 'merged' | 'repos' | 'runs'>,
+): ResetRefusal | undefined {
+  if (task.archived) return 'archived'
+  if (task.stage === 'done') return 'done'
+  if (
+    task.merged ||
+    task.statuses.includes('partly-merged') ||
+    task.repos.some((r) => r.pullRequest?.state === 'merged')
+  ) {
+    return 'merged'
+  }
+  if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) {
+    return 'not-started'
+  }
+  return undefined
 }
 
 export interface TaskLink {
@@ -371,12 +416,39 @@ export const blockedChoices = ['unblock', 'keep'] as const
 
 export type BlockedChoice = (typeof blockedChoices)[number]
 
+export interface TaskHierarchy {
+  parentId: string | null
+  childIds: string[]
+  revision: string
+}
+
+export interface SetTaskParentRequest {
+  parentId: string | null
+  revision: string
+}
+
+export interface TaskHierarchyPreview {
+  revision: string
+  descendants: (TaskLink & { title: string })[]
+  archivedWith: string[]
+}
+
+export interface UnarchiveTaskRequest {
+  unlinkParent?: boolean
+  children?: 'restore'
+  hierarchyRevision?: string
+}
+
 export interface ArchiveTaskRequest {
+  children?: 'archive' | 'detach'
+  hierarchyRevision?: string
   closePullRequests?: boolean
   blocked?: BlockedChoice
 }
 
 export interface DeleteTaskRequest {
+  children?: 'delete' | 'unparent'
+  hierarchyRevision?: string
   blocked?: BlockedChoice
 }
 
@@ -386,6 +458,7 @@ export interface NewTaskDraft {
   description: string
   priority: Priority
   blockedBy: string[]
+  parent?: string | undefined
   attachments: Attachment[]
   start: boolean
   moreOpen: boolean
@@ -415,6 +488,7 @@ export interface CreateTaskRequest {
   clarifyDepth?: ClarifyDepth
   lead?: TaskLead
   blockedBy?: string[]
+  parent?: string
   attachments?: AttachmentRef[]
   source?: string
   sentryId?: string
@@ -425,6 +499,22 @@ export interface CreateTaskRequest {
 export interface ResumeTaskRequest {
   comment?: string
   attachments?: AttachmentRef[]
+}
+
+export interface TedStoppedTask {
+  id: string
+  displayId: string
+  title: string
+  stage: StageId
+  factoryId: string
+  stoppedAt: string
+}
+
+export const maxTedStopAnswers = 1000
+
+export interface AnswerTedStopsRequest {
+  restart: string[]
+  leave: string[]
 }
 
 export interface BlockTaskRequest {
@@ -522,9 +612,16 @@ export interface RoundAnswer {
   changed: boolean
 }
 
+export interface TalkThroughRequest {
+  confirmResume?: boolean
+}
+
+export type TalkThroughResult = Comment | { resumeRequired: true }
+
 export interface RoundTalk {
   runId: string
   startedAt: string
+  notifiedAt?: string
   doneAt?: string
 }
 
@@ -600,6 +697,7 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
+  talkRequested?: true
   talk?: RoundTalk
   proposal?: Proposal
   sizeCheck?: SizeCheck
@@ -719,6 +817,8 @@ export interface CancelMergeRequest {
   comment: string
   attachments?: AttachmentRef[]
 }
+
+export type MarkDoneRequest = Record<string, never>
 
 export interface PermissionAsk {
   command: string

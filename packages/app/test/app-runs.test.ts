@@ -128,9 +128,36 @@ describe('Stop and Resume', () => {
         return Math.abs(bubble.y + bubble.height / 2 - (text.y + text.height / 2))
       }),
     ).toBeLessThan(1)
-    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).isDisabled()).toBe(
-      true,
-    )
+    await first.hover()
+    const tooltip = header.page().getByRole('tooltip')
+    await tooltip.waitFor()
+    expect(
+      await tooltip.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        const menu = element.ownerDocument.querySelector('[role="menu"]')?.getBoundingClientRect()
+        const middleX = box.left + box.width / 2
+        const middleY = box.top + box.height / 2
+        const edges = [
+          [box.left + 2, middleY],
+          [box.right - 2, middleY],
+          [middleX, box.top + 2],
+          [middleX, box.bottom - 2],
+        ]
+        const style = (element as HTMLElement).style
+        const pointerEvents = style.pointerEvents
+        style.pointerEvents = 'auto'
+        const visible = edges.every(([x, y]) => {
+          const hit = document.elementFromPoint(x ?? 0, y ?? 0)
+          return hit === element || element.contains(hit)
+        })
+        style.pointerEvents = pointerEvents
+        return {
+          visible,
+          besideMenu: !!menu && (box.right <= menu.left || box.left >= menu.right),
+        }
+      }),
+    ).toEqual({ visible: true, besideMenu: true })
+    expect(await menu.getByRole('menuitem', { name: 'Restart', exact: true }).count()).toBe(0)
     await first.click()
 
     await header.getByText(/^Stopped by you · /).waitFor()
@@ -185,14 +212,15 @@ describe('Failed', () => {
     await card.getByText('The Task Lead stopped twice in 30 minutes').waitFor()
     await card.getByText('claude exited with code 1').waitFor()
 
-    await card.getByRole('button', { name: 'Open last Run' }).click()
+    const answer = thread.getByRole('region', { name: 'Answer', exact: true })
+    await answer.getByRole('button', { name: 'Open last Run' }).click()
     await window.getByRole('region', { name: 'Run chat' }).getByText('Starting.').first().waitFor()
     await window.getByRole('tab', { name: 'Task Lead' }).click()
 
-    await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
-    await card.getByRole('radio', { name: 'Retry', exact: true }).check()
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
+    await answer.getByRole('radio', { name: 'Retry', exact: true }).check()
     expect((await client.listTasks())[0]?.status?.kind).toBe('failed')
-    await card.getByRole('button', { name: 'Send', exact: true }).click()
+    await answer.getByRole('button', { name: 'Send', exact: true }).click()
 
     await thread.getByText('You retried the Task').waitFor()
     const comments = await client.listComments('NB-1')

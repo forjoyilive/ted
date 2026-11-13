@@ -27,8 +27,8 @@ export type DriveAgent = (io: {
   stop: () => void
 }) => HostDriver
 
-export const hostProtocol = 8
-export const oldestHostProtocol = 8
+export const hostProtocol = 9
+export const oldestHostProtocol = 9
 
 export type HostRecord =
   | {
@@ -40,11 +40,19 @@ export type HostRecord =
     }
   | { t: 'out'; line: string; at?: string }
   | { t: 'err'; line: string }
-  | { t: 'exit'; code: number | null; signal: string | null; error?: string; stopped?: boolean }
+  | {
+      t: 'exit'
+      code: number | null
+      signal: string | null
+      error?: string
+      stopped?: boolean
+      at?: string
+    }
 
 export interface GenerationLine {
   forGeneration: number
   line: string
+  permit?: string
 }
 
 export interface QueuedInput extends GenerationLine {
@@ -75,7 +83,11 @@ export function readGenerationLine(line: string): GenerationLine | undefined {
   try {
     const parsed = JSON.parse(line) as Partial<GenerationLine>
     return typeof parsed.forGeneration === 'number' && typeof parsed.line === 'string'
-      ? { forGeneration: parsed.forGeneration, line: parsed.line }
+      ? {
+          forGeneration: parsed.forGeneration,
+          line: parsed.line,
+          ...(typeof parsed.permit === 'string' && { permit: parsed.permit }),
+        }
       : undefined
   } catch {
     return undefined

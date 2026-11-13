@@ -11,6 +11,12 @@
   white-space: nowrap;
 }
 
+.tall {
+  height: var(--button-height-small);
+  padding: 0 10px;
+  gap: 6px;
+}
+
 .glyph {
   flex-shrink: 0;
 }

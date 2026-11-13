@@ -2,6 +2,14 @@ import type { Priority } from './task.ts'
 
 export const busyHold = 'this computer is busy'
 
+export const chatKinds = ['coordinator', 'side-chat', 'planning'] as const
+
+export type ChatKind = (typeof chatKinds)[number]
+
+export function isChat(kind: string): kind is ChatKind {
+  return (chatKinds as readonly string[]).includes(kind)
+}
+
 export type SlotHolder =
   | TaskSlotHolder
   | AutomationSlotHolder

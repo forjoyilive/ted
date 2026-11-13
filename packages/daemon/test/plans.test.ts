@@ -4,13 +4,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
-  Activity,
   Factory,
   Plan,
   PlanDetail,
   PlanInboxItem,
   PlanRequest,
   RunChat,
+  RunSlots,
   RunWithConversation,
   Task,
 } from '@ted/protocol'
@@ -149,7 +149,7 @@ describe('Planning chats', () => {
     expect(run.run.prompt).toContain('## Write clearly for the user')
     expect(run.run.prompt).toContain('Rewrite dense source wording in plain language')
     for (const guidance of [
-      'question count can vary widely and has no target or minimum',
+      'Put every question you can ask now in one round, up to 12',
       'goal, scope and exclusions, user behavior (including edge cases), constraints, risks and acceptance criteria',
       'ask the user to confirm your understanding and whether to split it into Tasks',
       'Keep the layers needed for that result together',
@@ -324,30 +324,34 @@ describe('Planning chats', () => {
     )
   })
 
-  test('with the limit full the chat waits as queued, and a chat waiting on the human frees its slot', async () => {
+  test('with the limit full a chat starts at once and takes no slot', async () => {
     const client = await startTed()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const roundFile = await file('round.json', round)
-    const first = await start(
+    const task = await client
+      .ok<Task>('POST', '/tasks', {
+        title: steps({ waitFor: gate('done') }, { endTurn: true }),
+        factory: 'NB',
+      })
+      .then((t) => client.ok<Task>('POST', `/tasks/${t.id}/start`))
+    await waitUntil(async () => {
+      const slots = await client.ok<RunSlots>('GET', '/slots')
+      return slots.holders.some((h) => h.kind === 'task' && h.taskId === task.id) || undefined
+    }, 'the Task Lead to hold the slot')
+    const plan = await start(
       client,
-      `First plan\n${steps(
-        { waitFor: gate('go') },
-        { run: ['ted', 'ask', '--round', roundFile] },
-        { endTurn: true },
-      )}`,
+      `Plan it\n${steps({ waitFor: gate('go') }, { endTurn: true })}`,
     )
-    await waitForPlan(client, first.id, (d) => d.plan.status === 'working', 'the first to work')
-    const second = await start(client, `Second plan\n${steps({ say: 'Hello' }, { endTurn: true })}`)
-    expect(second).toMatchObject({ status: 'queued', queuePlace: 1 })
-    await expect
-      .poll(() => client.ok<Activity>('GET', '/activity'))
-      .toMatchObject({ runs: { active: 1, queued: 1 } })
+    await waitForPlan(client, plan.id, (d) => d.plan.status === 'working', 'the chat to work')
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({
+      limit: 1,
+      working: 1,
+      queued: 0,
+      holders: expect.arrayContaining([
+        expect.objectContaining({ kind: 'planning', runId: plan.id }),
+      ]),
+    })
     await open('go')
-    await waitForPlan(client, first.id, (d) => d.plan.status === 'waiting', 'the first to wait')
-    await waitForPlan(client, second.id, (d) => d.plan.status === 'idle', 'the second to start')
-    await expect
-      .poll(() => client.ok<Activity>('GET', '/activity'))
-      .toMatchObject({ runs: { working: 0, active: 2, queued: 0 } })
+    await open('done')
   })
 
   test('only the human starts, renames and deletes chats, and only a Planning Run posts rounds', async () => {
@@ -391,9 +395,9 @@ describe('Plans list', () => {
       `Plan sharing\n${steps({ run: ['ted', 'ask', '--round', roundFile] }, { endTurn: true })}`,
     )
     const waiting = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
-    expect(waiting.plan.waitingOn).toBe('Round 1 · 2 questions')
+    expect(waiting.plan.waitingOn).toBe('Round 1')
     const [listed] = await client.ok<Plan[]>('GET', '/plans?factory=NB')
-    expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1 · 2 questions' })
+    expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1' })
     await client.ok('POST', `/plans/${plan.id}/stop`)
   })
 

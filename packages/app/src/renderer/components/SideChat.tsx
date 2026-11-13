@@ -14,6 +14,8 @@ const slotsEveryMs = 500
 type Props = {
   runId: string | undefined
   onStopTask?: (() => void) | undefined
+  openSideChat?: boolean
+  onSideChatOpened?: (() => void) | undefined
   renderSource?: (resource: ReturnType<typeof useRunChatState>) => ReactNode
 } & ChatOptions
 
@@ -21,7 +23,14 @@ export function RunWithSideChat(props: Props) {
   return <RunSideChat key={props.renderSource ? undefined : props.runId} {...props} />
 }
 
-function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
+function RunSideChat({
+  runId,
+  onStopTask,
+  openSideChat = false,
+  onSideChatOpened,
+  renderSource,
+  ...options
+}: Props) {
   const resource = useRunChatState(runId)
   const chat = resource.value
   const [open, setOpen] = useState(false)
@@ -78,6 +87,21 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
     setWhich('side')
     return act((source) => ted.openSideChat(source)).catch(() => undefined)
   }
+  const opened = useRef(onSideChatOpened)
+  opened.current = onSideChatOpened
+  const showRef = useRef(show)
+  showRef.current = show
+  const asked = useRef(false)
+  useEffect(() => {
+    if (!openSideChat) {
+      asked.current = false
+      return
+    }
+    if (asked.current || !eligible) return
+    asked.current = true
+    void showRef.current()
+    opened.current?.()
+  }, [openSideChat, eligible])
   const working = side?.state === 'working' || side?.state === 'queued'
   return (
     <div className={styles.container}>
@@ -93,13 +117,6 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
       )}
       <div className={styles.panes} data-open={open}>
         <div className={styles.source} data-hidden={open && which !== 'source'}>
-          {eligible && options.bar === false && (
-            <div className={styles.actions}>
-              <Button disabled={busy} onClick={show}>
-                {side ? 'Open side chat' : 'Side chat'}
-              </Button>
-            </div>
-          )}
           {renderSource ? (
             renderSource(resource)
           ) : (
@@ -108,14 +125,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
               error={resource.error}
               retry={resource.retry}
               onStopTask={onStopTask}
-              options={{
-                ...options,
-                headerAction: eligible && (
-                  <Button disabled={busy} onClick={show}>
-                    {side ? 'Open side chat' : 'Side chat'}
-                  </Button>
-                ),
-              }}
+              options={options}
             />
           )}
         </div>
@@ -160,9 +170,7 @@ function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
               </p>
             )}
             {side?.state === 'queued' && (
-              <p className={styles.notice}>
-                Waiting for a working slot. The original Run continues.
-              </p>
+              <p className={styles.notice}>Starting. The original Run continues.</p>
             )}
             {side?.chat && (
               <ChatSection

@@ -1,4 +1,5 @@
 import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
+import { snoozeTime } from '../request-snooze.ts'
 import { ago, useNow } from '../requests.ts'
 import { formatDate } from '../time.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
@@ -10,6 +11,8 @@ const gitHubLabels: Record<GitHubWait, string> = {
   review: 'Waiting for GitHub review',
   merge: 'Waiting for merge',
   'sign-in': 'Waiting for GitHub sign-in',
+  rerun: 'Waiting for a CI rerun on GitHub',
+  'required-check': 'Waiting: GitHub requires a failed check',
 }
 
 const gitHubGlyphs: Record<GitHubWait, StatusGlyph> = {
@@ -17,6 +20,8 @@ const gitHubGlyphs: Record<GitHubWait, StatusGlyph> = {
   review: 'review',
   merge: 'merge',
   'sign-in': 'ci',
+  rerun: 'ci',
+  'required-check': 'ci',
 }
 
 export function ordinal(n: number): string {
@@ -32,7 +37,9 @@ export function statusLabel(status: TaskStatus): string {
     case 'partly-merged':
       return 'Partly merged'
     case 'waiting-on-you':
-      return 'Waiting on you'
+      return status.snoozedUntil === undefined
+        ? 'Waiting on you'
+        : `Snoozed until ${snoozeTime(status.snoozedUntil)}`
     case 'paused':
       return `Paused · ${status.reason}`
     case 'working':
@@ -55,7 +62,7 @@ function look(status: TaskStatus): { tone: StatusTone; glyph: StatusGlyph } {
     case 'partly-merged':
       return { tone: 'failed', glyph: 'partly' }
     case 'waiting-on-you':
-      return { tone: 'waiting', glyph: 'waiting' }
+      return { tone: status.snoozedUntil === undefined ? 'waiting' : 'neutral', glyph: 'waiting' }
     case 'paused':
       return { tone: 'neutral', glyph: 'paused' }
     case 'working':
@@ -75,13 +82,15 @@ function BlockedBy({
   by,
   ended,
   onOpenTask,
+  tall = false,
 }: {
   by: string
   ended?: BlockerEnded | undefined
   onOpenTask: (ref: string) => void
+  tall?: boolean
 }) {
   return (
-    <StatusChip tone="neutral" glyph="blocked">
+    <StatusChip tone="neutral" glyph="blocked" tall={tall}>
       {ended ? `Blocked by ${ended}` : 'Blocked by'}
       {ended === 'deleted' ? (
         <span>{by}</span>
@@ -94,10 +103,20 @@ function BlockedBy({
   )
 }
 
-function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: string) => void }) {
+function Marker({
+  marker,
+  onOpenTask,
+  tall,
+}: {
+  marker: TaskMarker
+  onOpenTask: (ref: string) => void
+  tall: boolean
+}) {
+  const markerClass = tall ? `${styles.marker} ${styles.tall}` : styles.marker
   if (marker.kind === 'test-activity') {
     return (
       <StatusChip
+        tall={tall}
         tone={marker.phase === 'running' ? 'testing' : 'neutral'}
         glyph={marker.phase === 'running' ? 'working' : 'queued'}
         title={marker.detail}
@@ -107,12 +126,12 @@ function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: 
     )
   }
   if (marker.kind === 'blocked-by') {
-    return <BlockedBy by={marker.by} ended={marker.ended} onOpenTask={onOpenTask} />
+    return <BlockedBy by={marker.by} ended={marker.ended} onOpenTask={onOpenTask} tall={tall} />
   }
   if (marker.kind === 'snoozed') {
     return (
       <span
-        className={styles.marker}
+        className={markerClass}
         title={formatDate(marker.until, { dateStyle: 'full', timeStyle: 'long' })}
       >
         Scheduled ·{' '}
@@ -126,7 +145,7 @@ function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: 
     )
   }
   return (
-    <span className={styles.marker}>
+    <span className={markerClass}>
       {marker.kind === 'preparing' ? 'Preparing through Design' : 'Needs planning'}
     </span>
   )
@@ -143,26 +162,34 @@ export function TaskStatusChips({
   task,
   onOpenTask,
   detailed = false,
+  tall = false,
+  hideWaiting = false,
 }: {
   task: Pick<Task, 'status' | 'markers'>
   onOpenTask: (ref: string) => void
   detailed?: boolean
+  tall?: boolean
+  hideWaiting?: boolean
 }) {
   const now = useNow()
-  const { status, markers } = task
+  const { markers } = task
+  const status =
+    hideWaiting && task.status?.kind === 'waiting-on-you' && task.status.snoozedUntil === undefined
+      ? undefined
+      : task.status
   if (!status && markers.length === 0) return null
   return (
     <span className={styles.chips}>
       {markers
         .filter((marker) => marker.kind !== 'test-activity')
         .map((marker) => (
-          <Marker key={marker.kind} marker={marker} onOpenTask={onOpenTask} />
+          <Marker key={marker.kind} marker={marker} onOpenTask={onOpenTask} tall={tall} />
         ))}
       {status?.kind === 'blocked' ? (
-        <BlockedBy by={status.by} ended={status.ended} onOpenTask={onOpenTask} />
+        <BlockedBy by={status.by} ended={status.ended} onOpenTask={onOpenTask} tall={tall} />
       ) : (
         status && (
-          <StatusChip {...look(status)}>
+          <StatusChip {...look(status)} tall={tall}>
             {detailed ? detailedLabel(status, now) : statusLabel(status)}
           </StatusChip>
         )
@@ -174,6 +201,7 @@ export function TaskStatusChips({
             key={`${marker.source}-${marker.phase}`}
             marker={marker}
             onOpenTask={onOpenTask}
+            tall={tall}
           />
         ))}
     </span>

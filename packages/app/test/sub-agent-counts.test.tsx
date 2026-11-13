@@ -133,7 +133,7 @@ test('Board cards and aggregate follow the same search and updated Runs', async 
   expect(within(card).queryByText(/sub-agents?/)).toBeNull()
 })
 
-test('Runs summaries keep active counts separate from Lead history and usage totals', async () => {
+test('Runs summaries keep active counts separate from Lead history and usage totals', () => {
   const history: RunSummary[] = runs.map((r) => ({
     ...r,
     startedAt: createdAt,
@@ -141,12 +141,11 @@ test('Runs summaries keep active counts separate from Lead history and usage tot
     tokens: 100,
   }))
   render(<RunsSection runs={history} onOpenRun={vi.fn()} />)
-  const section = within(screen.getByRole('region', { name: 'Runs' }))
-  expect(section.getByRole('heading').textContent).toMatch(/9 Runs · 6 active sub-agents · 900/)
-  await user().click(section.getByRole('button', { name: /^Runs/ }))
-  expect(section.getByRole('heading').textContent).toContain(
-    'Task Lead working · 6 active sub-agents · 1 stopped',
-  )
+  const section = within(screen.getByRole('tabpanel', { name: 'Runs' }))
+  expect(section.getByRole('heading').textContent).toBe('Runs')
+  expect(
+    section.getByText(/^Task Lead working · 6 active sub-agents · 1 stopped · 900/),
+  ).toBeTruthy()
   expect(
     runsCollapsedSummary([
       { ...run({ role: 'lead', state: 'finished' }), startedAt: createdAt, current: false },

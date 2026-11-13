@@ -209,14 +209,15 @@ describe('Keyboard shortcuts', () => {
       .getByRole('button')
       .filter({ hasText: 'Permission' })
     await row.click()
-    const card = window.getByRole('region', { name: 'Permission', exact: true })
-    const approve = card.getByRole('button', { name: /^Approve/ })
+    await window.getByRole('region', { name: 'Permission', exact: true }).waitFor()
+    const answer = window.getByRole('region', { name: 'Answer', exact: true })
+    const approve = answer.getByRole('button', { name: /^Approve/ })
     await approve.waitFor()
 
     await press(window, 'a')
-    await card.getByText('↵ to confirm').waitFor()
+    await answer.getByText('↵ to confirm').waitFor()
     await press(window, 'Escape')
-    await card.getByText('↵ to confirm').waitFor({ state: 'detached' })
+    await answer.getByText('↵ to confirm').waitFor({ state: 'detached' })
     await window.getByRole('region', { name: 'Task thread' }).waitFor()
 
     await window.evaluate(() => {
@@ -252,7 +253,9 @@ describe('Keyboard shortcuts', () => {
       return Number(document.documentElement.dataset.approvalFrames)
     })
     expect(frames).toBe(0)
+    await inbox.getByRole('button', { name: /^Filter/ }).click()
     await inbox.getByRole('switch', { name: 'Answered' }).click()
+    await inbox.getByRole('button', { name: /^Filter/ }).click()
     await inbox.getByRole('button').filter({ hasText: 'Permission' }).click()
     await window
       .getByRole('region', { name: 'Task thread' })

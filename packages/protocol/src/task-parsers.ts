@@ -20,10 +20,13 @@ import type {
   ReportOutcomeRequest,
   SaveTaskDraftRequest,
   SetPriorityRequest,
+  SetTaskParentRequest,
+  UnarchiveTaskRequest,
 } from './task.ts'
 import {
   type AgentStageId,
   type AnswerRequest,
+  type AnswerTedStopsRequest,
   agentStageIds,
   type BlockedChoice,
   type BlockTaskRequest,
@@ -34,6 +37,8 @@ import {
   clarifyDepths,
   type EditTaskRequest,
   type FollowUpRequest,
+  type MarkDoneRequest,
+  maxTedStopAnswers,
   type NewTaskDraft,
   type PostCommentRequest,
   type ProposalChoice,
@@ -50,12 +55,13 @@ import {
   type SizeCheckInput,
   type StageId,
   type StartTaskRequest,
+  type TalkThroughRequest,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
 } from './task.ts'
 import type { SetTaskGatesRequest, TaskGateOverrides } from './task-gates.ts'
-import { agentChoice, RequestValidationError as HttpError } from './validation.ts'
+import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
 export function parseStartTaskRequest(value: unknown): StartTaskRequest {
   if (value === undefined || value === null) return {}
@@ -111,7 +117,7 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
   }
   const request = body as Record<keyof CreateTaskRequest, unknown>
   const text = (
-    name: 'title' | 'description' | 'factory' | 'source' | 'followUp' | 'draftRevision',
+    name: 'title' | 'description' | 'factory' | 'source' | 'followUp' | 'draftRevision' | 'parent',
   ) => {
     const value = request[name]
     if (value === undefined) return undefined
@@ -136,6 +142,7 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
   const factory = text('factory')
   const source = sourceUrl(text('source'))
   const followUp = text('followUp')?.trim() || undefined
+  const parent = text('parent')?.trim() || undefined
   const sentryId = sentryShortId(request.sentryId, source)
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
@@ -157,6 +164,7 @@ export function parseCreateTaskRequest(body: unknown): CreateTaskRequest {
     ...(clarifyDepth !== undefined && { clarifyDepth }),
     ...(lead !== undefined && { lead }),
     ...(blockedBy !== undefined && { blockedBy }),
+    ...(parent !== undefined && { parent }),
     ...(attached.length > 0 && { attachments: attached }),
     ...(source !== undefined && { source }),
     ...(followUp !== undefined && { followUp }),
@@ -797,6 +805,7 @@ export function parseSaveTaskDraftRequest(body: unknown): SaveTaskDraftRequest {
     ...(clarifyDepth && { clarifyDepth }),
     ...(value.lead !== undefined && { lead: parseTaskLead(value.lead, 'lead') }),
     ...(value.source !== undefined && { source: sourceUrl(text('source')) }),
+    ...(value.parent !== undefined && { parent: text('parent') }),
   }
 }
 
@@ -903,9 +912,47 @@ export function parseBlockTaskRequest(value: unknown): BlockTaskRequest {
   return { by }
 }
 
+function hierarchyRevision(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value))
+    throw new HttpError(400, 'hierarchyRevision must come from a current hierarchy read')
+  return value
+}
+
+export function parseSetTaskParentRequest(value: unknown): SetTaskParentRequest {
+  const body = bodyObject(value)
+  if (body.parentId !== null && (typeof body.parentId !== 'string' || !body.parentId.trim()))
+    throw new HttpError(400, 'parentId must be a Task ID or null')
+  const revision = hierarchyRevision(body.revision)
+  if (!revision) throw new HttpError(400, 'revision must come from a current hierarchy read')
+  return { parentId: body.parentId === null ? null : body.parentId.trim(), revision }
+}
+
+export function parseUnarchiveTaskRequest(value: unknown): UnarchiveTaskRequest {
+  const body = bodyObject(value ?? {})
+  if (body.unlinkParent !== undefined && typeof body.unlinkParent !== 'boolean')
+    throw new HttpError(400, 'unlinkParent must be true or false')
+  if (body.children !== undefined && body.children !== 'restore')
+    throw new HttpError(400, 'children must be restore')
+  return {
+    ...(body.unlinkParent !== undefined && { unlinkParent: body.unlinkParent }),
+    ...(body.children === 'restore' && { children: body.children }),
+    ...(body.hierarchyRevision !== undefined && {
+      hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
+    }),
+  }
+}
+
 export function parseDeleteTaskRequest(value: unknown): DeleteTaskRequest {
   const body = value as Record<string, unknown> | null
-  return { blocked: blockedChoice(body) }
+  if (body?.children !== undefined && body.children !== 'delete' && body.children !== 'unparent')
+    throw new HttpError(400, 'children must be delete or unparent')
+  return {
+    blocked: blockedChoice(body),
+    ...(body?.children !== undefined && { children: body.children }),
+    ...(body?.hierarchyRevision !== undefined && {
+      hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
+    }),
+  }
 }
 
 export function parseArchiveTaskRequest(value: unknown): ArchiveTaskRequest {
@@ -914,7 +961,17 @@ export function parseArchiveTaskRequest(value: unknown): ArchiveTaskRequest {
   if (close !== undefined && typeof close !== 'boolean') {
     throw new HttpError(400, 'closePullRequests must be true or false')
   }
-  return { closePullRequests: close === true, blocked: blockedChoice(body) }
+  const children = body?.children
+  if (children !== undefined && children !== 'archive' && children !== 'detach')
+    throw new HttpError(400, 'children must be archive or detach')
+  return {
+    closePullRequests: close === true,
+    ...(children !== undefined && { children }),
+    blocked: blockedChoice(body),
+    ...(body?.hierarchyRevision !== undefined && {
+      hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
+    }),
+  }
 }
 
 export function parseSetTaskGatesRequest(input: unknown): SetTaskGatesRequest {
@@ -971,6 +1028,29 @@ export function parseResumeTaskRequest(value: unknown): ResumeTaskRequest {
   }
 }
 
+export function parseAnswerTedStopsRequest(value: unknown): AnswerTedStopsRequest {
+  const body = value as Partial<AnswerTedStopsRequest> | null
+  const ids = (name: 'restart' | 'leave'): string[] => {
+    const list = body?.[name] ?? []
+    if (!Array.isArray(list) || list.some((id) => typeof id !== 'string' || id === '')) {
+      throw new HttpError(400, `${name} must be a list of Task IDs`)
+    }
+    return [...new Set(list as string[])]
+  }
+  const restart = ids('restart')
+  const leave = ids('leave')
+  if (restart.length + leave.length === 0) {
+    throw new HttpError(400, 'name at least one Task to restart or leave stopped')
+  }
+  if (restart.length + leave.length > maxTedStopAnswers) {
+    throw new HttpError(400, `name at most ${maxTedStopAnswers} Tasks`)
+  }
+  if (leave.some((id) => restart.includes(id))) {
+    throw new HttpError(400, 'a Task can’t be both restarted and left stopped')
+  }
+  return { restart, leave }
+}
+
 export function parseFollowUpRequest(value: unknown): FollowUpRequest {
   const body = value as Partial<FollowUpRequest> | null
   const comment = body?.comment
@@ -990,6 +1070,14 @@ export function parseCancelMergeRequest(value: unknown): CancelMergeRequest {
   if (text === '') throw new HttpError(400, 'comment is required')
   const files = parseAttachmentRefs(body?.attachments)
   return { comment: text, ...(files.length > 0 && { attachments: files }) }
+}
+
+export function parseMarkDoneRequest(value: unknown): MarkDoneRequest {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 0) {
+    throw new HttpError(400, 'marking a Task done takes no fields')
+  }
+  return {}
 }
 
 export function parseSetClarifyDepthRequest(value: unknown): SetClarifyDepthRequest {
@@ -1047,4 +1135,12 @@ export function parseLocalDesignReviewInput(value: unknown): LocalDesignReviewIn
     ...(video !== undefined && { video: parseDesignFileSpec(video, 'video') }),
     ...(prototype !== undefined && { prototype: parseDesignFileSpec(prototype, 'prototype') }),
   }
+}
+
+export function parseTalkThroughRequest(value: unknown): TalkThroughRequest {
+  const body = value as Partial<TalkThroughRequest> | null
+  if (body?.confirmResume !== undefined && typeof body.confirmResume !== 'boolean') {
+    throw new HttpError(400, 'confirmResume must be a boolean')
+  }
+  return body?.confirmResume === undefined ? {} : { confirmResume: body.confirmResume }
 }

@@ -1,11 +1,18 @@
 import { appendFileSync } from 'node:fs'
-import type { Banner, MachineSettings, Task, WaitingRequest } from '@ted/protocol'
+import {
+  type Banner,
+  factoryNotifications,
+  type MachineSettings,
+  type Task,
+  type WaitingRequest,
+} from '@ted/protocol'
 import {
   foldedNotice,
   inboxNotice,
   mergedNotice,
   type ProblemNotice,
   problemNotice,
+  tedStopsNotice,
 } from './background.ts'
 
 export interface ShownNotice {
@@ -40,6 +47,7 @@ export interface Notifications {
   waiting(requests: readonly WaitingRequest[]): void
   problem(banner: Banner): void
   merged(task: Task): void
+  tedStops(count: number, windowHidden: boolean): void
   forget(): void
 }
 
@@ -50,6 +58,7 @@ export function createNotifications(options: NotificationsOptions): Notification
   const merged = new Set<string>()
   let recent: { at: number; shown?: ShownNotice }[] = []
   let folded: ShownNotice | undefined
+  let stopsNotified = false
 
   const display = (notice: ProblemNotice) =>
     notifier.show({ title: notice.title, body: notice.body, silent: !settings().notifySound }, () =>
@@ -82,7 +91,7 @@ export function createNotifications(options: NotificationsOptions): Notification
       seen = ids
       if (fresh.length > 0 && !asked()) markAsked()
       if (!settings().notifyInboxItems) return
-      for (const request of fresh) send(inboxNotice(request))
+      for (const request of fresh) if (!request.uncounted) send(inboxNotice(request))
     },
     problem(banner) {
       const notice = problemNotice(banner)
@@ -93,8 +102,19 @@ export function createNotifications(options: NotificationsOptions): Notification
       const notice = mergedNotice(task, now())
       if (!notice || merged.has(task.id)) return
       merged.add(task.id)
-      if (!settings().notifyTaskMerged || !mayNotify()) return
+      const current = settings()
+      if (!current.notifyTaskMerged || !mayNotify()) return
+      if (!factoryNotifications(current, task.factoryId).taskMerged) return
       send(notice)
+    },
+    tedStops(count, windowHidden) {
+      if (count === 0) {
+        stopsNotified = false
+        return
+      }
+      if (!windowHidden || stopsNotified || !mayNotify()) return
+      stopsNotified = true
+      send(tedStopsNotice(count))
     },
     forget() {
       seen = undefined

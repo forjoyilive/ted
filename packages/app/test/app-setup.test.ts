@@ -123,8 +123,9 @@ describe('setup Tasks', () => {
         'The Design and Review sign-offs are always on for a setup Task. Tasks started before it merges use TED’s defaults.',
       )
       .waitFor()
-    await expect(details.locator(':scope > *').first().textContent()).resolves.toBe('Task Details')
-    await expect(details.locator(':scope > *').nth(1).textContent()).resolves.toContain(
+    const panel = details.getByRole('tabpanel', { name: 'Details' })
+    await expect(panel.getByRole('heading').first().textContent()).resolves.toBe('Details')
+    await expect(panel.locator('p').first().textContent()).resolves.toContain(
       'always on for a setup Task',
     )
     await thread.getByText('Tutorial', { exact: true }).first().waitFor()
@@ -148,7 +149,10 @@ describe('setup Tasks', () => {
     await card
       .getByText('Left as TED’s defaults: agents, permissions Auto, 6 working Runs.')
       .waitFor()
-    await card.getByRole('button', { name: 'Approve' }).waitFor()
+    await thread
+      .getByRole('region', { name: 'Answer', exact: true })
+      .getByRole('button', { name: 'Approve' })
+      .waitFor()
     await thread.getByText('TED created this Task to set up this Factory').waitFor()
   }, 90_000)
 })

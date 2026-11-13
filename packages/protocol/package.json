@@ -19,6 +19,7 @@
     "./factory-settings": "./src/factory-settings.ts",
     "./version": "./src/version.ts",
     "./list-view": "./src/list-view.ts",
+    "./board-view": "./src/board-view.ts",
     "./storage": "./src/storage.ts",
     "./slots": "./src/slots.ts",
     "./slow": "./src/slow.ts",
@@ -35,6 +36,8 @@
     "./plan": "./src/plan.ts",
     "./export-file": "./src/export-file.ts",
     "./reference": "./src/reference.ts",
-    "./execution-pairing": "./src/execution-pairing.ts"
+    "./execution-commands": "./src/execution-commands.ts",
+    "./execution-pairing": "./src/execution-pairing.ts",
+    "./waiting": "./src/waiting.ts"
   }
 }

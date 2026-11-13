@@ -105,14 +105,17 @@ describe('Plan in chat from a Task', () => {
     const ask = window
       .getByRole('region', { name: 'Task thread' })
       .getByRole('region', { name: 'Question', exact: true })
-    await ask.getByRole('textbox', { name: 'Your answer' }).fill(
+    const answer = window
+      .getByRole('region', { name: 'Task thread' })
+      .getByRole('region', { name: 'Answer', exact: true })
+    await answer.getByRole('textbox', { name: 'Your answer' }).fill(
       JSON.stringify({
         steps: [{ run: ['ted', 'task', 'propose', '--file', proposal] }, { endTurn: true }],
       }),
     )
-    const send = ask.getByRole('button', { name: 'Send', exact: true })
+    const send = answer.getByRole('button', { name: 'Send', exact: true })
     expect(await send.isEnabled()).toBe(false)
-    await ask.getByRole('radio', { name: 'Plan in chat' }).check()
+    await answer.getByRole('radio', { name: 'Plan in chat' }).check()
     await send.click()
 
     const chat = window.getByRole('region', { name: 'Planning chat' })

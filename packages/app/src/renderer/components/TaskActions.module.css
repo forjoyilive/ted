@@ -164,10 +164,12 @@
   gap: 6px;
 }
 
-.menu .tooltip {
+.tooltip[role="tooltip"] {
+  position: fixed;
   top: 0;
-  right: calc(100% + 10px);
-  left: auto;
+  right: auto;
+  left: 0;
+  z-index: 101;
   pointer-events: none;
 }
 
@@ -185,4 +187,31 @@
   color: var(--status-failed-fg);
   font-size: var(--text-12);
   white-space: normal;
+}
+
+.historyRow {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 5px 14px;
+  white-space: normal;
+}
+
+.historyRow small {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.group {
+  padding: 8px 14px 3px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+
+.note {
+  margin: 0;
+  padding: 6px 14px;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
 }

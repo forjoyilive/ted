@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 import { watchExitWith } from '../../exit-with.ts'
 import { waitForLock } from '../../lock.ts'
+import { homeOfRunDir, quitMarkedSync } from '../../quit-mark.ts'
 import {
   type DriveAgent,
   type HostDriver,
@@ -14,7 +15,7 @@ import {
   readGenerationLine,
   runFiles,
 } from '../host-files.ts'
-
+import { consumeInput } from '../input-permits.ts'
 import { checkLaunchAuthority } from '../launch-authority.ts'
 
 const runDir = process.argv[2]
@@ -24,6 +25,10 @@ const files = runFiles(runDir)
 
 const lock = await waitForLock(files.lock, 2_000)
 if (!lock) throw new Error(`another host already runs ${runDir}`)
+if (quitMarkedSync(homeOfRunDir(runDir))) {
+  lock.release()
+  throw new Error('TED was quit; this Run doesn’t start until the app opens again')
+}
 
 const earlierStarts = (() => {
   try {
@@ -137,6 +142,7 @@ const forwardInput = () => {
       for (const raw of lines) {
         const tagged = readGenerationLine(raw)
         if (tagged && tagged.forGeneration !== generation) continue
+        if (tagged?.permit && !consumeInput(runDir, tagged.permit)) continue
         const line = tagged ? tagged.line : raw
         if (driver?.onInput) driver.onInput(line)
         else send(line)
@@ -184,6 +190,7 @@ write({
   signal,
   ...(spawnError !== undefined && { error: spawnError }),
   ...(asked.stop && { stopped: true }),
+  at: new Date().toISOString(),
 })
 lock.release()
 process.exit(0)

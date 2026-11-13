@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { type DashboardTaskFacts, factoryDashboard } from '../src/dashboard.ts'
 
 const hour = 3_600_000
-const now = Date.parse('2026-11-10T12:00:00Z')
+const now = new Date(2026, 5, 10).getTime()
 const iso = (n: number) => new Date(n).toISOString()
 function completed(
   id: string,
@@ -96,7 +96,8 @@ test('empty and zero baselines have no invented percent and all retained history
   expect(all.previous).toBeNull()
   expect(all.comparison).toBeNull()
   expect(all.current.taskIds).toEqual(['1'])
-  expect(all.current.buckets).toHaveLength(30)
+  expect(all.current.buckets.length).toBeLessThanOrEqual(30)
+  expect(all.current.buckets.flatMap((b) => b.taskIds)).toEqual(['1'])
   const empty = factoryDashboard([], 'all', now)
   expect(empty.current).toMatchObject({
     from: null,
@@ -106,21 +107,81 @@ test('empty and zero baselines have no invented percent and all retained history
   })
 })
 
-test('all-history graph samples match the serialized millisecond boundaries', () => {
-  const first = {
-    ...completed('1', 1, 1, null),
-    createdAt: iso(-hour),
-    entries: [{ stage: 'done', at: iso(0) }],
+test('7 and 30 days are whole local days before today, and All groups whole days ending today', () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  try {
+    const at = (month: number, day: number, hours = 0, minutes = 0) =>
+      new Date(2026, month, day, hours, minutes).getTime()
+    const asOf = at(10, 12, 14, 26)
+    const done = (id: string, time: number): DashboardTaskFacts => ({
+      ...completed(id, 0, 1, null),
+      createdAt: iso(time - hour),
+      entries: [{ stage: 'done', at: iso(time) }],
+    })
+    const tasks = [
+      done('today', at(10, 12, 0, 1)),
+      done('late', at(10, 11, 23, 59)),
+      done('first', at(10, 5)),
+      done('before', at(10, 4, 23, 59)),
+      done('dst', at(10, 1, 12)),
+      done('oldest', at(9, 29)),
+    ]
+    const week = factoryDashboard(tasks, '7d', asOf)
+    expect(week.current).toMatchObject({
+      from: iso(at(10, 5)),
+      to: iso(at(10, 12)),
+      taskIds: ['late', 'first'],
+    })
+    expect(week.current.buckets.map((b) => b.from)).toEqual(
+      [5, 6, 7, 8, 9, 10, 11].map((d) => iso(at(10, d))),
+    )
+    expect(week.current.buckets[6]?.taskIds).toEqual(['late'])
+    expect(week.current.buckets.flatMap((b) => b.taskIds).sort()).toEqual(
+      [...week.current.taskIds].sort(),
+    )
+    expect(week.previous).toMatchObject({
+      from: iso(at(9, 29)),
+      to: iso(at(10, 5)),
+      taskIds: ['before', 'dst', 'oldest'],
+    })
+    expect(week.previous?.buckets.map((b) => b.from)).toEqual(
+      [
+        [9, 29],
+        [9, 30],
+        [9, 31],
+        [10, 1],
+        [10, 2],
+        [10, 3],
+        [10, 4],
+      ].map(([m, d]) => iso(at(m as number, d as number))),
+    )
+    expect(week.previous?.buckets[3]).toMatchObject({ to: iso(at(10, 2)), taskIds: ['dst'] })
+    expect(week.flow.current.to).toBe(iso(at(10, 12)))
+    expect(week.flow.previous?.to).toBe(iso(at(10, 5)))
+    const month = factoryDashboard(tasks, '30d', asOf)
+    expect(month.current.buckets).toHaveLength(30)
+    expect(month.current).toMatchObject({ from: iso(at(9, 13)), to: iso(at(10, 12)) })
+    const all = factoryDashboard([...tasks, done('history', at(6, 20, 9))], 'all', asOf)
+    expect(all.current.buckets).toHaveLength(29)
+    expect(all.current).toMatchObject({ from: iso(at(6, 20)), to: iso(asOf) })
+    expect(all.current.buckets.at(-1)).toMatchObject({
+      from: iso(at(10, 9)),
+      to: iso(asOf),
+      taskIds: ['today', 'late'],
+    })
+    expect(all.current.buckets.flatMap((b) => b.taskIds).sort()).toEqual(
+      [...all.current.taskIds].sort(),
+    )
+    const short = factoryDashboard([done('late', at(10, 11, 23, 59))], 'all', asOf)
+    expect(short.current.buckets.map((b) => [b.from, b.to])).toEqual([
+      [iso(at(10, 11)), iso(at(10, 12))],
+      [iso(at(10, 12)), iso(asOf)],
+    ])
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
   }
-  const second = {
-    ...completed('2', 1, 1, null),
-    createdAt: iso(0),
-    entries: [{ stage: 'done', at: iso(43_200_000) }],
-  }
-  const result = factoryDashboard([first, second], 'all', 86_400_001)
-  expect(result.current.buckets.map((b) => b.taskIds)).toEqual([['1'], ['2']])
-  expect(result.current.buckets[0]?.to).toBe('1970-01-01T12:00:00.000Z')
-  expect(result.current.buckets[1]?.from).toBe('1970-01-01T12:00:00.000Z')
 })
 
 function flowTask(
@@ -781,3 +842,86 @@ function required<T>(value: T | undefined | null): T {
   if (value === undefined || value === null) throw new Error('Required fixture evidence is missing')
   return value
 }
+
+test('Today runs from local midnight by the hour and compares with yesterday up to the same time', () => {
+  const at = (day: number, hours: number, minutes = 0) =>
+    new Date(2026, 10, day, hours, minutes).getTime()
+  const asOf = at(12, 14, 40)
+  const done = (id: string, time: number): DashboardTaskFacts => ({
+    ...completed(id, 0, 1, null),
+    createdAt: iso(time - hour),
+    entries: [{ stage: 'done', at: iso(time) }],
+  })
+  const result = factoryDashboard(
+    [
+      done('midnight', at(12, 0)),
+      done('morning', at(12, 9, 30)),
+      done('latest', at(12, 14, 10)),
+      done('yesterday', at(11, 9)),
+      done('same-time', at(11, 14, 40)),
+      done('evening', at(11, 23, 59)),
+      done('older', at(10, 23, 59)),
+    ],
+    'today',
+    asOf,
+  )
+  expect(result.current).toMatchObject({
+    from: iso(at(12, 0)),
+    to: iso(asOf),
+    taskIds: ['midnight', 'morning', 'latest'],
+  })
+  expect(result.current.buckets).toHaveLength(15)
+  expect(result.current.buckets[9]?.taskIds).toEqual(['morning'])
+  expect(result.current.buckets[14]).toMatchObject({ to: iso(asOf), taskIds: ['latest'] })
+  expect(result.previous).toMatchObject({
+    from: iso(at(11, 0)),
+    to: iso(at(11, 14, 40)),
+    taskIds: ['yesterday'],
+  })
+  expect(result.previous?.buckets).toHaveLength(24)
+  expect(result.previous?.buckets[14]?.taskIds).toEqual(['same-time'])
+  expect(result.previous?.buckets[23]).toMatchObject({
+    to: iso(at(12, 0)),
+    taskIds: ['evening'],
+  })
+  expect(result.comparison?.completed).toEqual({ absolute: 2, percent: 200 })
+  const ids = result.tasks.map((t) => t.id)
+  expect(ids).toEqual(expect.arrayContaining(['same-time', 'evening']))
+  expect(ids).not.toContain('older')
+  expect(result.flow.previous).toMatchObject({
+    from: iso(at(11, 0)),
+    to: iso(at(11, 14, 40)),
+  })
+})
+
+test('Today compares with the same clock time yesterday on a day the clocks change', () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  try {
+    const at = (month: number, day: number, hours: number, minutes = 0) =>
+      new Date(2026, month, day, hours, minutes).getTime()
+    const asOf = at(10, 1, 12)
+    const done = (id: string, time: number): DashboardTaskFacts => ({
+      ...completed(id, 0, 1, null),
+      createdAt: iso(time - hour),
+      entries: [{ stage: 'done', at: iso(time) }],
+    })
+    const result = factoryDashboard(
+      [done('before', at(9, 31, 11, 30)), done('after', at(9, 31, 12, 30))],
+      'today',
+      asOf,
+    )
+    expect(asOf - at(10, 1, 0)).toBe(13 * hour)
+    expect(result.current.buckets).toHaveLength(13)
+    expect(result.previous).toMatchObject({
+      from: iso(at(9, 31, 0)),
+      to: iso(at(9, 31, 12)),
+      taskIds: ['before'],
+    })
+    expect(result.previous?.buckets).toHaveLength(24)
+    expect(result.flow.previous?.to).toBe(iso(at(9, 31, 12)))
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
+})

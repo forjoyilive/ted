@@ -1,12 +1,18 @@
-import type { Task } from '@ted/protocol'
+import type { RunSummary, Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
-import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useEffect, useId, useState } from 'react'
+import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useTasks } from '../data.ts'
+import { newChildTask, pickChildEvent, pickParentEvent } from '../hierarchy.ts'
 import { keysFor } from '../keymap.ts'
+import { besideMenu } from '../menu-tooltip.ts'
 import { usePendingAction } from '../pending-action.ts'
+import { clockTime } from '../requests.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { formatDate } from '../time.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import { useEnabledAgents } from './AgentOptions.tsx'
@@ -17,10 +23,17 @@ import {
   deleteTaskEvent,
   FollowUpDialog,
   followUpTaskEvent,
+  needsUnarchiveDialog,
+  ResetDialog,
+  resetTaskEvent,
+  UnarchiveDialog,
+  unarchiveTaskEvent,
 } from './ArchiveDialogs.tsx'
 import menuStyles from './ContextMenu.module.css'
 import { buttonPosition, ContextMenu, type MenuPosition, MenuSubmenu } from './ContextMenu.tsx'
 import { Tooltip } from './Help.tsx'
+import { changeParent } from './HierarchySection.tsx'
+import { LoadingError } from './Loading.tsx'
 import { SnoozeTaskDialog, snoozeTaskEvent } from './SnoozeTaskDialog.tsx'
 import styles from './TaskActions.module.css'
 
@@ -39,9 +52,31 @@ function MoreIcon() {
 function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () => void }) {
   const [hover, setHover] = useState(false)
   const id = useId()
+  const button = useRef<HTMLButtonElement>(null)
+  const tip = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const item = button.current
+    const bubble = tip.current
+    const menu = item?.closest('[role="menu"]')
+    if (!hover || !item || !bubble || !menu) return
+    const place = () => {
+      const { left, top } = besideMenu(
+        item.getBoundingClientRect(),
+        menu.getBoundingClientRect(),
+        bubble.getBoundingClientRect(),
+        { width: window.innerWidth, height: window.innerHeight },
+      )
+      bubble.style.left = `${left}px`
+      bubble.style.top = `${top}px`
+    }
+    place()
+    menu.addEventListener('scroll', place)
+    return () => menu.removeEventListener('scroll', place)
+  }, [hover])
   return (
     <div className={styles.first}>
       <ActionButton
+        ref={button}
         type="button"
         role="menuitem"
         className={styles.item}
@@ -64,9 +99,12 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
           )}
       </ActionButton>
       {hover ? (
-        <Tooltip id={id} className={styles.tooltip}>
-          {action.help}
-        </Tooltip>
+        createPortal(
+          <Tooltip ref={tip} id={id} className={styles.tooltip}>
+            {action.help}
+          </Tooltip>,
+          document.body,
+        )
       ) : (
         <span id={id} hidden>
           {action.help}
@@ -112,7 +150,83 @@ function Choice({
   )
 }
 
-export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up' | 'snooze'
+export interface TaskHistory {
+  earlier: readonly RunSummary[]
+  finished: readonly RunSummary[]
+  loading: boolean
+  error: string | undefined
+  retry: () => void
+  onOpen: (runId: string) => void
+}
+
+export interface TaskSideChat {
+  available: boolean
+  onOpen: () => void
+}
+
+function HistoryItem({ history, close }: { history: TaskHistory; close: () => void }) {
+  const count = history.earlier.length + history.finished.length
+  if (count === 0 && !history.loading && history.error === undefined) {
+    return (
+      <ActionButton
+        type="button"
+        role="menuitem"
+        className={styles.item}
+        aria-disabled
+        title="No earlier conversations or finished sub-agents yet."
+      >
+        <span className={styles.label}>History</span>
+        <span className={styles.hint}>Nothing yet</span>
+      </ActionButton>
+    )
+  }
+  const rows = (list: readonly RunSummary[]) =>
+    list.map((run) => (
+      <ActionButton
+        key={run.id}
+        type="button"
+        role="menuitem"
+        className={`${styles.item} ${styles.historyRow}`}
+        onClick={() => {
+          close()
+          history.onOpen(run.id)
+        }}
+      >
+        <span>{run.role === 'lead' ? 'Earlier conversation' : run.name}</span>
+        <small>
+          {formatDate(run.startedAt, { day: 'numeric', month: 'short', year: 'numeric' })} ·{' '}
+          {clockTime(run.startedAt)} · {agentLabels[run.agent]}
+        </small>
+      </ActionButton>
+    ))
+  return (
+    <MenuSubmenu label={count > 0 ? `History · ${count}` : 'History'}>
+      {history.error !== undefined && <LoadingError error={history.error} retry={history.retry} />}
+      {history.loading && <p className={styles.note}>Loading history…</p>}
+      {history.earlier.length > 0 && (
+        <>
+          <div className={styles.group}>Earlier conversations</div>
+          {rows(history.earlier)}
+        </>
+      )}
+      {history.finished.length > 0 && (
+        <>
+          <div className={styles.group}>Finished sub-agents</div>
+          {rows(history.finished)}
+        </>
+      )}
+    </MenuSubmenu>
+  )
+}
+
+export type TaskDialogKind =
+  | 'archive'
+  | 'delete'
+  | 'edit'
+  | 'follow-up'
+  | 'reset'
+  | 'snooze'
+  | 'unarchive'
 
 export function TaskDialog({
   task,
@@ -128,7 +242,9 @@ export function TaskDialog({
   const close = () => onKind(undefined)
   if (kind === 'snooze') return <SnoozeTaskDialog task={task} onClose={close} />
   if (kind === 'archive') return <ArchiveDialog task={task} onClose={close} />
+  if (kind === 'unarchive') return <UnarchiveDialog task={task} onClose={close} />
   if (kind === 'edit') return <EditTaskDialog task={task} onClose={close} />
+  if (kind === 'reset') return <ResetDialog task={task} onClose={close} />
   if (kind === 'delete') {
     return <DeleteDialog task={task} onClose={close} onArchiveInstead={() => onKind('archive')} />
   }
@@ -149,14 +265,18 @@ export function TaskActionsMenu({
   onMenuClose,
   onPickBlocker,
   onOpenBrief,
+  history,
+  sideChat,
 }: {
   task: Task
   contextAt?: MenuPosition | undefined
   contextOnly?: boolean
   onMenuClose?: () => void
-  onPickBlocker?: (task: Task) => void
+  onPickBlocker?: (task: Task, event?: string) => void
   onFollowedUp?: (followUp: Task) => void
   onOpenBrief?: (() => void) | undefined
+  history?: TaskHistory | undefined
+  sideChat?: TaskSideChat | undefined
 }) {
   const enabledAgents = useEnabledAgents()
   const [position, setPosition] = useState<MenuPosition>()
@@ -170,6 +290,14 @@ export function TaskActionsMenu({
   }, [contextAt])
   const [dialog, setDialog] = useState<TaskDialogKind>()
   const [error, setError] = useState<string>()
+  const allTasks = useTasks()
+  const parentName = allTasks.find((t) => t.id === task.parentId)?.displayId ?? 'its parent'
+  const pick = (event: string) => {
+    close()
+    return onPickBlocker
+      ? onPickBlocker(task, event)
+      : window.dispatchEvent(new CustomEvent(event, { detail: task.id }))
+  }
   const errorClass = contextOnly ? menuStyles.error : styles.error
   useEffect(() => {
     if (contextOnly) return
@@ -190,6 +318,22 @@ export function TaskActionsMenu({
       if (event instanceof CustomEvent && event.detail === task.id) {
         close()
         setDialog('delete')
+      }
+    }
+    const onUnarchive = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id && task.archived) {
+        close()
+        setDialog('unarchive')
+      }
+    }
+    const onReset = (event: Event) => {
+      if (
+        event instanceof CustomEvent &&
+        event.detail === task.id &&
+        resetRefusal(task) === undefined
+      ) {
+        close()
+        setDialog('reset')
       }
     }
     const onFollowUp = (event: Event) => {
@@ -213,19 +357,22 @@ export function TaskActionsMenu({
     window.addEventListener(archiveTaskEvent, onArchive)
     window.addEventListener(editTaskEvent, onEdit)
     window.addEventListener(deleteTaskEvent, onDelete)
+    window.addEventListener(resetTaskEvent, onReset)
+    window.addEventListener(unarchiveTaskEvent, onUnarchive)
     window.addEventListener(followUpTaskEvent, onFollowUp)
     return () => {
       window.removeEventListener(snoozeTaskEvent, onSnooze)
       window.removeEventListener(archiveTaskEvent, onArchive)
       window.removeEventListener(editTaskEvent, onEdit)
       window.removeEventListener(deleteTaskEvent, onDelete)
+      window.removeEventListener(resetTaskEvent, onReset)
+      window.removeEventListener(unarchiveTaskEvent, onUnarchive)
       window.removeEventListener(followUpTaskEvent, onFollowUp)
     }
-  }, [task.id, task.archived, task.stage, contextOnly])
+  }, [task, contextOnly])
 
   const action = statusAction(task)
-  const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
-  const [restarting, setRestarting] = useState(false)
+  const refusal = resetRefusal(task)
   const linear = task.source?.linear
 
   const activity = usePendingAction(`task-actions:${task.id}`)
@@ -266,6 +413,38 @@ export function TaskActionsMenu({
     </ActionButton>
   )
 
+  const conversationItems = (history || sideChat) && (
+    <>
+      {history && <HistoryItem history={history} close={close} />}
+      {sideChat &&
+        (sideChat.available ? (
+          <ActionButton
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => {
+              close()
+              sideChat.onOpen()
+            }}
+          >
+            <span className={styles.label}>Side chat</span>
+          </ActionButton>
+        ) : (
+          <ActionButton
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            aria-disabled
+            title="Side chat asks about a Task Lead conversation. This Task has none yet."
+          >
+            <span className={styles.label}>Side chat</span>
+            <span className={styles.hint}>No Task Lead conversation yet</span>
+          </ActionButton>
+        ))}
+      <hr className={styles.separator} />
+    </>
+  )
+
   if (task.archived) {
     return (
       <div className={styles.anchor}>
@@ -297,10 +476,16 @@ export function TaskActionsMenu({
               type="button"
               role="menuitem"
               className={styles.item}
-              onClick={() => act(() => ted.unarchiveTask(task.id))}
+              onClick={() =>
+                needsUnarchiveDialog(task)
+                  ? choose('unarchive')
+                  : act(() => ted.unarchiveTask(task.id))
+              }
             >
               <span className={styles.label}>Unarchive</span>
             </ActionButton>
+            {conversationItems && <hr className={styles.separator} />}
+            {conversationItems}
             <ActionButton
               type="button"
               role="menuitem"
@@ -382,28 +567,10 @@ export function TaskActionsMenu({
                   <span className={styles.label}>Stop Task</span>
                 </ActionButton>
               )}
-              {lead !== undefined && lead.state !== 'finished' && (
-                <ActionButton
-                  type="button"
-                  role="menuitem"
-                  className={styles.item}
-                  disabled={restarting || lead.state === 'working'}
-                  title={
-                    lead.state === 'working' ? 'Restart works when the Run is idle' : undefined
-                  }
-                  onClick={() =>
-                    act(() => {
-                      setRestarting(true)
-                      return ted.restartRun(lead.id).finally(() => setRestarting(false))
-                    })
-                  }
-                >
-                  <span className={styles.label}>Restart</span>
-                </ActionButton>
-              )}
               <hr className={styles.separator} />
             </>
           )}
+          {conversationItems}
           {task.stage === 'backlog' && !task.setup && (
             <>
               <ActionButton
@@ -421,12 +588,26 @@ export function TaskActionsMenu({
                   type="button"
                   role="menuitem"
                   className={styles.item}
-                  title="Restores normal Backlog behavior. Automatic starts or Autopilot may start it immediately."
+                  title="Restores normal Backlog behavior. Automatic starts may start it immediately."
                   onClick={() => act(() => ted.setTaskSnooze(task.id, null))}
                 >
                   <span className={styles.label}>Cancel snooze</span>
                 </ActionButton>
               )}
+              <hr className={styles.separator} />
+            </>
+          )}
+          {task.stage === 'merge' && (
+            <>
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                title="For pull requests you merged on GitHub yourself. TED checks that each one merged before it moves the Task to Done."
+                onClick={() => act(() => ted.markDone(task.id))}
+              >
+                <span className={styles.label}>Mark as Done</span>
+              </ActionButton>
               <hr className={styles.separator} />
             </>
           )}
@@ -501,6 +682,47 @@ export function TaskActionsMenu({
               <span className={styles.hint}>{keysFor('blocked-by').join(' or ')}</span>
             </ActionButton>
           )}
+          {task.stage !== 'done' && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => {
+                close()
+                newChildTask(task)
+              }}
+            >
+              Create child…
+            </ActionButton>
+          )}
+          {task.stage !== 'done' && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => pick(pickChildEvent)}
+            >
+              Add existing Task as child…
+            </ActionButton>
+          )}
+          <ActionButton
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => pick(pickParentEvent)}
+          >
+            {task.parentId === undefined ? 'Set parent…' : 'Change parent…'}
+          </ActionButton>
+          {task.parentId !== undefined && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => act(() => changeParent(task, null))}
+            >
+              {`Detach from ${parentName}`}
+            </ActionButton>
+          )}
           {onOpenBrief && (
             <ActionButton
               type="button"
@@ -557,6 +779,28 @@ export function TaskActionsMenu({
             </>
           )}
           <hr className={styles.separator} />
+          {refusal === undefined && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => choose('reset')}
+            >
+              <span className={styles.label}>Reset…</span>
+            </ActionButton>
+          )}
+          {refusal === 'merged' && (
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              aria-disabled
+              title="A pull request has merged, so this Task can’t be reset."
+            >
+              <span className={styles.label}>Reset…</span>
+              <span className={styles.hint}>A pull request has merged</span>
+            </button>
+          )}
           <ActionButton
             type="button"
             role="menuitem"

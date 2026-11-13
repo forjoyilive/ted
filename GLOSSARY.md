@@ -9,8 +9,14 @@ The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions w
 _Avoid_: Primary server, master
 
 **Execution machine**:
+_Shelved: remote execution is on hold. The code is kept but hidden; don’t build new work on it._
 The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
 _Avoid_: Worker node, remote host
+
+**Execution operation**:
+_Shelved: remote execution is on hold. The code is kept but hidden; don’t build new work on it._
+One piece of work the controller asks an execution machine to do for a Task, identified by an operation ID and journaled on both machines so it runs once.
+_Avoid_: Job, remote command
 
 **Task assignment**:
 The durable ownership of a Task’s execution by one machine; losing contact does not move that ownership elsewhere.
@@ -112,9 +118,25 @@ _Avoid_: Workspace, Task directory
 The human’s own login shell in one repo’s worktree of a Task, shown in place of the thread; TED’s daemon keeps it running until the worktree is removed, and `ted` commands in it act as the human.
 _Avoid_: Terminal, console, Run
 
+**Parent Task**:
+A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
+_Avoid_: Epic, group, umbrella
+
+**Child Task**:
+A normal Task, with its own Workflow, Task Lead and pull requests, that is part of a parent Task’s work until the user detaches it.
+_Avoid_: Subtask, sub-issue (except when naming the Linear or Asana item it came from)
+
+**Detach**:
+Remove a Task from its parent so it carries on as a separate Task; its own children stay under it.
+_Avoid_: Unparent, unlink
+
 **Follow-up**:
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision
+
+**Reset**:
+The human’s choice to throw away what a started Task has done (its worktree, branch, pull request, thread and Runs) and start the same Task again from its first Stage with its Original request. The Task keeps its ID, title, Source, Priority, rank and blockers.
+_Avoid_: Restart, retry, redo
 
 **Source**:
 The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key.
@@ -129,7 +151,7 @@ How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Tas
 _Avoid_: Severity, importance
 
 **Queued**:
-The status of a started Task, or of a new Automation or Planning Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy when **Start fewer Runs when this computer is busy** is on; a newly started queued Task waits at the start of Intake, and an answered Task can wait in its current Stage before its Run continues. A status, not a Stage.
+The status of a started Task, or of a new Automation Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy when **Start fewer Runs when this computer is busy** is on; a newly started queued Task waits at the start of Intake, and an answered Task can wait in its current Stage before its Run continues. A status, not a Stage.
 _Avoid_: Pending, ready
 
 **Paused**:
@@ -149,7 +171,7 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead.
+The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead.
 _Avoid_: Foreman, manager, supervisor
 
 **Sub-agent**:
@@ -199,7 +221,7 @@ TED’s background process on each machine, which keeps Runs, Automations and th
 _Avoid_: Server, backend, service
 
 **View**:
-A way of displaying Tasks, such as the Board for one Factory or the List for one Factory or all of them; changing Views never changes a Task’s Stage.
+A way of displaying Tasks, such as the Board for one Factory, the List for one Factory or all of them, or the Map of one Factory’s blockers; changing Views never changes a Task’s Stage.
 _Avoid_: Layout, mode
 
 **Board**:
@@ -210,8 +232,12 @@ _Avoid_: Kanban (as a noun for the data)
 The View that shows Tasks, of one Factory or of every Factory, as rows that can be sorted, grouped and filtered; sorted by Priority and rank, the human can reorder, start and un-start Tasks as on the Board.
 _Avoid_: Table
 
+**Map**:
+The View that draws one Factory’s blockers: each Task that waits for another, or is waited for, as a card, left to right in the order they can start, with a line from each blocker to the Task it blocks. The human removes a blocker from its line and adds one by dragging from one Task to another. Tasks with no blockers stay out of it.
+_Avoid_: Graph, timeline, dependency chart
+
 **Inbox**:
-The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered.
+The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
 _Avoid_: Notifications, feed
 
 **Middle pane**:

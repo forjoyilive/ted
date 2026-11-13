@@ -32,8 +32,8 @@ export function executionWorkerFixture(home: string, owner?: string) {
   let started = false
   return {
     home,
-    async start() {
-      const result = await startExecutionService(home, env, owner)
+    async start(extra: Record<string, string> = {}) {
+      const result = await startExecutionService(home, { ...env, ...extra }, owner)
       started = true
       return result
     },

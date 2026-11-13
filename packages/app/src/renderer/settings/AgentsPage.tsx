@@ -661,10 +661,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
         ))}
       </div>
       <SettingsGroup>
-        <SettingRow
-          title="Restart idle Runs onto new agent versions"
-          help="When an agent updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
-        >
+        <SettingRow setting="app.agents.restart-idle-runs">
           <Switch
             label="Restart idle Runs onto new agent versions"
             checked={settings.restartIdleRuns}

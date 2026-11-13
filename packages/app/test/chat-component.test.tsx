@@ -146,6 +146,7 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   expect(within(required(rows[0])).queryByRole('button', { name: 'Stop Task' })).toBeNull()
   await user().click(within(required(rows[1])).getByRole('button', { name: /Reviewer/ }))
   expect(open).toHaveBeenCalledWith('r2')
+  expect(within(required(rows[1])).queryByRole('button', { name: 'Restart' })).toBeNull()
   await user().click(within(required(rows[1])).getByRole('button', { name: 'Stop Run' }))
   expect(api.request).toHaveBeenCalledWith('stopRun', 'r2')
   expect(screen.getByText('on sub-agents')).toBeTruthy()
@@ -169,39 +170,19 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   )
   await user().click(screen.getByRole('button', { name: /stopped Run/ }))
   expect(document.querySelector('[data-run="r2"]')?.textContent).toContain('Reviewer')
-  await user().click(screen.getByRole('button', { name: /^Runs/ }))
-  expect(screen.queryByRole('list')).toBeNull()
 })
 
-test('Task menu restarts the current Lead, follows its state and reports restart failures', async () => {
+test('Task menu stops the Task and has no Restart for an idle Lead', async () => {
   const current = task({ stage: 'work', leadRunId: 'r1', runs: [{ ...lead, state: 'idle' }] })
-  const api = bridge({ restartRun: () => Promise.reject(new Error('The disk is full')) })
-  const view = render(<TaskActionsMenu task={current} />)
+  const api = bridge({ stopTask: vi.fn() })
+  render(<TaskActionsMenu task={current} />)
   const u = user()
   await u.click(screen.getByRole('button', { name: 'Task actions' }))
-  expect(screen.getByRole('menuitem', { name: /Stop Task/ })).toBeTruthy()
-  await u.click(screen.getByRole('menuitem', { name: /^Restart$/ }))
-  expect(api.request).toHaveBeenCalledWith('restartRun', 'r1')
-  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The disk is full')
-
-  view.rerender(<TaskActionsMenu task={{ ...current, runs: [lead] }} />)
-  await u.click(screen.getByRole('button', { name: 'Task actions' }))
-  const restart = screen.getByRole('menuitem', { name: /^Restart$/ })
-  expect(restart).toHaveProperty('disabled', true)
-  expect(restart.title).toBe('Restart works when the Run is idle')
-  await u.click(restart)
-  expect(api.request).toHaveBeenCalledTimes(1)
-
-  view.rerender(<TaskActionsMenu task={{ ...current, runs: [{ ...lead, state: 'finished' }] }} />)
+  expect(screen.queryByRole('menuitem', { name: /^History/ })).toBeNull()
+  expect(screen.queryByRole('menuitem', { name: /Side chat/ })).toBeNull()
   expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
-  view.rerender(<TaskActionsMenu task={task({ stage: 'work', runs: current.runs })} />)
-  expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
-  view.rerender(
-    <TaskActionsMenu
-      task={{ ...current, archived: { at: createdAt, ended: { kind: 'stopped', stage: 'work' } } }}
-    />,
-  )
-  expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
+  await u.click(screen.getByRole('menuitem', { name: /Stop Task/ }))
+  expect(api.request).toHaveBeenCalledWith('stopTask', current.id)
 })
 
 test('Task Lead is the main chat and earlier conversations open inline', async () => {
@@ -228,18 +209,21 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
   await u.click(within(screen.getByRole('main')).getByText('Sync notes'))
-  expect(screen.getAllByRole('tab', { name: 'Task Lead' })).toHaveLength(1)
+  expect(screen.queryAllByRole('tab', { name: 'Task Lead' })).toHaveLength(0)
   const chat = within(await screen.findByRole('region', { name: 'Task thread' }))
   await chat.findByText('Current work.')
   expect(chat.queryByRole('button', { name: 'Restart' })).toBeNull()
   expect(chat.queryByRole('button', { name: 'Stop Task' })).toBeNull()
   expect(chat.getByRole('textbox', { name: 'Message the Task Lead' })).toBeTruthy()
   const details = within(screen.getByRole('complementary', { name: 'Task details' }))
+  await u.click(details.getByRole('tab', { name: 'Runs' }))
   expect(await details.findByText('Claude · claude-test · default effort')).toBeTruthy()
   expect(details.getByText('12k tokens')).toBeTruthy()
-  await u.click(chat.getByRole('button', { name: /^History/ }))
+  expect(chat.queryByRole('button', { name: /^History/ })).toBeNull()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: 'History · 1' }))
   await u.click(
-    within(screen.getByRole('region', { name: 'Conversation history' })).getByRole('button', {
+    within(screen.getByRole('menu', { name: /^History/ })).getByRole('menuitem', {
       name: /Earlier conversation/,
     }),
   )
@@ -268,6 +252,35 @@ test('Comment composer sends Enter and command Enter, while Shift Enter keeps a 
     body: 'First line\nSecond line',
     attachments: [],
   })
+})
+
+test('Comment box opens with unsent text, keeps what is typed and empties after sending', async () => {
+  const { CommentBox } = await import('../src/renderer/components/CommentBox.tsx')
+  let kept: unknown = { text: 'Half a thought', attachments: [] }
+  const api = bridge({
+    postComment: vi.fn(),
+    messageDraft: () => ({ draft: kept }),
+    saveMessageDraft: (_box, draft) => {
+      kept = (draft as { text: string }).text === '' ? null : draft
+      return { draft: kept }
+    },
+  })
+  const first = render(<CommentBox task={task({ commentBox: 'live' })} />)
+  expect(await screen.findByDisplayValue('Half a thought')).toBeTruthy()
+  expect(api.request).toHaveBeenCalledWith('messageDraft', { kind: 'comment', id: 'NB-1' })
+  await user().type(screen.getByRole('textbox', { name: 'Comment' }), ', finished')
+  first.unmount()
+  await vi.waitFor(() => expect(kept).toMatchObject({ text: 'Half a thought, finished' }))
+
+  render(<CommentBox task={task({ commentBox: 'live' })} />)
+  const box = await screen.findByDisplayValue('Half a thought, finished')
+  await user().type(box, '{Enter}')
+  expect(api.request).toHaveBeenCalledWith('postComment', 'NB-1', {
+    body: 'Half a thought, finished',
+    attachments: [],
+  })
+  await vi.waitFor(() => expect(kept).toBeNull())
+  expect((box as HTMLTextAreaElement).value).toBe('')
 })
 
 test('opening a sub-agent from Task details selects its actual Conversation and tab', async () => {
@@ -301,6 +314,7 @@ test('opening a sub-agent from Task details selects its actual Conversation and 
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   const details = await screen.findByRole('complementary', { name: 'Task details' })
+  await user().click(within(details).getByRole('tab', { name: 'Runs' }))
   await user().click(await within(details).findByRole('button', { name: /Reviewer/ }))
   await screen.findByText('I reviewed the offline queue.')
   expect(screen.getByRole('tab', { name: /Reviewer/ }).getAttribute('aria-selected')).toBe('true')

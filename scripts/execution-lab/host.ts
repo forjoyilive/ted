@@ -43,7 +43,11 @@ export interface HostRequest {
   timeoutMs?: number
   files?: ContentFile[]
   candidate?: { revision: string; contentHash: string; dirtyPatchIdentity: string | null }
-  product?: { operation: string; pair?: { details: string; capacity: number } }
+  product?: {
+    operation: string
+    pair?: { details: string; capacity: number }
+    operationId?: string
+  }
   scenarios?: string[]
 }
 
@@ -255,6 +259,7 @@ export function serviceEnvironment(host: HostSpec, run: string, source: string):
     TED_EDITOR_APP_DIRS: '',
     TED_SANDBOX_BIN: '/usr/bin/sandbox-exec',
     TED_LAB_RUN: path.basename(run),
+    TED_REMOTE_EXECUTION: 'on',
   }
 }
 
@@ -455,7 +460,9 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
   if (action === 'product') {
     if (
       !request.product ||
-      !['start', 'stop', 'restart', 'status', 'pair', 'attempt'].includes(request.product.operation)
+      !['start', 'stop', 'restart', 'status', 'pair', 'attempt', 'release', 'effects'].includes(
+        request.product.operation,
+      )
     )
       throw new Error('Invalid product operation')
     const adapter = path.join(source, 'scripts/execution-lab/product-worker.ts')

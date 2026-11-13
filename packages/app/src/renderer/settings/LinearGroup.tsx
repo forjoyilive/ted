@@ -71,7 +71,7 @@ export function LinearGroup({
 
   if (!status)
     return (
-      <SettingsGroup label="Linear">
+      <SettingsGroup setting="app.integrations.linear">
         {problem ? (
           <LoadingError error={problem} retry={() => act('load', ted.getLinear)} />
         ) : (
@@ -81,11 +81,8 @@ export function LinearGroup({
     )
 
   return (
-    <SettingsGroup
-      label="Linear"
-      help="TED uses the key to fill in a Task from a pasted Linear issue URL and to keep that issue’s status in step with the Task. It never gives the key to an agent."
-    >
-      <div className={styles.row}>
+    <SettingsGroup setting="app.integrations.linear">
+      <div className={styles.row} data-setting="app.integrations.linear.key">
         <div className={settingsStyles.titleLine}>
           <label className={settingsStyles.rowTitle} htmlFor={fieldId}>
             API key
@@ -153,10 +150,7 @@ export function LinearGroup({
         </ActionButton>
       </div>
       {stored && (
-        <SettingRow
-          title="Sync status with Linear"
-          help="When a Task comes from a Linear issue, TED moves the issue to In Progress when the Task starts, to In Review at the Review sign-off and to Done when it merges, and links the pull requests. If someone closes the issue in Linear, TED archives a Task that hasn’t started, or asks you."
-        >
+        <SettingRow setting="app.integrations.linear.sync">
           <Switch
             label="Sync status with Linear"
             checked={sync}

@@ -56,7 +56,6 @@ describe('Resume after a full quit', () => {
         .waitFor()
       expect((await client.listTasks())[0]?.leadRunId).toBe(first.leadRunId)
       await client.openRunTab(first.id, first.leadRunId ?? '')
-      await window.getByRole('tab', { name: /Task Lead/ }).click()
       const chat = window.getByRole('region', { name: 'Run chat' })
       expect(await chat.getByRole('textbox', { name: 'Comment' }).isEnabled()).toBe(true)
       await header.getByRole('button', { name: 'Resume', exact: true }).waitFor()
@@ -64,7 +63,6 @@ describe('Resume after a full quit', () => {
       if (action === 'Resume') {
         await header.getByRole('button', { name: 'Resume', exact: true }).click()
       } else {
-        await window.getByRole('tab', { name: 'Task Lead', exact: true }).click()
         await thread
           .getByRole('textbox', { name: 'Comment', exact: true })
           .fill('Keep the current work.')

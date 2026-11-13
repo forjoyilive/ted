@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { Task } from '@ted/protocol'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { NewTaskDialog } from '../src/renderer/views/NewTaskDialog.tsx'
@@ -6,7 +7,13 @@ import { TaskLeadField } from '../src/renderer/views/TaskLeadField.tsx'
 import { bridge, deferred, draftHandlers, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
-async function newTask() {
+async function formReady() {
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /^More/ }).textContent).toContain('Task Lead'),
+  )
+}
+
+async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
   const created = vi.fn(() => task())
   const api = bridge({
     ...draftHandlers(),
@@ -14,8 +21,16 @@ async function newTask() {
     createTask: created,
   })
   const close = vi.fn()
-  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={close} />)
-  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  render(
+    <NewTaskDialog
+      factories={[factory()]}
+      tasks={options.tasks ?? []}
+      factoryId="f1"
+      {...(options.parentId !== undefined && { parentId: options.parentId })}
+      onClose={close}
+    />,
+  )
+  await formReady()
   return { api, created, close }
 }
 
@@ -62,13 +77,21 @@ test('New Task sends an explicit title and starts by default', async () => {
   )
 })
 
-test('Create more clears both fields, keeps the dialog open and restores focus', async () => {
-  const { created, close } = await newTask()
+test('Create more clears both fields, keeps the dialog open and restores focus; a child keeps its parent', async () => {
+  const parent = task({ id: 'p', displayId: 'NB-40', title: 'Offline editing' })
+  const { created, close } = await newTask({ tasks: [parent], parentId: 'p' })
   const u = user()
+  expect(
+    await screen.findByText(
+      'NB-40 waits for this Task to merge before it does its own remaining work.',
+    ),
+  ).toBeTruthy()
   await u.type(screen.getByLabelText('Title'), 'First')
   await u.type(screen.getByLabelText('Description'), 'One')
   await u.click(screen.getByRole('button', { name: 'Create more' }))
   expect(created).toHaveBeenCalledOnce()
+  expect(created).toHaveBeenCalledWith(expect.objectContaining({ title: 'First', parent: 'p' }))
+  expect(await screen.findByText('Offline editing')).toBeTruthy()
   expect(close).not.toHaveBeenCalled()
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe('')
@@ -88,9 +111,18 @@ test('More retains Clarify and Task Lead choices when collapsed and submits them
   await u.click(more)
   expect(screen.getByText('Clarify depth Grill · Task Lead Codex · high')).toBeTruthy()
   await u.type(screen.getByLabelText('Description'), 'Deep one')
+  await u.click(more)
+  await u.selectOptions(screen.getByLabelText('Model'), 'Other…')
+  await u.type(screen.getByLabelText('Model'), 'gpt-5.5')
+  await u.keyboard('{Meta>}{Enter}{/Meta}')
+  expect(created).not.toHaveBeenCalled()
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('gpt-5.5')
   await u.click(screen.getByRole('button', { name: 'Create' }))
   expect(created).toHaveBeenCalledWith(
-    expect.objectContaining({ clarifyDepth: 'grilling', lead: { agent: 'codex', effort: 'high' } }),
+    expect.objectContaining({
+      clarifyDepth: 'grilling',
+      lead: { agent: 'codex', model: 'gpt-5.5', effort: 'high' },
+    }),
   )
 })
 
@@ -117,7 +149,7 @@ test('a blocker from another Factory is sent with its waiting explanation', asyn
     />,
   )
   const u = user()
-  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  await formReady()
   await u.click(screen.getByRole('button', { name: 'Add blocker' }))
   await u.type(screen.getByLabelText('Find a Task'), 'crash')
   await u.click(screen.getByRole('option', { name: /DEV-1/ }))
@@ -132,8 +164,35 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
   const api = bridge({ setTaskLead: save })
   const view = render(<TaskLeadField task={task()} />)
   const u = user()
+  const model = () => screen.getByLabelText('Model') as HTMLSelectElement
+  const listed = () => [...model().options].map((option) => option.text)
+  expect(listed()).toEqual(['Default model', 'fable', 'opus', 'sonnet', 'haiku', 'Other…'])
+  await u.selectOptions(model(), 'opus')
   await u.selectOptions(screen.getByLabelText('Agent'), 'codex')
-  await u.type(screen.getByLabelText('Model'), 'gpt-6-mini')
+  expect(model().value).toBe('')
+  expect(listed()).toEqual([
+    'Default model',
+    'gpt-6-astra',
+    'gpt-6.1-sol',
+    'gpt-6.1-terra',
+    'gpt-6-luna',
+    'Other…',
+  ])
+  await u.selectOptions(model(), 'gpt-6.1-sol')
+  await u.selectOptions(model(), 'Other…')
+  await u.type(screen.getByLabelText('Model'), 'not-kept{Escape}')
+  expect(model().value).toBe('gpt-6.1-sol')
+  await u.selectOptions(model(), 'Other…')
+  await u.type(screen.getByLabelText('Model'), 'also-not-kept')
+  await u.tab()
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back to the list' }))
+  await u.keyboard('{Enter}')
+  expect(model().value).toBe('gpt-6.1-sol')
+  await u.selectOptions(model(), 'Other…')
+  await u.type(screen.getByLabelText('Model'), ' gpt-6-mini {Enter}')
+  expect(save).not.toHaveBeenCalled()
+  expect(model().value).toBe('gpt-6-mini')
+  expect(listed().slice(-2)).toEqual(['gpt-6-mini', 'Other…'])
   await u.selectOptions(screen.getByLabelText('Effort'), 'low')
   await u.click(screen.getByRole('button', { name: 'Save' }))
   expect(api.request).toHaveBeenCalledWith('setTaskLead', 'NB-1', {
@@ -146,7 +205,7 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
   )
   expect(screen.getByText('Codex · gpt-6-mini · low')).toBeTruthy()
   view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', model: 'opus' } })} />)
-  expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('opus')
+  expect(model().value).toBe('opus')
   expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude')
   expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('')
 })
@@ -159,7 +218,7 @@ test('a pending create disables submission and an error preserves the draft', as
     createTask: () => pending.promise,
   })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
-  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  await formReady()
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Keep this' } })
   await user().click(screen.getByRole('button', { name: 'Create' }))
   expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
@@ -200,6 +259,69 @@ test('files dropped while the draft loads are attached once it has loaded', asyn
   expect(screen.queryByText('Attaching…')).toBeNull()
 })
 
+test('the attach box opens the file picker from anywhere on it while the draft and agent health load', async () => {
+  const draft = deferred<{ draft: null }>()
+  const health = deferred<never>()
+  const uploaded = vi.fn((file: unknown) => ({
+    hash: 'abc',
+    name: (file as { name: string }).name,
+    mediaType: 'text/plain',
+    size: 5,
+  }))
+  bridge({
+    ...draftHandlers(),
+    taskDraft: () => draft.promise,
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
+    checkAgentHealth: () => health.promise,
+    uploadAttachment: uploaded,
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  expect(screen.getByLabelText('Description').matches(':disabled')).toBe(true)
+  const input = screen.getByLabelText('Attach files')
+  const picker = vi.spyOn(input, 'click')
+  const u = user()
+  await u.click(screen.getByRole('group', { name: 'Attachments' }))
+  expect(picker).toHaveBeenCalledOnce()
+  await u.click(screen.getByRole('button', { name: 'Drop files here, or click to attach' }))
+  expect(picker).toHaveBeenCalledTimes(2)
+  fireEvent.change(input, {
+    target: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] },
+  })
+  expect(await screen.findByText('Attaching…')).toBeTruthy()
+  expect(uploaded).not.toHaveBeenCalled()
+  await act(async () => draft.resolve({ draft: null }))
+  expect(await screen.findByRole('button', { name: 'Remove notes.txt' })).toBeTruthy()
+  expect(uploaded).toHaveBeenCalledOnce()
+  expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+test('an edit made before the defaults arrive keeps the Factory’s Clarify depth', async () => {
+  const health = deferred<ReturnType<ReturnType<typeof draftHandlers>['checkAgentHealth']>>()
+  const created = vi.fn(() => task())
+  bridge({
+    ...draftHandlers(),
+    taskDefaults: () => ({ clarifyDepth: 'grilling', lead: { agent: 'claude' } }),
+    checkAgentHealth: () => health.promise,
+    createTask: created,
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
+  const u = user()
+  await u.type(screen.getByLabelText('Description'), 'Typed early')
+  const more = screen.getByRole('button', { name: /^More/ })
+  await u.click(more)
+  expect((screen.getByRole('radio', { name: 'Auto' }) as HTMLInputElement).disabled).toBe(true)
+  await act(async () => health.resolve(draftHandlers().checkAgentHealth()))
+  await waitFor(() =>
+    expect((screen.getByRole('radio', { name: 'Grill' }) as HTMLInputElement).checked).toBe(true),
+  )
+  expect((screen.getByRole('radio', { name: 'Auto' }) as HTMLInputElement).disabled).toBe(false)
+  await u.click(more)
+  await screen.findByText('Clarify depth Grill · Task Lead Claude')
+  await u.click(screen.getByRole('button', { name: 'Create' }))
+  expect(created).toHaveBeenCalledWith(expect.objectContaining({ clarifyDepth: 'grilling' }))
+})
+
 test('Model unavailable offers the default model and sends the human’s choice', async () => {
   const run: import('@ted/protocol').Run = {
     id: 'r1',
@@ -238,8 +360,7 @@ test('following Stage effort survives a model edit and can be replaced with expl
   )
   expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
   const u = user()
-  await u.clear(screen.getByLabelText('Model'))
-  await u.type(screen.getByLabelText('Model'), 'sonnet')
+  await u.selectOptions(screen.getByLabelText('Model'), 'sonnet')
   await u.click(screen.getByRole('button', { name: 'Save' }))
   expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
     agent: 'claude',
@@ -274,9 +395,7 @@ test.each(['stage', 'high', ''] as const)(
     })
     render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={() => {}} />)
     const u = user()
-    await waitFor(() =>
-      expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false),
-    )
+    await formReady()
     await u.click(screen.getByRole('button', { name: /^More/ }))
     await waitFor(() =>
       expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex'),

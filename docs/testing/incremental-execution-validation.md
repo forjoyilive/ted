@@ -1,5 +1,9 @@
 # Incremental execution validation
 
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+
+> Validate doesn’t need these scenarios. Run them only for a Task that works on remote execution itself and turns the flag on.
+
 Run selected scenarios from the repository root with Node 24, pnpm and Git installed:
 
 ```sh
@@ -43,6 +47,7 @@ Selections are explicit; empty and unknown selections fail.
 | `reporting` | Selection, source identity, durable publication, failed/incomplete subprocess results, redaction, bounded evidence, replay instructions and scratch cleanup | isolated loopback integration; fixture controls |
 | `local-lifecycle` | Real local adapter handles, clone/create/copy/removal and the child-daemon setup/copy/teardown fixture; existing ordering, interrupted setup, multi-repo and setup-Task regressions | isolated loopback integration; production behavior |
 | `production-transport` | Real execution pairing, identity/version/expiry refusals, human-only authorization, restart and revocation; no Task execution | isolated loopback integration; production behavior |
+| `command-journal` | The command channel on real, separate processes: a dummy operation runs once through a lost command, a lost acknowledgment, a repeated result, a restart of either service at each crash point, a stop while disconnected and stale commands; reconciliation, limits and status text | isolated loopback integration; production behavior |
 | `two-mac` | Skipped until lab access and a real-machine adapter exist | actual two-Mac execution |
 | `native-sandbox` | On macOS, actual `/usr/bin/sandbox-exec` permits worktree/cache writes and refuses writes and private reads elsewhere in the synthetic TED home, during setup and teardown; missing-sandbox and local Bypass regressions also run | native-sandbox evidence |
 | `gui` | Native pairing/worker windows, expandable guidance, worker IPC refusal, close/quit and worker-only process lifetime | GUI evidence |
@@ -167,6 +172,31 @@ cleanup resolves their recorded worktree handles through this adapter.
 The two-Mac extension uses TED-110's explicit opt-in lab when available. A local
 pass is not evidence of two-Mac execution, and unavailable lab access is recorded
 separately rather than represented by a simulated pass.
+
+## Command channel checkpoint (TED-113)
+
+```sh
+env -u CODEX_SANDBOX TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/validate-execution.ts \
+  --report-dir "$HOME/.cache/ted/execution-validation" --scenario command-journal
+```
+
+The scenario runs `packages/protocol/test/execution-commands.test.ts`,
+`packages/daemon/test/execution-commands.test.ts` and
+`packages/app/test/app-execution-pairing.test.ts`. The controller is the fixture daemon
+and the execution Mac is the real `ted execution` service, paired over product TLS
+through `test/support/execution-relay.ts`. The relay forwards TLS bytes unchanged and
+can swallow every answer from the controller or cut the link; it never reads or
+changes a message. Crashes use `TED_EXECUTION_CRASH_AT` with these points:
+`controller-after-issue`, `controller-after-report`, `worker-after-accept`,
+`worker-after-start`, `worker-before-effect`, `worker-after-effect` and
+`worker-after-finish`. The fixture reaches the controller’s `issue` and `stop`
+in-process; stale commands are written straight into the controller’s store with the
+`inject` fixture command, because the product cannot produce one.
+
+Each case counts the operation’s lines in the execution Mac’s `probe/effects.log`:
+one where it ran, none where it was refused or stopped. The Machines row’s text is
+asserted on `GET /execution/machines`; the app test covers the worker window. The
+real-Mac part is `product-commands` in the [two-Mac lab](two-mac-lab.md).
 
 ## Pairing checkpoint (TED-112)
 

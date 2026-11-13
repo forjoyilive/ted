@@ -167,6 +167,11 @@
   stroke-width: 1px;
 }
 
+.nowLine {
+  stroke: var(--text-muted);
+  stroke-width: 1px;
+  stroke-dasharray: 2 3;
+}
 .currentLine,
 .previousLine {
   fill: none;
@@ -401,6 +406,37 @@
   gap: 10px;
 }
 
+.stageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.stageHead h3 {
+  margin: 0;
+}
+
+.stageWaits {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+
+.stageWaits input {
+  margin: 0;
+  accent-color: var(--accent-link);
+}
+
+.stageWaits input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
 .flowGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -565,13 +601,13 @@
   text-align: right;
 }
 
-.stageRows > .stageHead {
+.stageRows > .stageColumns {
   padding: 0 0 4px;
   font-size: var(--text-11);
   color: var(--text-caption);
 }
 
-.stageHead .stageNumber {
+.stageColumns .stageNumber {
   font-size: var(--text-11);
 }
 

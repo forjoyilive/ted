@@ -110,9 +110,11 @@ export function MachinesPage() {
           {problem || resource.error || data?.problem} <ConnectionHelpLink />
         </p>
       )}
-      <SettingsGroup label="Connect another Mac">
+      <SettingsGroup setting="app.machines.connect">
         <div className={styles.panel}>
-          <label htmlFor="execution-address">This Mac’s local address</label>
+          <label htmlFor="execution-address" data-setting="app.machines.connect.address">
+            This Mac’s local address
+          </label>
           <Select
             id="execution-address"
             value={chosen}
@@ -122,7 +124,9 @@ export function MachinesPage() {
             }))}
             onChange={setAddress}
           />
-          <label htmlFor="execution-port">Port</label>
+          <label htmlFor="execution-port" data-setting="app.machines.connect.port">
+            Port
+          </label>
           <input
             className={styles.input}
             id="execution-port"
@@ -174,7 +178,7 @@ export function MachinesPage() {
           <PairReview row={row} repos={data.repos} act={act} busy={busy} />
         </SettingsGroup>
       ))}
-      <SettingsGroup label="Execution Macs">
+      <SettingsGroup setting="app.machines.execution">
         {data?.machines.length ? (
           data.machines.map((m) => (
             <article key={m.id} className={styles.panel} data-nav-item tabIndex={-1}>
@@ -184,6 +188,7 @@ export function MachinesPage() {
               <code className={styles.identity}>SHA256:{m.publicKey}</code>
               <p>Grant: {m.id}</p>
               <p>Allowed repos: {m.scopes.map((s) => s.repo).join(', ')}</p>
+              {m.operations?.text && <p data-operations>{m.operations.text}</p>}
               {m.readiness && <ExecutionReadiness value={m.readiness} stale={!m.connected} />}
               {!m.revokedAt &&
                 (confirm === m.id ? (

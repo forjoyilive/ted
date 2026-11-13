@@ -7,17 +7,21 @@ import {
   stopExecutionService,
   workerRequest,
 } from '@ted/daemon/execution'
-import { parseWorkerPairRequest, type WorkerStatus } from '@ted/protocol'
+import { parseWorkerPairRequest, remoteExecutionOff, type WorkerStatus } from '@ted/protocol'
 import { app, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 
-export function createWorkerWindow(hidden = false) {
+export function createWorkerWindow(enabled: boolean, hidden = false) {
   let window: BrowserWindow | undefined
   const home = executionHome()
   const owner = () => createHash('sha256').update(app.getPath('userData')).digest('hex')
   let starting: ReturnType<typeof startExecutionService> | undefined
   let closing: Promise<void> | undefined
   let updating = false
+  function refuseWhenOff() {
+    if (!enabled) throw new Error(remoteExecutionOff)
+  }
   async function ensure(resume = true) {
+    refuseWhenOff()
     if (closing || updating) throw new Error('Worker is stopping')
     starting ??= startExecutionService(home, process.env, owner(), { resume }).finally(() => {
       starting = undefined
@@ -27,6 +31,7 @@ export function createWorkerWindow(hidden = false) {
   }
   return {
     async open() {
+      refuseWhenOff()
       if (closing || updating) throw new Error('Worker is stopping')
       if (window && !window.isDestroyed()) {
         if (!hidden) {
@@ -66,6 +71,7 @@ export function createWorkerWindow(hidden = false) {
       )
     },
     async status(): Promise<WorkerStatus> {
+      refuseWhenOff()
       try {
         return await workerRequest(home, 'status')
       } catch (error) {
@@ -93,6 +99,7 @@ export function createWorkerWindow(hidden = false) {
       return workerRequest(home, 'start')
     },
     async stop() {
+      refuseWhenOff()
       return workerRequest(home, 'stop')
     },
     async prepareUpdate() {

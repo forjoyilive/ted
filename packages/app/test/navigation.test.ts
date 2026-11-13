@@ -264,6 +264,35 @@ describe('back and forward (⌘[ and ⌘])', () => {
   })
 })
 
+test('Tasks opens the last-used of Board, List and Map, and a Task opened from Map returns there', () => {
+  const tasksView = (state: typeof initialNavigation) =>
+    navigate(state, { type: 'open-tasks', factoryId: 'nb' }).screen
+  expect(tasksView(initialNavigation)).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
+  const map = { kind: 'factory', factoryId: 'nb', view: 'map' } as const
+  const onPlans = [
+    { type: 'open', screen: map } as const,
+    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'plans' } } as const,
+  ].reduce(navigate, initialNavigation)
+  expect(tasksView(onPlans)).toEqual(map)
+  expect(navigate(onPlans, { type: 'open-tasks', factoryId: 'ms' }).screen).toMatchObject({
+    factoryId: 'ms',
+    view: 'board',
+  })
+  const history = [
+    { type: 'open', screen: map } as const,
+    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'list' } } as const,
+    { type: 'back' } as const,
+    { type: 'open', screen: { kind: 'inbox' } } as const,
+  ].reduce(withHistory, startHistory(initialNavigation))
+  expect(tasksView(history.now)).toEqual(map)
+  const opened = navigate(navigate(initialNavigation, { type: 'open', screen: map }), {
+    type: 'open-task',
+    taskId: 't1',
+    factoryId: 'nb',
+  })
+  expect(backLink(opened)).toBe('← Map')
+})
+
 test('Task return and history preserve a Dashboard range and metric sample', () => {
   const screen = {
     kind: 'factory',

@@ -1,6 +1,11 @@
 import type { MachineSettings } from '@ted/protocol'
 import type { ComponentType } from 'react'
-import type { NavigationAction, SettingsSectionId } from '../navigation.ts'
+import {
+  type NavigationAction,
+  type SettingsSectionId,
+  shownSettingsSectionIds,
+} from '../navigation.ts'
+import { settingsPageNames } from '../settings-search.ts'
 import { AgentsPage } from './AgentsPage.tsx'
 import { SettingsPage } from './controls.tsx'
 import { DeveloperPage } from './DeveloperPage.tsx'
@@ -32,14 +37,20 @@ export function NotBuiltYet({ title }: { title: string }) {
   )
 }
 
-export const settingsSections: readonly SettingsSection[] = [
-  { id: 'general', label: 'General', Page: GeneralPage },
-  { id: 'notifications', label: 'Notifications', Page: NotificationsPage },
-  { id: 'machines', label: 'Machines', Page: MachinesPage },
-  { id: 'agents', label: 'Agents', Page: AgentsPage },
-  { id: 'limits', label: 'Limits', Page: LimitsPage },
-  { id: 'integrations', label: 'Integrations', Page: IntegrationsPage },
-  { id: 'library', label: 'Library', Page: LibraryPage },
-  { id: 'storage', label: 'Storage', Page: StoragePage },
-  { id: 'developer', label: 'Developer', Page: DeveloperPage },
-]
+const pages: Record<SettingsSectionId, ComponentType<SettingsPageProps>> = {
+  general: GeneralPage,
+  notifications: NotificationsPage,
+  machines: MachinesPage,
+  agents: AgentsPage,
+  limits: LimitsPage,
+  integrations: IntegrationsPage,
+  library: LibraryPage,
+  storage: StoragePage,
+  developer: DeveloperPage,
+}
+
+export const settingsSections: readonly SettingsSection[] = shownSettingsSectionIds.map((id) => ({
+  id,
+  label: settingsPageNames[id],
+  Page: pages[id],
+}))

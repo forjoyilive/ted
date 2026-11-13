@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import { statfs } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
@@ -5,15 +7,19 @@ import {
   type ExecutionOffer,
   executionCapacity,
   executionHello,
+  executionLimits,
   parseExecutionCertificate,
   parseExecutionOffer,
+  parseExecutionSyncResponse,
   requireExecutionCompatibility,
   type WorkerPairRequest,
   type WorkerStatus,
 } from '@ted/protocol'
 import { certificatePin, workerIdentity } from './certificates.ts'
 import { privateDirectory, readPrivate, writePrivate } from './files.ts'
+import { createExecutionOperations } from './operations.ts'
 import { createExecutionReadiness } from './readiness.ts'
+import { workerOperationsText } from './status-text.ts'
 import { ExecutionRefused, executionRequest } from './transport.ts'
 
 interface Saved {
@@ -58,6 +64,64 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
   }
   let abort: AbortController | undefined, working: Promise<void> | undefined
   let stopped = false
+  let turn: AbortController | undefined
+  const operations = await createExecutionOperations({
+    home: root,
+    changed: () => turn?.abort(),
+    identity: () => saved && { grantId: saved.credential.grantId, scopes: saved.credential.scopes },
+    async freeBytes() {
+      const disk = await statfs(root)
+      return Number(disk.bavail) * Number(disk.bsize)
+    },
+  })
+  async function sync(): Promise<void> {
+    let session = randomUUID()
+    let inventory = true
+    try {
+      while (abort && !abort.signal.aborted && saved) {
+        const signal = abort.signal
+        const waiting = new AbortController()
+        turn = waiting
+        try {
+          const response = parseExecutionSyncResponse(
+            await executionRequest(
+              saved.endpoint,
+              '/sync',
+              {
+                ...executionHello(),
+                grantId: saved.credential.grantId,
+                session,
+                ...(await operations.request(inventory)),
+              },
+              {
+                key: identity.key,
+                cert: saved.credential.certificate,
+                signal: AbortSignal.any([signal, waiting.signal]),
+                maxBytes: executionLimits.syncResponseBytes,
+              },
+            ),
+          )
+          if (signal.aborted) return
+          inventory = response.needInventory
+          if (inventory) operations.allow(false)
+          else {
+            await operations.handle(response)
+            operations.allow(response.reconciled)
+          }
+        } catch {
+          if (waiting.signal.aborted && !signal.aborted) continue
+          operations.allow(false)
+          if (signal.aborted) return
+          session = randomUUID()
+          inventory = true
+          await delay(1000, undefined, { signal }).catch(() => undefined)
+        }
+      }
+    } finally {
+      operations.allow(false)
+    }
+  }
+  const connect = () => Promise.all([report(), sync()]).then(() => undefined)
   async function report(): Promise<void> {
     while (abort && !abort.signal.aborted && saved) {
       const signal = abort.signal
@@ -109,7 +173,18 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
     }
   }
   return {
-    status: (): WorkerStatus => structuredClone(status),
+    status(): WorkerStatus {
+      const counts = operations.counts()
+      const text = workerOperationsText(status.state, counts)
+      return structuredClone({
+        ...status,
+        operations: counts,
+        ...(text && {
+          message:
+            status.state === 'connected' ? `Connected. ${text}` : `${status.message} ${text}`,
+        }),
+      })
+    },
     async start() {
       if (stopped) throw new Error('Execution service is stopping')
       if (working) return
@@ -131,7 +206,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
       }
       abort = new AbortController()
       status = { ...status, state: 'connecting', message: 'Connecting to the saved controller…' }
-      working = report()
+      working = connect()
         .catch(() => {
           status = {
             ...status,
@@ -224,7 +299,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
             state: 'connecting',
             message: 'Pairing approved. Connecting with this Mac’s credential…',
           }
-          await report()
+          await connect()
         } catch (error) {
           if (!signal.aborted)
             status = {
@@ -248,6 +323,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
     async close() {
       stopped = true
       await halt()
+      await operations.close()
     },
   }
 }

@@ -1,6 +1,6 @@
 # Overnight mode turns Workflow Gates off
 
-**Updated by KRI-362:** Grilling depth no longer forces Clarify sign-off. Clarify follows its effective Workflow or Task sign-off setting at every depth, including overnight mode. Explicit forced Gates and setup Tasks’ Design and Review Gates remain required. The earlier Grilling exception described below is superseded.
+**Updated by KRI-362:** Grilling depth no longer forces Clarify sign-off. Clarify follows its effective Workflow or Task sign-off setting at every depth, including overnight mode. Explicit forced Gates and setup Tasks’ Design and Review Gates remain required.
 
 Overnight mode started Backlog Tasks in every Factory and told each Task Lead to stop at its Gates. The human wanted Tasks to run through on their own, and got that only by editing `workflow.yaml` to turn Gates off at night and back on in the morning. Overnight mode now does it: while `overnightMode` is on, a Gate set by the Workflow (TED’s defaults, the Library, the Factory) or by a per-Task override counts as off. Nothing saved changes; the Workflow files and `gateOverrides` stay as they are.
 
@@ -12,7 +12,7 @@ The Gate is decided when the Task Lead reports `advance`, not at Stage entry. A 
 
 ## What stays on
 
-- Gates TED forces: `forcedGates` on a Task (Review on a Task that changes `.ted/`), a setup Task’s Design and Review Gates, and the Clarify sign-off at grilling depth. They are applied after `withoutGates`, or checked outside the Workflow, so overnight mode cannot reach them.
+- Gates TED forces: `forcedGates` on a Task (Review on a Task that changes `.ted/`), and a setup Task’s Design and Review Gates. They are applied after `withoutGates`, so overnight mode cannot reach them. Clarify’s Gate is an ordinary Workflow Gate at every depth, grilling included, so overnight mode turns it off.
 - A Gate whose request was already posted in this visit of the Stage, answered or not. An open request stays open and the Task waits; `ted outcome advance` is refused as before. Turning the mode on is not an approval, the same rule ADR 0095 uses for editing a Task’s Gates.
 - Everything that is not a Gate: questions and Clarify rounds, permission prompts, the Bypass confirmation, the sandbox, send-back limits, the size check, Validate’s Checks and reviewer, and the merge watcher’s own conditions (CI passed, mergeable, signed-off commit unchanged, required reviews).
 

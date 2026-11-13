@@ -1,5 +1,7 @@
 # Connect an execution Mac
 
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+
 This first version pairs Macs and reports readiness. It does not assign or run Tasks
 remotely. One controlling TED keeps the Factory, Tasks, Workflow, Inbox and approvals.
 An execution Mac has a smaller worker window. Its independent TED Factories, if any,
@@ -102,8 +104,33 @@ Fresh enrollment and user approval are required to pair again.
 The worker’s certificate expires after one year; expiration requires fresh pairing
 and approval in this version. The controller identity is stable across process
 restart. Existing daemon HTTP routes and DaemonClient stay loopback-only; the network
-connection accepts only enrollment and authenticated readiness messages. There is
-no generic HTTP proxy, remote shell or Task execution endpoint.
+connection accepts only enrollment, authenticated readiness messages and the typed
+command exchange described below. There is no generic HTTP proxy or remote shell.
+
+## Operations and disconnects
+
+TED sends work to an execution Mac as typed operations. This version has one, a
+test operation that only TED’s own validation sends; no Task runs on another Mac yet.
+Both Macs write down every operation and result before they acknowledge it, so a
+lost message or a restart of either side never runs an operation twice.
+
+The worker window, `ted execution status` and the machine’s row under
+Settings → Machines add a line when there is something to say:
+
+- **Disconnected, with operations running or results waiting to send.** Work that
+  was running may finish and its result is kept. Nothing new starts until the Macs
+  reconnect. The controller keeps the Tasks assigned to that Mac and starts them
+  nowhere else, however long the disconnect lasts.
+- **Checking operations after reconnecting.** Both Macs compare their lists before
+  anything new starts.
+- **Stop requested, not confirmed.** A stop counts only when the execution Mac
+  answers.
+- **Unresolved.** After a crash the execution Mac could not tell whether an operation
+  started, or it reported an operation the controller has no record of. TED holds
+  it and never runs it again by itself. This version has no way to resolve it.
+- **Not accepting new work.** The execution Mac holds 256 operations or 64 MiB the
+  controller has not confirmed, or has less than 1 GB free. It keeps everything it
+  stored and accepts work again once the controller confirms results or space is free.
 
 ## Troubleshooting
 

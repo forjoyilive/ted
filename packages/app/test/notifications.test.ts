@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest'
 import type { MenuCommand } from '../src/background.ts'
 import { createNotifications, foldWindowMs, type NoticeToShow } from '../src/notifications.ts'
 import { initialNavigation, navigate } from '../src/renderer/navigation.ts'
+import { tedStopsText } from '../src/renderer/ted-stops.ts'
 
 const request = (id: string, extra: Partial<WaitingRequest> = {}): WaitingRequest =>
   ({
@@ -93,6 +94,15 @@ describe('Inbox item notifications', () => {
     expect(opened).toEqual([
       { kind: 'open-inbox-request', taskId: 'task-new', factoryId: 'nb', requestId: 'new' },
     ])
+  })
+
+  test('a request that left the waiting list while snoozed notifies again when it returns', () => {
+    const { notifications, shown } = harness()
+    notifications.waiting([request('old'), request('later')])
+    notifications.waiting([request('old')])
+    expect(shown).toEqual([])
+    notifications.waiting([request('old'), request('later')])
+    expect(shown.map((s) => s.notice.body)).toEqual(['Question: Question later'])
   })
 
   test.each(['all-tasks', 'inbox'] as const)(
@@ -200,6 +210,16 @@ describe('Inbox item notifications', () => {
     expect(loud.shown[0]?.notice.silent).toBe(false)
   })
 
+  test('an uncounted request never notifies, not even once its Factory counts again', () => {
+    const { notifications, shown } = harness()
+    notifications.waiting([])
+    notifications.waiting([request('quiet', { uncounted: true }), request('a')])
+    expect(shown.map((s) => s.notice.body)).toEqual(['Question: Question a'])
+
+    notifications.waiting([request('quiet'), request('a')])
+    expect(shown).toHaveLength(1)
+  })
+
   test('after a reconnect, the waiting requests are taken as already seen', () => {
     const { notifications, shown } = harness()
     notifications.waiting([])
@@ -250,10 +270,72 @@ describe('Task merged notifications', () => {
   })
 
   test('when on, notify once per Task', () => {
-    const { notifications, shown } = harness({ settings: { notifyTaskMerged: true } })
+    const { notifications, shown } = harness({
+      settings: {
+        notifyTaskMerged: true,
+        factoryNotifications: { nb: { inboxItems: true, taskMerged: true } },
+      },
+    })
     notifications.merged(merged)
     notifications.merged(merged)
     expect(shown.map((s) => s.notice.title)).toEqual(['NB-3 merged'])
+  })
+
+  test('need both the app-wide switch and the Task’s Factory to be on', () => {
+    const otherFactory = harness({
+      settings: {
+        notifyTaskMerged: true,
+        factoryNotifications: { other: { inboxItems: true, taskMerged: true } },
+      },
+    })
+    otherFactory.notifications.merged(merged)
+    expect(otherFactory.shown).toEqual([])
+
+    const switchOff = harness({
+      settings: { factoryNotifications: { nb: { inboxItems: true, taskMerged: true } } },
+    })
+    switchOff.notifications.merged(merged)
+    expect(switchOff.shown).toEqual([])
+  })
+})
+
+describe('Tasks stopped when TED quit', () => {
+  test('notify once while the window is hidden, and again only after the question was answered', () => {
+    const { notifications, shown, opened } = harness()
+    notifications.tedStops(2, false)
+    expect(shown).toEqual([])
+
+    notifications.tedStops(2, true)
+    notifications.tedStops(2, true)
+    expect(shown.map((s) => s.notice.body)).toEqual([
+      '2 Tasks were working when TED quit. Open TED to restart them.',
+    ])
+    shown[0]?.open()
+    expect(opened).toEqual([{ kind: 'open-ted' }])
+
+    notifications.tedStops(0, true)
+    notifications.tedStops(1, true)
+    expect(shown.at(-1)?.notice.body).toBe(
+      '1 Task was working when TED quit. Open TED to restart it.',
+    )
+    expect(shown).toHaveLength(2)
+  })
+
+  test('the dialog names the count, the button and what happens to the rest', () => {
+    const all = tedStopsText({ count: 5, picked: 5, stoppedAt: '07:14', freeSlots: 4 })
+    expect(all.heading).toBe('5 Tasks were working when TED quit')
+    expect(all.lead).toContain('TED stopped their Task Leads at 07:14.')
+    expect(all.restart).toBe('Restart all 5')
+    expect(all.note).toBe('Tasks start in queue order as working slots free up.')
+
+    const some = tedStopsText({ count: 5, picked: 3, stoppedAt: '07:14', freeSlots: 4 })
+    expect(some.restart).toBe('Restart 3 Tasks')
+    expect(some.note).toBe('2 stay stopped.')
+
+    const one = tedStopsText({ count: 1, picked: 1, stoppedAt: '07:14', freeSlots: 4 })
+    expect(one.heading).toBe('1 Task was working when TED quit')
+    expect(one.restart).toBe('Restart')
+    expect(one.note).toBeUndefined()
   })
 })
 

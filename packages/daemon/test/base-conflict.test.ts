@@ -3,7 +3,15 @@ import path from 'node:path'
 import type { BaseConflictFound, SendBack, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
-import { type Client, ctx, getTask, lines, start, useMergeHarness } from './merge-harness.ts'
+import {
+  branchHead,
+  type Client,
+  ctx,
+  getTask,
+  lines,
+  start,
+  useMergeHarness,
+} from './merge-harness.ts'
 
 useMergeHarness()
 
@@ -34,11 +42,12 @@ const resolve = () =>
     `${commit} merge -q -X ours -m merge "$sha"`,
   ].join('\n')
 
-async function begin(stages: string[]) {
+async function begin(stages: string[], intake: string[] = []) {
   const client = await start({ files: { 'notes.txt': 'first\n' } })
   const script = [
     `if [ ! -e '${scratchFile('intake')}' ]; then`,
     `touch '${scratchFile('intake')}'`,
+    ...intake,
     'ted outcome advance',
     ...stages,
     'fi',
@@ -52,9 +61,9 @@ async function begin(stages: string[]) {
   return { client, task }
 }
 
-async function moveMain(after: string) {
+async function moveMain(after: string, files: Record<string, string> = { 'notes.txt': 'main\n' }) {
   await waitUntil(() => exists(after), `the Task Lead to reach ${after}`)
-  await commitToOrigin(ctx.scratch, { 'notes.txt': 'main\n' })
+  await commitToOrigin(ctx.scratch, files)
   await writeFile(scratchFile('moved'), '')
 }
 
@@ -140,14 +149,19 @@ describe('A branch that conflicts with its base', () => {
     expect(await sendBacks(client, task)).toHaveLength(1)
   })
 
-  test('a send-back that names a conflict TED can’t find is an ordinary send-back', async () => {
-    const { client, task } = await begin([
-      `elif [ ! -e '${scratchFile('worked')}' ]; then`,
-      work(),
-      'ted outcome advance',
-      `elif [ ! -e '${scratchFile('back.out')}' ]; then`,
-      `ted outcome back --to work --cause base-conflict --findings '${scratchFile('findings.md')}' > '${scratchFile('back.out')}' 2>&1`,
-    ])
+  test('a send-back that names a conflict TED can’t find is an ordinary send-back, on a branch TED moved to the latest base at its first Work entry', async () => {
+    const { client, task } = await begin(
+      [
+        `elif [ ! -e '${scratchFile('worked')}' ]; then`,
+        `git rev-parse HEAD > '${scratchFile('head-at-work')}'`,
+        work(),
+        'ted outcome advance',
+        `elif [ ! -e '${scratchFile('back.out')}' ]; then`,
+        `ted outcome back --to work --cause base-conflict --findings '${scratchFile('findings.md')}' > '${scratchFile('back.out')}' 2>&1`,
+      ],
+      [waitForMain()],
+    )
+    await moveMain('intake', { 'other.txt': 'new on main\n' })
 
     const [sendBack] = await waitUntil(async () => {
       const found = await sendBacks(client, task)
@@ -164,5 +178,12 @@ describe('A branch that conflicts with its base', () => {
       async () => (await output('back.out')).includes('TED found no conflict with the base branch'),
       'the reply to say TED found no conflict',
     )
+
+    expect((await output('head-at-work')).trim()).toBe(await branchHead('main'))
+    const moves = (await lines(client, task)).filter((l) => l.startsWith('TED moved '))
+    expect(moves).toEqual(['TED moved widgets to the latest main'])
+    const { leadRunId } = await getTask(client, task.id)
+    const heard = await readFile(path.join(ctx.home, 'runs', leadRunId ?? '', 'host.log'), 'utf8')
+    expect(heard.split('TED moved this Task’s branch to the latest main')).toHaveLength(2)
   })
 })

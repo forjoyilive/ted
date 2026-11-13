@@ -3,6 +3,7 @@ import { efforts } from '@ted/protocol/task'
 import { type FormEvent, useEffect, useId, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
 import { usePendingAction } from '../pending-action.ts'
@@ -103,18 +104,24 @@ export function TaskLeadField({ task }: { task: Task }) {
             id={`${id}-agent`}
             controlClassName={styles.control}
             value={agent}
-            onChange={(e) => setAgent(e.target.value as AgentKind)}
+            onChange={(e) => {
+              setAgent(e.target.value as AgentKind)
+              setModel('')
+            }}
           >
             <AgentOptions current={agent} />
           </Select>
         </label>
-        <label className={styles.label}>
+        <label className={styles.label} htmlFor={`${id}-model`}>
           Model
-          <input
-            className={styles.control}
+          <ModelSelect
+            fullWidth
+            id={`${id}-model`}
+            controlClassName={styles.control}
+            inputClassName={styles.control}
+            agent={agent}
             value={model}
-            placeholder="Default model"
-            onChange={(e) => setModel(e.target.value)}
+            onChange={setModel}
           />
         </label>
         <label className={styles.label} htmlFor={`${id}-effort`}>

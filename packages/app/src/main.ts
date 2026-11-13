@@ -4,16 +4,20 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { executionHome } from '@ted/daemon/execution'
 import {
+  clearQuit,
   crashReport,
   type DaemonConnection,
   type DaemonSupervisor,
   daemonRestartDelaysMs,
+  markQuit,
+  stopTedProcesses,
   superviseDaemon,
   watchExitWith,
 } from '@ted/daemon/launch'
 import {
   type Activity,
   type Banner,
+  countWaiting,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
@@ -24,6 +28,7 @@ import {
   type MachineSettings,
   noActivity,
   parseLinearUrl,
+  remoteExecutionOn,
   tedEnv,
   tedHome,
   tedPaths,
@@ -318,7 +323,8 @@ async function choosePicture(): Promise<string | undefined> {
   return square.resize({ width: size, height: size, quality: 'best' }).toDataURL()
 }
 
-const workerOnly = process.argv.includes('--worker')
+const remoteExecution = remoteExecutionOn()
+const workerOnly = remoteExecution && process.argv.includes('--worker')
 const platform = process.platform as Platform
 const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1'
 
@@ -359,7 +365,7 @@ const restartDelaysMs = tedEnv('TED_RESTART_DELAYS_MS')?.split(',').map(Number) 
 ]
 const keepsStopping = 'TED’s background process keeps stopping'
 
-const workerWindow = createWorkerWindow(hiddenWindow)
+const workerWindow = createWorkerWindow(remoteExecution, hiddenWindow)
 const workerRequests = {
   workerStatus: () => workerWindow.status(),
   workerPair: (input: unknown) => workerWindow.pair(input),
@@ -434,7 +440,7 @@ function forward(event: DaemonEvent): void {
   const drawn = state
   if (event.type === 'run-updated' && event.run.state === 'finished')
     taskBrowsers?.ended(event.run.id)
-  if (event.type === 'apps-changed' || event.type === 'task-deleted')
+  if (event.type === 'apps-changed' || event.type === 'task-deleted' || event.type === 'task-reset')
     taskBrowsers?.changed(event.taskId)
   if (event.type === 'task-updated') taskBrowsers?.changed(event.task.id)
   if (event.type === 'settings-changed') applySettings(event.settings)
@@ -443,7 +449,7 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'activity-changed') state = { ...state, activity: event.activity }
   if (event.type === 'inbox-changed') {
-    state = { ...state, waiting: event.waiting.length }
+    state = { ...state, waiting: countWaiting(event.waiting) }
     notifications.waiting(event.waiting)
   }
   if (event.type === 'banner-raised' || event.type === 'banner-updated') {
@@ -457,6 +463,9 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'banner-raised') notifications.problem(event.banner)
   if (event.type === 'task-updated') notifications.merged(event.task)
+  if (event.type === 'ted-stops-changed') {
+    noteTedStops().catch((error: unknown) => console.error('reading stopped Tasks failed:', error))
+  }
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   if (state !== drawn || event.type === 'settings-changed') refresh()
@@ -763,11 +772,23 @@ async function quitCompletely(): Promise<void> {
   if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
   } else {
+    await markQuit(tedHome()).catch((error: unknown) => console.error('quit mark:', error))
     supervisor?.close()
-    await Promise.race([
-      client?.shutdown().catch((error: unknown) => console.error(error)),
-      new Promise((resolve) => setTimeout(resolve, quitWaitMs)),
+    const stopped = await Promise.race([
+      (client?.shutdown() ?? Promise.reject(new Error('no daemon client'))).then(
+        () => true,
+        (error: unknown) => {
+          console.error(error)
+          return false
+        },
+      ),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), quitWaitMs)),
     ])
+    if (!stopped) {
+      await stopTedProcesses(tedHome()).catch((error: unknown) =>
+        console.error('stopping TED’s processes:', error),
+      )
+    }
   }
   setTimeout(() => app.exit(0), quitExitMs)
   app.quit()
@@ -833,7 +854,10 @@ async function createWindow(): Promise<void> {
   created.webContents.on('will-navigate', (event) => event.preventDefault())
   keepFramesInPlace(created.webContents)
   traceStartup('renderer-load-start')
-  await created.loadFile(path.join(import.meta.dirname, '../dist/renderer/index.html'))
+  await created.loadFile(
+    path.join(import.meta.dirname, '../dist/renderer/index.html'),
+    remoteExecution ? { query: { remoteExecution: 'on' } } : {},
+  )
   traceStartup('renderer-load-finished')
 }
 
@@ -850,9 +874,26 @@ async function loadState(): Promise<void> {
     client.listBanners(),
     client.listWaiting(),
   ])
-  state = { ...state, activity, banners, waiting: waiting.length }
+  state = { ...state, activity, banners, waiting: countWaiting(waiting) }
   notifications.waiting(waiting)
   refresh()
+  await noteTedStops().catch((error: unknown) =>
+    console.error('reading stopped Tasks failed:', error),
+  )
+}
+
+let startedInBackground = false
+
+function windowHidden(): boolean {
+  if (hiddenWindow) return true
+  if (!window || window.isDestroyed()) return startedInBackground
+  return !window.isVisible()
+}
+
+async function noteTedStops(): Promise<void> {
+  if (!client) return
+  const stops = await client.tedStops()
+  notifications.tedStops(stops.length, windowHidden())
 }
 
 async function loadStateWhenReady(): Promise<void> {
@@ -920,6 +961,7 @@ async function start(): Promise<void> {
   loginItem = makeLoginItem()
   const background =
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
+  startedInBackground = background
   traceStartup(background ? 'background-mode' : 'window-mode')
   if (background) app.dock?.hide()
   if (tedEnv('TED_DEMO') === '1' && edition === 'dev') {
@@ -928,6 +970,7 @@ async function start(): Promise<void> {
       throw new Error('Prepare the demo home with pnpm app --demo first.')
   }
   traceStartup('daemon-connect-start')
+  await clearQuit(tedHome())
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
     ...(testAppToken && { appToken: testAppToken }),
@@ -1034,7 +1077,7 @@ async function start(): Promise<void> {
   app.on('window-all-closed', () => undefined)
   app.on('activate', showWindow)
   app.on('second-instance', (_event, argv) => {
-    if (argv.includes('--worker')) void workerWindow.open()
+    if (remoteExecution && argv.includes('--worker')) void workerWindow.open()
     else showWindow()
   })
   refresh()

@@ -49,6 +49,8 @@ This separates local session storage from personal history. ChatGPT’s discover
 
 ## Execution worker storage
 
+Remote execution is shelved. `TED_REMOTE_EXECUTION=on` turns it back on in TED Dev: Settings → Machines, the worker window, `ted execution …`, the daemon’s execution listener and its pairing routes. Release ignores it, so a release build never offers remote execution. Without it the daemon opens no execution port, even with a saved endpoint, and keeps any saved pairing unused. Tests set it in `vitest.config.ts`; read it only through `remoteExecutionOn` in `packages/protocol/src/env.ts`.
+
 `TED_EXECUTION_HOME` is a retained override for the isolated worker’s home. By default,
 TED derives an adjacent execution home from its edition and optional `TED_HOME`:
 `~/.ted-dev-execution` for TED Dev, `~/.ted-execution` for release, or
@@ -57,6 +59,8 @@ installation’s `daemon.json`, keys, Factories or Run credentials. The worker r
 an explicit allowlist of basic runtime/tool-discovery inputs, its execution-home
 path and process-cleanup markers; it does not inherit agent API keys, SSH agents or
 TED’s app/file/Run credentials. `TED_LAB_RUN` is a Dev-only owned-lab cleanup marker.
+`TED_EXECUTION_CRASH_AT` is test-only: it names one point in the command channel
+where the controller or the worker kills itself, for crash tests. Release ignores it.
 `SHELL` is retained to discover the user’s login-shell tool paths. The discovered
 environment is filtered through the same worker allowlist before use, including
 for local agent-version probes.

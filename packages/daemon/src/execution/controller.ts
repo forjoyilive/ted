@@ -15,9 +15,12 @@ import {
   type ExecutionReadiness,
   enrollmentLifetimeMs,
   executionHello,
+  executionLimits,
   parseExecutionEndpoint,
   parseExecutionEnrollment,
   parseExecutionHeartbeat,
+  parseExecutionSyncRequest,
+  remoteExecutionOff,
   requireExecutionCompatibility,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -29,6 +32,7 @@ import {
   type ExecutionIdentity,
   issueCertificate,
 } from './certificates.ts'
+import type { ExecutionCommands } from './commands.ts'
 
 export function localExecutionAddresses(): { name: string; address: string }[] {
   return Object.entries(networkInterfaces()).flatMap(([name, entries]) =>
@@ -57,20 +61,22 @@ function answer(res: ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
   res.end(JSON.stringify(body))
 }
-async function body(req: IncomingMessage): Promise<unknown> {
+async function body(req: IncomingMessage, limit = 16 * 1024): Promise<unknown> {
   const chunks: Buffer[] = []
   let bytes = 0
   for await (const chunk of req) {
     bytes += (chunk as Buffer).length
-    if (bytes > 16 * 1024) throw new RequestError(413, 'Execution message too large')
+    if (bytes > limit) throw new RequestError(413, 'Execution message too large')
     chunks.push(chunk as Buffer)
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 export function createExecutionController(options: {
   home: string
+  enabled: boolean
   store: Pick<TedStore, 'pairing' | 'persisted' | 'newWorkHold'>
   repos(): Promise<ExecutionMachines['repos']>
+  commands?: Pick<ExecutionCommands, 'sync' | 'summary'>
   now?: () => number
   onProblem?: (text: string | undefined) => void
 }) {
@@ -93,6 +99,7 @@ export function createExecutionController(options: {
   const sessions = new Map<string, Set<ServerResponse>>()
   const sockets = new Set<TLSSocket>()
   const disabled = new Set<string>()
+  const syncs = new Map<string, number>()
   const unavailableFactories = new Set<string>()
   const serial = <T>(work: () => Promise<T>): Promise<T> => {
     const next = mutation.then(work)
@@ -187,7 +194,9 @@ export function createExecutionController(options: {
       }
       return
     }
-    if (req.method !== 'POST' || req.url !== '/heartbeat')
+    const commands = options.commands
+    const syncing = req.url === '/sync' && commands !== undefined
+    if (req.method !== 'POST' || (req.url !== '/heartbeat' && !syncing))
       throw new RequestError(404, 'No such execution operation')
     const socket = req.socket as TLSSocket
     if (!socket.authorized)
@@ -198,20 +207,50 @@ export function createExecutionController(options: {
     const presented = store.pairing.grants().find((g) => g.certificateId === presentedId)
     if (!presented) throw new RequestError(403, 'Execution certificate has no approved grant')
     current(presented.id)
-    const input = parseExecutionHeartbeat(await body(req))
-    requireExecutionCompatibility(input)
-    let grant = current(input.grantId)
-    if (grant.certificateId !== presentedId || grant.publicKey !== certificatePin(cert))
-      throw new RequestError(403, 'Execution identity does not match this grant')
-    if (!(await scopesExist(grant.scopes)))
-      throw new RequestError(403, 'Approved Factory or repo is no longer available; pair again')
-    grant = current(input.grantId)
-    if (closed) throw new RequestError(503, 'Execution listener is closing')
+    const abort = new AbortController()
+    let release: (() => void) | undefined
+    if (syncing) {
+      const open = syncs.get(presented.id) ?? 0
+      if (open >= 3) throw new RequestError(429, 'Too many execution connections')
+      syncs.set(presented.id, open + 1)
+      res.once('close', () => abort.abort())
+      release = () => {
+        const left = (syncs.get(presented.id) ?? 1) - 1
+        if (left > 0) syncs.set(presented.id, left)
+        else syncs.delete(presented.id)
+      }
+    }
+    let grant: ExecutionGrant
+    let readiness: ExecutionReadiness
+    try {
+      const input = syncing
+        ? parseExecutionSyncRequest(await body(req, executionLimits.syncRequestBytes))
+        : parseExecutionHeartbeat(await body(req))
+      requireExecutionCompatibility(input)
+      grant = current(input.grantId)
+      if (grant.certificateId !== presentedId || grant.publicKey !== certificatePin(cert))
+        throw new RequestError(403, 'Execution identity does not match this grant')
+      if (!(await scopesExist(grant.scopes)))
+        throw new RequestError(403, 'Approved Factory or repo is no longer available; pair again')
+      grant = current(input.grantId)
+      if (closed) throw new RequestError(503, 'Execution listener is closing')
+      if ('session' in input) {
+        if (!commands) throw new RequestError(404, 'No such execution operation')
+        const reply = await commands.sync(grant, input, abort.signal)
+        current(grant.id)
+        answer(res, 200, reply)
+        return
+      }
+      readiness = input.readiness
+    } finally {
+      release?.()
+    }
+    if (res.destroyed || req.socket.destroyed) return
     const active = sessions.get(grant.id) ?? new Set<ServerResponse>()
     if (active.size >= 2) throw new RequestError(429, 'Too many execution connections')
     active.add(res)
     sessions.set(grant.id, active)
-    snapshots.set(grant.id, input.readiness)
+    snapshots.set(grant.id, readiness)
     lastSeen.set(grant.id, now())
     const timer = setTimeout(() => {
       try {
@@ -294,8 +333,14 @@ export function createExecutionController(options: {
     problem = undefined
     options.onProblem?.(undefined)
   }
+  const refuseWhenOff = () => {
+    if (!options.enabled) throw new RequestError(409, remoteExecutionOff)
+  }
   return {
+    enabled: options.enabled,
+    refuseWhenOff,
     async start() {
+      if (!options.enabled) return
       const saved = store.pairing.endpoint()
       if (saved)
         try {
@@ -307,6 +352,7 @@ export function createExecutionController(options: {
         }
     },
     configure(input: ExecutionEndpoint) {
+      refuseWhenOff()
       return serial(async () => {
         if (store.newWorkHold())
           throw new RequestError(507, 'New work is held while storage is unavailable')
@@ -341,6 +387,8 @@ export function createExecutionController(options: {
       }
     },
     async list(): Promise<ExecutionMachines> {
+      if (!options.enabled)
+        return { disabled: true, addresses: [], pending: [], machines: [], repos: [] }
       return {
         ...(endpoint && { endpoint }),
         ...(identity && { controllerPin: identity.pin }),
@@ -355,14 +403,24 @@ export function createExecutionController(options: {
             expiresAt,
             readiness,
           })),
-        machines: store.pairing.grants().map((g) => ({
-          ...g,
-          connected:
-            !g.revokedAt &&
-            !disabled.has(g.id) &&
-            (sessions.has(g.id) || now() - (lastSeen.get(g.id) ?? 0) < 10_000),
-          ...(snapshots.get(g.id) ? { readiness: snapshots.get(g.id) as ExecutionReadiness } : {}),
-        })),
+        machines: store.pairing
+          .grants()
+          .map((g) => ({
+            ...g,
+            connected:
+              !g.revokedAt &&
+              !disabled.has(g.id) &&
+              (sessions.has(g.id) || now() - (lastSeen.get(g.id) ?? 0) < 10_000),
+            ...(snapshots.get(g.id)
+              ? { readiness: snapshots.get(g.id) as ExecutionReadiness }
+              : {}),
+          }))
+          .map((m) => {
+            const operations = m.revokedAt
+              ? undefined
+              : options.commands?.summary(m.id, m.connected)
+            return operations ? { ...m, operations } : m
+          }),
         repos: await options.repos(),
       }
     },

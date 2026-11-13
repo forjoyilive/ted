@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import type { Task } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { ArchiveDialog, DeleteDialog } from '../src/renderer/components/ArchiveDialogs.tsx'
@@ -251,6 +253,7 @@ test('Task actions opens and chooses actions without opening the enclosing Task'
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'Task actions' }))
   expect(screen.getByRole('menu', { name: /Task actions/ })).toBeTruthy()
+  expect(screen.queryByRole('menuitem', { name: /^Reset…/ })).toBeNull()
   expect(open).not.toHaveBeenCalled()
   await u.click(screen.getByRole('menuitem', { name: /^Priority/ }))
   await u.click(screen.getByRole('menuitemradio', { name: 'Urgent' }))
@@ -326,4 +329,76 @@ test('Ready for Work keeps Resume and offers a manual Stop to exclude Overnight 
   await u.click(await screen.findByRole('button', { name: 'Task actions' }))
   expect(screen.getByRole('menuitem', { name: /^Resume/ })).toBeTruthy()
   expect(screen.queryByRole('menuitem', { name: 'Stop Task' })).toBeNull()
+})
+
+test('Reset lists what is lost and kept for a started Task, and sends the reset', async () => {
+  const started = task({
+    stage: 'validate',
+    attachments: [{ hash: 'h', name: 'spec.png', size: 1, mediaType: 'image/png' }],
+    repos: [
+      {
+        name: 'widgets',
+        repo: 'acme/widgets',
+        branch: 'ted/nb-1-sync-notes',
+        worktree: '/tmp/NB-1/widgets',
+        copied: [],
+        skipped: [],
+        pullRequest: {
+          number: 212,
+          state: 'draft',
+          url: 'https://github.com/acme/widgets/pull/212',
+          base: 'main',
+        },
+      } as Task['repos'][number],
+    ],
+  })
+  const api = bridge({
+    listTasks: () => [started],
+    listTaskRuns: () => [],
+    resetTask: vi.fn(),
+  })
+  await act(async () => {
+    render(<TaskActionsMenu task={started} />)
+  })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: /^Reset…/ }))
+  const dialog = await screen.findByRole('dialog', { name: 'Reset NB-1?' })
+  const lost = within(dialog)
+    .getAllByRole('listitem')
+    .map((item) => item.textContent)
+  expect(lost).toEqual([
+    'The worktree and any uncommitted work in it',
+    'The branch ted/nb-1-sync-notes and its commits, here and on GitHub',
+    'Pull request widgets #212, which TED closes on GitHub',
+    'The thread: Comments, questions and answers, the Task brief and Findings',
+    'Edits to the description, and files attached in Comments',
+  ])
+  expect(
+    within(dialog).getByText(/^Kept: .*the original description and its attachment\.$/),
+  ).toBeTruthy()
+  await u.click(within(dialog).getByRole('button', { name: 'Reset Task' }))
+  expect(api.request).toHaveBeenCalledWith('resetTask', 'NB-1')
+})
+
+test('a Task at Merge with a merged pull request shows Reset greyed out and offers Mark as Done', async () => {
+  const api = bridge({
+    markDone: () => {
+      throw new Error('acme/widgets#7 is still open on GitHub')
+    },
+  })
+  const merged = task({ stage: 'merge', statuses: ['partly-merged'] })
+  await act(async () => {
+    render(<TaskActionsMenu task={merged} />)
+  })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  const item = screen.getByRole('menuitem', { name: /^Reset…/ })
+  expect(item.getAttribute('aria-disabled')).toBe('true')
+  expect(item.textContent).toContain('A pull request has merged')
+  await u.click(screen.getByRole('menuitem', { name: 'Mark as Done' }))
+  expect(api.request).toHaveBeenCalledWith('markDone', merged.id)
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    'acme/widgets#7 is still open on GitHub',
+  )
 })

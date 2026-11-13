@@ -1,4 +1,4 @@
-export type DashboardRange = '7d' | '30d' | 'all'
+export type DashboardRange = 'today' | '7d' | '30d' | 'all'
 export type DashboardMetric = 'completed' | 'created' | 'intake'
 
 export interface DashboardTask {

@@ -38,6 +38,8 @@ export function TaskDiscussion({
   footer,
   active,
   loading,
+  sideChatFor,
+  onSideChatOpened,
 }: {
   taskId: string
   leadRunId: string | undefined
@@ -51,6 +53,8 @@ export function TaskDiscussion({
   footer: (chat: RunChat | undefined) => ReactNode
   active: boolean
   loading: boolean
+  sideChatFor?: string | undefined
+  onSideChatOpened?: (() => void) | undefined
 }) {
   const conversationTarget =
     typeof revealRun === 'string' ? `conversation:${revealRun}` : revealRun?.id
@@ -83,6 +87,8 @@ export function TaskDiscussion({
               key={run.id}
               run={run}
               reveal={conversationTarget === `conversation:${run.id}` ? revealRun : undefined}
+              openSideChat={sideChatFor === run.id}
+              onSideChatOpened={onSideChatOpened}
               comments={comments}
               entries={entries}
               stage={stage}
@@ -102,6 +108,8 @@ export function TaskDiscussion({
     <RunWithSideChat
       runId={leadRunId}
       bar={false}
+      openSideChat={leadRunId !== undefined && sideChatFor === leadRunId}
+      onSideChatOpened={onSideChatOpened}
       renderSource={(resource) => body(resource.value, resource.error, resource.retry)}
     />
   )
@@ -110,12 +118,16 @@ export function TaskDiscussion({
 function EarlierConversation({
   run,
   reveal,
+  openSideChat,
+  onSideChatOpened,
   comments,
   entries,
   stage,
 }: {
   run: RunSummary
   reveal: string | ScrollReveal | undefined
+  openSideChat: boolean
+  onSideChatOpened: (() => void) | undefined
   comments: readonly Comment[]
   entries: readonly StageEntry[]
   stage: AgentStageId | undefined
@@ -128,6 +140,9 @@ function EarlierConversation({
       ref.current?.querySelector('summary')?.focus({ preventScroll: true })
     }
   }, [reveal])
+  useEffect(() => {
+    if (openSideChat) setOpen(true)
+  }, [openSideChat])
   return (
     <details
       ref={ref}
@@ -143,7 +158,14 @@ function EarlierConversation({
         {clockTime(run.startedAt)}
       </summary>
       {open && (
-        <EarlierMessages runId={run.id} comments={comments} entries={entries} stage={stage} />
+        <EarlierMessages
+          runId={run.id}
+          openSideChat={openSideChat}
+          onSideChatOpened={onSideChatOpened}
+          comments={comments}
+          entries={entries}
+          stage={stage}
+        />
       )}
     </details>
   )
@@ -151,11 +173,15 @@ function EarlierConversation({
 
 function EarlierMessages({
   runId,
+  openSideChat,
+  onSideChatOpened,
   comments,
   entries,
   stage,
 }: {
   runId: string
+  openSideChat: boolean
+  onSideChatOpened: (() => void) | undefined
   comments: readonly Comment[]
   entries: readonly StageEntry[]
   stage: AgentStageId | undefined
@@ -164,6 +190,8 @@ function EarlierMessages({
     <RunWithSideChat
       runId={runId}
       bar={false}
+      openSideChat={openSideChat}
+      onSideChatOpened={onSideChatOpened}
       renderSource={(resource) => (
         <div className={styles.olderItems}>
           {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}

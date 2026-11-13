@@ -32,6 +32,31 @@ const after = (...actions: MiddlePaneAction[]) =>
   )
 
 describe('middle pane', () => {
+  test('a commit covers the thread like a file, and a file opened after it replaces it', () => {
+    const commit = { id: '195e5ce2', repo: 'web', commit: '195e5ce2'.padEnd(40, '0') }
+    const shown = after({ kind: 'run', runId: 'r1' }, { kind: 'commit', commit })
+    expect(shown).toMatchObject({ run: 'r1', commit, file: undefined, covered: true })
+    expect(
+      after({ kind: 'changes', view: { kind: 'all' } }, { kind: 'commit', commit }),
+    ).toMatchObject({ commit, all: false, changes: undefined })
+    expect(
+      after(
+        { kind: 'changes', view: { kind: 'all' } },
+        { kind: 'commit', commit },
+        { kind: 'commit', commit: undefined },
+      ),
+    ).toMatchObject({ commit: undefined, all: true })
+    const file = { repo: 'web', path: 'a.ts', line: 3 }
+    expect(after({ kind: 'commit', commit }, { kind: 'file', file })).toMatchObject({
+      commit: undefined,
+      file,
+    })
+    expect(after({ kind: 'commit', commit: { ...commit, repo: 'gone' } })).toMatchObject({
+      commit: undefined,
+      covered: false,
+    })
+  })
+
   test('a diff covers the thread and keeps the Run tab and shell underneath', () => {
     const pane = after(
       { kind: 'run', runId: 'r1' },

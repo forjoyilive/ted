@@ -3,7 +3,10 @@ import {
   agentStageIds,
   appearances,
   archivedFilters,
+  type BoardView,
   billings,
+  boardCardSizes,
+  boardFields,
   checkLimits,
   createdByKinds,
   editorIds,
@@ -184,6 +187,9 @@ function listView(value: unknown): ListView {
   if (view.showEmptyGroups !== undefined && typeof view.showEmptyGroups !== 'boolean') {
     throw new HttpError(400, 'showEmptyGroups must be true or false')
   }
+  if (view.nested !== undefined && typeof view.nested !== 'boolean') {
+    throw new HttpError(400, 'nested must be true or false')
+  }
   const columns = oneOfList('columns', view.columns, listColumns)
   if (view.columnsVersion !== undefined && view.columnsVersion !== 2) {
     throw new HttpError(400, 'columnsVersion must be 2')
@@ -195,6 +201,25 @@ function listView(value: unknown): ListView {
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
     ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),
+    ...(view.nested !== undefined && { nested: view.nested }),
+  }
+}
+
+function boardView(value: unknown): BoardView {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'a Board view must be an object')
+  }
+  const view = value as Record<string, unknown>
+  const cardSize = boardCardSizes.find((s) => s === view.cardSize)
+  if (!cardSize) throw new HttpError(400, `cardSize must be ${boardCardSizes.join(', ')}`)
+  if (typeof view.hideEmpty !== 'boolean') {
+    throw new HttpError(400, 'hideEmpty must be true or false')
+  }
+  return {
+    cardSize,
+    fields: [...new Set(oneOfList('fields', view.fields, boardFields))],
+    hiddenStages: [...new Set(oneOfList('hiddenStages', view.hiddenStages, stageIds))],
+    hideEmpty: view.hideEmpty,
   }
 }
 
@@ -224,6 +249,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       Object.entries(value as Record<string, unknown>).map(([scope, view]) => [
         scope,
         listView(view),
+      ]),
+    )
+  },
+  boardViews(value) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new HttpError(400, 'boardViews must be an object of Board views by Factory')
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([factoryId, view]) => [
+        factoryId,
+        boardView(view),
       ]),
     )
   },
@@ -303,6 +339,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyProblems: onOff('notifyProblems'),
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
+  factoryNotifications() {
+    throw new HttpError(400, 'Change a Factory’s notifications through its own route')
+  },
   firstLaunchDone: onOff('firstLaunchDone'),
   linearIntakeScopes(value) {
     if (

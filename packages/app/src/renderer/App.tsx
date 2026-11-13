@@ -10,6 +10,7 @@ import type {
 import { simulatorsLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
+import { factoryNotifications } from '@ted/protocol/settings'
 import {
   type ReactNode,
   useCallback,
@@ -39,12 +40,15 @@ import {
   taskCommands,
 } from './commands.ts'
 import { BannerStack } from './components/BannerStack.tsx'
+import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
+import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
@@ -69,10 +73,12 @@ import {
   useSettingsState,
   useSimulators,
   useSlots,
+  useSnoozedRequests,
   useTasks,
   useUpdateStatus,
   useWaitingCount,
 } from './data.ts'
+import { newChildTaskEvent } from './hierarchy.ts'
 import { waitingByFactory } from './inbox.ts'
 import {
   armable,
@@ -84,6 +90,7 @@ import {
   rankNeighbours,
   replyBox,
   requestChangesBox,
+  snoozeTarget,
 } from './key-targets.ts'
 import { contextMenuKey, imageNavigationKey, keyBindings } from './keymap.ts'
 import { doneView, failedView, queueView, rankMove } from './list-view.ts'
@@ -93,15 +100,18 @@ import {
   initialNavigation,
   newPlan,
   type SettingsSectionId,
-  settingsSectionIds,
+  shownSettingsSectionIds,
   startHistory,
   withHistory,
 } from './navigation.ts'
 import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
+import { openSnoozeMenu, SnoozedContext } from './request-snooze.ts'
+import { clearSelection, toggleTargetSelection } from './selection.ts'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { searchFactory as settingsSearchFactory } from './settings-search.ts'
 import {
   type SetupNotice,
   type SetupNoticeRequest,
@@ -125,6 +135,7 @@ import { Stub } from './views/OtherViews.tsx'
 import { PlanChatView } from './views/PlanChat.tsx'
 import { PlansList } from './views/PlansList.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
+import { TaskMap } from './views/TaskMap.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
@@ -140,7 +151,7 @@ function sectionsStoppingWork(banners: readonly Banner[]) {
     const place = banner.action?.opens
     const named = place?.kind === 'settings' ? place.section : banner.action?.section
     if (banner.severity !== 'stops-work' || named === undefined) continue
-    const section = settingsSectionIds.find((id) => id === named)
+    const section = shownSettingsSectionIds.find((id) => id === named)
     if (section !== undefined) stopping[section] = true
   }
   return stopping
@@ -181,12 +192,14 @@ function factoryBadges(
 function isTyping(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
+    !target.hasAttribute('data-selection-box') &&
     (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
   )
 }
 
 const allowedInSettings = new Set([
   'search',
+  'filter',
   'settings',
   'close',
   'back',
@@ -197,6 +210,7 @@ const allowedInSettings = new Set([
   'go-to-all-tasks',
   'go-to-board',
   'go-to-list',
+  'go-to-map',
   'go-to-plans',
 ])
 
@@ -243,7 +257,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setUsageOpen(false)
   }, [navigation])
   const closeRuns = useCallback(() => setRunsOpen(false), [])
-  const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
+  const [newTaskOpen, setNewTaskOpen] = useState<{
+    description?: string
+    factoryId?: string
+    parentId?: string
+  }>()
+  useEffect(() => {
+    const open = (event: Event) => {
+      const parent = (event as CustomEvent<{ parentId: string; factoryId: string }>).detail
+      setNewTaskOpen({ factoryId: parent.factoryId, parentId: parent.parentId })
+    }
+    window.addEventListener(newChildTaskEvent, open)
+    return () => window.removeEventListener(newChildTaskEvent, open)
+  }, [])
   const [removing, setRemoving] = useState<Factory>()
   const [automationDialog, setAutomationDialog] = useState<{
     factoryId?: string
@@ -274,7 +300,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const [sheetOpen, setSheetOpen] = useState(false)
   const [armed, setArmed] = useState<HTMLButtonElement>()
   const [cardDialog, setCardDialog] = useState<{ taskId: string; kind: TaskDialogKind }>()
-  const [pendingPick, setPendingPick] = useState<string>()
+  const [pendingPick, setPendingPick] = useState<{ taskId: string; event: string }>()
   const [findAt, setFindAt] = useState<string>()
   const panes = useRef<HTMLDivElement>(null)
   const place = JSON.stringify([navigation.screen, navigation.taskId, navigation.settings])
@@ -306,9 +332,23 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const answered = useAnswered(inboxScreen?.answered === true)
   const allPlans = useAllPlans()
   const coordinatorStatuses = useCoordinatorStatuses()
+  const snoozedRequests = useSnoozedRequests()
+  const snoozed = useMemo(
+    () => new Map(snoozedRequests.map((request) => [request.id, request.snoozedUntil])),
+    [snoozedRequests],
+  )
   const waiting: Record<string, FactoryBadges> = {}
-  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, questions, planInbox))) {
-    waiting[factoryId] = { waiting: count }
+  for (const [factoryId, count] of Object.entries(
+    waitingByFactory(
+      inbox.filter((item) => !snoozed.has(item.request.id)),
+      questions.filter((question) => !snoozed.has(question.id)),
+      planInbox.filter((item) => !snoozed.has(item.request.id)),
+    ),
+  )) {
+    waiting[factoryId] = {
+      waiting: count,
+      ...(settings && !factoryNotifications(settings, factoryId).inboxItems && { uncounted: true }),
+    }
   }
   for (const automation of allAutomations ?? []) {
     if (automation.last?.result.kind !== 'failed') continue
@@ -412,10 +452,18 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       }
       if (settingsOpen) dispatch({ type: 'close-settings' })
       else if (navigation.taskId !== undefined) dispatch({ type: 'close-task' })
-      else return false
+      else return clearSelection()
       return true
     },
+    select: toggleTargetSelection,
     move: (direction) => panes.current !== null && moveFocus(panes.current, direction),
+    snoozeRequest: () => {
+      const row = panes.current ? snoozeTarget(panes.current) : undefined
+      const requestId = row?.dataset.snoozeRequest
+      if (!row || requestId === undefined) return false
+      openSnoozeMenu({ requestId, at: buttonPosition(row), snoozedUntil: snoozed.get(requestId) })
+      return true
+    },
     arm: (action: ArmAction) => {
       const button = panes.current ? armable(panes.current, action) : undefined
       setArmed(button)
@@ -444,6 +492,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return true
     },
   }
+
+  const searchFactory = settingsSearchFactory(factories, currentFactoryId(navigation, tasks))
 
   const commandContext: CommandContext = {
     task: settingsOpen ? undefined : task,
@@ -544,7 +594,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     }
     if (target && onCard && command.id === 'blocked-by') {
       event.preventDefault()
-      setPendingPick(target.id)
+      setPendingPick({ taskId: target.id, event: pickBlockerEvent })
       openTask(target)
       return
     }
@@ -581,9 +631,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   }, [armed])
 
   useEffect(() => {
-    if (pendingPick === undefined || pendingPick !== navigation.taskId) return
+    if (pendingPick === undefined || pendingPick.taskId !== navigation.taskId) return
     setPendingPick(undefined)
-    window.dispatchEvent(new CustomEvent(pickBlockerEvent, { detail: pendingPick }))
+    window.dispatchEvent(new CustomEvent(pendingPick.event, { detail: pendingPick.taskId }))
   }, [pendingPick, navigation.taskId])
 
   const openTaskByRef = (ref: string) => {
@@ -602,7 +652,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     } else if (!place) {
       await ted.actOnBanner(banner.id).catch((error: unknown) => console.error(error))
     } else if (place.kind === 'settings') {
-      const section = settingsSectionIds.find((id) => id === place.section)
+      const section = shownSettingsSectionIds.find((id) => id === place.section)
       dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
     } else if (place.kind === 'automation') {
       dispatch({
@@ -636,7 +686,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       dispatch({ type: 'open-task', taskId: command.taskId, factoryId: command.factoryId })
     }
     if (command.kind === 'settings') {
-      const section = settingsSectionIds.find((id) => id === command.section)
+      const section = shownSettingsSectionIds.find((id) => id === command.section)
       dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
     }
     if (command.kind === 'banner') {
@@ -767,6 +817,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           factoryId={screen.factoryId}
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
+          settings={settings}
+          onOpenNotifications={() => dispatch({ type: 'open-settings', section: 'notifications' })}
           selected={navigation.requestId}
           onClear={() => dispatch({ type: 'open', screen })}
           onOpen={({ request, task: on }) =>
@@ -789,6 +841,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           }
           onFilter={(factoryId) => openInbox({ factoryId })}
           onShowAnswered={(show) => openInbox({ answered: show })}
+          onClearFilters={() => openInbox({ factoryId: undefined, answered: false })}
           onNewTask={() => openNewTask()}
         >
           {opened ??
@@ -809,6 +862,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             tasks={tasks}
             factories={factories}
             settings={settings}
+            slots={slots}
             onOpen={openTask}
             onOpenTask={openTaskByRef}
             onNewTask={() => openNewTask()}
@@ -848,6 +902,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               factoryId={screen.factoryId}
               factory={factory}
               queue={slots?.queue ?? []}
+              slots={slots}
+              settings={settings}
               filters={boardFilters[screen.factoryId] ?? {}}
               onFilters={(filters) =>
                 setBoardFilters((all) => ({ ...all, [screen.factoryId]: filters }))
@@ -875,7 +931,23 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               scope={screen.factoryId}
               breadcrumb="List"
               settings={settings}
+              slots={slots}
               onOpenTask={openTaskByRef}
+              onPlan={openPlans}
+            />
+          )
+        }
+        if (screen.view === 'map') {
+          return (
+            <TaskMap
+              title={name}
+              factoryId={screen.factoryId}
+              tasks={tasks}
+              factories={factories}
+              banners={view.banners}
+              onOpen={openTask}
+              onOpenTask={openTaskByRef}
+              onNewTask={() => openNewTask()}
               onPlan={openPlans}
             />
           )
@@ -892,6 +964,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               }
               onRemoveFactory={() => setRemoving(factory)}
               onOpenTask={openTask}
+              dispatch={dispatch}
             />
           )
         }
@@ -1005,8 +1078,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         tasks={tasks}
         place={`${place}:${navigation.taskId ?? ''}`}
         onFollowedUp={openTask}
-        onPickBlocker={(target) => {
-          setPendingPick(target.id)
+        onPickBlocker={(target, event = pickBlockerEvent) => {
+          setPendingPick({ taskId: target.id, event })
           openTask(target)
         }}
       />
@@ -1055,10 +1128,12 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           {...(newTaskOpen.description !== undefined && {
             initialDescription: newTaskOpen.description,
           })}
+          {...(newTaskOpen.parentId !== undefined && { parentId: newTaskOpen.parentId })}
           onClose={() => setNewTaskOpen(undefined)}
           onOpenTask={openTask}
         />
       )}
+      <RestartStoppedDialog />
       {asking && (
         <SetupNoticeDialog
           task={asking.request.task}
@@ -1110,7 +1185,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       <ProfileProvider settings={settings}>
         <OvernightContext value={overnight}>
           <ArmedContext value={armed}>
-            <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+            <SnoozedContext value={snoozed}>
+              <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+              <RequestSnoozeHost />
+            </SnoozedContext>
           </ArmedContext>
         </OvernightContext>
       </ProfileProvider>
@@ -1130,6 +1208,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               section={navigation.settings.section}
               settings={settings}
               factories={factories}
+              searchFactory={searchFactory}
               inboxCount={inboxCount}
               stopsWork={{
                 ...sectionsStoppingWork(banners),

@@ -24,11 +24,13 @@ import {
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
+import pickerStyles from '../components/BlockerPicker.module.css'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { setupNotice, setupNoticeText } from '../setup-notice.ts'
 import { emptyTaskDraft, taskDraftSession } from '../task-draft.ts'
@@ -37,7 +39,6 @@ import {
   clarifyDepthLabels,
   formatSize,
   leadSummary,
-  modelChoices,
   priorityLabels,
 } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -51,6 +52,7 @@ interface NewTaskDialogProps {
   tasks: readonly Task[]
   factoryId: string | undefined
   initialDescription?: string
+  parentId?: string
   onClose: () => void
   onOpenTask?: (task: Task) => void
 }
@@ -60,10 +62,12 @@ export function NewTaskDialog({
   tasks,
   factoryId,
   initialDescription = '',
+  parentId,
   onClose,
   onOpenTask,
 }: NewTaskDialogProps) {
   const [seed, setSeed] = useState(initialDescription)
+  const [parentSeed, setParentSeed] = useState(parentId)
   const [factory, setFactory] = useState(
     () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
   )
@@ -74,10 +78,12 @@ export function NewTaskDialog({
       tasks={tasks}
       factoryId={factory}
       initialDescription={seed}
+      {...(parentSeed !== undefined && { parentId: parentSeed })}
       onClose={onClose}
       {...(onOpenTask && { onOpenTask })}
       onFactory={(id) => {
         setSeed('')
+        setParentSeed(undefined)
         setFactory(id)
       }}
     />
@@ -89,6 +95,7 @@ function NewTaskForm({
   tasks,
   factoryId: factory,
   initialDescription = '',
+  parentId,
   onClose,
   onOpenTask,
   onFactory,
@@ -128,8 +135,8 @@ function NewTaskForm({
     <K extends keyof NewTaskDraft>(key: K) =>
     (next: NewTaskDraft[K] | ((current: NewTaskDraft[K]) => NewTaskDraft[K])) => {
       session.update((current) => ({
-        lead: current.lead ?? defaultLead,
-        clarifyDepth: current.clarifyDepth ?? defaultDepth,
+        lead: current.lead ?? (defaultsReady ? defaultLead : undefined),
+        clarifyDepth: current.clarifyDepth ?? (defaultsReady ? defaultDepth : undefined),
         [key]: typeof next === 'function' ? next(current[key]) : next,
       }))
     }
@@ -143,6 +150,8 @@ function NewTaskForm({
   const setClarifyDepth = field('clarifyDepth')
   const setLead = field('lead')
   const setDismissed = field('dismissed')
+  const setParent = field('parent')
+  const parent = tasks.find((t) => t.id === draft.parent && t.factoryId === factory)
   const setup = setupNotice(
     factories.find((f) => f.id === factory),
     tasks,
@@ -208,6 +217,7 @@ function NewTaskForm({
     session.load().then(
       () => {
         if (!active) return
+        if (parentId !== undefined) session.update({ parent: parentId })
         if (initialDescription) {
           const text = session.get().description
           session.update({
@@ -230,7 +240,7 @@ function NewTaskForm({
       mounted.current = false
       lookups.current++
     }
-  }, [session, initialDescription, lookUp])
+  }, [session, initialDescription, parentId, lookUp])
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -304,8 +314,8 @@ function NewTaskForm({
   }, [factory, ready, session])
 
   useEffect(() => {
-    if (ready && defaultsReady && !busy) descriptionField.current?.focus()
-  }, [ready, defaultsReady, busy])
+    if (ready && !busy) descriptionField.current?.focus()
+  }, [ready, busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
   const fetching = source !== undefined && source.lookup === undefined
@@ -383,12 +393,14 @@ function NewTaskForm({
         clarifyDepth,
         ...(lead && { lead }),
         blockedBy: blockedBy.filter((id) => tasks.some((t) => t.id === id)),
+        ...(parent && { parent: parent.id }),
         attachments: attachments.map(({ hash, name, mediaType }) => ({ hash, name, mediaType })),
         ...(source && { source: source.url }),
         start,
       })
       created = true
       session.consumed(revision)
+      if (more && parent) session.update({ parent: parent.id })
       if (more) clear()
       else onClose()
     } catch (failure) {
@@ -529,42 +541,50 @@ function NewTaskForm({
         </ActionButton>
       </header>
 
-      <fieldset disabled={!ready || !defaultsReady || busy} className={styles.fields}>
-        <input
-          className={styles.title}
-          aria-label="Title"
-          placeholder="Title (optional). Blank uses the first line of the description."
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-        <div className={styles.descriptionBox}>
-          <textarea
-            ref={descriptionField}
-            className={styles.description}
-            aria-label="Description"
-            placeholder="Describe what you want done, or paste a Linear issue URL."
-            rows={3}
-            value={description}
-            onChange={(event) => changeDescription(event.target.value)}
+      <fieldset disabled={busy} className={styles.fields}>
+        <fieldset disabled={!ready} className={styles.fields}>
+          <input
+            className={styles.title}
+            aria-label="Title"
+            placeholder="Title (optional). Blank uses the first line of the description."
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
           />
-          {source && (
-            <SourceCard
-              source={source}
-              onRemove={removeSource}
-              onKeySaved={() => {
-                const current = session.get()
-                if (current.source !== source.url || current.dismissed.includes(source.url)) return
-                lookUp(source.url, source.identifier)
-              }}
+          <div className={styles.descriptionBox}>
+            <textarea
+              ref={descriptionField}
+              className={styles.description}
+              aria-label="Description"
+              placeholder="Describe what you want done, or paste a Linear issue URL."
+              rows={3}
+              value={description}
+              onChange={(event) => changeDescription(event.target.value)}
             />
-          )}
-        </div>
+            {source && (
+              <SourceCard
+                source={source}
+                onRemove={removeSource}
+                onKeySaved={() => {
+                  const current = session.get()
+                  if (current.source !== source.url || current.dismissed.includes(source.url))
+                    return
+                  lookUp(source.url, source.identifier)
+                }}
+              />
+            )}
+          </div>
+        </fieldset>
 
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: The attach button inside is the keyboard path; this widens the click target. */}
         <fieldset
           className={styles.attachments}
           aria-label="Attachments"
           onDragOver={(event) => event.preventDefault()}
           onDrop={onDrop}
+          onClick={(event) => {
+            if (event.target instanceof Element && event.target.closest('button, input')) return
+            if (uploading === 0) fileInput.current?.click()
+          }}
         >
           <PaperclipIcon className={styles.clip} />
           {attachments.map((a) => (
@@ -605,152 +625,183 @@ function NewTaskForm({
           />
         </fieldset>
 
-        <div className={styles.fieldRow}>
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${headingId}-priority`}>
-              Priority
-            </label>
-            <Select
-              id={`${headingId}-priority`}
-              value={priority}
-              onChange={(event) => setPriority(event.target.value as Priority)}
-            >
-              {[...priorities].reverse().map((p) => (
-                <option key={p} value={p}>
-                  {priorityLabels[p]}
-                </option>
-              ))}
-            </Select>
+        <fieldset disabled={!ready} className={styles.fields}>
+          <div className={styles.fieldRow}>
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor={`${headingId}-priority`}>
+                Priority
+              </label>
+              <Select
+                id={`${headingId}-priority`}
+                value={priority}
+                onChange={(event) => setPriority(event.target.value as Priority)}
+              >
+                {[...priorities].reverse().map((p) => (
+                  <option key={p} value={p}>
+                    {priorityLabels[p]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <BlockedBy
+              tasks={tasks}
+              blockers={blockers}
+              onAdd={(id) => setBlockedBy((current) => [...current, id])}
+              onRemove={(id) => setBlockedBy((current) => current.filter((c) => c !== id))}
+            />
           </div>
-          <BlockedBy
-            tasks={tasks}
-            blockers={blockers}
-            onAdd={(id) => setBlockedBy((current) => [...current, id])}
-            onRemove={(id) => setBlockedBy((current) => current.filter((c) => c !== id))}
-          />
-        </div>
-
-        <section className={styles.more}>
-          <ActionButton
-            type="button"
-            className={styles.moreToggle}
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen((open) => !open)}
-          >
-            <ChevronIcon open={moreOpen} className={styles.moreChevron} />
-            <span className={styles.moreLabel}>More</span>
-            {!moreOpen && <span className={styles.moreSummary}>{summary}</span>}
-          </ActionButton>
-          {moreOpen && (
-            <div className={styles.moreBody}>
-              <div className={styles.field}>
-                <span className={styles.labelRow}>
-                  <span className={styles.label} id={`${headingId}-depth`}>
-                    Clarify depth
-                  </span>
-                  <Help>
-                    How hard Clarify questions you before work starts. Auto lets the Task Lead
-                    choose; Grill asks until nothing is left open.
-                  </Help>
+          {parent && (
+            <div className={styles.field}>
+              <span className={styles.label}>Parent</span>
+              <span className={pickerStyles.blockers}>
+                <span className={pickerStyles.blocker}>
+                  <span className={pickerStyles.blockerId}>{parent.displayId}</span>
+                  <span className={pickerStyles.blockerTitle}>{parent.title}</span>
+                  <ActionButton
+                    type="button"
+                    className={pickerStyles.remove}
+                    aria-label={`Don’t put it under ${parent.displayId}`}
+                    onClick={() => setParent(undefined)}
+                  >
+                    <CloseIcon size={11} />
+                  </ActionButton>
                 </span>
-                <div
-                  className={views.segmented}
-                  role="radiogroup"
-                  aria-labelledby={`${headingId}-depth`}
-                >
-                  {clarifyDepths.map((depth) => (
-                    <label key={depth} className={views.segment}>
-                      <input
-                        type="radio"
-                        name={`${headingId}-depth`}
-                        className={views.radio}
-                        checked={clarifyDepth === depth}
-                        onChange={() => setClarifyDepth(depth)}
-                      />
-                      {clarifyDepthLabels[depth]}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              {lead && (
-                <LeadFields
-                  stageEffort
-                  id={headingId}
-                  lead={lead}
-                  factoryLead={defaultLead}
-                  onChange={setLead}
-                />
-              )}
+              </span>
+              <span className={styles.hint}>
+                {`${parent.displayId} waits for this Task to merge before it does its own remaining work.`}
+              </span>
             </div>
           )}
-        </section>
 
-        {(leadNotice ||
-          health?.some(
-            (entry) => entry.agent === lead?.agent && entry.state === 'not-installed',
-          )) && (
-          <p className={styles.setupNotice} role="status">
-            {health?.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed')
-              ? `${lead ? agentLabels[lead.agent] : 'The Task Lead'} isn’t installed. Install it or choose another Task Lead in More.`
-              : leadNotice}
-          </p>
-        )}
-        {setup && (
-          <p className={styles.setupNotice} role="note">
-            <span>{setupNoticeText(setup)}</span>
-            {onOpenTask && setup.kind === 'open' && (
-              <ActionButton
-                type="button"
-                className={styles.setupLink}
-                onClick={() => {
-                  return close(() => {
-                    onClose()
-                    onOpenTask(setup.task)
-                  })
-                }}
-              >
-                Open setup Task
-              </ActionButton>
+          <section className={styles.more}>
+            <ActionButton
+              type="button"
+              className={styles.moreToggle}
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              <ChevronIcon open={moreOpen} className={styles.moreChevron} />
+              <span className={styles.moreLabel}>More</span>
+              {!moreOpen && <span className={styles.moreSummary}>{summary}</span>}
+            </ActionButton>
+            {moreOpen && (
+              <div className={styles.moreBody}>
+                <div className={styles.field}>
+                  <span className={styles.labelRow}>
+                    <span className={styles.label} id={`${headingId}-depth`}>
+                      Clarify depth
+                    </span>
+                    <Help>
+                      How hard Clarify questions you before work starts. Auto lets the Task Lead
+                      choose; Grill asks until nothing is left open.
+                    </Help>
+                  </span>
+                  <div
+                    className={views.segmented}
+                    role="radiogroup"
+                    aria-labelledby={`${headingId}-depth`}
+                  >
+                    {clarifyDepths.map((depth) => (
+                      <label key={depth} className={views.segment}>
+                        <input
+                          type="radio"
+                          name={`${headingId}-depth`}
+                          className={views.radio}
+                          checked={clarifyDepth === depth}
+                          disabled={!defaultsReady}
+                          onChange={() => setClarifyDepth(depth)}
+                        />
+                        {clarifyDepthLabels[depth]}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                {lead && (
+                  <LeadFields
+                    stageEffort
+                    id={headingId}
+                    lead={lead}
+                    factoryLead={defaultLead}
+                    onChange={setLead}
+                  />
+                )}
+              </div>
             )}
-          </p>
-        )}
-        <footer className={styles.footer}>
-          <div className={styles.start}>
-            <input
-              id={`${headingId}-start`}
-              type="checkbox"
-              className={styles.checkbox}
-              checked={start}
-              onChange={(event) => setStart(event.target.checked)}
-            />
-            <span className={styles.startText}>
-              <span className={styles.labelRow}>
-                <label className={styles.startLabel} htmlFor={`${headingId}-start`}>
-                  Start now
-                </label>
-                <Help>
-                  Checked, the Task goes to Intake as soon as a slot is free. Unchecked, it waits in
-                  Backlog until you start it.
-                </Help>
+          </section>
+
+          {(leadNotice ||
+            health?.some(
+              (entry) => entry.agent === lead?.agent && entry.state === 'not-installed',
+            )) && (
+            <p className={styles.setupNotice} role="status">
+              {health?.some(
+                (entry) => entry.agent === lead?.agent && entry.state === 'not-installed',
+              )
+                ? `${lead ? agentLabels[lead.agent] : 'The Task Lead'} isn’t installed. Install it or choose another Task Lead in More.`
+                : leadNotice}
+            </p>
+          )}
+          {setup && (
+            <p className={styles.setupNotice} role="note">
+              <span>{setupNoticeText(setup)}</span>
+              {onOpenTask && setup.kind === 'open' && (
+                <ActionButton
+                  type="button"
+                  className={styles.setupLink}
+                  onClick={() => {
+                    return close(() => {
+                      onClose()
+                      onOpenTask(setup.task)
+                    })
+                  }}
+                >
+                  Open setup Task
+                </ActionButton>
+              )}
+            </p>
+          )}
+          <footer className={styles.footer}>
+            <div className={styles.start}>
+              <input
+                id={`${headingId}-start`}
+                type="checkbox"
+                className={styles.checkbox}
+                checked={start}
+                onChange={(event) => setStart(event.target.checked)}
+              />
+              <span className={styles.startText}>
+                <span className={styles.labelRow}>
+                  <label className={styles.startLabel} htmlFor={`${headingId}-start`}>
+                    Start now
+                  </label>
+                  <Help>
+                    Checked, the Task goes to Intake as soon as a slot is free. Unchecked, it waits
+                    in Backlog until you start it.
+                  </Help>
+                </span>
+                <span className={styles.note}>{note}</span>
               </span>
-              <span className={styles.note}>{note}</span>
-            </span>
-          </div>
-          <span className={styles.spacer} />
-          <Button disabled={!canCreate} pending={busy && creatingMore} onClick={() => create(true)}>
-            Create more
-          </Button>
-          <Button
-            variant="primary"
-            shortcut="⌘↵"
-            aria-keyshortcuts="Meta+Enter"
-            disabled={!canCreate}
-            pending={busy && !creatingMore}
-            onClick={() => create(false)}
-          >
-            Create
-          </Button>
-        </footer>
+            </div>
+            <span className={styles.spacer} />
+            <Button
+              disabled={!canCreate}
+              pending={busy && creatingMore}
+              onClick={() => create(true)}
+            >
+              Create more
+            </Button>
+            <Button
+              variant="primary"
+              shortcut="⌘↵"
+              aria-keyshortcuts="Meta+Enter"
+              disabled={!canCreate}
+              pending={busy && !creatingMore}
+              onClick={() => create(false)}
+            >
+              Create
+            </Button>
+          </footer>
+        </fieldset>
       </fieldset>
       {(error !== undefined || draftError !== undefined || factories.length === 0) && (
         <p className={styles.error} role="alert">
@@ -969,13 +1020,6 @@ export function LeadFields({
   label?: string
   help?: string
 }) {
-  const models = [
-    ...new Set([
-      ...modelChoices[lead.agent],
-      ...(factoryLead?.agent === lead.agent && factoryLead.model ? [factoryLead.model] : []),
-      ...(lead.model ? [lead.model] : []),
-    ]),
-  ]
   const set = (agent: AgentKind, model: string, effort: string) =>
     onChange({
       agent,
@@ -1012,25 +1056,16 @@ export function LeadFields({
         >
           <AgentOptions current={lead.agent} />
         </Select>
-        <Select
+        <ModelSelect
           aria-label="Model"
           id={`${id}-model`}
+          agent={lead.agent}
+          extra={[factoryLead?.agent === lead.agent ? factoryLead.model : undefined]}
           value={lead.model ?? ''}
-          onChange={(event) =>
-            set(
-              lead.agent,
-              event.target.value,
-              lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''),
-            )
+          onChange={(model) =>
+            set(lead.agent, model, lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? ''))
           }
-        >
-          <option value="">Default model</option>
-          {models.map((model) => (
-            <option key={model} value={model}>
-              {model}
-            </option>
-          ))}
-        </Select>
+        />
         <Select
           aria-label="Effort"
           value={lead.effortMode === 'stage' ? 'stage' : (lead.effort ?? '')}

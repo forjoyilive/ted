@@ -1,8 +1,9 @@
 import { type Edition, edition } from './edition.ts'
+import type { MachineOperations, WorkerOperations } from './execution-commands.ts'
 import { RequestValidationError } from './validation.ts'
 
 export const executionProtocol = 1
-export const executionCapabilities = ['readiness', 'revoke'] as const
+export const executionCapabilities = ['readiness', 'revoke', 'commands'] as const
 export const enrollmentLifetimeMs = 5 * 60_000
 
 export interface ExecutionEndpoint {
@@ -71,11 +72,16 @@ export interface ExecutionPending {
   readiness: ExecutionReadiness
 }
 export interface ExecutionMachines {
+  disabled?: true
   endpoint?: ExecutionEndpoint
   controllerPin?: string
   addresses: { name: string; address: string }[]
   pending: ExecutionPending[]
-  machines: (ExecutionGrant & { connected: boolean; readiness?: ExecutionReadiness })[]
+  machines: (ExecutionGrant & {
+    connected: boolean
+    readiness?: ExecutionReadiness
+    operations?: MachineOperations
+  })[]
   repos: (ExecutionScope & { factoryName: string })[]
   problem?: string
 }
@@ -108,6 +114,7 @@ export interface WorkerStatus {
   grantId?: string
   readiness?: ExecutionReadiness
   scopes: ExecutionScope[]
+  operations?: WorkerOperations
 }
 
 function invalid(message: string): never {

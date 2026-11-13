@@ -1,5 +1,9 @@
 # Two-Mac validation lab
 
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+
+> Validate doesn’t need this lab. Run its tests or scenarios only for a Task that works on remote execution itself and turns the flag on.
+
 This opt-in runner deploys a committed candidate to a local controller Mac and a
 distinct SSH-controlled execution Mac. SSH controls the lab only; it is not TED’s
 product execution transport. `lab-access` proves real host access, content identity,
@@ -208,9 +212,38 @@ unavailable at recovery startup. It still attempts both hosts and reports failur
 to the caller when evidence cannot be published. A report/cleanup error is a
 failure, not permission to broaden cleanup.
 
-The module tests are `scripts/execution-lab.test.ts`. Validate should run that file
-and `scripts/validate-execution.test.ts`, plus Typecheck/Lint. Real two-Mac acceptance
+The module tests are `scripts/execution-lab.test.ts`. A Task that changes the lab
+runs that file and `scripts/validate-execution.test.ts` in Validate, plus Typecheck/Lint;
+no other Task needs them. Real two-Mac acceptance
 must also run through the lab CLI; fake SSH tests cannot satisfy that requirement.
+
+## Product commands checkpoint (TED-113)
+
+```sh
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/validate-execution-lab.ts \
+  --opt-in --config "$HOME/.config/ted-validation-lab/lab.json" \
+  --action acceptance --scenario product-commands
+```
+
+This runs the pairing checkpoint below with one change: the execution Mac connects
+to an owned relay on the controller’s verified local address, which forwards to the
+product TLS listener on the same Mac. After the worker restart check it:
+
+1. assigns a synthetic Task to the paired Mac and issues one dummy operation that waits;
+2. makes the relay swallow the controller’s answers, releases the operation and waits
+   until the controller has saved the result while the execution Mac still holds it
+   unconfirmed;
+3. cuts the relay (only the product connection; SSH and the network stay up);
+4. restarts the execution service, then the controller, each by itself;
+5. restores the relay and waits for the confirmation;
+6. reads the counter on the execution Mac, which must be one;
+7. sends a command at generation 2 and then one at generation 1, which must be refused
+   as stale with no side effect.
+
+Expected invariants, besides the four pairing ones: `two-mac-command-once`,
+`two-mac-service-restarts` and `two-mac-stale-refused`. The report records the
+operation ID, both execution-service PIDs, the counter and the refusal, with no
+credentials.
 
 ## Product pairing checkpoint (TED-112)
 

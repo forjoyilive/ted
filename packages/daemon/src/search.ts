@@ -61,7 +61,11 @@ function taskField(
   return undefined
 }
 
-export function search(store: TedStore, { query, factoryId }: SearchRequest): SearchResults {
+export function search(
+  store: TedStore,
+  { query, factoryId }: SearchRequest,
+  everyTask?: readonly Task[],
+): SearchResults {
   const terms = searchTerms(query)
   if (terms.length === 0) {
     return {
@@ -75,7 +79,7 @@ export function search(store: TedStore, { query, factoryId }: SearchRequest): Se
     }
   }
   const exact = foldText(query.trim())
-  const tasks = store.listTasks()
+  const tasks = everyTask ?? store.listTasks()
   const here = (id: string) => (id === factoryId ? 0 : 1)
 
   const taskHits: TaskHit[] = []
@@ -103,8 +107,9 @@ export function search(store: TedStore, { query, factoryId }: SearchRequest): Se
   )
 
   const commentHits: CommentHit[] = []
+  const texts = Map.groupBy(store.commentTexts(), (comment) => comment.taskId)
   for (const task of tasks) {
-    for (const comment of store.listComments(task.id).reverse()) {
+    for (const comment of (texts.get(task.id) ?? []).reverse()) {
       const text = comment.title === undefined ? comment.body : `${comment.title} ${comment.body}`
       if (!matchesTerms(terms, text)) continue
       commentHits.push({

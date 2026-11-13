@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { CoordinatorOperation } from '@ted/protocol'
 import {
   type CoordinatorAction,
+  type CoordinatorCreate,
   parseCoordinatorAction,
+  parseCoordinatorCreate,
   parseCoordinatorMessage,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -16,7 +18,7 @@ const context = (value: unknown) => {
     context: `<<<TASK CONTEXT ${nonce}>>>\n${JSON.stringify(value)}\n<<<END TASK CONTEXT ${nonce}>>>`,
   }
 }
-const operations: readonly string[] = ['start', 'move', 'tell', 'answer', 'resume']
+const operations: readonly string[] = ['start', 'move', 'tell', 'answer', 'resume', 'parent']
 export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
@@ -79,12 +81,20 @@ export const coordinatorRoutes: Route[] = [
       context(coordinators.task(caller, ref, offset(page))),
     ],
   },
+  jsonRoute(parseCoordinatorCreate, {
+    method: 'POST',
+    path: /^\/coordinator\/tasks$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [201, await coordinators.create(caller, redactedCreate(body))]
+    },
+  }),
   jsonRoute(
     (value, { params: [, kind = ''] }) =>
       parseCoordinatorAction(value, kind as CoordinatorOperation),
     {
       method: 'POST',
-      path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer|resume)$/,
+      path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer|resume|parent)$/,
       runToken: true,
       async handle({ caller, body, params: [ref = '', kind = ''] }, { coordinators }) {
         if (!operations.includes(kind)) throw new RequestError(400, 'unknown action')
@@ -107,5 +117,13 @@ function redactedAction(action: CoordinatorAction): CoordinatorAction {
         ...(note !== undefined && { note: redactSecrets(note) }),
       })),
     }),
+  }
+}
+
+function redactedCreate(input: CoordinatorCreate): CoordinatorCreate {
+  return {
+    ...input,
+    title: redactSecrets(input.title),
+    ...(input.description !== undefined && { description: redactSecrets(input.description) }),
   }
 }

@@ -1,0 +1,50 @@
+.pill {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.pill:hover,
+.pill[aria-expanded='true'] {
+  filter: brightness(0.96);
+}
+
+.pill:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 14px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover,
+.item:focus-visible {
+  outline: none;
+  background: var(--surface-selected);
+}
+
+.kind {
+  font-weight: var(--weight-medium);
+}
+
+.title {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

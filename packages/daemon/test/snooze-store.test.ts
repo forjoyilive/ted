@@ -27,6 +27,10 @@ test('snooze replay, Activity and lifecycle commits agree', async () => {
         .map((e) => e.name),
     ).toContain('v1.TaskQueued')
     store.moveToBacklog(task.id)
+    store.setStartRequested(task.id, true)
+    store.queueTask(task.id, 'intake')
+    expect(store.getTask(task.id)?.startRequested).toBe(false)
+    store.moveToBacklog(task.id)
     store.setTaskSnooze(task.id, until)
     store.archiveTask(task.id)
     expect(store.getTask(task.id)?.snoozedUntil).toBeUndefined()
