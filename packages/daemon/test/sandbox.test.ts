@@ -74,31 +74,40 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
 
   test('a sandboxed command writes its worktree, its own temp folder and the Task’s caches', async () => {
     await writeFile(path.join(clone, 'HEAD'), 'ref')
-    const saved = path.join(saves, `ted-${randomUUID()}`)
+    const id = randomUUID()
+    const xcodeSave = path.join(saves, `NSIRD_SWBBuildService_${id}`)
+    const otherSave = path.join(saves, `NSIRD_TextEdit_${id}`)
+    const looseSave = path.join(saves, `ted-${id}`)
+    await mkdir(otherSave, { recursive: true })
     const result = await inSandbox(
       [
         tryWrite(path.join(worktree, 'a.txt')),
         'echo x > "$TMPDIR/b.txt" && echo wrote',
         'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
         'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && echo wrote',
-        `mkdir -p '${saves}' && ${tryWrite(saved)}`,
+        `mkdir '${xcodeSave}' && ${tryWrite(path.join(xcodeSave, 'x'))}`,
+        tryWrite(path.join(otherSave, 'x')),
+        tryWrite(looseSave),
         tryRead(path.join(clone, 'HEAD')),
         'echo "$TMPDIR"',
       ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 6)).toEqual([
+    expect(result.stdout.split('\n').slice(0, 8)).toEqual([
       'wrote',
       'wrote',
       'wrote',
       'wrote',
       'wrote',
+      'refused',
+      'refused',
       'read',
     ])
     expect(await readFile(path.join(worktree, 'a.txt'), 'utf8')).toBe('x\n')
     const cache = await realpath(scope().cache)
     expect(await readFile(path.join(cache, 'xcode', 'DerivedData', 'd'), 'utf8')).toBe('x\n')
     expect(result.stdout).toContain(path.basename(tmp))
-    await rm(saved, { force: true })
+    for (const dir of [xcodeSave, otherSave, looseSave])
+      await rm(dir, { recursive: true, force: true })
   })
 
   test('git reads the worktree through the Task’s clone', async () => {

@@ -141,12 +141,20 @@ interface SandboxPaths {
   saves?: string
 }
 
+const xcodeSavers = 'xcodebuild|SWBBuildService|XCBBuildService'
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function savesFolder(): Promise<string | undefined> {
   return new Promise((resolve) => {
     execFile('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], (error, stdout) => {
       const dir = stdout.trim()
       if (error || !dir.startsWith('/')) return resolve(undefined)
-      real(dir).then((found) => resolve(path.join(found, 'TemporaryItems')))
+      real(dir).then((found) =>
+        resolve(/["\n\r]/.test(found) ? undefined : path.join(found, 'TemporaryItems')),
+      )
     })
   })
 }
@@ -202,7 +210,9 @@ function seatbeltArgs(paths: SandboxPaths): string[] {
     `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome])})`,
     `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
     `(allow file-write* ${param('W', own)})`,
-    ...(paths.saves === undefined ? [] : [`(allow file-write* ${param('S', [paths.saves])})`]),
+    ...(paths.saves === undefined
+      ? []
+      : [`(allow file-write* (regex #"^${escapeRegex(paths.saves)}/NSIRD_(${xcodeSavers})_"))`]),
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
     '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
