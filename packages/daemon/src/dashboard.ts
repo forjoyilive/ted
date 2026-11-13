@@ -63,13 +63,6 @@ function bucket(tasks: readonly DashboardTask[], from: number, to: number): Dash
 
 type Edges = readonly (readonly [number, number])[]
 
-function split(from: number, to: number, bins: number): Edges {
-  return Array.from({ length: bins }, (_, index) => [
-    Math.floor(from + ((to - from) * index) / bins),
-    Math.floor(from + ((to - from) * (index + 1)) / bins),
-  ])
-}
-
 function hours(from: number, to: number): Edges {
   const edges: [number, number][] = []
   for (let at = from; at < to; at += hourMs) edges.push([at, Math.min(at + hourMs, to)])
@@ -82,20 +75,45 @@ function startOfDay(time: number): number {
   return date.getTime()
 }
 
+function addDays(time: number, days: number): number {
+  const date = new Date(time)
+  date.setDate(date.getDate() + days)
+  return date.getTime()
+}
+
+function days(from: number, to: number, perPoint: number): Edges {
+  const edges: [number, number][] = []
+  for (let at = from; at < to; at = addDays(at, perPoint))
+    edges.push([at, Math.min(addDays(at, perPoint), to)])
+  return edges
+}
+
+function allHistory(first: number, asOf: number): { from: number; perPoint: number } {
+  const today = startOfDay(asOf)
+  const total = Math.round((today - startOfDay(first)) / dayMs) + 1
+  const perPoint = Math.ceil(total / 30)
+  return { from: addDays(today, 1 - Math.ceil(total / perPoint) * perPoint), perPoint }
+}
+
 export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number) {
+  const today = startOfDay(asOf)
   if (range === 'today') {
-    const from = startOfDay(asOf)
-    const yesterday = startOfDay(from - 1)
-    const sameTime = new Date(asOf)
-    sameTime.setDate(sameTime.getDate() - 1)
+    const yesterday = addDays(today, -1)
     return {
-      from,
-      previous: { from: yesterday, to: Math.min(from, sameTime.getTime()) },
+      from: today,
+      to: asOf,
+      previous: { from: yesterday, to: Math.min(today, addDays(asOf, -1)) },
       previousDay: yesterday,
     }
   }
-  const from = asOf - (range === '7d' ? 7 : 30) * dayMs
-  return { from, previous: { from: from - (asOf - from), to: from }, previousDay: null }
+  const length = range === '7d' ? 7 : 30
+  const from = addDays(today, -length)
+  return {
+    from,
+    to: today,
+    previous: { from: addDays(from, -length), to: from },
+    previousDay: null,
+  }
 }
 
 function period(
@@ -167,20 +185,18 @@ export function factoryDashboard(
   }
   const times = tasks.flatMap((task) => (task.doneAt === null ? [] : [Date.parse(task.doneAt)]))
   const windows = range === 'all' ? null : rangeWindows(range, asOf)
-  const from = windows ? windows.from : times.length ? Math.min(...times) : null
-  const bins =
-    range === 'all'
-      ? from === null
-        ? 0
-        : Math.min(30, Math.max(1, Math.ceil((asOf - from) / dayMs)))
-      : range === '7d'
-        ? 7
-        : 30
+  const history = windows || times.length === 0 ? null : allHistory(Math.min(...times), asOf)
+  const from = windows ? windows.from : history ? history.from : null
+  const to = windows ? windows.to : asOf
   const current = period(
     tasks,
     from,
-    asOf,
-    from === null ? [] : range === 'today' ? hours(from, asOf) : split(from, asOf, bins),
+    to,
+    from === null
+      ? []
+      : range === 'today'
+        ? hours(from, to)
+        : days(from, to, history ? history.perPoint : 1),
   )
   const previous = windows
     ? period(
@@ -188,7 +204,7 @@ export function factoryDashboard(
         windows.previous.from,
         windows.previous.to,
         windows.previousDay === null
-          ? split(windows.previous.from, windows.previous.to, bins)
+          ? days(windows.previous.from, windows.previous.to, 1)
           : hours(windows.previousDay, windows.from),
       )
     : null
@@ -216,6 +232,7 @@ export function factoryDashboard(
     flow: dashboardFlow(
       facts,
       windows ? windows.from : null,
+      to,
       windows ? windows.previous : null,
       asOf,
       current.taskIds,

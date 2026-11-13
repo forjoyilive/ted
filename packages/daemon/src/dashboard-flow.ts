@@ -377,6 +377,7 @@ function period(
 export function dashboardFlow(
   input: readonly DashboardTaskFacts[],
   from: number | null,
+  to: number,
   before: { from: number; to: number } | null,
   asOf: number,
   currentCompleted: readonly string[],
@@ -388,7 +389,7 @@ export function dashboardFlow(
   const visits = new Map(
     facts.filter((task) => completed.has(task.id)).map((task) => [task.id, firstVisit(task, asOf)]),
   )
-  const current = period(facts, timings, visits, from, asOf, currentCompleted)
+  const current = period(facts, timings, visits, from, to, currentCompleted)
   const previous = before
     ? period(facts, timings, visits, before.from, before.to, previousCompleted)
     : null
