@@ -139,7 +139,7 @@ test('Storage sets how long Run output is kept and measures again only on Refres
       simulators: { count: 0, bytes: 0 },
       backups: [],
       backupsDir: '~/.ted/backups/',
-      measuredAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      measuredAt: new Date(Date.now() - 3.5 * 60_000).toISOString(),
     }),
     updateSettings: update,
   })
