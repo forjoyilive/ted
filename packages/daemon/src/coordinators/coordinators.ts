@@ -58,7 +58,7 @@ Use only these TED commands, which return JSON:
 - ted coordinator tell <id> --operation <unique-id> --version <version> --message "<text>": send a message to that Task’s Task Lead. It is posted on the Task as a Comment marked as sent through you.
 - ted coordinator answer <id> --request <comment-id> --operation <unique-id> --version <version> plus one way of answering, chosen by the request’s coordinatorMayAnswer:
   - “yes” (a question): --choice "<answer>", --message "<text>", or both.
-  - “with a choice” (a question TED asked, a size check, a failure decision): --choice "<answer>", one of its choices; --message is optional.
+  - “with a choice” (a question TED asked, a size check, a failure decision, a Task Lead’s archive request): --choice "<answer>", one of its choices; --message is optional. To answer an archive request with Archive when the Task has an open pull request, add --close-pull-requests or --keep-pull-requests, as the human asked or as the Task Lead recommended. TED refuses Archive when Tasks under it would be archived too; that one waits for the human.
   - “approve or request changes” (a sign-off request or proposal): --approve, or --request-changes with --message. Approving a proposal creates its Tasks; --skip-rows '[2,3]' leaves rows out and --start-unblocked starts the ones nothing blocks.
   - “round answers” (a Clarify round): --recommended to accept every recommended answer, or --answers '[{"answer":"…","note":"…"}, …]' with one entry per question, in order.
   - “no” (a permission prompt, a simulator ask, the Linear team ask): only the human answers these, in the Inbox.
