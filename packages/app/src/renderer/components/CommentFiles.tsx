@@ -103,12 +103,12 @@ function ImageFile({ attachment, onOpen }: { attachment: Attachment; onOpen: () 
   )
 }
 
-function ImageRow({ count, children }: { count: number; children: ReactNode }) {
+function ImageRow({ images, children }: { images: string; children: ReactNode }) {
   const row = useRef<HTMLDivElement>(null)
   const [more, setMore] = useState({ before: false, after: false })
   useLayoutEffect(() => {
     const element = row.current
-    if (!element || count === 0) return
+    if (!element || images === '') return
     const measure = () => {
       const before = element.scrollLeft > 1
       const after = element.scrollLeft + element.clientWidth < element.scrollWidth - 1
@@ -123,7 +123,7 @@ function ImageRow({ count, children }: { count: number; children: ReactNode }) {
       element.removeEventListener('scroll', measure)
       observer?.disconnect()
     }
-  }, [count])
+  }, [images])
   return (
     <div
       ref={row}
@@ -177,7 +177,7 @@ export function CommentFiles({ files }: { files: readonly Attachment[] }) {
   return (
     <div className={styles.files}>
       {images.length > 0 && (
-        <ImageRow count={images.length}>
+        <ImageRow images={images.map((a) => `${a.hash}:${a.name}`).join('\n')}>
           {images.map((a, index) => (
             <ImageFile key={`${a.hash}:${a.name}`} attachment={a} onOpen={() => setOpen(index)} />
           ))}

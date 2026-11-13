@@ -37,6 +37,10 @@
   );
 }
 
+.images:has(:focus-visible) {
+  mask-image: none;
+}
+
 .image {
   display: flex;
   flex: none;
