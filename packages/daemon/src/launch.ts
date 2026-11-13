@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { appendFile, mkdir, open, rm } from 'node:fs/promises'
+import { access, appendFile, mkdir, open, readdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import {
@@ -27,8 +28,60 @@ const startTimeoutMs = 2 * 60_000
 const retryDelayMs = 100
 
 export const daemonAlreadyRunningExitCode = 75
+export const tedQuitExitCode = 76
 
 export class DaemonDidNotStartError extends Error {}
+
+export class TedQuitError extends Error {
+  constructor() {
+    super(
+      'TED was quit, so it can’t take this command. Stop working; TED offers to restart this Run when the user opens it again.',
+    )
+  }
+}
+
+export async function markQuit(home: string): Promise<void> {
+  await mkdir(home, { recursive: true, mode: 0o700 })
+  await writeFile(tedPaths(home).quitMark, `${new Date().toISOString()}\n`, { mode: 0o600 })
+}
+
+export async function quitMarked(home: string): Promise<boolean> {
+  return access(tedPaths(home).quitMark).then(
+    () => true,
+    () => false,
+  )
+}
+
+async function clearQuit(home: string): Promise<void> {
+  await rm(tedPaths(home).quitMark, { force: true })
+}
+
+export async function stopTedProcesses(
+  home: string,
+  { graceMs = 5_000, pollMs = 100 }: { graceMs?: number; pollMs?: number } = {},
+): Promise<void> {
+  const { lockHolders } = await import('./lock.ts')
+  const paths = tedPaths(home)
+  const runs = await readdir(paths.runs).catch(() => [])
+  const locks = [paths.daemonLock, ...runs.map((run) => path.join(paths.runs, run, 'host.lock'))]
+  const holders = async () =>
+    (await lockHolders(...locks)).filter((pid) => pid > 1 && pid !== process.pid)
+  const signalAll = (pids: number[], name: NodeJS.Signals) => {
+    for (const pid of pids) {
+      try {
+        process.kill(pid, name)
+      } catch {}
+    }
+  }
+  signalAll(await holders(), 'SIGTERM')
+  const deadline = Date.now() + graceMs
+  let left = await holders()
+  while (left.length > 0 && Date.now() < deadline) {
+    await sleep(pollMs)
+    left = await holders()
+  }
+  signalAll(left, 'SIGKILL')
+}
 
 export async function withDaemon<T>(
   home: string,
@@ -39,6 +92,7 @@ export async function withDaemon<T>(
   const deadline = Date.now() + timeoutMs
   const { appToken } = options
   let child: ChildProcess | undefined
+  const fromRun = runTokenFrom(process.env) !== undefined
   for (;;) {
     const info = await readDaemonInfo(home)
     if (info) {
@@ -55,8 +109,12 @@ export async function withDaemon<T>(
         if (!(error instanceof DaemonUnreachableError)) throw error
       }
     }
-    if (!child) child = await startDaemon(home, appToken)
-    else if (exited(child)) {
+    if (!child) {
+      if (fromRun && (await quitMarked(home))) throw new TedQuitError()
+      if (!fromRun) await clearQuit(home)
+      child = await startDaemon(home, appToken)
+    } else if (exited(child)) {
+      if (child.exitCode === tedQuitExitCode) throw new TedQuitError()
       if (child.exitCode === daemonAlreadyRunningExitCode) child = undefined
       else if (!(await anotherDaemonStarting(home)))
         throw new DaemonDidNotStartError(

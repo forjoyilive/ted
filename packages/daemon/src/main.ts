@@ -1,11 +1,11 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { edition, tedEnv, tedHome, tedPaths, tedVersion } from '@ted/protocol'
 import { watchExitWith } from './exit-with.ts'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
-import { daemonAlreadyRunningExitCode } from './launch.ts'
+import { daemonAlreadyRunningExitCode, tedQuitExitCode } from './launch.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
 import { holdAwakeWithOs } from './stay-awake.ts'
 
@@ -30,6 +30,11 @@ async function readAppToken(): Promise<string> {
 }
 
 const appToken = values['app-token-stdin'] ? await readAppToken() : undefined
+
+if (appToken === undefined && existsSync(paths.quitMark)) {
+  console.log('TED was quit; not starting for a Run’s command')
+  process.exit(tedQuitExitCode)
+}
 
 const demoLinear =
   edition === 'dev' && tedEnv('TED_DEMO') === '1'

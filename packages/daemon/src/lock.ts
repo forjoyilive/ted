@@ -55,17 +55,23 @@ export function isLockHeld(lockPath: string): boolean {
   return lock === undefined
 }
 
-export async function lockHolders(lockPath: string): Promise<number[]> {
-  const file = await realpath(lockPath).catch(() => undefined)
-  if (file === undefined) return []
-  if (process.platform === 'linux') return openedByOnLinux(file)
-  const { stdout } = await promisify(execFile)('/usr/sbin/lsof', ['-t', '--', file]).catch(() => ({
-    stdout: '',
-  }))
-  return stdout
-    .split('\n')
-    .filter((line) => /^\d+$/.test(line))
-    .map(Number)
+export async function lockHolders(...lockPaths: string[]): Promise<number[]> {
+  const files = (
+    await Promise.all(lockPaths.map((lockPath) => realpath(lockPath).catch(() => undefined)))
+  ).filter((file) => file !== undefined)
+  if (files.length === 0) return []
+  if (process.platform === 'linux') return openedByOnLinux(new Set(files))
+  const { stdout } = await promisify(execFile)('/usr/sbin/lsof', ['-t', '--', ...files], {
+    maxBuffer: 1024 * 1024,
+  }).catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? '' }))
+  return [
+    ...new Set(
+      stdout
+        .split('\n')
+        .filter((line) => /^\d+$/.test(line))
+        .map(Number),
+    ),
+  ]
 }
 
 export async function holdsLock(lockPath: string, pid: number): Promise<boolean> {
@@ -73,13 +79,13 @@ export async function holdsLock(lockPath: string, pid: number): Promise<boolean>
   return (await lockHolders(lockPath)).includes(pid)
 }
 
-async function openedByOnLinux(file: string): Promise<number[]> {
+async function openedByOnLinux(files: Set<string>): Promise<number[]> {
   const pids = (await readdir('/proc').catch(() => [])).filter((name) => /^\d+$/.test(name))
   const holders: number[] = []
   for (const pid of pids) {
     const fds = await readdir(`/proc/${pid}/fd`).catch(() => [])
     for (const fd of fds) {
-      if ((await readlink(`/proc/${pid}/fd/${fd}`).catch(() => '')) === file) {
+      if (files.has(await readlink(`/proc/${pid}/fd/${fd}`).catch(() => ''))) {
         holders.push(Number(pid))
         break
       }
