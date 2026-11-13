@@ -1066,7 +1066,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       })
       console.log(
         comment.kind === 'question'
-          ? `Asked the human (request ${comment.id}). TED sends you their answer.`
+          ? `Asked the human (request ${comment.id}). TED sends you their answer.${heldNote(comment)}`
           : 'Posted',
       )
     },
@@ -1087,7 +1087,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         client.postComment(ref, { round, ...(supersedes !== undefined && { supersedes }) }),
       )
       console.log(
-        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). TED sends you the human’s answers.`,
+        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). TED sends you the human’s answers.${heldNote(request)}`,
       )
     },
     depth: async () => {
@@ -1132,7 +1132,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
       const rows = request.proposal?.rows.length ?? 0
       console.log(
-        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} a proposal of ${rows} rows (request ${request.id}). TED sends you the human’s answer.`,
+        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} a proposal of ${rows} rows (request ${request.id}). TED sends you the human’s answer.${heldNote(request)}`,
       )
     },
     replaceRequest: async () => {
@@ -1689,4 +1689,10 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   }
 
   return exitCode
+}
+
+function heldNote(comment: { held?: true }): string {
+  return comment.held
+    ? ' The human sees it when your turn ends, below anything else you post before then.'
+    : ''
 }

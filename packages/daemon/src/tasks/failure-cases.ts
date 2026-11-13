@@ -705,6 +705,7 @@ export function createFailureCases(options: {
           'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
         ].join('\n\n'),
         !why,
+        runId,
       )
     },
     findDecision(commentId: string) {

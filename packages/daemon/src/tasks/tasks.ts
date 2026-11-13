@@ -264,6 +264,7 @@ import {
   unseen,
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
+import { createHeldRequests } from './held-requests.ts'
 import {
   type HierarchyMember,
   type HierarchyView,
@@ -3842,6 +3843,7 @@ export function createTasks(options: {
     }
   }
 
+  const heldRequests = createHeldRequests(store, runs)
   const leadLifecycle = createLeadLifecycle({
     store,
     runs,
@@ -5127,6 +5129,7 @@ export function createTasks(options: {
       task.waitsForBlockers ||
       task.stage === 'done' ||
       !current ||
+      current.held ||
       !ordinaryAutopilotRequest(current)
     )
       throw new RequestError(409, 'Autopilot cannot answer this request')
@@ -5169,7 +5172,7 @@ export function createTasks(options: {
         return
       }
       for (const comment of openRequests(id)) {
-        if (!ordinaryAutopilotRequest(comment)) continue
+        if (comment.held || !ordinaryAutopilotRequest(comment)) continue
         if (comment.kind !== 'round' && !comment.gate) {
           const key = `${id}:${comment.id}:${find(id).leadRunId ?? ''}`
           if (!automaticNotified.has(key)) {
@@ -9631,7 +9634,7 @@ export function createTasks(options: {
       const task = find(ref)
       const unread = store
         .listComments(task.id)
-        .filter((c) => c.author.kind !== 'human' && c.readAt === undefined)
+        .filter((c) => c.author.kind !== 'human' && c.readAt === undefined && !c.held)
       store.commentsRead(unread.map((c) => c.id))
       return unread.length
     },
@@ -10344,6 +10347,7 @@ export function createTasks(options: {
       browser.close()
       browserApps.clear()
       subAgents.close()
+      heldRequests.close()
       leadLifecycle.close()
       snoozeTimer?.cancel()
       releaseSnoozeIdle?.()

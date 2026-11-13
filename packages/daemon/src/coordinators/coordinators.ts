@@ -660,7 +660,7 @@ export function createCoordinators(options: {
     input: CoordinatorAction,
   ): { asked: Comment; answer: AnswerRequest } {
     const asked = store.getComment(input.request ?? '')
-    if (!asked || asked.taskId !== task.id)
+    if (!asked || asked.taskId !== task.id || asked.held)
       throw new RequestError(
         409,
         `${task.displayId} has no request with that ID; read the Task again`,
@@ -996,7 +996,7 @@ export function createCoordinators(options: {
       const c = actor(caller),
         task = target(c, ref)
       touch(c, [task.id])
-      const all = store.listComments(task.id)
+      const all = store.listComments(task.id).filter((c) => !c.held)
       const brief = store.latestBrief(task.id)
       return {
         task,
