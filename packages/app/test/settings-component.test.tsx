@@ -25,15 +25,15 @@ test('text size steps by 5%, resets, and leaves terminal sizing independent', as
   const a = appState()
   a.mount()
   await a.settings()
-  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1.1')
   await user().click(screen.getByRole('button', { name: 'Increase text size' }))
   expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 105 })
-  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1.05')
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1.155')
   expect(screen.getByText('105%')).toBeTruthy()
   expect(document.documentElement.style.getPropertyValue('--terminal-font-size')).toBe('13px')
   await user().click(screen.getByRole('button', { name: /^Default$/ }))
   expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 100 })
-  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1.1')
 })
 
 test.each([80, 200])('text size disables the button at %s%%', async (textSize) => {

@@ -160,7 +160,7 @@
 }
 
 .input::placeholder {
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 .input:focus {

@@ -67,6 +67,7 @@ export interface AppTask {
   repos: AppRepo[]
   sandbox?: Omit<SandboxScope, 'tmp'>
   outsideSandbox?: readonly string[]
+  cache?: string
 }
 
 export interface SimulatorOptions {
@@ -656,7 +657,7 @@ export function createApps(options: AppsOptions): Apps {
       }
     | { problem: string }
   > {
-    if (scope === undefined) return { env: {} }
+    if (scope === undefined) return { env: await unsandboxedCaches(task) }
     const problem = await options.sandboxProblem(task.factoryId)
     if (problem !== undefined) return { problem }
     await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -668,6 +669,16 @@ export function createApps(options: AppsOptions): Apps {
       return { shell: wrapped.argv, fds: wrapped.fds, close: wrapped.close, env: wrapped.env }
     } catch (error) {
       if (error instanceof SandboxUnavailable) return { problem: error.message }
+      throw error
+    }
+  }
+
+  async function unsandboxedCaches(task: AppTask): Promise<Record<string, string>> {
+    if (task.cache === undefined) return {}
+    try {
+      return await options.sandbox.buildCaches(task.cache)
+    } catch (error) {
+      if (error instanceof SandboxUnavailable) return {}
       throw error
     }
   }

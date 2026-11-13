@@ -1,6 +1,6 @@
 .undo {
   margin: 4px 0 0;
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .lines {

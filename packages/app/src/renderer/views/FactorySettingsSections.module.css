@@ -192,7 +192,7 @@
   padding: 0;
   border: none;
   border-radius: var(--radius-pill);
-  background: var(--border-strong);
+  background: var(--border-control);
   transition: background-color 120ms;
 }
 
@@ -201,7 +201,7 @@
 }
 
 .switch:disabled {
-  opacity: 0.45;
+  background: var(--text-faint);
 }
 
 .switch:focus-visible {

@@ -34,11 +34,11 @@
 }
 
 .item:disabled {
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .danger {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .separator {

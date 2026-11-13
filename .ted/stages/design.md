@@ -6,7 +6,7 @@ Decide how to build a visual change before building it.
 
 ## Skip when
 
-The change is small and the approach is obvious or the change is not visual. Post a one-line note saying Design had nothing to decide, then run `ted outcome advance --skip`.
+The change is not visual, or the change is small and the approach is obvious. Post a one-line note saying Design had nothing to decide, then run `ted outcome advance --skip`.
 
 ## Steps
 

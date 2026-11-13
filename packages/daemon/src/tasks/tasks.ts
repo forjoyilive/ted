@@ -885,11 +885,13 @@ export function createTasks(options: {
     )
     const setupApps = task.setup ? await approvedSetupApps(task) : undefined
     const bypass = runsInBypass(await taskWorkflow(find(task.id), { fetch: false }))
+    const scope = await sandboxScope(task)
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
+      cache: scope.cache,
       ...(!bypass && {
-        sandbox: await sandboxScope(task),
+        sandbox: scope,
         outsideSandbox: store.settings().appsOutsideSandbox[task.factoryId] ?? [],
       }),
       repos: live.map((repo) => {

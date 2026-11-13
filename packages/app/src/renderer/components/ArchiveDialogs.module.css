@@ -177,7 +177,7 @@
 
 .error {
   margin: 0;
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .buttons {
@@ -213,7 +213,7 @@
 }
 
 .choice[data-disabled] {
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .choiceHelp {

@@ -79,7 +79,7 @@
 }
 
 .action:disabled {
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 
 .dismiss {

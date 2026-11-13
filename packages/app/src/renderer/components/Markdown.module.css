@@ -158,5 +158,5 @@
   outline-offset: 2px;
 }
 .error {
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }

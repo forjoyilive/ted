@@ -280,7 +280,7 @@ describe('TED app', () => {
             .getByText('Step 1 · Welcome', { exact: true })
             .evaluate((el) => getComputedStyle(el).fontSize),
         )
-        .toBe(`${(12.5 * textSize) / 100}px`)
+        .toBe(`${(12.5 * textSize * 11) / 1000}px`)
       await mkdir(path.resolve('node_modules/.cache/ted-100/app'), { recursive: true })
       await screenshot.screenshot({
         path: path.resolve(`node_modules/.cache/ted-100/app/design-review-${textSize}.png`),

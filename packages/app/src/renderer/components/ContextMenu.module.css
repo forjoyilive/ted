@@ -42,9 +42,9 @@
   outline: none;
   background: var(--surface-selected);
 }
-.item:disabled { color: var(--text-muted); }
+.item:disabled { color: var(--text-faint); }
 .hint { margin-left: auto; color: var(--text-tertiary); white-space: nowrap; }
-.danger { color: var(--status-destructive); }
+.danger { color: var(--status-destructive-text); }
 .separator {
   height: 1px;
   margin: 4px 0;
@@ -60,7 +60,7 @@
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--surface-raised);
-  color: var(--status-destructive);
+  color: var(--status-destructive-text);
 }
 
 .controls {
