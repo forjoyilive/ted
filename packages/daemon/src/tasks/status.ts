@@ -77,6 +77,22 @@ export function taskCanResume(facts: TaskFacts): boolean {
   )
 }
 
+export function leadAskedAtMerge(facts: {
+  stage: StageId
+  leadRunId: string | undefined
+  askedBy: string | undefined
+  leadEnded: string | undefined
+  openRequests: number
+}): boolean {
+  return (
+    facts.stage === 'merge' &&
+    facts.askedBy !== undefined &&
+    facts.askedBy === facts.leadRunId &&
+    facts.leadEnded === 'stopped' &&
+    facts.openRequests === 0
+  )
+}
+
 export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.stage === 'done' || facts.archived) return undefined
   if (facts.failed) return { kind: 'failed' }

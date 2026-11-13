@@ -4,6 +4,7 @@ A Task Lead that asks a request (a Clarify round, a question, a sign-off) ends i
 
 - **Answering is the go-ahead.** After every answer, `answerAs` in `tasks/tasks.ts` calls `resumeAfterAnswer`. When `interrupted` allows a resume (the Task can resume, can start fresh, and isn’t being revived, recovered or advanced), it records the restart answer to any pending TED stop and calls `store.resumeTask` and the pump, the same path as Resume. The queue order, the working-Run limit and the full-disk hold apply. The new Run gets the held answer as Resume’s Run would.
 - **Every request kind and every answerer.** Clarify rounds, questions, sign-offs, size checks and failure decisions all go through `answerAs`, and so do the human’s answers, Autopilot’s and the Coordinator’s. The human chose that Autopilot and Coordinator answers restart the Task too.
+- **At Merge, only the Task Lead’s own requests.** `taskCanResume` keeps Merge out of Resume (ADR 0128), but a Task Lead started there by GitHub activity can ask. An answer to a request that Task Lead Run posted restarts it when the Run ended as `stopped` and nothing else is open (`leadAskedAtMerge` in `tasks/status.ts`). An answer to TED’s own requests at Merge, such as the Merge sign-off, starts no Run: the merge watcher handles those.
 - **A Task the human stopped stays stopped.** `canStartFresh` refuses a Task with `stopped` set, so only Resume starts it again.
 - **A Task with other open requests waits.** `taskCanResume` is false while any request is open, so the Task resumes when the last one is answered.
 
