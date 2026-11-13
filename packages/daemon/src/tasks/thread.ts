@@ -764,6 +764,16 @@ export function threadEvents(
       case 'v1.TaskMarkedDone':
         add(entry, 'done', 'You marked the Task done after its pull requests merged on GitHub')
         break
+      case 'v2.TaskMarkedDone': {
+        const who =
+          data.by === 'lead'
+            ? 'The Task Lead'
+            : data.by === 'coordinator'
+              ? 'The Coordinator'
+              : 'You'
+        add(entry, 'done', `${who} marked the Task done after its pull requests merged on GitHub`)
+        break
+      }
       case 'v1.PullRequestAutoMergeEnabled':
         add(entry, 'run', `Turned on auto-merge for ${text(data.name)}${methodNote(data)}`)
         break

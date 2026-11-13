@@ -616,6 +616,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/mark-done`, body)
   }
 
+  leadDone(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/done`)
+  }
+
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move`, request)
   }

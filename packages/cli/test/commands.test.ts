@@ -205,6 +205,8 @@ describe('importable CLI execution', () => {
     expect(output).toBe(`${helpText()}\n`)
     expect(await runCli(['task', 'list', '--design', 'missing.json'], runtime)).toBe(2)
     expect(await runCli(['comment', '--attach', 'missing.txt', '--skip'], runtime)).toBe(2)
+    expect(await runCli(['task', 'done'], runtime)).toBe(2)
+    expect(errors).toContain('ted task done works only inside a Task Lead’s Run')
     expect(errors).toContain('--design')
     expect(errors).toContain('--skip')
     expect(errors).not.toContain('ENOENT')
@@ -300,6 +302,21 @@ describe('importable CLI execution', () => {
       )
       await rm(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe('marking a merged Task done', () => {
+  test('parses ted task done and ted coordinator done', () => {
+    expect(parseInvocation(['task', 'done'], { TED_TASK: 'NB-1' }).handler).toBe('taskDone')
+    expect(() => parseInvocation(['task', 'done', 'NB-2'], { TED_TASK: 'NB-1' })).toThrow(
+      UsageError,
+    )
+    expect(
+      parseInvocation(['coordinator', 'done', 'NB-1', '--operation', 'op', '--version', 'v'], {})
+        .handler,
+    ).toBe('coordinatorDone')
+    expect(helpText()).toContain('ted task done')
+    expect(helpText()).toContain('ted coordinator done')
   })
 })
 

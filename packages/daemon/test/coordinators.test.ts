@@ -999,7 +999,7 @@ test('tell posts a Comment marked as sent through the Coordinator and delivers i
       })
     ).status,
   ).toBe(400)
-  for (const kind of ['tell', 'answer', 'resume'])
+  for (const kind of ['tell', 'answer', 'resume', 'done'])
     expect(
       (await lead.call('POST', `/coordinator/tasks/${task.id}/${kind}`, { ...input, request: 'x' }))
         .status,
@@ -1322,7 +1322,7 @@ test('answer answers a Clarify round and a size check', async () => {
   expect(waiting).not.toContain(sizeCheck.id)
 })
 
-test('resume queues a stopped Task again and refuses one that isn’t stopped', async () => {
+test('resume queues a stopped Task again and refuses one that isn’t stopped; done refuses a Task not at Merge', async () => {
   const s = await setup(),
     { task, leadRunId } = await s.led(hold()),
     { run } = await s.start()
@@ -1336,6 +1336,12 @@ test('resume queues a stopped Task again and refuses one that isn’t stopped', 
   const running = await resume('too-early')
   expect(running.status).toBe(409)
   expect((running.body as { error: string }).error).toContain('isn’t stopped')
+  const notAtMerge = await run.call('POST', `/coordinator/tasks/${task.id}/done`, {
+    operation: 'done-early',
+    version: await version(run, task.id),
+  })
+  expect(notAtMerge.status).toBe(409)
+  expect((notAtMerge.body as { error: string }).error).toContain('Tasks at Merge')
 
   await s.ok('POST', `/tasks/${task.id}/stop`)
   expect((await current())?.status?.kind).toBe('stopped')

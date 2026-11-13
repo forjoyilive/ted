@@ -2140,6 +2140,14 @@ export const events = {
     name: 'v1.TaskMarkedDone',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
+  taskMarkedDoneBy: Events.synced({
+    name: 'v2.TaskMarkedDone',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      by: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
     schema: Schema.Struct({
@@ -3421,6 +3429,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { commentId: args.commentId, name: args.name, commit: args.commit }),
   'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskMarkedDone': (args) => task(args),
+  'v2.TaskMarkedDone': (args) => task(args, { by: args.by }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -3721,6 +3730,8 @@ const materializers = counted(
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskMarkedDone': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v2.TaskMarkedDone': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments

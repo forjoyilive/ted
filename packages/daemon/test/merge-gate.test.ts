@@ -365,7 +365,7 @@ async function mergeSignoffOrReview(client: Client, task: Task, count: number) {
 }
 
 describe('Sending after sign-off', () => {
-  test('Send and cancel merge cancels the merge, turns auto-merge off and counts as Request changes', async () => {
+  test('Send and cancel merge cancels the merge, turns auto-merge off and counts as Request changes; a Coordinator then marks it done', async () => {
     const clock = new ManualClock()
     const client = await start({
       daemon: { clock },
@@ -442,6 +442,17 @@ describe('Sending after sign-off', () => {
     expect(unchanged.stage).toBe('merge')
     expect(unchanged.repos[0]?.pullRequest?.state).not.toBe('merged')
 
+    const lead = api(port, runToken)
+    const leadOpen = await lead.call('POST', `/tasks/${task.id}/done`)
+    expect(leadOpen.status).toBe(409)
+    expect(JSON.stringify(leadOpen.body)).toContain('acme/widgets#7 is still open on GitHub')
+    const stranger = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue('no-such-run')
+    for (const caller of [api(port, stranger), api(port, await tokenFor(ctx.home))]) {
+      const refused = await caller.call('POST', `/tasks/${task.id}/done`)
+      expect(refused.status).toBeGreaterThanOrEqual(401)
+      expect(refused.status).toBeLessThan(500)
+    }
+
     await commitToOrigin(ctx.scratch, {
       '.ted/workflow.yaml': [
         'version: 1',
@@ -454,14 +465,47 @@ describe('Sending after sign-off', () => {
     })
     await client.ok('GET', `/factories/${task.factoryId}/settings?refresh=first`)
     const checkRuns = await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)
+    const started = await client.ok<{ runId: string }>(
+      'POST',
+      `/factories/${task.factoryId}/coordinator/messages`,
+      {
+        text: JSON.stringify({ steps: [{ waitFor: path.join(ctx.scratch, 'coordinator') }] }),
+        agent: 'claude',
+      },
+    )
+    await waitUntil(async () => {
+      const chat = await client.ok<{ started: boolean; status: string }>(
+        'GET',
+        `/factories/${task.factoryId}/coordinator`,
+      )
+      return chat.started && chat.status === 'working' ? chat : undefined
+    }, 'the Coordinator to start')
+    const coordinator = api(
+      port,
+      (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(started.runId),
+    )
+    const read = await coordinator.call('GET', `/coordinator/tasks/${task.id}`)
+    const { version } = JSON.parse(
+      (read.body as { context: string }).context.split('\n').slice(1, -1).join('\n'),
+    ) as { version: string }
+
     await setGh({ merged: true })
-    const marked = await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)
+    const answered = await coordinator.call('POST', `/coordinator/tasks/${task.id}/done`, {
+      operation: 'done-1',
+      version,
+    })
+    expect(answered.status).toBe(200)
+    expect((answered.body as { text: string }).text).toContain('done')
+    const marked = await getTask(client, task.id)
     expect(await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)).toEqual(checkRuns)
     expect(marked.stage).toBe('done')
     expect(marked.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await lines(client, task)).toContain(
-      'You marked the Task done after its pull requests merged on GitHub',
+      'The Coordinator marked the Task done after its pull requests merged on GitHub',
     )
+    const leadAgain = await lead.call('POST', `/tasks/${task.id}/done`)
+    expect(leadAgain.status).toBe(200)
+    expect((leadAgain.body as Task).stage).toBe('done')
     expect((await client.ok<Task>('POST', `/tasks/${task.id}/mark-done`)).stage).toBe('done')
   })
 })

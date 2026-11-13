@@ -43,6 +43,19 @@ describe('event lines', () => {
     ])
   })
 
+  test('marking a Task done names who did it', () => {
+    const done = (who: string) =>
+      `${who} marked the Task done after its pull requests merged on GitHub`
+    expect(
+      lines([
+        entry('v1.TaskMarkedDone', 1),
+        entry('v2.TaskMarkedDone', 2, { by: 'human' }),
+        entry('v2.TaskMarkedDone', 3, { by: 'lead' }),
+        entry('v2.TaskMarkedDone', 4, { by: 'coordinator' }),
+      ]).map(({ text }) => text),
+    ).toEqual([done('You'), done('You'), done('The Task Lead'), done('The Coordinator')])
+  })
+
   test('a push record TED brought up to date names both commits', () => {
     expect(
       lines([

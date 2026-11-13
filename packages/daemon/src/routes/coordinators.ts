@@ -19,7 +19,15 @@ const context = (value: unknown) => {
     context: `<<<TASK CONTEXT ${nonce}>>>\n${JSON.stringify(value)}\n<<<END TASK CONTEXT ${nonce}>>>`,
   }
 }
-const operations: readonly string[] = ['start', 'move', 'tell', 'answer', 'resume', 'parent']
+const operations: readonly string[] = [
+  'start',
+  'move',
+  'tell',
+  'answer',
+  'resume',
+  'parent',
+  'done',
+]
 export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
@@ -100,7 +108,7 @@ export const coordinatorRoutes: Route[] = [
       parseCoordinatorAction(value, kind as CoordinatorOperation),
     {
       method: 'POST',
-      path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer|resume|parent)$/,
+      path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer|resume|parent|done)$/,
       runToken: true,
       async handle({ caller, body, params: [ref = '', kind = ''] }, { coordinators }) {
         if (!operations.includes(kind)) throw new RequestError(400, 'unknown action')

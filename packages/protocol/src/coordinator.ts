@@ -27,6 +27,7 @@ export type CoordinatorOperation =
   | 'answer'
   | 'resume'
   | 'parent'
+  | 'done'
   | 'create'
 
 export interface CoordinatorReceipt {
