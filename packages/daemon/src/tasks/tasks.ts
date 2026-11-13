@@ -79,6 +79,8 @@ import type {
   StartSubAgentRequest,
   SubAgent,
   SubAgentWait,
+  TalkThroughRequest,
+  TalkThroughResult,
   Task,
   TaskApp,
   TaskBrief,
@@ -530,7 +532,7 @@ export interface Tasks {
   coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
   coordinatorResume(ref: string, comment?: string): Promise<Task>
   isFailureDecision(commentId: string): boolean
-  talkThrough(commentId: string): Promise<Comment>
+  talkThrough(commentId: string, request: TalkThroughRequest): Promise<TalkThroughResult>
   doneTalking(commentId: string): Promise<Comment>
   closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
@@ -971,7 +973,12 @@ export function createTasks(options: {
       released = true
       const left = (holds.get(taskId) ?? 1) - 1
       if (left > 0) holds.set(taskId, left)
-      else holds.delete(taskId)
+      else {
+        holds.delete(taskId)
+        setImmediate(() => {
+          if (!closed) pendingTalks(taskId)
+        })
+      }
       void pump()
     }
   }
@@ -1367,7 +1374,11 @@ export function createTasks(options: {
         if (!includeFailures && continuationFailures.has(id)) return []
         if (
           !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
-          !queuedAnswers(id).length
+          !queuedAnswers(id).length &&
+          !(
+            availableTalkLead(task) &&
+            store.listComments(id).some((comment) => comment.talkRequested && !comment.answer)
+          )
         )
           return []
         const run = liveLeadOf(store, task)
@@ -1436,6 +1447,69 @@ export function createTasks(options: {
               run.id,
             )
             await store.persisted()
+          }
+        }
+        const talking = liveLeadOf(store, find(taskId))
+        if (talking) {
+          pendingTalks(taskId, true)
+          const pending = store.pendingRoundTalks(talking.id)
+          if (pending.length > 0) {
+            await store.persisted()
+            let accepted = false
+            while (!closed && !stopping.signal.aborted) {
+              const current = store.getTask(taskId)
+              const live = store.getRun(talking.id)
+              if (
+                !current ||
+                current.stopped ||
+                current.archived ||
+                current.stage === 'done' ||
+                current.stage === 'backlog' ||
+                current.waitsForBlockers ||
+                current.leadRunId !== talking.id ||
+                !live ||
+                live.state === 'finished' ||
+                live.problem ||
+                store.agentPauses()[live.agent] !== undefined ||
+                !store
+                  .pendingRoundTalks(talking.id)
+                  .some(({ messageId }) =>
+                    pending.some((message) => message.messageId === messageId),
+                  )
+              )
+                break
+              if (
+                store.newWorkHold() === undefined &&
+                availableTalkLead(current, true)?.id === talking.id
+              ) {
+                accepted = await runs.dispatch(
+                  talking.id,
+                  pending.map(({ messageId, round }) => ({ id: messageId, text: talkLine(round) })),
+                  false,
+                  (id) => {
+                    const current = find(taskId)
+                    return (
+                      store.newWorkHold() === undefined &&
+                      !current.waitsForBlockers &&
+                      availableTalkLead(current, true)?.id === talking.id &&
+                      store
+                        .pendingRoundTalks(talking.id)
+                        .some(({ messageId }) => id === undefined || id === messageId)
+                    )
+                  },
+                  { revocable: true, signal: stopping.signal },
+                )
+                if (accepted) break
+              }
+              await clockWait(clock, 150, stopping.signal)
+            }
+            if (accepted) {
+              for (const { messageId, round } of store.pendingRoundTalks(talking.id)) {
+                if (pending.some((message) => message.messageId === messageId))
+                  store.roundTalkNotified(round.id, talking.id, messageId)
+              }
+              await store.persisted()
+            }
           }
         }
       } catch (error) {
@@ -1558,8 +1632,32 @@ export function createTasks(options: {
     loadTimer = undefined
   }
 
+  let restoreTalkAdmissions = true
   async function fill(): Promise<void> {
-    if (closed || store.newWorkHold() !== undefined) return
+    if (closed) return
+    if (restoreTalkAdmissions) {
+      restoreTalkAdmissions = false
+      for (const id of store.tasksWithQueuedContinuations()) {
+        const task = store.getTask(id)
+        if (
+          !task ||
+          task.stopped ||
+          task.archived ||
+          task.stage === 'done' ||
+          task.stage === 'backlog' ||
+          task.waitsForBlockers ||
+          holds.has(id)
+        )
+          continue
+        const run = liveLeadOf(store, task)
+        if (!run || run.problem || store.agentPauses()[run.agent] !== undefined) continue
+        const pending = store.pendingRoundTalks(run.id)
+        if (pending.length === 0) continue
+        const consumed = new Set(runs.consumedInputs(run.id))
+        if (pending.some(({ messageId }) => consumed.has(messageId))) beginContinuation(id)
+      }
+    }
+    if (store.newWorkHold() !== undefined) return
     for (const id of store.preparedTasks()) {
       const task = taskNow(id)
       if (!task || task.archived || task.preparation !== 'ready') continue
@@ -2893,16 +2991,16 @@ export function createTasks(options: {
     if (merging.has(taskId) || closed) return
     merging.add(taskId)
     const name = find(taskId).displayId
-    const canAct = () => {
+    const canWatch = () => {
       const current = taskNow(taskId)
       return (
         !current?.stopped &&
         !checking.has(taskId) &&
-        !holdsMerge(taskId) &&
         !hierarchyBusy.has(taskId) &&
         !unfinishedChildren(taskId)
       )
     }
+    const canAct = () => canWatch() && !holdsMerge(taskId)
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
         let urgent = true
@@ -2912,7 +3010,7 @@ export function createTasks(options: {
           await pullRequestQueue.get(taskId)
           let next: MergeCycle = 'wait'
           let read: PullRequestRead | undefined
-          if (canAct() && watch) {
+          if (canWatch() && watch) {
             read = await watch.next({ now: urgent })
             if (closed || !watched(taskNow(taskId))) return
           }
@@ -2922,12 +3020,18 @@ export function createTasks(options: {
             !current.stopped &&
             !checking.has(taskId) &&
             validation.pendingRepair(current)
-          if (canAct() || repair) {
-            next = await mergeWatcher.cycle(taskId, read).catch((error: unknown) => {
-              if (error instanceof RequestError && error.status === 409) return 'busy' as const
-              console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))
-              return 'wait' as const
-            })
+          const onlyMergedOutside = !canAct() && !repair
+          if (canWatch() || repair) {
+            next = await mergeWatcher
+              .cycle(taskId, read, { onlyMergedOutside })
+              .catch((error: unknown) => {
+                if (error instanceof RequestError && error.status === 409) return 'busy' as const
+                console.error(
+                  `couldn’t merge ${name}’s pull requests:`,
+                  redactSecrets(textOf(error)),
+                )
+                return 'wait' as const
+              })
           }
           if (next === 'done') return
           busy = next === 'busy' ? busy + 1 : 0
@@ -3558,7 +3662,10 @@ export function createTasks(options: {
 
   const liveLead = (task: StoredTask) => liveLeadOf(store, task)
   const acknowledgeLeadMessages = (run: Run) => leadLifecycle.acknowledgeLeadMessages(run)
-  const applyLead = (taskId: string) => leadLifecycle.applyLead(taskId)
+  const applyLead = async (taskId: string) => {
+    await leadLifecycle.applyLead(taskId)
+    pendingTalks(taskId)
+  }
 
   async function askAboutModel(updated: Run): Promise<void> {
     if (updated.taskId === undefined) return
@@ -3600,6 +3707,7 @@ export function createTasks(options: {
   async function useDefaultModel(ref: string): Promise<Task> {
     const task = find(ref)
     await leadLifecycle.useDefaultModel(task)
+    pendingTalks(task.id)
     return publicTask(task.id)
   }
 
@@ -3613,6 +3721,7 @@ export function createTasks(options: {
       inBackground('update the model request', () => askAboutModel(run))
       if (run.taskId !== undefined) {
         const taskId = run.taskId
+        pendingTalks(taskId)
         inBackground('apply the Task Lead setting', () => applyLead(taskId))
       }
     })
@@ -4072,6 +4181,7 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
+    pendingTalks(taskId)
     const waiting = waitingForRun(taskId)
     if (waiting.comments.length > 0 || waiting.answers.some((c) => c.answerDelivery))
       await sendComment(run.id)
@@ -4764,7 +4874,9 @@ export function createTasks(options: {
     const run = store.getRun(runId)
     if (!run) return 0
     const within = (at: string | undefined) => at !== undefined && at >= since && at <= until
-    const human = store.runMessages(runId).filter((m) => m.queued !== true && within(m.at))
+    const human = store
+      .runMessages(runId)
+      .filter((m) => m.from !== 'ted' && m.queued !== true && within(m.at))
     const agent = agents
       .get(run.agent)
       .chat(runs.output.entries(runId), run.cwd)
@@ -4772,16 +4884,85 @@ export function createTasks(options: {
     return human.length + agent.length
   }
 
-  async function talkThrough(commentId: string): Promise<Comment> {
-    const { task, round } = openTalkRound(commentId)
-    const run = talkLead(task)
-    if (round.talk?.runId === run.id) return round
-    const talking = store.startRoundTalk(round.id, run.id)
-    await deliver(
-      task,
-      `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
+  function availableTalkLead(task: StoredTask, admitted = false): Run | undefined {
+    const run = liveLead(task)
+    if (
+      !run ||
+      task.stopped ||
+      task.archived ||
+      task.stage === 'done' ||
+      task.stage === 'backlog' ||
+      run.problem ||
+      store.agentPauses()[run.agent] ||
+      (holds.has(task.id) && !admitted) ||
+      leadLifecycle.applying(task.id) ||
+      leadLifecycle.recovering(run.id) ||
+      task.leadRestartPending
     )
+      return undefined
+    return run
+  }
+
+  function talkLine(round: Comment): string {
+    return `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`
+  }
+
+  function bindRoundTalk(task: StoredTask, round: Comment): Comment {
+    const run = talkLead(task)
+    const bound =
+      round.talk?.runId === run.id &&
+      (!round.talkRequested ||
+        store.pendingRoundTalks(run.id).some((pending) => pending.round.id === round.id))
+    const talking = bound ? round : store.startRoundTalk(round.id, run.id, talkLine(round))
+    inBackground('deliver the talk request', () => options.steering.changed(run.id))
+    void pump()
     return talking
+  }
+
+  function pendingTalks(taskId: string, admitted = false): void {
+    const task = store.getTask(taskId)
+    if (!task || stoppingByHand.has(task.id) || !availableTalkLead(task, admitted)) return
+    for (const round of store.listComments(taskId)) {
+      if (round.kind === 'round' && !round.answer && round.talkRequested) bindRoundTalk(task, round)
+    }
+  }
+
+  async function talkThrough(
+    commentId: string,
+    request: TalkThroughRequest,
+  ): Promise<TalkThroughResult> {
+    const { task, round } = openTalkRound(commentId)
+    if (task.archived || task.stage === 'done' || task.stage === 'backlog') {
+      throw new RequestError(409, 'this Task is no longer available for a talk')
+    }
+    if (stoppingByHand.has(task.id))
+      throw new RequestError(409, 'the Task is still stopping; try again')
+    const stoppedByTed = store.tedStopPending(task.id)
+    if (
+      (stoppedByTed || (task.stopped && store.taskStoppedByHuman(task.id))) &&
+      !request.confirmResume
+    )
+      return { resumeRequired: true }
+    if (availableTalkLead(task)) return bindRoundTalk(task, round)
+    if (task.status?.kind === 'failed') {
+      throw new RequestError(409, 'retry the failed Task before talking it through')
+    }
+    if (
+      task.stopped ||
+      (!liveLead(task) &&
+        canStartFresh(task) &&
+        !leadLifecycle.pendingRevive(task.id) &&
+        !leadLifecycle.recovering(task.leadRunId ?? ''))
+    ) {
+      if (stoppedByTed) store.answerTedStop(task.id, 'restart')
+      store.resumeTask(task.id, {
+        waitForBlockers: unmergedBlockers(task.id).length > 0,
+        talkCommentId: round.id,
+      })
+    } else if (!round.talkRequested) store.requestRoundTalk(round.id)
+    await store.persisted()
+    void pump()
+    return store.getComment(round.id) ?? round
   }
 
   async function doneTalking(commentId: string): Promise<Comment> {
@@ -7073,7 +7254,12 @@ export function createTasks(options: {
     if (run?.state !== 'idle' || run.problem !== undefined || run.taskId === undefined) return
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
-    if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
+    if (task.stage === 'backlog' || task.stage === 'done' || task.stage === 'merge') return
+    if (advancing.has(task.id)) return
+    if (tedWorkingFor(task, run)) {
+      watchIdle(run)
+      return
+    }
     if (
       merging.has(task.id) ||
       task.pendingLeadMessages.length > 0 ||
@@ -7087,6 +7273,15 @@ export function createTasks(options: {
     const nudged = store.latestNudge(task.id, run.id)
     if (nudged === undefined || heardSince(task, nudged)) await sendNudge(task, run)
     else askAboutIdle(task, run)
+  }
+
+  function tedWorkingFor(task: StoredTask, lead: Run): boolean {
+    return (
+      task.runs.some((r) => r.id !== lead.id && r.state === 'working') ||
+      store.subAgentRequests().some((r) => r.taskId === task.id) ||
+      pendingLoopCheck(task.id) !== undefined ||
+      store.listCheckRuns(task.id).some((c) => c.finishedAt === undefined)
+    )
   }
 
   function heardSince(task: StoredTask, at: string): boolean {
@@ -7151,6 +7346,29 @@ export function createTasks(options: {
     },
     delivered(run, ids) {
       overnightSeen.set(run.id, ids.includes('overnight:true'))
+    },
+  })
+
+  options.steering.addSource({
+    acknowledged: true,
+    revocable: true,
+    signal: stopping.signal,
+    pending(run) {
+      if (store.getRun(run.id)?.state !== 'working' || continuing.has(run.taskId ?? '')) return []
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || stoppingByHand.has(task.id) || availableTalkLead(task)?.id !== run.id) return []
+      return store.pendingRoundTalks(run.id).map(({ messageId, round }) => ({
+        id: messageId,
+        text: talkLine(round),
+        at: round.talk?.startedAt ?? round.createdAt,
+      }))
+    },
+    delivered(run, ids) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || availableTalkLead(task)?.id !== run.id) return
+      for (const { messageId, round } of store.pendingRoundTalks(run.id)) {
+        if (ids.includes(messageId)) store.roundTalkNotified(round.id, run.id, messageId)
+      }
     },
   })
 
@@ -7238,6 +7456,7 @@ export function createTasks(options: {
         run.taskId !== undefined &&
         store.getTask(run.taskId)?.leadRunId === run.id
       ) {
+        pendingTalks(run.taskId)
         inBackground('refresh reply delivery after agent recovery', () =>
           options.steering.refresh(run.id),
         )
@@ -7420,6 +7639,9 @@ export function createTasks(options: {
   }
 
   leadLifecycle.recoverStartup()
+  for (const task of store.listTasks()) {
+    if (store.listComments(task.id).some((c) => c.talkRequested)) pendingTalks(task.id)
+  }
 
   const interruptedHandOffs = store
     .listCheckRuns()
@@ -7479,6 +7701,27 @@ export function createTasks(options: {
     if (!closed) reportSetup(factoryId)
   })
   const stopPumping = store.subscribe((event) => {
+    if (
+      event.type === 'comment-updated' ||
+      event.type === 'task-updated' ||
+      event.type === 'task-deleted'
+    ) {
+      const taskId =
+        event.type === 'comment-updated'
+          ? event.comment.taskId
+          : event.type === 'task-updated'
+            ? event.task.id
+            : event.taskId
+      const task = store.getTask(taskId)
+      for (const run of store.listRuns().filter((run) => run.taskId === taskId)) {
+        const ids =
+          task && !task.stopped && !task.archived && task.leadRunId === run.id
+            ? store.pendingRoundTalks(run.id).map(({ messageId }) => messageId)
+            : []
+        runs.retainRevocableInputs(run.id, ids)
+      }
+    }
+
     if (
       event.type === 'settings-changed' ||
       event.type === 'task-updated' ||
@@ -8837,7 +9080,7 @@ export function createTasks(options: {
       return answeredItems(requests, store.tasksIn(new Set(requests.map((r) => r.taskId))), now)
     },
 
-    talkThrough: (id) => talkThrough(id),
+    talkThrough: (id, request) => talkThrough(id, request),
     doneTalking: (id) => doneTalking(id),
     closeRound: (ref, caller, summary) => closeRound(ref, caller, summary),
 

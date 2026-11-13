@@ -426,6 +426,14 @@ describe('Sending after sign-off', () => {
     expect((await getTask(client, task.id)).stage).toBe('merge')
     const again = await client.call('POST', `/tasks/${task.id}/cancel-merge`, { comment: 'Again.' })
     expect(again.status).toBe(409)
+
+    await setGh({ merged: true })
+    const finished = await waitUntil(async () => {
+      clock.advance(100)
+      const current = await getTask(client, task.id)
+      return current.stage === 'done' ? current : undefined
+    }, 'the merge on GitHub to finish the Task')
+    expect(finished.repos[0]?.pullRequest?.state).toBe('merged')
   })
 })
 

@@ -260,6 +260,7 @@ export {
   type ReservationId,
   type TaskAssignment,
 } from './execution.ts'
+export * from './execution-commands.ts'
 export * from './execution-pairing.ts'
 export {
   type ExportFormat,
@@ -760,6 +761,8 @@ export {
   type StartTaskRequest,
   sizeChoices,
   type TalkedThrough,
+  type TalkThroughRequest,
+  type TalkThroughResult,
   type Task,
   type TaskArchive,
   type TaskBrief,
@@ -843,6 +846,7 @@ export {
   parseSetTaskReposRequest,
   parseSizeCheckInput,
   parseStartTaskRequest,
+  parseTalkThroughRequest,
   parseTaskLead,
   parseUnarchiveTaskRequest,
   parseWriteBriefRequest,

@@ -8,7 +8,7 @@ test('read-only Dashboard request uses durable Factory history and validates its
   const { home, cleanup } = await makeTempHome()
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
   const store = await openStore({ directory: tedPaths(home).store })
-  const now = Date.now()
+  const now = new Date().setHours(0, 0, 0, 0)
   let factoryId = ''
   let taskId = ''
   try {
@@ -87,7 +87,7 @@ test('read-only Dashboard request uses durable Factory history and validates its
 test('Flow survives reopening without Run logs and preserves actual transitions, archive cutoffs and accepted failures', async () => {
   const { home, cleanup } = await makeTempHome()
   let store = await openStore({ directory: tedPaths(home).store })
-  const asOf = Date.parse('2026-11-12T12:00:00.000Z')
+  const asOf = new Date(2026, 5, 12).getTime()
   const hour = 3_600_000
   const setAgo = (hours: number) => vi.setSystemTime(asOf - hours * hour)
   const entry = { layers: [], order: [] }
@@ -450,7 +450,7 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
 test('batched Factory timing reconciles public interval/Check/report evidence and preserves it after reopening', async () => {
   const { randomUUID } = await import('node:crypto')
   const { home, cleanup } = await makeTempHome()
-  const base = Date.now() - 10 * 3_600_000
+  const base = new Date().setHours(1, 0, 0, 0)
   const at = (h: number) => new Date(base + h * 3_600_000).toISOString()
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(base)
@@ -540,7 +540,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
       author: { kind: 'ted' },
     })
     vi.setSystemTime(base + 10 * 3_600_000)
-    const data = store.factoryDashboard(factory.id, '7d', Date.now())
+    const data = store.factoryDashboard(factory.id, 'today', Date.now())
     const get = (reason: string) =>
       required(data.flow.current.reasons.find((r) => r.reason === reason))
     expect(get('run-working').totalMs).toBe(6 * 3_600_000)
@@ -578,7 +578,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     await store.close()
     vi.setSystemTime(base + 12 * 3_600_000)
     store = await openStore({ directory: tedPaths(home).store })
-    const reopened = store.factoryDashboard(factory.id, '7d', base + 10 * 3_600_000)
+    const reopened = store.factoryDashboard(factory.id, 'today', base + 10 * 3_600_000)
     expect(reopened.flow.current.reasons.map((r) => [r.reason, r.totalMs])).toEqual(
       data.flow.current.reasons.map((r) => [r.reason, r.totalMs]),
     )
@@ -587,7 +587,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     ).toEqual(get('test-lock').samples[0]?.invocations)
     const gap = required(
       store
-        .factoryDashboard(factory.id, '7d', Date.now())
+        .factoryDashboard(factory.id, 'today', Date.now())
         .flow.current.reasons.find((r) => r.reason === 'run-working'),
     )
     expect(gap.samples[0]?.coverage).toBe('partial')
@@ -621,7 +621,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     }
     vi.setSystemTime(base + 13 * 3_600_000)
     const started = performance.now()
-    const retained = store.factoryDashboard(factory.id, '7d', Date.now())
+    const retained = store.factoryDashboard(factory.id, 'today', Date.now())
     const elapsed = performance.now() - started
     expect(retained.flow.current.taskIds).toHaveLength(1000)
     expect(retained.flow.current.reasons.every((r) => r.samples.length === 1000)).toBe(true)

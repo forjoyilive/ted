@@ -18,6 +18,7 @@ import { createData, type DataCloseStep, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
 import { RequestError } from './errors.ts'
+import { createExecutionCommands, type ExecutionCommands } from './execution/commands.ts'
 import { createExecutionController } from './execution/controller.ts'
 import { ensureClone } from './factories.ts'
 import { createFactoryRemovals } from './factory-removal.ts'
@@ -33,6 +34,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
+import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
@@ -46,7 +48,7 @@ import { createSideChats } from './side-chats/side-chats.ts'
 import { createSlowMonitor } from './slow-moments.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
-import type { StoredFactory } from './store/index.ts'
+import type { StoredFactory, TedStore } from './store/index.ts'
 import { createCheckSlots } from './tasks/check-slots.ts'
 import { factoryRepos } from './tasks/repos.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
@@ -56,7 +58,10 @@ import { createWorkflows } from './workflow/workflows.ts'
 
 export interface DaemonOptions {
   home: string
-  execution?: { now?: () => number }
+  execution?: {
+    now?: () => number
+    ready?: (api: { commands: ExecutionCommands; store: TedStore }) => void
+  }
   version: string
   claudeBin?: string
   codexBin?: string
@@ -188,6 +193,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       options.asana?.keyring ?? (await loadKeyring(process.env, process.platform, 'asana-oauth')),
   })
   const lock = acquireLock(paths.daemonLock)
+  if (quitMarkedSync(options.home)) {
+    lock.release()
+    throw new QuitMarkedError()
+  }
   const idle =
     options.idleExit &&
     startIdleTimer({ ...options.idleExit, ...(options.clock && { clock: options.clock }) })
@@ -572,10 +581,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         ...(idle && { idle }),
       })
+      const commands = createExecutionCommands({ store })
+      options.execution?.ready?.({ commands, store })
       const execution = createExecutionController({
         home: paths.home,
         store,
-        ...options.execution,
+        commands,
+        ...(options.execution?.now && { now: options.execution.now }),
         onProblem(text) {
           if (text)
             banners.raise({

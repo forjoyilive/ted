@@ -73,6 +73,20 @@ describe('keyboard shortcuts', () => {
     ).toEqual(['archive', 'up', undefined, 'next', 'left', 'send', 'close', 'shell', undefined])
   })
 
+  test('⌥ with a number matches the number key, whatever character macOS types for it', () => {
+    const shortcuts = { details: ['⌥1'], runs: ['⌥5'] }
+    expect(
+      run(shortcuts, [
+        key('¡', { altKey: true, code: 'Digit1' }),
+        key('1', { altKey: true, code: 'Digit1' }),
+        key('∞', { altKey: true, code: 'Digit5' }),
+        key('1', { code: 'Digit1' }),
+        key('¡', { code: 'Digit1' }),
+        key('1', { altKey: true, metaKey: true, code: 'Digit1' }),
+      ]),
+    ).toEqual(['details', 'details', 'runs', undefined, undefined, undefined])
+  })
+
   test('G then a letter is a sequence, and the wait for the second key runs out', () => {
     const shortcuts = { inbox: ['G I'], all: ['G A'], approve: ['A'] }
     expect(run(shortcuts, [key('g'), key('i'), key('g'), key('a'), key('a')])).toEqual([

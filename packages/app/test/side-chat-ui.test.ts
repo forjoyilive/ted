@@ -75,11 +75,16 @@ test('side chat shows beside the original Run, reopens its replies and fits a na
   const list = window.getByRole('navigation', { name: 'Sidebar' })
   await list.getByRole('button', { name: 'List', exact: true }).first().click()
   await window.getByText('Questions beside ongoing work', { exact: true }).first().click()
+  await window.getByRole('tab', { name: 'Runs' }).click()
   await window
     .getByRole('complementary', { name: 'Task details' })
     .getByRole('button', { name: /Task Lead/ })
     .click()
-  await window.getByRole('button', { name: 'Side chat', exact: true }).click()
+  const chooseSideChat = async () => {
+    await window.getByRole('button', { name: 'Task actions' }).click()
+    await window.getByRole('menuitem', { name: 'Side chat', exact: true }).click()
+  }
+  await chooseSideChat()
   const side = window.getByRole('region', { name: 'Side chat', exact: true })
   const question = side.getByRole('textbox', { name: 'Question for this side chat' })
   await question.fill(
@@ -105,7 +110,9 @@ test('side chat shows beside the original Run, reopens its replies and fits a na
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
   await window.screenshot({ path: path.join(dir, 'side-chats-implemented-wide.png') })
   await side.getByRole('button', { name: 'Close side chat' }).click()
-  await window.getByRole('button', { name: 'Open side chat' }).click()
+  await window.getByRole('button', { name: 'Task actions' }).click()
+  await window.screenshot({ path: path.join(dir, 'task-actions-menu.png') })
+  await window.getByRole('menuitem', { name: 'Side chat', exact: true }).click()
   await side
     .getByText(
       'The Run is checking slot release between turns. This reply uses its starting Conversation snapshot.',

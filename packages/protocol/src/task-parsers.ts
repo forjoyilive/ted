@@ -54,6 +54,7 @@ import {
   type SizeCheckInput,
   type StageId,
   type StartTaskRequest,
+  type TalkThroughRequest,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
@@ -1125,4 +1126,12 @@ export function parseLocalDesignReviewInput(value: unknown): LocalDesignReviewIn
     ...(video !== undefined && { video: parseDesignFileSpec(video, 'video') }),
     ...(prototype !== undefined && { prototype: parseDesignFileSpec(prototype, 'prototype') }),
   }
+}
+
+export function parseTalkThroughRequest(value: unknown): TalkThroughRequest {
+  const body = value as Partial<TalkThroughRequest> | null
+  if (body?.confirmResume !== undefined && typeof body.confirmResume !== 'boolean') {
+    throw new HttpError(400, 'confirmResume must be a boolean')
+  }
+  return body?.confirmResume === undefined ? {} : { confirmResume: body.confirmResume }
 }

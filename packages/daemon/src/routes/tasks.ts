@@ -34,6 +34,7 @@ import {
   parseSetTaskSnoozeRequest,
   parseSnoozeRequestRequest,
   parseStartTaskRequest,
+  parseTalkThroughRequest,
   parseTaskLead,
   parseUnarchiveTaskRequest,
   parseVerifyFailureRequest,
@@ -612,11 +613,15 @@ export const taskRoutes: Route[] = [
     path: /^\/inbox\/snoozed$/,
     handle: async (_, { store }) => [200, store.snoozed()],
   },
-  {
+  jsonRoute(parseTalkThroughRequest, {
     method: 'POST',
     path: /^\/comments\/([^/]+)\/talk$/,
-    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.talkThrough(id)],
-  },
+    optionalBody: true,
+    handle: async ({ params: [id = ''], body }, { tasks }) => [
+      200,
+      await tasks.talkThrough(id, body),
+    ],
+  }),
   {
     method: 'POST',
     path: /^\/comments\/([^/]+)\/done-talking$/,

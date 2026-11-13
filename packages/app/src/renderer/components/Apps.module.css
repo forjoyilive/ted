@@ -270,3 +270,8 @@ button.open {
   display: grid;
   place-items: center;
 }
+
+.empty {
+  margin: 0;
+  color: var(--text-tertiary);
+}

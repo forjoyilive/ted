@@ -125,6 +125,7 @@ import { checkRunTiming } from './check-timing.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { readFactoryDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
+import { createOperationStore, type OperationStore } from './execution-operations.ts'
 import { createPairingStore, type PairingStore } from './execution-pairing.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
@@ -553,6 +554,7 @@ export interface HeldRun {
 
 export interface TedStore extends TaskHistory {
   execution: ExecutionStore
+  operations: OperationStore
   pairing: PairingStore
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
@@ -720,8 +722,12 @@ export interface TedStore extends TaskHistory {
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
   requeueAfterBlockers(taskId: string): Task
+  taskStoppedByHuman(taskId: string): boolean
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
-  resumeTask(taskId: string, options: { waitForBlockers: boolean; overnight?: boolean }): Task
+  resumeTask(
+    taskId: string,
+    options: { waitForBlockers: boolean; overnight?: boolean; talkCommentId?: string },
+  ): Task
   taskStoppedByTed(
     taskId: string,
     runId: string,
@@ -833,7 +839,11 @@ export interface TedStore extends TaskHistory {
   commentsDelivered(ids: readonly string[], runId: string): void
   commentsRead(ids: readonly string[]): void
   holdAnswer(id: string): void
-  startRoundTalk(id: string, runId: string): Comment
+  requestRoundTalk(id: string): Comment
+  startRoundTalk(id: string, runId: string, text: string): Comment
+  roundTalkMessageIds(runId: string): string[]
+  pendingRoundTalks(runId: string): { messageId: string; round: Comment }[]
+  roundTalkNotified(id: string, runId: string, messageId: string): void
   roundTalkDone(id: string): Comment
   heldAnswers(taskId: string): Comment[]
   answersDelivered(ids: readonly string[], runId: string): void
@@ -2133,6 +2143,9 @@ export async function openStore({
     answerSentRunId,
     answerSentAt,
     failedRunId,
+    talkRequested,
+    talkMessageId: _talkMessageId,
+    talkNotifiedAt,
     talkRunId,
     talkStartedAt,
     talkDoneAt,
@@ -2154,11 +2167,13 @@ export async function openStore({
         ...(title !== null && { title }),
         ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
         ...(round !== null && { round: JSON.parse(round) as Round }),
+        ...(talkRequested && { talkRequested: true as const }),
         ...(talkRunId !== null &&
           talkStartedAt !== null && {
             talk: {
               runId: talkRunId,
               startedAt: talkStartedAt,
+              ...(talkNotifiedAt !== null && { notifiedAt: talkNotifiedAt }),
               ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
             },
           }),
@@ -3131,6 +3146,7 @@ export async function openStore({
 
   return {
     execution,
+    operations: createOperationStore(store, commit, (id) => taskRow(id) !== undefined),
     pairing: createPairingStore(store, commit),
     sideChats: createSideChatStore({
       store,
@@ -3590,6 +3606,7 @@ export async function openStore({
           ...(parentRow(taskId) ? [taskId] : []),
         ].map((id) => events.taskParentChanged({ taskId: id, parentId: null, at })),
         events.taskExecutionForgotten({ taskId, at }),
+        events.executionOperationsForgotten({ taskId, at }),
         events.taskDeleted({
           taskId,
           factoryId: row.factoryId,
@@ -3734,7 +3751,12 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    taskStoppedByHuman(taskId) {
+      const row = requireTaskRow(taskId)
+      return row.stoppedAt !== null && (row.stoppedWhy === 'human' || row.stoppedWhy === null)
+    },
     stopTask(taskId, { runs, why }) {
+      const pendingTalks = store.query(queryDb(comments.where({ taskId, talkRequested: true })))
       const at = new Date().toISOString()
       commit(
         events.taskStopped({ taskId, runs, why, at }),
@@ -3743,20 +3765,23 @@ export async function openStore({
           ? [events.taskPreparationChanged({ taskId, state: null, at })]
           : []),
       )
+      for (const { id } of pendingTalks) emitComment(id)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
-    resumeTask(taskId, { waitForBlockers, overnight }) {
+    resumeTask(taskId, { waitForBlockers, overnight, talkCommentId }) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
       const at = new Date().toISOString()
       commit(
+        ...(talkCommentId ? [events.roundTalkRequested({ id: talkCommentId, at })] : []),
         (overnight ? events.taskResumedOvernight : events.taskResumed)({ taskId, rank, at }),
         ...(taskRow(taskId)?.preparation === 'ready'
           ? [events.taskPreparationChanged({ taskId, state: null, at })]
           : []),
         ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
       )
+      if (talkCommentId) emitComment(talkCommentId)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
@@ -4419,6 +4444,9 @@ export async function openStore({
           .query(queryDb(comments.where({ answerHeld: true })))
           .filter((comment) => comment.answerQueuedAt !== null)
           .map((comment) => comment.taskId),
+        ...store
+          .query(queryDb(comments.where({ talkRequested: true, answer: null })))
+          .map((comment) => comment.taskId),
       ]),
     ],
     holdLeadMessage(taskId, text, waitForSlot = false) {
@@ -4680,9 +4708,51 @@ export async function openStore({
       commit(events.commentsRead({ ids, at: new Date().toISOString() }))
       for (const id of ids) emitComment(id)
     },
-    startRoundTalk(id, runId) {
-      commit(events.roundTalkStarted({ id, runId, at: new Date().toISOString() }))
+    requestRoundTalk(id) {
+      commit(events.roundTalkRequested({ id, at: new Date().toISOString() }))
       return emitComment(id)
+    },
+    startRoundTalk(id, runId, text) {
+      const at = new Date().toISOString()
+      const messageId = randomUUID()
+      const taskId = taskIdOfRun(runId) ?? null
+      commit(
+        events.runMessageQueuedV2({ id: messageId, runId, taskId, text, at, from: 'ted' }),
+        events.roundTalkStartedV2({
+          id,
+          runId,
+          messageId,
+          at,
+        }),
+      )
+      emit({ type: 'run-output', runId })
+      return emitComment(id)
+    },
+    roundTalkMessageIds(runId) {
+      return store
+        .query(
+          queryDb(runMessages.where({ runId, roundId: { op: '!=', value: null }, queued: true })),
+        )
+        .map((message) => message.id)
+    },
+    pendingRoundTalks(runId) {
+      return store
+        .query(queryDb(comments.where({ talkRunId: runId, talkRequested: true, answer: null })))
+        .flatMap((row) =>
+          row.talkMessageId === null
+            ? []
+            : [{ messageId: row.talkMessageId, round: toComment(row) }],
+        )
+    },
+    roundTalkNotified(id, runId, messageId) {
+      const at = new Date().toISOString()
+      const taskId = taskIdOfRun(runId) ?? null
+      commit(
+        events.runMessageDelivered({ id: messageId, runId, taskId, lead: false, at }),
+        events.roundTalkNotified({ id, runId, messageId, at }),
+      )
+      emit({ type: 'run-output', runId })
+      emitComment(id)
     },
     roundTalkDone(id) {
       commit(events.roundTalkDone({ id, at: new Date().toISOString() }))

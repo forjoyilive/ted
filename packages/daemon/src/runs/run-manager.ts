@@ -61,6 +61,7 @@ import {
   readQueuedInput,
   runFiles,
 } from './host-files.ts'
+import { grantInput, inputConsumed, inputPending, revokeInput } from './input-permits.ts'
 import {
   initializeLaunchAuthority,
   launchAuthority,
@@ -137,8 +138,11 @@ export interface RunManager {
     messages: readonly { id: string; text: string }[],
     steer: boolean,
     canDispatch: (messageId?: string) => boolean,
+    options?: { revocable: boolean; signal?: AbortSignal },
   ): Promise<boolean>
+  retainRevocableInputs(runId: string, ids: readonly string[]): void
   inputDispatched(runId: string, messageId: string): boolean
+  consumedInputs(runId: string): string[]
   acceptedInputs(runId: string): string[]
   initialInputIds(runId: string): string[]
   interrupt(runId: string): Promise<void>
@@ -800,10 +804,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     record: QueuedInput,
     records: readonly QueuedInput[],
   ): boolean {
+    if (record.permit && !inputConsumed(path.join(runsDir, runId), record.permit)) return false
     const run = store.getRun(runId)
     if (!run) return false
     const siblings = records.filter(
-      (r) => r.text === record.text && r.outputFrom === record.outputFrom,
+      (r) =>
+        r.text === record.text &&
+        r.outputFrom === record.outputFrom &&
+        (!r.permit || inputConsumed(path.join(runsDir, runId), r.permit)),
     )
     const required = siblings.indexOf(record) + 1
     const { chat } = parsedOutput(output, agents, run)
@@ -1052,7 +1060,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
     },
     lastHeard: (runId) => heard.get(runId),
-    async dispatch(runId, messages, steer, canDispatch) {
+    async dispatch(runId, messages, steer, canDispatch, options) {
+      if (options?.signal?.aborted) return false
+      const runDir = path.join(runsDir, runId)
       const run = store.getRun(runId)
       if (!run || run.state === 'finished') throw new Error(`no live Run ${runId}`)
       const agent = agents.get(run.agent)
@@ -1077,7 +1087,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const records = inputRecords(runId, inputBytes)
       const accepted = (record: QueuedInput) => inputAccepted(runId, record, records)
       const usable = records.filter(
-        (record) => record.forGeneration === generation || accepted(record),
+        (record) =>
+          accepted(record) ||
+          (record.forGeneration === generation &&
+            (!record.permit ||
+              inputPending(runDir, record.permit) ||
+              inputConsumed(runDir, record.permit))),
       )
       const missing = messages.filter(
         (message) =>
@@ -1086,13 +1101,18 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
       if (missing.length > 0) {
         const outputFrom = statSync(files.log).size
-        const additions = missing.map((message) => ({
-          forGeneration: generation,
-          deliveryIds: [message.id],
-          text: message.text,
-          outputFrom,
-          line: steer ? agent.steer(message.text) : agent.message(message.text),
-        }))
+        const additions = missing.map((message) => {
+          const permit = options?.revocable ? randomUUID() : undefined
+          if (permit) grantInput(runDir, permit)
+          return {
+            forGeneration: generation,
+            ...(permit && { permit }),
+            deliveryIds: [message.id],
+            text: message.text,
+            outputFrom,
+            line: steer ? agent.steer(message.text) : agent.message(message.text),
+          }
+        })
         const buffer = Buffer.from(
           `${additions.map((record) => JSON.stringify(record)).join('\n')}\n`,
         )
@@ -1114,13 +1134,49 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
       if (relevant.length === 0) return false
       for (let waited = 0; !relevant.every(accepted); waited += pollMs) {
-        if (waited >= inputAckMs || store.getRun(runId)?.state === 'finished')
+        if (options?.revocable) {
+          for (const record of relevant) {
+            if (record.permit && !record.deliveryIds.every((id) => canDispatch(id)))
+              revokeInput(runDir, record.permit)
+          }
+          if (
+            relevant.some(
+              (record) =>
+                record.permit &&
+                !accepted(record) &&
+                !inputPending(runDir, record.permit) &&
+                !inputConsumed(runDir, record.permit),
+            )
+          )
+            return false
+        }
+        if (closed || options?.signal?.aborted) return false
+        const currentGeneration = generations.get(runId)
+        if (
+          options?.revocable &&
+          currentGeneration &&
+          currentGeneration.count + startsFrom(files.log, currentGeneration.readTo) > generation
+        )
+          return manager.dispatch(runId, messages, steer, canDispatch, options)
+        const consumed = () =>
+          relevant.some((record) => record.permit && inputConsumed(runDir, record.permit))
+        if (waited >= inputAckMs && options?.revocable && !consumed())
+          for (const record of relevant) if (record.permit) revokeInput(runDir, record.permit)
+        if ((!consumed() && waited >= inputAckMs) || store.getRun(runId)?.state === 'finished') {
           throw new Error(
             'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
           )
+        }
         await sleep(pollMs)
       }
       return true
+    },
+    retainRevocableInputs(runId, ids) {
+      const allowed = new Set(ids)
+      for (const record of inputRecords(runId)) {
+        if (record.permit && !record.deliveryIds.every((id) => allowed.has(id)))
+          revokeInput(path.join(runsDir, runId), record.permit)
+      }
     },
     inputDispatched(runId, messageId) {
       return inputRecords(runId).some((record) => record.deliveryIds.includes(messageId))
@@ -1129,6 +1185,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const run = store.getRun(runId)
       return inputRecords(runId, Buffer.alloc(0))
         .filter((record) => record.forGeneration === 1 && record.text === run?.prompt)
+        .flatMap((record) => record.deliveryIds)
+    },
+    consumedInputs(runId) {
+      const runDir = path.join(runsDir, runId)
+      return inputRecords(runId)
+        .filter((record) => record.permit && inputConsumed(runDir, record.permit))
         .flatMap((record) => record.deliveryIds)
     },
     acceptedInputs(runId) {

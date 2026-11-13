@@ -8,8 +8,6 @@ import {
   newChildTask,
   parentChoices,
   parentOf,
-  pickChildEvent,
-  pickParentEvent,
   progressText,
   type TreeNode,
   waitingText,
@@ -39,15 +37,11 @@ function stateClass(task: Task): string {
   return styles.stage ?? ''
 }
 
-function usePickRequest(event: string, taskId: string): [boolean, (open: boolean) => void] {
+function usePickRequest(request: number): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(false)
   useEffect(() => {
-    const onPick = (e: Event) => {
-      if (e instanceof CustomEvent && e.detail === taskId) setOpen(true)
-    }
-    window.addEventListener(event, onPick)
-    return () => window.removeEventListener(event, onPick)
-  }, [event, taskId])
+    if (request > 0) setOpen(true)
+  }, [request])
   return [open, setOpen]
 }
 
@@ -72,13 +66,15 @@ export function ParentField({
   task,
   tasks,
   onOpenTask,
+  searchRequest = 0,
 }: {
   task: Task
   tasks: readonly Task[]
   onOpenTask?: ((ref: string) => void) | undefined
+  searchRequest?: number
 }) {
   const parent = parentOf(task, tasks)
-  const [picking, setPicking] = usePickRequest(pickParentEvent, task.id)
+  const [picking, setPicking] = usePickRequest(searchRequest)
   const [error, setError] = useState<string>()
   const close = useCallback(() => {
     setPicking(false)
@@ -205,16 +201,18 @@ export function ChildrenSection({
   task,
   tasks,
   onOpenTask,
+  searchRequest = 0,
 }: {
   task: Task
   tasks: readonly Task[]
   onOpenTask?: ((ref: string) => void) | undefined
+  searchRequest?: number
 }) {
   const tree = childTree(task, tasks)
   const progress = childProgress(task, tasks)
   const waiting = waitingText(task, progress, (t) => stageName(t.stage))
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
-  const [picking, setPicking] = usePickRequest(pickChildEvent, task.id)
+  const [picking, setPicking] = usePickRequest(searchRequest)
   const [error, setError] = useState<string>()
   const close = useCallback(() => {
     setPicking(false)

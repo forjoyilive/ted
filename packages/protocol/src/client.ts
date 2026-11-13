@@ -200,6 +200,8 @@ import type {
   SetTaskLeadRequest,
   SetTaskParentRequest,
   SetTaskReposRequest,
+  TalkThroughRequest,
+  TalkThroughResult,
   Task,
   TaskBrief,
   TaskDefaults,
@@ -833,8 +835,8 @@ export class DaemonClient {
     return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
   }
 
-  talkThrough(commentId: string): Promise<Comment> {
-    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/talk`)
+  talkThrough(commentId: string, request: TalkThroughRequest = {}): Promise<TalkThroughResult> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/talk`, request)
   }
 
   doneTalking(commentId: string): Promise<Comment> {
