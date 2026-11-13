@@ -9,10 +9,12 @@ The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions w
 _Avoid_: Primary server, master
 
 **Execution machine**:
+_Shelved: remote execution is on hold. The code is kept but hidden; don’t build new work on it._
 The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
 _Avoid_: Worker node, remote host
 
 **Execution operation**:
+_Shelved: remote execution is on hold. The code is kept but hidden; don’t build new work on it._
 One piece of work the controller asks an execution machine to do for a Task, identified by an operation ID and journaled on both machines so it runs once.
 _Avoid_: Job, remote command
 

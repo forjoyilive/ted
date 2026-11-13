@@ -115,7 +115,7 @@ export const commands = [
     min: 0,
     max: 0,
     options: options(),
-    help: '  ted execution serve    Run the isolated worker in the foreground',
+    help: '',
     callers: 'Terminal',
   },
   {
@@ -124,7 +124,7 @@ export const commands = [
     min: 0,
     max: 0,
     options: options(),
-    help: '  ted execution start    Start or reconnect the isolated background worker',
+    help: '',
     callers: 'Terminal',
   },
   {
@@ -133,7 +133,7 @@ export const commands = [
     min: 0,
     max: 0,
     options: options(),
-    help: '  ted execution stop    Stop the worker service; retain pairing',
+    help: '',
     callers: 'Terminal',
   },
   {
@@ -142,7 +142,7 @@ export const commands = [
     min: 0,
     max: 0,
     options: options(),
-    help: '  ted execution status    Show worker identity and connection status',
+    help: '',
     callers: 'Terminal',
   },
   {
@@ -151,7 +151,7 @@ export const commands = [
     min: 0,
     max: 0,
     options: options('capacity'),
-    help: '  ted execution pair [--capacity <1..64>]    Read pairing details from stdin; approval happens in the main TED app',
+    help: '',
     callers: 'Terminal',
   },
 

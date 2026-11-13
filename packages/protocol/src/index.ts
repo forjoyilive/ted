@@ -244,7 +244,13 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export { type Edition, edition, type Identity, identity } from './edition.ts'
-export { filterTedEnv, tedEnv, tedEnvironment } from './env.ts'
+export {
+  filterTedEnv,
+  remoteExecutionOff,
+  remoteExecutionOn,
+  tedEnv,
+  tedEnvironment,
+} from './env.ts'
 export type { DaemonEvent } from './events.ts'
 export {
   type AssignmentId,

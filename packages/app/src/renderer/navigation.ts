@@ -13,6 +13,14 @@ export const settingsSectionIds = [
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number]
 
+export const remoteExecution =
+  typeof location !== 'undefined' &&
+  new URLSearchParams(location.search).get('remoteExecution') === 'on'
+
+export const shownSettingsSectionIds: readonly SettingsSectionId[] = settingsSectionIds.filter(
+  (id) => id !== 'machines' || remoteExecution,
+)
+
 export type FactoryView =
   | 'dashboard'
   | 'coordinator'

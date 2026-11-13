@@ -1,5 +1,7 @@
 # Execution commands are journaled on both Macs and reconciled on reconnect
 
+Status: shelved (TED-256). Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads. Don’t build new work on it or treat it as required. The shipped `v1.Operation*` events and the `executionOperations` table stay.
+
 TED-113 adds the command channel that later Tasks use to make worktrees, start Runs, run Checks and move artifacts on a paired execution Mac. This piece carries one operation kind, `probe`, which appends one line to a counter file in the execution Mac’s own storage. Only the validation harness sends it, on synthetic Tasks. No route, CLI command or button issues an operation, and no ordinary Task runs remotely.
 
 ## How a command travels

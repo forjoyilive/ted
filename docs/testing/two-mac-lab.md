@@ -1,5 +1,9 @@
 # Two-Mac validation lab
 
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+
+> Validate doesn’t need this lab. Run its tests or scenarios only for a Task that works on remote execution itself and turns the flag on.
+
 This opt-in runner deploys a committed candidate to a local controller Mac and a
 distinct SSH-controlled execution Mac. SSH controls the lab only; it is not TED’s
 product execution transport. `lab-access` proves real host access, content identity,
@@ -208,8 +212,9 @@ unavailable at recovery startup. It still attempts both hosts and reports failur
 to the caller when evidence cannot be published. A report/cleanup error is a
 failure, not permission to broaden cleanup.
 
-The module tests are `scripts/execution-lab.test.ts`. Validate should run that file
-and `scripts/validate-execution.test.ts`, plus Typecheck/Lint. Real two-Mac acceptance
+The module tests are `scripts/execution-lab.test.ts`. A Task that changes the lab
+runs that file and `scripts/validate-execution.test.ts` in Validate, plus Typecheck/Lint;
+no other Task needs them. Real two-Mac acceptance
 must also run through the lab CLI; fake SSH tests cannot satisfy that requirement.
 
 ## Product commands checkpoint (TED-113)

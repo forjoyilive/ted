@@ -673,11 +673,21 @@ test('failure input and missing Task are refused before connecting', async () =>
   }
 })
 
-test('execution controls are terminal-only and never offer CLI approval', async () => {
+test('execution controls are hidden and off without the flag, terminal-only with it, and never offer CLI approval', async () => {
+  expect(helpText()).not.toContain('ted execution')
   for (const command of ['start', 'stop', 'status', 'serve', 'pair']) {
+    const off: string[] = []
+    expect(
+      await runCli(['execution', command], {
+        env: {},
+        stdout: (value) => off.push(value),
+        stderr: (value) => off.push(value),
+      }),
+    ).toBe(2)
+    expect(off.join('')).toContain('Remote execution is turned off in this version of TED.')
     const output: string[] = []
     const code = await runCli(['execution', command], {
-      env: { TED_RUN_CAPABILITY: 'private-capability' },
+      env: { TED_RUN_CAPABILITY: 'private-capability', TED_REMOTE_EXECUTION: 'on' },
       stdout: (value) => output.push(value),
       stderr: (value) => output.push(value),
     })

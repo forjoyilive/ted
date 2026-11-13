@@ -48,6 +48,8 @@ import {
   type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
+  remoteExecutionOff,
+  remoteExecutionOn,
   runTokenFrom,
   type SetTaskReposRequest,
   type TaskLead,
@@ -798,6 +800,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   // Imported only here: the module reaches node:sqlite, whose warning would be on every command.
   const execution = () => import('@ted/daemon/execution')
   async function workerHome(): Promise<string> {
+    if (!remoteExecutionOn(env)) throw new UsageError(remoteExecutionOff)
     if (
       ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN'].some((name) =>
         tedEnv(name, env),

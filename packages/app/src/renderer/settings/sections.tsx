@@ -1,6 +1,10 @@
 import type { MachineSettings } from '@ted/protocol'
 import type { ComponentType } from 'react'
-import { type NavigationAction, type SettingsSectionId, settingsSectionIds } from '../navigation.ts'
+import {
+  type NavigationAction,
+  type SettingsSectionId,
+  shownSettingsSectionIds,
+} from '../navigation.ts'
 import { settingsPageNames } from '../settings-search.ts'
 import { AgentsPage } from './AgentsPage.tsx'
 import { SettingsPage } from './controls.tsx'
@@ -45,7 +49,7 @@ const pages: Record<SettingsSectionId, ComponentType<SettingsPageProps>> = {
   developer: DeveloperPage,
 }
 
-export const settingsSections: readonly SettingsSection[] = settingsSectionIds.map((id) => ({
+export const settingsSections: readonly SettingsSection[] = shownSettingsSectionIds.map((id) => ({
   id,
   label: settingsPageNames[id],
   Page: pages[id],
