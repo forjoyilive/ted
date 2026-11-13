@@ -229,6 +229,7 @@ export function CommentBox({
             event.target.value = ''
           }}
         />
+        <span className={styles.spacer} />
         {direct && run && (
           <Button
             aria-label="Stop the turn"
@@ -248,7 +249,6 @@ export function CommentBox({
             <StopIcon />
           </Button>
         )}
-        <span className={styles.spacer} />
         {direct && (
           <Button
             shortcut="⌘↵"
