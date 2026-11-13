@@ -29,6 +29,7 @@ const specShortcuts = [
   '←',
   '→',
   '↵',
+  'X',
   'R',
   'A',
   '⇧R',
@@ -85,6 +86,8 @@ describe('the shortcut sheet', () => {
     expect(press('b')).toMatchObject({ id: 'go-to-board' })
     expect(press('g')).toBe('pending')
     expect(press('d')).toMatchObject({ id: 'go-to-dashboard' })
+    expect(press('g')).toBe('pending')
+    expect(press('m')).toMatchObject({ id: 'go-to-map' })
     expect(press('[', { metaKey: true })).toMatchObject({ id: 'back' })
     expect(press('Enter')).toMatchObject({ id: 'open' })
     expect(
@@ -93,6 +96,24 @@ describe('the shortcut sheet', () => {
         0,
       ),
     ).toMatchObject({ id: 'details-tab-changes' })
+    expect(press('h')).toMatchObject({ id: 'snooze-request' })
+    expect(press('ArrowLeft')).toMatchObject({ id: 'column-left' })
+  })
+
+  test('H snoozes the selected Inbox request, and moves a column left where there is none', () => {
+    const command = keyCommands.find((c) => c.id === 'snooze-request')
+    const moved: string[] = []
+    const keys = (snoozes: boolean) => ({
+      snoozeRequest: () => snoozes,
+      move: (direction: string) => {
+        moved.push(direction)
+        return true
+      },
+    })
+    expect(command?.run?.({ keys: keys(true) } as never)).toBe(true)
+    expect(moved).toEqual([])
+    expect(command?.run?.({ keys: keys(false) } as never)).toBe(true)
+    expect(moved).toEqual(['left'])
   })
 
   test('the sheet says ↵ sends from a comment box or chat and ⇧↵ adds a line', () => {

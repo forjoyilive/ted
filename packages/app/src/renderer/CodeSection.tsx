@@ -1,5 +1,6 @@
 import type { Task, TaskRepo } from '@ted/protocol'
 import { useState } from 'react'
+import { ActionButton } from './components/ActionButton.tsx'
 import { DetailsSection } from './components/DetailsSection.tsx'
 import { codeSummary } from './details.ts'
 import { openInEditor } from './editor.ts'
@@ -58,14 +59,14 @@ function PullRequestLine({ task, repo }: { task: Task; repo: TaskRepo }) {
     return (
       <>
         <p className={styles.pullRequest}>
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
             title={pr.url}
-            onClick={() => void ted.openPullRequest(task.id, repo.name)}
+            onClick={() => ted.openPullRequest(task.id, repo.name)}
           >
             {`Pull request #${pr.number}`}
-          </button>{' '}
+          </ActionButton>{' '}
           <span className={styles.prState}>{pullRequestState[pr.state]}</span>
         </p>
         {failed}
@@ -96,7 +97,7 @@ function RepoRow({
 
   const edit = () => {
     setProblem(undefined)
-    openInEditor({ taskId: task.id, repo: repo.name }).catch((error: unknown) =>
+    return openInEditor({ taskId: task.id, repo: repo.name }).catch((error: unknown) =>
       setProblem(readableError(error)),
     )
   }
@@ -112,17 +113,17 @@ function RepoRow({
       <span className={styles.repoLine}>
         <span className={styles.repoName}>{repo.name}</span>
         <span className={styles.repoActions}>
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
             title="Open your login shell in this worktree (⌃`)"
             onClick={() => onOpenShell(repo.name)}
           >
             Shell
-          </button>
-          <button type="button" className={styles.link} onClick={edit}>
+          </ActionButton>
+          <ActionButton type="button" className={styles.link} onClick={edit}>
             Open in editor
-          </button>
+          </ActionButton>
         </span>
       </span>
       {problem !== undefined && (
@@ -145,26 +146,26 @@ function RepoRow({
         </dd>
         <dt>Worktree</dt>
         <dd>
-          <button
+          <ActionButton
             type="button"
             className={styles.path}
             title={copied ? 'Copied' : 'Click to copy'}
-            onClick={() => void copyPath()}
+            onClick={() => copyPath()}
           >
             {repo.worktree}
-          </button>
+          </ActionButton>
         </dd>
       </dl>
       {repo.setup && repo.setup.state !== 'passed' && (
         <p className={styles.setup}>
           {setupLabel[repo.setup.state]}{' '}
-          <button
+          <ActionButton
             type="button"
             className={styles.link}
-            onClick={() => void ted.setupLog(task.id, repo.name).then(setLog)}
+            onClick={() => ted.setupLog(task.id, repo.name).then(setLog)}
           >
             Setup log
-          </button>
+          </ActionButton>
         </p>
       )}
       {log !== undefined && <pre className={styles.log}>{log}</pre>}

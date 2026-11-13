@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useBytes } from '../attachment-bytes.ts'
 import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import styles from './CommentFiles.module.css'
 import { Loading } from './Loading.tsx'
@@ -34,7 +35,7 @@ function RevealFile({ attachment }: { attachment: Attachment }) {
         onClick={() => {
           setBusy(true)
           setError(undefined)
-          void ted.showAttachmentInFolder({ hash: attachment.hash, name: attachment.name }).then(
+          return ted.showAttachmentInFolder({ hash: attachment.hash, name: attachment.name }).then(
             () => setBusy(false),
             (failure: unknown) => {
               setBusy(false)
@@ -84,14 +85,14 @@ function ImageFile({ attachment, onOpen }: { attachment: Attachment; onOpen: () 
   return (
     <figure className={styles.image}>
       {src !== undefined ? (
-        <button
+        <ActionButton
           type="button"
           className={styles.thumbnail}
           aria-label={`View ${attachment.name}`}
           onClick={onOpen}
         >
           <img src={src} alt={attachment.name} />
-        </button>
+        </ActionButton>
       ) : (
         <div className={styles.placeholder}>
           {error ?? <Loading compact label={`Loading ${attachment.name}…`} />}

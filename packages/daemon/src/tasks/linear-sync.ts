@@ -132,7 +132,7 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
   }
 
   function watched(): Watched[] {
-    return store.listTasks().flatMap((task): Watched[] => {
+    return store.tasksIn(new Set(store.sourcedTaskIds())).flatMap((task): Watched[] => {
       const link = task.source && parseLinearUrl(task.source.url)
       if (!link) return []
       const merged = store.isMerged(task.id)

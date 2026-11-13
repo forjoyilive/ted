@@ -450,6 +450,18 @@ export function threadEvents(
       case 'v1.TaskResumed':
         add(entry, 'run', 'You resumed the Task')
         break
+      case 'v1.TaskStoppedByTed':
+        add(
+          entry,
+          'quiet',
+          data.cause === 'quit'
+            ? 'TED stopped the Task Lead when it quit'
+            : 'The Task Lead was stopped when TED went down',
+        )
+        break
+      case 'v1.TedStopAnswered':
+        if (data.choice === 'leave') add(entry, 'quiet', 'You left the Task stopped')
+        break
       case 'v1.TaskRetried':
         add(entry, 'run', 'You retried the Task')
         break
@@ -546,6 +558,9 @@ export function threadEvents(
             `TED kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
           )
         }
+        break
+      case 'v1.BaseBranchAdopted':
+        add(entry, 'quiet', `TED moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
       case 'v1.LoopCheckStarted':
         add(
@@ -783,6 +798,13 @@ export function threadEvents(
           entry,
           'run',
           `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running Checks again`,
+        )
+        break
+      case 'v1.TaskPushRecordReconciled':
+        add(
+          entry,
+          'quiet',
+          `The ${text(data.name)} branch on GitHub was at ${text(data.remote).slice(0, 8)}, ahead of TED’s recorded push ${text(data.recorded).slice(0, 8)} · the commit being pushed includes it, so TED updated its record`,
         )
         break
       case 'v1.TaskRunReleased':

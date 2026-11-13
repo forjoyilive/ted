@@ -173,11 +173,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: var(--button-height-small);
+  height: var(--button-height-small);
   padding: 0;
   border: 1px solid var(--border-control);
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--surface-card);
   color: var(--text-primary);
 }
@@ -318,4 +318,39 @@
 
 .showAll:hover {
   text-decoration: underline;
+}
+
+.selected,
+.selected:hover {
+  border-color: var(--accent-default);
+  background: var(--accent-subtle);
+  box-shadow: 0 0 0 1px var(--accent-default);
+}
+
+.card {
+  user-select: none;
+}
+
+.selecting {
+  padding-bottom: 140px;
+}
+
+.selecting .column {
+  min-height: max-content;
+}
+
+.cardEnd {
+  align-items: center;
+  gap: 6px;
+}
+
+.tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--accent-default);
+  color: var(--text-on-accent);
 }

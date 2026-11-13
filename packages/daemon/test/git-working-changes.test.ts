@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { headCommit, isAncestor, mergeConflicts, ownCommits, workingChanges } from '../src/git.ts'
+import {
+  commitDiff,
+  findCommits,
+  headCommit,
+  isAncestor,
+  mergeConflicts,
+  ownCommits,
+  workingChanges,
+} from '../src/git.ts'
 
 const run = promisify(execFile)
 let dir: string
@@ -348,4 +356,46 @@ test('replace refs, grafts and a shallow file in the repo don’t change what TE
   await writeFile(path.join(repo, '.git', 'shallow'), `${head}\n`)
   expect(await git('rev-list', `${reviewed}..${head}`)).toBe(head)
   expect(await reads()).toEqual(plain)
+})
+
+test('a commit is found by its short or full hash and read against its first parent', async () => {
+  await git('init', '-q', '--initial-branch=main')
+  const root = await commit({ 'README.md': '# widgets\n' }, 'base')
+  await git('checkout', '-qb', 'task')
+  const guard = await commit({ 'README.md': '# widgets\nguarded\n', 'a b.txt': 'x\n' }, 'Guard it')
+  await git('checkout', '-q', 'main')
+  await commit({ 'main.txt': 'moved on\n' }, 'main moved')
+  await git('checkout', '-q', 'task')
+  await git('merge', '-q', '--no-ff', '-m', 'Merge main', 'main')
+  const merge = await git('rev-parse', 'HEAD')
+  const short = guard.slice(0, 8)
+
+  const found = await findCommits(repo, [short, guard, '0'.repeat(12), 'main'])
+
+  expect([...found]).toEqual([
+    [short, guard],
+    [guard, guard],
+  ])
+  expect(await commitDiff(repo, short)).toMatchObject({
+    commit: guard,
+    parents: [root],
+    subject: 'Guard it',
+    author: 'T',
+    files: [
+      { path: 'README.md', added: 1, removed: 0 },
+      { path: 'a b.txt', added: 1, removed: 0 },
+    ],
+    diffs: [
+      { path: 'README.md', hunks: [{ rows: [{ text: '# widgets' }, { text: 'guarded' }] }] },
+      { path: 'a b.txt', hunks: [{ rows: [{ kind: 'added', text: 'x', new: 1 }] }] },
+    ],
+  })
+  expect(await commitDiff(repo, root)).toMatchObject({
+    parents: [],
+    files: [{ path: 'README.md', added: 1, removed: 0 }],
+  })
+  const merged = await commitDiff(repo, merge)
+  expect(merged?.parents).toHaveLength(2)
+  expect(merged?.files.map((f) => f.path)).toEqual(['main.txt'])
+  expect(await commitDiff(repo, '0'.repeat(12))).toBeUndefined()
 })

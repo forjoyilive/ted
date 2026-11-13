@@ -1,13 +1,11 @@
 import type { Task } from '@ted/protocol'
-import { dateTimeFields, dateTimeInZone, effectiveTimeZone } from '@ted/protocol/time'
-import { useId, useState } from 'react'
-import { useSettings } from '../data.ts'
+import { useState } from 'react'
 import { readableError, ted } from '../ted.ts'
-import { formatDate, timePreferences } from '../time.ts'
+import { formatDate } from '../time.ts'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
-import { ScheduleTime } from './ScheduleTime.tsx'
 import styles from './SnoozeTaskDialog.module.css'
+import { SnoozeTimeFields, useSnoozeTime } from './SnoozeTimeFields.tsx'
 
 export const snoozeTaskEvent = 'ted:snooze-task'
 
@@ -20,27 +18,10 @@ export function SnoozeTaskDialog({
   tasks?: readonly Task[]
   onClose: () => void
 }) {
-  const settings = useSettings()
-  const zone = effectiveTimeZone(settings ?? timePreferences())
-  const [initial] = useState(() => {
-    if (task.snoozedUntil) return dateTimeFields(new Date(task.snoozedUntil), zone)
-    const today = dateTimeFields(new Date(), zone).date
-    const tomorrow = new Date(`${today}T12:00:00Z`)
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
-    return { date: tomorrow.toISOString().slice(0, 10), time: '09:00' }
-  })
-  const [date, setDate] = useState(initial.date)
-  const [time, setTime] = useState(initial.time)
+  const when = useSnoozeTime(task.snoozedUntil)
+  const { instant, invalid } = when
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  const id = useId()
-  let instant: string | undefined
-  let invalid: string | undefined
-  try {
-    instant = dateTimeInZone(date, time, zone)
-  } catch (failure) {
-    invalid = readableError(failure)
-  }
   const save = async () => {
     if (!instant || Date.parse(instant) <= Date.now()) {
       setError(invalid ?? 'Choose a future date and time')
@@ -82,31 +63,7 @@ export function SnoozeTaskDialog({
               ? `Keep ${tasks.length} Tasks in Backlog until:`
               : 'Keep this Task in Backlog until:'}
           </p>
-          <label className={styles.label} htmlFor={id}>
-            Date
-          </label>
-          <input
-            className={styles.date}
-            id={id}
-            type="date"
-            value={date}
-            onChange={(event) => {
-              setDate(event.target.value)
-              setError(undefined)
-            }}
-            autoFocus
-          />
-          <div className={styles.label}>Time</div>
-          <div className={styles.time}>
-            <ScheduleTime
-              value={time}
-              onChange={(value) => {
-                setTime(value)
-                setError(undefined)
-              }}
-            />
-          </div>
-          <p className={styles.note}>Time zone: {zone} · App-wide in General settings</p>
+          <SnoozeTimeFields value={when} onEdit={() => setError(undefined)} />
           {instant && (
             <p className={styles.note}>
               Starts{' '}
@@ -133,7 +90,7 @@ export function SnoozeTaskDialog({
             <Button onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={() => void save()} disabled={busy || !instant}>
+            <Button variant="primary" onClick={() => save()} disabled={busy || !instant}>
               {busy
                 ? 'Saving…'
                 : tasks.length > 1

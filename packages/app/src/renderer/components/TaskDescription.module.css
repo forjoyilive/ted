@@ -25,11 +25,11 @@
   color: var(--text-tertiary);
 }
 
-.images img {
+.images figure img {
   max-width: min(100%, 300px);
 }
 
-.expandedImages img {
+.expandedImages figure img {
   max-width: min(100%, 420px);
 }
 

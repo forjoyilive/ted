@@ -269,6 +269,35 @@ test('Comment composer sends Enter and command Enter, while Shift Enter keeps a 
   })
 })
 
+test('Comment box opens with unsent text, keeps what is typed and empties after sending', async () => {
+  const { CommentBox } = await import('../src/renderer/components/CommentBox.tsx')
+  let kept: unknown = { text: 'Half a thought', attachments: [] }
+  const api = bridge({
+    postComment: vi.fn(),
+    messageDraft: () => ({ draft: kept }),
+    saveMessageDraft: (_box, draft) => {
+      kept = (draft as { text: string }).text === '' ? null : draft
+      return { draft: kept }
+    },
+  })
+  const first = render(<CommentBox task={task({ commentBox: 'live' })} />)
+  expect(await screen.findByDisplayValue('Half a thought')).toBeTruthy()
+  expect(api.request).toHaveBeenCalledWith('messageDraft', { kind: 'comment', id: 'NB-1' })
+  await user().type(screen.getByRole('textbox', { name: 'Comment' }), ', finished')
+  first.unmount()
+  await vi.waitFor(() => expect(kept).toMatchObject({ text: 'Half a thought, finished' }))
+
+  render(<CommentBox task={task({ commentBox: 'live' })} />)
+  const box = await screen.findByDisplayValue('Half a thought, finished')
+  await user().type(box, '{Enter}')
+  expect(api.request).toHaveBeenCalledWith('postComment', 'NB-1', {
+    body: 'Half a thought, finished',
+    attachments: [],
+  })
+  await vi.waitFor(() => expect(kept).toBeNull())
+  expect((box as HTMLTextAreaElement).value).toBe('')
+})
+
 test('opening a sub-agent from Task details selects its actual Conversation and tab', async () => {
   const a = appState()
   const sub: RunSummary = {

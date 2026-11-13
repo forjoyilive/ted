@@ -146,7 +146,7 @@ function FilesBody({ task, files, error, selected, onOpen, onBrowse, refresh }: 
     )
   return (
     <>
-      <Button size="small" variant="quiet" onClick={refresh}>
+      <Button variant="quiet" onClick={refresh}>
         Refresh files
       </Button>
       <FileListState files={files} error={error} />
@@ -182,7 +182,6 @@ export function FilesSection(props: FilesSectionProps & { onQuickOpen: () => voi
       id="files"
       action={
         <Button
-          size="small"
           variant="quiet"
           disabled={!props.task.repos.some((r) => !r.removed)}
           onClick={props.onQuickOpen}

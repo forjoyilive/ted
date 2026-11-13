@@ -68,6 +68,29 @@ export interface FileDiff {
   unavailable?: string
 }
 
+export interface TaskCommit {
+  id: string
+  repo: string
+  commit: string
+}
+
+export interface CommitChanges {
+  repo: string
+  commit: string
+  subject: string
+  author: string
+  date: string
+  parent?: string
+  merge?: true
+  files: ChangeFile[]
+  diffs: FileDiff[]
+  limited?: true
+}
+
+export const maxCommitLookups = 50
+
+export const isCommitId = (value: string): boolean => /^[0-9a-f]{7,40}$/.test(value)
+
 export function changeKey(repo: string, path: string): string {
   return `${repo}\0${path}`
 }

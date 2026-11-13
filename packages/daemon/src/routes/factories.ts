@@ -30,8 +30,8 @@ export const factoryRoutes: Route[] = [
     async handle({ params: [id = ''], req }, { store }) {
       if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
       const range = new URL(req.url ?? '', 'http://localhost').searchParams.get('range') ?? '30d'
-      if (range !== '7d' && range !== '30d' && range !== 'all')
-        throw new HttpError(400, 'Choose 7d, 30d or all')
+      if (range !== 'today' && range !== '7d' && range !== '30d' && range !== 'all')
+        throw new HttpError(400, 'Choose today, 7d, 30d or all')
       return [200, store.factoryDashboard(id, range)]
     },
   },

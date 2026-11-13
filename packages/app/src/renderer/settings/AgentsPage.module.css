@@ -219,9 +219,12 @@
   color: var(--text-tertiary);
 }
 
-.modelInput,
 .agentSelect {
   width: 112px;
+}
+
+.modelSelect {
+  width: 150px;
 }
 
 .resetButton {

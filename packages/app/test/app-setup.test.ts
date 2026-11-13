@@ -102,11 +102,15 @@ describe('setup Tasks', () => {
       title: JSON.stringify({ steps: [{ everyMessage: each }, ...each] }),
     })
     await client.startTask(setup.id)
-    const clarify = await waitUntil(
-      async () => (await client.listInbox()).find((i) => i.request.stage === 'clarify'),
-      'the Clarify sign-off',
+    await waitUntil(
+      async () => (await client.listInbox()).find((i) => i.request.stage === 'design'),
+      'the Design sign-off',
     )
-    await client.answerRequest(clarify.request.id, { action: 'approve' })
+    expect(
+      (await client.listComments(setup.id)).some(
+        (c) => c.kind === 'signoff' && c.stage === 'clarify',
+      ),
+    ).toBe(false)
 
     await openAllTasks(window)
     await taskRow(window, 'WD-1').click()
@@ -119,7 +123,9 @@ describe('setup Tasks', () => {
         'The Design and Review sign-offs are always on for a setup Task. Tasks started before it merges use TED’s defaults.',
       )
       .waitFor()
-    await expect(details.locator(':scope > *').first().textContent()).resolves.toContain(
+    const panel = details.getByRole('tabpanel', { name: 'Details' })
+    await expect(panel.getByRole('heading').first().textContent()).resolves.toBe('Details')
+    await expect(panel.locator('p').first().textContent()).resolves.toContain(
       'always on for a setup Task',
     )
     await thread.getByText('Tutorial', { exact: true }).first().waitFor()
@@ -143,7 +149,10 @@ describe('setup Tasks', () => {
     await card
       .getByText('Left as TED’s defaults: agents, permissions Auto, 6 working Runs.')
       .waitFor()
-    await card.getByRole('button', { name: 'Approve' }).waitFor()
+    await thread
+      .getByRole('region', { name: 'Answer', exact: true })
+      .getByRole('button', { name: 'Approve' })
+      .waitFor()
     await thread.getByText('TED created this Task to set up this Factory').waitFor()
   }, 90_000)
 })

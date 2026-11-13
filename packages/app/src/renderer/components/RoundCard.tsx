@@ -1,5 +1,13 @@
-import type { AnswerRequest, Comment, Round, RoundAnswer, RoundQuestion } from '@ted/protocol'
-import { useId, useState } from 'react'
+import type {
+  AnswerRequest,
+  Comment,
+  MessageBox,
+  Round,
+  RoundAnswer,
+  RoundQuestion,
+} from '@ted/protocol'
+import { useId } from 'react'
+import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { Button } from './Button.tsx'
 import styles from './RoundCard.module.css'
 
@@ -14,6 +22,23 @@ const initialDraft = (question: RoundQuestion): Draft => ({
   answer: question.choices ? '' : question.recommended,
   note: '',
 })
+
+const isDraft = (value: unknown): value is Draft => {
+  if (value === null || typeof value !== 'object') return false
+  const { answer, note, other, custom } = value as Record<string, unknown>
+  return (
+    typeof answer === 'string' &&
+    typeof note === 'string' &&
+    (other === undefined || typeof other === 'boolean') &&
+    (custom === undefined || typeof custom === 'string')
+  )
+}
+
+export const writtenText = (draft: Pick<Draft, 'note' | 'other' | 'custom'>): string => {
+  const custom = draft.custom ?? ''
+  if (draft.other) return custom !== '' ? custom : draft.note
+  return draft.note !== '' ? draft.note : custom
+}
 
 function Tag({ changed, onReset }: { changed: boolean; onReset: () => void }) {
   if (!changed) return <span className={styles.tag}>Recommended</span>
@@ -42,6 +67,8 @@ function Question({
 }) {
   const name = useId()
   const changed = draft.other || draft.answer.trim() !== question.recommended.trim()
+  const text = writtenText(draft)
+  const write = (value: string) => onChange({ ...draft, note: value, custom: value })
   const reset = () => onChange({ ...draft, answer: question.recommended, other: false })
   return (
     <div className={styles.question}>
@@ -99,8 +126,8 @@ function Question({
                   className={styles.text}
                   aria-label={`Your answer ${number}`}
                   placeholder="Your answer…"
-                  value={draft.custom ?? ''}
-                  onChange={(event) => onChange({ ...draft, custom: event.target.value })}
+                  value={text}
+                  onChange={(event) => write(event.target.value)}
                 />
               </div>
             ) : (
@@ -109,8 +136,8 @@ function Question({
                 className={styles.note}
                 aria-label={`Add to answer ${number}`}
                 placeholder="Add to this answer…"
-                value={draft.note}
-                onChange={(event) => onChange({ ...draft, note: event.target.value })}
+                value={text}
+                onChange={(event) => write(event.target.value)}
               />
             )}
           </>
@@ -139,18 +166,27 @@ export function RoundQuestions({
   talking,
   onSend,
   onTalk,
+  box,
 }: {
   round: Round
+  box?: MessageBox | undefined
   readOnly: boolean
   sending: boolean
   talking: boolean
   onSend: (answer: AnswerRequest) => void
   onTalk: (() => void) | undefined
 }) {
-  const [drafts, setDrafts] = useState(() => round.questions.map(initialDraft))
+  const kept = useMessageDraft(box)
+  const [drafts, setDrafts] = draftField(
+    kept,
+    'answers',
+    round.questions.map(initialDraft),
+    (value): value is Draft[] =>
+      Array.isArray(value) && value.length === round.questions.length && value.every(isDraft),
+  )
   const update = (i: number, draft: Draft) =>
-    setDrafts((all) => all.map((d, at) => (at === i ? draft : d)))
-  const complete = drafts.every((d) => (d.other ? (d.custom ?? '') : d.answer).trim() !== '')
+    setDrafts(drafts.map((d, at) => (at === i ? draft : d)))
+  const complete = drafts.every((d) => (d.other ? writtenText(d) : d.answer).trim() !== '')
   return (
     <>
       <div className={styles.questions}>
@@ -178,10 +214,13 @@ export function RoundQuestions({
             onClick={() =>
               onSend({
                 action: 'answer-round',
-                answers: drafts.map((d) => ({
-                  answer: d.other ? (d.custom ?? '') : d.answer,
-                  ...(!d.other && d.note.trim() !== '' && { note: d.note }),
-                })),
+                answers: drafts.map((d) => {
+                  const text = writtenText(d)
+                  return {
+                    answer: d.other ? text : d.answer,
+                    ...(!d.other && text.trim() !== '' && { note: text }),
+                  }
+                }),
               })
             }
           >

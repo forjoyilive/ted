@@ -62,7 +62,7 @@ export function ReposField({ task, factory }: { task: Task; factory: Factory }) 
             </p>
           ))}
           <div className={styles.actions}>
-            <Button size="small" onClick={() => void save(asking.set, true)}>
+            <Button size="small" onClick={() => save(asking.set, true)}>
               Remove
             </Button>
             <Button size="small" variant="quiet" onClick={() => setAsking(undefined)}>

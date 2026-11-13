@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { runStateWord, runsCollapsedSummary } from '../details.ts'
 import { ago, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
 import { ChevronIcon, RestartIcon, StopIcon } from './icons.tsx'
 import { tokenCount } from './RunChat.tsx'
@@ -102,7 +103,7 @@ export function RunsSection({
       </ul>
       {stopped.length > 0 && (
         <>
-          <button
+          <ActionButton
             type="button"
             className={styles.toggle}
             aria-expanded={showStopped}
@@ -110,7 +111,7 @@ export function RunsSection({
           >
             <ChevronIcon open={showStopped} />
             {stopped.length === 1 ? '1 stopped Run' : `${stopped.length} stopped Runs`}
-          </button>
+          </ActionButton>
           {showStopped && (
             <ul className={styles.list}>
               {stopped.map((run) => (
@@ -134,13 +135,13 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
   const act = (request: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
-    request()
+    return request()
       .catch((failed: unknown) => setError(readableError(failed)))
       .finally(() => setBusy(false))
   }
   return (
     <li className={nested ? `${styles.row} ${styles.nested}` : styles.row} data-run={run.id}>
-      <button type="button" className={styles.open} onClick={onOpen}>
+      <ActionButton type="button" className={styles.open} onClick={onOpen}>
         <RunIcon agent={run.agent} state={runIconState(run)} />
         <span className={styles.text}>
           <span className={styles.top}>
@@ -165,10 +166,10 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
             </span>
           )}
         </span>
-      </button>
+      </ActionButton>
       {live && !isLead && (
         <span className={styles.actions}>
-          <button
+          <ActionButton
             type="button"
             className={styles.action}
             aria-label="Restart"
@@ -177,8 +178,8 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
             onClick={() => act(() => ted.restartRun(run.id))}
           >
             <RestartIcon />
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             type="button"
             className={styles.action}
             aria-label="Stop Run"
@@ -187,7 +188,7 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
             onClick={() => act(() => ted.stopRun(run.id))}
           >
             <StopIcon />
-          </button>
+          </ActionButton>
         </span>
       )}
     </li>

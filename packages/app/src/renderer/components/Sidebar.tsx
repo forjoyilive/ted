@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
+import { ActionButton } from './ActionButton.tsx'
 import { FactoryMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import { ResizableSidebar } from './ResizableSidebar.tsx'
@@ -102,7 +103,7 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault()
-            void save()
+            save()
           } else if (event.key === 'Escape') {
             event.preventDefault()
             event.stopPropagation()
@@ -120,11 +121,13 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
   )
 }
 
-const factoryViews: { view: FactoryView; label: string }[] = [
+const factoryViews: { view: FactoryView | 'tasks'; label: string; nested?: true }[] = [
   { view: 'dashboard', label: 'Dashboard' },
   { view: 'coordinator', label: 'Coordinator' },
-  { view: 'board', label: 'Board' },
-  { view: 'list', label: 'List' },
+  { view: 'tasks', label: 'Tasks' },
+  { view: 'board', label: 'Board', nested: true },
+  { view: 'list', label: 'List', nested: true },
+  { view: 'map', label: 'Map', nested: true },
   { view: 'plans', label: 'Plans' },
   { view: 'automations', label: 'Automations' },
   { view: 'settings', label: 'Settings' },
@@ -194,7 +197,9 @@ export function Sidebar({
   const reorder = (ids: string[] | undefined) => {
     if (!ids) return
     setOrderError(undefined)
-    ted.reorderFactories(ids).catch((failure: unknown) => setOrderError(readableError(failure)))
+    return ted
+      .reorderFactories(ids)
+      .catch((failure: unknown) => setOrderError(readableError(failure)))
   }
   const menuFactory = menu && factories.find((f) => f.id === menu.factoryId)
   const menuIndex = menuFactory ? factories.indexOf(menuFactory) : -1
@@ -209,14 +214,14 @@ export function Sidebar({
     <ResizableSidebar side="navigation">
       <nav className={styles.sidebar} aria-label="Sidebar">
         <div className={styles.top}>
-          <button type="button" className={styles.search} onClick={onSearch}>
+          <ActionButton type="button" className={styles.search} onClick={onSearch}>
             <SearchIcon className={styles.searchIcon} />
             <span className={styles.searchLabel}>Search</span>
             <span className={styles.shortcut}>⌘K</span>
-          </button>
+          </ActionButton>
         </div>
 
-        <button
+        <ActionButton
           type="button"
           className={`${styles.row} ${inboxCount > 0 ? styles.strong : ''}`}
           onClick={() => open({ kind: 'inbox' })}
@@ -224,15 +229,15 @@ export function Sidebar({
         >
           <span className={styles.label}>Inbox</span>
           {inboxCount > 0 && <span className={styles.count}>{inboxCount}</span>}
-        </button>
-        <button
+        </ActionButton>
+        <ActionButton
           type="button"
           className={styles.row}
           onClick={() => open({ kind: 'all-tasks' })}
           {...current({ kind: 'all-tasks' })}
         >
           <span className={styles.label}>All Tasks</span>
-        </button>
+        </ActionButton>
 
         <h2 className={styles.section}>Factories</h2>
         {factories.map((factory, index) => {
@@ -285,7 +290,7 @@ export function Sidebar({
                     openMenu(event.clientX, event.clientY)
                   }}
                 >
-                  <button
+                  <ActionButton
                     type="button"
                     className={styles.caret}
                     aria-label="Views"
@@ -296,13 +301,13 @@ export function Sidebar({
                       open
                       className={`${styles.chevron} ${expanded ? '' : styles.chevronClosed}`}
                     />
-                  </button>
-                  <button
+                  </ActionButton>
+                  <ActionButton
                     type="button"
                     className={`${styles.row} ${styles.factoryName} ${isCurrent ? styles.strong : ''} ${waiting > 0 ? styles.counted : styles.withMore}`}
                     onClick={() => {
                       if (!expanded) setFactoryOpen(factory.id, true)
-                      dispatch({ type: 'open-factory', factoryId: factory.id })
+                      return dispatch({ type: 'open-factory', factoryId: factory.id })
                     }}
                   >
                     <span className={styles.label}>{factory.name}</span>
@@ -312,10 +317,10 @@ export function Sidebar({
                         <WarningIcon />
                       </span>
                     )}
-                  </button>
+                  </ActionButton>
                   <span className={styles.rowEnd}>
                     {waiting > 0 && (
-                      <button
+                      <ActionButton
                         type="button"
                         className={styles.countButton}
                         aria-label={`${waiting} waiting in ${factory.name}`}
@@ -323,9 +328,9 @@ export function Sidebar({
                         onClick={() => open({ kind: 'inbox', factoryId: factory.id })}
                       >
                         {waiting}
-                      </button>
+                      </ActionButton>
                     )}
-                    <button
+                    <ActionButton
                       type="button"
                       className={`${styles.more} ${menu?.factoryId === factory.id ? styles.moreOpen : ''}`}
                       aria-label="Factory actions"
@@ -333,22 +338,34 @@ export function Sidebar({
                       aria-expanded={menu?.factoryId === factory.id}
                       onClick={(event) => {
                         const box = event.currentTarget.getBoundingClientRect()
-                        openMenu(box.left, box.bottom + 4)
+                        return openMenu(box.left, box.bottom + 4)
                       }}
                     >
                       ⋯
-                    </button>
+                    </ActionButton>
                   </span>
                 </article>
               )}
               {expanded &&
-                factoryViews.map(({ view, label }) => {
+                factoryViews.map(({ view, label, nested }) => {
+                  if (view === 'tasks') {
+                    return (
+                      <button
+                        key={view}
+                        type="button"
+                        className={`${styles.row} ${styles.sub}`}
+                        onClick={() => dispatch({ type: 'open-tasks', factoryId: factory.id })}
+                      >
+                        <span className={styles.label}>{label}</span>
+                      </button>
+                    )
+                  }
                   const screen: Screen = { kind: 'factory', factoryId: factory.id, view }
                   return (
-                    <button
+                    <ActionButton
                       key={view}
                       type="button"
-                      className={`${styles.row} ${styles.sub}`}
+                      className={`${styles.row} ${styles.sub} ${nested ? styles.nested : ''}`}
                       onClick={() => open(screen)}
                       {...current(screen)}
                     >
@@ -406,7 +423,7 @@ export function Sidebar({
                           <DotIcon className={styles.failedDot} />
                         </span>
                       )}
-                    </button>
+                    </ActionButton>
                   )
                 })}
             </div>
@@ -433,29 +450,29 @@ export function Sidebar({
               onSettings: () =>
                 open({ kind: 'factory', factoryId: menuFactory.id, view: 'settings' }),
               onShowFolder: () =>
-                void ted.showFactoryFolder(menuFactory.id).catch((failure: unknown) => {
+                ted.showFactoryFolder(menuFactory.id).catch((failure: unknown) => {
                   setOrderError(readableError(failure))
                 }),
               onOpenOnGitHub: () =>
-                void ted
+                ted
                   .openOnGitHub(`https://github.com/${menuFactory.repo}`)
                   .catch((failure: unknown) => setOrderError(readableError(failure))),
               onRemove: () => onRemoveFactory?.(menuFactory),
             }}
           />
         )}
-        <button
+        <ActionButton
           type="button"
           className={`${styles.row} ${styles.addFactory}`}
           onClick={onAddFactory}
         >
           <span className={styles.plus}>+</span>
           <span className={styles.label}>Add Factory</span>
-        </button>
+        </ActionButton>
 
         <div className={styles.spacer} />
 
-        <button
+        <ActionButton
           type="button"
           className={`${styles.row} ${styles.appSettings}`}
           onClick={() => dispatch({ type: 'open-settings' })}
@@ -467,13 +484,13 @@ export function Sidebar({
             </span>
           )}
           <span className={styles.shortcut}>⌘,</span>
-        </button>
+        </ActionButton>
 
         {footerLines.length > 0 && (
           <footer className={styles.footer}>
             {footer.runs !== undefined &&
               (onOpenRuns ? (
-                <button
+                <ActionButton
                   type="button"
                   className={styles.runsButton}
                   aria-haspopup="dialog"
@@ -481,15 +498,15 @@ export function Sidebar({
                   onClick={onOpenRuns}
                 >
                   {footer.runs}
-                </button>
+                </ActionButton>
               ) : (
                 <p className={styles.runs}>{footer.runs}</p>
               ))}
             {footer.failed !== undefined &&
               (onOpenFailed ? (
-                <button type="button" className={styles.failedButton} onClick={onOpenFailed}>
+                <ActionButton type="button" className={styles.failedButton} onClick={onOpenFailed}>
                   {footer.failed}
-                </button>
+                </ActionButton>
               ) : (
                 <p className={styles.failed}>{footer.failed}</p>
               ))}
@@ -499,14 +516,14 @@ export function Sidebar({
               <p className={styles.simulators}>{footer.simulators}</p>
             )}
             {footer.update !== undefined && (
-              <button
+              <ActionButton
                 type="button"
                 className={footer.update.busy ? styles.updateBusy : styles.updateChip}
                 disabled={footer.update.busy}
-                onClick={onUpdate}
+                onClick={() => void onUpdate?.()}
               >
                 {footer.update.label}
-              </button>
+              </ActionButton>
             )}
           </footer>
         )}

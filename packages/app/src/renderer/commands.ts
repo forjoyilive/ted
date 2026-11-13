@@ -27,12 +27,14 @@ export interface KeyActions {
   forward: () => void
   close: () => boolean
   move: (direction: Direction) => boolean
+  snoozeRequest: () => boolean
   arm: (action: ArmAction) => boolean
   reply: () => boolean
   requestChanges: () => boolean
   pressDialogPrimary: () => boolean
   focusFilter: () => boolean
   moveInRank: (direction: 'up' | 'down') => boolean
+  select: () => boolean
 }
 
 export interface CommandContext {
@@ -119,6 +121,14 @@ export const globalCommands: readonly Command[] = [
     scope: 'global',
     shortcuts: keysFor('go-to-list'),
     run: goToView('list'),
+  },
+  {
+    id: 'go-to-map',
+    label: 'Go to Map',
+    scope: 'global',
+    keywords: 'blockers blocked by dependencies',
+    shortcuts: keysFor('go-to-map'),
+    run: goToView('map'),
   },
   {
     id: 'go-to-plans',
@@ -399,6 +409,9 @@ export const keyCommands: readonly Command[] = [
   keyCommand('previous', 'Previous', (k) => k.move('previous')),
   keyCommand('column-left', 'Column to the left', (k) => k.move('left')),
   keyCommand('column-right', 'Column to the right', (k) => k.move('right')),
+  keyCommand('snooze-request', 'Snooze the selected request', (k) =>
+    k.snoozeRequest() ? true : k.move('left'),
+  ),
   keyCommand('reply', 'Reply', (k) => k.reply()),
   keyCommand('approve', 'Approve', (k) => k.arm('approve')),
   keyCommand('request-changes', 'Request changes', (k) => k.requestChanges()),
@@ -406,6 +419,7 @@ export const keyCommands: readonly Command[] = [
   keyCommand('move-up', 'Move up in rank', (k) => k.moveInRank('up')),
   keyCommand('move-down', 'Move down in rank', (k) => k.moveInRank('down')),
   keyCommand('filter', 'Filter', (k) => k.focusFilter()),
+  keyCommand('select', 'Select or deselect', (k) => k.select()),
 ]
 
 export function availableCommands(context: CommandContext): Command[] {

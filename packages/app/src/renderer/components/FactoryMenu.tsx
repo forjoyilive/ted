@@ -1,6 +1,8 @@
 import type { Factory } from '@ted/protocol'
 import { useCallback, useEffect, useRef } from 'react'
+import { usePendingAction } from '../pending-action.ts'
 import { usePopover } from '../views/TaskList.tsx'
+import { ActionButton } from './ActionButton.tsx'
 import styles from './FactoryMenu.module.css'
 
 const folderLabel = navigator.userAgent.includes('Mac') ? 'Show in Finder' : 'Show in file manager'
@@ -32,6 +34,7 @@ export function FactoryMenu({
   actions: FactoryMenuActions
   onClose: () => void
 }) {
+  const activity = usePendingAction(`factory-actions:${factory.id}`)
   const close = useCallback(() => onClose(), [onClose])
   const ref = usePopover(true, close)
   const menu = useRef<HTMLDivElement | null>(null)
@@ -39,19 +42,20 @@ export function FactoryMenu({
     menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
   }, [])
   const top = Math.max(8, Math.min(at.y, window.innerHeight - 330))
-  const item = (label: string, act: () => void, options: { disabled?: boolean } = {}) => (
-    <button
+  const item = (label: string, act: () => unknown, options: { disabled?: boolean } = {}) => (
+    <ActionButton
       type="button"
       role="menuitem"
       className={styles.item}
-      disabled={options.disabled === true}
+      disabled={options.disabled === true || activity.pending}
       onClick={() => {
+        const result = activity.run(act)
+        if (result) return result.then(onClose)
         onClose()
-        act()
       }}
     >
       {label}
-    </button>
+    </ActionButton>
   )
   return (
     <div ref={ref}>
@@ -82,17 +86,18 @@ export function FactoryMenu({
         {factory.localFolder?.found === true && item(folderLabel, actions.onShowFolder)}
         {item('Open on GitHub', actions.onOpenOnGitHub)}
         <hr className={styles.separator} />
-        <button
+        <ActionButton
           type="button"
           role="menuitem"
           className={`${styles.item} ${styles.danger}`}
+          disabled={activity.pending}
           onClick={() => {
             onClose()
-            actions.onRemove()
+            return actions.onRemove()
           }}
         >
           Remove Factory…
-        </button>
+        </ActionButton>
       </div>
     </div>
   )

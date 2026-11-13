@@ -1,8 +1,10 @@
 import {
   type Attachment,
+  maxCommitLookups,
   type NewTaskDraft,
   parseAddFailureEvidenceRequest,
   parseAnswerRequest,
+  parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAssessFailureRequest,
   parseBlockTaskRequest,
@@ -29,6 +31,7 @@ import {
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
   parseSetTaskSnoozeRequest,
+  parseSnoozeRequestRequest,
   parseStartTaskRequest,
   parseTaskLead,
   parseVerifyFailureRequest,
@@ -45,6 +48,18 @@ import type {
 import { jsonRoute, type Route } from './route.ts'
 
 export const taskRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/ted-stops$/,
+    handle: async (_, { tasks }) => [200, tasks.tedStops()],
+  },
+  jsonRoute(parseAnswerTedStopsRequest, {
+    method: 'POST',
+    path: /^\/ted-stops\/answer$/,
+    async handle({ body }, { tasks }) {
+      return [200, await tasks.answerTedStops(body)]
+    },
+  }),
   jsonRoute(parseSetTaskAutopilotRequest, {
     method: 'PUT',
     path: /^\/tasks\/([^/]+)\/autopilot$/,
@@ -215,6 +230,13 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/snooze$/,
     async handle({ body, params: [ref = ''] }, { tasks }) {
       return [200, tasks.setTaskSnooze(ref, body.snoozedUntil)]
+    },
+  }),
+  jsonRoute(parseSnoozeRequestRequest, {
+    method: 'PUT',
+    path: /^\/requests\/([^/]+)\/snooze$/,
+    async handle({ body, params: [id = ''] }, { tasks }) {
+      return [200, tasks.snoozeRequest(id, body.until)]
     },
   }),
   jsonRoute(parseStartTaskRequest, {
@@ -441,6 +463,23 @@ export const taskRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/commits(?:\?.*)?$/,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can look up commits')
+      const ids = new URL(req.url ?? '/', 'http://localhost').searchParams.get('ids') ?? ''
+      return [200, await tasks.commits(ref, ids.split(',').slice(0, maxCommitLookups))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/commits\/([^/?]+)$/,
+    async handle({ params: [ref = '', commit = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read a commit')
+      return [200, await tasks.commitChanges(ref, commit)]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/tasks\/([^/]+)\/line-comments$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.lineComments(ref)],
   },
@@ -537,6 +576,11 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/inbox\/waiting$/,
     handle: async (_, { store }) => [200, store.waiting()],
+  },
+  {
+    method: 'GET',
+    path: /^\/inbox\/snoozed$/,
+    handle: async (_, { store }) => [200, store.snoozed()],
   },
   {
     method: 'POST',

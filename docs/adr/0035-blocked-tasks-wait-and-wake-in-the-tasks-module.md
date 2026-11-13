@@ -12,7 +12,7 @@ A blocker link is a row in `taskBlockers`. `v2.TaskBlockerAdded` adds or replace
 
 **Waking.** Each time a Task reaches Done, and once when the daemon starts, the Tasks module looks at every Task whose blockers have all merged. A Backlog Task meant to start is started through the queue. A Task waiting mid-flow is put back in the queue with `v1.TaskRequeuedAfterBlockers`; when the pump picks it, it gets a fresh Task Lead Run in its existing worktree. That Run’s prompt is the Stage prompt plus a “Picking up after a blocker” section with the latest Task brief and the Comments since it.
 
-**Start requests.** `startRequested` (set by Start now, `--start`, or by moving a queued Task back to Backlog) decides whether a Backlog Task starts when unblocked. Starting a blocked Backlog Task by hand sets it rather than starting. Removing the last unmerged blocker by hand clears it, so the Task stays in Backlog.
+**Start requests.** `startRequested` (set by Start now, `--start`, or by moving a queued Task back to Backlog) decides whether a Backlog Task starts when unblocked. Starting a blocked Backlog Task by hand sets it rather than starting. Removing the last unmerged blocker by hand clears it, so the Task stays in Backlog. Starting the Task also clears it, so a Task moved back to Backlog afterwards stays there (ADR 0129).
 
 ## Considered Options
 

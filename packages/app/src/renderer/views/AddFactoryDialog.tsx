@@ -10,6 +10,7 @@ import {
   type RepoRow,
   shortPath,
 } from '../add-factory.ts'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
@@ -106,7 +107,7 @@ export function AddFactoryDialog({
   }
 
   const recheck = (row: RepoRow, index: number) => {
-    if (row.source) void check(row.id, row.source, index === 0)
+    if (row.source) return check(row.id, row.source, index === 0)
   }
 
   const primaryId = primary?.id
@@ -125,7 +126,7 @@ export function AddFactoryDialog({
 
   async function chooseFolder(row: RepoRow, index: number) {
     const folder = await ted.chooseFolder('Choose the repo’s folder')
-    if (folder !== undefined) void check(row.id, { folder }, index === 0)
+    if (folder !== undefined) await check(row.id, { folder }, index === 0)
   }
 
   function submitRemote(row: RepoRow, index: number) {
@@ -145,8 +146,8 @@ export function AddFactoryDialog({
   function fix(row: RepoRow, index: number, chosen: RepoFix) {
     if (chosen.kind === 'open-factory') onOpenFactory(chosen.factoryId)
     else if (chosen.kind === 'github-settings') onOpenGitHubSettings()
-    else if (chosen.kind === 'choose-folder') void chooseFolder(row, index)
-    else recheck(row, index)
+    else if (chosen.kind === 'choose-folder') return chooseFolder(row, index)
+    else return recheck(row, index)
   }
 
   function onDrop(event: DragEvent, to: number) {
@@ -188,7 +189,7 @@ export function AddFactoryDialog({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        onClose()
+        if (!busy) onClose()
       }}
     >
       <header className={styles.head}>
@@ -212,7 +213,7 @@ export function AddFactoryDialog({
                 <Button
                   size="small"
                   onClick={() =>
-                    void ted.runFix({
+                    ted.runFix({
                       fix: github.fix,
                       ...(github.host !== undefined && { host: github.host }),
                     })
@@ -239,19 +240,19 @@ export function AddFactoryDialog({
               onDrop={(event) => onDrop(event, index)}
               onText={(text) => update(row.id, (r) => ({ ...r, text }))}
               onSubmitRemote={() => submitRemote(row, index)}
-              onChooseFolder={() => void chooseFolder(row, index)}
+              onChooseFolder={() => chooseFolder(row, index)}
               onName={(value) => update(row.id, (r) => ({ ...r, name: value, nameEdited: true }))}
               onRemove={() => remove(row, index)}
               onFix={(chosen) => fix(row, index, chosen)}
             />
           ))}
-          <button
+          <ActionButton
             type="button"
             className={styles.addRepo}
             onClick={() => setRows((current) => [...current, emptyRow()])}
           >
             + Add another repo
-          </button>
+          </ActionButton>
         </section>
 
         <div className={styles.fields}>
@@ -333,8 +334,10 @@ export function AddFactoryDialog({
           {shown.text}
         </span>
         <span className={styles.spacer} />
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={shown.blocked || busy} onClick={() => void add()}>
+        <Button disabled={busy} onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={shown.blocked || busy} onClick={() => add()}>
           Add Factory
         </Button>
       </footer>
@@ -425,22 +428,20 @@ export function RepoRowView({
           <span className={styles.from}>{fromFolder ? 'from a folder' : 'from a URL'}</span>
         )}
         {(!isPrimary || filled) && (
-          <button
+          <ActionButton
             type="button"
             className={styles.remove}
             aria-label={isPrimary ? 'Clear the primary repo' : 'Remove this repo'}
             onClick={onRemove}
           >
             <CloseIcon size={12} />
-          </button>
+          </ActionButton>
         )}
       </div>
 
       {!filled && (
         <div className={styles.source}>
-          <Button size="small" onClick={onChooseFolder}>
-            Choose folder…
-          </Button>
+          <Button onClick={onChooseFolder}>Choose folder…</Button>
           <span className={styles.or}>or</span>
           <input
             className={styles.input}
@@ -493,7 +494,7 @@ export function RepoRowView({
           {problem.fixes.length > 0 && (
             <div className={styles.fixes}>
               {problem.fixes.map((f) => (
-                <Button key={f.kind} size="small" onClick={() => onFix(f)}>
+                <Button key={f.kind} onClick={() => onFix(f)}>
                   {fixLabel(f)}
                 </Button>
               ))}

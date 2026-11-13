@@ -6,8 +6,10 @@ import type {
   LibraryView,
 } from '@ted/protocol'
 import { useState } from 'react'
+import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Skeleton } from '../components/Loading.tsx'
+import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { useEventValue } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
@@ -35,7 +37,8 @@ export function AgentDefaults() {
   } = useEventValue<LibraryView | undefined>({
     initial: undefined,
     load: ted.library,
-    event: (event) => (event.type === 'library-changed' ? 'reload' : undefined),
+    event: (event) =>
+      event.type === 'library-changed' || event.type === 'settings-changed' ? 'reload' : undefined,
   })
   const error = saveError ?? loadError
 
@@ -70,7 +73,7 @@ export function AgentDefaults() {
           key={`${row.role}:${view.version}`}
           row={row}
           busy={busy}
-          onChange={(choice) => void save(row.role, choice)}
+          onChange={(choice) => save(row.role, choice)}
         />
       ))}
       {view?.invalid && (
@@ -93,28 +96,11 @@ function AgentDefault({
   onChange: (choice: AgentChoiceInput | null) => void
 }) {
   const shown = row.own ?? row.default
-  const [model, setModel] = useState(shown.model ?? '')
   const name = roleNames[row.role]
-  const agents: [string, string][] =
-    row.role === 'reviewer'
-      ? [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-          ['same', 'Same as Task Lead'],
-        ]
-      : [
-          ['claude', 'Claude'],
-          ['codex', 'Codex'],
-          ['antigravity', 'Antigravity'],
-        ]
   const update = (fields: Partial<AgentChoiceInput>) => {
     const next: AgentChoiceInput = { ...shown, ...fields }
     for (const key of ['model', 'effort'] as const) if (!next[key]) delete next[key]
     onChange(next)
-  }
-  const commitModel = () => {
-    if (model.trim() !== (shown.model ?? '')) update({ model: model.trim() })
   }
   return (
     <SettingRow
@@ -129,25 +115,19 @@ function AgentDefault({
         className={`${styles.defaultSelect} ${styles.agentSelect}`}
         disabled={busy}
         value={shown.agent ?? 'claude'}
-        onChange={(event) => update({ agent: event.target.value })}
+        onChange={(event) => update({ agent: event.target.value, model: '' })}
       >
-        {agents.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
+        <AgentOptions current={shown.agent} same={row.role === 'reviewer'} />
       </Select>
-      <input
+      <ModelSelect
         aria-label={`${name} model`}
-        className={`${sections.cellInput} ${styles.modelInput}`}
-        placeholder="default model"
+        className={`${styles.defaultSelect} ${styles.modelSelect}`}
+        inputClassName={`${sections.cellInput} ${styles.modelInput}`}
+        defaultLabel="default model"
         disabled={busy}
-        value={model}
-        onChange={(event) => setModel(event.target.value)}
-        onBlur={commitModel}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') commitModel()
-        }}
+        agent={shown.agent ?? 'claude'}
+        value={shown.model ?? ''}
+        onChange={(model) => update({ model })}
       />
       <Select
         aria-label={`${name} effort`}

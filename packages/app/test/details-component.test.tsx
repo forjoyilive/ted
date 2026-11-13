@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { RunSummary } from '@ted/protocol'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { CodeSection } from '../src/renderer/CodeSection.tsx'
 import { ChangesSection } from '../src/renderer/components/ChangesSection.tsx'
@@ -8,7 +8,7 @@ import { pickBlockerEvent, TaskActionsMenu } from '../src/renderer/components/Ta
 import { ReposField } from '../src/renderer/views/ReposField.tsx'
 import { TaskDetails } from '../src/renderer/views/TaskThread.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 function handlers() {
@@ -361,4 +361,52 @@ test('Task details shows six icon tabs, marks changes and working Runs, and keep
   })
   expect(tab('Details').getAttribute('aria-selected')).toBe('true')
   expect(await screen.findByLabelText('Find a Task')).toBeTruthy()
+})
+
+test('blocker changes keep pending feedback and reject repeats until completion', async () => {
+  const adding = deferred<ReturnType<typeof task>>()
+  const removing = deferred<ReturnType<typeof task>>()
+  const block = vi.fn(() => adding.promise)
+  const unblock = vi.fn(() => removing.promise)
+  bridge({ ...handlers(), blockTask: block, unblockTask: unblock })
+  const t = task()
+  const other = task({ id: 'NB-2', displayId: 'NB-2', title: 'Offline editing' })
+  const view = render(
+    <TaskDetails
+      task={t}
+      tasks={[t, other]}
+      factories={[factory()]}
+      onOpenRun={vi.fn()}
+      onOpenShell={vi.fn()}
+    />,
+  )
+  await user().click(screen.getByRole('button', { name: 'Add blocker' }))
+  await user().type(screen.getByLabelText('Find a Task'), 'offline')
+  const option = screen.getByRole('option', { name: /NB-2/ })
+  await user().click(option)
+  expect(option.getAttribute('aria-busy')).toBe('true')
+  expect(screen.getByRole('listbox', { name: 'Tasks' })).toBeTruthy()
+  fireEvent.click(option)
+  fireEvent.keyDown(screen.getByLabelText('Find a Task'), { key: 'Enter' })
+  expect(block).toHaveBeenCalledOnce()
+  await act(async () => adding.reject(new Error('A blocker cycle was rejected')))
+  expect(screen.getByRole('alert').textContent).toBe('A blocker cycle was rejected')
+  expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
+  view.rerender(
+    <TaskDetails
+      task={task({ blockedBy: ['NB-2'] })}
+      tasks={[t, other]}
+      factories={[factory()]}
+      onOpenRun={vi.fn()}
+      onOpenShell={vi.fn()}
+    />,
+  )
+  const remove = screen.getByRole('button', { name: 'Remove NB-2' })
+  await user().click(remove)
+  expect(remove.getAttribute('aria-busy')).toBe('true')
+  fireEvent.click(remove)
+  expect(unblock).toHaveBeenCalledOnce()
+  await act(async () => removing.resolve(t))
+  expect(remove.getAttribute('aria-busy')).toBeNull()
+  expect(screen.queryByRole('alert')).toBeNull()
 })

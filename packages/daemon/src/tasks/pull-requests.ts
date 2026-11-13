@@ -1,4 +1,5 @@
 import type { CiSignal, TaskRepo } from '@ted/protocol'
+import { parse } from 'yaml'
 import * as git from '../git.ts'
 import type { Gh } from '../github/gh.ts'
 import { redactSecrets } from '../redact.ts'
@@ -42,11 +43,18 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
     try {
       const ahead = await git.commitsAhead(target.worktree, `origin/${target.base}`)
       if (ahead === 0) return false
-      const before = repoOf(task.id, target.name)
-      const commit = await git.pushBranch(target.worktree, target.branch, {
-        url: target.url,
-        ...(before?.pushed && { expected: before.pushed.commit }),
-      })
+      const head = await git.headCommit(target.worktree)
+      const recorded = repoOf(task.id, target.name)?.pushed?.commit
+      const commit = await git
+        .pushBranch(target.worktree, target.branch, {
+          url: target.url,
+          commit: head,
+          ...(recorded !== undefined && { expected: recorded }),
+        })
+        .catch((error: unknown) => {
+          if (recorded === undefined) throw error
+          return pushPastRecord(task, target, { head, recorded }, error)
+        })
       const ci = await detectCi({ gh, commit, ...target })
       store.branchPushed(task.id, target.name, { commit, ...ci })
       if (isOpen(repoOf(task.id, target.name))) return false
@@ -59,6 +67,30 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
       store.branchPushFailed(task.id, target.name, message)
       return false
     }
+  }
+
+  async function pushPastRecord(
+    task: PullRequestTask,
+    target: PullRequestTarget,
+    { head, recorded }: { head: string; recorded: string },
+    refused: unknown,
+  ): Promise<string> {
+    const remote = await git
+      .fetchBranch(target.worktree, { url: target.url, branch: target.branch, haves: [recorded] })
+      .catch(() => undefined)
+    if (remote === undefined || remote === recorded) throw refused
+    if (!(await git.isAncestor(target.worktree, remote, head))) {
+      throw new git.GitError(
+        `git push refused: the ${target.branch} branch on GitHub is at ${remote.slice(0, 8)}, which the commit being pushed (${head.slice(0, 8)}) does not include. TED last recorded a push of ${recorded.slice(0, 8)} and won’t overwrite commits it didn’t push.`,
+      )
+    }
+    store.pushRecordReconciled(task.id, target.name, { recorded, remote })
+    if (remote === head) return head
+    return git.pushBranch(target.worktree, target.branch, {
+      url: target.url,
+      expected: remote,
+      commit: head,
+    })
   }
 
   async function openDraft(
@@ -243,10 +275,17 @@ export async function detectCi(input: {
   const checks: [CiSignal, () => Promise<boolean>][] = [
     [
       'workflow-files',
-      async () =>
-        (await git.listFiles(input.worktree, input.commit, '.github/workflows')).some((file) =>
-          /\.ya?ml$/.test(file),
-        ),
+      async () => {
+        const files = (
+          await git.listFiles(input.worktree, input.commit, '.github/workflows')
+        ).filter((file) => /\.ya?ml$/.test(file))
+        const runs = await Promise.all(
+          files.map((file) =>
+            git.showFile(input.worktree, input.commit, file).then(runsOnChanges, () => true),
+          ),
+        )
+        return runs.includes(true)
+      },
     ],
     [
       'required-checks',
@@ -282,6 +321,27 @@ export async function detectCi(input: {
   )
   const ciSignals = found.flat()
   return { ci: ciSignals.length > 0, ciSignals }
+}
+
+const changeTriggers = ['pull_request', 'pull_request_target', 'push', 'merge_group']
+
+export function runsOnChanges(workflow: string): boolean {
+  let on: unknown
+  try {
+    on = (parse(workflow) as { on?: unknown } | null)?.on
+  } catch {
+    return true
+  }
+  const triggers =
+    typeof on === 'string'
+      ? [on]
+      : Array.isArray(on)
+        ? on
+        : on !== null && typeof on === 'object'
+          ? Object.keys(on)
+          : undefined
+  if (triggers === undefined) return true
+  return triggers.some((trigger) => typeof trigger !== 'string' || changeTriggers.includes(trigger))
 }
 
 interface BranchBody {

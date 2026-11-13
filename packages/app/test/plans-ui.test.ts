@@ -136,7 +136,7 @@ describe('Planning chats', () => {
     const row = window
       .getByRole('region', { name: 'Inbox' })
       .getByRole('button')
-      .filter({ hasText: 'Plan · Round 1 · 1 question' })
+      .filter({ hasText: 'Plan · Round 1' })
     await row.waitFor()
     expect(await row.textContent()).toContain('Plan notebook sharing')
     await row.click()
@@ -146,12 +146,8 @@ describe('Planning chats', () => {
     await roundCard.getByRole('radio', { name: /The owner only/ }).check()
     await roundCard.getByRole('button', { name: 'Submit answers' }).click()
     await row.waitFor({ state: 'detached' })
-    await window
-      .getByRole('region', { name: 'Inbox' })
-      .getByRole('status')
-      .getByText('Answered Plan notebook sharing’s Clarify round')
-      .waitFor()
     await window.getByRole('region', { name: 'Nothing open' }).waitFor()
+    expect(await window.getByRole('region', { name: 'Inbox' }).getByRole('status').count()).toBe(0)
     await sidebar(window)
       .getByRole('button', { name: /^Plans/ })
       .click()

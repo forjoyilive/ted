@@ -352,6 +352,14 @@ export function inboxNotice(request: WaitingRequest): ProblemNotice {
   }
 }
 
+export function tedStopsNotice(count: number): ProblemNotice {
+  return {
+    title: appName,
+    body: `${count} ${plural(count, 'Task was', 'Tasks were')} working when TED quit. Open TED to restart ${plural(count, 'it', 'them')}.`,
+    opens: { kind: 'open-ted' },
+  }
+}
+
 export function foldedNotice(count: number): ProblemNotice {
   return { title: appName, body: `${count} new items in your Inbox`, opens: { kind: 'open-inbox' } }
 }

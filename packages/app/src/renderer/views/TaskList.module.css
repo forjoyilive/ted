@@ -581,3 +581,19 @@
     opacity: 1;
   }
 }
+
+.selectionWait {
+  flex-basis: 100%;
+  padding-top: 5px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.selecting .body {
+  padding-bottom: 140px;
+}
+
+.selectionControls {
+  display: contents;
+}

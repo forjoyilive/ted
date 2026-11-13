@@ -136,6 +136,56 @@ describe('waiting Inbox requests', () => {
     expect(store.waiting()).toEqual([])
   })
 
+  test('a snoozed request leaves the waiting list until it is due, answered or unsnoozed', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    const ask = (body: string) =>
+      store.postComment({ taskId: task.id, body, author: run, kind: 'question' })
+    const first = ask('Which page?')
+    const second = ask('Which button?')
+    const soon = '2099-11-11T09:00:00.000Z'
+    const later = '2099-11-12T09:00:00.000Z'
+    await store.persisted()
+    const seen: { waiting: string[]; snoozed: string[] }[] = []
+    store.subscribe((event: DaemonEvent) => {
+      if (event.type === 'inbox-changed')
+        seen.push({ waiting: ids(event.waiting), snoozed: ids(event.snoozed) })
+    })
+
+    expect(store.snoozeRequest('missing', soon)).toBeUndefined()
+    store.snoozeRequest(first.id, later)
+    await expect.poll(() => seen.at(-1)).toEqual({ waiting: [second.id], snoozed: [first.id] })
+    expect(ids(store.waiting())).toEqual([second.id])
+    expect(store.snoozed()).toMatchObject([{ id: first.id, taskId: task.id, snoozedUntil: later }])
+    expect(store.getTask(task.id)?.status).toEqual({ kind: 'waiting-on-you' })
+
+    store.snoozeRequest(second.id, soon)
+    expect(ids(store.snoozed())).toEqual([second.id, first.id])
+    expect(store.getTask(task.id)?.status).toEqual({ kind: 'waiting-on-you', snoozedUntil: soon })
+
+    await store.close()
+    store = await openStore({ directory: dir })
+    expect(store.waiting()).toEqual([])
+    expect(ids(store.snoozed())).toEqual([second.id, first.id])
+
+    expect(store.returnDueRequests(Date.parse(soon) - 1)).toEqual([])
+    expect(store.returnDueRequests(Date.parse(soon))).toEqual([second.id])
+    expect(ids(store.waiting())).toEqual([second.id])
+    expect(store.getTask(task.id)?.status).toEqual({ kind: 'waiting-on-you' })
+
+    store.snoozeRequest(first.id, soon)
+    expect(store.snoozed()).toMatchObject([{ id: first.id, snoozedUntil: soon }])
+    store.answerComment(first.id, { kind: 'answered', at: new Date().toISOString(), text: 'Home' })
+    expect(store.snoozed()).toEqual([])
+    expect(store.requestSnoozesPending()).toBe(false)
+    expect(ids(store.waiting())).toEqual([second.id])
+
+    store.snoozeRequest(second.id, later)
+    store.archiveTask(task.id)
+    expect(store.snoozed()).toEqual([])
+    expect(store.requestSnoozesPending()).toBe(false)
+    expect(store.returnDueRequests(Date.parse(later))).toEqual([])
+  })
+
   test('counts read requests even on Stopped Tasks, but never counts a waiting Run alone', async () => {
     const task = await store.createTask({ title: 'Fix login' })
     store.startRun({ id: 'r1', taskId: task.id, agent: 'claude', prompt: 'Fix it', cwd: dir })
@@ -207,12 +257,24 @@ describe('waiting Inbox requests', () => {
       expect.objectContaining({ source: 'automation', id: asked.id }),
     ])
 
+    const later = '2099-11-11T09:00:00.000Z'
+    expect(store.snoozeRequest(asked.id, later)).toMatchObject({ snoozedUntil: later })
+    expect(ids(store.waiting())).toEqual([question.id])
+    expect(store.snoozed()).toMatchObject([
+      { source: 'automation', id: asked.id, snoozedUntil: later },
+    ])
+    store.snoozeRequest(asked.id, null)
+    expect(ids(store.waiting())).toEqual([question.id, asked.id])
+    store.snoozeRequest(asked.id, later)
+
     await store.persisted()
     const seen = inboxEvents()
     store.automations.answerComment(asked.id, 'Yes')
     await expect.poll(() => seen.length).toBe(1)
     expect(ids(seen[0] ?? [])).toEqual([question.id])
     expect(ids(store.waiting())).toEqual([question.id])
+    expect(store.snoozed()).toEqual([])
+    expect(store.requestSnoozesPending()).toBe(false)
   })
 
   test('a planning chat’s rounds and proposals wait; its notes don’t', async () => {
@@ -265,7 +327,12 @@ describe('waiting Inbox requests', () => {
       }),
       expect.objectContaining({ source: 'plan', id: proposal.id, kind: 'proposal' }),
     ])
+    const later = '2099-11-11T09:00:00.000Z'
+    store.snoozeRequest(round.id, later)
+    expect(ids(store.waiting())).toEqual([proposal.id])
+    expect(store.snoozed()).toMatchObject([{ source: 'plan', id: round.id, snoozedUntil: later }])
     store.plans.answerRequest(round.id, { kind: 'answered', at: new Date().toISOString() })
+    expect(store.requestSnoozesPending()).toBe(false)
     expect(ids(store.waiting())).toEqual([proposal.id])
     store.plans.answerRequest(proposal.id, { kind: 'approved', at: new Date().toISOString() })
     expect(store.waiting()).toEqual([])

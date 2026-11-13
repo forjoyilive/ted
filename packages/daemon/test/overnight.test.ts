@@ -98,6 +98,8 @@ describe('Autopilot', () => {
     })
     const b = await create(client)
     await client.ok('PATCH', '/settings', { overnightMode: true })
+    await client.ok('POST', `/tasks/${a.id}/start`)
+    await client.ok('POST', `/tasks/${b.id}/start`)
     const first = await lead(client, a)
     await lead(client, b)
     const requests = await client.ok<InboxItem[]>('GET', '/inbox')
@@ -146,6 +148,7 @@ describe('Autopilot', () => {
     )
     const b = await create(client)
     await client.ok('PATCH', '/settings', { overnightMode: true })
+    await client.ok('POST', `/tasks/${b.id}/start`)
     await lead(client, b)
     const waiting = await waitUntil(async () => {
       const task = await get(client, a)
@@ -202,7 +205,7 @@ describe('Autopilot', () => {
     expect((await get(client, a)).runs[0]?.state).toBe('idle')
   })
 
-  test('turning Autopilot off preserves a Factory’s own automatic starting', async () => {
+  test('turning Autopilot off preserves a Factory’s own automatic starting, and Autopilot starts no Backlog Task', async () => {
     expect(parseSetTaskAutopilotRequest({ choice: 'on' })).toEqual({ choice: 'on' })
     expect(parseSetTaskAutopilotRequest({ choice: 'off' })).toEqual({ choice: 'off' })
     expect(parseSetTaskAutopilotRequest({ choice: 'inherit' })).toEqual({ choice: 'inherit' })
@@ -211,8 +214,8 @@ describe('Autopilot', () => {
     const { client, factory } = await start()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1, overnightMode: true })
     const a = await create(client)
-    await lead(client, a)
     await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
+    await lead(client, a)
     await client.ok('PATCH', '/settings', { overnightMode: false })
     const b = await create(client)
     await client.ok('POST', `/tasks/${a.id}/stop`)
@@ -231,7 +234,8 @@ describe('Autopilot', () => {
     await client.ok('PUT', `/tasks/${a.id}/autopilot`, { choice: 'on' })
     expect((await get(client, a)).status?.kind).toBe('stopped')
     await client.ok('POST', `/tasks/${b.id}/stop`)
-    await lead(client, explicit)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await get(client, explicit)).stage).toBe('backlog')
     expect((await get(client, manual)).stage).toBe('backlog')
     await client.ok('PATCH', '/settings', { overnightMode: false })
     expect((await get(client, explicit)).autopilot?.enabled).toBe(true)

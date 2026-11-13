@@ -150,6 +150,10 @@ describe('Merge sign-off', () => {
       const { task, signoff } = await toSignoff(client, {}, clock)
       await writeFile(client.mergingFile, '')
       const lead = await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'a Lead')
+      await waitUntil(
+        async () => (await client.getRun(lead)).run.state === 'idle',
+        'the Lead to go idle, which arms its one-minute nudge timer',
+      )
       const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]
       if (!factory) throw new Error('no Factory')
       const gate = path.join(ctx.scratch, 'fetch-gate')
@@ -177,17 +181,19 @@ describe('Merge sign-off', () => {
           ...(action === 'request-changes' && { text: 'Not yet.' }),
         }
         const route = `/comments/${signoff.id}/answer`
+        const minuteWaits = () => clock.pending.filter((ms) => ms === 60_000).length
+        const before = minuteWaits()
         const answers = [client.call('POST', route, request)]
         await eventWait(
           clock.subscribe,
-          () => clock.pending.includes(60_000),
+          () => minuteWaits() === before + 1,
           'the sign-off to wait on the held Task',
         )
         if (action === 'approve') {
           answers.push(client.call('POST', route, request))
           await eventWait(
             clock.subscribe,
-            () => clock.pending.filter((ms) => ms === 60_000).length === 2,
+            () => minuteWaits() === before + 2,
             'both approvals to wait on the held Task',
           )
         }

@@ -2,6 +2,7 @@ import type { ThreadEventTone } from '@ted/protocol'
 import type { ReactNode } from 'react'
 import { ago, useNow } from '../requests.ts'
 import styles from './EventLine.module.css'
+import { ReferenceText } from './References.tsx'
 
 export function EventLine({
   tone,
@@ -23,7 +24,7 @@ export function EventLine({
       <div className={styles.body}>
         <div className={styles.row}>
           <span className={styles.text}>
-            {text}
+            <ReferenceText text={text} />
             {action ? <> · {action}</> : null}
           </span>
           <time className={styles.time} dateTime={at}>
