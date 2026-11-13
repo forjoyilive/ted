@@ -55,3 +55,37 @@ test('moving the branch never runs filters or hooks from the repo’s own config
   expect(await readFile(path.join(dir, 'a.txt'), 'utf8')).toBe('two\n')
   await expect(access(marker)).rejects.toThrow()
 })
+
+test('moving the branch writes only the worktree, ignores replace refs and undoes a move from a commit it didn’t check', async () => {
+  const outside = await mkdtemp(path.join(tmpdir(), 'ted-move-outside-'))
+  try {
+    await git('init', '-q', '--initial-branch=main')
+    await writeFile(path.join(dir, 'a.txt'), 'one\n')
+    await git('add', '-A')
+    await git('commit', '-qm', 'one')
+    const first = await git('rev-parse', 'HEAD')
+    await writeFile(path.join(dir, 'a.txt'), 'two\n')
+    await git('commit', '-qam', 'two')
+    const second = await git('rev-parse', 'HEAD')
+    await writeFile(path.join(dir, 'a.txt'), 'evil\n')
+    await git('commit', '-qam', 'evil')
+    const evil = await git('rev-parse', 'HEAD')
+    await git('reset', '-q', '--hard', first)
+    await git('replace', second, evil)
+    await git('config', 'core.worktree', outside)
+
+    expect(await moveBranchTo(dir, second, first)).toBe(true)
+
+    await git('config', '--unset', 'core.worktree')
+    expect(await git('rev-parse', 'HEAD')).toBe(second)
+    expect(await readFile(path.join(dir, 'a.txt'), 'utf8')).toBe('two\n')
+    await expect(access(path.join(outside, 'a.txt'))).rejects.toThrow()
+
+    await git('replace', '-d', second)
+    await git('reset', '-q', '--hard', first)
+    expect(await moveBranchTo(dir, second, evil)).toBe(false)
+    expect(await git('rev-parse', 'HEAD')).toBe(first)
+  } finally {
+    await rm(outside, { recursive: true, force: true })
+  }
+})

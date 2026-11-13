@@ -106,8 +106,10 @@ import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
 import { openSnoozeMenu, SnoozedContext } from './request-snooze.ts'
+import { clearSelection, toggleTargetSelection } from './selection.ts'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { searchFactory as settingsSearchFactory } from './settings-search.ts'
 import {
   type SetupNotice,
   type SetupNoticeRequest,
@@ -131,6 +133,7 @@ import { Stub } from './views/OtherViews.tsx'
 import { PlanChatView } from './views/PlanChat.tsx'
 import { PlansList } from './views/PlansList.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
+import { TaskMap } from './views/TaskMap.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
@@ -187,12 +190,14 @@ function factoryBadges(
 function isTyping(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
+    !target.hasAttribute('data-selection-box') &&
     (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
   )
 }
 
 const allowedInSettings = new Set([
   'search',
+  'filter',
   'settings',
   'close',
   'back',
@@ -203,6 +208,7 @@ const allowedInSettings = new Set([
   'go-to-all-tasks',
   'go-to-board',
   'go-to-list',
+  'go-to-map',
   'go-to-plans',
 ])
 
@@ -429,9 +435,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       }
       if (settingsOpen) dispatch({ type: 'close-settings' })
       else if (navigation.taskId !== undefined) dispatch({ type: 'close-task' })
-      else return false
+      else return clearSelection()
       return true
     },
+    select: toggleTargetSelection,
     move: (direction) => panes.current !== null && moveFocus(panes.current, direction),
     snoozeRequest: () => {
       const row = panes.current ? snoozeTarget(panes.current) : undefined
@@ -468,6 +475,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return true
     },
   }
+
+  const searchFactory = settingsSearchFactory(factories, currentFactoryId(navigation, tasks))
 
   const commandContext: CommandContext = {
     task: settingsOpen ? undefined : task,
@@ -813,6 +822,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           }
           onFilter={(factoryId) => openInbox({ factoryId })}
           onShowAnswered={(show) => openInbox({ answered: show })}
+          onClearFilters={() => openInbox({ factoryId: undefined, answered: false })}
           onNewTask={() => openNewTask()}
         >
           {opened ??
@@ -833,6 +843,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             tasks={tasks}
             factories={factories}
             settings={settings}
+            slots={slots}
             onOpen={openTask}
             onOpenTask={openTaskByRef}
             onNewTask={() => openNewTask()}
@@ -872,6 +883,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               factoryId={screen.factoryId}
               factory={factory}
               queue={slots?.queue ?? []}
+              slots={slots}
+              settings={settings}
               filters={boardFilters[screen.factoryId] ?? {}}
               onFilters={(filters) =>
                 setBoardFilters((all) => ({ ...all, [screen.factoryId]: filters }))
@@ -899,7 +912,23 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               scope={screen.factoryId}
               breadcrumb="List"
               settings={settings}
+              slots={slots}
               onOpenTask={openTaskByRef}
+              onPlan={openPlans}
+            />
+          )
+        }
+        if (screen.view === 'map') {
+          return (
+            <TaskMap
+              title={name}
+              factoryId={screen.factoryId}
+              tasks={tasks}
+              factories={factories}
+              banners={view.banners}
+              onOpen={openTask}
+              onOpenTask={openTaskByRef}
+              onNewTask={() => openNewTask()}
               onPlan={openPlans}
             />
           )
@@ -916,6 +945,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               }
               onRemoveFactory={() => setRemoving(factory)}
               onOpenTask={openTask}
+              dispatch={dispatch}
             />
           )
         }
@@ -1158,6 +1188,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               section={navigation.settings.section}
               settings={settings}
               factories={factories}
+              searchFactory={searchFactory}
               inboxCount={inboxCount}
               stopsWork={{
                 ...sectionsStoppingWork(banners),

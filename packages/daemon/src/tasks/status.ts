@@ -113,6 +113,15 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   return undefined
 }
 
+export function statusWithoutBlocker(
+  facts: TaskFacts,
+  status: TaskStatus | undefined,
+): TaskStatus | undefined {
+  if (status?.kind !== 'blocked') return undefined
+  const { blockedBy: _, ...unblocked } = facts
+  return taskStatus(unblocked)
+}
+
 export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
   if (facts.stage === 'done' || facts.archived) return []
   const has: Record<TaskStatusKind, boolean> = {

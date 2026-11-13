@@ -1,10 +1,11 @@
 import type { Factory, Task } from '@ted/protocol'
-import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
+import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import type { ArmAction } from './armed.ts'
 import {
   archiveTaskEvent,
   deleteTaskEvent,
   followUpTaskEvent,
+  resetTaskEvent,
 } from './components/ArchiveDialogs.tsx'
 import { snoozeTaskEvent } from './components/SnoozeTaskDialog.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
@@ -33,6 +34,7 @@ export interface KeyActions {
   pressDialogPrimary: () => boolean
   focusFilter: () => boolean
   moveInRank: (direction: 'up' | 'down') => boolean
+  select: () => boolean
 }
 
 export interface CommandContext {
@@ -119,6 +121,14 @@ export const globalCommands: readonly Command[] = [
     scope: 'global',
     shortcuts: keysFor('go-to-list'),
     run: goToView('list'),
+  },
+  {
+    id: 'go-to-map',
+    label: 'Go to Map',
+    scope: 'global',
+    keywords: 'blockers blocked by dependencies',
+    shortcuts: keysFor('go-to-map'),
+    run: goToView('map'),
   },
   {
     id: 'go-to-plans',
@@ -321,6 +331,16 @@ export function taskCommands(task: Task): Command[] {
       shortcuts: keysFor('edit'),
       run: () => taskEvent(editTaskEvent, task),
     },
+    ...(resetRefusal(task) === undefined
+      ? [
+          {
+            id: 'reset',
+            label: 'Reset…',
+            scope: 'task' as const,
+            run: () => taskEvent(resetTaskEvent, task),
+          },
+        ]
+      : []),
     {
       id: 'archive',
       label: 'Archive…',
@@ -394,6 +414,7 @@ export const keyCommands: readonly Command[] = [
   keyCommand('move-up', 'Move up in rank', (k) => k.moveInRank('up')),
   keyCommand('move-down', 'Move down in rank', (k) => k.moveInRank('down')),
   keyCommand('filter', 'Filter', (k) => k.focusFilter()),
+  keyCommand('select', 'Select or deselect', (k) => k.select()),
 ]
 
 export function availableCommands(context: CommandContext): Command[] {

@@ -24,6 +24,7 @@ describe('TED defaults', () => {
       expect(prompt).toContain(
         'Plain language must preserve technical meaning, risks and uncertainty.',
       )
+      expect(prompt).toContain('session numbers, process IDs, log file names')
     }
   })
 

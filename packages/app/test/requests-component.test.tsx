@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
+import { writtenText } from '../src/renderer/components/RoundCard.tsx'
 import { QuestionCard } from '../src/renderer/views/Automations.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
@@ -242,6 +243,9 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   await u.type(f.getByLabelText('Add to answer 1'), 'Clashes are rare.')
   await u.click(f.getByRole('radio', { name: 'Other' }))
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
+  expect((f.getByLabelText('Your answer 1') as HTMLInputElement).value).toBe('Clashes are rare.')
+  expect(submit.disabled).toBe(false)
+  await u.clear(f.getByLabelText('Your answer 1'))
   expect(submit.disabled).toBe(true)
   await u.type(f.getByLabelText('Your answer 1'), '   ')
   expect(submit.disabled).toBe(true)
@@ -250,7 +254,9 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   await u.click(f.getByRole('button', { name: 'Reset' }))
   expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
   await u.click(f.getByText('Keep latest'))
-  expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe('Clashes are rare.')
+  expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
+    'Ask me to resolve each conflict.',
+  )
   await u.click(f.getByRole('radio', { name: 'Other' }))
   expect((f.getByLabelText('Your answer 1') as HTMLInputElement).value).toBe(
     'Ask me to resolve each conflict.',
@@ -260,6 +266,15 @@ test('round recommendations, reset, Other validation and notes are sent as answe
     action: 'answer-round',
     answers: [{ answer: 'Ask me to resolve each conflict.' }, { answer: 'The edit wins.' }],
   })
+})
+
+test('a round draft saved with two texts shows the selected option’s text', () => {
+  expect(writtenText({ note: 'Under a choice', custom: 'Under Other' })).toBe('Under a choice')
+  expect(writtenText({ note: 'Under a choice', custom: 'Under Other', other: true })).toBe(
+    'Under Other',
+  )
+  expect(writtenText({ note: 'Under a choice', other: true })).toBe('Under a choice')
+  expect(writtenText({ note: '', custom: 'Under Other' })).toBe('Under Other')
 })
 
 test('grilling sign-off displays decisions, open questions and button guidance', async () => {
@@ -557,7 +572,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
   await user().click(screen.getByRole('button', { name: 'Show answered' }))
   expect(props.onShowAnswered).toHaveBeenCalledWith(true)
   view.rerender(<Inbox {...props} factoryId="f1" />)
-  expect(screen.getByText(/widgets/)).toBeTruthy()
+  expect(screen.getAllByText(/widgets/)).toHaveLength(2)
   await user().click(screen.getByRole('button', { name: 'Show all Factories' }))
   expect(props.onFilter).toHaveBeenCalledWith(undefined)
 })
@@ -572,6 +587,91 @@ test('resolving a selected request opens the next request and clears when none r
   expect(props.onOpen).toHaveBeenCalledWith(second)
   view.rerender(<Inbox {...props} items={[]} selected="c2" />)
   expect(props.onClear).toHaveBeenCalledOnce()
+})
+
+test('Filter holds Group by, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
+  const props = inboxProps()
+  const question = {
+    task: task(),
+    request: comment({ id: 'q', body: 'A question?', createdAt: '2026-11-09T13:00:00Z' }),
+  }
+  const permission = {
+    task: task(),
+    request: comment({
+      id: 'perm',
+      kind: 'permission',
+      body: 'Run the build',
+      permission: { command: 'pnpm build' },
+      createdAt: '2026-11-09T12:00:00Z',
+    }),
+  }
+  const all = {
+    ...props,
+    items: [question, permission],
+    factories: [factory(), factory({ id: 'f2', name: 'Other' })],
+    onClearFilters: vi.fn(),
+  }
+  try {
+    const view = render(<Inbox {...all} />)
+    const headlines = () =>
+      [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
+    const headings = () =>
+      [...view.container.querySelectorAll('ul [aria-expanded]')].map((el) => [
+        el.textContent,
+        el.getAttribute('aria-expanded'),
+      ])
+    expect(headlines()).toEqual(['A question?', 'Run the build'])
+    expect(headings()).toEqual([])
+    expect(screen.queryByRole('switch', { name: 'Answered' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
+
+    await user().click(screen.getByRole('button', { name: /^Filter/ }))
+    const menu = screen.getByRole('menu', { name: 'Filter' })
+    expect(
+      within(menu).getByRole('menuitemradio', { name: /^None/ }).getAttribute('aria-checked'),
+    ).toBe('true')
+    await user().click(within(menu).getByRole('button', { name: 'Other 0' }))
+    expect(props.onFilter).toHaveBeenCalledWith('f2')
+    await user().click(within(menu).getByRole('switch', { name: 'Answered' }))
+    expect(props.onShowAnswered).toHaveBeenCalledWith(true)
+
+    await user().click(within(menu).getByRole('menuitemradio', { name: /^Kind/ }))
+    expect(headings()).toEqual([
+      ['Blocking a Run1', 'true'],
+      ['Questions1', 'true'],
+    ])
+    expect(headlines()).toEqual(['Run the build', 'A question?'])
+    expect(screen.getByText('Grouped by Kind')).toBeTruthy()
+
+    await user().click(screen.getByRole('button', { name: /^Blocking a Run/ }))
+    expect(headings()).toEqual([
+      ['Blocking a Run1', 'false'],
+      ['Questions1', 'true'],
+    ])
+    expect(headlines()).toEqual(['A question?'])
+    view.rerender(<Inbox {...all} selected="perm" />)
+    expect(props.onOpen).not.toHaveBeenCalled()
+    expect(props.onClear).not.toHaveBeenCalled()
+
+    view.unmount()
+    render(<Inbox {...all} />)
+    const again = () =>
+      [...document.querySelectorAll('ul [aria-expanded]')].map((el) => [
+        el.textContent,
+        el.getAttribute('aria-expanded'),
+      ])
+    expect(again()).toEqual([
+      ['Blocking a Run1', 'false'],
+      ['Questions1', 'true'],
+    ])
+
+    await user().click(screen.getByRole('button', { name: 'Clear' }))
+    expect(all.onClearFilters).toHaveBeenCalledOnce()
+    expect(again()).toEqual([])
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
+  } finally {
+    localStorage.removeItem('ted.inbox.grouping')
+  }
 })
 
 test('Inbox interleaves request types newest first, filters without reordering, and selects the next visible row', async () => {

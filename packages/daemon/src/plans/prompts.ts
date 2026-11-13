@@ -9,7 +9,7 @@ export const planResumePrompt =
   'Your process stopped before you finished, so TED resumed your session. Check where you were in the planning chat, then carry on.'
 
 const roundFormat =
-  'The file is JSON: a short `title`, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text.'
+  'The file is JSON: a short `title` that names the topic and doesn’t say how many questions there are, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text.'
 
 const proposalFormat =
   'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per Task. Each row has a `title`, a one-line `scope`, an optional `description` that becomes the Task’s description, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first.'

@@ -135,6 +135,8 @@ async function refusal(work: () => unknown): Promise<number | undefined> {
 test('failure text is redacted, bounded and refuses links that carry credentials', () => {
   expect(failureText(`Bearer ${secret}`)).toBe('Bearer [redacted]')
   expect(failureText('word '.repeat(4000))).toHaveLength(16_000)
+  const numbered = 'On 195e5ce2, the command exited 1. Other 16 test failures, session 28376.'
+  expect(failureText(numbered)).toBe(numbered)
   expect(() => failureText('https://user:pass@example.com/log')).toThrow(
     expect.objectContaining({ status: 400 }),
   )

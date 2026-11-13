@@ -391,9 +391,9 @@ describe('Plans list', () => {
       `Plan sharing\n${steps({ run: ['ted', 'ask', '--round', roundFile] }, { endTurn: true })}`,
     )
     const waiting = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
-    expect(waiting.plan.waitingOn).toBe('Round 1 · 2 questions')
+    expect(waiting.plan.waitingOn).toBe('Round 1')
     const [listed] = await client.ok<Plan[]>('GET', '/plans?factory=NB')
-    expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1 · 2 questions' })
+    expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1' })
     await client.ok('POST', `/plans/${plan.id}/stop`)
   })
 

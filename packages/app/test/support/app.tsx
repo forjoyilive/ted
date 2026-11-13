@@ -76,6 +76,7 @@ export function appState() {
     taskDescriptions: () => [],
     taskChanges: () => ({ repos: [] }),
     taskFiles: (taskId) => ({ taskId, repos: [] }),
+    taskCommits: () => [],
     lineComments: () => [],
     listApps: () => [],
     listStageEntries: () => [],

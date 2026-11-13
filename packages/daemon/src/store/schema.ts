@@ -1594,6 +1594,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskReset: Events.synced({
+    name: 'v1.TaskReset',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      description: Schema.String,
+      clarifyDepth: Schema.String,
+      clarifyDepthBy: Schema.NullOr(Schema.String),
+      runIds: Schema.Array(Schema.String),
+      checkRunIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskEdited: Events.synced({
     name: 'v1.TaskEdited',
     schema: Schema.Struct({
@@ -2745,6 +2757,17 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  baseBranchAdopted: Events.synced({
+    name: 'v1.BaseBranchAdopted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      base: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   p1OnlyReviewRecorded: Events.synced({
     name: 'v1.SeverityRuleReviewRecorded',
     schema: Schema.Struct({
@@ -3177,6 +3200,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.LinearPullRequestsLinked': (args) =>
     task(args, { identifier: args.identifier, urls: args.urls }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
+  'v1.TaskReset': (args) => task(args, { clarifyDepth: args.clarifyDepth }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
   'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
@@ -3208,6 +3232,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       fileCount: args.fileCount,
       sendBackId: args.sendBackId,
     }),
+  'v1.BaseBranchAdopted': (args) => task(args, { repo: args.repo, base: args.base }),
   'v1.SendBackSeverityDeclared': (args) =>
     task(args, { runId: args.runId, round: args.round, severity: args.severity }),
   'v1.SeverityRuleReviewRecorded': (args) =>
@@ -3497,6 +3522,8 @@ const materializers = counted(
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateApprovalBound': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.BaseBranchAdopted': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateKeptOvernight': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateSkippedOvernight': ({ taskId, at }) =>
@@ -3673,6 +3700,92 @@ const materializers = counted(
               runs.delete().where({ id: { op: 'IN', value: runIds } }),
               runMessages.delete().where({ runId: { op: 'IN', value: runIds } }),
               runInterrupts.delete().where({ runId: { op: 'IN', value: runIds } }),
+            ]),
+        ...(checkRunIds.length === 0
+          ? []
+          : [
+              checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+              checkBoundaries.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+            ]),
+      ],
+      'v1.TaskReset': ({
+        taskId,
+        description,
+        clarifyDepth,
+        clarifyDepthBy,
+        runIds,
+        checkRunIds,
+        at,
+      }) => [
+        tasks
+          .update({
+            description,
+            clarifyDepth,
+            clarifyDepthBy,
+            stage: 'backlog',
+            branch: null,
+            worktree: null,
+            activity: null,
+            activityEntries: null,
+            stageEffort: null,
+            pendingLeadMessage: null,
+            pendingLeadDeliveries: null,
+            leadRestartPending: false,
+            startRequested: false,
+            waitsForBlockers: false,
+            snoozedUntil: null,
+            stoppedAt: null,
+            stoppedRuns: null,
+            stoppedWhy: null,
+            preparation: null,
+            failedAt: null,
+            needsPlanningAt: null,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+        taskQueue.delete().where({ taskId }),
+        taskBrowserCaptures.delete().where({ taskId }),
+        commentAttachments.delete().where({ taskId }),
+        lineComments.delete().where({ taskId }),
+        runs.delete().where({ taskId }),
+        subAgentRequests.delete().where({ taskId }),
+        reviewers.delete().where({ taskId }),
+        loopChecks.delete().where({ taskId }),
+        sendBackAsks.delete().where({ taskId }),
+        conversationTabs.delete().where({ taskId }),
+        comments.delete().where({ taskId }),
+        requestSnoozes.delete().where({ ownerId: taskId }),
+        messageDrafts.delete().where({ taskId }),
+        taskLog.delete().where({ taskId, name: { op: 'NOT LIKE', value: 'v1.Linear%' } }),
+        taskBriefs.delete().where({ taskId }),
+        peerMessages.delete().where({ recipientTaskId: taskId }),
+        taskDescriptions.delete().where({ taskId }),
+        sendBacks.delete().where({ taskId }),
+        reviewScopes.delete().where({ taskId }),
+        baseConflicts.delete().where({ taskId }),
+        p1OnlyReviews.delete().where({ taskId }),
+        severityDeclarations.delete().where({ taskId }),
+        sendBackResets.delete().where({ taskId }),
+        checkRuns.delete().where({ taskId }),
+        testInvocations.delete().where({ taskId }),
+        failureCases.delete().where({ taskId }),
+        validationProgress.delete().where({ taskId }),
+        failureContexts.delete().where({ taskId }),
+        stageEntries.delete().where({ taskId }),
+        taskRepos.delete().where({ taskId }),
+        pullRequests.delete().where({ taskId }),
+        heldRuns.delete().where({ taskId }),
+        intervalBoundaries.delete().where({ subject: `task:${taskId}` }),
+        ...(runIds.length === 0
+          ? []
+          : [
+              runs.delete().where({ id: { op: 'IN', value: runIds } }),
+              runMessages.delete().where({ runId: { op: 'IN', value: runIds } }),
+              runInterrupts.delete().where({ runId: { op: 'IN', value: runIds } }),
+              messageDrafts.delete().where({ key: { op: 'IN', value: runIds.map(runDraftKey) } }),
+              intervalBoundaries
+                .delete()
+                .where({ subject: { op: 'IN', value: runIds.map((id) => `run:${id}`) } }),
             ]),
         ...(checkRunIds.length === 0
           ? []

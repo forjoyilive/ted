@@ -1,5 +1,6 @@
 import {
   type Attachment,
+  maxCommitLookups,
   type NewTaskDraft,
   parseAddFailureEvidenceRequest,
   parseAnswerRequest,
@@ -325,6 +326,11 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/unarchive$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.unarchive(ref)],
   },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/reset$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.reset(ref)],
+  },
   jsonRoute(parseDeleteTaskRequest, {
     optionalBody: true,
     method: 'POST',
@@ -458,6 +464,23 @@ export const taskRoutes: Route[] = [
     async handle({ req, params: [ref = '', name = ''] }, { tasks }) {
       const file = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path') ?? undefined
       return [200, await tasks.fileDiffs(ref, name, file)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/commits(?:\?.*)?$/,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can look up commits')
+      const ids = new URL(req.url ?? '/', 'http://localhost').searchParams.get('ids') ?? ''
+      return [200, await tasks.commits(ref, ids.split(',').slice(0, maxCommitLookups))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/commits\/([^/?]+)$/,
+    async handle({ params: [ref = '', commit = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read a commit')
+      return [200, await tasks.commitChanges(ref, commit)]
     },
   },
   {

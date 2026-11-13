@@ -24,7 +24,11 @@ export function useLineComments(task: Task): LineComment[] {
     focus: true,
     load: () => ted.lineComments(taskId),
     event: (event) => {
-      if (event.type === 'line-comments-changed' && event.taskId === taskId) return 'reload'
+      if (
+        (event.type === 'line-comments-changed' || event.type === 'task-reset') &&
+        event.taskId === taskId
+      )
+        return 'reload'
       if (
         (event.type === 'task-updated' && event.task.id === taskId) ||
         (event.type === 'run-output' && runIds.current.has(event.runId))
