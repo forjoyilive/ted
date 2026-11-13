@@ -588,7 +588,7 @@ describe('Autopilot and a Task that changes .ted/', () => {
   })
 })
 
-test('Task Autopilot answers recommended rounds and lets only its current Lead answer ordinary questions', async () => {
+test('Task Autopilot answers recommended rounds, lets only its current Lead answer ordinary questions and approves its archive request', async () => {
   const client = await start({
     ...gated,
     order: 'intake, clarify, design, work, validate, review, merge',
@@ -727,6 +727,38 @@ test('Task Autopilot answers recommended rounds and lets only its current Lead a
   ).toBe(403)
   await advanceTo(client, task, 'design')
   expect(await gateRequests(client, task)).toEqual([])
+
+  const archivePath = `/tasks/${task.id}/archive-request`
+  const reason = { reason: 'Duplicate of TED-255' }
+  expect((await token.call('POST', archivePath, { reason: ' ' })).status).toBe(400)
+  expect((await token.call('POST', `/tasks/${other.id}/archive-request`, reason)).status).toBe(403)
+  expect((await client.call('POST', archivePath, reason)).status).toBe(403)
+  await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'off' })
+  const asked = await token.call('POST', archivePath, reason)
+  expect(asked.status).toBe(201)
+  const kept = asked.body as import('@ted/protocol').Comment
+  expect(kept).toMatchObject({
+    kind: 'question',
+    purpose: { kind: 'archive' },
+    choices: ['Archive', 'Keep it'],
+    archive: { reason: 'Duplicate of TED-255' },
+  })
+  expect((await token.call('POST', archivePath, reason)).status).toBe(409)
+  expect((await token.call('POST', `/tasks/${task.id}/autopilot/${kept.id}`, answer)).status).toBe(
+    403,
+  )
+  await client.ok('POST', `/comments/${kept.id}/answer`, { action: 'answer', choice: 'Keep it' })
+  const keptTask = await getTask(client, task.id)
+  expect(keptTask.archived).not.toBe(true)
+  expect(keptTask.stage).toBe('design')
+  const again = (await token.call('POST', archivePath, reason))
+    .body as import('@ted/protocol').Comment
+  await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'on' })
+  await waitUntil(async () => (await getTask(client, task.id)).archived, 'Autopilot archives')
+  expect((await comments()).find((c) => c.id === again.id)).toMatchObject({
+    autopilotAnswered: true,
+    answer: { kind: 'answered', choice: 'Archive' },
+  })
 })
 
 test.each(['global', 'Task'] as const)(

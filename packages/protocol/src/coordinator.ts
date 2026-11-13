@@ -217,6 +217,7 @@ export interface CoordinatorAction extends MoveTaskRequest {
   recommended?: boolean
   skipRows?: number[]
   startUnblocked?: boolean
+  closePullRequests?: boolean
 }
 
 export interface CoordinatorCreate extends MoveTaskRequest {

@@ -1,4 +1,5 @@
 import type { BlockedChoice, Task, TaskHierarchyPreview } from '@ted/protocol'
+import { archiveChoice } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTaskRuns, useTasks } from '../data.ts'
 import { childrenOf, isMerged } from '../hierarchy.ts'
@@ -156,7 +157,7 @@ function joinAnd(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }
 
-function openPullRequests(task: Task) {
+export function openPullRequests(task: Task) {
   return task.repos.flatMap((r) =>
     r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
       ? [{ repo: r, pr: r.pullRequest }]
@@ -164,7 +165,7 @@ function openPullRequests(task: Task) {
   )
 }
 
-function useBlocked(task: Task): Task[] {
+export function useBlocked(task: Task): Task[] {
   return useTasks().filter((t) => t.blockedBy.includes(task.id) && !t.archived)
 }
 
@@ -258,10 +259,18 @@ function runsPhrase(runs: number): string {
   return `its ${runs} Runs`
 }
 
-export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+export function ArchiveDialog({
+  task,
+  onClose,
+  request,
+}: {
+  task: Task
+  onClose: () => void
+  request?: { id: string; closePullRequests: boolean; text?: string } | undefined
+}) {
   const blocked = useBlocked(task)
   const prs = openPullRequests(task)
-  const [close, setClose] = useState(true)
+  const [close, setClose] = useState(request?.closePullRequests ?? true)
   const [choice, setChoice] = useState<BlockedChoice>('unblock')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -290,14 +299,22 @@ export function ArchiveDialog({ task, onClose }: { task: Task; onClose: () => vo
     setBusy(true)
     setError(undefined)
     try {
-      await ted.archiveTask(task.id, {
+      const options = {
         closePullRequests: prs.length > 0 && close,
         ...(blocked.length > 0 && { blocked: choice }),
         ...(hierarchy.preview && {
-          children: family === 'together' ? 'archive' : 'detach',
+          children: family === 'together' ? ('archive' as const) : ('detach' as const),
           hierarchyRevision: hierarchy.preview.revision,
         }),
-      })
+      }
+      if (request)
+        await ted.answerRequest(request.id, {
+          action: 'answer',
+          choice: archiveChoice,
+          ...(request.text !== undefined && { text: request.text }),
+          archive: options,
+        })
+      else await ted.archiveTask(task.id, options)
       onClose()
     } catch (failure) {
       setError(readableError(failure))

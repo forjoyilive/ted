@@ -176,7 +176,7 @@ export function parseCoordinatorAction(
     body.decision !== 'request-changes'
   )
     throw new HttpError(400, 'decision must be approve or request-changes')
-  for (const name of ['recommended', 'startUnblocked'])
+  for (const name of ['recommended', 'startUnblocked', 'closePullRequests'])
     if (body[name] !== undefined && typeof body[name] !== 'boolean')
       throw new HttpError(400, `${name} must be true or false`)
   const ways = [
@@ -199,6 +199,9 @@ export function parseCoordinatorAction(
     ...(body.recommended === true && { recommended: true }),
     ...(body.skipRows !== undefined && { skipRows: rows(body.skipRows) }),
     ...(body.startUnblocked === true && { startUnblocked: true }),
+    ...(typeof body.closePullRequests === 'boolean' && {
+      closePullRequests: body.closePullRequests,
+    }),
     ...(message !== '' && { message }),
   }
 }

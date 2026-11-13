@@ -113,6 +113,24 @@ roundTrip(P.parseArchiveTaskRequest, {
   children: 'detach',
   hierarchyRevision: 'a'.repeat(64),
 })
+roundTrip(P.parseRequestArchiveRequest, {
+  reason: 'Duplicate of TED-255',
+  pullRequests: { recommend: 'close', why: 'TED-255 has the same changes' },
+})
+test('parseRequestArchiveRequest keeps the reason to one line', () => {
+  expect(P.parseRequestArchiveRequest({ reason: '  Duplicate\n of TED-255 ' })).toEqual({
+    reason: 'Duplicate of TED-255',
+  })
+})
+rejects(P.parseRequestArchiveRequest, {}, 'a reason must be text')
+rejects(P.parseRequestArchiveRequest, { reason: ' ' }, 'give a reason')
+rejects(P.parseRequestArchiveRequest, { reason: 'x'.repeat(301) }, 'at most 300 characters')
+rejects(
+  P.parseRequestArchiveRequest,
+  { reason: 'Done', pullRequests: { recommend: 'merge', why: 'x' } },
+  'pullRequests.recommend must be close or keep',
+)
+rejects(P.parseAnswerRequest, { action: 'answer', archive: true }, 'archive must be an object')
 roundTrip(P.parseDeleteTaskRequest, {
   blocked: 'unblock',
   children: 'delete',
@@ -198,7 +216,17 @@ for (const answer of [
   },
   { action: 'request-changes', text: 'Change this' },
   { action: 'deny', text: 'Denied' },
-  { action: 'answer', text: 'Yes', choice: 'Yes' },
+  {
+    action: 'answer',
+    text: 'Yes',
+    choice: 'Archive',
+    archive: {
+      closePullRequests: true,
+      blocked: 'keep',
+      children: 'detach',
+      hierarchyRevision: 'a'.repeat(64),
+    },
+  },
   { action: 'accept-recommended' },
   { action: 'answer-round', answers: [{ answer: 'This', note: 'Reason' }] },
 ] satisfies P.AnswerRequest[])

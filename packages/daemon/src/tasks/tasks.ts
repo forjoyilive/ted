@@ -10,6 +10,7 @@ import type {
   AppLog,
   AppRef,
   AppStarter,
+  ArchiveAsk,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   AsanaImportPreview,
@@ -60,6 +61,7 @@ import type {
   RecordFailureRequest,
   ReportOutcomeRequest,
   RepoSetupReport,
+  RequestArchiveRequest,
   ResolveFailureRequest,
   RoundInput,
   Run,
@@ -112,11 +114,13 @@ import type {
 import {
   agentShortNames,
   agentStageIds,
+  archiveChoice,
   bannerId,
   briefHeadings,
   clarifyDepths,
   clarifyIsOver,
   isChat,
+  keepArchiveChoice,
   parseAsanaTaskUrl,
   parseLinearUrl,
   type ResetRefusal,
@@ -521,6 +525,7 @@ export interface Tasks {
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
+  requestArchive(ref: string, caller: Caller, request: RequestArchiveRequest): Promise<Comment>
   allowLinearSync(ref: string): Task
   allowLinearTeam(factoryId: string, team: string): MachineSettings
   archiveDone(factory: string): ArchiveDoneResult
@@ -5133,6 +5138,17 @@ export function createTasks(options: {
           archivePlan(task.id)
         },
         archiveNow: (task, close) => archiveHierarchy(task.id, { closePullRequests: close }),
+        archiveAsked: (task, options) => {
+          const revision =
+            options.hierarchyRevision ??
+            (underToArchive(task.id).length === 0 ? hierarchyRevision(task.factoryId) : undefined)
+          const chosen = {
+            ...options,
+            ...(revision !== undefined && { hierarchyRevision: revision }),
+          }
+          archivePlan(task.id, chosen.hierarchyRevision, chosen.children === 'detach')
+          return () => archiveHierarchy(task.id, chosen)
+        },
         wake,
         sendNudge,
         useDefaultModel,
@@ -5200,6 +5216,11 @@ export function createTasks(options: {
       !ordinaryAutopilotRequest(current)
     )
       throw new RequestError(409, 'Autopilot cannot answer this request')
+    if (current.archive && underToArchive(task.id).length > 0)
+      throw new RequestError(
+        403,
+        'archiving would archive the Tasks under it too, so this needs the user',
+      )
     if (comment.gate) {
       if (
         comment.stage !== task.stage ||
@@ -5240,6 +5261,28 @@ export function createTasks(options: {
       }
       for (const comment of openRequests(id)) {
         if (comment.held || !ordinaryAutopilotRequest(comment)) continue
+        if (comment.archive) {
+          try {
+            await answerAs(
+              comment.id,
+              {
+                action: 'answer',
+                choice: archiveChoice,
+                archive: {
+                  closePullRequests: comment.archive.pullRequests?.recommend === 'close',
+                  blocked: 'unblock',
+                },
+              },
+              false,
+              undefined,
+              true,
+            )
+          } catch (error) {
+            if (!(error instanceof RequestError) || (error.status !== 403 && error.status !== 409))
+              throw error
+          }
+          continue
+        }
         if (comment.kind !== 'round' && !comment.gate) {
           const key = `${id}:${comment.id}:${find(id).leadRunId ?? ''}`
           if (!automaticNotified.has(key)) {
@@ -6517,6 +6560,54 @@ export function createTasks(options: {
       childIds: store.childrenOf(task.id),
       revision: hierarchyRevision(task.factoryId),
     }
+  }
+
+  async function requestArchive(
+    ref: string,
+    caller: Caller,
+    request: RequestArchiveRequest,
+  ): Promise<Comment> {
+    const { task, runId } = taskLead(ref, caller, 'asks to archive its Task')
+    return holding(task, async () => {
+      const now = find(task.id)
+      if (now.archived) throw new RequestError(409, `${now.displayId} is already archived`)
+      if (now.stage === 'done') throw new RequestError(409, `${now.displayId} is Done`)
+      if (openRequests(now.id).some((c) => c.archive))
+        throw new RequestError(409, `${now.displayId} already has an archive request waiting`)
+      const open = publicTask(now.id).repos.flatMap((r) =>
+        r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
+          ? [`${r.name} #${r.pullRequest.number}`]
+          : [],
+      )
+      if (open.length > 0 && !request.pullRequests)
+        throw new RequestError(
+          400,
+          `${now.displayId} has an open pull request (${open.join(', ')}); say whether to close it with --close-pull-requests "<why>" or --keep-pull-requests "<why>"`,
+        )
+      const archive: ArchiveAsk = {
+        reason: redactSecrets(request.reason),
+        ...(open.length > 0 &&
+          request.pullRequests && {
+            pullRequests: {
+              recommend: request.pullRequests.recommend,
+              why: redactSecrets(request.pullRequests.why),
+            },
+          }),
+      }
+      return store.postComment({
+        taskId: now.id,
+        kind: 'question',
+        author: { kind: 'run', runId },
+        title: `Archive ${now.displayId}?`,
+        body: archive.reason,
+        choices: [archiveChoice, keepArchiveChoice],
+        archive,
+      })
+    })
+  }
+
+  function underToArchive(taskId: string): string[] {
+    return descendants(taskId).filter((id) => !find(id).archived)
   }
 
   function descendants(taskId: string): string[] {
@@ -9351,6 +9442,7 @@ export function createTasks(options: {
     hierarchyPreview,
     setParent,
     archive: archiveHierarchy,
+    requestArchive,
 
     unarchive,
     delete: remove,
@@ -9566,6 +9658,7 @@ export function createTasks(options: {
         throw new RequestError(400, 'replace a size check with `ted clarify too-big --supersedes`')
       }
       if (old.gate) throw new RequestError(409, 'a sign-off request can’t be superseded')
+      if (old.archive) throw new RequestError(409, 'an archive request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
       }
@@ -9605,6 +9698,7 @@ export function createTasks(options: {
         !comment ||
         comment.taskId !== task.id ||
         comment.kind !== 'question' ||
+        comment.archive !== undefined ||
         !ordinaryAutopilotRequest(comment) ||
         request.action !== 'answer'
       )

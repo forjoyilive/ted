@@ -18,6 +18,7 @@ let directory: string
 let store: TedStore
 let taskId: string
 let effects: string[]
+let archiveId = ''
 let port: RequestAnswerPort
 const unexpected = (): never => {
   throw new Error('unexpected effect')
@@ -89,6 +90,13 @@ beforeEach(async () => {
       effects.push('archived')
       return port.find(taskId)
     },
+    archiveAsked: (_task, options) => {
+      effects.push(`archive-checked:${JSON.stringify(options)}`)
+      return () => {
+        effects.push(`archived:${store.getComment(archiveId)?.answer?.kind}`)
+        return port.find(taskId)
+      }
+    },
     wake: () => {},
     sendNudge: async () => {
       effects.push('nudged')
@@ -128,6 +136,36 @@ const answer = (
   sendDrafts = true,
 ) => createRequestAnswers(port)(comment.id, request, sendDrafts)
 const finish = (comment: Comment) => store.answerComment(comment.id, { kind: 'answered', at: at() })
+
+test('an archive request needs a choice, records the answer before archiving and keeps the Task on Keep it', async () => {
+  const ask = (reason: string) =>
+    post(
+      { kind: 'archive' },
+      {
+        choices: ['Archive', 'Keep it'],
+        archive: { reason, pullRequests: { recommend: 'close', why: 'Same changes' } },
+      },
+    )
+  const kept = ask('Duplicate of TED-255')
+  await expect(answer(kept, { action: 'answer', text: 'Hmm' })).rejects.toThrow(
+    'answer with Archive or Keep it',
+  )
+  expect(
+    await answer(kept, { action: 'answer', choice: 'Keep it', text: 'Still needed' }),
+  ).toMatchObject({ answer: { kind: 'answered', choice: 'Keep it', text: 'Still needed' } })
+  expect(effects).toEqual(['delivered'])
+  effects = []
+  const archived = ask('Duplicate of TED-255')
+  archiveId = archived.id
+  const options = { closePullRequests: true, blocked: 'keep' as const }
+  expect(
+    await answer(archived, { action: 'answer', choice: 'Archive', archive: options }),
+  ).toMatchObject({
+    answer: { kind: 'answered', choice: 'Archive' },
+    archive: { reason: 'Duplicate of TED-255' },
+  })
+  expect(effects).toEqual([`archive-checked:${JSON.stringify(options)}`, 'archived:answered'])
+})
 
 test('an ordinary answer leaves the Inbox once and is delivered, while repeat answers are rejected', async () => {
   const comment = post({ kind: 'question' })
@@ -341,6 +379,27 @@ test.each([true, false])(
     expect(store.lineCommentDrafts(taskId).map((d) => d.id)).toEqual(sendDrafts ? [] : [draft.id])
     expect(store.getComment(comment.id)?.lineComments?.map((d) => d.id) ?? []).toEqual(
       sendDrafts ? [draft.id] : [],
+    )
+
+    const second = store.draftLineComment({
+      taskId,
+      repo: 'widgets',
+      path: 'app.ts',
+      side: 'new',
+      start: 2,
+      end: 2,
+      commit: 'head',
+      quoted: [],
+      body: 'And this one',
+    })
+    const asked = post(
+      { kind: 'archive' },
+      { choices: ['Archive', 'Keep it'], archive: { reason: 'Duplicate' } },
+    )
+    archiveId = asked.id
+    await answer(asked, { action: 'answer', choice: 'Archive', text: 'Agreed' }, sendDrafts)
+    expect(store.getComment(asked.id)?.lineComments?.map((d) => d.id) ?? []).toEqual(
+      sendDrafts ? [second.id] : [],
     )
   },
 )

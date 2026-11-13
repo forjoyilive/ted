@@ -693,6 +693,7 @@ export type RequestPurpose =
         | 'linear-closed'
         | 'linear-team'
         | 'asana-missing'
+        | 'archive'
         | 'idle-run'
         | 'ci-stuck'
     }
@@ -730,7 +731,23 @@ export interface Comment {
   tutorial?: true
   linearTeam?: LinearTeam
   asanaMissing?: import('./asana-import.ts').AsanaMissing
+  archive?: ArchiveAsk
 }
+
+export const archiveChoice = 'Archive'
+export const keepArchiveChoice = 'Keep it'
+
+export interface PullRequestAdvice {
+  recommend: 'close' | 'keep'
+  why: string
+}
+
+export interface ArchiveAsk {
+  reason: string
+  pullRequests?: PullRequestAdvice
+}
+
+export type RequestArchiveRequest = ArchiveAsk
 
 export interface DesignFile {
   hash: string
@@ -880,7 +897,7 @@ export type AnswerRequest =
   | { action: 'approve'; text?: string; proposal?: ProposalChoice; simulator?: string }
   | { action: 'request-changes'; text: string }
   | { action: 'deny'; text?: string }
-  | { action: 'answer'; choice?: string; text?: string }
+  | { action: 'answer'; choice?: string; text?: string; archive?: ArchiveTaskRequest }
   | { action: 'answer-round'; answers: RoundAnswerInput[] }
   | { action: 'accept-recommended' }
 

@@ -505,6 +505,7 @@ export const comments = State.SQLite.table({
     tutorial: State.SQLite.boolean({ default: false }),
     linearTeam: State.SQLite.text({ nullable: true }),
     asanaMissing: State.SQLite.text({ nullable: true }),
+    archive: State.SQLite.text({ nullable: true }),
     purpose: State.SQLite.text({ nullable: true }),
     heldFor: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
@@ -3139,6 +3140,10 @@ export const events = {
     name: 'v1.CommentAsanaMissingAsked',
     schema: Schema.Struct({ commentId: Schema.String, missing: Schema.String }),
   }),
+  commentArchiveAsked: Events.synced({
+    name: 'v1.CommentArchiveAsked',
+    schema: Schema.Struct({ commentId: Schema.String, archive: Schema.String }),
+  }),
   automationTaskCreated: Events.synced({
     name: 'v1.AutomationTaskCreated',
     schema: Schema.Struct({
@@ -3791,6 +3796,8 @@ const materializers = counted(
         comments.update({ linearTeam: JSON.stringify({ key, name }) }).where({ id: commentId }),
       'v1.CommentAsanaMissingAsked': ({ commentId, missing }) =>
         comments.update({ asanaMissing: missing }).where({ id: commentId }),
+      'v1.CommentArchiveAsked': ({ commentId, archive }) =>
+        comments.update({ archive }).where({ id: commentId }),
       'v1.RequestHeld': ({ commentId, runId }) =>
         comments.update({ heldFor: runId }).where({ id: commentId }),
       'v1.RequestReleased': ({ commentId, at }) =>

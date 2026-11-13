@@ -23,6 +23,7 @@ import {
   type AgentStageId,
   type Appearance,
   type AppStarter,
+  type ArchiveAsk,
   type AsanaMissing,
   type Attachment,
   type AutopilotChoice,
@@ -545,6 +546,7 @@ export interface NewComment {
   tutorial?: boolean
   linearTeam?: LinearTeam
   asanaMissing?: AsanaMissing
+  archive?: ArchiveAsk
 }
 
 export interface NewLineComment {
@@ -2242,6 +2244,7 @@ export async function openStore({
     tutorial,
     linearTeam,
     asanaMissing,
+    archive,
     purpose,
     heldFor,
     ...row
@@ -2291,6 +2294,7 @@ export async function openStore({
         ...(tutorial && { tutorial: true as const }),
         ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
         ...(asanaMissing !== null && { asanaMissing: JSON.parse(asanaMissing) as AsanaMissing }),
+        ...(archive !== null && { archive: JSON.parse(archive) as ArchiveAsk }),
         ...(design !== null && { design: JSON.parse(design) as DesignReview }),
         ...withFiles(row.id),
         ...withLineComments(row.id),
@@ -2644,6 +2648,7 @@ export async function openStore({
       tutorial = false,
       linearTeam,
       asanaMissing,
+      archive,
       purpose,
     }: NewComment,
     createdAt: string,
@@ -2693,6 +2698,7 @@ export async function openStore({
         ...(sizeCheck && { sizeCheck }),
         ...(linearTeam && { linearTeam }),
         ...(asanaMissing && { asanaMissing }),
+        ...(archive && { archive }),
       })
     const heldFor =
       askedBy !== undefined &&
@@ -2724,6 +2730,9 @@ export async function openStore({
               missing: JSON.stringify(asanaMissing),
             }),
           ]
+        : []),
+      ...(archive
+        ? [events.commentArchiveAsked({ commentId: id, archive: JSON.stringify(archive) })]
         : []),
     ]
     return { id, event, attached }
@@ -4623,7 +4632,9 @@ export async function openStore({
     changeStage(taskId, stage, entry, options) {
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId).filter(
-        (row) => (row.gate !== null || row.kind === 'round') && row.stage !== stage,
+        (row) =>
+          ((row.gate !== null || row.kind === 'round') && row.stage !== stage) ||
+          (stage === 'done' && row.archive !== null),
       )
       const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
       commit(

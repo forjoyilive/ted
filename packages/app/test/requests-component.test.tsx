@@ -2258,3 +2258,77 @@ test('keyboard sign-off changes show pending feedback on the matching answer onl
   expect(changes.getAttribute('aria-busy')).toBeNull()
   expect(screen.getByRole('alert').textContent).toBe('Couldn’t send changes')
 })
+
+test('an archive request presets the pull request choice, sends Keep it with a message and opens the Archive dialog when Tasks are blocked', async () => {
+  const { answer, handle } = requestApi()
+  const withPr = task({
+    repos: [
+      {
+        name: 'widgets',
+        repo: 'acme/widgets',
+        branch: 'ted/nb-1-sync-notes',
+        worktree: '/tmp/NB-1/widgets',
+        copied: [],
+        skipped: [],
+        pullRequest: {
+          number: 212,
+          state: 'draft',
+          url: 'https://github.com/acme/widgets/pull/212',
+          base: 'main',
+        },
+      } as ReturnType<typeof task>['repos'][number],
+    ],
+  })
+  const request = comment({
+    title: 'Archive NB-1?',
+    body: 'Duplicate of NB-2',
+    author: { kind: 'run', runId: 'r1' },
+    choices: ['Archive', 'Keep it'],
+    purpose: { kind: 'archive' },
+    archive: {
+      reason: 'Duplicate of NB-2',
+      pullRequests: { recommend: 'keep', why: 'NB-2 reuses the branch' },
+    },
+  })
+  handle('listTasks', () => [withPr])
+  const view = render(<RequestCard task={withPr} request={request} />)
+  const u = user()
+  const close = await screen.findByRole('checkbox', { name: /Close the pull request/ })
+  expect((close as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByText(/recommends keeping it: NB-2 reuses the branch/)).toBeTruthy()
+  await u.click(close)
+  await u.click(screen.getByRole('button', { name: 'Archive' }))
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    choice: 'Archive',
+    archive: { closePullRequests: true },
+  })
+  await u.type(screen.getByLabelText('Message to the Task Lead'), 'Still needed for NB-3')
+  await u.click(screen.getByRole('button', { name: 'Keep it' }))
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    choice: 'Keep it',
+    text: 'Still needed for NB-3',
+  })
+  view.unmount()
+
+  const blocked = task({ id: 'NB-3', displayId: 'NB-3', number: 3, blockedBy: ['NB-1'] })
+  handle('listTasks', () => [withPr, blocked])
+  render(<RequestCard task={withPr} request={request} />)
+  expect(await screen.findByRole('region', { name: 'Blocked by NB-1' })).toBeTruthy()
+  expect(screen.queryByRole('checkbox', { name: /Close the pull request/ })).toBeNull()
+  await u.type(screen.getByLabelText('Message to the Task Lead'), 'Merged into NB-2')
+  await u.click(screen.getByRole('button', { name: 'Archive…' }))
+  const dialog = screen.getByRole('dialog')
+  expect(
+    (within(dialog).getByRole('checkbox', { name: /Close the pull requests/ }) as HTMLInputElement)
+      .checked,
+  ).toBe(false)
+  await u.click(within(dialog).getByRole('button', { name: 'Archive' }))
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    choice: 'Archive',
+    text: 'Merged into NB-2',
+    archive: { closePullRequests: false, blocked: 'unblock' },
+  })
+})

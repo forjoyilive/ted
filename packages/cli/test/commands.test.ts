@@ -207,6 +207,8 @@ describe('importable CLI execution', () => {
     expect(await runCli(['comment', '--attach', 'missing.txt', '--skip'], runtime)).toBe(2)
     expect(await runCli(['task', 'done'], runtime)).toBe(2)
     expect(errors).toContain('ted task done works only inside a Task Lead’s Run')
+    expect(await runCli(['task', 'archive', '--reason', 'Duplicate'], runtime)).toBe(2)
+    expect(errors).toContain('ted task archive works only inside a Task Lead’s Run')
     expect(errors).toContain('--design')
     expect(errors).toContain('--skip')
     expect(errors).not.toContain('ENOENT')
@@ -317,6 +319,49 @@ describe('marking a merged Task done', () => {
     ).toBe('coordinatorDone')
     expect(helpText()).toContain('ted task done')
     expect(helpText()).toContain('ted coordinator done')
+  })
+})
+
+describe('asking to archive a Task', () => {
+  test('parses ted task archive with its reason and pull request flags', () => {
+    const lead = { TED_TASK: 'NB-1' }
+    const invocation = parseInvocation(
+      [
+        'task',
+        'archive',
+        '--reason',
+        'Duplicate of NB-2',
+        '--keep-pull-requests',
+        '--pull-request-reason',
+        'NB-2 reuses it',
+      ],
+      lead,
+    )
+    expect(invocation).toMatchObject({
+      handler: 'taskArchive',
+      options: { reason: 'Duplicate of NB-2', 'keep-pull-requests': true },
+    })
+    expect(() => parseInvocation(['task', 'archive'], lead)).toThrow(UsageError)
+    expect(
+      parseInvocation(
+        [
+          'coordinator',
+          'answer',
+          'NB-1',
+          '--request',
+          'c',
+          '--operation',
+          'op',
+          '--version',
+          'v',
+          '--choice',
+          'Archive',
+          '--close-pull-requests',
+        ],
+        {},
+      ).options,
+    ).toMatchObject({ 'close-pull-requests': true })
+    expect(helpText()).toContain('ted task archive')
   })
 })
 

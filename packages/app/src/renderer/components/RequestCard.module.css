@@ -452,3 +452,21 @@
   color: var(--status-warning-text);
   font-size: var(--text-12-5);
 }
+
+.archiveList {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+}
+
+.archiveList ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.archiveListHeading {
+  margin: 0 0 4px;
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}

@@ -28,7 +28,7 @@ import type {
   StageId,
   Task,
 } from '@ted/protocol'
-import { priorities } from '@ted/protocol'
+import { archiveChoice, priorities } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -64,7 +64,7 @@ Use only these TED commands, which return JSON:
 - ted coordinator tell <id> --operation <unique-id> --version <version> --message "<text>": send a message to that Task’s Task Lead. It is posted on the Task as a Comment marked as sent through you.
 - ted coordinator answer <id> --request <comment-id> --operation <unique-id> --version <version> plus one way of answering, chosen by the request’s coordinatorMayAnswer:
   - “yes” (a question): --choice "<answer>", --message "<text>", or both.
-  - “with a choice” (a question TED asked, a size check, a failure decision): --choice "<answer>", one of its choices; --message is optional.
+  - “with a choice” (a question TED asked, a size check, a failure decision, a Task Lead’s archive request): --choice "<answer>", one of its choices; --message is optional. To answer an archive request with Archive when the Task has an open pull request, add --close-pull-requests or --keep-pull-requests, as the human asked or as the Task Lead recommended. TED refuses Archive when Tasks under it would be archived too; that one waits for the human.
   - “approve or request changes” (a sign-off request or proposal): --approve, or --request-changes with --message. Approving a proposal creates its Tasks; --skip-rows '[2,3]' leaves rows out and --start-unblocked starts the ones nothing blocks.
   - “round answers” (a Clarify round): --recommended to accept every recommended answer, or --answers '[{"answer":"…","note":"…"}, …]' with one entry per question, in order.
   - “no” (a permission prompt, a simulator ask, the Linear team ask): only the human answers these, in the Inbox.
@@ -716,7 +716,8 @@ export function createCoordinators(options: {
     if (comment.kind === 'round') return 'round answers'
     if (comment.kind === 'proposal' || comment.gate) return 'approve or request changes'
     if (comment.kind !== 'question') return 'no'
-    if (comment.sizeCheck || tasks.isFailureDecision(comment.id)) return 'with a choice'
+    if (comment.sizeCheck || comment.archive || tasks.isFailureDecision(comment.id))
+      return 'with a choice'
     return comment.author.kind === 'ted' && (comment.choices?.length ?? 0) > 0
       ? 'with a choice'
       : 'yes'
@@ -775,12 +776,34 @@ export function createCoordinators(options: {
       throw new RequestError(400, 'This request is answered with one of its choices')
     if (input.choice !== undefined && !asked.choices?.includes(input.choice))
       throw new RequestError(409, `“${input.choice}” isn’t one of the request’s choices`)
+    const archive = asked.archive && input.choice === archiveChoice
+    if (!archive && input.closePullRequests !== undefined)
+      throw new RequestError(
+        400,
+        `--close-pull-requests and --keep-pull-requests only go with ${archiveChoice} on an archive request`,
+      )
+    if (archive) {
+      const facts = confirmationFacts(task, 'archive')
+      if (facts.descendants.length > 0)
+        throw new RequestError(
+          403,
+          `Archiving ${task.displayId} would archive the Tasks under it too; that waits for the human in the Inbox`,
+        )
+      if (facts.pullRequests.length > 0 && input.closePullRequests === undefined)
+        throw new RequestError(
+          400,
+          `${task.displayId} has an open pull request; add --close-pull-requests or --keep-pull-requests`,
+        )
+    }
     return {
       asked,
       answer: {
         action: 'answer',
         ...(input.choice !== undefined && { choice: input.choice }),
         text,
+        ...(archive && {
+          archive: { closePullRequests: input.closePullRequests === true, blocked: 'unblock' },
+        }),
       },
     }
   }
@@ -1355,6 +1378,7 @@ export function createCoordinators(options: {
                       input.startUnblocked,
                     ]
                   : []),
+                ...(input.closePullRequests !== undefined ? [input.closePullRequests] : []),
               ]),
             )
             .digest('hex')

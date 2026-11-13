@@ -735,6 +735,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
     if (options.approve && options['request-changes'])
       throw new UsageError('give --approve or --request-changes, not both')
+    if (options['close-pull-requests'] && options['keep-pull-requests'])
+      throw new UsageError('give --close-pull-requests or --keep-pull-requests, not both')
     const given = choices.length > 0 || options.approve || round
     const typed = options.message ?? (command === 'tell' || !given ? await readStdin() : '')
     const message = typed.trim() === '' ? undefined : typed.trim()
@@ -760,6 +762,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       ...(options.recommended && { recommended: true }),
       ...(skipRows !== undefined && { skipRows: skipRows as number[] }),
       ...(options['start-unblocked'] && { startUnblocked: true }),
+      ...(options['close-pull-requests'] && { closePullRequests: true }),
+      ...(options['keep-pull-requests'] && { closePullRequests: false }),
     }
     const receipt = await withDaemon(home, (client) =>
       client.coordinatorAct(args[0] ?? '', command, input),
@@ -1402,6 +1406,31 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (by === undefined) throw new UsageError('name the blocker with --by <id>')
       const task = await withDaemon(home, (client) => client.blockTask(ref, by))
       console.log(`${task.displayId} waits for ${by}`)
+    },
+    taskArchive: async () => {
+      const ref = tedEnv('TED_TASK', env)
+      if (!ref) throw new UsageError('ted task archive works only inside a Task Lead’s Run')
+      const reason = options.reason ?? ''
+      const close = options['close-pull-requests'] === true
+      const keep = options['keep-pull-requests'] === true
+      if (close && keep)
+        throw new UsageError('give --close-pull-requests or --keep-pull-requests, not both')
+      const why = options['pull-request-reason']
+      if ((close || keep) !== (why !== undefined))
+        throw new UsageError(
+          'give --pull-request-reason "<why>" together with --close-pull-requests or --keep-pull-requests',
+        )
+      const asked = await withDaemon(home, (client) =>
+        client.requestArchive(ref, {
+          reason,
+          ...(why !== undefined && {
+            pullRequests: { recommend: close ? 'close' : 'keep', why },
+          }),
+        }),
+      )
+      console.log(
+        `Asked the human to archive ${ref} (request ${asked.id}). End your turn now; TED sends you their answer.`,
+      )
     },
     taskDone: async () => {
       const ref = tedEnv('TED_TASK', env)

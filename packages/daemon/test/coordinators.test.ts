@@ -1321,6 +1321,45 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
   const again = await answer({ operation: 'again', request: question.id, choice: 'Wait' })
   expect(again.status).toBe(409)
   expect((again.body as { error: string }).error).toContain('already closed')
+
+  const archiveAsk = (
+    await other.lead.call('POST', `/tasks/${other.task.id}/archive-request`, {
+      reason: 'Duplicate of the first Task',
+    })
+  ).body as Comment
+  const answerOther = async (body: Record<string, unknown>) =>
+    run.call('POST', `/coordinator/tasks/${other.task.id}/answer`, {
+      version: await version(run, other.task.id),
+      ...body,
+    })
+  expect(
+    (
+      await answerOther({
+        operation: 'close-wrong',
+        request: foreign.id,
+        choice: 'Wait',
+        closePullRequests: true,
+      })
+    ).status,
+  ).toBe(400)
+  const archiveInput = {
+    operation: 'archive-1',
+    version: await version(run, other.task.id),
+    request: archiveAsk.id,
+    choice: 'Archive',
+    closePullRequests: false,
+  }
+  const archivePath = `/coordinator/tasks/${other.task.id}/answer`
+  const archived = await run.call('POST', archivePath, archiveInput)
+  expect(archived.status).toBe(200)
+  expect((await run.call('POST', archivePath, archiveInput)).body).toEqual(archived.body)
+  expect(
+    (await run.call('POST', archivePath, { ...archiveInput, closePullRequests: true })).status,
+  ).toBe(409)
+  expect(
+    (await s.comments(other.task.id)).find((c) => c.id === archiveAsk.id)?.answer,
+  ).toMatchObject({ kind: 'answered', choice: 'Archive' })
+  expect(await s.ok<Task>('GET', `/tasks/${other.task.id}`)).toMatchObject({ archived: true })
 })
 
 test('answer approves a sign-off request or asks for changes, and refuses permission prompts', async () => {

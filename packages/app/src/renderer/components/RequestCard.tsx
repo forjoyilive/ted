@@ -10,6 +10,7 @@ import type {
   ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
+import { archiveChoice, keepArchiveChoice } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
@@ -17,6 +18,7 @@ import {
   useCheckRuns,
   useComments,
   useSimulators,
+  useTasks,
   useThreadEvents,
   useValidationObligations,
 } from '../data.ts'
@@ -37,7 +39,7 @@ import { stageName } from '../views/TaskViews.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
-import { Dialog } from './ArchiveDialogs.tsx'
+import { ArchiveDialog, Dialog, openPullRequests, useBlocked } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
@@ -446,19 +448,165 @@ function useSending(
   return { send, sending, setSending, sendingRef, submission, setSubmission, error, setError }
 }
 
-export function RequestAnswer({
-  request,
-  task,
-  onOpenRun,
-  onOpenPlan,
-  lead,
-}: {
+type AnswerProps = {
   request: Comment
   task: Task
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenPlan?: ((planId: string) => void) | undefined
   lead?: ReactNode
-}) {
+}
+
+export function RequestAnswer(props: AnswerProps) {
+  return props.request.archive ? <ArchiveAnswer {...props} /> : <QuestionAnswer {...props} />
+}
+
+function ArchiveAnswer({ request, task, lead }: AnswerProps) {
+  const boxId = useId()
+  const kept = useMessageDraft({ kind: 'request', id: request.id })
+  const { text, setText } = kept
+  const { send: post, sending, submission, error } = useSending(request, false, undefined)
+  const all = useTasks()
+  const under = all.filter((t) => !t.archived && isUnder(t, task.id, all))
+  const blocked = useBlocked(task)
+  const prs = openPullRequests(task)
+  const advice = request.archive?.pullRequests
+  const [close, setClose] = useState(advice?.recommend === 'close')
+  const [dialog, setDialog] = useState(false)
+  const asksUser = under.length > 0 || blocked.length > 0
+  const typed = text.trim() !== ''
+
+  async function send(answer: AnswerRequest) {
+    if (await post(answer)) kept.clear()
+  }
+
+  return (
+    <>
+      <p className={styles.caption}>
+        Archiving stops the Task’s Runs and removes its worktree. Comments, the brief and the
+        branches are kept, and you can unarchive it later.
+      </p>
+      {under.length > 0 && (
+        <TaskNames
+          heading={`${under.length === 1 ? 'Task' : 'Tasks'} under ${task.displayId}`}
+          tasks={under}
+        />
+      )}
+      {blocked.length > 0 && <TaskNames heading={`Blocked by ${task.displayId}`} tasks={blocked} />}
+      {prs.length > 0 && !asksUser && (
+        <label className={dialogStyles.check}>
+          <input
+            type="checkbox"
+            checked={close}
+            disabled={sending}
+            onChange={(event) => setClose(event.target.checked)}
+          />
+          <span>
+            Close the pull {prs.length === 1 ? 'request' : 'requests'} on GitHub
+            <span className={dialogStyles.checkNote}>
+              {prs.map(({ repo, pr }) => `${repo.name} #${pr.number}`).join(', ')}
+            </span>
+          </span>
+        </label>
+      )}
+      {prs.length > 0 && advice && (
+        <p className={styles.caption}>
+          {`The Task Lead recommends ${advice.recommend === 'close' ? 'closing' : 'keeping'} ${prs.length === 1 ? 'it' : 'them'}: ${advice.why}`}
+        </p>
+      )}
+      {under.length > 0 && task.autopilot?.enabled === true && (
+        <p className={styles.caption}>
+          Autopilot is on, but this waits for you: archiving would archive the Tasks under{' '}
+          {task.displayId} too.
+        </p>
+      )}
+      <textarea
+        id={boxId}
+        className={styles.box}
+        data-answer-box
+        aria-label="Message to the Task Lead"
+        placeholder="Add a message for the Task Lead…"
+        value={text}
+        disabled={sending}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {error !== undefined && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
+      <div className={styles.buttons}>
+        {lead}
+        <Button
+          pending={
+            sending && submission?.action === 'answer' && submission.choice !== archiveChoice
+          }
+          disabled={sending}
+          onClick={() =>
+            send({ action: 'answer', choice: keepArchiveChoice, ...(typed && { text }) })
+          }
+        >
+          {keepArchiveChoice}
+        </Button>
+        <Button
+          variant="primary"
+          pending={
+            sending && submission?.action === 'answer' && submission.choice === archiveChoice
+          }
+          disabled={sending}
+          onClick={() =>
+            asksUser
+              ? setDialog(true)
+              : send({
+                  action: 'answer',
+                  choice: archiveChoice,
+                  ...(typed && { text }),
+                  archive: { closePullRequests: prs.length > 0 && close },
+                })
+          }
+        >
+          {asksUser ? `${archiveChoice}…` : archiveChoice}
+        </Button>
+      </div>
+      {dialog && (
+        <ArchiveDialog
+          task={task}
+          request={{
+            id: request.id,
+            closePullRequests: advice?.recommend === 'close',
+            ...(typed && { text }),
+          }}
+          onClose={() => setDialog(false)}
+        />
+      )}
+    </>
+  )
+}
+
+function isUnder(candidate: Task, rootId: string, all: readonly Task[]): boolean {
+  const seen = new Set<string>()
+  let parent = candidate.parentId
+  while (parent !== undefined && !seen.has(parent)) {
+    if (parent === rootId) return true
+    seen.add(parent)
+    parent = all.find((t) => t.id === parent)?.parentId
+  }
+  return false
+}
+
+function TaskNames({ heading, tasks }: { heading: string; tasks: readonly Task[] }) {
+  return (
+    <section className={styles.archiveList} aria-label={heading}>
+      <h4 className={styles.archiveListHeading}>{heading}</h4>
+      <ul>
+        {tasks.map((t) => (
+          <li key={t.id}>{`${t.displayId} ${t.title}`}</li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function QuestionAnswer({ request, task, onOpenRun, onOpenPlan, lead }: AnswerProps) {
   const repairFormId = useId()
   const boxId = useId()
   const box: MessageBox = { kind: 'request', id: request.id }
