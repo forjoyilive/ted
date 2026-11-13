@@ -380,6 +380,27 @@ test.each([true, false])(
     expect(store.getComment(comment.id)?.lineComments?.map((d) => d.id) ?? []).toEqual(
       sendDrafts ? [draft.id] : [],
     )
+
+    const second = store.draftLineComment({
+      taskId,
+      repo: 'widgets',
+      path: 'app.ts',
+      side: 'new',
+      start: 2,
+      end: 2,
+      commit: 'head',
+      quoted: [],
+      body: 'And this one',
+    })
+    const asked = post(
+      { kind: 'archive' },
+      { choices: ['Archive', 'Keep it'], archive: { reason: 'Duplicate' } },
+    )
+    archiveId = asked.id
+    await answer(asked, { action: 'answer', choice: 'Archive', text: 'Agreed' }, sendDrafts)
+    expect(store.getComment(asked.id)?.lineComments?.map((d) => d.id) ?? []).toEqual(
+      sendDrafts ? [second.id] : [],
+    )
   },
 )
 

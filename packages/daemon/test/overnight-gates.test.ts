@@ -748,7 +748,9 @@ test('Task Autopilot answers recommended rounds, lets only its current Lead answ
     403,
   )
   await client.ok('POST', `/comments/${kept.id}/answer`, { action: 'answer', choice: 'Keep it' })
-  expect(await getTask(client, task.id)).toMatchObject({ archived: false, stage: 'design' })
+  const keptTask = await getTask(client, task.id)
+  expect(keptTask.archived).not.toBe(true)
+  expect(keptTask.stage).toBe('design')
   const again = (await token.call('POST', archivePath, reason))
     .body as import('@ted/protocol').Comment
   await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'on' })

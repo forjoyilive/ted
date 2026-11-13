@@ -1296,10 +1296,20 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
       })
     ).status,
   ).toBe(400)
+  const archiveInput = {
+    operation: 'archive-1',
+    version: await version(run, other.task.id),
+    request: archiveAsk.id,
+    choice: 'Archive',
+    closePullRequests: false,
+  }
+  const archivePath = `/coordinator/tasks/${other.task.id}/answer`
+  const archived = await run.call('POST', archivePath, archiveInput)
+  expect(archived.status).toBe(200)
+  expect((await run.call('POST', archivePath, archiveInput)).body).toEqual(archived.body)
   expect(
-    (await answerOther({ operation: 'archive-1', request: archiveAsk.id, choice: 'Archive' }))
-      .status,
-  ).toBe(200)
+    (await run.call('POST', archivePath, { ...archiveInput, closePullRequests: true })).status,
+  ).toBe(409)
   expect(
     (await s.comments(other.task.id)).find((c) => c.id === archiveAsk.id)?.answer,
   ).toMatchObject({ kind: 'answered', choice: 'Archive' })

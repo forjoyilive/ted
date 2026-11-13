@@ -570,7 +570,11 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
       {dialog && (
         <ArchiveDialog
           task={task}
-          request={{ id: request.id, closePullRequests: advice?.recommend === 'close' }}
+          request={{
+            id: request.id,
+            closePullRequests: advice?.recommend === 'close',
+            ...(typed && { text }),
+          }}
           onClose={() => setDialog(false)}
         />
       )}

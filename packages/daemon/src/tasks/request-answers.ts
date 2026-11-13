@@ -794,12 +794,12 @@ export function createRequestAnswers(
           now,
           request.action === 'answer' ? (request.archive ?? {}) : {},
         )
-        const answered = answerRequest(task, comment, {
-          kind: 'answered',
-          at,
-          choice,
-          ...(text !== '' && { text }),
-        })
+        const answered = answerRequest(
+          task,
+          comment,
+          { kind: 'answered', at, choice, ...(text !== '' && { text }) },
+          text !== '' && sendDrafts ? drafts(task.id) : undefined,
+        )
         archive()
         wake()
         return store.getComment(comment.id) ?? answered

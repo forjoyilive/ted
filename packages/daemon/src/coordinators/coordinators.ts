@@ -1231,6 +1231,7 @@ export function createCoordinators(options: {
                       input.startUnblocked,
                     ]
                   : []),
+                ...(input.closePullRequests !== undefined ? [input.closePullRequests] : []),
               ]),
             )
             .digest('hex')

@@ -2317,6 +2317,7 @@ test('an archive request presets the pull request choice, sends Keep it with a m
   render(<RequestCard task={withPr} request={request} />)
   expect(await screen.findByRole('region', { name: 'Blocked by NB-1' })).toBeTruthy()
   expect(screen.queryByRole('checkbox', { name: /Close the pull request/ })).toBeNull()
+  await u.type(screen.getByLabelText('Message to the Task Lead'), 'Merged into NB-2')
   await u.click(screen.getByRole('button', { name: 'Archive…' }))
   const dialog = screen.getByRole('dialog')
   expect(
@@ -2327,6 +2328,7 @@ test('an archive request presets the pull request choice, sends Keep it with a m
   expect(answer).toHaveBeenLastCalledWith('c1', {
     action: 'answer',
     choice: 'Archive',
+    text: 'Merged into NB-2',
     archive: { closePullRequests: false, blocked: 'unblock' },
   })
 })

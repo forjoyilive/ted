@@ -266,7 +266,7 @@ export function ArchiveDialog({
 }: {
   task: Task
   onClose: () => void
-  request?: { id: string; closePullRequests: boolean } | undefined
+  request?: { id: string; closePullRequests: boolean; text?: string } | undefined
 }) {
   const blocked = useBlocked(task)
   const prs = openPullRequests(task)
@@ -311,6 +311,7 @@ export function ArchiveDialog({
         await ted.answerRequest(request.id, {
           action: 'answer',
           choice: archiveChoice,
+          ...(request.text !== undefined && { text: request.text }),
           archive: options,
         })
       else await ted.archiveTask(task.id, options)
