@@ -271,6 +271,7 @@ export const taskSources = State.SQLite.table({
     linearBranchName: State.SQLite.text({ nullable: true }),
     linearDescription: State.SQLite.text({ nullable: true }),
     sentryShortId: State.SQLite.text({ nullable: true }),
+    asana: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -503,6 +504,7 @@ export const comments = State.SQLite.table({
     design: State.SQLite.text({ nullable: true }),
     tutorial: State.SQLite.boolean({ default: false }),
     linearTeam: State.SQLite.text({ nullable: true }),
+    asanaMissing: State.SQLite.text({ nullable: true }),
     purpose: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -1563,6 +1565,10 @@ export const events = {
   taskSourceSentrySet: Events.synced({
     name: 'v1.TaskSourceSentrySet',
     schema: Schema.Struct({ taskId: Schema.String, shortId: Schema.String, at: Schema.String }),
+  }),
+  taskSourceAsanaSet: Events.synced({
+    name: 'v1.TaskSourceAsanaSet',
+    schema: Schema.Struct({ taskId: Schema.String, asana: Schema.String, at: Schema.String }),
   }),
   taskStarted: Events.synced({
     name: 'v1.TaskStarted',
@@ -3084,6 +3090,10 @@ export const events = {
     name: 'v1.CommentLinearTeamAsked',
     schema: Schema.Struct({ commentId: Schema.String, key: Schema.String, name: Schema.String }),
   }),
+  commentAsanaMissingAsked: Events.synced({
+    name: 'v1.CommentAsanaMissingAsked',
+    schema: Schema.Struct({ commentId: Schema.String, missing: Schema.String }),
+  }),
   automationTaskCreated: Events.synced({
     name: 'v1.AutomationTaskCreated',
     schema: Schema.Struct({
@@ -3731,6 +3741,8 @@ const materializers = counted(
         comments.update({ tutorial: true }).where({ id: commentId }),
       'v1.CommentLinearTeamAsked': ({ commentId, key, name }) =>
         comments.update({ linearTeam: JSON.stringify({ key, name }) }).where({ id: commentId }),
+      'v1.CommentAsanaMissingAsked': ({ commentId, missing }) =>
+        comments.update({ asanaMissing: missing }).where({ id: commentId }),
       'v1.CommentDesignAttached': ({ commentId, design }) =>
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
@@ -3765,6 +3777,8 @@ const materializers = counted(
       'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
       'v1.TaskSourceSentrySet': ({ taskId, shortId }) =>
         taskSources.update({ sentryShortId: shortId }).where({ taskId }),
+      'v1.TaskSourceAsanaSet': ({ taskId, asana }) =>
+        taskSources.update({ asana }).where({ taskId }),
       'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
         tasks.update({ stage, branch, worktree }).where({ id: taskId }),
       'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),

@@ -10,6 +10,7 @@ import type {
   Task,
   TaskLead,
 } from '@ted/protocol'
+import { findAsanaUrl } from '@ted/protocol/asana-import'
 import { findLinearUrl } from '@ted/protocol/linear'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
@@ -24,6 +25,11 @@ import {
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
+import {
+  AsanaImportPreview,
+  type AsanaPreviewState,
+  asanaCreateLabel,
+} from '../components/AsanaImportPreview.tsx'
 import pickerStyles from '../components/BlockerPicker.module.css'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -162,6 +168,8 @@ function NewTaskForm({
   const [creatingMore, setCreatingMore] = useState(false)
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
+  const [asana, setAsana] = useState<AsanaPreviewState>()
+  const asanaTickets = useRef(0)
   const lookups = useRef(0)
   const mounted = useRef(false)
   const submitting = useRef(false)
@@ -226,6 +234,13 @@ function NewTaskForm({
         }
         setReady(true)
         const restored = session.get()
+        const asanaLink = restored.source
+          ? findAsanaUrl(restored.source)
+          : findAsanaUrl(restored.description)
+        if (asanaLink && !restored.dismissed.includes(asanaLink.url)) {
+          setAsana({ url: asanaLink.url })
+          return
+        }
         const link = restored.source
           ? findLinearUrl(restored.source)
           : findLinearUrl(restored.description)
@@ -318,6 +333,29 @@ function NewTaskForm({
   }, [ready, busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
+  const asanaUrl = asana?.url
+  const chosenKey = chosenFactory?.key
+  useEffect(() => {
+    if (asanaUrl === undefined || chosenKey === undefined) return
+    const ticket = ++asanaTickets.current
+    setAsana({ url: asanaUrl })
+    ted.previewAsanaImport({ url: asanaUrl, factory: chosenKey }).then(
+      (preview) => {
+        if (ticket === asanaTickets.current) setAsana({ url: asanaUrl, preview })
+      },
+      (failure: unknown) => {
+        if (ticket === asanaTickets.current)
+          setAsana({ url: asanaUrl, error: `Couldn’t read Asana: ${readableError(failure)}` })
+      },
+    )
+  }, [asanaUrl, chosenKey])
+  const asanaReady =
+    asana === undefined ||
+    (asana.preview !== undefined &&
+      asana.preview.refusal === undefined &&
+      (asana.preview.create > 0 ||
+        asana.preview.tracked === undefined ||
+        asana.preview.rows.some((row) => row.action.kind === 'linked')))
   const fetching = source !== undefined && source.lookup === undefined
   const canCreate =
     ready &&
@@ -329,10 +367,26 @@ function NewTaskForm({
     description.trim() !== '' &&
     uploading === 0 &&
     !busy &&
-    !fetching
+    !fetching &&
+    asanaReady
 
   function changeDescription(text: string) {
     setDescription(text)
+    const asanaLink = findAsanaUrl(text)
+    if (asanaLink && !dismissed.includes(asanaLink.url)) {
+      if (asanaLink.url !== asana?.url) {
+        lookups.current++
+        setSource(undefined)
+        setAsana({ url: asanaLink.url })
+        session.update({ source: asanaLink.url })
+      }
+      return
+    }
+    if (asana) {
+      asanaTickets.current++
+      setAsana(undefined)
+      session.update({ source: undefined })
+    }
     const link = findLinearUrl(text)
     if (!link) {
       if (source) {
@@ -346,6 +400,14 @@ function NewTaskForm({
     lookUp(link.url, link.identifier)
   }
 
+  function removeAsana() {
+    if (!asana) return
+    asanaTickets.current++
+    setDismissed((current) => [...current, asana.url])
+    setAsana(undefined)
+    session.update({ source: undefined })
+  }
+
   function removeSource() {
     if (!source) return
     lookups.current++
@@ -356,6 +418,8 @@ function NewTaskForm({
 
   function clear() {
     lookups.current++
+    asanaTickets.current++
+    setAsana(undefined)
     setSource(undefined)
     setError(undefined)
     descriptionField.current?.focus()
@@ -384,6 +448,21 @@ function NewTaskForm({
     try {
       await session.flush()
       const revision = session.get().revision
+      if (asana?.preview) {
+        await ted.importAsana({
+          url: asana.url,
+          factory: chosenFactory.key,
+          priority,
+          start,
+          draftRevision: revision,
+          ...(asana.preview.tracked && { addToTree: true }),
+        })
+        created = true
+        session.consumed(revision)
+        if (more) clear()
+        else onClose()
+        return
+      }
       await ted.createTask({
         draftRevision: revision,
         factory: chosenFactory.key,
@@ -556,11 +635,12 @@ function NewTaskForm({
               ref={descriptionField}
               className={styles.description}
               aria-label="Description"
-              placeholder="Describe what you want done, or paste a Linear issue URL."
+              placeholder="Describe what you want done, or paste a Linear issue or Asana task URL."
               rows={3}
               value={description}
               onChange={(event) => changeDescription(event.target.value)}
             />
+            {asana && <AsanaImportPreview state={asana} onRemove={removeAsana} />}
             {source && (
               <SourceCard
                 source={source}
@@ -799,7 +879,7 @@ function NewTaskForm({
               pending={busy && !creatingMore}
               onClick={() => create(false)}
             >
-              Create
+              {asana?.preview ? asanaCreateLabel(asana.preview) : 'Create'}
             </Button>
           </footer>
         </fieldset>

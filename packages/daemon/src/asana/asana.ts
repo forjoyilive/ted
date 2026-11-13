@@ -34,8 +34,24 @@ export interface AsanaOptions {
   clock?: Clock
 }
 
-class ConnectionError extends Error {}
+class ConnectionError extends Error {
+  readonly status: number | undefined
+  constructor(message: string, status?: number) {
+    super(message)
+    this.status = status
+  }
+}
 class RevokedError extends ConnectionError {}
+
+export class AsanaReadError extends Error {
+  readonly status: number | undefined
+  constructor(message: string, status?: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+const maxReadBytes = 4_000_000
 
 export function createAsana(options: AsanaOptions) {
   const oauth = checkedOrigin(options.oauthOrigin ?? 'https://app.asana.com')
@@ -118,7 +134,11 @@ export function createAsana(options: AsanaOptions) {
       }
     }
   }
-  async function request(url: string, init: RequestInit): Promise<Record<string, unknown>> {
+  async function request(
+    url: string,
+    init: RequestInit,
+    maxBytes = 32_768,
+  ): Promise<Record<string, unknown>> {
     try {
       const response = await fetch(url, {
         ...init,
@@ -138,6 +158,7 @@ export function createAsana(options: AsanaOptions) {
           )
         throw new ConnectionError(
           'Asana couldn’t complete the request. Check your connection and app permissions, then try again.',
+          response.status,
         )
       }
       if (url.endsWith('/-/oauth_revoke')) {
@@ -153,7 +174,7 @@ export function createAsana(options: AsanaOptions) {
           const { done, value } = await reader.read()
           if (done) break
           size += value.length
-          if (size > 32_768) throw new Error()
+          if (size > maxBytes) throw new Error()
           chunks.push(value)
         }
       } finally {
@@ -273,7 +294,66 @@ export function createAsana(options: AsanaOptions) {
       return status()
     })
   }
+  function accessToken(): Promise<{ access: string; user: { gid: string; name: string } }> {
+    const started = generation
+    return serial(async () => {
+      const { record, place } = await store.read()
+      if (!record?.tokens || !place)
+        throw new ConnectionError('Connect Asana in Settings → Integrations, then try again.')
+      let tokens = record.tokens
+      if (tokens.expires <= now() + 30_000) {
+        try {
+          tokens = await exchange(record, {
+            grant_type: 'refresh_token',
+            refresh_token: tokens.refresh,
+            redirect_uri: redirectUri,
+          })
+          if (tokens.user.gid !== record.tokens.user.gid)
+            throw new RevokedError(
+              'Asana returned a different account. Reconnect to authorize it explicitly.',
+            )
+        } catch (error) {
+          if (error instanceof RevokedError && started === generation) {
+            await store.write(
+              { version: 1, clientId: record.clientId, clientSecret: record.clientSecret },
+              place,
+            )
+            notice = error.message
+          }
+          throw error
+        }
+        if (started === generation) await store.write({ ...record, tokens }, place)
+      }
+      return { access: tokens.access, user: { gid: tokens.user.gid, name: tokens.user.name } }
+    })
+  }
+  async function read(
+    path: string,
+    query: Record<string, string> = {},
+  ): Promise<Record<string, unknown>> {
+    if (!/^\/[a-z_]+(\/\d{1,32}(\/[a-z_]+)?)?$/.test(path))
+      throw new AsanaReadError('TED asked Asana for an unexpected path')
+    const { access } = await accessToken().catch((error: unknown) => {
+      throw new AsanaReadError(error instanceof Error ? error.message : 'Couldn’t read Asana')
+    })
+    const url = new URL(`/api/1.0${path}`, api)
+    url.search = new URLSearchParams(query).toString()
+    try {
+      return await request(
+        url.href,
+        { headers: { authorization: `Bearer ${access}`, accept: 'application/json' } },
+        maxReadBytes,
+      )
+    } catch (error) {
+      if (error instanceof ConnectionError) throw new AsanaReadError(error.message, error.status)
+      throw new AsanaReadError('Couldn’t reach Asana or read its response. Try again.')
+    }
+  }
   return {
+    read,
+    async user() {
+      return (await accessToken()).user
+    },
     status: () => serial(status),
     configure(input: AsanaConfiguration) {
       const parsed = parseAsanaConfiguration(input)

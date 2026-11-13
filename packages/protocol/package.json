@@ -38,6 +38,7 @@
     "./reference": "./src/reference.ts",
     "./execution-commands": "./src/execution-commands.ts",
     "./execution-pairing": "./src/execution-pairing.ts",
-    "./waiting": "./src/waiting.ts"
+    "./waiting": "./src/waiting.ts",
+    "./asana-import": "./src/asana-import.ts"
   }
 }

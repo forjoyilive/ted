@@ -1126,6 +1126,13 @@ function answerLine(
       if ('ciReported' in answer) {
         return { mark: '–', tone: 'neutral', text: 'Withdrawn · CI reported before you answered' }
       }
+      if ('asanaReread' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: 'Withdrawn · TED read Asana again and asked anew',
+        }
+      }
       if ('archived' in answer) {
         return {
           mark: '–',

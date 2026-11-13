@@ -753,6 +753,19 @@ export function TaskActionsMenu({
           >
             Copy Task ID
           </ActionButton>
+          {task.source?.asana && (
+            <>
+              <hr className={styles.separator} />
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => act(() => ted.openTaskSource(task.id))}
+              >
+                <span className={styles.label}>Open source in Asana</span>
+              </ActionButton>
+            </>
+          )}
           {linear && (
             <>
               <hr className={styles.separator} />

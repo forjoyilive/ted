@@ -1,8 +1,27 @@
 import { createHash } from 'node:crypto'
 import http from 'node:http'
 
+export interface StubAsanaTask {
+  gid: string
+  name: string
+  notes?: string
+  completed?: boolean
+  assignee?: { gid: string; name: string }
+  subtasks?: string[]
+  comments?: { author: string; at: string; text: string }[]
+  attachments?: { name: string; host?: string; bytes?: string }[]
+  status?: number
+}
+
 export async function startStubAsana() {
-  const requests: { path: string; fields: Record<string, string>; authorization?: string }[] = []
+  const requests: {
+    path: string
+    query: Record<string, string>
+    fields: Record<string, string>
+    authorization?: string
+  }[] = []
+  const tasks = new Map<string, StubAsanaTask>()
+  let pageSize = 2
   let user = { gid: '100', name: 'Avery', email: 'avery@example.test' }
   let expiresIn = 3600
   let revoked = false
@@ -19,8 +38,10 @@ export async function startStubAsana() {
     for await (const chunk of req) chunks.push(chunk as Buffer)
     const fields = Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString()))
     const path = (req.url ?? '').split('?')[0] ?? ''
+    const query = Object.fromEntries(new URL(req.url ?? '/', 'http://stub').searchParams)
     requests.push({
       path,
+      query,
       fields,
       ...(req.headers.authorization && { authorization: req.headers.authorization }),
     })
@@ -81,6 +102,84 @@ export async function startStubAsana() {
         return
       }
       res.end(JSON.stringify({ data: user }))
+    } else if (path.startsWith('/files/')) {
+      const [, , gid = '', index = ''] = path.split('/')
+      const file = tasks.get(gid)?.attachments?.[Number(index)]
+      res.setHeader('content-type', 'application/octet-stream')
+      if (!file) {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+      res.end(Buffer.from(file.bytes ?? '', 'latin1'))
+    } else if (path.startsWith('/api/1.0/tasks/') || path === '/api/1.0/attachments') {
+      if (req.headers.authorization !== 'Bearer access-secret-opaque') {
+        res.writeHead(401)
+        res.end('{}')
+        return
+      }
+      const [, , , , gid = query.parent ?? '', list] = path.split('/')
+      const task = tasks.get(path === '/api/1.0/attachments' ? (query.parent ?? '') : gid)
+      if (!task || task.status !== undefined) {
+        res.writeHead(task?.status ?? 404)
+        res.end('{}')
+        return
+      }
+      const page = (items: unknown[]) => {
+        const offset = Number(query.offset ?? '0')
+        const next = offset + pageSize
+        res.end(
+          JSON.stringify({
+            data: items.slice(offset, next),
+            next_page: next < items.length ? { offset: String(next) } : null,
+          }),
+        )
+      }
+      if (path === '/api/1.0/attachments')
+        page(
+          (task.attachments ?? []).map((file, index) => ({
+            gid: `${task.gid}${index}`,
+            name: file.name,
+            host: file.host ?? 'asana',
+            view_url: `https://app.asana.com/app/asana/-/get_asset?asset_id=${task.gid}${index}`,
+            ...((file.host ?? 'asana') === 'asana' && {
+              download_url: `http://127.0.0.1:${port()}/files/${task.gid}/${index}`,
+            }),
+          })),
+        )
+      else if (list === 'subtasks')
+        page(
+          (task.subtasks ?? []).flatMap((child) => {
+            const found = tasks.get(child)
+            return found
+              ? [{ gid: found.gid, name: found.name, completed: found.completed === true }]
+              : [{ gid: child, name: `Missing ${child}`, completed: false }]
+          }),
+        )
+      else if (list === 'stories')
+        page([
+          { type: 'system', resource_subtype: 'due_date_changed', text: 'changed the due date' },
+          ...(task.comments ?? []).map((comment) => ({
+            type: 'comment',
+            resource_subtype: 'comment_added',
+            text: comment.text,
+            created_at: comment.at,
+            created_by: { name: comment.author },
+          })),
+        ])
+      else
+        res.end(
+          JSON.stringify({
+            data: {
+              gid: task.gid,
+              name: task.name,
+              notes: task.notes ?? '',
+              completed: task.completed === true,
+              permalink_url: `https://app.asana.com/1/1/project/9/task/${task.gid}`,
+              assignee: task.assignee ?? null,
+            },
+          }),
+        )
     } else if (path === '/-/oauth_revoke') {
       revoked = true
       res.end('{}')
@@ -92,9 +191,21 @@ export async function startStubAsana() {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('No stub port')
+  const port = () => address.port
   return {
     url: `http://127.0.0.1:${address.port}`,
     requests,
+    setTasks(list: readonly StubAsanaTask[]) {
+      tasks.clear()
+      for (const task of list) tasks.set(task.gid, task)
+    },
+    updateTask(gid: string, change: Partial<StubAsanaTask>) {
+      const task = tasks.get(gid)
+      if (task) tasks.set(gid, { ...task, ...change })
+    },
+    setPageSize(size: number) {
+      pageSize = size
+    },
     setUser(next: typeof user) {
       user = next
       revoked = false

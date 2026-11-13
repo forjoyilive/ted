@@ -75,6 +75,8 @@ export const forwardedRequests = [
   'checkOutput',
   'listFactories',
   'createTask',
+  'previewAsanaImport',
+  'importAsana',
   'taskDraft',
   'saveTaskDraft',
   'messageDraft',

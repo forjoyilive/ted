@@ -43,6 +43,24 @@ export {
 } from './app-auth.ts'
 export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
 export { type AsanaConfiguration, type AsanaStatus, parseAsanaConfiguration } from './asana.ts'
+export {
+  type AsanaImportAction,
+  type AsanaImportPreview,
+  type AsanaImportRequest,
+  type AsanaImportResult,
+  type AsanaImportRow,
+  type AsanaMissing,
+  type AsanaPerson,
+  type AsanaTaskUrl,
+  findAsanaUrl,
+  maxAsanaComments,
+  maxAsanaFiles,
+  maxAsanaImportDepth,
+  maxAsanaImportTasks,
+  ownershipLine,
+  parseAsanaImportRequest,
+  parseAsanaTaskUrl,
+} from './asana-import.ts'
 export type {
   AnswerAutomationRequest,
   Automation,
@@ -781,6 +799,7 @@ export {
   type TalkThroughResult,
   type Task,
   type TaskArchive,
+  type TaskAsanaSource,
   type TaskBrief,
   type TaskDefaults,
   type TaskDraftState,

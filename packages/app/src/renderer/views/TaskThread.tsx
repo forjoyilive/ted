@@ -27,6 +27,7 @@ import { AnswerPill } from '../components/AnswerPill.tsx'
 import { AppLogView } from '../components/AppLogView.tsx'
 import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
 import { unarchiveOrAsk } from '../components/ArchiveDialogs.tsx'
+import { AsanaSourceField } from '../components/AsanaImportPreview.tsx'
 import { AutopilotField } from '../components/Autopilot.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
@@ -1308,6 +1309,14 @@ export function TaskDetails({
                   <dt>Repos</dt>
                   <dd>
                     <ReposField key={task.id} task={task} factory={factory} />
+                  </dd>
+                </>
+              )}
+              {task.source?.asana && (
+                <>
+                  <dt>Source</dt>
+                  <dd>
+                    <AsanaSourceField task={task} />
                   </dd>
                 </>
               )}

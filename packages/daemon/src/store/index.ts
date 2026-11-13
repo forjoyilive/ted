@@ -23,6 +23,7 @@ import {
   type AgentStageId,
   type Appearance,
   type AppStarter,
+  type AsanaMissing,
   type Attachment,
   type AutopilotChoice,
   agentStageIds,
@@ -91,6 +92,7 @@ import {
   type StageEntry,
   type StageId,
   type Task,
+  type TaskAsanaSource,
   type TaskBrief,
   type TaskEnding,
   type TaskLead,
@@ -340,7 +342,7 @@ export interface SeenStageFile {
 export type StopReason = 'human' | 'blockers-removed' | 'repair-incorporation' | 'prepared'
 
 export interface BlockerLink {
-  kind?: 'child'
+  kind?: 'child' | 'asana'
   satisfied?: boolean
   blockerId: string
   displayId: string
@@ -358,6 +360,31 @@ export interface RepairApproval {
   failure: FailureCase
   request: import('@ted/protocol').ResolveFailureRequest
   brief: string
+}
+
+export type TreeRef = { key: string } | { taskId: string }
+
+export interface NewTreeTask {
+  key: string
+  parent?: TreeRef
+  title: string
+  description: string
+  priority: Priority
+  lead?: TaskLead
+  startRequested: boolean
+  attachments: Attachment[]
+  sourceUrl: string
+  asana: TaskAsanaSource
+  automation?: { automationId: string; firingId: string }
+}
+
+export interface NewTaskTree {
+  factoryId: string
+  tasks: readonly NewTreeTask[]
+  links: readonly { taskId: string; parent: TreeRef }[]
+  comments: readonly (Omit<NewComment, 'taskId'> & { task: TreeRef })[]
+  closings?: readonly { commentId: string; answer: CommentAnswer }[]
+  draftRevision?: string
 }
 
 export interface NewTask {
@@ -511,6 +538,7 @@ export interface NewComment {
   design?: DesignReview
   tutorial?: boolean
   linearTeam?: LinearTeam
+  asanaMissing?: AsanaMissing
 }
 
 export interface NewLineComment {
@@ -565,6 +593,7 @@ export interface TedStore extends TaskHistory {
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
   createTask(input: NewTask): Promise<Task>
+  createTaskTree(input: NewTaskTree): { created: Map<string, Task>; linked: Task[] }
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
   coordinatorCreated(factoryId: string, operation: string): StoredTask | undefined
@@ -1436,7 +1465,24 @@ export async function openStore({
     }
   }
 
-  const blockerLinks = (taskId: string, reads: TaskReads = perTask): BlockerLink[] =>
+  const asanaHolds = (taskId: string, reads: TaskReads): BlockerLink[] =>
+    reads
+      .comments(taskId)
+      .filter((row) => row.asanaMissing !== null && row.answer === null)
+      .map((row) => ({
+        blockerId: row.id,
+        kind: 'asana' as const,
+        displayId: 'your answer about missing Asana work',
+        merged: false,
+        at: row.createdAt,
+      }))
+
+  const blockerLinks = (taskId: string, reads: TaskReads = perTask): BlockerLink[] => [
+    ...childAndTaskLinks(taskId, reads),
+    ...asanaHolds(taskId, reads),
+  ]
+
+  const childAndTaskLinks = (taskId: string, reads: TaskReads): BlockerLink[] =>
     [
       ...reads.blockers(taskId),
       ...reads.children(taskId).map((row) => ({
@@ -1499,6 +1545,7 @@ export async function openStore({
           },
         }),
       ...(row.sentryShortId !== null && { sentry: { shortId: row.sentryShortId } }),
+      ...(row.asana !== null && { asana: JSON.parse(row.asana) as TaskAsanaSource }),
     }
   }
 
@@ -1727,7 +1774,9 @@ export async function openStore({
     const repos = reads
       .repos(row.id)
       .map((repo) => toTaskRepo(repo, reads.pullRequest(repo.id).at(0)))
-    const unmerged = blockerLinks(row.id, reads).filter((b) => !b.merged && !b.satisfied)
+    const unmerged = blockerLinks(row.id, reads).filter(
+      (b) => !b.merged && !b.satisfied && b.kind !== 'asana',
+    )
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
     const github =
@@ -2176,6 +2225,7 @@ export async function openStore({
     design,
     tutorial,
     linearTeam,
+    asanaMissing,
     purpose,
     ...row
   }: typeof comments.Type): Comment =>
@@ -2222,6 +2272,7 @@ export async function openStore({
         ...(failedRunId !== null && { failed: { runId: failedRunId } }),
         ...(tutorial && { tutorial: true as const }),
         ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
+        ...(asanaMissing !== null && { asanaMissing: JSON.parse(asanaMissing) as AsanaMissing }),
         ...(design !== null && { design: JSON.parse(design) as DesignReview }),
         ...withFiles(row.id),
         ...withLineComments(row.id),
@@ -2573,6 +2624,7 @@ export async function openStore({
       design,
       tutorial = false,
       linearTeam,
+      asanaMissing,
       purpose,
     }: NewComment,
     createdAt: string,
@@ -2620,6 +2672,7 @@ export async function openStore({
         ...(gate && { gate }),
         ...(sizeCheck && { sizeCheck }),
         ...(linearTeam && { linearTeam }),
+        ...(asanaMissing && { asanaMissing }),
       })
     const attached = [
       ...(recordedPurpose
@@ -2636,6 +2689,14 @@ export async function openStore({
         : [events.commentDesignAttached({ commentId: id, design: JSON.stringify(design) })]),
       ...(tutorial ? [events.commentMarkedTutorial({ commentId: id })] : []),
       ...(linearTeam ? [events.commentLinearTeamAsked({ commentId: id, ...linearTeam })] : []),
+      ...(asanaMissing
+        ? [
+            events.commentAsanaMissingAsked({
+              commentId: id,
+              missing: JSON.stringify(asanaMissing),
+            }),
+          ]
+        : []),
     ]
     return { id, event, attached }
   }
@@ -3469,6 +3530,122 @@ export async function openStore({
       if (parentId !== undefined && taskRow(parentId)) updatedTask(parentId)
       return task
     },
+    createTaskTree({
+      factoryId,
+      tasks: planned,
+      links,
+      comments: posted,
+      closings = [],
+      draftRevision,
+    }) {
+      const currentDraft = draftRevision ? taskDraft(factoryId).draft : null
+      const inFactory = store.query(queryDb(tasks.where({ factoryId })))
+      const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
+      const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
+      const awaitingSetup = listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined
+      let number = Math.max(awaitingSetup ? 1 : 0, ...used) + 1
+      let rank = nextRank()
+      const at = new Date().toISOString()
+      const ids = new Map(planned.map((t) => [t.key, randomUUID()]))
+      const idOf = (ref: TreeRef) => {
+        const id = 'key' in ref ? ids.get(ref.key) : ref.taskId
+        if (id === undefined) throw new Error('a Task in the tree points at a missing parent')
+        return id
+      }
+      const created = planned.flatMap((task) => {
+        const id = idOf({ key: task.key })
+        return [
+          events.taskCreatedV2({
+            id,
+            factoryId,
+            number: number++,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            clarifyDepth: 'auto',
+            leadAgent: task.lead?.agent ?? null,
+            leadModel: task.lead?.model ?? null,
+            leadEffort: task.lead?.effort ?? null,
+            startRequested: task.startRequested,
+            createdAt: at,
+          }),
+          ...(task.lead?.effortMode === 'stage'
+            ? [events.taskLeadEffortModeSet({ taskId: id, mode: 'stage', at })]
+            : []),
+          events.taskRanked({ taskId: id, rank: rank++, at }),
+          ...(task.parent
+            ? [events.taskParentChanged({ taskId: id, parentId: idOf(task.parent), at })]
+            : []),
+          ...task.attachments.map((attachment) =>
+            events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
+          ),
+          events.taskSourceSet({
+            taskId: id,
+            url: task.sourceUrl,
+            linearIdentifier: null,
+            linearTitle: null,
+            linearBranchName: null,
+            linearDescription: null,
+            at,
+          }),
+          events.taskSourceAsanaSet({ taskId: id, asana: JSON.stringify(task.asana), at }),
+          ...(task.automation
+            ? [events.automationTaskCreated({ ...task.automation, taskId: id, at })]
+            : []),
+        ]
+      })
+      const linked = links.map((link) =>
+        events.taskParentChanged({ taskId: link.taskId, parentId: idOf(link.parent), at }),
+      )
+      const comments = posted.map(({ task, ...comment }) =>
+        commentPosted({ ...comment, taskId: idOf(task) }, at),
+      )
+      commit(
+        ...(draftRevision
+          ? [
+              events.taskDraftConsumed({
+                factoryId,
+                revision: draftRevision,
+                draft:
+                  currentDraft && currentDraft.revision !== draftRevision
+                    ? JSON.stringify(currentDraft)
+                    : null,
+                at,
+              }),
+            ]
+          : []),
+        ...created,
+        ...linked,
+        ...comments.flatMap(({ event, attached }) => [event, ...attached]),
+        ...closings.map((closing) =>
+          events.commentAnswered({
+            id: closing.commentId,
+            answer: JSON.stringify(closing.answer),
+            at: closing.answer.at,
+          }),
+        ),
+      )
+      const made = new Map<string, Task>()
+      for (const task of planned) {
+        const row = taskRow(idOf({ key: task.key }))
+        if (!row) throw new Error(`no Task ${task.key}`)
+        const public_ = toPublicTask(toTask(row, true))
+        made.set(task.key, public_)
+        emit({ type: 'task-created', task: public_ })
+      }
+      const touched = new Set([
+        ...links.flatMap((link) => [link.taskId, idOf(link.parent)]),
+        ...planned.flatMap((task) =>
+          task.parent && 'taskId' in task.parent ? [task.parent.taskId] : [],
+        ),
+        ...posted.flatMap(({ task }) => ('taskId' in task ? [task.taskId] : [])),
+      ])
+      const linkedTasks = links.map((link) => updatedTask(link.taskId))
+      for (const id of touched) if (!links.some((l) => l.taskId === id)) updatedTask(id)
+      for (const { id } of comments) emit({ type: 'comment-posted', comment: requireComment(id) })
+      for (const closing of closings) updatedTask(emitComment(closing.commentId).taskId)
+      return { created: made, linked: linkedTasks }
+    },
     listTasks: () => listTasks().map(toPublicTask),
     getTask(ref) {
       const row = taskRow(ref)
@@ -3701,6 +3878,10 @@ export async function openStore({
         ...new Set([
           ...store.query(queryDb(taskBlockers.orderBy('at', 'asc'))).map((row) => row.taskId),
           ...store.query(queryDb(taskParents.orderBy('taskId', 'asc'))).map((row) => row.parentId),
+          ...store
+            .query(queryDb(comments.where({ answer: null })))
+            .filter((row) => row.asanaMissing !== null)
+            .map((row) => row.taskId),
         ]),
       ]
         .flatMap((id) => taskRow(id) ?? [])

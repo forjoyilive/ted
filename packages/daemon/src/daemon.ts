@@ -446,6 +446,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
+        asana: {
+          read: (path, query) => asana.read(path, query),
+          user: () => asana.user(),
+          files: {
+            dir: paths.attachments,
+            save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+          },
+          allowLoopbackFiles:
+            new URL(options.asana?.apiOrigin ?? 'https://app.asana.com').hostname === '127.0.0.1',
+        },
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         logsDir: paths.logs,

@@ -27,6 +27,7 @@ import {
   linearKeyPage,
   type MachineSettings,
   noActivity,
+  parseAsanaTaskUrl,
   parseLinearUrl,
   remoteExecutionOn,
   tedEnv,
@@ -125,8 +126,9 @@ const requests = {
   openMarkdownLink: (_client, url) => openMarkdownLink(url, shell.openExternal),
   openTaskSource: async (client, taskId) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
-    const link = task?.source && parseLinearUrl(task.source.url)
-    if (!link) throw new Error('This Task has no Linear issue to open')
+    const link =
+      task?.source && (parseLinearUrl(task.source.url) ?? parseAsanaTaskUrl(task.source.url))
+    if (!link) throw new Error('This Task has no Linear issue or Asana task to open')
     await shell.openExternal(link.url)
   },
   openPullRequest: async (client, taskId, repoName) => {

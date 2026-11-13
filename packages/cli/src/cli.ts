@@ -33,7 +33,9 @@ import {
   isShowing,
   type LocalDesignReviewInput,
   minGhVersion,
+  ownershipLine,
   parseAddFailureEvidenceRequest,
+  parseAsanaTaskUrl,
   parseAssessFailureRequest,
   parseBrowserRequest,
   parseCoordinatorCreate,
@@ -63,6 +65,7 @@ import {
 } from '@ted/protocol'
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
 import { matchReference, shortReference } from '@ted/protocol/reference'
+import { asanaImportedText, asanaTreeText } from './asana.ts'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
   type HandlerName,
@@ -1296,6 +1299,26 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const { factory, source, start, description } = options
       const followUp = options['follow-up']
       const sentryId = options['sentry-id']
+      if (source !== undefined && parseAsanaTaskUrl(source) && followUp === undefined) {
+        const request = {
+          url: source,
+          ...(factory !== undefined && { factory }),
+          ...(start !== undefined && { start }),
+        }
+        if (options['dry-run'] === true) {
+          const preview = await withDaemon(home, (client) => client.previewAsanaImport(request))
+          write(
+            `${asanaTreeText(preview)}\n${ownershipLine(preview)}. Nothing created (--dry-run).\n`,
+          )
+          if (preview.refusal !== undefined) throw new Error(printable(preview.refusal))
+          return
+        }
+        const result = await withDaemon(home, (client) => client.importAsana(request))
+        write(`${asanaTreeText(result.preview)}\n${asanaImportedText(result)}\n`)
+        return
+      }
+      if (options['dry-run'] === true)
+        throw new UsageError('--dry-run works only with an Asana task URL as --source')
       const task = await withDaemon(home, async (client) => {
         if (source !== undefined && parseLinearUrl(source) && !runTokenFrom(env)) {
           const lookup = await client.lookupLinear(source)
