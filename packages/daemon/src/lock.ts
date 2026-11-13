@@ -55,13 +55,29 @@ export function isLockHeld(lockPath: string): boolean {
   return lock === undefined
 }
 
-export async function lockHolders(lockPath: string): Promise<number[]> {
-  const file = await realpath(lockPath).catch(() => undefined)
-  if (file === undefined) return []
-  if (process.platform === 'linux') return openedByOnLinux(file)
-  const { stdout } = await promisify(execFile)('/usr/sbin/lsof', ['-t', '--', file]).catch(() => ({
-    stdout: '',
-  }))
+export async function lockHolders(...lockPaths: string[]): Promise<number[]> {
+  const files = (
+    await Promise.all(lockPaths.map((lockPath) => realpath(lockPath).catch(() => undefined)))
+  ).filter((file) => file !== undefined)
+  if (files.length === 0) return []
+  if (process.platform === 'linux') return openedByOnLinux(new Set(files))
+  const holders = new Set<number>()
+  for (let i = 0; i < files.length; i += lsofBatch) {
+    for (const pid of await lsofHolders(files.slice(i, i + lsofBatch))) holders.add(pid)
+  }
+  return [...holders]
+}
+
+const lsofBatch = 200
+
+// lsof exits 1 when some of the files aren't open; any other failure is an error.
+async function lsofHolders(files: string[]): Promise<number[]> {
+  const { stdout } = await promisify(execFile)('/usr/sbin/lsof', ['-t', '--', ...files], {
+    maxBuffer: 1024 * 1024,
+  }).catch((error: { code?: unknown; stdout?: string }) => {
+    if (error.code !== 1) throw error
+    return { stdout: error.stdout ?? '' }
+  })
   return stdout
     .split('\n')
     .filter((line) => /^\d+$/.test(line))
@@ -70,16 +86,16 @@ export async function lockHolders(lockPath: string): Promise<number[]> {
 
 export async function holdsLock(lockPath: string, pid: number): Promise<boolean> {
   if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false
-  return (await lockHolders(lockPath)).includes(pid)
+  return (await lockHolders(lockPath).catch((): number[] => [])).includes(pid)
 }
 
-async function openedByOnLinux(file: string): Promise<number[]> {
+async function openedByOnLinux(files: Set<string>): Promise<number[]> {
   const pids = (await readdir('/proc').catch(() => [])).filter((name) => /^\d+$/.test(name))
   const holders: number[] = []
   for (const pid of pids) {
     const fds = await readdir(`/proc/${pid}/fd`).catch(() => [])
     for (const fd of fds) {
-      if ((await readlink(`/proc/${pid}/fd/${fd}`).catch(() => '')) === file) {
+      if (files.has(await readlink(`/proc/${pid}/fd/${fd}`).catch(() => ''))) {
         holders.push(Number(pid))
         break
       }

@@ -34,6 +34,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
+import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
@@ -192,6 +193,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       options.asana?.keyring ?? (await loadKeyring(process.env, process.platform, 'asana-oauth')),
   })
   const lock = acquireLock(paths.daemonLock)
+  if (quitMarkedSync(options.home)) {
+    lock.release()
+    throw new QuitMarkedError()
+  }
   const idle =
     options.idleExit &&
     startIdleTimer({ ...options.idleExit, ...(options.clock && { clock: options.clock }) })

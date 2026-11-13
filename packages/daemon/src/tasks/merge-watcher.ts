@@ -385,7 +385,10 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   async function watchOnlyCycle(
     taskId: string,
     read: PullRequestRead | undefined,
-    { markWaiting = true }: { markWaiting?: boolean } = {},
+    {
+      markWaiting = true,
+      deleteBranches = false,
+    }: { markWaiting?: boolean; deleteBranches?: boolean } = {},
   ): Promise<MergeCycle> {
     const task = find(taskId)
     const open = task.repos.filter(
@@ -425,10 +428,11 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       const pr = remote.get(target.name)
       if (pr?.state === 'MERGED') {
         store.pullRequestMerged(taskId, target.name, { noCi: false, byTed: false })
+        if (deleteBranches && options.gh) await removeMergedBranch(options.gh, target, pr)
         continue
       }
       left++
-      if (task.stage === 'merge' && markWaiting) setWait(taskId, target.name, 'merge')
+      if (markWaiting && task.stage === 'merge') setWait(taskId, target.name, 'merge')
     }
     if (left > 0) return 'wait'
     return task.stage === 'merge' ? finishMerge(taskId) : 'done'
@@ -451,7 +455,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (mode === undefined) return 'done'
     if (mode === 'canceled') {
       if ((await turnOffAutoMerge(taskId)).length > 0) return 'wait'
-      return watchOnlyCycle(taskId, read, { markWaiting: false })
+      return watchOnlyCycle(taskId, read, { markWaiting: false, deleteBranches: true })
     }
     if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
     if (mode !== 'off' && read && port.ciFailures) {

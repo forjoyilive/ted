@@ -375,6 +375,10 @@ test('a canceled merge retries disabling auto-merge, keeps watching and finishes
   expect(pr()?.autoMerge).toBe('squash')
   expect(await watcher.cycle(id, read())).toBe('wait')
   expect(pr()?.autoMerge).toBeUndefined()
+  expect(pr()?.waiting).toBeUndefined()
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(pr()?.waiting).toBeUndefined()
+  expect(current().stage).toBe('merge')
   expect(gh.run).toHaveBeenLastCalledWith([
     'pr',
     'merge',
@@ -383,12 +387,13 @@ test('a canceled merge retries disabling auto-merge, keeps watching and finishes
     'acme/widgets',
     '--disable-auto',
   ])
-  expect(await watcher.cycle(id, read())).toBe('wait')
-  expect(pr()?.waiting).toBeUndefined()
-  expect(current().stage).toBe('merge')
   expect(await watcher.cycle(id, read(remote({ state: 'MERGED' })))).toBe('done')
   expect(pr()).toMatchObject({ state: 'merged', merged: { noCi: false } })
+  expect(port.finish).toHaveBeenCalled()
   expect(current().stage).toBe('done')
+  expect(gh.api).toHaveBeenLastCalledWith('repos/acme/widgets/git/refs/heads/task', {
+    method: 'DELETE',
+  })
   expect(gh.run).toHaveBeenCalledTimes(2)
 })
 

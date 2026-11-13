@@ -22,6 +22,7 @@ export function TaskConversationTabs({
   const leadIds = new Set(earlier.map((run) => run.id))
   const tabs = taskConversationTabs(task, shown).filter((tab) => !leadIds.has(tab.runId))
   const isLead = shown === undefined || shown === task.leadRunId || leadIds.has(shown)
+  if (tabs.length === 0 && shown === undefined) return null
   return (
     <div className={styles.bar}>
       <div className={styles.tabs} role="tablist" aria-label="Task Lead and sub-agents">

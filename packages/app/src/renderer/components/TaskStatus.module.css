@@ -37,6 +37,11 @@
   white-space: nowrap;
 }
 
+.marker.tall {
+  height: var(--button-height-small);
+  padding: 0 9px;
+}
+
 .runs {
   display: inline-flex;
   flex-shrink: 0;

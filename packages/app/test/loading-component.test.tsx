@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { Comment, DescriptionVersion, RunChat, ThreadEvent } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RunChat as Conversation } from '../src/renderer/components/RunChat.tsx'
 import { TaskDescription } from '../src/renderer/components/TaskDescription.tsx'
@@ -79,34 +79,68 @@ test('settings replaces its loading state with an error and retry action', async
   expect(retry).toHaveBeenCalledOnce()
 })
 
-test('History opens immediately, stays closable while pending, then displays versions', async () => {
+test('the history link appears once the description has an edit, and opens every version', async () => {
   const pending = deferred<DescriptionVersion[]>()
   bridge({ ...detailHandlers(), taskDescriptions: () => pending.promise })
   render(<TaskDescription task={task()} />)
-  await user().click(screen.getByRole('button', { name: 'Description history' }))
-  let dialog = screen.getByRole('dialog', { name: 'NB-1 description history' })
-  expect(within(dialog).getByRole('status', { name: 'Loading description history…' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /history/ })).toBeNull()
+  await act(async () =>
+    pending.resolve([
+      { version: 1, text: 'Original scope', at: createdAt },
+      { version: 2, text: 'Narrower scope', at: createdAt },
+    ]),
+  )
+  await user().click(screen.getByRole('button', { name: 'Edited once · history' }))
+  const dialog = screen.getByRole('dialog', { name: 'NB-1 description history' })
+  expect(within(dialog).getByText('Original scope')).toBeTruthy()
+  expect(within(dialog).getByText('Narrower scope')).toBeTruthy()
   await user().click(within(dialog).getByRole('button', { name: 'Close' }))
   expect(screen.queryByRole('dialog')).toBeNull()
-  await user().click(screen.getByRole('button', { name: 'Description history' }))
-  await act(async () => pending.resolve([{ version: 1, text: 'Original scope', at: createdAt }]))
-  dialog = screen.getByRole('dialog', { name: 'NB-1 description history' })
-  expect(within(dialog).getByText('Original scope')).toBeTruthy()
-  expect(within(dialog).queryByRole('status')).toBeNull()
 })
 
-test('a failed History load exits loading and can be retried', async () => {
+test('Answer in the header closes a shown App so the request appears', async () => {
+  bridge({
+    ...detailHandlers(),
+    listComments: () => [comment({ body: 'Ship it today?' })],
+    listThreadEvents: () => [],
+    listCheckRuns: () => [],
+    listFailures: () => [],
+    taskDescriptions: () => [],
+    markCommentsRead: () => ({ read: 1 }),
+    appLog: () => ({ text: '', truncated: false }),
+  })
+  const onCloseApp = vi.fn()
+  const props = { task: task(), backLink: undefined, shownRun: undefined, ...callbacks }
+  const view = render(
+    <TaskThread
+      {...props}
+      shownApp={{ repo: 'acme/widgets', name: 'web' }}
+      onCloseApp={onCloseApp}
+    />,
+  )
+  await user().click(
+    await screen.findByRole('button', { name: 'Jump to Question: Ship it today?' }),
+  )
+  expect(onCloseApp).toHaveBeenCalledOnce()
+  view.rerender(<TaskThread {...props} onCloseApp={onCloseApp} />)
+  const card = await screen.findByRole('region', { name: 'Question' })
+  await waitFor(() => expect(document.activeElement?.contains(card)).toBe(true))
+})
+
+test('a failed description load shows the error, even for an empty description, and can be retried', async () => {
   const pending = deferred<DescriptionVersion[]>()
   const api = bridge({ ...detailHandlers(), taskDescriptions: () => pending.promise })
-  render(<TaskDescription task={task()} />)
-  await user().click(screen.getByRole('button', { name: 'Description history' }))
+  render(<TaskDescription task={task({ description: '' })} />)
   await act(async () => pending.reject(new Error('History unavailable')))
-  const dialog = screen.getByRole('dialog')
-  expect(within(dialog).getByRole('alert').textContent).toContain('History unavailable')
-  expect(within(dialog).queryByRole('status')).toBeNull()
-  api.handle('taskDescriptions', () => [])
-  await user().click(within(dialog).getByRole('button', { name: 'Try again' }))
-  await within(dialog).findByText('No description history.')
+  const request = screen.getByRole('region', { name: 'Original request' })
+  expect(within(request).getByRole('alert').textContent).toContain('History unavailable')
+  api.handle('taskDescriptions', () => [
+    { version: 1, text: '', at: createdAt },
+    { version: 2, text: 'Now with scope', at: createdAt },
+  ])
+  await user().click(within(request).getByRole('button', { name: 'Try again' }))
+  await screen.findByText('No description.')
+  expect(screen.getByRole('button', { name: 'Edited once · history' })).toBeTruthy()
 })
 
 test('Task history loads Comments and collapsed peer messages, then keeps content on refresh', async () => {
@@ -568,9 +602,8 @@ test('short, image-only and empty requests need no expansion control', async () 
   expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
   expect(screen.queryByText('No description.')).toBeNull()
   view.rerender(<TaskDescription task={task({ id: 'NB-3' })} />)
-  await screen.findByText('No description.')
-  expect(screen.queryByRole('img')).toBeNull()
-  expect(screen.queryByRole('button', { name: 'See more' })).toBeNull()
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Original request' })).toBeNull())
+  expect(screen.queryByText('No description.')).toBeNull()
 })
 
 test('a short linked request can reveal its interactive content without hiding the preview', async () => {

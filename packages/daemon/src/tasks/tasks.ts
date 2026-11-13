@@ -7167,7 +7167,12 @@ export function createTasks(options: {
     if (run?.state !== 'idle' || run.problem !== undefined || run.taskId === undefined) return
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
-    if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
+    if (task.stage === 'backlog' || task.stage === 'done' || task.stage === 'merge') return
+    if (advancing.has(task.id)) return
+    if (tedWorkingFor(task, run)) {
+      watchIdle(run)
+      return
+    }
     if (
       merging.has(task.id) ||
       task.pendingLeadMessages.length > 0 ||
@@ -7181,6 +7186,15 @@ export function createTasks(options: {
     const nudged = store.latestNudge(task.id, run.id)
     if (nudged === undefined || heardSince(task, nudged)) await sendNudge(task, run)
     else askAboutIdle(task, run)
+  }
+
+  function tedWorkingFor(task: StoredTask, lead: Run): boolean {
+    return (
+      task.runs.some((r) => r.id !== lead.id && r.state === 'working') ||
+      store.subAgentRequests().some((r) => r.taskId === task.id) ||
+      pendingLoopCheck(task.id) !== undefined ||
+      store.listCheckRuns(task.id).some((c) => c.finishedAt === undefined)
+    )
   }
 
   function heardSince(task: StoredTask, at: string): boolean {
