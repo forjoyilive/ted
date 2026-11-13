@@ -30,6 +30,8 @@ test('a setting is found by its name, group, page and description, with its page
   ])
   expect(find('notifications inbox')).toMatchObject([
     { name: 'Inbox items', where: 'Settings › Notifications' },
+    { name: 'By Factory', where: 'Settings › Notifications' },
+    { name: 'Notifications', where: 'widgets › Settings' },
   ])
   expect(find('linear api key')[0]).toMatchObject({
     id: 'app.integrations.linear.key',

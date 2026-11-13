@@ -111,7 +111,10 @@ export function createFactoryRemovals(options: {
         const { [factory.id]: removedScope, ...scopes } = settings.linearIntakeScopes
         const { [factory.id]: removedBoard, ...boards } = settings.boardViews
         const { [factory.id]: permissionsRemoved, ...permissions } = settings.factoryPermissions
+        const { [factory.id]: notificationsRemoved, ...notifications } =
+          settings.factoryNotifications
         store.updateSettings({
+          factoryNotifications: notifications,
           linearIntakeScopes: scopes,
           factoryPermissions: permissions,
           linearSyncTeams: teams,

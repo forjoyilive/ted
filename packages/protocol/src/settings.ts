@@ -27,6 +27,34 @@ export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 
 export type QuitChoice = (typeof quitChoices)[number]
 
+export interface FactoryNotifications {
+  inboxItems: boolean
+  taskMerged: boolean
+}
+
+export const defaultFactoryNotifications: FactoryNotifications = {
+  inboxItems: true,
+  taskMerged: false,
+}
+
+export function factoryNotifications(
+  settings: Pick<MachineSettings, 'factoryNotifications'>,
+  factoryId: string,
+): FactoryNotifications {
+  return { ...defaultFactoryNotifications, ...settings.factoryNotifications[factoryId] }
+}
+
+export function firstFactoryNotifications(
+  factoryIds: readonly string[],
+  notifyTaskMerged: boolean,
+): Record<string, FactoryNotifications> {
+  return notifyTaskMerged
+    ? Object.fromEntries(
+        factoryIds.map((id) => [id, { ...defaultFactoryNotifications, taskMerged: true }]),
+      )
+    : {}
+}
+
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string
@@ -50,6 +78,7 @@ export interface MachineSettings {
   notifyProblems: boolean
   notifyTaskMerged: boolean
   notifySound: boolean
+  factoryNotifications: Readonly<Record<string, FactoryNotifications>>
   listViews: Readonly<Record<string, ListView>>
   boardViews: Readonly<Record<string, BoardView>>
   firstLaunchDone: boolean
@@ -91,6 +120,7 @@ export const defaultMachineSettings: MachineSettings = {
   notifyProblems: true,
   notifyTaskMerged: false,
   notifySound: false,
+  factoryNotifications: {},
   listViews: {},
   boardViews: {},
   firstLaunchDone: false,

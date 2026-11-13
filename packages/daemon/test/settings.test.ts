@@ -338,6 +338,12 @@ describe('settings and Factories over the daemon API', () => {
       notifyProblems: false,
       notifySound: true,
     })
+
+    await expect(
+      ted.updateSettings({ factoryNotifications: { nb: { inboxItems: false, taskMerged: true } } }),
+    ).rejects.toThrow()
+    await expect(ted.setFactoryNotifications('missing', { inboxItems: false })).rejects.toThrow()
+    expect((await ted.getSettings()).factoryNotifications).toEqual({})
   })
 
   test('a client marks first launch done', async () => {

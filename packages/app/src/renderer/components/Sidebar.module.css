@@ -240,6 +240,11 @@
   text-align: right;
 }
 
+.countQuiet {
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+}
+
 .countButton:hover {
   background: var(--surface-hover);
 }

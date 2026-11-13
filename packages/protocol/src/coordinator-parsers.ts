@@ -1,5 +1,6 @@
 import type { CoordinatorAction, CoordinatorMessage, CoordinatorOperation } from './coordinator.ts'
 import type { RoundAnswerInput } from './task.ts'
+import { parseSetTaskParentRequest } from './task-parsers.ts'
 import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
 const maxMessageLength = 8000
@@ -52,6 +53,13 @@ export function parseCoordinatorAction(
     }
   }
   const base = { operation: body.operation, version: body.version }
+  if (kind === 'parent') {
+    const parent = parseSetTaskParentRequest({
+      parentId: body.parentId,
+      revision: body.hierarchyRevision,
+    })
+    return { ...base, parentId: parent.parentId, hierarchyRevision: parent.revision }
+  }
   if (kind === 'start' || kind === 'move')
     return {
       ...base,

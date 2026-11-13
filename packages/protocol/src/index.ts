@@ -260,6 +260,7 @@ export {
   type ReservationId,
   type TaskAssignment,
 } from './execution.ts'
+export * from './execution-commands.ts'
 export * from './execution-pairing.ts'
 export {
   type ExportFormat,
@@ -296,6 +297,7 @@ export {
   type RepoSetup,
   type RepoSource,
   repoNamePattern,
+  type SetFactoryNotificationsRequest,
   type SetFactoryPermissionsRequest,
   type SetLocalFolderRequest,
   suggestFactoryName,
@@ -317,6 +319,7 @@ export {
   parseReorderFactoriesRequest,
   parseSaveLibraryRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
@@ -579,7 +582,11 @@ export {
   type Appearance,
   appearances,
   checkLimits,
+  defaultFactoryNotifications,
   defaultMachineSettings,
+  type FactoryNotifications,
+  factoryNotifications,
+  firstFactoryNotifications,
   type MachineSettings,
   type Profile,
   type QuitChoice,
@@ -738,6 +745,7 @@ export {
   type SetClarifyDepthRequest,
   type SetPriorityRequest,
   type SetTaskLeadRequest,
+  type SetTaskParentRequest,
   type SetTaskReposRequest,
   type SetTaskSnoozeRequest,
   type SetupAppTried,
@@ -753,12 +761,16 @@ export {
   type StartTaskRequest,
   sizeChoices,
   type TalkedThrough,
+  type TalkThroughRequest,
+  type TalkThroughResult,
   type Task,
   type TaskArchive,
   type TaskBrief,
   type TaskDefaults,
   type TaskDraftState,
   type TaskEnding,
+  type TaskHierarchy,
+  type TaskHierarchyPreview,
   type TaskLead,
   type TaskLink,
   type TaskMarker,
@@ -777,6 +789,7 @@ export {
   type TrackStage,
   type TrackState,
   taskStatusKinds,
+  type UnarchiveTaskRequest,
   type ValidateJudgments,
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
@@ -829,10 +842,13 @@ export {
   parseSetClarifyDepthRequest,
   parseSetPriorityRequest,
   parseSetTaskGatesRequest,
+  parseSetTaskParentRequest,
   parseSetTaskReposRequest,
   parseSizeCheckInput,
   parseStartTaskRequest,
+  parseTalkThroughRequest,
   parseTaskLead,
+  parseUnarchiveTaskRequest,
   parseWriteBriefRequest,
 } from './task-parsers.ts'
 export * from './test-invocations.ts'
@@ -847,7 +863,7 @@ export {
 export type { UpdateWork } from './update.ts'
 export { RequestValidationError } from './validation.ts'
 export { tedVersion } from './version.ts'
-export type { SnoozedRequest, WaitingRequest } from './waiting.ts'
+export { countWaiting, type SnoozedRequest, type WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,

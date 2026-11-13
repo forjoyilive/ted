@@ -4,16 +4,20 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { executionHome } from '@ted/daemon/execution'
 import {
+  clearQuit,
   crashReport,
   type DaemonConnection,
   type DaemonSupervisor,
   daemonRestartDelaysMs,
+  markQuit,
+  stopTedProcesses,
   superviseDaemon,
   watchExitWith,
 } from '@ted/daemon/launch'
 import {
   type Activity,
   type Banner,
+  countWaiting,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
@@ -443,7 +447,7 @@ function forward(event: DaemonEvent): void {
   }
   if (event.type === 'activity-changed') state = { ...state, activity: event.activity }
   if (event.type === 'inbox-changed') {
-    state = { ...state, waiting: event.waiting.length }
+    state = { ...state, waiting: countWaiting(event.waiting) }
     notifications.waiting(event.waiting)
   }
   if (event.type === 'banner-raised' || event.type === 'banner-updated') {
@@ -766,11 +770,23 @@ async function quitCompletely(): Promise<void> {
   if (edition === 'dev' && tedEnv('TED_DEMO') === '1') {
     await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
   } else {
+    await markQuit(tedHome()).catch((error: unknown) => console.error('quit mark:', error))
     supervisor?.close()
-    await Promise.race([
-      client?.shutdown().catch((error: unknown) => console.error(error)),
-      new Promise((resolve) => setTimeout(resolve, quitWaitMs)),
+    const stopped = await Promise.race([
+      (client?.shutdown() ?? Promise.reject(new Error('no daemon client'))).then(
+        () => true,
+        (error: unknown) => {
+          console.error(error)
+          return false
+        },
+      ),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), quitWaitMs)),
     ])
+    if (!stopped) {
+      await stopTedProcesses(tedHome()).catch((error: unknown) =>
+        console.error('stopping TED’s processes:', error),
+      )
+    }
   }
   setTimeout(() => app.exit(0), quitExitMs)
   app.quit()
@@ -853,7 +869,7 @@ async function loadState(): Promise<void> {
     client.listBanners(),
     client.listWaiting(),
   ])
-  state = { ...state, activity, banners, waiting: waiting.length }
+  state = { ...state, activity, banners, waiting: countWaiting(waiting) }
   notifications.waiting(waiting)
   refresh()
   await noteTedStops().catch((error: unknown) =>
@@ -949,6 +965,7 @@ async function start(): Promise<void> {
       throw new Error('Prepare the demo home with pnpm app --demo first.')
   }
   traceStartup('daemon-connect-start')
+  await clearQuit(tedHome())
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
     ...(testAppToken && { appToken: testAppToken }),

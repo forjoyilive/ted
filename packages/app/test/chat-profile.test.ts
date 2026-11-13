@@ -69,6 +69,7 @@ test('chat history uses the local profile and follows picture changes', async ()
     await thread.screenshot({ path: path.join(process.env.TED_PROFILE_SCREENSHOTS, 'thread.png') })
   }
 
+  await window.getByRole('tab', { name: 'Runs' }).click()
   await window
     .getByRole('complementary', { name: 'Task details' })
     .getByRole('button', { name: /Task Lead/ })

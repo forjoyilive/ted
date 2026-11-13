@@ -30,9 +30,9 @@ Read the Task, its sources and the relevant code before asking. Use the repo to 
    - **Grill anyway:** the Task stays whole and TED sets the depth to grilling.
 2. Unless the human already chose a Clarify depth, pick one and say why in one line: `ted clarify depth <none|few|grilling> "<why>"`.
    - **None** when nothing is unclear. Record the result in the Task brief as described below, then run `ted outcome advance`.
-   - **Few** when a handful of simple questions would settle it. Ask them all in one round.
+   - **Few** when one round would settle it, however many questions that round needs.
    - **Grilling** when the Task hides real decisions. Use `grilling` (or `batch-grill-me`) if the skill is available to your agent; otherwise follow the rounds below. Ask in rounds until nothing is left open.
-3. Ask a round with `ted ask --round <file>`. The file is JSON: a short `title` that names the topic and doesn’t say how many questions there are, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text. For example:
+3. Ask a round with `ted ask --round <file>`. Put every question you can ask now in the round; hold back only a question whose answer depends on one still open, and ask it in the next round. A round holds up to 12 questions. The file is JSON: a short `title` that names the topic and doesn’t say how many questions there are, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text. For example, with two questions to keep it short (a real round usually has more):
 
    ```json
    {

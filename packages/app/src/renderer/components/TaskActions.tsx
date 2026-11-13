@@ -1,12 +1,14 @@
-import type { Task } from '@ted/protocol'
+import type { RunSummary, Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useState } from 'react'
 import { keysFor } from '../keymap.ts'
 import { usePendingAction } from '../pending-action.ts'
+import { clockTime } from '../requests.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { formatDate } from '../time.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import { useEnabledAgents } from './AgentOptions.tsx'
@@ -23,6 +25,7 @@ import {
 import menuStyles from './ContextMenu.module.css'
 import { buttonPosition, ContextMenu, type MenuPosition, MenuSubmenu } from './ContextMenu.tsx'
 import { Tooltip } from './Help.tsx'
+import { LoadingError } from './Loading.tsx'
 import { SnoozeTaskDialog, snoozeTaskEvent } from './SnoozeTaskDialog.tsx'
 import styles from './TaskActions.module.css'
 
@@ -114,6 +117,75 @@ function Choice({
   )
 }
 
+export interface TaskHistory {
+  earlier: readonly RunSummary[]
+  finished: readonly RunSummary[]
+  loading: boolean
+  error: string | undefined
+  retry: () => void
+  onOpen: (runId: string) => void
+}
+
+export interface TaskSideChat {
+  available: boolean
+  onOpen: () => void
+}
+
+function HistoryItem({ history, close }: { history: TaskHistory; close: () => void }) {
+  const count = history.earlier.length + history.finished.length
+  if (count === 0 && !history.loading && history.error === undefined) {
+    return (
+      <ActionButton
+        type="button"
+        role="menuitem"
+        className={styles.item}
+        aria-disabled
+        title="No earlier conversations or finished sub-agents yet."
+      >
+        <span className={styles.label}>History</span>
+        <span className={styles.hint}>Nothing yet</span>
+      </ActionButton>
+    )
+  }
+  const rows = (list: readonly RunSummary[]) =>
+    list.map((run) => (
+      <ActionButton
+        key={run.id}
+        type="button"
+        role="menuitem"
+        className={`${styles.item} ${styles.historyRow}`}
+        onClick={() => {
+          close()
+          history.onOpen(run.id)
+        }}
+      >
+        <span>{run.role === 'lead' ? 'Earlier conversation' : run.name}</span>
+        <small>
+          {formatDate(run.startedAt, { day: 'numeric', month: 'short', year: 'numeric' })} ·{' '}
+          {clockTime(run.startedAt)} · {agentLabels[run.agent]}
+        </small>
+      </ActionButton>
+    ))
+  return (
+    <MenuSubmenu label={count > 0 ? `History · ${count}` : 'History'}>
+      {history.error !== undefined && <LoadingError error={history.error} retry={history.retry} />}
+      {history.loading && <p className={styles.note}>Loading history…</p>}
+      {history.earlier.length > 0 && (
+        <>
+          <div className={styles.group}>Earlier conversations</div>
+          {rows(history.earlier)}
+        </>
+      )}
+      {history.finished.length > 0 && (
+        <>
+          <div className={styles.group}>Finished sub-agents</div>
+          {rows(history.finished)}
+        </>
+      )}
+    </MenuSubmenu>
+  )
+}
+
 export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up' | 'reset' | 'snooze'
 
 export function TaskDialog({
@@ -152,6 +224,8 @@ export function TaskActionsMenu({
   onMenuClose,
   onPickBlocker,
   onOpenBrief,
+  history,
+  sideChat,
 }: {
   task: Task
   contextAt?: MenuPosition | undefined
@@ -160,6 +234,8 @@ export function TaskActionsMenu({
   onPickBlocker?: (task: Task) => void
   onFollowedUp?: (followUp: Task) => void
   onOpenBrief?: (() => void) | undefined
+  history?: TaskHistory | undefined
+  sideChat?: TaskSideChat | undefined
 }) {
   const enabledAgents = useEnabledAgents()
   const [position, setPosition] = useState<MenuPosition>()
@@ -240,8 +316,6 @@ export function TaskActionsMenu({
 
   const action = statusAction(task)
   const refusal = resetRefusal(task)
-  const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
-  const [restarting, setRestarting] = useState(false)
   const linear = task.source?.linear
 
   const activity = usePendingAction(`task-actions:${task.id}`)
@@ -282,6 +356,38 @@ export function TaskActionsMenu({
     </ActionButton>
   )
 
+  const conversationItems = (history || sideChat) && (
+    <>
+      {history && <HistoryItem history={history} close={close} />}
+      {sideChat &&
+        (sideChat.available ? (
+          <ActionButton
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => {
+              close()
+              sideChat.onOpen()
+            }}
+          >
+            <span className={styles.label}>Side chat</span>
+          </ActionButton>
+        ) : (
+          <ActionButton
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            aria-disabled
+            title="Side chat asks about a Task Lead conversation. This Task has none yet."
+          >
+            <span className={styles.label}>Side chat</span>
+            <span className={styles.hint}>No Task Lead conversation yet</span>
+          </ActionButton>
+        ))}
+      <hr className={styles.separator} />
+    </>
+  )
+
   if (task.archived) {
     return (
       <div className={styles.anchor}>
@@ -317,6 +423,8 @@ export function TaskActionsMenu({
             >
               <span className={styles.label}>Unarchive</span>
             </ActionButton>
+            {conversationItems && <hr className={styles.separator} />}
+            {conversationItems}
             <ActionButton
               type="button"
               role="menuitem"
@@ -398,28 +506,10 @@ export function TaskActionsMenu({
                   <span className={styles.label}>Stop Task</span>
                 </ActionButton>
               )}
-              {lead !== undefined && lead.state !== 'finished' && (
-                <ActionButton
-                  type="button"
-                  role="menuitem"
-                  className={styles.item}
-                  disabled={restarting || lead.state === 'working'}
-                  title={
-                    lead.state === 'working' ? 'Restart works when the Run is idle' : undefined
-                  }
-                  onClick={() =>
-                    act(() => {
-                      setRestarting(true)
-                      return ted.restartRun(lead.id).finally(() => setRestarting(false))
-                    })
-                  }
-                >
-                  <span className={styles.label}>Restart</span>
-                </ActionButton>
-              )}
               <hr className={styles.separator} />
             </>
           )}
+          {conversationItems}
           {task.stage === 'backlog' && !task.setup && (
             <>
               <ActionButton

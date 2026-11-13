@@ -10,6 +10,7 @@ import type {
 import { simulatorsLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
+import { factoryNotifications } from '@ted/protocol/settings'
 import {
   type ReactNode,
   useCallback,
@@ -331,7 +332,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       planInbox.filter((item) => !snoozed.has(item.request.id)),
     ),
   )) {
-    waiting[factoryId] = { waiting: count }
+    waiting[factoryId] = {
+      waiting: count,
+      ...(settings && !factoryNotifications(settings, factoryId).inboxItems && { uncounted: true }),
+    }
   }
   for (const automation of allAutomations ?? []) {
     if (automation.last?.result.kind !== 'failed') continue
@@ -800,6 +804,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           factoryId={screen.factoryId}
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
+          settings={settings}
+          onOpenNotifications={() => dispatch({ type: 'open-settings', section: 'notifications' })}
           selected={navigation.requestId}
           onClear={() => dispatch({ type: 'open', screen })}
           onOpen={({ request, task: on }) =>

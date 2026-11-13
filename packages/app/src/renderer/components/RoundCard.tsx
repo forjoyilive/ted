@@ -161,6 +161,7 @@ function Question({
 
 export function RoundQuestions({
   round,
+  waiting = false,
   readOnly,
   sending,
   talking,
@@ -170,6 +171,7 @@ export function RoundQuestions({
 }: {
   round: Round
   box?: MessageBox | undefined
+  waiting?: boolean
   readOnly: boolean
   sending: boolean
   talking: boolean
@@ -204,8 +206,8 @@ export function RoundQuestions({
       {!readOnly && (
         <div className={styles.buttons}>
           {onTalk && (
-            <Button className={styles.talk} disabled={sending} onClick={onTalk}>
-              {talking ? 'Open chat' : 'Talk it through'}
+            <Button className={styles.talk} disabled={sending || waiting} onClick={onTalk}>
+              {waiting ? 'Waiting for Task Lead…' : talking ? 'Open chat' : 'Talk it through'}
             </Button>
           )}
           <Button

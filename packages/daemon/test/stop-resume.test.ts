@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { nudgeMessage } from '../src/tasks/thread.ts'
 import {
   api,
   commitToOrigin,
@@ -125,7 +126,7 @@ const threadEvents = (client: Client, task: Task) =>
 const promptOf = async (client: Client, runId: string) =>
   ((await client.getRun(runId)).run as { prompt?: string }).prompt ?? ''
 
-const nudge = 'Continue, or post a Comment if you need the human.'
+const nudge = nudgeMessage
 
 test('a Task interrupted by full quit can resume directly after reopening', async () => {
   const client = await startTed()
@@ -594,5 +595,47 @@ describe('the idle Task Lead', () => {
 
     expect(await userMessages(client, idle.leadRunId ?? '')).toHaveLength(1)
     expect((await comments(client, task)).map((c) => c.author.kind)).toEqual(['run'])
+  })
+
+  test('isn’t nudged while its sub-agent works, and is once the sub-agent stops working', async () => {
+    const clock = new ManualClock()
+    const client = await startTed({ nudgeAfterMs: 100, clock })
+    const release = path.join(scratch, 'release-sub-agent')
+    const prompt = path.join(scratch, 'sub-agent.md')
+    await writeFile(prompt, `${steps({ waitFor: release }, { say: 'done' }, { endTurn: true })}\n`)
+    const task = await create(
+      client,
+      steps({ run: ['sh', '-c', `ted run start --prompt-file ${prompt}`] }, { endTurn: true }),
+      { start: true },
+    )
+    const idle = await waitFor(
+      client,
+      task,
+      (t) => t.runs[0]?.state === 'idle' && t.runs.length === 2,
+      'the Lead to go idle beside its sub-agent',
+    )
+    const leadRunId = idle.leadRunId ?? ''
+    for (let i = 0; i < 3; i++) {
+      await eventWait(clock.subscribe, () => clock.pending.includes(100), 'the idle timer to arm')
+      clock.advance(100)
+    }
+    expect((await userMessages(client, leadRunId)).filter((m) => m === nudge)).toHaveLength(0)
+
+    await writeFile(release, '')
+    await waitUntil(async () => {
+      const runs = await client.ok<{ role: string; state: string }[]>(
+        'GET',
+        `/tasks/${task.id}/runs`,
+      )
+      return runs.find((r) => r.role === 'sub-agent')?.state === 'idle' ? true : undefined
+    }, 'the sub-agent to stop working')
+    await eventWait(
+      client.subscribe,
+      async () => {
+        if (clock.pending.includes(100)) clock.advance(100)
+        return (await userMessages(client, leadRunId)).includes(nudge)
+      },
+      'the nudge after the sub-agent stops working',
+    )
   })
 })

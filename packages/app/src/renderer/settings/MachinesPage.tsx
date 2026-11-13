@@ -188,6 +188,7 @@ export function MachinesPage() {
               <code className={styles.identity}>SHA256:{m.publicKey}</code>
               <p>Grant: {m.id}</p>
               <p>Allowed repos: {m.scopes.map((s) => s.repo).join(', ')}</p>
+              {m.operations?.text && <p data-operations>{m.operations.text}</p>}
               {m.readiness && <ExecutionReadiness value={m.readiness} stale={!m.connected} />}
               {!m.revokedAt &&
                 (confirm === m.id ? (

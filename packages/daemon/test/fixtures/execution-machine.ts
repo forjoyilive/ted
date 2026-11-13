@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { readdir, rename, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import path from 'node:path'
+import { executionIds } from '@ted/protocol'
+import type { ExecutionCommands } from '../../src/execution/commands.ts'
 import { startDaemon } from '../../src/index.ts'
+import type { TedStore } from '../../src/store/index.ts'
 import { openStore } from '../../src/store/index.ts'
 import { createTaskExecution } from '../../src/tasks/execution.ts'
 import { stubClaudePath, stubCodexPath } from '../helpers.ts'
@@ -19,12 +22,18 @@ let executionClockOffsetMs = 0
 let freeBytes = 500e9
 let load = 0
 let online = true
+let execution: { commands: ExecutionCommands; store: TedStore } | undefined
 const daemon =
   mode === 'store'
     ? undefined
     : await startDaemon({
         home,
-        execution: { now: () => Date.now() + executionClockOffsetMs },
+        execution: {
+          now: () => Date.now() + executionClockOffsetMs,
+          ready(api) {
+            execution = api
+          },
+        },
         version: '9.9.9',
         claudeBin: stubClaudePath,
         codexBin: stubCodexPath,
@@ -131,6 +140,40 @@ async function execute(command: FixtureCommand): Promise<unknown> {
     if (c.acknowledgment === 'release') for (const release of held.splice(0)) release()
     else if (c.acknowledgment) nextAck = c.acknowledgment
     return counts
+  }
+  if (
+    command.action === 'assign-remote' ||
+    command.action === 'issue' ||
+    command.action === 'inject' ||
+    command.action === 'stop-operation' ||
+    command.action === 'operation' ||
+    command.action === 'operations'
+  ) {
+    if (!execution) throw new Error('execution commands require daemon mode')
+    if (command.action === 'assign-remote') {
+      const receipt = createTaskExecution(execution.store).assign({
+        taskId: command.taskId,
+        machineId: executionIds.machine(command.machineId),
+        assignmentId: executionIds.assignment(randomUUID()),
+        reservationId: executionIds.reservation(randomUUID()),
+        operationId: executionIds.operation(randomUUID()),
+        expectedGeneration: 0,
+      })
+      await execution.store.persisted()
+      return receipt
+    }
+    if (command.action === 'issue') return execution.commands.issue(command.input)
+    if (command.action === 'inject') {
+      execution.store.operations.issue(command.command)
+      await execution.store.persisted()
+      return true
+    }
+    if (command.action === 'stop-operation') {
+      await execution.commands.stop(command.id)
+      return true
+    }
+    if (command.action === 'operation') return execution.commands.operation(command.id) ?? null
+    return execution.store.operations.forTask(command.taskId)
   }
   if (!store) throw new Error('ownership commands require store mode')
   if (command.action === 'create') return store.createTask({ title: 'Synthetic ownership fixture' })

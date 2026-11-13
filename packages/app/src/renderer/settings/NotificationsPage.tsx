@@ -1,5 +1,6 @@
 import type { MachineSettings } from '@ted/protocol'
-import { useEventValue } from '../data.ts'
+import { FactoryNotificationsTable } from '../components/FactoryNotifications.tsx'
+import { useEventValue, useFactories } from '../data.ts'
 import { type SettingId, settingEntry } from '../settings-search.ts'
 import { ted } from '../ted.ts'
 import { Button, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
@@ -44,6 +45,7 @@ function NotifySwitch({
 
 export function NotificationsPage({ settings }: SettingsPageProps) {
   const off = useNotificationsOff()
+  const factories = useFactories()
   return (
     <SettingsPage
       title="Notifications"
@@ -66,6 +68,11 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
           <NotifySwitch key={row.setting} settings={settings} {...row} />
         ))}
       </SettingsGroup>
+      {factories.length > 0 && (
+        <SettingsGroup setting="app.notifications.by-factory">
+          <FactoryNotificationsTable settings={settings} factories={factories} />
+        </SettingsGroup>
+      )}
       <SettingsGroup setting="app.notifications.sound">
         <NotifySwitch
           settings={settings}

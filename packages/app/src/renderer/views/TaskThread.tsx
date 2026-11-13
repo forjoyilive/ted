@@ -35,6 +35,8 @@ import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
+import { DetailsSection } from '../components/DetailsSection.tsx'
+import { DetailsTabs } from '../components/DetailsTabs.tsx'
 import { AllChanges, CommitView, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
@@ -60,7 +62,7 @@ import { RequestDock } from '../components/RequestDock.tsx'
 import { RequestJumpBar } from '../components/RequestJumpBar.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
-import { RunsSection } from '../components/RunsSection.tsx'
+import { RunsSection, runIconState } from '../components/RunsSection.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { RunWithSideChat } from '../components/SideChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
@@ -85,6 +87,7 @@ import {
   useTaskRunsState,
   useThreadEventList,
 } from '../data.ts'
+import { showDetailsTab, useDetailsTab } from '../details.ts'
 import { openInEditor } from '../editor.ts'
 import { quickOpenEvent, takeFileRequest, useTaskFiles } from '../files.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
@@ -529,6 +532,7 @@ export function TaskPanes({
         onOpenShell={openShell}
         shownApp={shownApp}
         onOpenApp={openApp}
+        changeCount={shownChanges?.files}
         changes={
           <ChangesSection
             changes={shownChanges}
@@ -643,6 +647,8 @@ export function TaskThread({
     runId: string
     target: ScrollReveal
   }>()
+  const [sideChatAsk, setSideChatAsk] = useState<{ taskId: string; runId: string }>()
+  const sideChatRun = earlier.find((run) => run.id === shownRun)?.id ?? task.leadRunId
   const openConversation = (runId: string) => {
     setReveal(undefined)
     setConversationReveal({ runId, target: { id: `conversation:${runId}` } })
@@ -776,6 +782,9 @@ export function TaskThread({
         hidden={!shownItems.has(item)}
       >
         <RequestCard
+          active={
+            !hidden && shownRun === undefined && shownApp === undefined && shownItems.has(item)
+          }
           taskChanges={taskChanges}
           onOpenFile={onOpenFile}
           onAllChanges={onAllChanges}
@@ -881,7 +890,30 @@ export function TaskThread({
                 {headerAction.label}
               </Button>
             )}
-            <TaskActionsMenu task={task} onFollowedUp={onFollowedUp} onOpenBrief={onOpenBrief} />
+            <TaskActionsMenu
+              task={task}
+              onFollowedUp={onFollowedUp}
+              onOpenBrief={onOpenBrief}
+              history={{
+                earlier: [...earlier].reverse(),
+                finished: runs
+                  .filter((run) => run.role === 'sub-agent' && run.state === 'finished')
+                  .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+                loading: runList.value === undefined && !runList.error,
+                error: runList.error,
+                retry: runList.retry,
+                onOpen: openConversation,
+              }}
+              sideChat={{
+                available: sideChatRun !== undefined,
+                onOpen: () => {
+                  if (sideChatRun === undefined) return
+                  if (showingSubAgent) onShowRun(undefined)
+                  if (shownApp !== undefined) onCloseApp?.()
+                  setSideChatAsk({ taskId: task.id, runId: sideChatRun })
+                },
+              }}
+            />
           </div>
           <TaskDescription task={task} />
           <div className={styles.headerRow}>
@@ -901,7 +933,6 @@ export function TaskThread({
         <TaskConversationTabs
           task={task}
           runs={runs}
-          resource={runList}
           shown={shownRun}
           onShow={onShowRun}
           onOpen={openConversation}
@@ -992,6 +1023,8 @@ export function TaskThread({
               stage={stage}
               active={!hidden && !talking && !showingSubAgent && shownApp === undefined}
               loading={historyLoading}
+              sideChatFor={sideChatAsk?.taskId === task.id ? sideChatAsk.runId : undefined}
+              onSideChatOpened={() => setSideChatAsk(undefined)}
               extra={[
                 ...rendered.map((item) => ({
                   id:
@@ -1114,6 +1147,7 @@ export function TaskDetails({
   onOpenRun,
   onOpenShell,
   changes,
+  changeCount,
   files,
   hidden = false,
   shownApp,
@@ -1126,6 +1160,7 @@ export function TaskDetails({
   onOpenShell: (repo: string) => void
   files?: ReactNode
   changes?: ReactNode
+  changeCount?: number | undefined
   hidden?: boolean
   shownApp?: ShownApp | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
@@ -1139,146 +1174,188 @@ export function TaskDetails({
   const blocks = tasks.filter((t) => t.blockedBy.includes(task.id))
   const clarifyOver = clarifyIsOver(task.stage)
   const factory = factories.find((f) => f.id === task.factoryId)
+  const tab = useDetailsTab()
+  const runs = useTaskRuns(task.id)
+  const [pick, setPick] = useState(0)
+  useEffect(() => {
+    const onPick = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail !== task.id) return
+      showDetailsTab('details')
+      setPick((n) => n + 1)
+    }
+    window.addEventListener(pickBlockerEvent, onPick)
+    return () => window.removeEventListener(pickBlockerEvent, onPick)
+  }, [task.id])
+  useEffect(() => {
+    if (pick > 0 && tab === 'details') setPick(0)
+  }, [pick, tab])
   return (
-    <DetailsPane className={styles.detailsPane} aria-label="Task details" hidden={hidden}>
-      <h2 className={styles.detailsHeading}>Task Details</h2>
-      {task.setup && (
-        <p className={styles.setupNote}>
-          The Design and Review sign-offs are always on for a setup Task. Tasks started before it
-          merges use TED’s defaults.
-        </p>
-      )}
-      <dl className={styles.details}>
-        <dt>Priority</dt>
-        <dd>
-          {editable ? (
-            <FieldSelect
-              label="Priority"
-              text={priorityLabels[task.priority]}
-              value={task.priority}
-              options={[...priorities].reverse().map((p) => [p, priorityLabels[p]])}
-              onChange={(value) => change(ted.setPriority(task.id, value as Priority))}
-            />
-          ) : (
-            priorityLabels[task.priority]
-          )}
-        </dd>
-        <dt>Task Lead</dt>
-        <dd>
-          {task.archived ? (
-            task.lead ? (
-              leadSummary(task.lead)
-            ) : (
-              'Default'
-            )
-          ) : (
-            <TaskLeadField key={task.id} task={task} />
-          )}
-        </dd>
-        <dt>Clarify depth</dt>
-        <dd>
-          {editable && !clarifyOver ? (
-            <FieldSelect
-              label="Clarify depth"
-              text={clarifyDepthText(task)}
-              value={task.clarifyDepth}
-              options={clarifyDepths.map((d) => [d, clarifyDepthLabels[d]])}
-              onChange={(value) =>
-                change(ted.setClarifyDepth(task.id, { depth: value as ClarifyDepth }))
-              }
-            />
-          ) : (
-            <>
-              {clarifyDepthText(task)}
-              {editable && task.stage !== 'done' && (
-                <span className={styles.fieldNote}>
-                  Clarify is over, so changing the depth would do nothing.
-                </span>
+    <DetailsPane
+      className={`${styles.detailsPane} ${styles.tabbedPane}`}
+      aria-label="Task details"
+      hidden={hidden}
+    >
+      <DetailsTabs
+        selected={tab}
+        onSelect={showDetailsTab}
+        changeCount={changeCount}
+        runWorking={runs.some((run) => runIconState(run) === 'working')}
+      />
+      <div className={styles.tabBody}>
+        {tab === 'details' && (
+          <DetailsSection id="details">
+            {task.setup && (
+              <p className={styles.setupNote}>
+                The Design and Review sign-offs are always on for a setup Task. Tasks started before
+                it merges use TED’s defaults.
+              </p>
+            )}
+            <dl className={styles.details}>
+              <dt>Priority</dt>
+              <dd>
+                {editable ? (
+                  <FieldSelect
+                    label="Priority"
+                    text={priorityLabels[task.priority]}
+                    value={task.priority}
+                    options={[...priorities].reverse().map((p) => [p, priorityLabels[p]])}
+                    onChange={(value) => change(ted.setPriority(task.id, value as Priority))}
+                  />
+                ) : (
+                  priorityLabels[task.priority]
+                )}
+              </dd>
+              <dt>Task Lead</dt>
+              <dd>
+                {task.archived ? (
+                  task.lead ? (
+                    leadSummary(task.lead)
+                  ) : (
+                    'Default'
+                  )
+                ) : (
+                  <TaskLeadField key={task.id} task={task} />
+                )}
+              </dd>
+              <dt>Clarify depth</dt>
+              <dd>
+                {editable && !clarifyOver ? (
+                  <FieldSelect
+                    label="Clarify depth"
+                    text={clarifyDepthText(task)}
+                    value={task.clarifyDepth}
+                    options={clarifyDepths.map((d) => [d, clarifyDepthLabels[d]])}
+                    onChange={(value) =>
+                      change(ted.setClarifyDepth(task.id, { depth: value as ClarifyDepth }))
+                    }
+                  />
+                ) : (
+                  <>
+                    {clarifyDepthText(task)}
+                    {editable && task.stage !== 'done' && (
+                      <span className={styles.fieldNote}>
+                        Clarify is over, so changing the depth would do nothing.
+                      </span>
+                    )}
+                  </>
+                )}
+              </dd>
+              <dt>Autopilot</dt>
+              <dd>
+                <AutopilotField task={task} />
+              </dd>
+              <dt>Sign-offs</dt>
+              <dd className={styles.gatesValue}>
+                <TaskGatesField
+                  key={task.id}
+                  taskId={task.id}
+                  factoryId={task.factoryId}
+                  task={task}
+                />
+              </dd>
+              {factory && showsRepos(factory) && (
+                <>
+                  <dt>Repos</dt>
+                  <dd>
+                    <ReposField key={task.id} task={task} factory={factory} />
+                  </dd>
+                </>
               )}
-            </>
-          )}
-        </dd>
-        <dt>Autopilot</dt>
-        <dd>
-          <AutopilotField task={task} />
-        </dd>
-        <dt>Sign-offs</dt>
-        <dd className={styles.gatesValue}>
-          <TaskGatesField key={task.id} taskId={task.id} factoryId={task.factoryId} task={task} />
-        </dd>
-        {factory && showsRepos(factory) && (
-          <>
-            <dt>Repos</dt>
-            <dd>
-              <ReposField key={task.id} task={task} factory={factory} />
-            </dd>
-          </>
-        )}
-        {task.stage !== 'done' && (
-          <>
-            <dt>Blocked by</dt>
-            <dd>
-              {task.archived ? (
-                task.blockedBy
-                  .map((id) => tasks.find((t) => t.id === id)?.displayId ?? 'a deleted Task')
-                  .join(', ') || '—'
-              ) : (
-                <BlockedByField key={task.id} task={task} tasks={tasks} />
+              {task.stage !== 'done' && (
+                <>
+                  <dt>Blocked by</dt>
+                  <dd>
+                    {task.archived ? (
+                      task.blockedBy
+                        .map((id) => tasks.find((t) => t.id === id)?.displayId ?? 'a deleted Task')
+                        .join(', ') || '—'
+                    ) : (
+                      <BlockedByField
+                        key={task.id}
+                        task={task}
+                        tasks={tasks}
+                        searchRequest={pick}
+                      />
+                    )}
+                  </dd>
+                </>
               )}
-            </dd>
-          </>
+              {blocks.length > 0 && (
+                <>
+                  <dt>Blocks</dt>
+                  <dd>
+                    <ul className={styles.detailList}>
+                      {blocks.map((t) => (
+                        <li key={t.id}>
+                          {t.displayId}
+                          <span className={styles.detailMeta}>{t.title}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </dd>
+                </>
+              )}
+              <dt>Factory</dt>
+              <dd>{factoryName(factories, task.factoryId)}</dd>
+              <dt>Stage</dt>
+              <dd>{stageName(task.stage)}</dd>
+              {task.attachments.length > 0 && (
+                <>
+                  <dt>Attachments</dt>
+                  <dd>
+                    <ul className={styles.detailList}>
+                      {task.attachments.map((a) => (
+                        <li key={`${a.hash}:${a.name}`}>
+                          {a.name}
+                          <span className={styles.detailMeta}>{formatSize(a.size)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </dd>
+                </>
+              )}
+              {task.branch !== undefined && (
+                <>
+                  <dt>Branch</dt>
+                  <dd>{task.branch}</dd>
+                </>
+              )}
+            </dl>
+            {error !== undefined && (
+              <p className={styles.fieldError} role="alert">
+                {error}
+              </p>
+            )}
+          </DetailsSection>
         )}
-        {blocks.length > 0 && (
-          <>
-            <dt>Blocks</dt>
-            <dd>
-              <ul className={styles.detailList}>
-                {blocks.map((t) => (
-                  <li key={t.id}>
-                    {t.displayId}
-                    <span className={styles.detailMeta}>{t.title}</span>
-                  </li>
-                ))}
-              </ul>
-            </dd>
-          </>
+        {tab === 'code' && <CodeSection task={task} onOpenShell={onOpenShell} />}
+        {tab === 'changes' && changes}
+        {tab === 'files' && files}
+        {tab === 'runs' && <RunsSection runs={runs} onOpenRun={onOpenRun} />}
+        {tab === 'apps' && (
+          <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
         )}
-        <dt>Factory</dt>
-        <dd>{factoryName(factories, task.factoryId)}</dd>
-        <dt>Stage</dt>
-        <dd>{stageName(task.stage)}</dd>
-        {task.attachments.length > 0 && (
-          <>
-            <dt>Attachments</dt>
-            <dd>
-              <ul className={styles.detailList}>
-                {task.attachments.map((a) => (
-                  <li key={`${a.hash}:${a.name}`}>
-                    {a.name}
-                    <span className={styles.detailMeta}>{formatSize(a.size)}</span>
-                  </li>
-                ))}
-              </ul>
-            </dd>
-          </>
-        )}
-        {task.branch !== undefined && (
-          <>
-            <dt>Branch</dt>
-            <dd>{task.branch}</dd>
-          </>
-        )}
-      </dl>
-      {error !== undefined && (
-        <p className={styles.fieldError} role="alert">
-          {error}
-        </p>
-      )}
-      <CodeSection task={task} onOpenShell={onOpenShell} />
-      {changes}
-      {files}
-      <TaskRuns task={task} onOpenRun={onOpenRun} />
-      <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
+      </div>
     </DetailsPane>
   )
 }
@@ -1316,20 +1393,16 @@ function FieldSelect({
   )
 }
 
-function TaskRuns({ task, onOpenRun }: { task: Task; onOpenRun: (runId: string) => void }) {
-  return <RunsSection runs={useTaskRuns(task.id)} onOpenRun={onOpenRun} />
-}
-
-function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] }) {
+function BlockedByField({
+  task,
+  tasks,
+  searchRequest,
+}: {
+  task: Task
+  tasks: readonly Task[]
+  searchRequest: number
+}) {
   const [error, setError] = useState<string>()
-  const [searchRequest, setSearchRequest] = useState(0)
-  useEffect(() => {
-    const onPick = (event: Event) => {
-      if (event instanceof CustomEvent && event.detail === task.id) setSearchRequest((n) => n + 1)
-    }
-    window.addEventListener(pickBlockerEvent, onPick)
-    return () => window.removeEventListener(pickBlockerEvent, onPick)
-  }, [task.id])
   const blockers = task.blockedBy.flatMap((id) => tasks.filter((t) => t.id === id))
   const gone = task.blockedBy.filter((id) => !tasks.some((t) => t.id === id))
   const change = (request: Promise<Task>) => {

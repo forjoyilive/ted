@@ -335,6 +335,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyProblems: onOff('notifyProblems'),
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
+  factoryNotifications() {
+    throw new HttpError(400, 'Change a Factory’s notifications through its own route')
+  },
   firstLaunchDone: onOff('firstLaunchDone'),
   linearIntakeScopes(value) {
     if (

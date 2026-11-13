@@ -60,15 +60,7 @@ export function runMeta(run: RunSummary): string {
     .join(' · ')
 }
 
-function RunBar({
-  run,
-  onStopTask,
-  action,
-}: {
-  run: RunSummary
-  onStopTask: (() => void) | undefined
-  action?: ReactNode
-}) {
+function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void) | undefined }) {
   const now = useNow()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -91,36 +83,25 @@ function RunBar({
           {!live && ' · finished'}
         </span>
       </div>
-      {action}
       {error !== undefined && (
         <span className={styles.barError} role="alert">
           {error}
         </span>
       )}
-      {live && (
-        <>
+      {live &&
+        (run.role === 'lead' && run.current ? (
           <Button
-            disabled={busy || run.state === 'working'}
-            title={run.state === 'working' ? 'Restart works when the Run is idle' : undefined}
-            onClick={() => act(() => ted.restartRun(run.id))}
+            disabled={onStopTask === undefined}
+            title={onStopTask === undefined ? 'Stopping a Task isn’t available yet' : undefined}
+            onClick={onStopTask}
           >
-            Restart
+            Stop Task
           </Button>
-          {run.role === 'lead' && run.current ? (
-            <Button
-              disabled={onStopTask === undefined}
-              title={onStopTask === undefined ? 'Stopping a Task isn’t available yet' : undefined}
-              onClick={onStopTask}
-            >
-              Stop Task
-            </Button>
-          ) : (
-            <Button disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
-              Stop Run
-            </Button>
-          )}
-        </>
-      )}
+        ) : (
+          <Button disabled={busy} onClick={() => act(() => ted.stopRun(run.id))}>
+            Stop Run
+          </Button>
+        ))}
     </div>
   )
 }
@@ -531,7 +512,6 @@ export interface ChatExtra {
 }
 
 export interface ChatOptions {
-  headerAction?: ReactNode
   inspect?: boolean
   matchItemId?: string
 
@@ -771,9 +751,7 @@ export function ChatBody({
       {!options.inspect &&
         (options.header
           ? options.header(run)
-          : options.bar !== false && (
-              <RunBar run={run} onStopTask={onStopTask} action={options.headerAction} />
-            ))}
+          : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />)}
       <RequestJumpBar
         requests={options.requests ?? []}
         onJump={(id) => {

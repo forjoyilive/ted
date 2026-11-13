@@ -187,11 +187,20 @@ describe('Task details in the app', () => {
     await expect(clarify.isDisabled()).resolves.toBe(false)
   })
 
-  test('sections run in order, collapse to a summary line and stay collapsed after a restart', async () => {
+  test('tabs run in order, arrow keys move between them, and a restart opens on Details', async () => {
     await taskAtDesignGate()
     let window = await launch()
     const details = window.getByRole('complementary', { name: 'Task details' })
-    await details.getByRole('heading', { name: 'Task Details' }).waitFor()
+    await details
+      .getByRole('tabpanel', { name: 'Details' })
+      .getByRole('heading', { name: 'Details' })
+      .waitFor()
+    expect(
+      await details
+        .getByRole('tablist', { name: 'Task details sections' })
+        .getByRole('tab')
+        .evaluateAll((els) => els.map((e) => e.ariaLabel)),
+    ).toEqual(['Details', 'Code', 'Changes', 'Files', 'Runs', 'Apps'])
     expect(await details.getByRole('region', { name: 'Task brief' }).count()).toBe(0)
     await window.getByRole('button', { name: 'Task actions' }).click()
     await window.getByRole('menuitem', { name: 'Full brief' }).click()
@@ -199,28 +208,24 @@ describe('Task details in the app', () => {
     await full.getByText('Stop the TypeError in SearchPanel.').waitFor()
     await full.getByText('Your sign-off.', { exact: true }).waitFor()
     await full.getByRole('button', { name: '← Task Lead' }).click()
-    await expect
-      .poll(() => details.getByRole('region').evaluateAll((els) => els.map((e) => e.ariaLabel)))
-      .toEqual(['Code', 'Changes', 'Files', 'Runs'])
 
-    const runs = details.getByRole('region', { name: 'Runs' })
-    await runs.getByRole('button', { name: /^Runs/ }).click()
-    await runs.getByRole('heading', { name: /^Runs · Task Lead (idle|working)/ }).waitFor()
-    await runs.getByRole('list').waitFor({ state: 'detached' })
-    await expect(
-      runs.getByRole('button', { name: /^Runs/ }).getAttribute('aria-expanded'),
-    ).resolves.toBe('false')
+    await details.getByRole('tab', { name: 'Runs' }).click()
+    const runs = details.getByRole('tabpanel', { name: 'Runs' })
+    await runs.getByText(/^Task Lead (idle|working)/).waitFor()
+    await runs.getByRole('list').first().waitFor()
+    await details.getByRole('tab', { name: 'Runs' }).press('ArrowLeft')
+    await details.getByRole('tabpanel', { name: 'Files' }).waitFor()
+    await expect
+      .poll(() => window.evaluate(() => document.activeElement?.getAttribute('aria-label')))
+      .toBe('Files')
+    await window.keyboard.press('End')
+    await details.getByRole('tabpanel', { name: 'Apps' }).waitFor()
 
     await closeApp(app)
     window = await launch()
-    const again = window
+    await window
       .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Runs' })
-    await again.getByRole('heading', { name: /^Runs · / }).waitFor()
-    await expect(
-      again.getByRole('button', { name: /^Runs/ }).getAttribute('aria-expanded'),
-    ).resolves.toBe('false')
-    await again.getByRole('button', { name: /^Runs/ }).click()
-    await again.getByRole('heading', { name: /^Runs · \d+ Runs?/ }).waitFor()
+      .getByRole('tabpanel', { name: 'Details' })
+      .waitFor()
   })
 })

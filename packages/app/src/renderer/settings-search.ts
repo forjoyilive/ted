@@ -21,6 +21,7 @@ export const factorySections = [
   ['checks', 'Checks'],
   ['agents', 'Agents'],
   ['permissions', 'Permissions'],
+  ['notifications', 'Notifications'],
   ['notes', 'Factory notes'],
   ['danger-zone', 'Danger zone'],
 ] as const
@@ -120,6 +121,12 @@ const entries = {
   'app.notifications.send.merged': {
     name: 'Task merged',
     help: 'One notification when a Task reaches Done. Clicking it opens the Task.',
+  },
+  'app.notifications.by-factory': {
+    name: 'By Factory',
+    keywords: 'factory inbox merged count badge',
+    help: 'A notification is sent only when it is on above and ticked for the Factory. These are the same choices as Notifications in each Factory’s Settings. With Inbox items unticked, a Factory’s requests stay in the Inbox but leave its count and the Dock badge.',
+    heading: true,
   },
   'app.notifications.sound': { name: 'Sound', heading: true },
   'app.notifications.sound.play': {
@@ -314,6 +321,12 @@ const entries = {
   'factory.permissions.working-run-limit': {
     name: 'Working Run limit',
     help: 'This Factory’s limit follows its Workflow.',
+    heading: true,
+  },
+  'factory.notifications': {
+    name: 'Notifications',
+    keywords: 'inbox merged count badge',
+    help: 'Which of this Factory’s events notify you. The same choices are in Settings → Notifications, under By Factory.',
     heading: true,
   },
   'factory.notes': {

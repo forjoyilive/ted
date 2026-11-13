@@ -13,6 +13,7 @@ import { StatusChip } from './StatusChip.tsx'
 
 export interface FactoryBadges {
   waiting?: number
+  uncounted?: boolean
   failed?: boolean
   plansFailed?: boolean
   stopsWork?: boolean
@@ -322,9 +323,13 @@ export function Sidebar({
                     {waiting > 0 && (
                       <ActionButton
                         type="button"
-                        className={styles.countButton}
-                        aria-label={`${waiting} waiting in ${factory.name}`}
-                        title="Show in the Inbox"
+                        className={`${styles.countButton} ${badge.uncounted ? styles.countQuiet : ''}`}
+                        aria-label={`${waiting} waiting in ${factory.name}${badge.uncounted ? ', not counted in the Inbox' : ''}`}
+                        title={
+                          badge.uncounted
+                            ? 'Not counted: Inbox items are off for this Factory. Show in the Inbox'
+                            : 'Show in the Inbox'
+                        }
                         onClick={() => open({ kind: 'inbox', factoryId: factory.id })}
                       >
                         {waiting}

@@ -1,5 +1,4 @@
 .section {
-  margin-top: 20px;
   font-size: var(--text-13);
 }
 
@@ -7,66 +6,23 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin: 0 0 6px;
-}
-
-.section[data-collapsed] .headingRow {
-  margin-bottom: 0;
 }
 
 .heading {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: inherit;
-  font-weight: inherit;
-}
-
-.toggle {
-  position: relative;
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  padding: 0 16px 0 0;
-  overflow: hidden;
-  border: none;
-  background: none;
-  color: var(--text-caption);
-  font: inherit;
-  font-size: var(--text-12);
-  line-height: 1.5;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.toggle:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.title {
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
 }
 
 .summary {
-  font-weight: var(--weight-regular);
+  margin: 2px 0 0;
+  color: var(--text-caption);
+  font-size: var(--text-12);
 }
 
-.chevron {
-  position: absolute;
-  top: 50%;
-  right: 2px;
-  color: var(--text-tertiary);
-  transform: translateY(-50%);
-  visibility: hidden;
-}
-
-.section[data-collapsed] .chevron,
-.toggle:hover .chevron,
-.toggle:focus-visible .chevron {
-  visibility: visible;
+.body {
+  margin-top: 14px;
 }

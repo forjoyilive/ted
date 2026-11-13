@@ -9,6 +9,7 @@ import {
 } from './components/ArchiveDialogs.tsx'
 import { snoozeTaskEvent } from './components/SnoozeTaskDialog.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
+import { detailsTabNames, detailsTabs, showDetailsTab } from './details.ts'
 import { openInEditor } from './editor.ts'
 import { openTaskFiles } from './files.ts'
 import type { Direction } from './key-targets.ts'
@@ -284,6 +285,21 @@ export function taskCommands(task: Task): Command[] {
       scope: 'task',
       shortcuts: keysFor('blocked-by'),
       run: () => taskEvent(pickBlockerEvent, task),
+    })
+  }
+  for (const tab of detailsTabs) {
+    list.push({
+      id: `details-tab-${tab}`,
+      label: `Show the ${detailsTabNames[tab]} tab`,
+      scope: 'task',
+      shortcuts: keysFor(`details-tab-${tab}`),
+      keywords: 'task details sidebar tab',
+      run: ({ task: open, dispatch }) => {
+        if (open?.id !== task.id) {
+          dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+        }
+        showDetailsTab(tab)
+      },
     })
   }
   if (hasWorktree(task)) {
