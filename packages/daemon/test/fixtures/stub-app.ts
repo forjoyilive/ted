@@ -68,11 +68,29 @@ server.on('upgrade', (req, socket) => {
     `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
   )
   workerSockets.add(socket)
+  let unread: Buffer = Buffer.alloc(0)
   socket.on('data', (data: Buffer) => {
-    const opcode = (data[0] ?? 0) & 15
-    if (opcode === 1) workerMessages++
-    else if (opcode === 8) socket.end(Buffer.from([0x88, 0]))
+    // One read can hold several frames or part of one: a busy machine delivers a tick and
+    // the Close frame together.
+    unread = Buffer.concat([unread, data])
+    while (unread.length >= 2) {
+      const opcode = (unread[0] ?? 0) & 15
+      const length = (unread[1] ?? 0) & 127
+      if (length > 125) {
+        socket.destroy()
+        return
+      }
+      const size = 2 + ((unread[1] ?? 0) & 128 ? 4 : 0) + length
+      if (unread.length < size) return
+      unread = unread.subarray(size)
+      if (opcode === 1) workerMessages++
+      else if (opcode === 8) {
+        socket.end(Buffer.from([0x88, 0]))
+        return
+      }
+    }
   })
+  socket.on('end', () => socket.end())
   socket.on('close', () => workerSockets.delete(socket))
   socket.on('error', () => socket.destroy())
 })
