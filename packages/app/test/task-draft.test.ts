@@ -248,4 +248,41 @@ describe('New Task recovery and ordered saves', () => {
     expect(rememberStart.mock.calls).toEqual([[false], [true]])
     await session.flush()
   })
+
+  test('a Create during a failing Start now save is saved after the failure', async () => {
+    let remembered = true
+    const held: Array<(ok: boolean) => void> = []
+    const rememberStart = vi.fn(
+      (start: boolean) =>
+        new Promise<void>((done, fail) => {
+          held.push((ok) => {
+            if (!ok) return fail(new Error('daemon away'))
+            remembered = start
+            done()
+          })
+        }),
+    )
+    const session = taskDraftSession('one', {
+      ...options(),
+      startDefault: async () => remembered,
+      rememberStart,
+    })
+    await session.load()
+    session.update({ description: 'First', start: false, startChosen: true })
+    session.consumed(session.get().revision)
+    session.update({ description: 'Second' })
+    session.consumed(session.get().revision)
+    expect(rememberStart).toHaveBeenCalledTimes(1)
+    held.shift()?.(false)
+    await vi.waitFor(() => expect(rememberStart).toHaveBeenCalledTimes(2))
+    held.shift()?.(false)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(rememberStart).toHaveBeenCalledTimes(2)
+    session.update({ description: 'Third' })
+    session.consumed(session.get().revision)
+    held.shift()?.(true)
+    await vi.waitFor(() => expect(remembered).toBe(false))
+    expect(rememberStart.mock.calls).toEqual([[false], [false], [false]])
+    await session.flush()
+  })
 })

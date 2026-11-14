@@ -43,6 +43,7 @@ export function taskDraftSession(
   let startDefault = true
   let startSaved = true
   let startSaving = false
+  let startAskedAgain = false
 
   function remember(draft: NewTaskDraft) {
     options.storage.setItem(key, JSON.stringify(draft))
@@ -59,9 +60,14 @@ export function taskDraftSession(
   }
 
   function saveStart() {
-    if (startSaving || !options.rememberStart || startDefault === startSaved) return
+    if (startSaving) {
+      startAskedAgain = true
+      return
+    }
+    if (!options.rememberStart || startDefault === startSaved) return
     const start = startDefault
     startSaving = true
+    startAskedAgain = false
     options.rememberStart(start).then(
       () => {
         startSaved = start
@@ -70,7 +76,7 @@ export function taskDraftSession(
       },
       () => {
         startSaving = false
-        if (startDefault !== start) saveStart()
+        if (startAskedAgain) saveStart()
       },
     )
   }
