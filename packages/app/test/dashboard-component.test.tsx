@@ -727,7 +727,6 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       { period: 'current', label: 'Completed', value: '4 Tasks' },
       { period: 'previous', label: 'Previous · then', value: '1' },
     ],
-    sample: null,
     change: '+3 vs previous (+300%)',
   })
   expect(
@@ -739,7 +738,13 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       label,
       today: true,
     }),
-  ).toMatchObject({ sample: 'from 4 Tasks', change: '−30m vs yesterday' })
+  ).toMatchObject({
+    rows: [
+      { label: 'Median', value: '1h', note: 'from 4 Tasks' },
+      { label: 'Yesterday · then', value: '1h 30m' },
+    ],
+    change: '−30m vs yesterday',
+  })
   expect(
     pointTip({
       metric: 'created',

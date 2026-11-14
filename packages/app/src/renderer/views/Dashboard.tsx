@@ -6,7 +6,15 @@ import type {
   DashboardTask,
   FactoryDashboard,
 } from '@ted/protocol'
-import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
@@ -134,8 +142,7 @@ function Change({
 export type PointTip = {
   heading: string
   aligned: string | null
-  rows: { period: 'current' | 'previous'; label: string; value: string }[]
-  sample: string | null
+  rows: { period: 'current' | 'previous'; label: string; value: string; note?: string }[]
   change: string | null
 }
 
@@ -167,13 +174,17 @@ export function pointTip({
       : v === null
         ? 'No sample'
         : duration(v)
-  const sample = metric === 'completed' ? null : `from ${tasks(idsOf(bucket, metric).length)}`
+  const first = {
+    period,
+    label: name,
+    value: shown(value, true),
+    ...(metric === 'completed' ? {} : { note: `from ${tasks(idsOf(bucket, metric).length)}` }),
+  }
   if (period === 'previous')
     return {
       heading: `${earlier} · ${label(bucket)}`,
       aligned: other ? `Aligned to ${label(other)}` : null,
-      rows: [{ period, label: name, value: shown(value, true) }],
-      sample,
+      rows: [first],
       change: null,
     }
   const before = other ? metricValue(other, metric) : undefined
@@ -198,7 +209,7 @@ export function pointTip({
     heading: label(bucket),
     aligned: null,
     rows: [
-      { period, label: name, value: shown(value, true) },
+      first,
       ...(other
         ? [
             {
@@ -209,7 +220,6 @@ export function pointTip({
           ]
         : []),
     ],
-    sample,
     change,
   }
 }
@@ -443,15 +453,17 @@ function Chart({
           <div className={styles.tooltipHeading}>{details.heading}</div>
           {details.aligned && <div className={styles.tooltipNote}>{details.aligned}</div>}
           {details.rows.map((row) => (
-            <div className={styles.tooltipRow} key={row.label}>
-              <span>
-                <i className={row.period === 'previous' ? styles.tooltipPrevious : undefined} />
-                {row.label}
-              </span>
-              <strong>{row.value}</strong>
-            </div>
+            <Fragment key={row.label}>
+              <div className={styles.tooltipRow}>
+                <span>
+                  <i className={row.period === 'previous' ? styles.tooltipPrevious : undefined} />
+                  {row.label}
+                </span>
+                <strong>{row.value}</strong>
+              </div>
+              {row.note && <div className={styles.tooltipNote}>{row.note}</div>}
+            </Fragment>
           ))}
-          {details.sample && <div className={styles.tooltipNote}>{details.sample}</div>}
           {details.change && <div className={styles.tooltipChange}>{details.change}</div>}
         </div>
       )}
