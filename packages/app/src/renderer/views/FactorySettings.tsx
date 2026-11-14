@@ -35,6 +35,7 @@ import { Select } from '../components/Select.tsx'
 import { SettingsSearch } from '../components/SettingsSearch.tsx'
 import { useEventValue } from '../data.ts'
 import {
+  cleanupHasProblem,
   editedFields,
   missingCopies,
   type RepoField,
@@ -214,6 +215,7 @@ export function FactorySettings({
     [draft, base],
   )
   const count = unsaved.count
+  const stepProblem = draft !== undefined && cleanupHasProblem(draft.cleanup)
   shown.current = { clean: count === 0, version: base?.version }
   const onDraft = useCallback((change: (current: SettingsDraft) => SettingsDraft) => {
     if (mergeBusy.current) return
@@ -489,11 +491,15 @@ export function FactorySettings({
           <span className={styles.unsavedDot} aria-hidden />
           <div>
             <span>{unsavedSummary(unsaved)}</span>
-            <p className={styles.saveHint}>Review your changes before creating a pull request.</p>
+            <p className={styles.saveHint}>
+              {stepProblem
+                ? 'A Cleanup step needs fixing before you can save.'
+                : 'Review your changes before creating a pull request.'}
+            </p>
           </div>
           <span className={views.headerSpacer} />
           <Button onClick={() => restart(view)}>Discard</Button>
-          <Button variant="primary" onClick={() => setReviewing(true)}>
+          <Button variant="primary" disabled={stepProblem} onClick={() => setReviewing(true)}>
             Review and save…
           </Button>
         </footer>

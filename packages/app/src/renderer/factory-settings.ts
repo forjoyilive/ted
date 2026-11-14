@@ -12,7 +12,7 @@ import type {
   RepoSettingsView,
   StageDrift,
 } from '@ted/protocol/factory-settings'
-import { agentRoles, settingsInput } from '@ted/protocol/factory-settings'
+import { agentRoles, cleanupStepProblem, settingsInput } from '@ted/protocol/factory-settings'
 import type { PermissionMode } from '@ted/protocol/run'
 import type { AgentStageId, ClarifyDepth, StageId } from '@ted/protocol/task'
 import { ago } from './requests.ts'
@@ -179,6 +179,11 @@ export function cleanupStepInput(step: CleanupStepDraft): CleanupStepInput {
   if (step.kind === 'instruction') return { name, instruction: step.instruction.trim() }
   const timeout = step.timeout.trim()
   return { name, command: step.command.trim(), ...(timeout !== '' && { timeout }) }
+}
+
+export function cleanupHasProblem(cleanup: CleanupDraft): boolean {
+  const steps = cleanup.steps.map(cleanupStepInput)
+  return steps.some((step) => cleanupStepProblem(step, steps) !== undefined)
 }
 
 export function cleanupInput(cleanup: CleanupDraft): CleanupSettingsInput {

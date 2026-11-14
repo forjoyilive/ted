@@ -903,9 +903,13 @@ test('Cleanup turns on, adds an instruction and a command step, reorders them an
   await u.type(inside.getByRole('textbox', { name: 'Step 1 name' }), 'Stop stack')
   await u.selectOptions(inside.getByRole('combobox', { name: 'Stop stack kind' }), 'command')
   expect(inside.getByRole('alert').textContent).toBe('Write the command.')
+  const review = screen.getByRole('button', { name: 'Review and save…' }) as HTMLButtonElement
+  expect(review.disabled).toBe(true)
+  expect(screen.getByText('A Cleanup step needs fixing before you can save.')).toBeTruthy()
   await u.type(inside.getByRole('textbox', { name: 'Stop stack command' }), 'docker compose down')
   await u.type(inside.getByRole('textbox', { name: 'Stop stack timeout' }), '2m')
   expect(inside.queryByRole('alert')).toBeNull()
+  expect(review.disabled).toBe(false)
 
   await u.click(inside.getByRole('button', { name: '+ Add step' }))
   await u.type(inside.getByRole('textbox', { name: 'Step 2 name' }), 'Tell Asana')

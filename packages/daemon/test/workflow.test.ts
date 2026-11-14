@@ -821,13 +821,29 @@ describe('Cleanup settings edits', () => {
     expect(cleanupOf(text)).toEqual({ enabled: true, steps })
   })
 
-  test('turning Cleanup off keeps its steps, and with no steps the stage goes', () => {
+  test('turning Cleanup off keeps its steps, and no steps is saved as an empty list', () => {
     const on = applyChanges('version: 1\n', { cleanup: { enabled: true, steps } }, [])
     const off = applyChanges(on, { cleanup: { enabled: false, steps } }, [])
     expect(cleanupOf(off)).toEqual({ enabled: false, steps })
-    const gone = applyChanges(off, { cleanup: { enabled: false, steps: [] } }, [])
-    expect(gone).not.toContain('cleanup')
-    expect(gone).not.toContain('stages')
+    const cleared = applyChanges(off, { cleanup: { enabled: true, steps: [] } }, [])
+    expect(cleanupOf(cleared)).toEqual({ enabled: true, steps: [] })
+    expect(cleared).toContain('steps: []')
+  })
+
+  test('a Factory with no Cleanup steps keeps Cleanup off over a Library that turns it on', async () => {
+    const libraryOn = library({
+      'workflow.yaml': applyChanges('version: 1\n', { cleanup: { enabled: true, steps } }, []),
+    })
+    expect(resolveWorkflow([await defaults(), libraryOn]).stages).toContain('cleanup')
+    for (const enabled of [true, false]) {
+      const text = applyChanges('version: 1\n', { cleanup: { enabled, steps: [] } }, [])
+      const resolved = resolveWorkflow([
+        await defaults(),
+        libraryOn,
+        factory({ 'workflow.yaml': text }),
+      ])
+      expect(resolved.stages).not.toContain('cleanup')
+    }
   })
 
   test('switching a step’s kind drops the other kind’s keys and keeps effort', () => {

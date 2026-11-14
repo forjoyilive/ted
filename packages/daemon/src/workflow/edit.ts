@@ -371,21 +371,9 @@ function writeChecks(doc: Document, root: YAMLMap, checks: readonly CheckInput[]
 }
 
 function writeCleanup(doc: Document, root: YAMLMap, cleanup: CleanupSettingsInput): void {
-  const stages: unknown = root.get('stages', true)
-  const found = isMap(stages) ? stages.get('cleanup', true) : undefined
-  if (!cleanup.enabled && cleanup.steps.length === 0) {
-    if (!isMap(found)) return
-    found.delete('steps')
-    if (found.items.every((pair) => scalarKey(pair.key) === 'enabled')) {
-      ;(stages as YAMLMap).delete('cleanup')
-      if ((stages as YAMLMap).items.length === 0) root.delete('stages')
-    } else setKeepingStyle(found, 'enabled', false)
-    return
-  }
   const map = stageMap(doc, root, 'cleanup')
   setKeepingStyle(map, 'enabled', cleanup.enabled)
   const node = map.get('steps', true)
-  if (cleanup.steps.length === 0) return void map.delete('steps')
   const old = isSeq(node) ? (node.items as unknown[]) : []
   const items = cleanup.steps.map((step) => {
     const name = step.name.trim()
@@ -403,10 +391,13 @@ function writeCleanup(doc: Document, root: YAMLMap, cleanup: CleanupSettingsInpu
     }
     return item
   })
-  if (isSeq(node)) node.items = items
-  else {
+  if (isSeq(node)) {
+    node.items = items
+    if (items.length === 0) node.flow = true
+  } else {
     const seq = new YAMLSeq()
     seq.items = items
+    if (items.length === 0) seq.flow = true
     map.set('steps', seq)
   }
 }
