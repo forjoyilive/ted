@@ -183,7 +183,7 @@ describe('New Task recovery and ordered saves', () => {
     session.consumed(session.get().revision)
     expect(rememberStart).toHaveBeenCalledWith(true)
     expect(session.get()).toMatchObject({ description: '', start: true })
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(remembered).toBe(false)
     session.update({ description: 'Created after the failed save' })
     session.consumed(session.get().revision)
