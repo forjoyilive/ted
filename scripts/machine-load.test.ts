@@ -47,6 +47,7 @@ test('pnpm check waits for a quiet machine only when asked, by flag or environme
   expect(quietWaitMs(['--all'], {})).toBeUndefined()
   expect(quietWaitMs(['--wait-for-quiet'], {})).toBe(quietMaxWaitMs)
   expect(quietWaitMs(['--all', '--wait-for-quiet=5'], {})).toBe(5 * 60_000)
+  expect(quietWaitMs(['--wait-for-quiet=1'], {})).toBe(60_000)
   expect(quietWaitMs(['--wait-for-quiet=0'], { TED_CHECK_WAIT_FOR_QUIET: '10' })).toBeUndefined()
   expect(quietWaitMs([], { TED_CHECK_WAIT_FOR_QUIET: '1' })).toBe(quietMaxWaitMs)
   expect(quietWaitMs([], { TED_CHECK_WAIT_FOR_QUIET: 'on' })).toBe(quietMaxWaitMs)

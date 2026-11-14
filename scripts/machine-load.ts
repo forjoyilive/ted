@@ -36,16 +36,17 @@ export function busyLine(load: number, chosen: string, idle: string): string {
 }
 
 // The value is `--wait-for-quiet`, `--wait-for-quiet=<minutes>` or the same in
-// TED_CHECK_WAIT_FOR_QUIET (`1`, `on` or minutes). The flag wins.
+// TED_CHECK_WAIT_FOR_QUIET (`1`, `on` or minutes; `1` means on only there). The flag wins.
 export function quietWaitMs(
   args: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
 ): number | undefined {
   const flag = args.find((arg) => arg === quietFlag || arg.startsWith(`${quietFlag}=`))
-  const value = flag === undefined ? env[quietEnv] : (flag.split('=')[1] ?? 'on')
+  const fromEnv = flag === undefined
+  const value = fromEnv ? env[quietEnv] : (flag.split('=')[1] ?? 'on')
   if (value === undefined || value === '' || value === 'off' || value === '0') return undefined
   const minutes = Number(value)
-  if (value === 'on' || value === '1' || !Number.isFinite(minutes) || minutes < 0)
+  if (value === 'on' || (fromEnv && value === '1') || !Number.isFinite(minutes) || minutes < 0)
     return quietMaxWaitMs
   return minutes * 60_000
 }
