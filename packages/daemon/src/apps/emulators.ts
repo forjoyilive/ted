@@ -129,7 +129,12 @@ export function createAndroidTools(options: {
 export interface Emulators
   extends Omit<
     Simulators,
-    'show' | 'startRecording' | 'stopRecording' | 'deviceType' | 'chooseDeviceType'
+    | 'show'
+    | 'startRecording'
+    | 'stopRecording'
+    | 'deviceType'
+    | 'setDeviceType'
+    | 'chooseDeviceType'
   > {
   show(taskId: string, repo: string, name: string): Promise<{ rebooted: boolean }>
   control(taskId: string, repo: string, name: string, request: DeviceRequest): Promise<string>

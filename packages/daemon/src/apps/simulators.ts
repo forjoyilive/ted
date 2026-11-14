@@ -114,6 +114,7 @@ export interface Simulators {
   screenshot(taskId: string, repo: string, name: string): Promise<string>
   control(taskId: string, repo: string, name: string, request: DeviceRequest): Promise<string>
   deviceType(taskId: string, repo: string, name: string): string | undefined
+  setDeviceType(taskId: string, repo: string, name: string, type: string | undefined): void
   chooseDeviceType(
     taskId: string,
     repo: string,
@@ -781,14 +782,15 @@ export function createSimulators(options: {
     deviceType(taskId, repo, name) {
       return deviceTypes.get(keyOf(taskId, repo, name))
     },
-    async chooseDeviceType(taskId, repo, name, size) {
+    setDeviceType(taskId, repo, name, type) {
       const key = keyOf(taskId, repo, name)
+      if (type === undefined) deviceTypes.delete(key)
+      else deviceTypes.set(key, type)
+      screens.delete(key)
+    },
+    async chooseDeviceType(taskId, repo, name, size) {
+      if (size === 'reset') return undefined
       needsLive(taskId, repo, name)
-      if (size === 'reset') {
-        deviceTypes.delete(key)
-        screens.delete(key)
-        return undefined
-      }
       if (/^\d+x\d+$/.test(size))
         throw new RequestError(
           400,
@@ -816,8 +818,6 @@ export function createSimulators(options: {
           `Xcode has no device type called “${size}”.${phones.length > 0 ? ` Try one of: ${phones.join(', ')}.` : ''}`,
         )
       }
-      deviceTypes.set(key, found)
-      screens.delete(key)
       return found
     },
     async startRecording(taskId, repo, name) {

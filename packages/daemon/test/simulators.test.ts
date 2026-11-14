@@ -60,6 +60,7 @@ interface StubDevice {
   udid: string
   name: string
   state: string
+  deviceTypeIdentifier?: string
 }
 
 async function writeStub(extra: Record<string, unknown>) {
@@ -625,6 +626,11 @@ describe('iOS simulator Apps', () => {
           name: 'iPhone SE (3rd generation)',
           identifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation',
         },
+        {
+          name: 'iPhone 6',
+          identifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-6',
+          createFails: true,
+        },
       ],
     })
     const client = await start()
@@ -674,6 +680,8 @@ describe('iOS simulator Apps', () => {
           app('size', 'iPhone', '720x1280'),
           app('size', 'iPhone', 'iPhone SE (3rd generation)'),
           app('screen', 'iPhone'),
+          app('size', 'iPhone', 'iPhone 6'),
+          app('size', 'iPhone', 'reset'),
           { waitFor: released },
           app('screen', 'iPhone'),
           { endTurn: true },
@@ -698,7 +706,7 @@ describe('iOS simulator Apps', () => {
         'the Audit’s commands',
         60_000,
       )
-    const before = await results(14)
+    const before = await results(16)
     const refused = await client.call('POST', `/runs/${runId}/apps/device`, {
       action: 'screen',
       app: { name: 'iPhone' },
@@ -720,6 +728,8 @@ describe('iOS simulator Apps', () => {
       false,
       true,
       true,
+      false,
+      true,
     ])
     expect(before[1]?.stdout).toContain('Tapped 201,325')
     const details = before[2]?.stdout ?? ''
@@ -733,6 +743,9 @@ describe('iOS simulator Apps', () => {
     expect(before[11]?.stderr).toContain('can’t be resized')
     expect(before[12]?.stdout).toContain('iPhone now runs on iPhone SE (3rd generation)')
     expect(before[13]?.stdout).toContain('label="Open details"')
+    expect(before[14]?.stderr).toContain('TED couldn’t run iPhone on iPhone 6')
+    expect(before[14]?.stderr).toContain('iPhone runs on iPhone SE (3rd generation) again.')
+    expect(before[15]?.stdout).toContain('iPhone now runs on iPhone 17')
     const calls = await stubCalls()
     const firstUdid = calls.find((c) => c[1] === 'ui')?.[2]
     expect(calls).toContainEqual(['simctl', 'ui', firstUdid, 'appearance', 'dark'])
@@ -742,13 +755,15 @@ describe('iOS simulator Apps', () => {
     expect(state.ui[firstUdid ?? '']).toMatchObject({ typed: "-it's", keys: ['40'] })
     const devices = await stubDevices()
     expect(devices.some((d) => d.udid === firstUdid)).toBe(false)
-    expect(devices.filter((d) => d.name.startsWith('TED Dev'))).toMatchObject([{ state: 'Booted' }])
+    expect(devices.filter((d) => d.name.startsWith('TED Dev'))).toMatchObject([
+      { state: 'Booted', deviceTypeIdentifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17' },
+    ])
 
     await writeFile(stubState, JSON.stringify({ ...state, idb: false }))
     await writeFile(released, '')
-    const after = await results(15)
-    expect(after[14]?.code).not.toBe(0)
-    expect(after[14]?.stderr).toContain('brew install facebook/fb/idb-companion')
+    const after = await results(17)
+    expect(after[16]?.code).not.toBe(0)
+    expect(after[16]?.stderr).toContain('brew install facebook/fb/idb-companion')
 
     const finished = await waitUntil(
       async () =>

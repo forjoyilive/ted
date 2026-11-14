@@ -22,7 +22,7 @@ interface StubState {
   xcode?: boolean
   runtimes?: StubRuntime[]
   devices?: Record<string, StubDevice[]>
-  deviceTypes?: { name: string; identifier: string }[]
+  deviceTypes?: { name: string; identifier: string; createFails?: boolean }[]
 }
 
 const file = process.env.TED_STUB_XCRUN
@@ -143,6 +143,7 @@ if (verb === 'io') {
           (t) => t.name === type || t.identifier === type,
         )
         if (!known) fail(`Invalid device type: ${type}`, 148)
+        if (known.createFails) fail(`Incompatible device: ${type}`, 148)
         const where = runtime ?? (current.runtimes ?? []).at(-1)?.identifier
         if (where === undefined) fail('No runtime', 148)
         const udid = randomUUID().toUpperCase()

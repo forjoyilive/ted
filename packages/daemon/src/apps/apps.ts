@@ -1216,20 +1216,45 @@ export function createApps(options: AppsOptions): Apps {
         throw new RequestError(400, 'An iOS simulator’s density comes with its device type')
       const before = sims.deviceType(taskId, repo.name, app.name)
       const chosen = await sims.chooseDeviceType(taskId, repo.name, app.name, request.size ?? '')
-      if (chosen === before)
-        return `${app.name} already runs on ${chosen ?? app.device ?? 'iPhone 16'}.`
-      const restarted = await serial(keyOf(taskId, repo.name, app.name), async () => {
-        const instance = await readInstance(dirOf(taskId, repo.name, app.name))
-        const wasLive = await stopNow(taskId, repo.name, app.name)
-        return startNow(
-          taskId,
-          { repo: repo.name, name: app.name },
-          instance?.startedBy ?? 'automation',
-          instance?.runId === undefined ? {} : { runId: instance.runId },
-          wasLive,
+      const deviceOf = (type: string | undefined) => type ?? app.device ?? 'iPhone 16'
+      if (chosen === before) return `${app.name} already runs on ${deviceOf(chosen)}.`
+      const device = deviceOf(chosen)
+      const dir = dirOf(taskId, repo.name, app.name)
+      const instance = await readInstance(dir)
+      const state = stateOf(instance)
+      sims.setDeviceType(taskId, repo.name, app.name, chosen)
+      if (state !== 'running' && state !== 'starting' && state !== 'waiting')
+        return `${app.name} will run on ${device} when you start it with ted run-app ${app.name}.`
+      const restartOn = () =>
+        serial(keyOf(taskId, repo.name, app.name), async () => {
+          const wasLive = await stopNow(taskId, repo.name, app.name)
+          return startNow(
+            taskId,
+            { repo: repo.name, name: app.name },
+            instance?.startedBy ?? 'automation',
+            instance?.runId === undefined ? {} : { runId: instance.runId },
+            wasLive,
+          )
+        })
+      let restarted: TaskApp
+      try {
+        restarted = await restartOn()
+      } catch (error) {
+        sims.setDeviceType(taskId, repo.name, app.name, before)
+        const back = await restartOn().then(
+          () => true,
+          () => false,
         )
-      })
-      const device = chosen ?? app.device ?? 'iPhone 16'
+        const why = error instanceof Error ? error.message : String(error)
+        throw new RequestError(
+          409,
+          `TED couldn’t run ${app.name} on ${device}: ${why} ${
+            back
+              ? `${app.name} runs on ${deviceOf(before)} again.`
+              : `Start it again with ted run-app ${app.name}.`
+          }`,
+        )
+      }
       return restarted.state === 'waiting'
         ? `${app.name} will run on ${device} once a simulator slot is free; ted run-app ${app.name} waits for it.`
         : `${app.name} now runs on ${device}. Read it again with ted app screen ${app.name}.`
