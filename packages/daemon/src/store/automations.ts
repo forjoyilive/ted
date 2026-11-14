@@ -39,7 +39,10 @@ export interface StoredAutomation {
   createdAt: string
 }
 
-export type NewAutomation = Omit<StoredAutomation, 'id' | 'handledUntil' | 'createdAt' | 'checkout'> & {
+export type NewAutomation = Omit<
+  StoredAutomation,
+  'id' | 'handledUntil' | 'createdAt' | 'checkout'
+> & {
   checkout?: boolean
 }
 

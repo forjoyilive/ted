@@ -617,8 +617,7 @@ export function createSimulators(options: {
           async shutDown(udid) {
             const record = requester()
             const target = shutDownChoice(udid, record)
-            const owner =
-              store.getTask(target.taskId)?.displayId ?? target.owner ?? target.taskId
+            const owner = store.getTask(target.taskId)?.displayId ?? target.owner ?? target.taskId
             const forTask = store.getTask(comment.taskId)?.displayId ?? comment.taskId
             await shutDownRecord(target, { for: forTask })
             return owner

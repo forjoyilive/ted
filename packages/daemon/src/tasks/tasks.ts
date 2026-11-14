@@ -404,6 +404,12 @@ import { type CommandResult, outputTail } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
+export interface RunAppOwner {
+  owns(runId: string): boolean
+  live(runId: string): boolean
+  appTask(runId: string): Promise<AppTask>
+}
+
 export interface TaskPlanning {
   fromTask(input: { taskId: string; sizeCheckId: string; text: string }): Promise<{
     id: string
@@ -630,6 +636,13 @@ export interface Tasks {
   screenshotApp(ref: string, caller: Caller, app: AppRef): Promise<AppCapture>
   recordApp(ref: string, caller: Caller, request: RecordAppRequest): Promise<AppCapture>
   simulators(): SimulatorSlots
+  setRunAppOwner(owner: RunAppOwner): void
+  listRunApps(runId: string, caller: Caller): Promise<TaskApp[]>
+  startRunApp(runId: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
+  stopRunApp(runId: string, caller: Caller, app: AppRef): Promise<TaskApp>
+  showRunApp(runId: string, caller: Caller, app: AppRef): Promise<TaskApp>
+  runAppLog(runId: string, caller: Caller, app: AppRef): Promise<AppLog>
+  stopRunApps(runId: string): Promise<void>
   planApproved(taskId: string, input: PlanApproval): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
@@ -814,6 +827,7 @@ export function createTasks(options: {
       : Promise.resolve()
   const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
+  let runAppOwner: RunAppOwner | undefined
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
@@ -830,9 +844,10 @@ export function createTasks(options: {
     },
     keep(taskId) {
       const task = store.getTask(taskId)
-      return task !== undefined && !task.archived && task.stage !== 'done'
+      if (task === undefined) return store.automations.firing(taskId)?.state === 'started'
+      return !task.archived && task.stage !== 'done'
     },
-    task: appTask,
+    task: (id) => (runAppOwner?.owns(id) ? runAppOwner.appTask(id) : appTask(id)),
     sandbox: options.sandbox,
     sandboxProblem,
   })
@@ -976,6 +991,15 @@ export function createTasks(options: {
         attachments: [attachment],
       })
     return attachment
+  }
+
+  function ownedRun(runId: string, caller: Caller): void {
+    if (caller.kind === 'run' && caller.runId !== runId) {
+      throw new RequestError(403, 'A Run can reach only its own Apps')
+    }
+    if (runAppOwner?.owns(runId) !== true) {
+      throw new RequestError(404, 'This Run has no checkout, so it has no Apps')
+    }
   }
 
   function runnableApps(ref: string, caller: Caller) {
@@ -10671,6 +10695,35 @@ export function createTasks(options: {
       return { attachment, recording: false }
     },
     simulators: () => apps.simulators(),
+    setRunAppOwner(owner) {
+      runAppOwner = owner
+    },
+    async listRunApps(runId, caller) {
+      ownedRun(runId, caller)
+      return apps.list(runId)
+    },
+    async startRunApp(runId, caller, { shutDown: _, reason: __, ...app }) {
+      ownedRun(runId, caller)
+      if (caller.kind !== 'run')
+        throw new RequestError(403, 'Only the Automation’s Run starts its Apps')
+      if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
+      return apps.start(runId, app, 'automation', { runId })
+    },
+    async stopRunApp(runId, caller, app) {
+      ownedRun(runId, caller)
+      return apps.stop(runId, app)
+    },
+    async showRunApp(runId, caller, app) {
+      ownedRun(runId, caller)
+      return apps.show(runId, app)
+    },
+    async runAppLog(runId, caller, app) {
+      ownedRun(runId, caller)
+      return apps.log(runId, app)
+    },
+    stopRunApps(runId) {
+      return apps.stopTask(runId)
+    },
     stopApp(ref, app) {
       browser.cancel(find(ref).id, app)
       return apps.stop(find(ref).id, app)
