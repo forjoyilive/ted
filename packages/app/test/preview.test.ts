@@ -1,5 +1,5 @@
 import type { RunSlots, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
-import { simulatorsLine } from '@ted/protocol'
+import { emulatorsLine, simulatorsLine } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
 import { nowLine, runsLine } from '../src/renderer/slots.ts'
@@ -149,6 +149,51 @@ describe('iOS simulator Apps', () => {
     )
     expect(nowLine(slots, { ...booted(1), supported: false })).toBe(
       'Now: 4 slots in use · limit 6 · 2 queued',
+    )
+  })
+})
+
+describe('Android emulator Apps', () => {
+  const now = Date.parse('2026-11-09T10:31:00Z')
+  const phone = (fields: Partial<TaskApp>) =>
+    app({ name: 'android', kind: 'android-emulator', ...fields })
+  const running = (count: number): SimulatorSlots => ({
+    supported: true,
+    limit: 2,
+    booted: Array.from({ length: count }, (_, n) => ({
+      udid: `emulator-${5554 + 2 * n}`,
+      taskId: `t${n}`,
+      displayId: `NB-${40 + n}`,
+      title: 'A Task',
+      repo: 'app',
+      app: 'android',
+      device: 'Pixel_8_API_35',
+      lastUsedAt: '2026-11-09T10:00:00Z',
+      recording: false,
+    })),
+  })
+
+  test('the row says whether the emulator has a window, and ▶ asks only when every slot is taken', () => {
+    const device = 'Pixel_8_API_35'
+    expect(
+      appStatusLine(phone({ state: 'running', simulator: { device, booted: true } }), now),
+    ).toBe('Pixel_8_API_35 · running, no window')
+    expect(
+      appStatusLine(
+        phone({ state: 'running', simulator: { device, booted: true, window: true } }),
+        now,
+      ),
+    ).toBe('Pixel_8_API_35 · running in a window')
+    expect(
+      appStatusLine(phone({ state: 'waiting', simulator: { device, booted: false } }), now),
+    ).toBe('Waiting for an emulator · Pixel_8_API_35')
+    expect(needsSlot(phone({}), running(1))).toBe(false)
+    expect(needsSlot(phone({}), running(2))).toBe(true)
+    expect(emulatorsLine(running(2))).toBe('Emulators 2 of 2 running')
+    expect(emulatorsLine(running(0))).toBeUndefined()
+    const slots = { working: 4, limit: 6, queued: 2, factories: [] } as unknown as RunSlots
+    expect(nowLine(slots, undefined, running(1))).toBe(
+      'Now: 4 slots in use · limit 6 · 2 queued · 1 of 2 emulators running',
     )
   })
 })

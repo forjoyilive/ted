@@ -2377,7 +2377,12 @@ export async function openStore({
     const asking = requests.filter((r) => r.kind === 'permission')
     if (asking.length === 0) return {}
     return {
-      ...(asking.some((r) => r.simulator !== null) && { waitingOnSimulator: true }),
+      ...(asking.some((r) => r.simulator !== null && !androidAsk(r.simulator)) && {
+        waitingOnSimulator: true,
+      }),
+      ...(asking.some((r) => r.simulator !== null && androidAsk(r.simulator)) && {
+        waitingOnEmulator: true,
+      }),
       waitingOnPermission: asking.some((r) => r.authorRunId === leadId)
         ? ('lead' as const)
         : ('sub-agent' as const),
@@ -6349,4 +6354,12 @@ function headlineOf(title: string | null, body: string): string {
       .map((line) => line.trim())
       .find((line) => line !== '') ?? ''
   )
+}
+
+function androidAsk(simulator: string): boolean {
+  try {
+    return (JSON.parse(simulator) as SimulatorAsk).platform === 'android'
+  } catch {
+    return false
+  }
 }

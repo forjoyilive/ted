@@ -17,6 +17,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_REAL_ANTIGRAVITY_BIN` | Optional native CLI for the offline tool-free compatibility test. The test uses a local model fixture, never a Google key. |
 | `TED_CLAUDE_BIN`, `TED_CODEX_BIN`, `TED_ANTIGRAVITY_BIN`, `TED_GH_BIN` | Select agent and GitHub stubs or alternate development binaries. Release discovers the normal commands on the daemon’s login-shell `PATH`. |
 | `TED_XCRUN_BIN`, `TED_OPEN_BIN`, `TED_SANDBOX_BIN` | Substitute simulator, launcher and sandbox programs. |
+| `TED_EMULATOR_BIN`, `TED_ADB_BIN`, `TED_AVDMANAGER_BIN` | Substitute the Android SDK’s `emulator`, `adb` and `avdmanager`. Release finds them in the SDK named by `ANDROID_HOME` or `ANDROID_SDK_ROOT`, or the standard SDK folder. |
 | `TED_KEYRING_MODULE` | Import a keyring implementation for tests. |
 | `TED_ASANA_API`, `TED_ASANA_CALLBACK_PORT` | Redirect Asana token/API requests to a loopback stub and isolate its temporary callback port. Ignored in release. |
 | `TED_LINEAR_API` | Redirect Linear requests to a stub. |
@@ -31,7 +32,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_NOTIFY_LOG`, `TED_NOTIFY_STATUS` | Record or disable notifications and badges. |
 | `TED_LOGIN_SHELL`, `TED_STAY_AWAKE`, `TED_TIME_MACHINE` | Disable login-shell loading, sleep prevention or backup exclusions during tests. |
 | `TED_EDITOR_APP_DIRS` | Substitute the folders searched for editor bundles. |
-| `TED_DEMO`, `TED_DEMO_STARTED`, `TED_STUB_GH`, `TED_STUB_XCRUN` | Prepare the isolated Dev demo and select its local fixture state; ignored in release. |
+| `TED_DEMO`, `TED_DEMO_STARTED`, `TED_STUB_GH`, `TED_STUB_XCRUN`, `TED_STUB_ANDROID` | Prepare the isolated Dev demo and select its local fixture state; ignored in release. |
 
 Internal output names such as `TED_COMMAND_SCRIPT` (a generated script marker) and `__TED_LOGIN_ENV__` (a shell-output delimiter) are not environment inputs. Test fixtures can have their own `TED_STUB_*` inputs outside runtime `packages/*/src`.
 

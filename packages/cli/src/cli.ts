@@ -671,10 +671,13 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ...(options.reason !== undefined && { reason: options.reason }),
       })
       if (app.state === 'waiting') {
+        const android = app.kind === 'android-emulator'
         console.error(
           owner.what === 'this Run'
-            ? 'Every simulator slot is taken. Waiting for one to free up…'
-            : 'Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…',
+            ? `Every ${android ? 'emulator' : 'simulator'} slot is taken. Waiting for one to free up…`
+            : android
+              ? 'Every emulator slot is taken, so TED asked the human which one to shut down. Waiting for an answer…'
+              : 'Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…',
         )
       }
       while (app.state === 'starting' || app.state === 'waiting') {
@@ -711,8 +714,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
       return
     }
-    if (app.state === 'failed' && app.problem?.startsWith('No simulator slot') === true) {
-      console.error(printable(app.problem))
+    const noSlot = app.state === 'failed' ? app.problem : undefined
+    if (noSlot !== undefined && /^No (simulator|emulator) slot/.test(noSlot)) {
+      console.error(printable(noSlot))
       exitCode = 1
       return
     }
