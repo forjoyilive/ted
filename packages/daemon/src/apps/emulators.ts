@@ -10,6 +10,8 @@ import type {
   BootedSimulator,
   Comment,
   DaemonEvent,
+  DevicePoint,
+  DeviceRequest,
   SimulatorAsk,
   SimulatorSlots,
 } from '@ted/protocol'
@@ -18,6 +20,15 @@ import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { TedStore } from '../store/index.ts'
+import {
+  androidKeyCodes,
+  androidSize,
+  centre,
+  formatScreen,
+  inputText,
+  parseUiDump,
+  parseWmSize,
+} from './android-screen.ts'
 import type {
   SimulatorApp,
   SimulatorRequestEffects,
@@ -116,6 +127,7 @@ export function createAndroidTools(options: {
 
 export interface Emulators extends Omit<Simulators, 'show' | 'startRecording' | 'stopRecording'> {
   show(taskId: string, repo: string, name: string): Promise<{ rebooted: boolean }>
+  control(taskId: string, repo: string, name: string, request: DeviceRequest): Promise<string>
   taskIds(): string[]
 }
 
@@ -213,6 +225,7 @@ export function createEmulators(options: {
   const captures = path.join(dir, 'captures')
   const logs = path.join(dir, 'logs')
   const records = new Map<string, DeviceRecord>(Object.entries(readRecords(file)))
+  const screens = new Map<string, Map<string, DevicePoint>>()
   const running = new Set<string>()
   let queue: Promise<unknown> = Promise.resolve()
   let releaseIdle: (() => void) | undefined
@@ -811,6 +824,108 @@ export function createEmulators(options: {
       touch(record)
       return out
     },
+    async control(taskId, repo, name, request) {
+      const record = needsLive(taskId, repo, name)
+      const key = keyOf(taskId, repo, name)
+      const adb = async (args: string[], what: string) => {
+        const result = await tools.adb(['-s', record.serial as string, ...args])
+        if (result.code !== 0)
+          throw new RequestError(
+            409,
+            `TED couldn’t ${what}: ${firstLine(result.stderr || result.stdout)}`,
+          )
+        return result
+      }
+      const inside = async (...points: DevicePoint[]) => {
+        const size = parseWmSize(
+          (await adb(['shell', 'wm', 'size'], 'read the screen size')).stdout,
+        )
+        if (!size) throw new RequestError(409, 'TED couldn’t read the screen size')
+        for (const { x, y } of points) {
+          if (x >= size.width || y >= size.height)
+            throw new RequestError(
+              400,
+              `${x},${y} is off the screen, which is ${size.width}x${size.height}`,
+            )
+        }
+      }
+      touch(record)
+      switch (request.action) {
+        case 'screen': {
+          const out = await adb(['exec-out', 'uiautomator', 'dump', '/dev/tty'], 'read the screen')
+          const screen = parseUiDump(out.stdout)
+          if (!screen)
+            throw new RequestError(409, 'TED couldn’t read the screen; try again in a moment')
+          screens.set(key, new Map(screen.elements.map((e) => [e.ref, centre(e)])))
+          return formatScreen(name, screen, randomUUID().slice(0, 8))
+        }
+        case 'tap': {
+          let point = request.point
+          if (request.ref !== undefined) {
+            point = screens.get(key)?.get(request.ref)
+            if (!point)
+              throw new RequestError(
+                409,
+                `No element ${request.ref} on the last screen read. Run ted app screen ${name} again.`,
+              )
+          }
+          if (!point) throw new RequestError(400, 'Tap an element reference or a point x,y')
+          await inside(point)
+          await adb(['shell', 'input', 'tap', String(point.x), String(point.y)], 'tap')
+          return `Tapped ${point.x},${point.y}. Run ted app screen ${name} to see what changed.`
+        }
+        case 'swipe': {
+          const { point: from, to } = request
+          if (!from || !to) throw new RequestError(400, 'Give the swipe’s start and end points')
+          await inside(from, to)
+          await adb(
+            ['shell', 'input', 'swipe', ...[from.x, from.y, to.x, to.y, 300].map(String)],
+            'swipe',
+          )
+          return `Swiped from ${from.x},${from.y} to ${to.x},${to.y}.`
+        }
+        case 'type': {
+          const typed = inputText(request.text ?? '')
+          if (typed === undefined)
+            throw new RequestError(
+              400,
+              'TED can type only printable ASCII characters into an Android emulator, without line breaks; press enter with ted app key',
+            )
+          await adb(['shell', 'input', 'text', typed], 'type')
+          return `Typed ${(request.text ?? '').length} characters.`
+        }
+        case 'key': {
+          const code = request.key === undefined ? undefined : androidKeyCodes[request.key]
+          if (code === undefined) throw new RequestError(400, 'Give a key')
+          await adb(['shell', 'input', 'keyevent', String(code)], `press ${request.key}`)
+          return `Pressed ${request.key}.`
+        }
+        case 'appearance': {
+          const dark = request.appearance === 'dark'
+          await adb(
+            ['shell', 'cmd', 'uimode', 'night', dark ? 'yes' : 'no'],
+            `switch to ${request.appearance} mode`,
+          )
+          return `${name} is in ${dark ? 'dark' : 'light'} mode.`
+        }
+        case 'size': {
+          const size = androidSize(request.size ?? '')
+          if (typeof size === 'string' && size !== 'reset') throw new RequestError(400, size)
+          screens.delete(key)
+          if (size === 'reset') {
+            await adb(['shell', 'wm', 'size', 'reset'], 'reset the screen size')
+            await adb(['shell', 'wm', 'density', 'reset'], 'reset the screen density')
+            return `${name}’s screen is back to its own size and density.`
+          }
+          await adb(['shell', 'wm', 'size', `${size.width}x${size.height}`], 'resize the screen')
+          if (request.density !== undefined)
+            await adb(['shell', 'wm', 'density', String(request.density)], 'set the density')
+          return `${name}’s screen is ${size.width}x${size.height}${request.density !== undefined ? ` at ${request.density} dpi` : ''}. Read it again with ted app screen ${name}.`
+        }
+        default:
+          throw new RequestError(400, `ted app ${request.action} isn’t an input action`)
+      }
+    },
     remove(taskId, repo) {
       return serial(async () => {
         const gone = [...records.entries()].filter(
@@ -821,6 +936,7 @@ export function createEmulators(options: {
           if (!(await deleteAvd(record))) continue
           await rm(path.join(logs, `${record.avd}.log`), { force: true })
           records.delete(key)
+          screens.delete(key)
         }
         await save()
         changed()

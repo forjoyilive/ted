@@ -39,6 +39,8 @@ import type {
   DescriptionVersion,
   DesignFile,
   DesignReview,
+  DeviceRequest,
+  DeviceResult,
   DraftLineCommentRequest,
   EditTaskRequest,
   Effort,
@@ -706,6 +708,7 @@ export interface Tasks {
   stopRunApps(runId: string): Promise<void>
   runBrowserCommand(runId: string, caller: Caller, request: BrowserRequest): Promise<BrowserResult>
   runBrowserCapture(runId: string, caller: Caller, hash: string): Attachment
+  runDeviceCommand(runId: string, caller: Caller, request: DeviceRequest): Promise<DeviceResult>
   planApproved(taskId: string, input: PlanApproval): Promise<void>
   stopLeadForChildren(taskId: string): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
@@ -1093,6 +1096,17 @@ export function createTasks(options: {
         author: { kind: 'run', runId },
         attachments: [attachment],
       })
+    return attachment
+  }
+
+  async function saveRunCapture(runId: string, file: string, app: string): Promise<Attachment> {
+    if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+    const attachment = await options
+      .saveAttachment(file, `${app} screenshot.png`, 'image/png')
+      .finally(() => rm(file, { force: true }))
+    store.automations.recordBrowserCapture(runId, attachment)
+    await store.persisted()
+    automationUploads.add(`${runId}:${attachment.hash}`)
     return attachment
   }
 
@@ -11501,13 +11515,19 @@ export function createTasks(options: {
       const dir = path.join(path.dirname(worktreesDir), 'browsers')
       const file = path.join(dir, `capture-${randomUUID()}.png`)
       await writeFile(file, capture, { mode: 0o600 })
-      const attachment = await options
-        .saveAttachment(file, `${shown.name} screenshot.png`, 'image/png')
-        .finally(() => rm(file, { force: true }))
-      store.automations.recordBrowserCapture(runId, attachment)
-      await store.persisted()
-      automationUploads.add(`${runId}:${attachment.hash}`)
-      return { ...result, attachment }
+      return { ...result, attachment: await saveRunCapture(runId, file, shown.name) }
+    },
+    async runDeviceCommand(runId, caller, request) {
+      await ownedRun(runId, caller)
+      if (caller.kind !== 'run')
+        throw new RequestError(403, 'Only the Automation’s Run uses its Apps this way')
+      if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
+      if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+      if (request.action !== 'screenshot') return { text: await apps.control(runId, request) }
+      if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+      const { file, app } = await apps.screenshot(runId, request.app)
+      const attachment = await saveRunCapture(runId, file, app.name)
+      return { text: `Took a screenshot of ${app.name}.`, attachment }
     },
     runBrowserCapture(runId, caller, hash) {
       if (caller.kind === 'run' && caller.runId !== runId)

@@ -2,6 +2,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import {
+  androidSize,
+  formatScreen,
+  inputText,
+  maxScreenElements,
+  parseUiDump,
+  parseWmSize,
+} from '../src/apps/android-screen.ts'
 import { type AndroidResult, type AndroidTools, createEmulators } from '../src/apps/emulators.ts'
 import type { TedStore } from '../src/store/index.ts'
 
@@ -107,4 +115,73 @@ test('when TED can’t tell which AVD runs on the port, it leaves the emulator a
   expect(calls.some((c) => c.startsWith('avdmanager delete'))).toBe(false)
   expect(emus.taskIds()).toEqual(['t1'])
   await emus.close()
+})
+
+test('parseUiDump keeps elements with text, a label or a tap target, decoded and on one line', () => {
+  const dump = `<?xml version='1.0' ?><hierarchy rotation="0"><node class="android.widget.FrameLayout" text="" content-desc="" clickable="false" bounds="[0,0][1080,2400]"><node class="android.widget.TextView" text="Tom &amp; Jerry&#10;&lt;b&gt;" content-desc="" clickable="false" bounds="[10,20][110,60]" /><node class="android.widget.ImageButton" text="" content-desc="Menu" resource-id="app:id/menu" clickable="true" bounds="[0,0][50,50]" /><node class="android.view.View" text="Hidden" clickable="false" bounds="[5,5][5,9]" /><node class="android.view.View" text="" clickable="true" bounds="[0,0][1,1]" /></node></hierarchy>UI hierchary dumped to: /dev/tty`
+  const screen = parseUiDump(dump)
+  expect(screen).toEqual({
+    width: 1080,
+    height: 2400,
+    elements: [
+      {
+        ref: '1',
+        kind: 'TextView',
+        text: 'Tom & Jerry <b>',
+        clickable: false,
+        left: 10,
+        top: 20,
+        right: 110,
+        bottom: 60,
+      },
+      {
+        ref: '2',
+        kind: 'ImageButton',
+        label: 'Menu',
+        id: 'app:id/menu',
+        clickable: true,
+        left: 0,
+        top: 0,
+        right: 50,
+        bottom: 50,
+      },
+      { ref: '3', kind: 'View', clickable: true, left: 0, top: 0, right: 1, bottom: 1 },
+    ],
+  })
+  expect(parseUiDump('ERROR: could not get idle state.')).toBeUndefined()
+})
+
+test('formatScreen fences what the App shows and caps the list', () => {
+  const many = Array.from(
+    { length: maxScreenElements + 5 },
+    (_, i) =>
+      `<node class="x.Button" text="B${i}" clickable="true" bounds="[0,${i}][10,${i + 1}]" />`,
+  ).join('')
+  const screen = parseUiDump(`<hierarchy>${many}</hierarchy>`)
+  if (!screen) throw new Error('no screen')
+  expect(screen.elements).toHaveLength(maxScreenElements)
+  const text = formatScreen('android', screen, 'abc123')
+  const lines = text.split('\n')
+  expect(lines[2]).toBe('<<<SCREEN abc123>>>')
+  expect(lines[3]).toBe('1 Button "B0" clickable at 5,0 bounds 0,0,10,1')
+  expect(lines.at(-2)).toBe('<<<END SCREEN abc123>>>')
+  expect(lines.at(-1)).toBe(`Only the first ${maxScreenElements} elements are listed.`)
+})
+
+test('inputText quotes printable ASCII for the device shell and refuses the rest', () => {
+  expect(inputText("it's a $(test); `x`")).toBe("'it'\\''s%sa%s$(test);%s`x`'")
+  expect(inputText('line\nbreak')).toBeUndefined()
+  expect(inputText('café')).toBeUndefined()
+})
+
+test('parseWmSize prefers the override and androidSize checks its limits', () => {
+  expect(parseWmSize('Physical size: 1080x2400')).toEqual({ width: 1080, height: 2400 })
+  expect(parseWmSize('Physical size: 1080x2400\nOverride size: 720x1280')).toEqual({
+    width: 720,
+    height: 1280,
+  })
+  expect(androidSize('720x1280')).toEqual({ width: 720, height: 1280 })
+  expect(androidSize('reset')).toBe('reset')
+  expect(androidSize('100x1280')).toContain('like 1080x1920')
+  expect(androidSize('Pixel 8')).toContain('like 1080x1920')
 })
