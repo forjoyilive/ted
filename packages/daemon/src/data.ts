@@ -48,6 +48,7 @@ import {
   writeStoreMeta,
 } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
+import { type TrimOptions, trimChangesets } from './store/trim-changesets.ts'
 import type { Tasks } from './tasks/tasks.ts'
 import { plural } from './text.ts'
 import type { Workflows } from './workflow/workflows.ts'
@@ -92,6 +93,7 @@ export interface DataOptions {
   progressEveryMs?: number
   compaction?: Pick<CompactOptions, 'beforeVerify'>
   outputDrop?: DropOptions
+  changesetTrim?: TrimOptions
 }
 
 export interface Data {
@@ -244,6 +246,8 @@ export function createData(options: DataOptions): Data {
       }
     }
 
+    if (check.kind === 'current' && !rebuilds) await trimStateChangesets()
+
     let store: TedStore
     try {
       store = await openStore({
@@ -306,6 +310,21 @@ export function createData(options: DataOptions): Data {
       dropped: 0,
     })
     return false
+  }
+
+  async function trimStateChangesets(): Promise<void> {
+    const trim = await trimChangesets(paths.store, options.changesetTrim)
+    if (trim.kind === 'failed') {
+      console.error(
+        redactSecrets(
+          `emptying LiveStore’s changeset table failed, so the state stays as it is: ${trim.reason}`,
+        ),
+      )
+    } else if (trim.kind === 'trimmed') {
+      console.log(
+        `emptied LiveStore’s changeset table: ${plural(trim.rows, 'row')} (${trim.tableBytes} bytes) deleted, state database ${trim.bytesBefore} bytes before, ${trim.bytesAfter} after, in ${trim.ms} ms`,
+      )
+    }
   }
 
   async function compactOutput(dataFrom: string | undefined, backedUp: boolean): Promise<void> {
