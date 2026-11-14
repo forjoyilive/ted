@@ -1,0 +1,5 @@
+{
+  "name": "stub-electron",
+  "private": true,
+  "main": "main.cjs"
+}

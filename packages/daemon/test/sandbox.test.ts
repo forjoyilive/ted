@@ -210,6 +210,17 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
       await execFileAsync('defaults', ['delete', label]).catch(() => undefined)
     }
   })
+  test('only an Electron App’s sandbox reaches launchservicesd, and it says so in its environment', async () => {
+    const sandbox = createSandbox({ tedHome, env: () => process.env })
+    const plain = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    const electron = await sandbox.wrap(['/bin/sh', '-c'], { ...scope(), electron: true })
+    const service = 'com.apple.coreservices.launchservicesd'
+    expect(plain.argv.join('\n')).not.toContain(service)
+    expect(plain.env.TED_SANDBOX_ELECTRON).toBeUndefined()
+    expect(electron.argv.join('\n')).toContain(`(allow mach-lookup (global-name "${service}"))`)
+    expect(electron.env.TED_SANDBOX_ELECTRON).toBe('1')
+  })
+
   test('it reaches Unix sockets only in its own folders and the ones the Factory lists', async () => {
     const own = path.join(tmp, 'o.s')
     const listed = path.join(outside, 'listed.sock')

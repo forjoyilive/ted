@@ -394,6 +394,21 @@ describe('checking a layer', () => {
       '      - name: Phone',
       '        kind: android-emulator',
       '        run: ./gradlew installDebug',
+      '      - name: Desk',
+      '        kind: command',
+      '        electron: yes please',
+      '        run: electron .',
+      '      - name: Desk2',
+      '        electron: true',
+      '        run: electron .',
+      '      - name: Desk3',
+      '        kind: command',
+      '        electron: true',
+      '        run: electron .',
+      '      - name: Desk4',
+      '        kind: command',
+      '        electron: true',
+      '        run: electron . $TED_ELECTRON_ARGS',
       '',
     ].join('\n')
     expect(problems({ 'workflow.yaml': apps })).toEqual([
@@ -406,6 +421,9 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 14 16 `ready` must be url or start',
       'warning .ted/workflow.yaml 15 16 TED sets `PORT` itself or keeps it out of worktrees, so it ignores it here',
       'error .ted/workflow.yaml 16 9 the Android emulator App Phone needs a `device`: an Android virtual device name',
+      'error .ted/workflow.yaml 21 19 `electron` must be true or false',
+      'warning .ted/workflow.yaml 24 9 only a command App can be an Electron app',
+      'warning .ted/workflow.yaml 28 9 pass $TED_ELECTRON_ARGS to Electron in `run`, or TED can’t reach the app or start it in the sandbox',
     ])
   })
 

@@ -338,7 +338,7 @@ async function choosePicture(): Promise<string | undefined> {
 const remoteExecution = remoteExecutionOn()
 const workerOnly = remoteExecution && process.argv.includes('--worker')
 const platform = process.platform as Platform
-const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1'
+const hiddenWindow = tedEnv('TED_HIDDEN_WINDOW') === '1' || tedEnv('TED_ELECTRON_HIDDEN') === '1'
 
 const testLaunch = hiddenWindow || tedEnv('TED_EXIT_WITH_PID') !== undefined
 const appLogFolder = workerOnly ? executionHome() : tedPaths(tedHome()).logs

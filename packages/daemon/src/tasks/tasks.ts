@@ -11481,20 +11481,20 @@ export function createTasks(options: {
       if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
       if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
       const selected = request.app ?? runBrowsers.opened(runId)
-      if (!selected) throw new RequestError(409, 'Open a web App with ted browser open first')
+      if (!selected) throw new RequestError(409, 'Open an App with ted browser open first')
       const matches = (await apps.list(runId)).filter(
         (a) =>
           a.name === selected.name && (selected.repo === undefined || a.repo === selected.repo),
       )
       const shown = matches.length === 1 ? matches[0] : undefined
-      if (
-        shown?.kind !== 'web' ||
-        shown.state !== 'running' ||
-        !shown.url ||
-        shown.removed ||
-        !isLoopbackUrl(shown.url)
-      )
-        throw new RequestError(409, 'Choose a running web App this Run started, and its repo')
+      if (!shown) throw new RequestError(409, 'Choose a running App this Run started, and its repo')
+      const web = shown.kind === 'web' && !!shown.url && isLoopbackUrl(shown.url)
+      const desktop = shown.kind === 'command' && shown.electron === true && !!shown.port
+      if (shown.state !== 'running' || shown.removed || !(web || desktop))
+        throw new RequestError(
+          409,
+          'Choose a running web or Electron App this Run started, and its repo',
+        )
       const { capture, ...result } = await runBrowsers.command(runId, shown, request)
       if (!capture) return result
       if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')

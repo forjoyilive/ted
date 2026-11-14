@@ -23,6 +23,7 @@ export interface TaskApp {
   waitingFor?: string
   simulator?: AppSimulator
   confirmOutsideSandbox?: true
+  electron?: true
 }
 
 export interface AppSimulator {

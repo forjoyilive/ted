@@ -12,6 +12,7 @@ export interface SandboxScope {
   tmp: string
   cache: string
   sockets?: readonly string[]
+  electron?: boolean
 }
 
 export interface Sandboxed {
@@ -159,11 +160,12 @@ export function createSandbox(options: {
         GOCACHE: cache('go-build'),
         GOMODCACHE: cache('go-mod'),
         TED_SANDBOX: '1',
+        ...(scope.electron === true && { TED_SANDBOX_ELECTRON: '1' }),
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
       if (platform === 'darwin') {
         return {
-          argv: [ready, ...seatbeltArgs(paths, sockets), ...argv],
+          argv: [ready, ...seatbeltArgs(paths, sockets, scope.electron === true), ...argv],
           env: added,
           fds: [],
           close: async () => {},
@@ -286,7 +288,11 @@ async function allowedSockets(
   return [...found]
 }
 
-function seatbeltArgs(paths: SandboxPaths, sockets: readonly string[]): string[] {
+function seatbeltArgs(
+  paths: SandboxPaths,
+  sockets: readonly string[],
+  electron: boolean,
+): string[] {
   const params: string[] = []
   const param = (prefix: string, values: readonly string[]) =>
     values
@@ -318,6 +324,10 @@ function seatbeltArgs(paths: SandboxPaths, sockets: readonly string[]): string[]
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
     '(allow mach-lookup (global-name "com.apple.lsd.mapdb"))',
+    // Electron aborts at launch unless it can check in with launchservicesd.
+    ...(electron
+      ? ['(allow mach-lookup (global-name "com.apple.coreservices.launchservicesd"))']
+      : []),
     '(deny user-preference-write)',
     '(deny network-outbound (remote unix-socket))',
     `(allow network-outbound ${ownSockets} ${literal('S', [...macSystemSockets, ...sockets])})`,

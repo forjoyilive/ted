@@ -154,6 +154,7 @@ interface Instance {
   kind: TaskApp['kind']
   port?: number
   url?: string
+  debugUrl?: string
   ready: 'url' | 'start'
   startedAt: string
   startedBy?: AppStarter
@@ -429,6 +430,7 @@ export function createApps(options: AppsOptions): Apps {
       ...(state === 'waiting' &&
         instance?.waitingFor !== undefined && { waitingFor: instance.waitingFor }),
       ...(simulator !== undefined && { simulator }),
+      ...(app.electron && { electron: true }),
     }
   }
 
@@ -686,6 +688,14 @@ export function createApps(options: AppsOptions): Apps {
       const key = keyOf(taskId, repo.name, app.name)
       const vars = appVars(task, await allocate(taskId, task))
       const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
+      const scope = by === 'human' ? undefined : task.sandbox
+      const electron = app.electron === true && port !== undefined
+      const electronVars: Record<string, string> = electron
+        ? {
+            TED_ELECTRON_ARGS: electronArgs(port, scope !== undefined, by !== 'human'),
+            ...(by !== 'human' && { TED_ELECTRON_HIDDEN: '1' }),
+          }
+        : {}
       const values = { ...vars, ...portVars, ...extra }
       const ownEnv = Object.fromEntries(
         Object.entries(app.env)
@@ -694,11 +704,11 @@ export function createApps(options: AppsOptions): Apps {
       )
       const env = worktreeCommandEnv(
         repo.env,
-        { ...ownEnv, ...vars, ...portVars, ...extra, TED_TASK: task.displayId },
+        { ...ownEnv, ...vars, ...portVars, ...extra, ...electronVars, TED_TASK: task.displayId },
         options.env?.() ?? process.env,
       )
       const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
-      const sandboxed = await sandboxFor(by === 'human' ? undefined : task.sandbox, task, dir)
+      const sandboxed = await sandboxFor(scope && { ...scope, electron }, task, dir)
       if ('problem' in sandboxed) {
         await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
         throw new RequestError(409, `TED couldn’t start ${app.name}: ${sandboxed.problem}`)
@@ -709,6 +719,7 @@ export function createApps(options: AppsOptions): Apps {
         kind: app.kind,
         ...(port !== undefined && { port }),
         ...(url !== undefined && { url }),
+        ...(electron && { debugUrl: `http://127.0.0.1:${port}/json/version` }),
         ready: app.ready,
         startedAt: new Date().toISOString(),
         startedBy: by,
@@ -958,13 +969,14 @@ export function createApps(options: AppsOptions): Apps {
         )
         return
       }
-      if (instance.readyAt === undefined && instance.ready === 'url' && instance.url && started) {
-        if (await answers(instance.url)) {
+      const readyUrl = instance.url ?? instance.debugUrl
+      if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
+        if (await answers(readyUrl)) {
           instance.readyAt = new Date().toISOString()
           await writeInstance(dir, instance)
           changed(taskId)
         } else if (Date.now() - Date.parse(instance.startedAt) > readyTimeoutMs) {
-          const where = instance.url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+          const where = readyUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
           const problem = `it didn’t answer at ${where} within ${minutes(readyTimeoutMs)}`
           stopping.add(key)
           void stopHost(key, dir).catch(() => undefined)
@@ -1328,6 +1340,14 @@ export async function portFree(port: number): Promise<boolean> {
     socket.once('error', () => resolve(false))
   })
   return !answered
+}
+
+export function electronArgs(port: number, sandboxed: boolean, hidden: boolean): string {
+  return [
+    `--remote-debugging-port=${port}`,
+    ...(sandboxed ? ['--no-sandbox'] : []),
+    ...(hidden && process.platform === 'linux' ? ['--ozone-platform=headless'] : []),
+  ].join(' ')
 }
 
 function answers(url: string): Promise<boolean> {

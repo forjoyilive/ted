@@ -556,7 +556,7 @@ export const commands = [
     handler: 'browserOpen',
     min: 1,
     max: 1,
-    help: '  ted browser open <App> [--repo <name>]      Open a running web App in this Task’s browser,\n                                             or this Automation Run’s headless browser',
+    help: '  ted browser open <App> [--repo <name>]      Open a running web App in this Task’s browser,\n                                             or a web or Electron App in this Automation\n                                             Run’s headless browser',
     callers: 'Task Run or Automation Run',
     options: options('task', 'repo'),
   },

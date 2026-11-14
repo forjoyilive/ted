@@ -62,7 +62,11 @@ export function helperCommand(env: NodeJS.ProcessEnv = process.env): {
 }
 
 const sameApp = (a: TaskApp, b: TaskApp) =>
-  a.repo === b.repo && a.name === b.name && a.url === b.url && a.startedAt === b.startedAt
+  a.repo === b.repo &&
+  a.name === b.name &&
+  a.url === b.url &&
+  a.port === b.port &&
+  a.startedAt === b.startedAt
 
 export function createRunBrowsers(options: {
   dir: string
@@ -180,7 +184,7 @@ export function createRunBrowsers(options: {
         resolve(reply)
       })
       helper.child.stdin?.write(
-        `${JSON.stringify({ id, url: app.url, expiresAt: Date.now() + commandMs, request })}\n`,
+        `${JSON.stringify({ id, url: app.url, ...(app.electron && { port: app.port }), expiresAt: Date.now() + commandMs, request })}\n`,
       )
     })
   }
@@ -195,7 +199,7 @@ export function createRunBrowsers(options: {
           'A browser command is already running; try again when it finishes',
         )
       if (request.action !== 'open') {
-        if (!helper?.app) throw new RequestError(409, 'Open a web App with ted browser open first')
+        if (!helper?.app) throw new RequestError(409, 'Open an App with ted browser open first')
         if (!sameApp(helper.app, app)) {
           stop(runId)
           throw new RequestError(409, 'The App restarted; run ted browser open again')

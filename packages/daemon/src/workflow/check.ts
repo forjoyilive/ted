@@ -705,6 +705,23 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           case 'device':
             if (!isText(node)) error(node, '`device` must be text')
             break
+          case 'electron': {
+            const value = scalar(node)
+            if (typeof value !== 'boolean') error(node, '`electron` must be true or false')
+            else if (value && kind !== 'command')
+              warn(entry.key, 'only a command App can be an Electron app')
+            else if (
+              value &&
+              !String(scalar(item.get('run', true) as Node | undefined)).includes(
+                'TED_ELECTRON_ARGS',
+              )
+            )
+              warn(
+                entry.key,
+                'pass $TED_ELECTRON_ARGS to Electron in `run`, or TED can’t reach the app or start it in the sandbox',
+              )
+            break
+          }
           case 'env':
             if (!isMap(node)) {
               error(node, 'an App `env` must be a map of names to text')

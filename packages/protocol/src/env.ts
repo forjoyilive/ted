@@ -16,7 +16,11 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_STUB_XCRUN: false,
   TED_STUB_ANDROID: false,
   TED_EDITOR_APP_DIRS: false,
+  TED_ELECTRON_ARGS:
+    'Switches TED gives an Electron App to pass to Electron: its debugging port, and when sandboxed --no-sandbox.',
   TED_ELECTRON_BIN: false,
+  TED_ELECTRON_HIDDEN:
+    'Tells an Electron App a Run started it, so it opens no visible window, tray icon or notification.',
   TED_EXECUTION_CRASH_AT: false,
   TED_EXECUTION_HOME:
     'Isolated execution-worker storage, separate from independent TED homes and credentials.',
@@ -57,6 +61,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_SANDBOX:
     'Marks commands run in TED’s OS sandbox, so the development app and its tests skip Electron there and the tests use a pass-through sandbox and their own cache folder.',
   TED_SANDBOX_BIN: false,
+  TED_SANDBOX_ELECTRON:
+    'Marks an Electron App run in TED’s OS sandbox with the exception Electron needs, so the development app starts there.',
   TED_SIMULATOR_UDID: 'Task simulator context supplied to App and Run commands.',
   TED_EMULATOR_SERIAL: 'Task Android emulator context supplied to App commands.',
   TED_SKIP_FIRST_LAUNCH: false,

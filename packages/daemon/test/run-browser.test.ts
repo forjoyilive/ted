@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import type { Automation, AutomationDetail, AutomationTemplate, Factory, Task } from '@ted/protocol'
 import { afterEach, expect, test, vi } from 'vitest'
 import { resolveElectron } from '../../app/test/support/electron-installation.ts'
@@ -19,6 +21,8 @@ import {
 } from './helpers.ts'
 
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
+const execFileAsync = promisify(execFile)
+const stubElectron = fileURLToPath(new URL('./fixtures/stub-electron', import.meta.url))
 vi.setConfig({ testTimeout: 120_000 })
 
 let daemon: RunningDaemon | undefined
@@ -33,7 +37,7 @@ const pngSize = (data: Buffer) => ({ width: data.readUInt32BE(16), height: data.
 
 const browser = (...args: string[]) => ({ run: ['ted', 'browser', ...args] })
 
-async function setUp() {
+async function setUp(apps?: string[]) {
   const { home, cleanup } = await makeTempHome()
   const scratch = await mkdtemp(path.join(tmpdir(), 'ted-run-browser-'))
   process.env.TED_ELECTRON_BIN = resolveElectron()
@@ -54,11 +58,13 @@ async function setUp() {
       'repos:',
       '  - name: widgets',
       '    apps:',
-      '      - name: Web',
-      '        kind: web',
-      `        run: "'${process.execPath}' '${stubApp}'"`,
-      '        env:',
-      '          STUB_APP_BROWSER: "1"',
+      ...(apps ?? [
+        '      - name: Web',
+        '        kind: web',
+        `        run: "'${process.execPath}' '${stubApp}'"`,
+        '        env:',
+        '          STUB_APP_BROWSER: "1"',
+      ]),
     ].join('\n'),
   })
   daemon = await startDaemon({
@@ -181,6 +187,7 @@ test('an Audit files one Backlog Task with its screenshot, and a second Audit of
   if (!template) throw new Error('missing audit template')
   expect(template.checkout).toBe(true)
   expect(template.prompt).toContain('skipped: no Audit driver for <kind> Apps yet')
+  expect(template.prompt).toContain('each `electron` App (a desktop app)')
   expect(template.prompt).toContain('File at most 5 Tasks in one Run')
   expect(template.prompt).toContain('open that image and look at it before you judge the page')
   const source = 'http://localhost/audit/web/pages/one/header-overlaps-text'
@@ -247,4 +254,93 @@ test('an Audit files one Backlog Task with its screenshot, and a second Audit of
   expect(last?.stderr).toContain(`Already tracked as ${task?.displayId}`)
   expect(second?.result.kind).toBe('no-new-tasks')
   expect((await filed()).map((t) => t.id)).toEqual([task?.id])
+})
+
+// Its own setup: an Electron App instead of the web App, started in the real OS sandbox.
+test('an Automation Run drives its Electron App in the sandbox with a hidden window, and every Electron process ends with the firing', async () => {
+  const { client, ok } = await setUp([
+    '      - name: Desk',
+    '        kind: command',
+    '        electron: true',
+    `        run: "'${resolveElectron()}' '${stubElectron}' $TED_ELECTRON_ARGS"`,
+  ])
+  const snapshotUntil = (text: string) => ({
+    run: [
+      'sh',
+      '-c',
+      `for i in $(seq 40); do out=$(ted browser snapshot 2>&1) && case "$out" in *"${text}"*) echo "$out"; exit 0;; esac; sleep 0.25; done; echo "$out"; exit 1`,
+    ],
+  })
+  const ref = (name: string) =>
+    `$(ted browser snapshot | grep " ${name}" | head -n 1 | cut -d " " -f 1)`
+  const automation = await ok<Automation>('POST', '/automations', {
+    name: 'Audit',
+    factory: 'NB',
+    schedule: { kind: 'daily', at: '09:00' },
+    on: false,
+    checkout: true,
+    runNow: true,
+    prompt: JSON.stringify({
+      steps: [
+        { run: ['ted', 'run-app', 'Desk'] },
+        { run: ['ted', 'app', 'list'] },
+        browser('open', 'Desk'),
+        snapshotUntil('visible false'),
+        { run: ['sh', '-c', `ted browser click "${ref('button Press me')}"`] },
+        { run: ['sh', '-c', `ted browser fill "${ref('input Name')}" Ada`] },
+        snapshotUntil('typed Ada'),
+        browser('resize', '390x844'),
+        browser('screenshot'),
+        browser('color-scheme', 'dark'),
+        snapshotUntil('dark true'),
+        browser('screenshot'),
+        browser('navigate', '/other'),
+        { endTurn: true },
+      ],
+    }),
+  })
+  const runId = await waitUntil(
+    async () =>
+      (await ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+        (r) => r.runId !== undefined,
+      )?.runId,
+    'the Automation Run',
+  )
+  const finished = await waitUntil(
+    async () =>
+      (await ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+        (r) => r.runId === runId && r.finishedAt !== undefined,
+      ),
+    'the Automation Run to finish',
+    90_000,
+  )
+  const results = assistantTexts((await client.getRun(runId)).conversation).map(
+    (t) => JSON.parse(t) as { code: number; stdout: string; stderr: string },
+  )
+  expect(results.slice(0, 12).map((r) => [r.code, r.stderr])).toEqual(
+    Array.from({ length: 12 }, () => [0, '']),
+  )
+  expect(results[1]?.stdout).toMatch(/^Desk · widgets · electron · running · port \d+$/m)
+  expect(results[3]?.stdout).toContain('Desk window')
+  expect(results[6]?.stdout).toContain('Pressed')
+  expect(results[12]?.code).not.toBe(0)
+  expect(results[12]?.stderr).toContain('A desktop App has no addresses to navigate to')
+
+  const shots = finished.screenshots ?? []
+  expect(shots.map((s) => s.name)).toEqual(['Desk screenshot.png', 'Desk screenshot.png'])
+  expect(shots[0]?.hash).not.toBe(shots[1]?.hash)
+  const bytes = await ok<{ data: string }>(
+    'GET',
+    `/attachments/${shots[0]?.hash}/${encodeURIComponent('Desk screenshot.png')}`,
+  )
+  expect(pngSize(Buffer.from(bytes.data, 'base64'))).toEqual({ width: 390, height: 844 })
+
+  const electronProcesses = async () => {
+    const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,command='])
+    return stdout.split('\n').filter((line) => line.includes(stubElectron))
+  }
+  await waitUntil(
+    async () => ((await electronProcesses()).length === 0 ? true : undefined),
+    'every Electron process to end when the firing stops its Apps',
+  )
 })
