@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Factory, Task } from '@ted/protocol'
+import type { Factory, RunSummary, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { pruneRunOutput, runOutputEnd } from '../src/retention.ts'
@@ -50,7 +50,11 @@ describe('pruning Run output', () => {
     await utimes(file, at, at)
   }
 
-  async function makeRun(taskId?: string, state: 'finished' | 'working' = 'finished') {
+  async function makeRun(
+    taskId?: string,
+    state: 'finished' | 'working' = 'finished',
+    parentRunId?: string,
+  ) {
     const id = randomUUID()
     store.startRun({
       id,
@@ -58,6 +62,7 @@ describe('pruning Run output', () => {
       prompt: 'Hi',
       cwd: '/tmp',
       ...(taskId !== undefined && { taskId }),
+      ...(parentRunId !== undefined && { parentRunId }),
     })
     if (state === 'finished') {
       store.recordRunOutput(id, {
@@ -86,6 +91,50 @@ describe('pruning Run output', () => {
 
     expect(await prune(400)).toEqual({ removed: [] })
     expect(await kept()).toEqual([run])
+  })
+
+  test('removes a finished sub-agent’s output 7 days after it ended while its Task is open', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    const lead = await makeRun(task.id, 'working')
+    const sub = await makeRun(task.id, 'finished', lead)
+    const live = await makeRun(task.id, 'working', lead)
+    const asked = await makeRun(task.id, 'finished', lead)
+    store.sideChats.save({
+      id: randomUUID(),
+      sourceRunId: asked,
+      taskId: task.id,
+      factoryId: task.factoryId,
+      lead: { agent: 'claude' },
+      snapshotAt: new Date().toISOString(),
+      truncated: false,
+      digest: 'digest',
+      contextSent: false,
+      outputAfter: 0,
+      state: 'ready',
+    })
+
+    expect(await prune(6)).toEqual({ removed: [] })
+    expect(await prune(8)).toEqual({ removed: [sub] })
+    expect(await kept()).toEqual([lead, live, asked].sort())
+  })
+
+  test('keeps a reviewer’s output until the Validate visit it reviewed ends', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    const lead = await makeRun(task.id, 'working')
+    store.changeStage(task.id, 'validate', entry)
+    const reviewer = await makeRun(task.id, 'finished', lead)
+    store.chooseReviewer({
+      runId: reviewer,
+      taskId: task.id,
+      stage: 'validate',
+      purpose: 'review',
+      agent: 'claude',
+    })
+
+    expect(await prune(8)).toEqual({ removed: [] })
+    store.changeStage(task.id, 'work', entry)
+    expect(await prune(8)).toEqual({ removed: [reviewer] })
+    expect(await kept()).toEqual([lead])
   })
 
   test('keeps side-chat snapshots for open Tasks and prunes them with the closed Task', async () => {
@@ -348,8 +397,16 @@ describe('Run output retention in the daemon', () => {
       steps: [{ say: 'working on it' }, { everyMessage: [{ run: advance }] }, { run: advance }],
     })
     const done = await ok<Task>('POST', '/tasks', { title, factory: 'NB', start: true })
+    const subPrompt = path.join(scratch, 'sub.md')
+    await writeFile(
+      subPrompt,
+      `# Look around\n\n${JSON.stringify({ steps: [{ say: 'sub-agent was here' }, { endTurn: true }] })}\n`,
+    )
+    const startSub = `out=$(ted run start --prompt-file ${subPrompt}) || exit $?; ted run wait "$(echo "$out" | grep -o "[0-9a-f]\\{6\\}" | head -1)"`
     const open = await ok<Task>('POST', '/tasks', {
-      title: JSON.stringify({ steps: [{ say: 'still here' }, { endTurn: true }] }),
+      title: JSON.stringify({
+        steps: [{ run: ['sh', '-c', startSub] }, { say: 'still here' }, { endTurn: true }],
+      }),
       factory: 'NB',
       start: true,
     })
@@ -364,12 +421,21 @@ describe('Run output retention in the daemon', () => {
       async () => (await client.getRun(openRun)).run.state === 'idle' || undefined,
       'the open Task’s Run to go idle',
     )
-    await ok('POST', `/tasks/${open.id}/stop`)
-    await waitUntil(
-      async () => (await client.getRun(openRun)).run.state === 'finished' || undefined,
-      'the open Task’s Run to stop',
+    const subRun = await waitUntil(
+      async () =>
+        (await ok<RunSummary[]>('GET', `/tasks/${open.id}/runs`)).find(
+          (r) => r.parentRunId === openRun,
+        )?.id,
+      'the open Task’s sub-agent',
     )
-    const doneRun = (await runFolders()).find((id) => id !== openRun) as string
+    await ok('POST', `/tasks/${open.id}/stop`)
+    for (const id of [openRun, subRun]) {
+      await waitUntil(
+        async () => (await client.getRun(id)).run.state === 'finished' || undefined,
+        'the open Task’s Runs to stop',
+      )
+    }
+    const doneRun = (await runFolders()).find((id) => id !== openRun && id !== subRun) as string
     await waitUntil(
       async () => (await client.getRun(doneRun)).run.state === 'finished' || undefined,
       'the Done Task’s Run to finish',
@@ -381,22 +447,24 @@ describe('Run output retention in the daemon', () => {
 
     client = await start(6)
     await new Promise((resolve) => setTimeout(resolve, 1000))
-    expect((await runFolders()).sort()).toEqual([doneRun, openRun].sort())
+    expect((await runFolders()).sort()).toEqual([doneRun, openRun, subRun].sort())
 
     await ok('PATCH', '/settings', { runOutputDays: 5 })
     await waitUntil(
-      async () => !(await runFolders()).includes(doneRun) || undefined,
-      'the Done Task’s Run output to be removed',
+      async () => (await runFolders()).length === 1 || undefined,
+      'the Done Task’s and the sub-agent’s Run output to be removed',
     )
     expect(await runFolders()).toEqual([openRun])
-    const chat = await client.call('GET', `/runs/${doneRun}/chat`)
-    expect(chat.status).toBe(200)
-    expect(chat.body.items).toContainEqual({
-      kind: 'ted',
-      id: 'output-not-kept',
-      title: 'Output no longer kept',
-      text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
-    })
+    for (const id of [doneRun, subRun]) {
+      const chat = await client.call('GET', `/runs/${id}/chat`)
+      expect(chat.status).toBe(200)
+      expect(chat.body.items).toContainEqual({
+        kind: 'ted',
+        id: 'output-not-kept',
+        title: 'Output no longer kept',
+        text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+      })
+    }
     expect((await task(done.id)).stage).toBe('done')
     const kept = await client.call('GET', `/runs/${openRun}/chat`)
     expect(JSON.stringify(kept.body.items)).toContain('still here')
