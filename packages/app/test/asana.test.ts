@@ -11,6 +11,7 @@ import {
   openAllTasks,
   openSettings,
   setUpAppTests,
+  sidebar,
   ted,
 } from './app-harness.ts'
 
@@ -113,6 +114,48 @@ test('private configuration stays in main; browser authorization, identity, test
   ])
   expect(imported.filter((t) => t.parentId === root?.id)).toHaveLength(2)
   expect(root?.source?.asana).toMatchObject({ gid: '501', completed: false })
+  stub.setPageSize(1)
+  stub.setWorkspaces([
+    { gid: '2', name: 'Elsewhere' },
+    { gid: '1', name: 'Acme' },
+  ])
+  stub.setProjects([
+    { gid: '9', name: 'Roadmap', workspace: '1', sections: [{ gid: '91', name: 'Now' }] },
+    { gid: '8', name: 'Other', workspace: '1' },
+  ])
+  const nav = sidebar(window)
+  const factorySettings = nav.getByRole('button', { name: 'Settings', exact: true }).first()
+  if ((await factorySettings.count()) === 0)
+    await nav.getByRole('button', { name: 'widgets' }).click()
+  await factorySettings.click()
+  await window
+    .getByRole('navigation', { name: 'Factory settings' })
+    .getByRole('button', { name: 'Asana intake' })
+    .click()
+  const intake = window.getByRole('region', { name: 'Asana intake', exact: true })
+  await intake.getByRole('switch', { name: 'Import Asana work into this Factory' }).click()
+  await intake.getByRole('button', { name: 'Load more workspaces' }).click()
+  await intake.getByLabel('Workspace').selectOption('1')
+  await intake.getByRole('button', { name: 'Load more projects' }).click()
+  await intake.getByLabel('Project').selectOption('8')
+  await intake.getByText('No sections found.').waitFor()
+  await intake.getByRole('button', { name: 'Save', exact: true }).click()
+  await intake.getByText('Saved: Other · Acme').waitFor()
+  const client = await daemonClient()
+  expect((await client.getSettings()).asanaIntakeScopes[root?.factoryId ?? '']).toEqual({
+    workspace: { gid: '1', name: 'Acme' },
+    project: { gid: '8', name: 'Other' },
+  })
+  await intake.getByLabel('Project').selectOption('9')
+  await intake.getByLabel('Section (optional)').selectOption('91')
+  await intake.getByRole('button', { name: 'Save', exact: true }).click()
+  await intake.getByText('Saved: Roadmap › Now · Acme').waitFor()
+  expect((await client.getSettings()).asanaIntakeScopes[root?.factoryId ?? '']).toEqual({
+    workspace: { gid: '1', name: 'Acme' },
+    project: { gid: '9', name: 'Roadmap' },
+    section: { gid: '91', name: 'Now' },
+  })
+  stub.setPageSize(2)
   expect(root?.asanaSync).toMatchObject({ state: 'waiting-merge' })
   stub.setTasks([{ gid: '505', name: 'Tax line' }])
   await ted('task', 'create', '--factory', 'NB', '--source', 'https://app.asana.com/0/0/505')

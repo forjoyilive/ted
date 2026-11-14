@@ -89,3 +89,33 @@ export function parseAsanaIntakeRequest(value: unknown): AsanaIntakeRequest {
   }
   return body.factory === undefined ? {} : { factory: body.factory as string }
 }
+
+export interface AsanaChoicesPage {
+  items: AsanaRef[]
+  nextOffset?: string
+}
+
+export interface AsanaChoicesQuery {
+  offset?: string
+}
+
+export type AsanaIntakeCheck =
+  | { state: 'none' }
+  | { state: 'current'; scope: AsanaIntakeScope }
+  | { state: 'stale'; part: 'workspace' | 'project' | 'section'; reason: string }
+  | { state: 'unreadable'; reason: string }
+
+export const isAsanaOffset = (value: string) => /^[A-Za-z0-9_\-.:+/=]{1,512}$/.test(value)
+
+export function parseAsanaChoicesQuery(search: string): AsanaChoicesQuery {
+  const params = new URLSearchParams(search)
+  for (const key of params.keys())
+    if (key !== 'offset') throw new RequestValidationError(400, `unknown query parameter ${key}`)
+  const offsets = params.getAll('offset')
+  if (offsets.length > 1) throw new RequestValidationError(400, 'offset may be given once')
+  const offset = offsets[0]
+  if (offset === undefined) return {}
+  if (!isAsanaOffset(offset))
+    throw new RequestValidationError(400, 'offset must be the next page Asana returned')
+  return { offset }
+}

@@ -53,6 +53,7 @@ import { useShownSetting } from '../setting-focus.ts'
 import { type FactorySectionId, factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
+import { AsanaIntakeSection } from './AsanaIntakeSection.tsx'
 import styles from './FactorySettings.module.css'
 import {
   AgentsSection,
@@ -415,6 +416,9 @@ export function FactorySettings({
               {section === 'general' && <GeneralSection factory={factory} />}
               {section === 'linear-intake' && (
                 <LinearIntakeSection key={factory.id} factoryId={factory.id} />
+              )}
+              {section === 'asana-intake' && (
+                <AsanaIntakeSection key={factory.id} factoryId={factory.id} />
               )}
               {inRepo && !view && !loadError && (
                 <div className={styles.wideSection}>
