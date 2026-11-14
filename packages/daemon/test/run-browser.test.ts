@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Automation, AutomationDetail, Factory } from '@ted/protocol'
+import type { Automation, AutomationDetail, AutomationTemplate, Factory, Task } from '@ted/protocol'
 import { afterEach, expect, test, vi } from 'vitest'
 import { resolveElectron } from '../../app/test/support/electron-installation.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -31,7 +31,9 @@ afterEach(async () => {
 
 const pngSize = (data: Buffer) => ({ width: data.readUInt32BE(16), height: data.readUInt32BE(20) })
 
-test('an Automation Run drives its web App in a headless browser, at a narrow width and in dark mode, and stays on the App', async () => {
+const browser = (...args: string[]) => ({ run: ['ted', 'browser', ...args] })
+
+async function setUp() {
   const { home, cleanup } = await makeTempHome()
   const scratch = await mkdtemp(path.join(tmpdir(), 'ted-run-browser-'))
   process.env.TED_ELECTRON_BIN = resolveElectron()
@@ -72,7 +74,11 @@ test('an Automation Run drives its web App in a headless browser, at a narrow wi
     return res.body as T
   }
   await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-  const browser = (...args: string[]) => ({ run: ['ted', 'browser', ...args] })
+  return { home, scratch, client, ok }
+}
+
+test('an Automation Run drives its web App in a headless browser, at a narrow width and in dark mode, and stays on the App', async () => {
+  const { home, scratch, client, ok } = await setUp()
   const automation = await ok<Automation>('POST', '/automations', {
     name: 'Audit',
     factory: 'NB',
@@ -166,4 +172,79 @@ test('an Automation Run drives its web App in a headless browser, at a narrow wi
   )
   const { width, height } = pngSize(Buffer.from(bytes.data, 'base64'))
   expect({ width, height }).toEqual({ width: 390, height: 844 })
+})
+
+test('an Audit files one Backlog Task with its screenshot, and a second Audit of the same problem files nothing new', async () => {
+  const { client, ok } = await setUp()
+  const templates = await ok<AutomationTemplate[]>('GET', '/automations/templates')
+  const template = templates.find((t) => t.id === 'audit')
+  if (!template) throw new Error('missing audit template')
+  expect(template.checkout).toBe(true)
+  expect(template.prompt).toContain('skipped: no Audit driver for <kind> Apps yet')
+  expect(template.prompt).toContain('File at most 5 Tasks in one Run')
+  expect(template.prompt).toContain('open that image and look at it before you judge the page')
+  const source = 'http://localhost/audit/web/pages/one/header-overlaps-text'
+  const automation = await ok<Automation>('POST', '/automations', {
+    template: template.id,
+    name: template.name,
+    factory: 'NB',
+    schedule: template.schedule,
+    on: false,
+    checkout: template.checkout,
+    runNow: true,
+    prompt: `${template.prompt}\n${JSON.stringify({
+      steps: [
+        { run: ['ted', 'run-app', 'Web'] },
+        browser('open', 'Web'),
+        browser('navigate', '/pages/one'),
+        browser('resize', '390x844'),
+        {
+          run: [
+            'sh',
+            '-c',
+            `shot=$(ted browser screenshot | sed -n 's/^Saved \\(.*\\.png\\)\\. Attach.*/\\1/p') && ted task create --source ${source} --description "Page one at 390x844: the header covers the first line." --attach "$shot" "Header covers text on page one"`,
+          ],
+        },
+        { endTurn: true },
+      ],
+    })}`,
+  })
+  const finishedRuns = async (count: number) =>
+    waitUntil(
+      async () => {
+        const { history } = await ok<AutomationDetail>('GET', `/automations/${automation.id}`)
+        const finished = history.filter((r) => r.finishedAt !== undefined)
+        return finished.length >= count ? finished : undefined
+      },
+      `${count} finished Audit Runs`,
+      90_000,
+    )
+  const [first] = await finishedRuns(1)
+  const results = async (runId: string | undefined) =>
+    assistantTexts((await client.getRun(runId ?? '')).conversation).map(
+      (t) => JSON.parse(t) as { code: number; stdout: string; stderr: string },
+    )
+  expect((await results(first?.runId)).slice(0, 5).map((r) => [r.code, r.stderr])).toEqual(
+    Array.from({ length: 5 }, () => [0, '']),
+  )
+  expect(first?.result.kind).toBe('created')
+  const filed = async () =>
+    (await ok<Task[]>('GET', '/tasks')).filter((t) => t.createdBy === 'automation')
+  const [task, ...others] = await filed()
+  expect(others).toEqual([])
+  expect(task).toMatchObject({
+    title: 'Header covers text on page one',
+    stage: 'backlog',
+    source: { url: source },
+  })
+  expect(task?.leadRunId).toBeUndefined()
+  expect(task?.attachments.map((a) => a.mediaType)).toEqual(['image/png'])
+
+  await ok('POST', `/automations/${automation.id}/run`)
+  const second = (await finishedRuns(2)).find((r) => r.runId !== first?.runId)
+  const last = (await results(second?.runId))[4]
+  expect(last?.code).not.toBe(0)
+  expect(last?.stderr).toContain(`Already tracked as ${task?.displayId}`)
+  expect(second?.result.kind).toBe('no-new-tasks')
+  expect((await filed()).map((t) => t.id)).toEqual([task?.id])
 })
