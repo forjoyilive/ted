@@ -925,6 +925,15 @@ export const commands = [
     requires: ['reason'],
   },
   {
+    name: 'cleanup report',
+    handler: 'cleanupReport',
+    min: 3,
+    max: 3,
+    help: '  ted cleanup report "<step>" done|skipped|failed "<what happened>"\n                                             In Cleanup, report the result of one Cleanup step',
+    callers: 'Task Lead',
+    options: options(),
+  },
+  {
     name: 'task done',
     handler: 'taskDone',
     min: 0,

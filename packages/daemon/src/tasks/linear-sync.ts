@@ -131,8 +131,11 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
     timer.unref()
   }
 
+  const doneAndMerged = (id: string): boolean =>
+    store.getTask(id)?.stage === 'done' && store.isMerged(id)
+
   function mayNeedSync(id: string, open: boolean): boolean {
-    if (!store.isMerged(id)) return open
+    if (!doneAndMerged(id)) return open
     const record = store.linearSync(id)
     return (
       record.step !== 'done' || store.taskPullRequestUrls(id).some((url) => !record.linked.has(url))
@@ -149,7 +152,7 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
     return store.tasksIn(new Set(ids)).flatMap((task): Watched[] => {
       const link = task.source && parseLinearUrl(task.source.url)
       if (!link) return []
-      return [{ task, link, merged: store.isMerged(task.id), record: store.linearSync(task.id) }]
+      return [{ task, link, merged: doneAndMerged(task.id), record: store.linearSync(task.id) }]
     })
   }
 

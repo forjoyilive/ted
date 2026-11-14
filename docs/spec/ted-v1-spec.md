@@ -292,6 +292,8 @@ Rules:
 | `stages.<id>.max_back` | any layer | Limit on send-backs from this Stage (6.7). UI label: **Send-backs**. | KRI-12, KRI-58, KRI-65 |
 | `stages.<id>.based_on` | Factory or Library | Hash of the inherited Stage file an override was copied from (5.5). | KRI-22, KRI-58 |
 | `stages.backlog.enabled` | any layer | The only setting Backlog takes. Done takes none. | KRI-15, KRI-58 |
+| `stages.cleanup.enabled` | any layer | `true` turns on Cleanup after Merge (6.15) when at least one step is listed. Default off. Cleanup can’t be in `order` and takes only `enabled`, `effort`, `based_on` and `steps`. | ADR 0147 |
+| `stages.cleanup.steps` | any layer | List of Cleanup steps, each `{name, instruction}`: a unique one-line name of at most 80 characters and the instruction the Task Lead follows. | ADR 0147 |
 | `stages.clarify.depth` | any layer | `auto` (default), `none`, `few`, `grilling`. | KRI-19 |
 | `stages.validate.checks` | Factory | List of Checks (8.1). | KRI-16, KRI-57 |
 | `stages.validate.loop_check` | any layer | Send-back count at which the loop check runs; default `3`; `false` turns it off. | KRI-16 |
@@ -676,10 +678,14 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - Review is the configurable human review and sign-off step. Its default Stage file reuses Validate’s code review, security review and evidence, and carries their remaining notes into the brief. Missing reviews or later unreviewed changes go back to Validate; if the Workflow omits Validate, the Task Lead asks the human how to restore validation before sign-off. Fixes go back to Work and pass Validate again. (KRI-199)
 - TED never posts a GitHub approval. (KRI-18, KRI-52)
 
-### 6.15 Done
+### 6.15 Cleanup and Done
 
-- Holding Stage at the end of the Workflow. Nothing runs there. (KRI-52)
-- When every pull request has merged, TED moves the Task to Done, stops the Task Lead’s Run (kept as history), stops the Apps, runs `teardown` and removes the worktrees, and releases Tasks blocked on this one. (KRI-52, KRI-58)
+- **Cleanup** is an optional agent Stage between Merge and Done, off by default. A Factory turns it on with `stages.cleanup.enabled: true` and lists named Cleanup steps under `stages.cleanup.steps`, each with an `instruction` for the Task Lead, such as posting the merged pull request to an Asana task or shutting down a test environment. With no steps it stays off. It is never listed in `order`, has no sign-off, no send-back and no skip, and Autopilot changes nothing about it. Factory settings don’t edit it yet (TED-321). (TED-307, ADR 0147)
+- When Cleanup is on, every way a Task’s pull requests finish merging (TED’s merge, a merge on GitHub, Mark done, `ted task done`, the Coordinator’s done) moves the Task to Cleanup instead of Done. Tasks blocked on it are released at once. The same Task Lead Run gets the Cleanup Stage file and the steps, takes a working-Run slot, reports each step with `ted cleanup report "<step>" done|skipped|failed "<what happened>"` and runs `ted outcome advance` once every step has a result. It may retry or work around a problem but never changes code or pushes. Apps, simulators and the worktree stay until Cleanup ends. Mark done, `ted task done` and the Coordinator’s done are refused while a Task is in Cleanup. (TED-307)
+- When a step failed, TED keeps the Task in Cleanup with the activity “Cleanup failed · waiting on you” and asks the user **Try again** or **Finish anyway**. Try again rereads the steps from `origin/<default branch>` and gives the Task Lead only the failed ones; Finish anyway posts a note naming the steps that didn’t happen and moves the Task to Done. Only the user answers: not Autopilot and not the Coordinator. To debug, the user writes to the Task Lead in the thread and fixes the step in `.ted/workflow.yaml`. (TED-307)
+- Linear sync’s move to completed and the Run output retention clock wait for Done. (TED-307)
+- Done is the holding Stage at the end of the Workflow. Nothing runs there. (KRI-52)
+- When every pull request has merged, and Cleanup has ended when it is on, TED moves the Task to Done, stops the Task Lead’s Run (kept as history), stops the Apps, runs `teardown` and removes the worktrees, and releases Tasks blocked on this one. (KRI-52, KRI-58)
 - Done Tasks stay until archived by hand; auto-archive is later (KRI-27). (KRI-52)
 - A Done Task is never reopened. **Follow up** on a Done Task creates a new Task linked to the original, starting from its Task brief. It skips Backlog and still waits for a slot. The Task Lead may skip Clarify and Design. Typing a Comment on a Done Task offers **Comment only** and **Follow up**. Unsent line comment drafts go with a Follow up. (KRI-52, KRI-61, KRI-60)
 - Automations never create Follow-ups. (KRI-55)
@@ -689,7 +695,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - A **Blocked by** field in Task details and the New Task dialog searches every Factory on this machine, so cross-Factory blockers are allowed. Agents use `ted task block <id> --by <id>` and `ted task unblock`. (KRI-55)
 - **Adding a blocker:** a Backlog Task stays in Backlog; a Queued Task goes back to Backlog. A running Task’s Task Lead is told, explains whether it can still make useful progress, recommends waiting or continuing, and asks the human before doing more work. The Task shows Waiting on you while the question is open. **Wait for blocker** saves the brief and stops the Task Lead (Blocked), keeping the worktree and Stage for a fresh Run when its blockers merge. **Continue independent work** keeps the blocker link and lets the Task Lead work on independent parts; it must save the brief and block itself when it reaches dependent work. (KRI-55, KRI-175)
 - **Blocked mid-flow:** when the Task Lead finds another Task must merge first, it adds the link, writes the brief and stops its Run. The Task stays in its Stage as Blocked, keeping its worktree. When the blocker merges, a fresh Run starts from the brief. (KRI-15, KRI-58)
-- A Task counts as merged only when every pull request has merged. (KRI-52)
+- A Task counts as merged only when every pull request has merged and it is in Cleanup or Done. (KRI-52, TED-307)
 - A blocker that would make a cycle is refused, with the cycle named. (KRI-55)
 - Archiving or deleting a Task that blocks others lists those Tasks and asks **Unblock them** (default) or **Keep them blocked**. Kept links show “Blocked by archived NB-12” or “Blocked by deleted NB-35”. (KRI-55, KRI-63)
 
@@ -1027,7 +1033,7 @@ apps:
 7. **Merge method:** `merge_method` per repo, squash by default. If GitHub doesn’t allow it, TED uses one it does allow and notes it in the thread. The branch is deleted after merge. (KRI-52)
 8. **Multi-repo:** merge in `repos` order. TED checks every pull request is green and mergeable before merging the first. Merged pull requests are never reverted automatically. A failure partway leaves the Task in Merge as **Partly merged** until the Task Lead fixes the rest through Work, Validate and a short re-sign-off. (KRI-52)
 9. **Branch protection:** after sign-off TED turns on GitHub’s auto-merge where the repo allows it, so GitHub enforces required reviews, checks and merge queues. Otherwise TED polls and merges once GitHub reports the pull request mergeable. A required teammate review shows as **Waiting for GitHub review**, not an Inbox item; review comments go to the Task Lead. (KRI-52, KRI-20)
-10. **After merge:** Done (6.15). (KRI-52)
+10. **After merge:** Cleanup when the Factory has it on, then Done (6.15). (KRI-52, TED-307)
 
 ---
 

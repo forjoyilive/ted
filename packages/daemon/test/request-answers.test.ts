@@ -112,6 +112,10 @@ beforeEach(async () => {
       effects.push('asana-missing')
       return comment
     },
+    answerCleanupFailure: async (_task, comment) => {
+      effects.push('cleanup-failure')
+      return comment
+    },
   }
 })
 afterEach(async () => {

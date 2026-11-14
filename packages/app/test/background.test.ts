@@ -349,11 +349,14 @@ describe('Task merged notifications', () => {
     }) as Task
   const now = Date.parse('2026-11-09T12:00:30Z')
 
-  test('a Task that just reached Done notifies and opens the Task', () => {
+  test('a Task that just reached Done or Cleanup notifies and opens the Task', () => {
     expect(mergedNotice(merged('2026-11-09T12:00:00Z'), now)).toEqual({
       title: 'NB-28 merged',
       body: 'Image paste in the editor · PR #470, #88',
       opens: { kind: 'open-task', taskId: 't1', factoryId: 'f1' },
+    })
+    expect(mergedNotice(merged('2026-11-09T12:00:00Z', { stage: 'cleanup' }), now)).toMatchObject({
+      title: 'NB-28 merged',
     })
   })
 

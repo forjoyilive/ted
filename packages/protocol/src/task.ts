@@ -15,6 +15,7 @@ export const agentStageIds = [
   'validate',
   'review',
   'merge',
+  'cleanup',
 ] as const
 
 export type AgentStageId = (typeof agentStageIds)[number]
@@ -694,6 +695,7 @@ export type RequestPurpose =
         | 'linear-closed'
         | 'linear-team'
         | 'asana-missing'
+        | 'cleanup-failure'
         | 'archive'
         | 'idle-run'
         | 'ci-stuck'
@@ -733,6 +735,29 @@ export interface Comment {
   linearTeam?: LinearTeam
   asanaMissing?: import('./asana-import.ts').AsanaMissing
   archive?: ArchiveAsk
+  cleanupFailure?: CleanupFailureAsk
+}
+
+export const cleanupRetryChoice = 'Try again'
+export const cleanupFinishChoice = 'Finish anyway'
+
+export interface CleanupFailureAsk {
+  steps: string[]
+}
+
+export const cleanupStepResults = ['done', 'skipped', 'failed'] as const
+
+export type CleanupStepResult = (typeof cleanupStepResults)[number]
+
+export interface ReportCleanupStepRequest {
+  step: string
+  result: CleanupStepResult
+  text: string
+}
+
+export interface CleanupStepReport extends ReportCleanupStepRequest {
+  runId: string
+  at: string
 }
 
 export const archiveChoice = 'Archive'

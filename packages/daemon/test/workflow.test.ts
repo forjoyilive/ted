@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  boardStages,
   checkLayer,
   type LayerFiles,
   readDefaultLayer,
@@ -7,7 +8,7 @@ import {
   resolveWorkflow,
 } from '../src/workflow/index.ts'
 import { sameFiles, sharedDefaultLayer } from '../src/workflow/layers.ts'
-import { subAgentPrompt, tedSubAgentPrompt } from '../src/workflow/workflow.ts'
+import { nextStageMessage, subAgentPrompt, tedSubAgentPrompt } from '../src/workflow/workflow.ts'
 
 const defaults = () => readDefaultLayer()
 
@@ -211,6 +212,47 @@ describe('layers', () => {
     expect(workflow.stages).toContain('clarify')
   })
 
+  test('Cleanup comes last, before Done, only when it is on and lists a step, and its instructions list the steps', async () => {
+    const yaml = (cleanup: string) => ({
+      'workflow.yaml': `version: 1\norder: [intake, work, merge]\nstages:\n  cleanup:\n${cleanup}`,
+    })
+    const on = resolveWorkflow([
+      await defaults(),
+      factory(
+        yaml(
+          '    enabled: true\n    steps:\n      - { name: Post note, instruction: Post the link. }\n',
+        ),
+      ),
+    ])
+
+    expect(on.stages).toEqual(['backlog', 'intake', 'work', 'merge', 'cleanup', 'done'])
+    expect(on.next('merge')).toBe('cleanup')
+    expect(on.next('cleanup')).toBe('done')
+    expect(boardStages(on).map((s) => s.id)).toEqual([
+      'backlog',
+      'intake',
+      'work',
+      'merge',
+      'cleanup',
+      'done',
+    ])
+    expect(boardStages(on).find((s) => s.id === 'cleanup')).toMatchObject({
+      enabled: true,
+      gate: false,
+    })
+    expect(nextStageMessage(on, 'cleanup')).toContain('1. **Post note**\n\n   Post the link.')
+    for (const off of [
+      '    enabled: true\n    steps: []\n',
+      '    steps:\n      - { name: Post note, instruction: Post the link. }\n',
+      '    enabled: false\n',
+    ]) {
+      expect(resolveWorkflow([await defaults(), factory(yaml(off))]).stages).not.toContain(
+        'cleanup',
+      )
+    }
+    expect(resolveWorkflow([await defaults()]).stages).not.toContain('cleanup')
+  })
+
   test('stages.backlog.enabled: false leaves Backlog out; Done always stays last', async () => {
     const workflow = resolveWorkflow([
       await defaults(),
@@ -402,6 +444,39 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 2 14 Backlog takes only `enabled`',
       'error .ted/workflow.yaml 3 11 Done takes no settings',
       'error .ted/workflow.yaml 4 20 Work can’t be turned off',
+    ])
+  })
+
+  test('Cleanup can’t be in order, takes only its own keys, and each step needs a unique one-line name and an instruction', () => {
+    const found = checkLayer({
+      kind: 'factory',
+      files: {
+        'workflow.yaml': [
+          'order: [intake, work, cleanup]',
+          'stages:',
+          '  cleanup:',
+          '    gate: true',
+          '    steps:',
+          '      - { name: Post note }',
+          '      - { instruction: Do it. }',
+          '      - { name: Drop db, instruction: Drop it. }',
+          '      - { name: Drop db, instruction: Again. }',
+          '      - { name: "Two\\nlines", instruction: Do it. }',
+          '',
+        ].join('\n'),
+      },
+    })
+
+    expect(found.problems.map((p) => `${p.severity} ${p.message}`)).toEqual([
+      'error `cleanup` can’t be in `order`; turn it on with `stages.cleanup.enabled`',
+      'error Cleanup takes only `enabled`, `effort`, `based_on`, `steps`',
+      'error each Cleanup step needs an `instruction`',
+      'error each Cleanup step needs a `name`',
+      'error two Cleanup steps are named `Drop db`',
+      'error a Cleanup step’s `name` must be one line',
+    ])
+    expect(found.settings.stages.cleanup?.steps).toEqual([
+      { name: 'Drop db', instruction: 'Drop it.' },
     ])
   })
 

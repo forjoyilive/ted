@@ -710,7 +710,8 @@ export function createCoordinators(options: {
       comment.permission ||
       comment.simulator ||
       comment.linearTeam ||
-      comment.asanaMissing
+      comment.asanaMissing ||
+      comment.cleanupFailure
     )
       return 'no'
     if (comment.kind === 'round') return 'round answers'

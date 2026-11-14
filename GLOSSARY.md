@@ -50,8 +50,16 @@ _Avoid_: Step, phase, column
 The holding Stage at the start of a Workflow where Tasks wait to be started by the human, an Automation, or the Factory’s automatic Backlog starting option. Nothing runs on a Task in Backlog.
 _Avoid_: Icebox, queue
 
+**Cleanup**:
+An optional Stage between Merge and Done, where the Task Lead carries out the Factory’s Cleanup steps after every pull request has merged. A Task in Cleanup counts as merged but not Done.
+_Avoid_: Post-merge, wrap-up
+
+**Cleanup step**:
+One named instruction in a Factory’s Cleanup, such as posting the merged pull request to an Asana task or shutting down a test environment. The Task Lead reports each as done, skipped or failed.
+_Avoid_: Hook, after-merge action
+
 **Done**:
-The holding Stage at the end of a Workflow where a Task sits once all of its pull requests have merged. Nothing runs on a Task in Done.
+The holding Stage at the end of a Workflow where a Task sits once all of its pull requests have merged and any Cleanup has ended. Nothing runs on a Task in Done.
 _Avoid_: Closed, complete, shipped
 
 **Sign-off**:

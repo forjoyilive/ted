@@ -109,6 +109,12 @@ export interface RequestAnswerPort {
     choice: string | undefined,
     text: string,
   ): Promise<Comment>
+  answerCleanupFailure(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment>
 }
 
 export function createRequestAnswers(
@@ -154,6 +160,7 @@ export function createRequestAnswers(
     gateName,
     firstLine,
     answerAsanaMissing,
+    answerCleanupFailure,
   } = port
   const { answerLinearTeam } = createLinearConsent(store)
   const answerRequest = (
@@ -653,6 +660,9 @@ export function createRequestAnswers(
       (request.action !== 'answer' || request.choice === undefined)
     ) {
       throw new RequestError(400, `answer with ${archiveChoice} or ${keepArchiveChoice}`)
+    }
+    if (comment.purpose?.kind === 'cleanup-failure' && request.action === 'answer') {
+      return answerCleanupFailure(find(task.id), comment, request.choice, text)
     }
     if (comment.purpose?.kind === 'asana-missing' && request.action === 'answer') {
       return answerAsanaMissing(task, comment, request.choice, text)
