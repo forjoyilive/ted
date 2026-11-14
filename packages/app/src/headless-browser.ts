@@ -2,10 +2,12 @@ import { createInterface } from 'node:readline'
 import { type BrowserRequest, browserViewport, tedEnv } from '@ted/protocol'
 import { app, BrowserWindow, session } from 'electron'
 import { closeGuest, type GuestPage, openGuest, runOnPage } from './browser-page.ts'
+import { openRemote, type RemotePage } from './remote-page.ts'
 
 export interface HelperCommand {
   id: string
   url: string
+  port?: number
   expiresAt: number
   request: BrowserRequest
 }
@@ -35,15 +37,35 @@ void app.whenReady().then(() => {
   if (process.platform === 'darwin') app.setActivationPolicy('prohibited')
   const ses = session.fromPartition('ted-run-browser')
   let page: GuestPage | undefined
+  let remote: RemotePage | undefined
   let size = { width: 1280, height: 800 }
+  let sized = false
   let scheme: 'light' | 'dark' | undefined
   const drop = () => {
     if (page) closeGuest(page)
     page = undefined
+    remote?.close()
+    remote = undefined
   }
   const execute = async (command: HelperCommand) => {
     const check = () => {
       if (Date.now() >= command.expiresAt) throw new Error('Browser command expired')
+    }
+    if (command.request.action === 'open' && command.port !== undefined) {
+      drop()
+      const opened = await openRemote(command.port, {
+        check,
+        gone: (gone) => {
+          if (remote === gone) drop()
+        },
+      })
+      remote = opened
+      if (sized) await opened.resize(size.width, size.height)
+      if (scheme)
+        await opened.driver.send('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-color-scheme', value: scheme }],
+        })
+      return { url: opened.driver.url() }
     }
     if (command.request.action === 'open') {
       drop()
@@ -80,17 +102,26 @@ void app.whenReady().then(() => {
         })
       return { url: opened.contents.getURL(), ...(opened.error && { text: opened.error }) }
     }
-    const current = page
-    if (!current?.ready || current.url !== command.url)
-      throw new Error('Open a web App with ted browser open first')
+    const current =
+      command.port !== undefined
+        ? remote?.port === command.port
+          ? remote
+          : undefined
+        : page?.ready && page.url === command.url
+          ? page
+          : undefined
+    if (!current) throw new Error('Open the App with ted browser open first')
     const result = await runOnPage(current, command, {
       check,
-      current: () => page === current,
+      current: () => page === current || remote === current,
       closeAfterPartialInput: drop,
     })
     if (command.request.action === 'resize') {
       const viewport = browserViewport(command.request.value ?? '')
-      if (typeof viewport !== 'string') size = viewport
+      if (typeof viewport !== 'string') {
+        size = viewport
+        sized = true
+      }
     }
     if (command.request.action === 'color-scheme')
       scheme = command.request.value === 'dark' ? 'dark' : 'light'

@@ -9,6 +9,7 @@ export interface AppDeclaration {
   port?: number
   env: Record<string, string>
   device?: string
+  electron?: true
 }
 
 export const defaultAppUrl = `http://localhost:\${PORT}`
@@ -21,6 +22,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
     const run = typeof fields.run === 'string' ? fields.run.trim() : ''
     if (name === '' || run === '') return []
     const kind = appKinds.find((k) => k === fields.kind) ?? 'web'
+    const electron = kind === 'command' && fields.electron === true
     const url =
       kind !== 'web'
         ? undefined
@@ -47,7 +49,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
     const ready =
       fields.ready === 'url' || fields.ready === 'start'
         ? fields.ready
-        : kind === 'web'
+        : kind === 'web' || electron
           ? 'url'
           : 'start'
     return [
@@ -56,10 +58,11 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
         kind,
         run,
         ...(url !== undefined && { url }),
-        ready: url === undefined ? 'start' : ready,
+        ready: url === undefined && !electron ? 'start' : ready,
         ...(port !== undefined && { port }),
         env,
         ...(typeof fields.device === 'string' && { device: fields.device }),
+        ...(electron && { electron: true as const }),
       },
     ]
   })

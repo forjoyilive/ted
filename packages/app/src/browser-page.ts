@@ -4,15 +4,54 @@ import type { Session, WebContents, WebPreferences } from 'electron'
 
 export interface GuestHost {
   contents: WebContents
-  resize(width: number, height: number): void
+  resize(width: number, height: number): unknown
   close?(): void
 }
 
-export interface GuestPage extends GuestHost {
-  url: string
-  ready: boolean
+export interface PageDriver {
+  url(): string
+  gone(): boolean
+  script(code: string): Promise<unknown>
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>
+  load(url: string): Promise<void>
+  back(): Promise<void>
+  forward(): Promise<void>
+  reload(): Promise<void>
+  capture(): Promise<Uint8Array<ArrayBuffer>>
+}
+
+export interface DrivenPage {
+  driver: PageDriver
   revision: string
   error?: string | undefined
+  navigate: boolean
+  resize(width: number, height: number): unknown
+}
+
+export interface GuestPage extends GuestHost, DrivenPage {
+  url: string
+  ready: boolean
+}
+
+export function webContentsDriver(contents: WebContents): PageDriver {
+  return {
+    url: () => contents.getURL(),
+    gone: () => contents.isDestroyed(),
+    script: (code) => contents.executeJavaScriptInIsolatedWorld(999, [{ code }]),
+    send: (method, params) => contents.debugger.sendCommand(method, params),
+    load: (url) => contents.loadURL(url),
+    back: async () => {
+      if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+    },
+    forward: async () => {
+      if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
+    },
+    reload: async () => contents.reload(),
+    capture: async () =>
+      new Uint8Array(
+        (await contents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG(),
+      ),
+  }
 }
 
 export interface PageCommand {
@@ -70,7 +109,14 @@ export async function openGuest(
     safeDialogs: true,
     navigateOnDragDrop: false,
   })
-  const page: GuestPage = { ...host, url: appUrl, ready: false, revision: randomUUID() }
+  const page: GuestPage = {
+    ...host,
+    url: appUrl,
+    ready: false,
+    revision: randomUUID(),
+    navigate: true,
+    driver: webContentsDriver(host.contents),
+  }
   options.created?.(page)
   const contents = page.contents
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -170,7 +216,7 @@ export function closeGuest(page: GuestPage) {
 }
 
 export async function runOnPage(
-  page: GuestPage,
+  page: DrivenPage,
   command: PageCommand,
   options: {
     check(): void
@@ -179,12 +225,12 @@ export async function runOnPage(
   },
 ): Promise<PageResult> {
   const { check } = options
-  const contents = page.contents
+  const contents = page.driver
   const revision = page.revision
   let inputStarted = false
   const checkPage = () => {
     check()
-    if (!options.current() || contents.isDestroyed() || page.revision !== revision) {
+    if (!options.current() || contents.gone() || page.revision !== revision) {
       if (inputStarted && options.current()) options.closeAfterPartialInput()
       throw new Error('The page changed; run snapshot again before retrying')
     }
@@ -192,11 +238,9 @@ export async function runOnPage(
   const { action, value, ref } = command.request
   const script = async <T>(code: string): Promise<T> => {
     check()
-    const result = (await contents.executeJavaScriptInIsolatedWorld(999, [
-      {
-        code: `(() => { const check = () => { if (Date.now() >= ${command.expiresAt}) throw Error('Browser command expired'); }; check(); return (${code}); })()`,
-      },
-    ])) as T
+    const result = (await contents.script(
+      `(() => { const check = () => { if (Date.now() >= ${command.expiresAt}) throw Error('Browser command expired'); }; check(); return (${code}); })()`,
+    )) as T
     check()
     return result
   }
@@ -217,7 +261,7 @@ export async function runOnPage(
         }
         return (document.title.slice(0,200) + '\\n' + (document.body?.innerText || '').slice(0,20000) + '\\n\\nElements:\\n' + out.join('\\n')).slice(0,60000);
       })()`)
-    return { url: contents.getURL(), text }
+    return { url: contents.url(), text }
   }
   if (action === 'click' || action === 'fill') {
     checkPage()
@@ -230,7 +274,7 @@ export async function runOnPage(
       )
       checkPage()
       inputStarted = true
-      await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+      await contents.send('Input.dispatchMouseEvent', {
         type: 'mousePressed',
         button: 'left',
         clickCount: 1,
@@ -238,7 +282,7 @@ export async function runOnPage(
         y: point.y,
       })
       checkPage()
-      await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+      await contents.send('Input.dispatchMouseEvent', {
         type: 'mouseReleased',
         button: 'left',
         clickCount: 1,
@@ -268,37 +312,38 @@ export async function runOnPage(
     checkPage()
     inputStarted = true
     const key = value === 'Space' ? ' ' : value
-    await contents.debugger.sendCommand('Input.dispatchKeyEvent', {
+    await contents.send('Input.dispatchKeyEvent', {
       type: 'keyDown',
       key,
       windowsVirtualKeyCode: keyCode,
       ...(value === 'Enter' ? { text: '\r' } : value === 'Space' ? { text: ' ' } : {}),
     })
     checkPage()
-    await contents.debugger.sendCommand('Input.dispatchKeyEvent', {
+    await contents.send('Input.dispatchKeyEvent', {
       type: 'keyUp',
       key,
       windowsVirtualKeyCode: keyCode,
     })
     page.revision = randomUUID()
   } else if (action === 'navigate') {
+    if (!page.navigate) throw new Error('A desktop App has no addresses to navigate to')
     const url = new URL(value ?? '/', command.url)
     if (url.origin !== new URL(command.url).origin || url.username || url.password)
       throw new Error('Navigate within this App’s origin')
-    await contents.loadURL(url.href)
+    await contents.load(url.href)
   } else if (action === 'back') {
-    if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack()
+    await contents.back()
   } else if (action === 'forward') {
-    if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward()
+    await contents.forward()
   } else if (action === 'reload') {
     page.error = undefined
-    contents.reload()
+    await contents.reload()
   } else if (action === 'resize') {
     const viewport = browserViewport(value ?? '')
     if (typeof viewport === 'string') throw new Error(viewport)
     const { width, height } = viewport
     check()
-    page.resize(width, height)
+    await page.resize(width, height)
     await script(
       `new Promise((resolve) => { const done = () => innerWidth === ${width} ? resolve(true) : Date.now() < ${command.expiresAt} - 1000 ? setTimeout(done, 16) : resolve(false); done(); })`,
     )
@@ -306,16 +351,14 @@ export async function runOnPage(
   } else if (action === 'color-scheme') {
     if (value !== 'light' && value !== 'dark') throw new Error('Use light or dark')
     check()
-    await contents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+    await contents.send('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-color-scheme', value }],
     })
     page.revision = randomUUID()
   } else if (action === 'screenshot') {
-    const capture = (
-      await contents.capturePage(undefined, { stayHidden: true, stayAwake: true })
-    ).toPNG()
+    const capture = await contents.capture()
     if (capture.length > 25 * 1024 * 1024) throw new Error('Screenshot exceeds 25 MB')
-    return { url: contents.getURL(), capture: new Uint8Array(capture) }
+    return { url: contents.url(), capture }
   }
-  return { url: contents.getURL(), ...(page.error && { text: page.error }) }
+  return { url: contents.url(), ...(page.error && { text: page.error }) }
 }

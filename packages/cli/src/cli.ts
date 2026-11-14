@@ -649,7 +649,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const state = app.state === 'failed' && app.problem ? `failed: ${app.problem}` : app.state
       console.log(
         printable(
-          [app.name, app.repo, app.kind, state, where]
+          [app.name, app.repo, app.electron ? 'electron' : app.kind, state, where]
             .filter((part) => part !== undefined)
             .join(' · '),
         ),

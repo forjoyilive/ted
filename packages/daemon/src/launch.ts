@@ -15,9 +15,11 @@ import {
   readDaemonInfo,
   runTokenFrom,
   type Subscription,
+  tedEnv,
   tedPaths,
   type UpdateWork,
 } from '@ted/protocol'
+import { exitWithPidEnv } from './exit-with.ts'
 import { inheritedFdsEnv } from './inherited-fds.ts'
 import { rollLog, tedLogLimits } from './logs.ts'
 import { nodeEntry } from './node-entry.ts'
@@ -265,6 +267,9 @@ async function startDaemon(home: string, appToken?: string): Promise<ChildProces
       ...filterTedEnv(process.env),
       TED_HOME: home,
       ELECTRON_RUN_AS_NODE: '1',
+      ...(process.versions.electron &&
+        tedEnv('TED_ELECTRON_HIDDEN') === '1' &&
+        tedEnv(exitWithPidEnv) === undefined && { [exitWithPidEnv]: String(process.pid) }),
       ...inheritedFdsEnv(),
     },
   })

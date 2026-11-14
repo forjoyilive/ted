@@ -103,7 +103,7 @@ Facts about a Factory’s product, such as how to run it, its conventions and it
 _Avoid_: Context file, product brief
 
 **App**:
-A program a Factory declares for running a Task’s work, such as a dev server, an iOS simulator build or an Android emulator build; each Task has at most one running instance of each App, shared by the human and agents.
+A program a Factory declares for running a Task’s work, such as a dev server, a desktop Electron app, an iOS simulator build or an Android emulator build; each Task has at most one running instance of each App, shared by the human and agents.
 _Avoid_: Preview server, environment
 
 **Preview**:
