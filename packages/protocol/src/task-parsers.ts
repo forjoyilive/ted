@@ -813,6 +813,7 @@ export function parseSaveTaskDraftRequest(body: unknown): SaveTaskDraftRequest {
         priority: filled.priority as NewTaskDraft['priority'],
       }),
     },
+    ...(value.startChosen !== undefined && { startChosen: boolean('startChosen') }),
     ...(clarifyDepth && { clarifyDepth }),
     ...(value.lead !== undefined && { lead: parseTaskLead(value.lead, 'lead') }),
     ...(value.source !== undefined && { source: sourceUrl(text('source')) }),

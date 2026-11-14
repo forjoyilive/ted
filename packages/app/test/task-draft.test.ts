@@ -38,7 +38,7 @@ describe('New Task recovery and ordered saves', () => {
     const first = taskDraftSession('one', { ...setup, save: () => delayed.promise })
     await first.load()
     first.update({ description: 'First line' })
-    first.update({ description: 'First line\nLast keystroke', start: false })
+    first.update({ description: 'First line\nLast keystroke', start: false, startChosen: true })
     const reopened = taskDraftSession('one', setup)
     expect(await reopened.load()).toMatchObject({
       description: 'First line\nLast keystroke',
@@ -164,21 +164,35 @@ describe('New Task recovery and ordered saves', () => {
 
   test('a new draft starts with the Start now choice of the last Task created', async () => {
     let remembered = false
+    let saving: Promise<void> = Promise.reject(new Error('daemon away'))
+    void saving.catch(() => {})
     const rememberStart = vi.fn((start: boolean) => {
-      remembered = start
+      const attempt = saving.then(() => {
+        remembered = start
+      })
+      saving = Promise.resolve()
+      return attempt
     })
     const setup = { ...options(), startDefault: async () => remembered, rememberStart }
     const session = taskDraftSession('one', setup)
     expect(await session.load()).toMatchObject({ start: false })
-    session.update({ description: 'Closed without creating', start: true })
+    session.update({ description: 'Closed without creating', start: true, startChosen: true })
     const reopened = taskDraftSession('one', { ...setup, storage: memoryStorage() })
     expect(await reopened.load()).toMatchObject({ start: false })
 
     session.consumed(session.get().revision)
     expect(rememberStart).toHaveBeenCalledWith(true)
     expect(session.get()).toMatchObject({ description: '', start: true })
+    await Promise.resolve()
+    expect(remembered).toBe(false)
+    session.update({ description: 'Created after the failed save' })
     session.consumed(session.get().revision)
-    expect(rememberStart).toHaveBeenCalledTimes(1)
+    expect(rememberStart).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(remembered).toBe(true))
+    session.update({ description: 'Created once the save went through' })
+    session.consumed(session.get().revision)
+    await Promise.resolve()
+    expect(rememberStart).toHaveBeenCalledTimes(2)
     await session.flush()
 
     const failing = taskDraftSession('two', {
@@ -186,5 +200,21 @@ describe('New Task recovery and ordered saves', () => {
       startDefault: () => Promise.reject(new Error('daemon away')),
     })
     expect(await failing.load()).toMatchObject({ start: true })
+  })
+
+  test('a saved draft keeps Start now only when the user chose it', async () => {
+    const saved = (startChosen?: boolean): NewTaskDraft => ({
+      ...emptyTaskDraft(true),
+      description: 'Half written',
+      ...(startChosen !== undefined && { startChosen }),
+    })
+    const load = (draft: NewTaskDraft) =>
+      taskDraftSession('one', {
+        ...options(),
+        read: async () => ({ draft }),
+        startDefault: async () => false,
+      }).load()
+    expect(await load(saved())).toMatchObject({ description: 'Half written', start: false })
+    expect(await load(saved(true))).toMatchObject({ description: 'Half written', start: true })
   })
 })

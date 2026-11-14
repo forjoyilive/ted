@@ -32,7 +32,7 @@ export function taskDraftSession(
     changed(draft: NewTaskDraft): void
     failed(error: unknown): void
     startDefault?(): Promise<boolean>
-    rememberStart?(start: boolean): void
+    rememberStart?(start: boolean): Promise<void>
   },
 ) {
   const key = `ted.newTaskDraft.v1.${factoryId}`
@@ -41,6 +41,7 @@ export function taskDraftSession(
   let saving: Promise<void> | undefined
   let loaded = false
   let startDefault = true
+  let startSaved = true
 
   function remember(draft: NewTaskDraft) {
     options.storage.setItem(key, JSON.stringify(draft))
@@ -87,6 +88,7 @@ export function taskDraftSession(
         options.startDefault?.().catch(() => true) ?? true,
       ])
       startDefault = start
+      startSaved = start
       let recovery: NewTaskDraft | undefined
       try {
         const text = options.storage.getItem(key)
@@ -104,7 +106,12 @@ export function taskDraftSession(
         forget(recovery.revision)
         recovery = undefined
       }
-      current = recovery ?? state.draft ?? emptyTaskDraft(startDefault)
+      const draft = recovery ?? state.draft
+      current = !draft
+        ? emptyTaskDraft(startDefault)
+        : draft.startChosen
+          ? draft
+          : { ...draft, start: startDefault }
       loaded = true
       options.changed(current)
       if (recovery) {
@@ -139,9 +146,15 @@ export function taskDraftSession(
     consumed(revision: string) {
       forget(revision)
       if (current.revision === revision) {
-        if (current.start !== startDefault) {
-          startDefault = current.start
-          options.rememberStart?.(startDefault)
+        startDefault = current.start
+        if (startDefault !== startSaved && options.rememberStart) {
+          const start = startDefault
+          options.rememberStart(start).then(
+            () => {
+              startSaved = start
+            },
+            () => {},
+          )
         }
         current = emptyTaskDraft(startDefault)
         options.changed(current)
@@ -161,6 +174,7 @@ function recoveryDraft(value: unknown): NewTaskDraft | undefined {
     typeof value.title !== 'string' ||
     typeof value.description !== 'string' ||
     typeof value.start !== 'boolean' ||
+    (value.startChosen !== undefined && typeof value.startChosen !== 'boolean') ||
     typeof value.moreOpen !== 'boolean' ||
     !priorities.some((p) => p === value.priority) ||
     !strings(value.blockedBy) ||
