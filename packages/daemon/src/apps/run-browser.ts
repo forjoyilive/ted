@@ -71,6 +71,7 @@ export function createRunBrowsers(options: {
 }): RunBrowsers {
   const helpers = new Map<string, Helper>()
   const starting = new Map<string, { canceled: boolean }>()
+  const opening = new Map<string, TaskApp>()
   let closed = false
   const swept = removeInside(path.dirname(options.dir), path.basename(options.dir)).catch(
     () => undefined,
@@ -81,6 +82,7 @@ export function createRunBrowsers(options: {
   }
 
   const stop = (runId: string) => {
+    opening.delete(runId)
     const pending = starting.get(runId)
     if (pending) pending.canceled = true
     const helper = helpers.get(runId)
@@ -199,11 +201,15 @@ export function createRunBrowsers(options: {
           throw new RequestError(409, 'The App restarted; run ted browser open again')
         }
       }
+      if (request.action === 'open') opening.set(runId, app)
       if (!helper) {
         const token = { canceled: false }
         starting.set(runId, token)
         try {
           helper = await start(runId, token)
+        } catch (error) {
+          if (opening.get(runId) === app) opening.delete(runId)
+          throw error
         } finally {
           if (starting.get(runId) === token) starting.delete(runId)
         }
@@ -225,6 +231,7 @@ export function createRunBrowsers(options: {
           }),
         ])
         if (reply.error !== undefined) throw new RequestError(409, reply.error)
+        if (helpers.get(runId) !== current) throw closedError()
         if (request.action === 'open') current.app = app
         return {
           ...(reply.url !== undefined && { url: reply.url }),
@@ -234,10 +241,11 @@ export function createRunBrowsers(options: {
       } finally {
         clearTimeout(timer)
         current.busy = false
+        if (opening.get(runId) === app) opening.delete(runId)
       }
     },
     opened(runId) {
-      const app = helpers.get(runId)?.app
+      const app = opening.get(runId) ?? helpers.get(runId)?.app
       return app && { name: app.name, repo: app.repo }
     },
     close(runId, app) {
@@ -251,7 +259,7 @@ export function createRunBrowsers(options: {
       stop(runId)
     },
     appsChanged(runId, apps) {
-      const opened = helpers.get(runId)?.app
+      const opened = opening.get(runId) ?? helpers.get(runId)?.app
       if (!opened) return
       const now = apps.find((a) => a.name === opened.name && a.repo === opened.repo)
       if (now?.state !== 'running' || now.removed || !sameApp(opened, now)) stop(runId)
