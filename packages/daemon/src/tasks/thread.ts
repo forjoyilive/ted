@@ -261,6 +261,21 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.ChildTasksCreated': {
+        const children = Array.isArray(data.childIds)
+          ? data.childIds.map((id) => context.displayIdOf(text(id)))
+          : []
+        const made = data.from === 'plan' ? 'The plan created' : 'Split into'
+        add(entry, 'done', `${made} ${joinAnd(children)}. This Task waits for them to merge.`)
+        break
+      }
+      case 'v1.ParentFinishedWithChildren':
+        add(
+          entry,
+          'done',
+          'Every Task under this one has merged and it had no work of its own, so TED finished it.',
+        )
+        break
       case 'v1.PlanStartedFromTask': {
         const planId = text(data.planId)
         const title = context.planTitleOf?.(planId)

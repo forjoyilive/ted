@@ -430,7 +430,6 @@ export interface TaskPlanning {
 export interface PlanApproval {
   planId: string
   planTitle: string
-  narrowed: { title: string; description: string; priority: Priority }
   created: ProposalCreated
   text: string
 }
@@ -762,6 +761,8 @@ export function createTasks(options: {
   }
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
+  const finishingParents = new Set<string>()
+  const parentsChecked = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
   const continuing = new Set<string>()
@@ -5034,13 +5035,7 @@ export function createTasks(options: {
     if (input.tasks.length < 2) {
       throw new RequestError(
         400,
-        'a split needs at least two rows: row 1 is this Task, and the rest become new Tasks',
-      )
-    }
-    if ((input.tasks[0]?.blockedBy ?? []).length > 0) {
-      throw new RequestError(
-        400,
-        'row 1 is this Task, which carries on now, so it can’t be blocked',
+        'a split needs at least two rows; each becomes a child Task of this Task',
       )
     }
     const isProposal = (c: Comment) => c.kind === 'proposal'
@@ -5100,9 +5095,7 @@ export function createTasks(options: {
       .findLast((r) => r.kind === 'proposal' && r.answer?.kind === 'approved')?.answer
     if (approved?.kind === 'approved' && approved.created) {
       return planApprovedLeadMessage({
-        displayId: task.displayId,
         planTitle,
-        narrowed: { title: task.title, description: task.description },
         created: approved.created,
         text: approved.text ?? '',
       })
@@ -5131,20 +5124,13 @@ export function createTasks(options: {
   async function planApproved(taskId: string, input: PlanApproval): Promise<void> {
     const task = store.getTask(taskId)
     if (!task || task.archived) return
-    store.taskSplit(task.id, {
-      pieceIds: input.created.tasks.map((c) => c.id),
-      narrowedTo: input.narrowed.title,
-      description: input.narrowed.description,
-    })
-    if (input.narrowed.priority !== task.priority) {
-      store.setPriority(task.id, input.narrowed.priority)
-    }
-    store.taskPlanEnded(task.id, input.planId, 'approved')
-    await tellLeadAboutPlan(
+    await waitForChildren(
       task.id,
-      input.planId,
-      planApprovedLeadMessage({ displayId: task.displayId, ...input }),
+      input.created.tasks.map((c) => c.id),
+      'plan',
     )
+    store.taskPlanEnded(task.id, input.planId, 'approved')
+    await tellLeadAboutPlan(task.id, input.planId, planApprovedLeadMessage(input))
   }
 
   async function planEnded(taskId: string, input: PlanEnd): Promise<void> {
@@ -5231,6 +5217,7 @@ export function createTasks(options: {
           mergeSendBack(id, findings, undefined, false, { counted: false }),
         startTask: (id) => start(id),
         planOutside,
+        waitForChildren,
         ...(options.planning && { planning: options.planning }),
       },
       automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
@@ -7852,6 +7839,18 @@ export function createTasks(options: {
     )
   }
 
+  async function waitForChildren(
+    taskId: string,
+    childIds: readonly string[],
+    from: 'split' | 'plan',
+  ): Promise<void> {
+    const task = find(taskId)
+    const run = liveLead(task)
+    if (run) await runs.stop(run.id)
+    store.childTasksCreated(taskId, childIds, from)
+    if (!find(taskId).waitsForBlockers) store.waitForBlockers(taskId)
+  }
+
   async function stopForBlockers(taskId: string): Promise<void> {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
@@ -7875,9 +7874,27 @@ export function createTasks(options: {
 
   function wakeTask(id: string, queued = new Set(store.queue().map((q) => q.id))): void {
     if (queued.has(id) || starting.has(id) || hierarchyBusy.has(id) || deleting.has(id)) return
-    if (unmergedBlockers(id).length > 0) return
+    if (finishingParents.has(id) || unmergedBlockers(id).length > 0) return
     const task = store.getTask(id)
-    if (!task || task.archived || task.stopped) return
+    if (!task || task.archived || task.stopped || task.stage === 'done') return
+    const wakes =
+      (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) ||
+      (task.waitsForBlockers && !liveLead(task))
+    if (
+      wakes &&
+      !parentsChecked.has(id) &&
+      store.madeParent(id) &&
+      store.childrenOf(id).some((c) => store.isMerged(c))
+    ) {
+      finishingParents.add(id)
+      inBackground(`finish ${task.displayId} after its child Tasks`, () =>
+        finishParent(id).finally(() => {
+          finishingParents.delete(id)
+          wakeTask(id)
+        }),
+      )
+      return
+    }
     if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
       inBackground(`start ${task.displayId}`, async () => {
         await start(id)
@@ -7885,6 +7902,41 @@ export function createTasks(options: {
     } else if (task.waitsForBlockers && !liveLead(task)) {
       store.requeueAfterBlockers(id)
     }
+  }
+
+  async function hasOwnWork(task: StoredTask): Promise<boolean> {
+    const resolution = await taskWorkflow(task, { fetch: false })
+    const entries = factoryRepos(resolution.workflow, factoryOf(task))
+    for (const repo of task.repos.filter((r) => !r.removed)) {
+      if (!(await lstat(repo.worktree).catch(() => undefined))?.isDirectory()) continue
+      const base = repoEntry(entries, repo)?.baseBranch ?? (await git.defaultBranch(repo.worktree))
+      const changes = await git.workingChanges(repo.worktree, `origin/${base}`)
+      if (changes.files.length > 0) return true
+    }
+    return false
+  }
+
+  async function finishParent(id: string): Promise<void> {
+    const before = find(id)
+    const working = await hasOwnWork(before).catch((error: unknown) => {
+      console.error(redactSecrets(`couldn’t read ${before.displayId}’s own work: ${String(error)}`))
+      return true
+    })
+    if (!working)
+      await holding(before, async () => {
+        const task = find(id)
+        if (task.archived || task.stopped || task.stage === 'done' || liveLead(task)) return
+        if (unmergedBlockers(id).length > 0) return
+        const resolution = await gateWorkflow(task)
+        await requireObligations(task, undefined, 'done')
+        store.parentFinishedWithChildren(id)
+        if (task.startRequested) store.setStartRequested(id, false)
+        store.changeStage(id, 'done', entryFor(resolution, 'done'))
+        inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
+      }).catch((error: unknown) => {
+        console.error(redactSecrets(`couldn’t finish ${before.displayId}: ${String(error)}`))
+      })
+    parentsChecked.add(id)
   }
 
   function tellLead(blocker: StoredTask, run: Run): Promise<void> {
@@ -10926,7 +10978,7 @@ function answerText(comment: Comment): string | undefined {
   const { answer } = comment
   if (!answer) return undefined
   if (answer.kind === 'approved' && answer.created && comment.proposal) {
-    return splitApprovedSummary(comment.proposal, answer.created, answer.text)
+    return splitApprovedSummary(answer.created, answer.text)
   }
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`

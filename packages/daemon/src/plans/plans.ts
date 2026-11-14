@@ -30,7 +30,7 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredFactory, StoredTask, TedStore } from '../store/index.ts'
 import type { PlanCheckout, StoredPlan } from '../store/plans.ts'
-import { approvedShape, createProposalTasks } from '../tasks/proposal-tasks.ts'
+import { approvedShape, createProposalTasks, highestPriority } from '../tasks/proposal-tasks.ts'
 import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
@@ -647,16 +647,22 @@ export function createPlans(options: PlansOptions): Plans {
     const proposal = view(plan, request).proposal
     if (!proposal) throw new RequestError(409, 'this proposal has no rows')
     const task = proposal.firstPiece ? linkedTask(plan) : undefined
-    const { skip, shape } = approvedShape(
-      proposal,
-      answer.proposal?.skip,
-      task && { name: task.displayId },
-    )
+    const { skip, shape } = approvedShape(proposal, answer.proposal?.skip)
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
     const lead = linkedTask(plan)?.lead
+    const parent =
+      task ??
+      (await store.createTask({
+        title: plan.title,
+        description: request.body.trim() || plan.title,
+        priority: highestPriority(shape.order.map((row) => proposal.rows[row - 1]?.priority)),
+        factoryId: plan.factoryId,
+        blockedBy: [],
+        startRequested: true,
+      }))
     const created = await createProposalTasks(store, proposal, shape, {
-      firstPieceId: task?.id,
+      parentId: parent.id,
       factoryId: plan.factoryId,
       fields: (row) => ({ ...(lead && { lead }), plan: { planId: plan.id, row } }),
     })
@@ -667,15 +673,13 @@ export function createPlans(options: PlansOptions): Plans {
       ...(text !== '' && { text }),
       created: outcome,
     })
-    const first = proposal.rows[0]
-    const narrowed =
-      task && first
-        ? {
-            title: first.title,
-            description: first.description ?? first.scope,
-            priority: first.priority,
-          }
-        : undefined
+    if (!task) {
+      store.childTasksCreated(
+        parent.id,
+        created.map((c) => c.id),
+        'plan',
+      )
+    }
     saved.postRequest({
       planId: plan.id,
       runId: plan.id,
@@ -683,20 +687,19 @@ export function createPlans(options: PlansOptions): Plans {
       author: 'ted',
       body: planCreatedNote(
         created.map((c) => c.displayId),
-        task && narrowed ? { displayId: task.displayId, title: narrowed.title } : undefined,
+        parent.displayId,
       ),
     })
-    if (task && narrowed && options.planApproved) {
+    if (task && options.planApproved) {
       await options
         .planApproved(task.id, {
           planId: plan.id,
           planTitle: plan.title,
-          narrowed,
           created: outcome,
           text,
         })
         .catch((error: unknown) =>
-          console.error(`couldn’t narrow ${task.displayId} to its first piece:`, error),
+          console.error(`couldn’t make ${task.displayId} wait for its child Tasks:`, error),
         )
       saved.postRequest({
         planId: plan.id,
@@ -913,20 +916,6 @@ export function createPlans(options: PlansOptions): Plans {
       }
       const kind = round ? 'round' : 'proposal'
       const task = linkedTask(plan)
-      if (proposal && task) {
-        if (proposal.tasks.length < 2) {
-          throw new RequestError(
-            400,
-            `this chat started from ${task.displayId}, so row 1 is that Task and the proposal needs at least one more row`,
-          )
-        }
-        if ((proposal.tasks[0]?.blockedBy ?? []).length > 0) {
-          throw new RequestError(
-            400,
-            `row 1 is ${task.displayId}, which carries on as soon as you’re approved, so it can’t be blocked`,
-          )
-        }
-      }
       const requests = saved.requests(plan.id)
       if (supersedes !== undefined) {
         const old = requests.find((r) => r.id === supersedes)

@@ -2,39 +2,11 @@ import type { AnswerRequest, MessageBox, Proposal, ProposalCreated } from '@ted/
 import { planProposal } from '@ted/protocol/proposal'
 import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
-import { blockedByText, createLabel, droppedWarning, wouldStart } from '../proposal.ts'
+import { blockedByText, createLabel, droppedWarning, parentLine, wouldStart } from '../proposal.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { Button } from './Button.tsx'
 import { PriorityIcon } from './PriorityIcon.tsx'
 import styles from './ProposalCard.module.css'
-
-function RowTitle({
-  proposal,
-  title,
-  first,
-  onOpenTask,
-}: {
-  proposal: Proposal
-  title: string
-  first: boolean
-  onOpenTask?: ((id: string) => void) | undefined
-}) {
-  const piece = proposal.firstPiece
-  if (!first || !piece) return <span className={styles.rowTitle}>{title}</span>
-  return (
-    <span className={styles.rowTitle}>
-      {onOpenTask ? (
-        <button type="button" className={styles.taskLink} onClick={() => onOpenTask(piece.id)}>
-          {piece.displayId}
-        </button>
-      ) : (
-        <span className={styles.taskId}>{piece.displayId}</span>
-      )}
-      <span className={styles.thisTask}> (this Task) becomes the first piece: </span>
-      {title}
-    </span>
-  )
-}
 
 export function ProposalRows({
   proposal,
@@ -52,71 +24,85 @@ export function ProposalRows({
   onOpenTask?: ((id: string) => void) | undefined
 }) {
   const plan = planProposal(proposal, skip)
-  const idOf = (row: number) =>
-    row === 1 && proposal.firstPiece
-      ? proposal.firstPiece.displayId
-      : created?.tasks.find((t) => t.row === row)?.displayId
+  const idOf = (row: number) => created?.tasks.find((t) => t.row === row)?.displayId
+  const parent = proposal.firstPiece
   return (
-    <ol className={styles.rows} aria-label="Proposed Tasks">
-      {proposal.rows.map((row, i) => {
-        const planned = plan.rows[i]
-        const number = i + 1
-        const first = planned?.first === true
-        const kept = first || !skip.includes(number)
-        const warning = planned && droppedWarning(planned)
-        const madeId = created && !first ? idOf(number) : undefined
-        const blockers = kept ? (planned?.blockedBy ?? []) : row.blockedBy
-        const dropped = planned?.dropped ?? []
-        return (
-          <li
-            key={`${number}-${row.title}`}
-            className={kept ? styles.row : `${styles.row} ${styles.skipped}`}
-          >
-            <input
-              type="checkbox"
-              className={styles.check}
-              aria-label={`Create row ${number}: ${row.title}`}
-              checked={kept}
-              disabled={disabled || first || onToggle === undefined}
-              onChange={() => onToggle?.(number)}
-            />
-            <span className={styles.number}>{number}</span>
-            <div className={styles.body}>
-              <div className={styles.line}>
-                <RowTitle
-                  proposal={proposal}
-                  title={row.title}
-                  first={first}
-                  onOpenTask={onOpenTask}
-                />
-                {madeId !== undefined && <span className={styles.madeId}>{madeId}</span>}
-                <span className={styles.priority}>
-                  <PriorityIcon priority={row.priority} />
-                  {priorityLabels[row.priority]}
-                </span>
-                <span className={styles.blockers}>
-                  {blockers.length === 0 && dropped.length > 0
-                    ? null
-                    : created && kept
-                      ? blockers.length === 0
-                        ? '—'
-                        : `blocked by ${blockers.map((b) => idOf(b) ?? b).join(', ')}`
-                      : blockedByText(blockers)}
-                  {dropped.length > 0 && <s className={styles.struck}>{blockedByText(dropped)}</s>}
-                </span>
+    <>
+      {!created && (
+        <p className={styles.parentLine} data-parent-line>
+          {parent && onOpenTask ? (
+            <>
+              <button
+                type="button"
+                className={styles.taskLink}
+                onClick={() => onOpenTask(parent.id)}
+              >
+                {parent.displayId}
+              </button>
+              {parentLine(proposal).slice(parent.displayId.length)}
+            </>
+          ) : (
+            parentLine(proposal)
+          )}
+        </p>
+      )}
+      <ol className={styles.rows} aria-label="Proposed Tasks">
+        {proposal.rows.map((row, i) => {
+          const planned = plan.rows[i]
+          const number = i + 1
+          const kept = !skip.includes(number)
+          const warning = planned && droppedWarning(planned)
+          const madeId = created ? idOf(number) : undefined
+          const blockers = kept ? (planned?.blockedBy ?? []) : row.blockedBy
+          const dropped = planned?.dropped ?? []
+          return (
+            <li
+              key={`${number}-${row.title}`}
+              className={kept ? styles.row : `${styles.row} ${styles.skipped}`}
+            >
+              <input
+                type="checkbox"
+                className={styles.check}
+                aria-label={`Create row ${number}: ${row.title}`}
+                checked={kept}
+                disabled={disabled || onToggle === undefined}
+                onChange={() => onToggle?.(number)}
+              />
+              <span className={styles.number}>{number}</span>
+              <div className={styles.body}>
+                <div className={styles.line}>
+                  <span className={styles.rowTitle}>{row.title}</span>
+                  {madeId !== undefined && <span className={styles.madeId}>{madeId}</span>}
+                  <span className={styles.priority}>
+                    <PriorityIcon priority={row.priority} />
+                    {priorityLabels[row.priority]}
+                  </span>
+                  <span className={styles.blockers}>
+                    {blockers.length === 0 && dropped.length > 0
+                      ? null
+                      : created && kept
+                        ? blockers.length === 0
+                          ? '—'
+                          : `blocked by ${blockers.map((b) => idOf(b) ?? b).join(', ')}`
+                        : blockedByText(blockers)}
+                    {dropped.length > 0 && (
+                      <s className={styles.struck}>{blockedByText(dropped)}</s>
+                    )}
+                  </span>
+                </div>
+                <p className={styles.scope}>{row.scope}</p>
+                {warning !== undefined && !created && (
+                  <p className={styles.warning}>
+                    <span aria-hidden>⚠ </span>
+                    {warning}
+                  </p>
+                )}
               </div>
-              <p className={styles.scope}>{row.scope}</p>
-              {warning !== undefined && !created && (
-                <p className={styles.warning}>
-                  <span aria-hidden>⚠ </span>
-                  {warning}
-                </p>
-              )}
-            </div>
-          </li>
-        )
-      })}
-    </ol>
+            </li>
+          )
+        })}
+      </ol>
+    </>
   )
 }
 

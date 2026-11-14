@@ -1937,6 +1937,19 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  childTasksCreated: Events.synced({
+    name: 'v1.ChildTasksCreated',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      childIds: Schema.Array(Schema.String),
+      from: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  parentFinishedWithChildren: Events.synced({
+    name: 'v1.ParentFinishedWithChildren',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   taskNeedsPlanning: Events.synced({
     name: 'v1.TaskNeedsPlanning',
     schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
@@ -3550,6 +3563,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
   'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskSplit': (args) => task(args, { pieceIds: args.pieceIds, narrowedTo: args.narrowedTo }),
+  'v1.ChildTasksCreated': (args) => task(args, { childIds: args.childIds, from: args.from }),
+  'v1.ParentFinishedWithChildren': (args) => task(args),
   'v1.TaskNeedsPlanning': (args) => task(args, { runId: args.runId }),
   'v1.TaskStartedAfterPlanning': (args) => task(args, { stage: args.stage }),
   'v1.PlanStartedFromTask': (args) => task(args, { planId: args.id }),
@@ -3983,6 +3998,10 @@ const materializers = counted(
       'v1.TaskSplitFrom': ({ taskId, originalId }) =>
         tasks.update({ splitFrom: originalId }).where({ id: taskId }),
       'v1.TaskSplit': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.ChildTasksCreated': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.ParentFinishedWithChildren': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskNeedsPlanning': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
         tasks

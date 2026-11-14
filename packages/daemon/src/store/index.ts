@@ -768,6 +768,9 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     input: { pieceIds: string[]; narrowedTo: string; description: string },
   ): void
+  childTasksCreated(taskId: string, childIds: readonly string[], from: 'split' | 'plan'): void
+  madeParent(taskId: string): boolean
+  parentFinishedWithChildren(taskId: string): void
   taskPlanEnded(
     taskId: string,
     planId: string,
@@ -3902,6 +3905,17 @@ export async function openStore({
       const at = new Date().toISOString()
       const edited = taskEdited(taskId, { title: narrowedTo, description }, at)
       commit(...(edited ? [edited] : []), events.taskSplit({ taskId, pieceIds, narrowedTo, at }))
+      updatedTask(taskId)
+    },
+    childTasksCreated(taskId, childIds, from) {
+      const at = new Date().toISOString()
+      commit(events.childTasksCreated({ taskId, childIds: [...childIds], from, at }))
+      updatedTask(taskId)
+    },
+    madeParent: (taskId) =>
+      store.query(queryDb(taskLog.where({ taskId, name: 'v1.ChildTasksCreated' }))).length > 0,
+    parentFinishedWithChildren(taskId) {
+      commit(events.parentFinishedWithChildren({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     taskPlanEnded(taskId, planId, outcome) {

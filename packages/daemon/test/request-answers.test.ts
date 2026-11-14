@@ -56,6 +56,9 @@ beforeEach(async () => {
     planOutside: () => {
       effects.push('plan-outside')
     },
+    waitForChildren: async (id) => {
+      effects.push(`wait-for-children:${id}`)
+    },
     resumeByHand: unexpected,
     drafts: (id) => store.lineCommentDrafts(id).map((d) => d.id),
     trackerConsents: [createTrackerConsent(store, linearConnector(), linearRecords(store))],
@@ -696,30 +699,40 @@ const proposalQuestion = () =>
     },
   )
 
-test('proposal approval really creates pieces, narrows this Task and starts only unblocked pieces', async () => {
+test('proposal approval creates every row as a child of this Task, which waits, and starts only unblocked pieces', async () => {
+  const before = store.getTask(taskId)
   const comment = proposalQuestion()
   await answer(comment, { action: 'approve', proposal: { startUnblocked: true } })
-  const tasks = store.listTasks()
-  expect(tasks.map((t) => t.title)).toEqual([
-    'Narrowed piece',
-    'A dependent piece',
-    'An independent piece',
+  const pieces = store.listTasks().filter((t) => t.id !== taskId)
+  expect(pieces.map((t) => [t.title, t.parentId])).toEqual([
+    ['Narrowed piece', taskId],
+    ['A dependent piece', taskId],
+    ['An independent piece', taskId],
   ])
-  expect(store.getTask(taskId)).toMatchObject({ description: 'First scope', priority: 'high' })
-  const dependent = tasks.find((t) => t.title === 'A dependent piece')
-  const independent = tasks.find((t) => t.title === 'An independent piece')
-  expect(dependent && store.blockers(dependent.id).map((b) => b.blockerId)).toEqual([taskId])
-  expect(effects).toEqual(['delivered', `start:${independent?.id}`])
+  expect(store.getTask(taskId)).toMatchObject({
+    title: before?.title,
+    description: before?.description,
+  })
+  const first = pieces.find((t) => t.title === 'Narrowed piece')
+  const dependent = pieces.find((t) => t.title === 'A dependent piece')
+  const independent = pieces.find((t) => t.title === 'An independent piece')
+  expect(dependent && store.blockers(dependent.id).map((b) => b.blockerId)).toEqual([first?.id])
+  expect(effects).toEqual([
+    `wait-for-children:${taskId}`,
+    'delivered',
+    `start:${first?.id}`,
+    `start:${independent?.id}`,
+  ])
   expect(store.getComment(comment.id)?.answer).toMatchObject({
     kind: 'approved',
     created: { skipped: [], startUnblocked: true },
   })
 })
 
-test.each([1, 8])('proposal skip row %s is rejected before creating Tasks', async (row) => {
+test('proposal skip of a row that isn’t there is rejected before creating Tasks', async () => {
   const comment = proposalQuestion()
-  await expect(answer(comment, { action: 'approve', proposal: { skip: [row] } })).rejects.toThrow(
-    row === 1 ? 'always kept' : 'no row 8',
+  await expect(answer(comment, { action: 'approve', proposal: { skip: [8] } })).rejects.toThrow(
+    'no row 8',
   )
   expect(store.listTasks()).toHaveLength(1)
   expect(store.getComment(comment.id)?.answer).toBeUndefined()

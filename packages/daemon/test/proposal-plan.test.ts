@@ -21,25 +21,25 @@ const split: Proposal = {
 }
 
 describe('planProposal', () => {
-  test('with every row checked, the first piece is kept and the rest are created', () => {
+  test('with every row checked, every row is created, row 1 included', () => {
     const plan = planProposal(split, [])
-    expect(plan.creates).toBe(4)
-    expect(plan.rows.map((r) => [r.row, r.first, r.create, r.blockedBy, r.dropped])).toEqual([
-      [1, true, false, [], []],
-      [2, false, true, [1], []],
-      [3, false, true, [2], []],
-      [4, false, true, [3], []],
-      [5, false, true, [], []],
+    expect(plan.creates).toBe(5)
+    expect(plan.rows.map((r) => [r.row, r.create, r.blockedBy, r.dropped])).toEqual([
+      [1, true, [], []],
+      [2, true, [1], []],
+      [3, true, [2], []],
+      [4, true, [3], []],
+      [5, true, [], []],
     ])
-    expect(plan.unblocked).toEqual([5])
+    expect(plan.unblocked).toEqual([1, 5])
   })
 
   test('unchecking a row others need drops that blocker and counts one fewer', () => {
     const plan = planProposal(split, [3])
-    expect(plan.creates).toBe(3)
+    expect(plan.creates).toBe(4)
     expect(plan.rows[2]).toMatchObject({ row: 3, create: false })
     expect(plan.rows[3]).toMatchObject({ row: 4, create: true, blockedBy: [], dropped: [3] })
-    expect(plan.unblocked).toEqual([4, 5])
+    expect(plan.unblocked).toEqual([1, 4, 5])
   })
 
   test('a dependent does not take on the unchecked row’s own blockers', () => {
@@ -48,9 +48,11 @@ describe('planProposal', () => {
     expect(plan.rows[2]).toMatchObject({ create: false, dropped: [] })
   })
 
-  test('the first piece can’t be unchecked', () => {
-    expect(planProposal(split, [1]).rows[0]).toMatchObject({ first: true, create: false })
-    expect(planProposal(split, [1]).creates).toBe(4)
+  test('row 1 is an ordinary row: unchecking it drops it like any other', () => {
+    const plan = planProposal(split, [1])
+    expect(plan.rows[0]).toMatchObject({ create: false })
+    expect(plan.rows[1]).toMatchObject({ create: true, blockedBy: [], dropped: [1] })
+    expect(plan.creates).toBe(4)
   })
 
   test('creation order puts each blocker before the Tasks it blocks', () => {
@@ -61,9 +63,8 @@ describe('planProposal', () => {
 })
 
 describe('splitApprovedSummary', () => {
-  test('a held approval still tells the next Run which Tasks exist and what row 1 is', () => {
+  test('a held approval still tells the next Run which child Tasks exist', () => {
     const summary = splitApprovedSummary(
-      split,
       {
         tasks: [
           { row: 2, id: 'a', displayId: 'NB-42' },
@@ -75,7 +76,7 @@ describe('splitApprovedSummary', () => {
       'Keep it small.',
     )
     expect(summary).toBe(
-      'approved the split; TED created NB-42 (row 2), NB-43 (row 5) in Backlog; this Task is now row 1, “Local note cache”: Local note cache scope Carry on with Clarify for it and leave the other pieces to their own Task Leads; adding: Keep it small.',
+      'approved the split; TED created NB-42 (row 2), NB-43 (row 5) as child Tasks of this Task, which waits for them to merge; adding: Keep it small.',
     )
   })
 })

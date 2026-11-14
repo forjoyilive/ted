@@ -1,15 +1,30 @@
 import { describe, expect, test } from 'vitest'
-import { blockedByText, createLabel, droppedWarning, wouldStart } from '../src/renderer/proposal.ts'
+import {
+  blockedByText,
+  createLabel,
+  droppedWarning,
+  parentLine,
+  wouldStart,
+} from '../src/renderer/proposal.ts'
 
 const row = (blockedBy: number[], dropped: number[]) => ({
   row: 4,
-  first: false,
   create: true,
   blockedBy,
   dropped,
 })
 
 describe('proposal card text', () => {
+  test('the card says which Task becomes the parent, or that TED creates one', () => {
+    const rows = [{ title: 'A', scope: 'A', priority: 'none' as const, blockedBy: [] }]
+    expect(parentLine({ rows, firstPiece: { id: 't-12', displayId: 'TED-12' } })).toBe(
+      'TED-12 becomes the parent of these Tasks and runs after they merge.',
+    )
+    expect(parentLine({ rows })).toBe(
+      'TED creates a parent Task for these Tasks. It runs after they merge.',
+    )
+  })
+
   test('the button counts the Tasks it creates', () => {
     expect(createLabel(4)).toBe('Create 4 Tasks')
     expect(createLabel(1)).toBe('Create 1 Task')

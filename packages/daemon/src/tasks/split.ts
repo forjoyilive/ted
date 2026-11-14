@@ -3,7 +3,7 @@ import type { Proposal, ProposalCreated, SizeCheck } from '@ted/protocol'
 export const sizeCheckTitle = 'Too big for one pull request per repo'
 
 export const proposalFormat =
-  'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per piece. Each row has a `title`, a one-line `scope`, an optional `description` for the Task, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first. Row 1 is this Task: on approval it narrows to row 1’s title and its `description` (or its `scope`) and carries on, so row 1 can’t be blocked.'
+  'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per piece. Each row has a `title`, a one-line `scope`, an optional `description` for the Task, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first. On approval every row, row 1 included, becomes a new child Task of this Task, and this Task waits for them to merge. When they have, TED finishes this Task unless it has commits or changes of its own.'
 
 export function splitChosenMessage(text: string): string {
   return [
@@ -29,46 +29,32 @@ export function proposalChangesMessage(text: string): string {
   ].join('\n\n')
 }
 
+export const parentWaitsNote =
+  'This Task is now their parent and waits for them to merge. When they have, TED finishes it unless it has commits or changes of its own; then carry on with that work. Leave the pieces to their own Task Leads.'
+
 export function splitApprovedMessage(input: {
-  displayId: string
   proposal: Proposal
   created: ProposalCreated
-  narrowed?: { title: string; description: string }
   text: string
 }): string {
-  const { displayId, proposal, created, narrowed, text } = input
+  const { proposal, created, text } = input
   const made = created.tasks.map((t) => `${t.displayId} (row ${t.row})`).join(', ')
   const skipped = created.skipped.filter((row) => row <= proposal.rows.length)
   return [
-    `The human approved the split. TED created ${made} in Backlog.${
+    `The human approved the split. TED created ${made} as child Tasks of this Task.${
       skipped.length > 0
         ? ` ${skipped.length === 1 ? 'Row' : 'Rows'} ${skipped.join(', ')} weren’t created.`
         : ''
     }`,
     ...(text !== '' ? [`They added:\n\n${text}`] : []),
-    ...(narrowed
-      ? [
-          `This Task, ${displayId}, is now row 1: “${narrowed.title}”. Its description now reads:\n\n${narrowed.description}`,
-          'Carry on with Clarify for this narrower Task. Leave the other pieces to their own Task Leads.',
-        ]
-      : []),
+    parentWaitsNote,
   ].join('\n\n')
 }
 
-export function splitApprovedSummary(
-  proposal: Proposal,
-  created: ProposalCreated,
-  text: string | undefined,
-): string {
+export function splitApprovedSummary(created: ProposalCreated, text: string | undefined): string {
   const made = created.tasks.map((t) => `${t.displayId} (row ${t.row})`).join(', ')
-  const first = proposal.firstPiece ? proposal.rows[0] : undefined
   return [
-    `approved the split; TED created ${made} in Backlog`,
-    ...(first
-      ? [
-          `this Task is now row 1, “${first.title}”: ${first.description ?? first.scope} Carry on with Clarify for it and leave the other pieces to their own Task Leads`,
-        ]
-      : []),
+    `approved the split; TED created ${made} as child Tasks of this Task, which waits for them to merge`,
     ...(text !== undefined && text !== '' ? [`adding: ${text}`] : []),
   ].join('; ')
 }
@@ -88,24 +74,21 @@ export const afterPlanningWhy =
 export function planInChatMessage(title: string): string {
   return [
     `The human chose Plan in chat. TED opened a planning chat, “${title}”, where the human and a planner work out how to split this Task.`,
-    'Wait for it: end your turn now and do nothing more on this Task. When the plan is approved, TED tells you what this Task became and you carry on with Clarify. If the chat ends without approval, TED tells you to ask your size question again.',
+    'Wait for it: end your turn now and do nothing more on this Task. When the plan is approved, TED makes this Task the parent of the Tasks it creates and stops this Run while they are built. If the chat ends without approval, TED tells you to ask your size question again.',
   ].join('\n\n')
 }
 
 export function planApprovedLeadMessage(input: {
-  displayId: string
   planTitle: string
-  narrowed: { title: string; description: string }
   created: ProposalCreated
   text: string
 }): string {
-  const { displayId, planTitle, narrowed, created, text } = input
+  const { planTitle, created, text } = input
   const made = created.tasks.map((t) => `${t.displayId} (row ${t.row})`).join(', ')
   return [
-    `The human approved the plan from the planning chat “${planTitle}”. TED created ${made} in Backlog.`,
+    `The human approved the plan from the planning chat “${planTitle}”. TED created ${made} as child Tasks of this Task.`,
     ...(text !== '' ? [`They added:\n\n${text}`] : []),
-    `This Task, ${displayId}, is now row 1: “${narrowed.title}”. Its description now reads:\n\n${narrowed.description}`,
-    'Carry on with Clarify for this narrower Task. Leave the other pieces to their own Task Leads.',
+    parentWaitsNote,
   ].join('\n\n')
 }
 
