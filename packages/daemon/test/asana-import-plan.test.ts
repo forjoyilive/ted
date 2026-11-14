@@ -50,6 +50,7 @@ test('the import request parser copies every field and rejects bad input', () =>
       priority: 'high',
       start: true,
       addToTree: true,
+      taskSync: false,
       dryRun: false,
       draftRevision: 'rev-1',
       ignored: 1,
@@ -60,6 +61,7 @@ test('the import request parser copies every field and rejects bad input', () =>
     priority: 'high',
     start: true,
     addToTree: true,
+    taskSync: false,
     dryRun: false,
     draftRevision: 'rev-1',
   })
@@ -74,6 +76,7 @@ test('the import request parser copies every field and rejects bad input', () =>
     { url: 'https://app.asana.com/0/0/7', priority: 'p1' },
     { url: 'https://app.asana.com/0/0/7', start: 'yes' },
     { url: 'https://app.asana.com/0/0/7', addToTree: 1 },
+    { url: 'https://app.asana.com/0/0/7', taskSync: 'no' },
     { url: 'https://app.asana.com/0/0/7', draftRevision: '../x' },
   ])
     expect(() => parseAsanaImportRequest(body)).toThrow()

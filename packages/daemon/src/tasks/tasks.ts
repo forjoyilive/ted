@@ -4617,6 +4617,13 @@ export function createTasks(options: {
     return result
   }
 
+  function answeredOnSyncedTask(commentId: string, account: string): boolean {
+    const taskId = store.getComment(commentId)?.taskId
+    if (taskId === undefined) return false
+    const record = store.trackerSync(taskId, 'asana')
+    return record.allowed && record.allowedAccount === account
+  }
+
   async function importAsanaNow(
     input: AsanaImportRequest,
     caller: Caller,
@@ -4681,6 +4688,10 @@ export function createTasks(options: {
     )
     const held = automation !== undefined && (!resolution || runsInBypass(resolution))
     const lead = { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' as const }
+    const grantsSync =
+      caller.kind === 'app' &&
+      input.taskSync !== false &&
+      (closing === undefined || answeredOnSyncedTask(closing.commentId, user.gid))
     const at = new Date().toISOString()
     const ref = (parent: ParentRef) =>
       'gid' in parent ? { key: parent.gid } : { taskId: parent.taskId }
@@ -4709,7 +4720,7 @@ export function createTasks(options: {
         sourceUrl: node.url,
         asana: asanaSource(node, tree, user.gid, at),
         ...(automation && { automation: automation.link }),
-        ...(caller.kind === 'app' && { syncAccount: user.gid }),
+        ...(grantsSync && { syncAccount: user.gid }),
         ...(node.projects && { projects: node.projects.map((p) => p.gid) }),
       })),
       links: plan.links.map((link) => ({ taskId: link.taskId, parent: ref(link.parent) })),

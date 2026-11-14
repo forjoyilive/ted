@@ -179,6 +179,7 @@ function NewTaskForm({
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
   const [asana, setAsana] = useState<AsanaPreviewState>()
+  const [asanaSync, setAsanaSync] = useState(true)
   const asanaTickets = useRef(0)
   const lookups = useRef(0)
   const mounted = useRef(false)
@@ -346,6 +347,9 @@ function NewTaskForm({
   const asanaUrl = asana?.url
   const chosenKey = chosenFactory?.key
   useEffect(() => {
+    if (asanaUrl !== undefined) setAsanaSync(true)
+  }, [asanaUrl])
+  useEffect(() => {
     if (asanaUrl === undefined || chosenKey === undefined) return
     const ticket = ++asanaTickets.current
     setAsana({ url: asanaUrl })
@@ -483,6 +487,7 @@ function NewTaskForm({
           priority,
           start,
           draftRevision: revision,
+          taskSync: asanaSync,
           ...(asana.preview.tracked && { addToTree: true }),
         })
         created = true
@@ -660,7 +665,14 @@ function NewTaskForm({
               value={description}
               onChange={(event) => changeDescription(event.target.value)}
             />
-            {asana && <AsanaImportPreview state={asana} onRemove={removeAsana} />}
+            {asana && (
+              <AsanaImportPreview
+                state={asana}
+                sync={asanaSync}
+                onSyncChange={setAsanaSync}
+                onRemove={removeAsana}
+              />
+            )}
             {source && (
               <SourceCard
                 source={source}

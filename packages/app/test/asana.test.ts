@@ -101,7 +101,8 @@ test('private configuration stays in main; browser authorization, identity, test
     .poll(() => preview.textContent())
     .toContain('3 Tasks: 1 assigned to you, 1 to others, 1 unassigned')
   expect(await preview.getByRole('listitem').count()).toBe(4)
-  expect(await preview.textContent()).toContain('Task Sync is on for these Tasks')
+  expect(await preview.getByLabel('Sync these Tasks with Asana').isChecked()).toBe(true)
+  expect(await preview.textContent()).toContain('TED comments on each Asana task')
   await newTask.getByLabel('Start now').uncheck()
   await newTask.getByRole('button', { name: 'Create 3 Tasks' }).click()
   await newTask.waitFor({ state: 'detached' })
@@ -114,6 +115,29 @@ test('private configuration stays in main; browser authorization, identity, test
   ])
   expect(imported.filter((t) => t.parentId === root?.id)).toHaveLength(2)
   expect(root?.source?.asana).toMatchObject({ gid: '501', completed: false })
+  stub.setTasks([
+    { gid: '506', name: 'Gift cards', subtasks: ['507'] },
+    { gid: '507', name: 'Card balance' },
+  ])
+  await window.keyboard.press('Meta+N')
+  const declining = window.getByRole('dialog', { name: 'New Task' })
+  await declining.getByLabel('Description').fill('https://app.asana.com/0/9/506/f')
+  const syncBox = declining
+    .getByRole('region', { name: 'Asana import' })
+    .getByLabel('Sync these Tasks with Asana')
+  await syncBox.waitFor()
+  expect(await syncBox.isChecked()).toBe(true)
+  await syncBox.uncheck()
+  expect(await declining.getByRole('region', { name: 'Asana import' }).textContent()).toContain(
+    'The new Tasks won’t update Asana',
+  )
+  await declining.getByLabel('Start now').setChecked(false)
+  await declining.getByRole('button', { name: 'Create 2 Tasks' }).click()
+  await declining.waitFor({ state: 'detached' })
+  const declined = (await (await daemonClient()).listTasks()).filter((t) =>
+    ['506', '507'].includes(t.source?.asana?.gid ?? ''),
+  )
+  expect(declined.map((t) => t.asanaSync?.state)).toEqual(['not-allowed', 'not-allowed'])
   stub.setPageSize(1)
   stub.setWorkspaces([
     { gid: '2', name: 'Elsewhere' },
@@ -160,7 +184,7 @@ test('private configuration stays in main; browser authorization, identity, test
   stub.setTasks([{ gid: '505', name: 'Tax line' }])
   await ted('task', 'create', '--factory', 'NB', '--source', 'https://app.asana.com/0/0/505')
   await openAllTasks(window)
-  const fromCli = window.locator('tr[data-task="NB-4"]')
+  const fromCli = window.locator('tr[data-task="NB-6"]')
   await fromCli.click()
   await expect.poll(() => window.locator('[data-task-sync]').textContent()).toContain('Not syncing')
   await window.getByRole('button', { name: '← All Tasks' }).click()
