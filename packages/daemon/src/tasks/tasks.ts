@@ -11549,7 +11549,11 @@ export function createTasks(options: {
       const shown = matches.length === 1 ? matches[0] : undefined
       if (!shown) throw new RequestError(409, 'Choose a running App this Run started, and its repo')
       const web = shown.kind === 'web' && !!shown.url && isLoopbackUrl(shown.url)
-      const desktop = shown.kind === 'command' && shown.electron === true && !!shown.port
+      const desktop =
+        shown.kind === 'command' &&
+        shown.electron === true &&
+        !!shown.port &&
+        shown.startedBy !== 'human'
       if (shown.state !== 'running' || shown.removed || !(web || desktop))
         throw new RequestError(
           409,

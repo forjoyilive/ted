@@ -10,3 +10,8 @@ document.getElementById('press').addEventListener('click', (event) => {
 document.getElementById('name').addEventListener('input', (event) => {
   document.getElementById('typed').textContent = `typed ${event.target.value}`
 })
+document.getElementById('name').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    document.getElementById('typed').textContent = `entered ${event.target.value}`
+  }
+})

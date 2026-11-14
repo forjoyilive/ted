@@ -15,6 +15,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { electronEnv } from '../src/apps/apps.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -563,4 +564,15 @@ describe('the Apps’ sandbox', () => {
       else process.env.TED_SANDBOX_BIN = before
     }
   })
+})
+
+test('only a Run’s start of an Electron App gets a debugging port, hidden, with --no-sandbox when sandboxed', () => {
+  expect(electronEnv(4100, 'human', false)).toEqual({})
+  expect(electronEnv(4100, 'automation', true, 'darwin')).toEqual({
+    TED_ELECTRON_ARGS: '--remote-debugging-port=4100 --no-sandbox',
+    TED_ELECTRON_HIDDEN: '1',
+  })
+  expect(electronEnv(4100, 'task-lead', false, 'linux').TED_ELECTRON_ARGS).toBe(
+    '--remote-debugging-port=4100 --ozone-platform=headless',
+  )
 })

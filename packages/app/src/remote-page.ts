@@ -86,6 +86,7 @@ export async function openRemote(
   let closed = false
   let world: number | undefined
   let address = ''
+  let mainFrame: string | undefined
   let page: RemotePage | undefined
   let revision = randomUUID()
   const fail = () => {
@@ -122,14 +123,19 @@ export async function openRemote(
     if (message.method === 'Page.javascriptDialogOpening') {
       void send('Page.handleJavaScriptDialog', { accept: false }).catch(() => undefined)
     } else if (message.method === 'Page.frameNavigated') {
-      const frame = params.frame as { parentId?: unknown; url?: unknown } | undefined
+      const frame = params.frame as { id?: unknown; parentId?: unknown; url?: unknown } | undefined
       if (frame && frame.parentId === undefined) {
+        if (typeof frame.id === 'string') mainFrame = frame.id
         revision = randomUUID()
         if (page) page.revision = revision
         world = undefined
         if (typeof frame.url === 'string') address = frame.url
       }
-    } else if (message.method === 'Page.navigatedWithinDocument') {
+    } else if (
+      message.method === 'Page.navigatedWithinDocument' &&
+      mainFrame !== undefined &&
+      params.frameId === mainFrame
+    ) {
       revision = randomUUID()
       if (page) page.revision = revision
       if (typeof params.url === 'string') address = params.url
@@ -162,6 +168,7 @@ export async function openRemote(
     const frame = frameTree?.frame
     if (typeof frame?.id !== 'string') throw new Error('The App’s window has no page')
     if (typeof frame.url === 'string') address = frame.url
+    mainFrame = frame.id
     return frame.id
   }
   const isolated = async () => {

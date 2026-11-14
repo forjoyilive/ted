@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -258,12 +259,21 @@ test('an Audit files one Backlog Task with its screenshot, and a second Audit of
 
 // Its own setup: an Electron App instead of the web App, started in the real OS sandbox.
 test('an Automation Run drives its Electron App in the sandbox with a hidden window, and every Electron process ends with the firing', async () => {
+  const mark = `stub-electron-${randomUUID()}`
   const { client, ok } = await setUp([
     '      - name: Desk',
     '        kind: command',
     '        electron: true',
     `        run: "'${resolveElectron()}' '${stubElectron}' $TED_ELECTRON_ARGS"`,
+    '        env:',
+    `          STUB_ELECTRON_MARK: ${mark}`,
   ])
+  const electronProcesses = async () => {
+    const args =
+      process.platform === 'darwin' ? ['-axEww', '-o', 'command='] : ['axeww', '-o', 'command=']
+    const { stdout } = await execFileAsync('ps', args, { maxBuffer: 64 * 1024 * 1024 })
+    return stdout.split('\n').filter((line) => line.includes(`STUB_ELECTRON_MARK=${mark}`))
+  }
   const snapshotUntil = (text: string) => ({
     run: [
       'sh',
@@ -288,12 +298,15 @@ test('an Automation Run drives its Electron App in the sandbox with a hidden win
         snapshotUntil('visible false'),
         { run: ['sh', '-c', `ted browser click "${ref('button Press me')}"`] },
         { run: ['sh', '-c', `ted browser fill "${ref('input Name')}" Ada`] },
-        snapshotUntil('typed Ada'),
+        browser('press', 'Enter'),
+        snapshotUntil('entered Ada'),
         browser('resize', '390x844'),
         browser('screenshot'),
         browser('color-scheme', 'dark'),
         snapshotUntil('dark true'),
         browser('screenshot'),
+        browser('reload'),
+        snapshotUntil('visible unknown'),
         browser('navigate', '/other'),
         { endTurn: true },
       ],
@@ -306,6 +319,11 @@ test('an Automation Run drives its Electron App in the sandbox with a hidden win
       )?.runId,
     'the Automation Run',
   )
+  await waitUntil(
+    async () => ((await electronProcesses()).length > 1 ? true : undefined),
+    'Electron and its helper processes',
+    60_000,
+  )
   const finished = await waitUntil(
     async () =>
       (await ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
@@ -317,14 +335,16 @@ test('an Automation Run drives its Electron App in the sandbox with a hidden win
   const results = assistantTexts((await client.getRun(runId)).conversation).map(
     (t) => JSON.parse(t) as { code: number; stdout: string; stderr: string },
   )
-  expect(results.slice(0, 12).map((r) => [r.code, r.stderr])).toEqual(
-    Array.from({ length: 12 }, () => [0, '']),
+  expect(results.slice(0, 15).map((r) => [r.code, r.stderr])).toEqual(
+    Array.from({ length: 15 }, () => [0, '']),
   )
   expect(results[1]?.stdout).toMatch(/^Desk · widgets · electron · running · port \d+$/m)
   expect(results[3]?.stdout).toContain('Desk window')
-  expect(results[6]?.stdout).toContain('Pressed')
-  expect(results[12]?.code).not.toBe(0)
-  expect(results[12]?.stderr).toContain('A desktop App has no addresses to navigate to')
+  expect(results[7]?.stdout).toContain('Pressed')
+  expect(results[14]?.stdout).toContain('Press me')
+  expect(results[14]?.stdout).toContain('dark true')
+  expect(results[15]?.code).not.toBe(0)
+  expect(results[15]?.stderr).toContain('A desktop App has no addresses to navigate to')
 
   const shots = finished.screenshots ?? []
   expect(shots.map((s) => s.name)).toEqual(['Desk screenshot.png', 'Desk screenshot.png'])
@@ -335,10 +355,6 @@ test('an Automation Run drives its Electron App in the sandbox with a hidden win
   )
   expect(pngSize(Buffer.from(bytes.data, 'base64'))).toEqual({ width: 390, height: 844 })
 
-  const electronProcesses = async () => {
-    const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,command='])
-    return stdout.split('\n').filter((line) => line.includes(stubElectron))
-  }
   await waitUntil(
     async () => ((await electronProcesses()).length === 0 ? true : undefined),
     'every Electron process to end when the firing stops its Apps',

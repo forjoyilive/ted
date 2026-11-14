@@ -692,12 +692,8 @@ export function createApps(options: AppsOptions): Apps {
       const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
       const scope = by === 'human' ? undefined : task.sandbox
       const electron = app.electron === true && port !== undefined
-      const electronVars: Record<string, string> = electron
-        ? {
-            TED_ELECTRON_ARGS: electronArgs(port, scope !== undefined, by !== 'human'),
-            ...(by !== 'human' && { TED_ELECTRON_HIDDEN: '1' }),
-          }
-        : {}
+      const electronVars = electron ? electronEnv(port, by, scope !== undefined) : {}
+      const driven = electronVars.TED_ELECTRON_ARGS !== undefined
       const values = { ...vars, ...portVars, ...extra }
       const ownEnv = Object.fromEntries(
         Object.entries(app.env)
@@ -721,8 +717,8 @@ export function createApps(options: AppsOptions): Apps {
         kind: app.kind,
         ...(port !== undefined && { port }),
         ...(url !== undefined && { url }),
-        ...(electron && { debugUrl: `http://127.0.0.1:${port}/json/version` }),
-        ready: app.ready,
+        ...(driven && { debugUrl: `http://127.0.0.1:${port}/json/version` }),
+        ready: electron && !driven ? 'start' : app.ready,
         startedAt: new Date().toISOString(),
         startedBy: by,
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
@@ -1353,12 +1349,19 @@ export async function portFree(port: number): Promise<boolean> {
   return !answered
 }
 
-export function electronArgs(port: number, sandboxed: boolean, hidden: boolean): string {
-  return [
+export function electronEnv(
+  port: number,
+  by: AppStarter,
+  sandboxed: boolean,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string> {
+  if (by === 'human') return {}
+  const args = [
     `--remote-debugging-port=${port}`,
     ...(sandboxed ? ['--no-sandbox'] : []),
-    ...(hidden && process.platform === 'linux' ? ['--ozone-platform=headless'] : []),
-  ].join(' ')
+    ...(platform === 'linux' ? ['--ozone-platform=headless'] : []),
+  ]
+  return { TED_ELECTRON_ARGS: args.join(' '), TED_ELECTRON_HIDDEN: '1' }
 }
 
 function answers(url: string): Promise<boolean> {
