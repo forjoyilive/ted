@@ -86,6 +86,7 @@ export interface PlanStore {
   resumeQueued(id: string, error: string): void
   revived(id: string): void
   ended(id: string, end: { outcome: PlanOutcome; error?: string }): void
+  markFinished(id: string, withdraw: readonly string[]): void
   postRequest(input: NewPlanRequest): PlanRequest
   answerRequest(id: string, answer: CommentAnswer): PlanRequest
   requests(planId?: string): PlanRequest[]
@@ -242,6 +243,21 @@ export function createPlanStore({
     revived: (id) => planEvent(id, (at) => events.planRunRevived({ id, at })),
     ended: (id, { outcome, error }) =>
       planEvent(id, (at) => events.planEnded({ id, outcome, error: error ?? null, at })),
+    markFinished(id, withdraw) {
+      if (!get(id)) return
+      const at = now()
+      commit(
+        events.planEnded({ id, outcome: 'finished', error: null, at }),
+        ...withdraw.map((requestId) =>
+          events.planRequestAnswered({
+            id: requestId,
+            answer: JSON.stringify({ kind: 'withdrawn', at, runStopped: true }),
+            at,
+          }),
+        ),
+      )
+      updated(id)
+    },
     postRequest({ title, round, proposal, ...input }) {
       const id = randomUUID()
       commit(

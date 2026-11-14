@@ -151,6 +151,7 @@ import type {
   PlanInboxItem,
   PlanRequest,
   PostPlanRequest,
+  ResumePlanRequest,
   StartPlanRequest,
 } from './plan.ts'
 import type {
@@ -519,8 +520,12 @@ export class DaemonClient {
     return this.#request('POST', `/plans/${encodeURIComponent(id)}/stop`, {})
   }
 
-  retryPlan(id: string): Promise<Plan> {
-    return this.#request('POST', `/plans/${encodeURIComponent(id)}/retry`, {})
+  resumePlan(id: string, input: ResumePlanRequest = {}): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/resume`, input)
+  }
+
+  markPlanFinished(id: string): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/finish`, {})
   }
 
   deletePlan(id: string): Promise<{ deleted: true }> {

@@ -161,7 +161,7 @@ function PlanRow({ plan, actions }: { plan: Plan; actions: RowActions }) {
     setRetrying(true)
     setError(undefined)
     try {
-      await ted.retryPlan(plan.id)
+      await ted.resumePlan(plan.id)
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -223,9 +223,9 @@ function PlanRow({ plan, actions }: { plan: Plan; actions: RowActions }) {
           {plan.status === 'working' && plan.runId !== undefined && (
             <WorkingLine runId={plan.runId} />
           )}
-          {plan.status === 'failed' && (
+          {plan.canResume && (
             <Button size="small" disabled={retrying} onClick={() => retry()}>
-              Retry
+              {plan.status === 'failed' ? 'Retry' : 'Resume'}
             </Button>
           )}
         </span>
@@ -358,12 +358,17 @@ function RowMenu({
             setOpen(false)
             onRename()
           })}
-          {(plan.status === 'finished' || plan.status === 'stopped') &&
+          {ended &&
             item('Plan more from here', () => {
               setOpen(false)
               actions.onPlanMore(plan.id)
             })}
-          {plan.status === 'failed' && item('Retry', () => run(() => ted.retryPlan(plan.id)))}
+          {plan.canResume &&
+            item(plan.status === 'failed' ? 'Retry' : 'Resume', () =>
+              run(() => ted.resumePlan(plan.id)),
+            )}
+          {(plan.status === 'stopped' || plan.status === 'failed') &&
+            item('Mark finished', () => run(() => ted.markPlanFinished(plan.id)))}
           {!ended && item('Stop', () => run(() => ted.stopPlan(plan.id)))}
           {item('Delete…', () => setConfirming(true), true)}
         </div>

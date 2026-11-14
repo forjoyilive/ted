@@ -542,7 +542,7 @@ export type {
   PeerSummary,
   SendPeerMessage,
 } from './peers.ts'
-export type { PostPlanRequest, RenamePlanRequest } from './plan.ts'
+export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {
   openPlanRequest,
   type Plan,
@@ -562,6 +562,7 @@ export {
 export {
   parsePostPlanRequest,
   parseRenamePlanRequest,
+  parseResumePlanRequest,
   parseStartPlanRequest,
 } from './plan-parsers.ts'
 export {

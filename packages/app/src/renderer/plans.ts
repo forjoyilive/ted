@@ -61,13 +61,11 @@ export function planStartedLine(plan: Pick<Plan, 'status' | 'createdAt' | 'finis
   return `Planning chat · started by you ${when(plan.createdAt)}`
 }
 
-const pastStatuses: readonly PlanStatus[] = ['finished', 'stopped']
-
 export function planGroups(plans: readonly Plan[]): { open: Plan[]; past: Plan[] } {
   const newest = [...plans].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   return {
-    open: newest.filter((p) => !pastStatuses.includes(p.status)),
-    past: newest.filter((p) => pastStatuses.includes(p.status)),
+    open: newest.filter((p) => p.status !== 'finished'),
+    past: newest.filter((p) => p.status === 'finished'),
   }
 }
 
@@ -77,7 +75,7 @@ export function planTasksLabel(
   if (plan.createdTasks > 0) {
     return `Created ${plan.createdTasks} ${plan.createdTasks === 1 ? 'Task' : 'Tasks'}`
   }
-  if (pastStatuses.includes(plan.status)) return 'No Tasks'
+  if (plan.status === 'finished') return 'No Tasks'
   if (plan.proposedTasks !== undefined) return `${plan.proposedTasks} proposed`
   return '—'
 }
