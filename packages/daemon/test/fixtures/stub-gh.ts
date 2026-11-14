@@ -127,14 +127,24 @@ if (statePath && process.env.TED_DEMO === '1' && mutation) {
   }
 }
 
-const state: StubState = statePath ? JSON.parse(readFileSync(statePath, 'utf8')) : {}
+// Tests rewrite the state file with a plain write, which empties it first. A read that
+// lands in that moment waits for the whole file instead of failing the gh call.
+async function readState(file: string): Promise<StubState> {
+  const started = Date.now()
+  for (;;) {
+    try {
+      return JSON.parse(readFileSync(file, 'utf8'))
+    } catch (error) {
+      if (!(error instanceof SyntaxError) || Date.now() - started > 2_000) throw error
+      await sleep(5)
+    }
+  }
+}
+
+const state: StubState = statePath ? await readState(statePath) : {}
 
 const save = () => {
   if (!statePath) return
-  if (process.env.TED_DEMO !== '1') {
-    writeFileSync(statePath, JSON.stringify(state))
-    return
-  }
   const temporary = `${statePath}.${process.pid}.tmp`
   writeFileSync(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
   renameSync(temporary, statePath)
