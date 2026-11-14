@@ -1,5 +1,5 @@
 import { once } from 'node:events'
-import { realpath } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { stopExecutionService, workerRequest } from '@ted/daemon/execution'
 import { readDaemonInfo } from '@ted/protocol'
@@ -23,6 +23,7 @@ import {
   setUpAppTests,
 } from './app-harness.ts'
 
+import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
 import { executionStartupGate } from './support/execution-startup.ts'
 
@@ -143,9 +144,16 @@ test('worker Pair after app Quit replaces a still-valid saved controller without
     await expect.poll(async () => (await workerRequest(home, 'status')).state).toBe('connected')
     const app = ctx.app
     if (!app) throw new Error('No app')
-    const exited = once(app.process(), 'exit')
+    const child = app.process()
     await app.evaluate(({ app }) => app.quit()).catch(() => undefined)
-    await exited
+    await waitUntil(
+      () => child.exitCode !== null || child.signalCode !== null,
+      'the worker app to exit after Quit',
+      30_000,
+    ).catch(async (error: Error) => {
+      const log = await readFile(path.join(home, 'app.log'), 'utf8').catch(() => 'no app.log')
+      throw new Error(`${error.message}; its app.log ends: ${log.slice(-1500)}`)
+    })
     ctx.app = undefined
     await expect(workerRequest(home, 'status')).rejects.toThrow()
     window = await openWorker()
@@ -221,7 +229,7 @@ test('worker Pair after app Quit replaces a still-valid saved controller without
       afterStop: 'stopped on the controller',
     })
   } finally {
-    if (ctx.app) await ctx.app.close()
+    await closeApp(ctx.app)
     ctx.app = undefined
     await fixture.close()
   }
