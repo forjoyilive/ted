@@ -6,6 +6,7 @@ import { usePendingAction } from '../pending-action.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { trackerSyncOf } from '../tracker-sync.ts'
 import { plural } from '../words.ts'
 import { useEnabledAgents } from './AgentOptions.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
@@ -208,8 +209,17 @@ function BulkTaskMenu({
         action: () => each((t) => ted.setTaskSnooze(t.id, null)),
       })
   }
-  if (active && tasks.every((t) => t.source?.linear && t.linearSync === 'ask'))
-    items.push({ label: 'Sync with Linear', action: () => each((t) => ted.allowLinearSync(t.id)) })
+  const syncs = tasks.map(trackerSyncOf)
+  const syncName = syncs[0]?.name
+  if (
+    active &&
+    syncName !== undefined &&
+    syncs.every((sync) => sync?.state === 'ask' && sync.name === syncName)
+  )
+    items.push({
+      label: `Sync with ${syncName}`,
+      action: () => each(async (t) => trackerSyncOf(t)?.allow()),
+    })
   if (active) {
     items.push({
       label: 'Priority',

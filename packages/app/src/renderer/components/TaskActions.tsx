@@ -13,6 +13,7 @@ import { runStatusAction, type StatusAction, statusAction } from '../task-action
 import { agentLabels, clarifyDepthLabels, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
+import { trackerSyncOf } from '../tracker-sync.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import { useEnabledAgents } from './AgentOptions.tsx'
@@ -378,6 +379,7 @@ export function TaskActionsMenu({
   const action = statusAction(task)
   const refusal = resetRefusal(task)
   const linear = task.source?.linear
+  const sync = trackerSyncOf(task)
 
   const activity = usePendingAction(`task-actions:${task.id}`)
   const act = (work: () => Promise<unknown>) => {
@@ -743,14 +745,14 @@ export function TaskActionsMenu({
                 <span className={styles.label}>Open source in Linear</span>
                 <span className={styles.hint}>{linear.identifier}</span>
               </ActionButton>
-              {task.linearSync === 'ask' && (
+              {sync?.state === 'ask' && (
                 <ActionButton
                   type="button"
                   role="menuitem"
                   className={styles.item}
-                  onClick={() => act(() => ted.allowLinearSync(task.id))}
+                  onClick={() => act(() => sync.allow())}
                 >
-                  <span className={styles.label}>Sync with Linear</span>
+                  <span className={styles.label}>Sync with {sync.name}</span>
                   <span className={styles.hint}>An Automation made this Task</span>
                 </ActionButton>
               )}
