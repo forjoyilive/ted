@@ -36,22 +36,36 @@ export interface AsanaOptions {
 
 class ConnectionError extends Error {
   readonly status: number | undefined
-  constructor(message: string, status?: number) {
+  readonly retryAfterMs: number | undefined
+  constructor(message: string, status?: number, retryAfterMs?: number) {
     super(message)
     this.status = status
+    this.retryAfterMs = retryAfterMs
   }
 }
 class RevokedError extends ConnectionError {}
 
 export class AsanaReadError extends Error {
   readonly status: number | undefined
-  constructor(message: string, status?: number) {
+  readonly retryAfterMs: number | undefined
+  constructor(message: string, status?: number, retryAfterMs?: number) {
     super(message)
     this.status = status
+    this.retryAfterMs = retryAfterMs
   }
 }
 
 const maxReadBytes = 4_000_000
+const maxWriteBytes = 65_536
+export const maxAsanaCommentLength = 2000
+const maxRetryAfterMs = 60 * 60_000
+
+function retryAfter(response: Response): number | undefined {
+  if (response.status !== 429 && response.status !== 503) return undefined
+  const header = response.headers.get('retry-after')?.trim()
+  if (!header || !/^\d{1,6}$/.test(header)) return response.status === 429 ? 60_000 : undefined
+  return Math.min(Number(header) * 1000, maxRetryAfterMs)
+}
 
 export function createAsana(options: AsanaOptions) {
   const oauth = checkedOrigin(options.oauthOrigin ?? 'https://app.asana.com')
@@ -159,6 +173,7 @@ export function createAsana(options: AsanaOptions) {
         throw new ConnectionError(
           'Asana couldn’t complete the request. Check your connection and app permissions, then try again.',
           response.status,
+          retryAfter(response),
         )
       }
       if (url.endsWith('/-/oauth_revoke')) {
@@ -345,12 +360,57 @@ export function createAsana(options: AsanaOptions) {
         maxReadBytes,
       )
     } catch (error) {
-      if (error instanceof ConnectionError) throw new AsanaReadError(error.message, error.status)
+      if (error instanceof ConnectionError)
+        throw new AsanaReadError(error.message, error.status, error.retryAfterMs)
       throw new AsanaReadError('Couldn’t reach Asana or read its response. Try again.')
     }
   }
+  async function write(
+    method: 'POST' | 'PUT',
+    path: string,
+    data: Record<string, string | boolean>,
+  ): Promise<Record<string, unknown>> {
+    const { access } = await accessToken().catch((error: unknown) => {
+      throw new AsanaReadError(error instanceof Error ? error.message : 'Couldn’t reach Asana')
+    })
+    try {
+      return await request(
+        new URL(`/api/1.0${path}?opt_fields=gid`, api).href,
+        {
+          method,
+          headers: {
+            authorization: `Bearer ${access}`,
+            accept: 'application/json',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ data }),
+        },
+        maxWriteBytes,
+      )
+    } catch (error) {
+      if (error instanceof ConnectionError)
+        throw new AsanaReadError(error.message, error.status, error.retryAfterMs)
+      throw new AsanaReadError('Couldn’t reach Asana or read its response. Try again.')
+    }
+  }
+  function taskGid(gid: string): string {
+    if (!/^\d{1,32}$/.test(gid)) throw new AsanaReadError('TED asked Asana for an unexpected task')
+    return gid
+  }
   return {
     read,
+    async comment(gid: string, text: string): Promise<void> {
+      if (text.length === 0 || text.length > maxAsanaCommentLength)
+        throw new AsanaReadError('TED tried to post a comment of an unexpected length')
+      await write('POST', `/tasks/${taskGid(gid)}/stories`, { text })
+    },
+    async complete(gid: string): Promise<void> {
+      await write('PUT', `/tasks/${taskGid(gid)}`, { completed: true })
+    },
+    async account(): Promise<string | undefined> {
+      const current = await serial(status)
+      return current.state === 'connected' ? current.user?.gid : undefined
+    },
     async user() {
       return (await accessToken()).user
     },

@@ -97,6 +97,7 @@ export interface MachineSettings {
   editorCommand: string
   linearIntakeScopes: Readonly<Record<string, LinearIntakeScope>>
   linearSync: boolean
+  asanaSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
   trackerSyncGroups: TrackerGroupLists
@@ -142,6 +143,7 @@ export const defaultMachineSettings: MachineSettings = {
   editorCommand: '',
   linearIntakeScopes: {},
   linearSync: true,
+  asanaSync: true,
   linearSyncTeams: {},
   linearSyncDeclined: {},
   trackerSyncGroups: {},

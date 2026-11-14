@@ -384,7 +384,9 @@ export function threadEvents(
           add(
             entry,
             'quiet',
-            `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
+            data.tracker === 'asana'
+              ? 'Completed the Asana task'
+              : `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
           )
         }
         break
@@ -393,7 +395,9 @@ export function threadEvents(
           add(
             entry,
             'edit',
-            `You let TED sync this Task with ${text(data.item)} in ${trackerName(text(data.tracker))}`,
+            data.tracker === 'asana'
+              ? 'You turned on Task Sync with Asana for this Task'
+              : `You let TED sync this Task with ${text(data.item)} in ${trackerName(text(data.tracker))}`,
           )
         }
         break
@@ -409,7 +413,9 @@ export function threadEvents(
         add(
           entry,
           'quiet',
-          `Linked the ${count === 1 ? 'pull request' : 'pull requests'} in ${text(data.item)} in ${trackerName(text(data.tracker))}`,
+          data.tracker === 'asana'
+            ? `Commented on the Asana task with the ${count === 1 ? 'pull request' : 'pull requests'}`
+            : `Linked the ${count === 1 ? 'pull request' : 'pull requests'} in ${text(data.item)} in ${trackerName(text(data.tracker))}`,
         )
         break
       }

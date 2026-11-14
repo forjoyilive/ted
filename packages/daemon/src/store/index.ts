@@ -25,9 +25,11 @@ import {
   type AppStarter,
   type ArchiveAsk,
   type AsanaMissing,
+  type AsanaSync,
   type Attachment,
   type AutopilotChoice,
   agentStageIds,
+  asanaSyncOf,
   autopilotEnabled,
   type Banner,
   type BannerAction,
@@ -80,6 +82,7 @@ import {
   type Priority,
   type Proposal,
   type PullRequestPreview,
+  parseAsanaTaskUrl,
   parseLinearUrl,
   type ReportCleanupStepRequest,
   type RequestPurpose,
@@ -244,8 +247,10 @@ export interface TrackerSeen {
 export interface TrackerSyncRecord {
   seen?: TrackerSeen
   step?: string
+  moved?: { state?: string; at: string }
   linked: Set<string>
   allowed: boolean
+  allowedAccount?: string
   allowedGroups: Set<string>
 }
 
@@ -402,6 +407,7 @@ export interface NewTreeTask {
   sourceUrl: string
   asana: TaskAsanaSource
   automation?: { automationId: string; firingId: string }
+  syncAccount?: string
 }
 
 export interface NewTaskTree {
@@ -699,7 +705,13 @@ export interface TedStore extends TaskHistory {
     urls: readonly string[],
   ): void
   trackerSync(taskId: string, tracker: string): TrackerSyncRecord
-  trackerSyncAllowed(taskId: string, tracker: string, item: string, account?: string): Task
+  trackerSyncAllowed(
+    taskId: string,
+    tracker: string,
+    item: string,
+    account?: string,
+    by?: 'menu' | 'import',
+  ): Task
   allowTrackerGroup(
     tracker: string,
     factoryId: string,
@@ -1107,6 +1119,8 @@ export interface TedStore extends TaskHistory {
   setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   setScheduledChecks(counts: { running: number; waiting: number }): void
+  setAsanaConnection(account: string | undefined): void
+  setAsanaOpenChildren(taskId: string, count: number | undefined): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
@@ -2077,6 +2091,12 @@ export async function openStore({
                 ? 'planning'
                 : 'human'
     const linearSync = linearSyncOf(row, source, reads)
+    const asanaSync = asanaSyncFor(
+      { id: row.id, archived: archivedAt !== null },
+      source,
+      stage,
+      reads,
+    )
     return {
       ...row,
       ...(entries[0] && { startedAt: entries[0].at }),
@@ -2158,6 +2178,7 @@ export async function openStore({
       ...(setup && { setup: true as const }),
       createdBy,
       ...(linearSync !== undefined && { linearSync }),
+      ...(asanaSync !== undefined && { asanaSync }),
       ...(planLink && {
         fromPlan: {
           id: planLink.planId,
@@ -2934,13 +2955,19 @@ export async function openStore({
     (row.purpose !== null &&
       (JSON.parse(row.purpose) as { kind?: unknown }).kind === 'tracker-group')
 
-  const trackerRecord = (taskId: string, tracker: string): TrackerSyncRecord => {
+  const trackerRecord = (taskId: string, tracker: string): TrackerSyncRecord =>
+    trackerRecordFrom(logRows(taskId), tracker)
+
+  const trackerRecordFrom = (
+    log: readonly (typeof taskLog.Type)[],
+    tracker: string,
+  ): TrackerSyncRecord => {
     const record: TrackerSyncRecord = {
       linked: new Set(),
       allowed: false,
       allowedGroups: new Set(),
     }
-    for (const row of logRows(taskId).filter((entry) => entry.name.startsWith('v1.Tracker'))) {
+    for (const row of log.filter((entry) => entry.name.startsWith('v1.Tracker'))) {
       const data = JSON.parse(row.data) as Record<string, unknown>
       if (data.tracker !== tracker) continue
       if (row.name === 'v1.TrackerItemSeen') {
@@ -2951,16 +2978,55 @@ export async function openStore({
         }
       } else if (row.name === 'v1.TrackerSyncAllowed') {
         record.allowed = true
+        if (typeof data.account === 'string') record.allowedAccount = data.account
+        else delete record.allowedAccount
       } else if (row.name === 'v1.TrackerGroupSyncAllowed') {
         record.allowedGroups.add(String(data.group))
       } else if (row.name === 'v1.TrackerItemMoved') {
         record.step = String(data.step)
+        record.moved = {
+          ...(typeof data.state === 'string' && { state: data.state }),
+          at: String(data.at),
+        }
       } else if (row.name === 'v1.TrackerPullRequestsLinked' && Array.isArray(data.urls)) {
         for (const url of data.urls) record.linked.add(String(url))
       }
     }
     return record
   }
+
+  let asanaConnection: { known: false } | { known: true; account?: string } = { known: false }
+  const asanaOpenChildren = new Map<string, number>()
+
+  const asanaSyncFor = (
+    row: { id: string; archived: boolean },
+    source: TaskSource | undefined,
+    stage: StageId,
+    reads: TaskReads,
+  ): AsanaSync | undefined => {
+    if (!source?.asana || !parseAsanaTaskUrl(source.url)) return undefined
+    const record = trackerRecordFrom(reads.log(row.id), 'asana')
+    const merged = stage === 'done' && isMerged(row.id)
+    const openChildren = asanaOpenChildren.get(row.id)
+    return asanaSyncOf({
+      allowed: record.allowed,
+      ...(record.allowedAccount !== undefined && { allowedAccount: record.allowedAccount }),
+      switchOn: reads.settings().asanaSync,
+      connection: asanaConnection,
+      archivedUnmerged: row.archived && !merged,
+      ...(record.step === 'completed' &&
+        record.moved?.state !== undefined && { completedByTed: record.moved.at }),
+      completeInAsana: record.seen?.closed === true,
+      merged,
+      ...(openChildren !== undefined && { openChildren }),
+      linked: record.linked.size,
+    })
+  }
+
+  const asanaTaskIds = (): string[] =>
+    store
+      .query(queryDb(taskSources))
+      .flatMap(({ taskId, url }) => (parseAsanaTaskUrl(url) ? [taskId] : []))
 
   const linearSyncOf = (
     row: { id: string; factoryId: string },
@@ -3771,6 +3837,18 @@ export async function openStore({
             at,
           }),
           events.taskSourceAsanaSet({ taskId: id, asana: JSON.stringify(task.asana), at }),
+          ...(task.syncAccount !== undefined
+            ? [
+                events.trackerSyncAllowed({
+                  taskId: id,
+                  tracker: 'asana',
+                  item: task.asana.gid,
+                  by: 'import',
+                  account: task.syncAccount,
+                  at,
+                }),
+              ]
+            : []),
           ...(task.automation
             ? [events.automationTaskCreated({ ...task.automation, taskId: id, at })]
             : []),
@@ -4642,13 +4720,14 @@ export async function openStore({
       updatedTask(taskId)
     },
     trackerSync: trackerRecord,
-    trackerSyncAllowed(taskId, tracker, item, account) {
+    trackerSyncAllowed(taskId, tracker, item, account, by = 'menu') {
+      if (tracker === 'asana') asanaOpenChildren.delete(taskId)
       commit(
         events.trackerSyncAllowed({
           taskId,
           tracker,
           item,
-          by: 'menu',
+          by,
           account: account ?? null,
           at: new Date().toISOString(),
         }),
@@ -6318,6 +6397,17 @@ export async function openStore({
       shellsRunning = count
       noteActivity()
     },
+    setAsanaConnection(account) {
+      if (asanaConnection.known && asanaConnection.account === account) return
+      asanaConnection = { known: true, ...(account !== undefined && { account }) }
+      updatedTasks(asanaTaskIds())
+    },
+    setAsanaOpenChildren(taskId, count) {
+      if (asanaOpenChildren.get(taskId) === count) return
+      if (count === undefined) asanaOpenChildren.delete(taskId)
+      else asanaOpenChildren.set(taskId, count)
+      if (taskRow(taskId)) updatedTask(taskId)
+    },
     setScheduledChecks(counts) {
       if (counts.running === scheduledChecks.running && counts.waiting === scheduledChecks.waiting)
         return
@@ -6345,6 +6435,7 @@ export async function openStore({
           for (const held of store.query(queryDb(heldRuns))) updatedTask(held.taskId)
         }
         if ('overnightMode' in changed) for (const row of store.query(allTasks)) updatedTask(row.id)
+        else if ('asanaSync' in changed) updatedTasks(asanaTaskIds())
       }
       return settings()
     },

@@ -61,6 +61,14 @@ export {
   parseAsanaImportRequest,
   parseAsanaTaskUrl,
 } from './asana-import.ts'
+export {
+  type AsanaSync,
+  type AsanaSyncFacts,
+  type AsanaSyncState,
+  asanaSyncAllowable,
+  asanaSyncing,
+  asanaSyncOf,
+} from './asana-sync.ts'
 export type {
   AnswerAutomationRequest,
   Automation,

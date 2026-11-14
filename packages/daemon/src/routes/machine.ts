@@ -366,6 +366,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     return value as MachineSettings['linearIntakeScopes']
   },
   linearSync: onOff('linearSync'),
+  asanaSync: onOff('asanaSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
   antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
   startNewTasks: onOff('startNewTasks'),

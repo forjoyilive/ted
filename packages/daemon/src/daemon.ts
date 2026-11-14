@@ -91,6 +91,7 @@ export interface DaemonOptions {
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
   linearSyncMs?: number
+  asanaSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
@@ -485,6 +486,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         asana: {
           read: (path, query) => asana.read(path, query),
           user: () => asana.user(),
+          comment: (gid, text) => asana.comment(gid, text),
+          complete: (gid) => asana.complete(gid),
+          account: () => asana.account(),
           files: {
             dir: paths.attachments,
             save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
@@ -495,6 +499,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
+        ...(options.asanaSyncMs !== undefined && { asanaSyncMs: options.asanaSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,
         libraryDir: paths.library,
