@@ -12,8 +12,29 @@ export const browserActions = [
   'forward',
   'reload',
   'screenshot',
+  'resize',
+  'color-scheme',
 ] as const
 export type BrowserAction = (typeof browserActions)[number]
+
+export const runOnlyBrowserActions: readonly BrowserAction[] = ['resize', 'color-scheme']
+
+export const browserViewportLimits = {
+  minWidth: 320,
+  maxWidth: 3840,
+  minHeight: 240,
+  maxHeight: 2160,
+}
+
+export function browserViewport(value: string): { width: number; height: number } | string {
+  const match = /^(\d{1,4})x(\d{1,4})$/.exec(value)
+  const width = Number(match?.[1])
+  const height = Number(match?.[2])
+  const { minWidth, maxWidth, minHeight, maxHeight } = browserViewportLimits
+  if (!match || width < minWidth || width > maxWidth || height < minHeight || height > maxHeight)
+    return `Give a size like 390x844, ${minWidth}–${maxWidth} wide and ${minHeight}–${maxHeight} high`
+  return { width, height }
+}
 
 export interface BrowserRequest {
   action: BrowserAction

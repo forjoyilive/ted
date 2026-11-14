@@ -1,7 +1,7 @@
 import type { RunChat } from './chat.ts'
 import type { AgentKind } from './run.ts'
 import type { AutomationSchedule } from './schedule.ts'
-import type { Effort, StageId } from './task.ts'
+import type { Attachment, Effort, StageId } from './task.ts'
 
 export const automationTemplateIds = [
   'linear',
@@ -9,6 +9,7 @@ export const automationTemplateIds = [
   'sentry',
   'github',
   'architecture',
+  'audit',
 ] as const
 
 export type AutomationTemplateId = (typeof automationTemplateIds)[number]
@@ -94,6 +95,7 @@ export interface AutomationRun {
   message?: string
   runId?: string
   check?: AutomationCheckRun
+  screenshots?: Attachment[]
 }
 
 export interface AutomationRequest {

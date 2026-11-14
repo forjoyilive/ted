@@ -50,6 +50,7 @@ export interface AsanaTree {
 const maxListed = 1000
 const pageSize = 100
 const parallel = 4
+const maxWaitMs = 120_000
 const maxName = 300
 const maxNotes = 20_000
 const maxDiscussion = 40_000
@@ -68,7 +69,7 @@ export function retryingRead(
           error instanceof AsanaReadError &&
           (error.status === 429 || (error.status !== undefined && error.status >= 500))
         if (!retryable || attempt >= retries) throw error
-        await wait(error.retryAfterMs ?? 1000 * 2 ** attempt)
+        await wait(Math.min(error.retryAfterMs ?? 1000 * 2 ** attempt, maxWaitMs))
       }
     }
   }

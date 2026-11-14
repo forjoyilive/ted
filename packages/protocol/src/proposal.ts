@@ -2,7 +2,6 @@ import type { Proposal } from './task.ts'
 
 export interface ProposalPlanRow {
   row: number
-  first: boolean
   create: boolean
   blockedBy: number[]
   dropped: number[]
@@ -16,15 +15,13 @@ export interface ProposalPlan {
 }
 
 export function planProposal(proposal: Proposal, skip: readonly number[]): ProposalPlan {
-  const first = (row: number) => row === 1 && proposal.firstPiece !== undefined
-  const kept = (row: number) => first(row) || !skip.includes(row)
+  const kept = (row: number) => !skip.includes(row)
   const rows = proposal.rows.map((r, i) => {
     const row = i + 1
     const included = kept(row)
     return {
       row,
-      first: first(row),
-      create: included && !first(row),
+      create: included,
       blockedBy: included ? r.blockedBy.filter(kept) : [],
       dropped: included ? r.blockedBy.filter((b) => !kept(b)) : [],
     }

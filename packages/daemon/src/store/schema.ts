@@ -243,6 +243,21 @@ export const taskBrowserCaptures = State.SQLite.table({
   },
 })
 
+export const runBrowserCaptures = State.SQLite.table({
+  name: 'runBrowserCaptures',
+  indexes: [{ name: 'idx_runBrowserCaptures_runId', columns: ['runId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    runId: State.SQLite.text(),
+    automationId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const commentAttachments = State.SQLite.table({
   name: 'commentAttachments',
   indexes: [
@@ -1575,6 +1590,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runBrowserCaptureAdded: Events.synced({
+    name: 'v1.RunBrowserCaptureAdded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      automationId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   commentAttachmentAdded: Events.synced({
     name: 'v1.CommentAttachmentAdded',
     schema: Schema.Struct({
@@ -1962,6 +1989,19 @@ export const events = {
       narrowedTo: Schema.String,
       at: Schema.String,
     }),
+  }),
+  childTasksCreated: Events.synced({
+    name: 'v1.ChildTasksCreated',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      childIds: Schema.Array(Schema.String),
+      from: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  parentFinishedWithChildren: Events.synced({
+    name: 'v1.ParentFinishedWithChildren',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
   taskNeedsPlanning: Events.synced({
     name: 'v1.TaskNeedsPlanning',
@@ -3622,6 +3662,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
   'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskSplit': (args) => task(args, { pieceIds: args.pieceIds, narrowedTo: args.narrowedTo }),
+  'v1.ChildTasksCreated': (args) => task(args, { childIds: args.childIds, from: args.from }),
+  'v1.ParentFinishedWithChildren': (args) => task(args),
   'v1.TaskNeedsPlanning': (args) => task(args, { runId: args.runId }),
   'v1.TaskStartedAfterPlanning': (args) => task(args, { stage: args.stage }),
   'v1.PlanStartedFromTask': (args) => task(args, { planId: args.id }),
@@ -4031,6 +4073,10 @@ const materializers = counted(
         taskBrowserCaptures
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
+      'v1.RunBrowserCaptureAdded': ({ runId, hash, name, ...rest }) =>
+        runBrowserCaptures
+          .insert({ id: `${runId}:${hash}:${name}`, runId, hash, name, ...rest })
+          .onConflict('id', 'ignore'),
       'v1.CommentAttachmentAdded': ({ commentId, hash, name, ...rest }) =>
         commentAttachments
           .insert({ id: `${commentId}:${hash}:${name}`, commentId, hash, name, ...rest })
@@ -4073,6 +4119,10 @@ const materializers = counted(
       'v1.TaskSplitFrom': ({ taskId, originalId }) =>
         tasks.update({ splitFrom: originalId }).where({ id: taskId }),
       'v1.TaskSplit': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.ChildTasksCreated': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.ParentFinishedWithChildren': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskNeedsPlanning': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
         tasks
@@ -4923,6 +4973,7 @@ const materializers = counted(
         automationComments.delete().where({ automationId: id }),
         automationCheckResults.delete().where({ automationId: id }),
         automationCheckTasks.delete().where({ automationId: id }),
+        runBrowserCaptures.delete().where({ automationId: id }),
         requestSnoozes.delete().where({ ownerId: id }),
       ],
       'v1.AutomationFired': ({ skipped, retryOf, slotAt, ...firing }) => [
@@ -5106,6 +5157,7 @@ const state = State.SQLite.makeState({
     deletedTasks,
     taskAttachments,
     taskBrowserCaptures,
+    runBrowserCaptures,
     commentAttachments,
     taskSources,
     runs,

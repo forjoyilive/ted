@@ -81,6 +81,14 @@ export {
   parseSetFactoryAsanaIntakeRequest,
   type SetFactoryAsanaIntakeRequest,
 } from './asana-intake.ts'
+export {
+  type AsanaSync,
+  type AsanaSyncFacts,
+  type AsanaSyncState,
+  asanaSyncAllowable,
+  asanaSyncing,
+  asanaSyncOf,
+} from './asana-sync.ts'
 export type {
   AnswerAutomationRequest,
   Automation,
@@ -157,6 +165,9 @@ export {
   type BrowserRequest,
   type BrowserResult,
   browserActions,
+  browserViewport,
+  browserViewportLimits,
+  runOnlyBrowserActions,
 } from './browser.ts'
 export {
   parseBrowserPollRequest,

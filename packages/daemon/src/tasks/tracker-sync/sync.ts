@@ -3,7 +3,13 @@ import { type Clock, systemClock, type Timer } from '../../clock.ts'
 import { redactSecrets } from '../../redact.ts'
 import type { TedStore } from '../../store/index.ts'
 import { clean } from '../github-activity.ts'
-import type { TrackerConnector, TrackerItem, TrackerRecord, TrackerRecords } from './connector.ts'
+import {
+  type TrackerConnector,
+  type TrackerItem,
+  type TrackerRecord,
+  type TrackerRecords,
+  TrackerWait,
+} from './connector.ts'
 
 export const archiveChoice = 'Archive'
 export const keepChoice = 'Keep going'
@@ -15,6 +21,7 @@ export interface TrackerTaskActions {
   liveRun(task: Task): boolean
   openRequests(taskId: string): Comment[]
   archive(task: Task, why: string): void
+  under(taskId: string): Task[]
 }
 
 export interface TrackerSyncOptions<Source, Handle> {
@@ -103,13 +110,16 @@ export function createTrackerSync<Source, Handle>(
       if (closed) return undefined
       const found = read.items.get(connector.key(item.source))
       if (!found) continue
-      await syncOne(item, found).catch((error: unknown) =>
+      try {
+        await syncOne(item, found)
+      } catch (error) {
+        if (error instanceof TrackerWait) return error.waitMs > 0 ? error.waitMs : undefined
         console.error(
           redactSecrets(
             `couldn’t sync ${item.task.displayId} with ${connector.name}: ${String(error)}`,
           ),
-        ),
-      )
+        )
+      }
     }
     return undefined
   }
@@ -145,7 +155,7 @@ export function createTrackerSync<Source, Handle>(
     const linked: string[] = []
     try {
       for (const pullRequest of fresh) {
-        await connector.link(item, pullRequest)
+        await connector.link(item, pullRequest, task)
         linked.push(pullRequest.url)
       }
     } finally {
@@ -168,13 +178,18 @@ export function createTrackerSync<Source, Handle>(
       return
     }
     if (actions.openRequests(taskId).some((c) => records.isClosedQuestion(c))) return
+    const under = actions.under(taskId)
+    const body = connector.texts.closedBody(label, state, pastSignOff)
     store.postComment({
       taskId,
       kind: 'question',
       author: { kind: 'ted' },
       title: marked,
       purpose: records.closedPurpose,
-      body: connector.texts.closedBody(label, state, pastSignOff),
+      body:
+        under.length === 0
+          ? body
+          : `${body}\n\n${archiveChoice} also archives the ${under.length === 1 ? 'Task' : `${under.length} Tasks`} under it: ${under.map((t) => `${t.displayId} ${clean(t.title, 120)}`).join(', ')}.`,
       choices: [archiveChoice, keepChoice],
     })
   }

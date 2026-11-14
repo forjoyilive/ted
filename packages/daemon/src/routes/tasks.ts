@@ -378,6 +378,11 @@ export const taskRoutes: Route[] = [
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.allowLinearSync(ref)],
   },
   {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/asana-sync$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.allowAsanaSync(ref)],
+  },
+  {
     method: 'GET',
     path: /^\/tasks\/([^/]+)\/hierarchy$/,
     runToken: true,

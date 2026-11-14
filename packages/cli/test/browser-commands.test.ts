@@ -64,6 +64,32 @@ test('browser commands keep their requests after command-table dispatch', async 
       ]),
     )
     expect(output).toBe('Done\n'.repeat(cases.length))
+
+    requests.length = 0
+    const runCases: { args: string[]; request: BrowserRequest }[] = [
+      { args: ['snapshot'], request: { action: 'snapshot' } },
+      { args: ['resize', '390x844'], request: { action: 'resize', value: '390x844' } },
+      { args: ['color-scheme', 'dark'], request: { action: 'color-scheme', value: 'dark' } },
+    ]
+    for (const entry of runCases) {
+      expect(
+        await runCli(['browser', ...entry.args], {
+          env: { TED_RUN: 'run-1', TED_AUTOMATION: 'Audit' },
+          stdout: () => {},
+          stderr: (text) => {
+            throw new Error(text)
+          },
+          connect: async <T>(_home: string, call: (client: DaemonClient) => Promise<T>) =>
+            call(client),
+        }),
+      ).toBe(0)
+    }
+    expect(requests).toEqual(
+      runCases.flatMap(({ request }) => [
+        { url: '/runs/run-1/apps' },
+        { url: '/runs/run-1/browser', body: request },
+      ]),
+    )
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
@@ -80,6 +106,9 @@ test.each([
   ['snapshot', 'extra'],
   ['reload', '--repo', 'ted'],
   ['made-up'],
+  ['resize', '390x844'],
+  ['resize', '100x100'],
+  ['color-scheme', 'sepia'],
 ])('invalid browser invocation %j does no IO', async (...args) => {
   expect(
     await runCli(['browser', ...args], {

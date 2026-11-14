@@ -77,12 +77,11 @@
   overflow-wrap: anywhere;
 }
 
-.thisTask {
+.parentLine {
+  margin: 0 0 8px;
   color: var(--text-secondary);
-  font-weight: var(--weight-regular);
 }
 
-.taskId,
 .taskLink,
 .madeId {
   color: var(--accent-link);

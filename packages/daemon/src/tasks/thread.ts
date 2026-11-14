@@ -25,7 +25,8 @@ export interface ThreadContext {
 }
 
 const planEndLines: Record<string, string> = {
-  approved: 'TED told the Task Lead; it carries on with Clarify.',
+  approved:
+    'The plan was approved. TED stopped the Task Lead while the Tasks it created are built.',
   stopped:
     'Planning chat stopped without approval. TED told the Task Lead to ask its size question again.',
   failed:
@@ -261,6 +262,21 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.ChildTasksCreated': {
+        const children = Array.isArray(data.childIds)
+          ? data.childIds.map((id) => context.displayIdOf(text(id)))
+          : []
+        const made = data.from === 'split' ? 'Split into' : 'The plan created'
+        add(entry, 'done', `${made} ${joinAnd(children)}. This Task waits for them to merge.`)
+        break
+      }
+      case 'v1.ParentFinishedWithChildren':
+        add(
+          entry,
+          'done',
+          'Every Task under this one has merged and it had no work of its own, so TED finished it.',
+        )
+        break
       case 'v1.PlanStartedFromTask': {
         const planId = text(data.planId)
         const title = context.planTitleOf?.(planId)
@@ -384,7 +400,9 @@ export function threadEvents(
           add(
             entry,
             'quiet',
-            `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
+            data.tracker === 'asana'
+              ? 'Completed the Asana task'
+              : `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
           )
         }
         break
@@ -393,7 +411,9 @@ export function threadEvents(
           add(
             entry,
             'edit',
-            `You let TED sync this Task with ${text(data.item)} in ${trackerName(text(data.tracker))}`,
+            data.tracker === 'asana'
+              ? 'You turned on Task Sync with Asana for this Task'
+              : `You let TED sync this Task with ${text(data.item)} in ${trackerName(text(data.tracker))}`,
           )
         }
         break
@@ -409,7 +429,9 @@ export function threadEvents(
         add(
           entry,
           'quiet',
-          `Linked the ${count === 1 ? 'pull request' : 'pull requests'} in ${text(data.item)} in ${trackerName(text(data.tracker))}`,
+          data.tracker === 'asana'
+            ? `Commented on the Asana task with the ${count === 1 ? 'pull request' : 'pull requests'}`
+            : `Linked the ${count === 1 ? 'pull request' : 'pull requests'} in ${text(data.item)} in ${trackerName(text(data.tracker))}`,
         )
         break
       }

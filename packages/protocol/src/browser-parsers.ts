@@ -3,6 +3,7 @@ import {
   type BrowserReplyRequest,
   type BrowserRequest,
   browserActions,
+  browserViewport,
 } from './browser.ts'
 import { bodyObject, RequestValidationError, text } from './validation.ts'
 
@@ -33,8 +34,17 @@ export function parseBrowserRequest(value: unknown): BrowserRequest {
   if (action === 'open' && !request.app) throw new RequestValidationError(400, 'Name the web App')
   if (['click', 'fill'].includes(action) && !request.ref)
     throw new RequestValidationError(400, 'Name an element reference from snapshot')
-  if (['fill', 'press', 'navigate'].includes(action) && request.value === undefined)
+  if (
+    ['fill', 'press', 'navigate', 'resize', 'color-scheme'].includes(action) &&
+    request.value === undefined
+  )
     throw new RequestValidationError(400, 'Give a value')
+  if (action === 'resize') {
+    const viewport = browserViewport(request.value ?? '')
+    if (typeof viewport === 'string') throw new RequestValidationError(400, viewport)
+  }
+  if (action === 'color-scheme' && request.value !== 'light' && request.value !== 'dark')
+    throw new RequestValidationError(400, 'Use light or dark')
   return request
 }
 

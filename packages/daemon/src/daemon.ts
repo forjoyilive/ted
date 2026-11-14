@@ -91,6 +91,7 @@ export interface DaemonOptions {
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
   linearSyncMs?: number
+  asanaSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
@@ -489,6 +490,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         asana: {
           read: (path, query) => asana.read(path, query),
           user: () => asana.user(),
+          comment: (gid, text, account) => asana.comment(gid, text, account),
+          complete: (gid, account) => asana.complete(gid, account),
+          account: () => asana.account(),
           files: {
             dir: paths.attachments,
             save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
@@ -502,6 +506,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
+        ...(options.asanaSyncMs !== undefined && { asanaSyncMs: options.asanaSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,
         libraryDir: paths.library,
@@ -594,6 +599,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         isCloned: (factoryId) => factories.isCloned(factoryId),
         startTask: (taskId) => tasks.start(taskId),
         planApproved: (taskId, input) => tasks.planApproved(taskId, input),
+        stopLeadForChildren: (taskId) => tasks.stopLeadForChildren(taskId),
         planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
       coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health, steering })

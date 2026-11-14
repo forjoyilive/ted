@@ -40,6 +40,7 @@
     "./execution-pairing": "./src/execution-pairing.ts",
     "./waiting": "./src/waiting.ts",
     "./asana-import": "./src/asana-import.ts",
-    "./asana-intake": "./src/asana-intake.ts"
+    "./asana-intake": "./src/asana-intake.ts",
+    "./asana-sync": "./src/asana-sync.ts"
   }
 }

@@ -608,3 +608,11 @@ label.selectionNote {
 .selectionControls {
   display: contents;
 }
+
+.contextRow > td {
+  opacity: 0.45;
+}
+
+.contextRow:hover > td {
+  opacity: 0.7;
+}

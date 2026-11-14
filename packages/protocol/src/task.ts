@@ -1,4 +1,5 @@
 import type { SimulatorAsk } from './app.ts'
+import type { AsanaSync } from './asana-sync.ts'
 import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
@@ -247,6 +248,7 @@ export interface Task {
   attachments: Attachment[]
   source?: TaskSource
   linearSync?: 'on' | 'ask'
+  asanaSync?: AsanaSync
   stage: StageId
   branch?: string
   leadRunId?: string
@@ -576,6 +578,7 @@ export interface ProposalRow {
 
 export interface Proposal {
   rows: ProposalRow[]
+  // Kept under its stored name: the Task that becomes the parent of every row.
   firstPiece?: TaskLink
 }
 
@@ -709,7 +712,7 @@ export type RequestPurpose =
         | 'ci-stuck'
     }
 
-const trackerNames: Readonly<Record<string, string>> = { linear: 'Linear' }
+const trackerNames: Readonly<Record<string, string>> = { linear: 'Linear', asana: 'Asana' }
 
 export function trackerName(tracker: string): string {
   return trackerNames[tracker] ?? tracker

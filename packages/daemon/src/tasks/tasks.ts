@@ -116,9 +116,11 @@ import type {
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
+  type AsanaStatus,
   agentShortNames,
   agentStageIds,
   archiveChoice,
+  asanaSyncAllowable,
   bannerId,
   briefHeadings,
   type CleanupStepReport,
@@ -127,6 +129,7 @@ import {
   cleanupFinishChoice,
   cleanupRetryChoice,
   isChat,
+  isLoopbackUrl,
   isTrackerClosedQuestion,
   isTrackerGroupAsk,
   keepArchiveChoice,
@@ -135,6 +138,7 @@ import {
   parseLinearUrl,
   type ResetRefusal,
   resetRefusal,
+  runOnlyBrowserActions,
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -150,6 +154,7 @@ import {
   type SimulatorOptions,
 } from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
+import { createRunBrowsers } from '../apps/run-browser.ts'
 import { AsanaReadError } from '../asana/asana.ts'
 import { checkAsanaRoot, confirmAsanaScope, listAsanaIntake, scopeName } from '../asana/intake.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
@@ -233,6 +238,7 @@ import {
   type ParentRef,
   planAsanaImport,
 } from './asana-import.ts'
+import { asanaTracker, createAsanaSync } from './asana-sync.ts'
 import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
 import {
   type BaseConflict,
@@ -460,7 +466,6 @@ export interface TaskPlanning {
 export interface PlanApproval {
   planId: string
   planTitle: string
-  narrowed: { title: string; description: string; priority: Priority }
   created: ProposalCreated
   text: string
 }
@@ -586,6 +591,8 @@ export interface Tasks {
   archive(ref: string, options?: ArchiveTaskRequest): Task
   requestArchive(ref: string, caller: Caller, request: RequestArchiveRequest): Promise<Comment>
   allowLinearSync(ref: string): Task
+  allowAsanaSync(ref: string): Promise<Task>
+  asanaStatusSeen(status: AsanaStatus): void
   allowLinearTeam(factoryId: string, team: string): MachineSettings
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -697,7 +704,10 @@ export interface Tasks {
   showRunApp(runId: string, caller: Caller, app: AppRef): Promise<TaskApp>
   runAppLog(runId: string, caller: Caller, app: AppRef): Promise<AppLog>
   stopRunApps(runId: string): Promise<void>
+  runBrowserCommand(runId: string, caller: Caller, request: BrowserRequest): Promise<BrowserResult>
+  runBrowserCapture(runId: string, caller: Caller, hash: string): Attachment
   planApproved(taskId: string, input: PlanApproval): Promise<void>
+  stopLeadForChildren(taskId: string): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
 }
@@ -744,7 +754,11 @@ export function createTasks(options: {
     files?: FileStore
     allowLoopbackFiles?: boolean
     intakeLimit?: number
+    comment?(gid: string, text: string, account: string): Promise<void>
+    complete?(gid: string, account: string): Promise<void>
+    account?(): Promise<string | undefined>
   }
+  asanaSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
@@ -801,6 +815,8 @@ export function createTasks(options: {
   }
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
+  const finishingParents = new Set<string>()
+  const parentsChecked = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
   const continuing = new Set<string>()
@@ -898,6 +914,11 @@ export function createTasks(options: {
     }
     return appTask(id)
   }
+  const runBrowsers = createRunBrowsers({
+    dir: path.join(path.dirname(worktreesDir), 'browsers'),
+    env: () => options.env?.() ?? process.env,
+    lowPriority: () => store.settings().lowPriorityWork,
+  })
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
@@ -915,6 +936,13 @@ export function createTasks(options: {
       banners,
     },
     emit: (event) => {
+      if (event.type === 'apps-changed' && runBrowsers.opened(event.taskId)) {
+        const runId = event.taskId
+        void apps.list(runId).then(
+          (list) => runBrowsers.appsChanged(runId, list),
+          () => runBrowsers.close(runId),
+        )
+      }
       for (const listener of listeners) listener(event)
     },
     keep(taskId) {
@@ -1114,6 +1142,7 @@ export function createTasks(options: {
       archiveNow(find(task.id), false, why)
       wake()
     },
+    under: (taskId) => underToArchive(taskId).map((id) => find(id)),
   }
   const linearApi = options.linear
   const linearSync =
@@ -1133,6 +1162,24 @@ export function createTasks(options: {
       clock,
       everyMs: options.linearSyncMs ?? 60_000,
       // A hold released on every cycle would start the idle exit’s time again for ever.
+      inBackground: (what, work) => inBackground(what, work, false),
+    })
+  const asanaApi = options.asana
+  const asanaSync =
+    asanaApi?.comment &&
+    asanaApi.complete &&
+    asanaApi.account &&
+    createAsanaSync({
+      store,
+      asana: {
+        read: asanaApi.read,
+        comment: asanaApi.comment,
+        complete: asanaApi.complete,
+        account: asanaApi.account,
+      },
+      actions: trackerActions,
+      clock,
+      everyMs: options.asanaSyncMs ?? 60_000,
       inBackground: (what, work) => inBackground(what, work, false),
     })
   const sources: QueueSource[] = []
@@ -4609,6 +4656,7 @@ export function createTasks(options: {
         sourceUrl: node.url,
         asana: asanaSource(node, tree, user.gid, at),
         ...(automation && { automation: automation.link }),
+        ...(caller.kind === 'app' && { syncAccount: user.gid }),
       })),
       links: plan.links.map((link) => ({ taskId: link.taskId, parent: ref(link.parent) })),
       comments: [
@@ -5303,13 +5351,7 @@ export function createTasks(options: {
     if (input.tasks.length < 2) {
       throw new RequestError(
         400,
-        'a split needs at least two rows: row 1 is this Task, and the rest become new Tasks',
-      )
-    }
-    if ((input.tasks[0]?.blockedBy ?? []).length > 0) {
-      throw new RequestError(
-        400,
-        'row 1 is this Task, which carries on now, so it can’t be blocked',
+        'a split needs at least two rows; each becomes a child Task of this Task',
       )
     }
     const isProposal = (c: Comment) => c.kind === 'proposal'
@@ -5369,9 +5411,7 @@ export function createTasks(options: {
       .findLast((r) => r.kind === 'proposal' && r.answer?.kind === 'approved')?.answer
     if (approved?.kind === 'approved' && approved.created) {
       return planApprovedLeadMessage({
-        displayId: task.displayId,
         planTitle,
-        narrowed: { title: task.title, description: task.description },
         created: approved.created,
         text: approved.text ?? '',
       })
@@ -5400,20 +5440,13 @@ export function createTasks(options: {
   async function planApproved(taskId: string, input: PlanApproval): Promise<void> {
     const task = store.getTask(taskId)
     if (!task || task.archived) return
-    store.taskSplit(task.id, {
-      pieceIds: input.created.tasks.map((c) => c.id),
-      narrowedTo: input.narrowed.title,
-      description: input.narrowed.description,
-    })
-    if (input.narrowed.priority !== task.priority) {
-      store.setPriority(task.id, input.narrowed.priority)
-    }
-    store.taskPlanEnded(task.id, input.planId, 'approved')
-    await tellLeadAboutPlan(
+    waitForChildren(
       task.id,
-      input.planId,
-      planApprovedLeadMessage({ displayId: task.displayId, ...input }),
+      input.created.tasks.map((c) => c.id),
+      'plan-task',
     )
+    store.taskPlanEnded(task.id, input.planId, 'approved')
+    await tellLeadAboutPlan(task.id, input.planId, planApprovedLeadMessage(input))
   }
 
   async function planEnded(taskId: string, input: PlanEnd): Promise<void> {
@@ -5501,6 +5534,8 @@ export function createTasks(options: {
           mergeSendBack(id, findings, undefined, false, { counted: false }),
         startTask: (id) => start(id),
         planOutside,
+        stopLeadForChildren,
+        waitForChildren,
         ...(options.planning && { planning: options.planning }),
       },
       automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
@@ -7324,6 +7359,14 @@ export function createTasks(options: {
       (task.preparation !== 'ready' || store.childrenOf(taskId).length > 0)
     )
       return
+    if (
+      unmergedBlockers(taskId).length === 0 &&
+      store.madeParent(taskId) &&
+      store.childrenOf(taskId).some((c) => store.isMerged(c))
+    ) {
+      wakeTask(taskId)
+      return
+    }
     if (task.stage === 'backlog') {
       if (task.startRequested) store.setStartRequested(taskId, false)
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
@@ -8390,6 +8433,20 @@ export function createTasks(options: {
     )
   }
 
+  async function stopLeadForChildren(taskId: string): Promise<void> {
+    const run = liveLead(find(taskId))
+    if (run) await runs.stop(run.id)
+  }
+
+  function waitForChildren(
+    taskId: string,
+    childIds: readonly string[],
+    from: 'split' | 'plan-task',
+  ): void {
+    store.childTasksCreated(taskId, childIds, from)
+    if (!find(taskId).waitsForBlockers) store.waitForBlockers(taskId)
+  }
+
   async function stopForBlockers(taskId: string): Promise<void> {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
@@ -8413,9 +8470,27 @@ export function createTasks(options: {
 
   function wakeTask(id: string, queued = new Set(store.queue().map((q) => q.id))): void {
     if (queued.has(id) || starting.has(id) || hierarchyBusy.has(id) || deleting.has(id)) return
-    if (unmergedBlockers(id).length > 0) return
+    if (finishingParents.has(id) || unmergedBlockers(id).length > 0) return
     const task = store.getTask(id)
-    if (!task || task.archived || task.stopped) return
+    if (!task || task.archived || task.stopped || task.stage === 'done') return
+    const wakes =
+      (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) ||
+      (task.waitsForBlockers && !liveLead(task))
+    if (
+      wakes &&
+      !parentsChecked.has(id) &&
+      store.madeParent(id) &&
+      store.childrenOf(id).some((c) => store.isMerged(c))
+    ) {
+      finishingParents.add(id)
+      inBackground(`finish ${task.displayId} after its child Tasks`, () =>
+        finishParent(id).finally(() => {
+          finishingParents.delete(id)
+          wakeTask(id)
+        }),
+      )
+      return
+    }
     if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
       inBackground(`start ${task.displayId}`, async () => {
         await start(id)
@@ -8423,6 +8498,41 @@ export function createTasks(options: {
     } else if (task.waitsForBlockers && !liveLead(task)) {
       store.requeueAfterBlockers(id)
     }
+  }
+
+  async function hasOwnWork(task: StoredTask): Promise<boolean> {
+    const resolution = await taskWorkflow(task, { fetch: false })
+    const entries = factoryRepos(resolution.workflow, factoryOf(task))
+    for (const repo of task.repos.filter((r) => !r.removed)) {
+      if (!(await lstat(repo.worktree).catch(() => undefined))?.isDirectory()) continue
+      const base = repoEntry(entries, repo)?.baseBranch ?? (await git.defaultBranch(repo.worktree))
+      const changes = await git.workingChanges(repo.worktree, `origin/${base}`)
+      if (changes.files.length > 0 || changes.head !== changes.mergeBase) return true
+    }
+    return false
+  }
+
+  async function finishParent(id: string): Promise<void> {
+    const before = find(id)
+    const working = await hasOwnWork(before).catch((error: unknown) => {
+      console.error(redactSecrets(`couldn’t read ${before.displayId}’s own work: ${String(error)}`))
+      return true
+    })
+    if (!working)
+      await holding(before, async () => {
+        const task = find(id)
+        if (task.archived || task.stopped || task.stage === 'done' || liveLead(task)) return
+        if (unmergedBlockers(id).length > 0) return
+        const resolution = await gateWorkflow(task)
+        await requireObligations(task, undefined, 'done')
+        store.parentFinishedWithChildren(id)
+        if (task.startRequested) store.setStartRequested(id, false)
+        store.changeStage(id, 'done', entryFor(resolution, 'done'))
+        inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
+      }).catch((error: unknown) => {
+        console.error(redactSecrets(`couldn’t finish ${before.displayId}: ${String(error)}`))
+      })
+    parentsChecked.add(id)
   }
 
   function tellLead(blocker: StoredTask, run: Run): Promise<void> {
@@ -10065,6 +10175,24 @@ export function createTasks(options: {
       return publicTask(task.id)
     },
 
+    async allowAsanaSync(ref) {
+      const task = live(ref)
+      const link = task.source && parseAsanaTaskUrl(task.source.url)
+      if (!link || !task.source?.asana)
+        throw new RequestError(400, `${task.displayId} wasn’t imported from Asana`)
+      const account = await asanaSync?.refresh()
+      if (account === undefined)
+        throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+      if (!asanaSyncAllowable(store.getTask(task.id)?.asanaSync)) return publicTask(task.id)
+      store.trackerSyncAllowed(task.id, asanaTracker, link.gid, account)
+      return publicTask(task.id)
+    },
+
+    asanaStatusSeen(status) {
+      if (asanaSync)
+        store.setAsanaConnection(status.state === 'connected' ? status.user?.gid : undefined)
+    },
+
     allowLinearTeam(factoryId, team) {
       if (!store.getFactory(factoryId)) throw new RequestError(404, `no Factory ${factoryId}`)
       return linearConsent.allowGroup(factoryId, team.toUpperCase())
@@ -11174,12 +11302,14 @@ export function createTasks(options: {
       return () => void pump()
     },
     planApproved,
+    stopLeadForChildren,
     planEnded,
 
     async close() {
       closed = true
       browser.close()
       browserApps.clear()
+      runBrowsers.closeAll()
       subAgents.close()
       heldRequests.close()
       leadLifecycle.close()
@@ -11192,6 +11322,7 @@ export function createTasks(options: {
       stopPumping()
       watch?.close()
       linearSync?.close()
+      asanaSync?.close()
       await pumping
       stopping.abort()
       await Promise.all(background)
@@ -11201,6 +11332,8 @@ export function createTasks(options: {
       return (await browserApp(ref, caller, app)).app
     },
     async browserCommand(ref, caller, request) {
+      if (runOnlyBrowserActions.includes(request.action))
+        throw new RequestError(400, `${request.action} works only in an Automation Run’s browser`)
       const { task, app } = await browserApp(ref, caller, request.app)
       if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
       const result = await browser.request({
@@ -11338,7 +11471,53 @@ export function createTasks(options: {
       return apps.log(runId, app)
     },
     stopRunApps(runId) {
+      runBrowsers.close(runId)
       return apps.stopTask(runId)
+    },
+    async runBrowserCommand(runId, caller, request) {
+      await ownedRun(runId, caller)
+      if (caller.kind !== 'run')
+        throw new RequestError(403, 'Only the Automation’s Run uses its browser')
+      if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
+      if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+      const selected = request.app ?? runBrowsers.opened(runId)
+      if (!selected) throw new RequestError(409, 'Open a web App with ted browser open first')
+      const matches = (await apps.list(runId)).filter(
+        (a) =>
+          a.name === selected.name && (selected.repo === undefined || a.repo === selected.repo),
+      )
+      const shown = matches.length === 1 ? matches[0] : undefined
+      if (
+        shown?.kind !== 'web' ||
+        shown.state !== 'running' ||
+        !shown.url ||
+        shown.removed ||
+        !isLoopbackUrl(shown.url)
+      )
+        throw new RequestError(409, 'Choose a running web App this Run started, and its repo')
+      const { capture, ...result } = await runBrowsers.command(runId, shown, request)
+      if (!capture) return result
+      if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+      const dir = path.join(path.dirname(worktreesDir), 'browsers')
+      const file = path.join(dir, `capture-${randomUUID()}.png`)
+      await writeFile(file, capture, { mode: 0o600 })
+      const attachment = await options
+        .saveAttachment(file, `${shown.name} screenshot.png`, 'image/png')
+        .finally(() => rm(file, { force: true }))
+      store.automations.recordBrowserCapture(runId, attachment)
+      await store.persisted()
+      automationUploads.add(`${runId}:${attachment.hash}`)
+      return { ...result, attachment }
+    },
+    runBrowserCapture(runId, caller, hash) {
+      if (caller.kind === 'run' && caller.runId !== runId)
+        throw new RequestError(403, 'A Run can reach only its own browser')
+      const capture = store.automations
+        .browserCaptures([runId])
+        .get(runId)
+        ?.find((c) => c.hash === hash)
+      if (!capture) throw new RequestError(404, 'No browser capture on this Run')
+      return capture
     },
     stopApp(ref, app) {
       browser.cancel(find(ref).id, app)
@@ -11530,7 +11709,7 @@ function answerText(comment: Comment): string | undefined {
   const { answer } = comment
   if (!answer) return undefined
   if (answer.kind === 'approved' && answer.created && comment.proposal) {
-    return splitApprovedSummary(comment.proposal, answer.created, answer.text)
+    return splitApprovedSummary(answer.created, answer.text)
   }
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
