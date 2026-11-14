@@ -1,0 +1,23 @@
+# Asana intake imports only fresh roots from the saved scope
+
+Status: accepted (TED-181)
+
+A Factory can take the user’s Asana work automatically. The user picks one workspace, one project and, optionally, one section. Each run then imports every unfinished Asana task in that project or section that is assigned to the user, together with the unfinished tasks under it, as nested Tasks in Backlog. Whatever runs the import is an agent Run, and a custom prompt can say anything. So the daemon decides what counts as intake work, and the Run only asks for it.
+
+- **The scope is a local per-Factory setting.** `asanaIntakeScopes` maps a Factory ID to `{ workspace, project, section? }`, each a gid and a name. Only the app-only `PUT /factories/:id/asana-intake` changes it. That route first confirms with Asana that the project is in the workspace, isn’t archived, and, when a section is set, that the section belongs to the project. A failed read leaves the saved value as it was. The machine settings route refuses the key. Removing the Factory deletes the entry. The setting holds no on/off switch: intake runs when its Automation runs. It is separate from tracker sync permission (ADR 0147), and importing grants none.
+- **One call does the whole intake.** `Tasks.asanaIntake` (`POST /asana-intake`, `ted asana intake`) takes only the Factory. For an Automation Run, that is the Automation’s own Factory. It confirms the scope again, lists `/sections/:gid/tasks` or `/projects/:gid/tasks` with `completed_since=now`, page by page and with no paid search, and reads each listed task itself (`checkAsanaRoot` in `asana/intake.ts`). A task is a root only if that read says it is incomplete, assigned to the connected user, and a member of the project (and section). TED walks its `parent` chain up to `maxAsanaImportDepth` levels. The Run supplies no items, names or memberships.
+- **Roots don’t overlap.** Roots go shallowest first. A root is skipped (counted in `tracked`) when it or any ancestor is already tracked in the Factory, open, archived or Done. So a subtask that an earlier root’s tree already brought in is never a second root, and a subtask becomes a root through its own membership only when nothing above it was imported. New subtasks under a tracked root stay out; Add to tree is still an app action (ADR 0138).
+- **Each root uses the existing tree import.** `importAsana` with an intake context runs `readAsanaTree`, `planAsanaImport` with the Automation rules, and one `store.createTaskTree` commit per root. That brings subtasks whoever they are assigned to, keeps completed middle items as context, raises the missing-work question for subtasks TED couldn’t read, and leaves Tasks in Backlog as before. A root that fails is skipped with its reason and the rest go on. A run creates at most `maxAsanaIntakeTasks` (100) Tasks. A root that would go past that is checked before its commit and left for the next run, and the result counts it in `left`.
+- **Scope changes stop the run.** The scope read at the start is compared with the saved one before each root and again just before each commit. If it changed, or the Factory is being removed, nothing more is committed and the result says why in `stopped`. A scan that couldn’t finish is reported in `incomplete`. A retry is safe, because roots are matched by Asana task ID.
+- **Every Automation Asana import goes through the same check.** `POST /tasks/asana-import` and its preview, called from an Automation Run, and an Automation’s `ted task create --source <Asana URL>` are refused unless the saved scope exists and the item passes `checkAsanaRoot` with no tracked ancestor. An Automation can’t make a Follow-up of Asana work. The app and the `daemon.json` token keep their existing behaviour.
+
+## Considered Options
+
+- **Let the Run list candidates and import them one by one.** That puts the agent between Asana and the import and doubles the reads. The daemon would still have to check every item, so the Run’s list would add nothing.
+- **Check scope only in the new intake call.** A custom Automation could still import any Asana task by URL, which the scope is meant to prevent.
+
+## Consequences
+
+- An Automation that imported Asana tasks by URL before this change now needs the Factory’s Asana intake scope, and imports only roots in it.
+- Each run reads every listed task and its parents, so a large project costs more requests than the import itself. The list is capped at 1,000 tasks per run, and the cap is reported.
+- Tests use the stub Asana’s workspaces, projects, sections, memberships, parents and request log. They never reach real Asana.

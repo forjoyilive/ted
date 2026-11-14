@@ -232,6 +232,10 @@ _Avoid_: Cron job, trigger
 An Automation that runs its own command as a Check, with no agent, in a fresh worktree on the tip of the Factory’s default branch. When the command fails, TED creates Tasks to fix what failed, and a later failure of the same test file adds a note to its open Task instead of making another.
 _Avoid_: Nightly build, scheduled test run
 
+**Asana intake**:
+TED bringing the user’s unfinished Asana work into one Factory: the user picks one Asana project, and optionally one section of it, and each run imports every task there that is assigned to them, with the unfinished tasks under it, as Tasks in Backlog. TED checks every item with Asana itself and never imports one twice.
+_Avoid_: Asana sync (that is keeping imported items up to date)
+
 **Daemon**:
 TED’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “TED in the background”, not the daemon.
 _Avoid_: Server, backend, service
