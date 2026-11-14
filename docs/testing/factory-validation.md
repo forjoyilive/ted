@@ -14,6 +14,16 @@ Each Factory chooses its Check commands and its Validate instructions. The test-
 
 The [test-lock reporting contract](../contracts/test-lock-reporting.md) explains the distinction between the local log and Task-attributed reports, including unsupported and incomplete measurements. Reporting measures waits; it does not choose tests, impose the repo’s locks, or change pass/fail results.
 
+## This repo’s test runs on a busy machine
+
+These are also rules for developing TED only; the code is in [machine-load.ts](../../scripts/machine-load.ts).
+
+- **Fewer workers when the machine is busy.** A test run reads the 1-minute load average per core when it starts (`os.loadavg()[0] / os.availableParallelism()`). At 0.75 or below it uses the usual worker counts: `pnpm check` runs 3 Electron and 6 Node workers, any other run of 10 or more files 6, a smaller run 3. Above 0.75 each count is multiplied by 0.75 ÷ load and rounded, never below 1: at 1.5 that is 2 and 3, at 4 or more 1 and 1. `pnpm check` starts at once and prints one line with the load and the counts it chose; a plain Vitest run prints the same line.
+- **`pnpm check --wait-for-quiet`** waits first, after it holds the test lock and has installed dependencies, until the load per core is 0.75 or below. It prints what it is waiting for and the load once a minute. After 30 minutes it prints a warning and starts anyway with fewer workers. `--wait-for-quiet=<minutes>` sets another limit, and `TED_CHECK_WAIT_FOR_QUIET` (`1` or minutes) does the same without the flag. While it waits it holds the lock, so other test runs on the machine wait too.
+- **`TED_TEST_LOAD`** overrides the reading: `off` ignores the load and keeps the usual counts, and a number is used as the load per core. `vitest.config.ts` sets `off` for every test file, and `scripts/measure-check.ts` sets it for the check it measures.
+- **The load is recorded.** Each `run` line in `~/.cache/ted/test-failures.jsonl` carries `load` (per core, read once the run holds its slot or lock) and `workers`. `pnpm test-failures` says how many runs started on a busy machine and has a `busy` column: how many of a test’s failures were in such runs. `pnpm check` also saves `load` and `workers` with each run in `node_modules/.cache/ted-test-failures.json`.
+- **`pnpm flaky <file> [-t <name>] [--runs N] [--load N]`** runs one test file N times (default 5, at most 50) with busy threads beside it (default one per core) and no retry, then prints how many runs passed and how many runs each test failed in. Each run’s output is saved under `node_modules/.cache/ted-flaky/`. It takes the full-run lock, like `pnpm check`, because its load would make any test run beside it fail; the load starts only once it holds the lock and stops when it ends or is interrupted. Its runs are not written to `test-failures.jsonl`. It is refused when `TED_RUN` is set: a Run’s Validate runs the touched files once, and loading every core would slow every other Run.
+
 ## Choose a Factory’s validation
 
 Use the Factory settings’ Checks section for commands TED must run. Each Check has a name, command, optional repo and timeout (default ten minutes). The corresponding configuration is `stages.validate.checks` in the primary repo’s `.ted/workflow.yaml`. For example, this fragment declares a project’s test command:
