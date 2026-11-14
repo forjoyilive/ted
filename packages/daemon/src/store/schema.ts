@@ -534,6 +534,7 @@ export const comments = State.SQLite.table({
     tutorial: State.SQLite.boolean({ default: false }),
     linearTeam: State.SQLite.text({ nullable: true }),
     asanaMissing: State.SQLite.text({ nullable: true }),
+    asanaUnfinished: State.SQLite.text({ nullable: true }),
     archive: State.SQLite.text({ nullable: true }),
     cleanupFailure: State.SQLite.text({ nullable: true }),
     purpose: State.SQLite.text({ nullable: true }),
@@ -3335,6 +3336,10 @@ export const events = {
     name: 'v1.CommentAsanaMissingAsked',
     schema: Schema.Struct({ commentId: Schema.String, missing: Schema.String }),
   }),
+  commentAsanaUnfinishedAsked: Events.synced({
+    name: 'v1.CommentAsanaUnfinishedAsked',
+    schema: Schema.Struct({ commentId: Schema.String, unfinished: Schema.String }),
+  }),
   commentCleanupFailureAsked: Events.synced({
     name: 'v1.CommentCleanupFailureAsked',
     schema: Schema.Struct({ commentId: Schema.String, failure: Schema.String }),
@@ -4090,6 +4095,8 @@ const materializers = counted(
         comments.update({ linearTeam: JSON.stringify({ key, name }) }).where({ id: commentId }),
       'v1.CommentAsanaMissingAsked': ({ commentId, missing }) =>
         comments.update({ asanaMissing: missing }).where({ id: commentId }),
+      'v1.CommentAsanaUnfinishedAsked': ({ commentId, unfinished }) =>
+        comments.update({ asanaUnfinished: unfinished }).where({ id: commentId }),
       'v1.CommentArchiveAsked': ({ commentId, archive }) =>
         comments.update({ archive }).where({ id: commentId }),
       'v1.CommentCleanupFailureAsked': ({ commentId, failure }) =>

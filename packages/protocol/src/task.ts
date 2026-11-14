@@ -706,6 +706,7 @@ export type RequestPurpose =
         | 'linear-closed'
         | 'linear-team'
         | 'asana-missing'
+        | 'asana-unfinished'
         | 'cleanup-failure'
         | 'archive'
         | 'idle-run'
@@ -759,6 +760,7 @@ export interface Comment {
   tutorial?: true
   linearTeam?: LinearTeam
   asanaMissing?: import('./asana-import.ts').AsanaMissing
+  asanaUnfinished?: import('./asana-import.ts').AsanaUnfinished
   archive?: ArchiveAsk
   cleanupFailure?: CleanupFailureAsk
 }

@@ -26,6 +26,7 @@ import {
   type ArchiveAsk,
   type AsanaMissing,
   type AsanaSync,
+  type AsanaUnfinished,
   type Attachment,
   type AutopilotChoice,
   agentStageIds,
@@ -573,6 +574,7 @@ export interface NewComment {
   tutorial?: boolean
   linearTeam?: LinearTeam
   asanaMissing?: AsanaMissing
+  asanaUnfinished?: AsanaUnfinished
   archive?: ArchiveAsk
   cleanupFailure?: CleanupFailureAsk
 }
@@ -1146,6 +1148,7 @@ export interface TedStore extends TaskHistory {
   setScheduledChecks(counts: { running: number; waiting: number }): void
   setAsanaConnection(account: string | undefined): void
   setAsanaOpenChildren(taskId: string, count: number | undefined): void
+  setAsanaLeftOpen(taskId: string, leftOpen: boolean): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
@@ -2357,6 +2360,7 @@ export async function openStore({
     tutorial,
     linearTeam,
     asanaMissing,
+    asanaUnfinished,
     archive,
     cleanupFailure,
     purpose,
@@ -2408,6 +2412,9 @@ export async function openStore({
         ...(tutorial && { tutorial: true as const }),
         ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
         ...(asanaMissing !== null && { asanaMissing: JSON.parse(asanaMissing) as AsanaMissing }),
+        ...(asanaUnfinished !== null && {
+          asanaUnfinished: JSON.parse(asanaUnfinished) as AsanaUnfinished,
+        }),
         ...(archive !== null && { archive: JSON.parse(archive) as ArchiveAsk }),
         ...(cleanupFailure !== null && {
           cleanupFailure: JSON.parse(cleanupFailure) as CleanupFailureAsk,
@@ -2773,6 +2780,7 @@ export async function openStore({
       tutorial = false,
       linearTeam,
       asanaMissing,
+      asanaUnfinished,
       archive,
       cleanupFailure,
       purpose,
@@ -2824,6 +2832,7 @@ export async function openStore({
         ...(sizeCheck && { sizeCheck }),
         ...(linearTeam && { linearTeam }),
         ...(asanaMissing && { asanaMissing }),
+        ...(asanaUnfinished && { asanaUnfinished }),
         ...(archive && { archive }),
         ...(cleanupFailure && { cleanupFailure }),
       })
@@ -2855,6 +2864,14 @@ export async function openStore({
             events.commentAsanaMissingAsked({
               commentId: id,
               missing: JSON.stringify(asanaMissing),
+            }),
+          ]
+        : []),
+      ...(asanaUnfinished
+        ? [
+            events.commentAsanaUnfinishedAsked({
+              commentId: id,
+              unfinished: JSON.stringify(asanaUnfinished),
             }),
           ]
         : []),
@@ -3034,6 +3051,7 @@ export async function openStore({
 
   let asanaConnection: { known: false } | { known: true; account?: string } = { known: false }
   const asanaOpenChildren = new Map<string, number>()
+  const asanaLeftOpen = new Set<string>()
 
   const asanaSyncFor = (
     row: { id: string; archived: boolean },
@@ -3045,6 +3063,11 @@ export async function openStore({
     const record = trackerRecordFrom(reads.log(row.id), 'asana')
     const merged = stage === 'done' && isMerged(row.id)
     const openChildren = asanaOpenChildren.get(row.id)
+    const unfinishedAsked =
+      merged &&
+      reads
+        .comments(row.id)
+        .some((c) => c.asanaUnfinished !== null && c.answer === null && c.heldFor === null)
     return asanaSyncOf({
       allowed: record.allowed,
       ...(record.allowedAccount !== undefined && { allowedAccount: record.allowedAccount }),
@@ -3056,6 +3079,8 @@ export async function openStore({
       completeInAsana: record.seen?.closed === true,
       merged,
       ...(openChildren !== undefined && { openChildren }),
+      ...(unfinishedAsked && { unfinishedAsked }),
+      ...(asanaLeftOpen.has(row.id) && { leftOpen: true }),
       linked: record.linked.size,
     })
   }
@@ -4782,7 +4807,10 @@ export async function openStore({
     },
     trackerSync: trackerRecord,
     trackerSyncAllowed(taskId, tracker, item, account, by = 'menu') {
-      if (tracker === 'asana') asanaOpenChildren.delete(taskId)
+      if (tracker === 'asana') {
+        asanaOpenChildren.delete(taskId)
+        asanaLeftOpen.delete(taskId)
+      }
       commit(
         events.trackerSyncAllowed({
           taskId,
@@ -6484,6 +6512,12 @@ export async function openStore({
       if (asanaOpenChildren.get(taskId) === count) return
       if (count === undefined) asanaOpenChildren.delete(taskId)
       else asanaOpenChildren.set(taskId, count)
+      if (taskRow(taskId)) updatedTask(taskId)
+    },
+    setAsanaLeftOpen(taskId, leftOpen) {
+      if (asanaLeftOpen.has(taskId) === leftOpen) return
+      if (leftOpen) asanaLeftOpen.add(taskId)
+      else asanaLeftOpen.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
     },
     setScheduledChecks(counts) {

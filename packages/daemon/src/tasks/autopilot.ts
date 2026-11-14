@@ -8,6 +8,8 @@ export function ordinaryAutopilotRequest(comment: Comment): boolean {
     comment.simulator ||
     isTrackerGroupAsk(comment) ||
     comment.sizeCheck ||
+    comment.asanaMissing ||
+    comment.asanaUnfinished ||
     comment.failed
   )
     return false

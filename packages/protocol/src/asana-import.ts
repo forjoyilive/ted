@@ -151,3 +151,27 @@ export interface AsanaMissing {
   rootGid: string
   items: { gid: string; name: string; url: string; reason: string }[]
 }
+
+export type AsanaUnfinishedReason = 'new' | 'skipped' | 'archived' | 'unreadable' | 'over-limit'
+
+export interface AsanaUnfinishedItem {
+  key: string
+  gid: string
+  name: string
+  url: string
+  reason: AsanaUnfinishedReason
+  detail?: string
+}
+
+export interface AsanaUnfinished {
+  parentGid: string
+  items: AsanaUnfinishedItem[]
+}
+
+export const asanaAddChoice = 'Add them as Tasks'
+export const asanaCompleteChoice = 'Complete it in Asana anyway'
+export const asanaLeaveOpenChoice = 'Leave it open in Asana'
+
+export function asanaImportable(item: Pick<AsanaUnfinishedItem, 'reason'>): boolean {
+  return item.reason === 'new' || item.reason === 'skipped'
+}

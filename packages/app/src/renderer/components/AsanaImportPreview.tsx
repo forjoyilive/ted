@@ -231,9 +231,19 @@ export function taskSyncText(sync: AsanaSync): { state: string; why: string } {
       const n = sync.openChildren ?? 1
       return {
         state: 'Not completed yet',
-        why: `Every pull request merged, but ${n} ${n === 1 ? 'task' : 'tasks'} under it in Asana ${n === 1 ? 'isn’t' : 'aren’t'} complete. TED completes it once they are.`,
+        why: `Every pull request merged, but ${n} ${n === 1 ? 'task' : 'tasks'} under it in Asana ${n === 1 ? 'isn’t' : 'aren’t'} complete. ${n === 1 ? 'Its TED Task completes it' : 'Their TED Tasks complete them'} on merging, and TED completes this one after.`,
       }
     }
+    case 'needs-answer':
+      return {
+        state: 'Waiting for your answer',
+        why: 'Every pull request merged, but items under it in Asana have no TED Task. Answer the question in this Task’s thread.',
+      }
+    case 'left-open':
+      return {
+        state: 'Left open in Asana',
+        why: 'You chose to leave it open while items under it are unfinished. TED asks again if a new one appears.',
+      }
     case 'completed-by-ted':
       return {
         state: 'Completed by TED',

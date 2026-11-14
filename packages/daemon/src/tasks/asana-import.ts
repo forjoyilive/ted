@@ -35,6 +35,7 @@ export function planAsanaImport(input: {
   app: boolean
   parentRefusal: (taskId: string) => string | undefined
   blockersOf: (taskId: string) => readonly string[]
+  doneParent?: string
 }): AsanaPlan {
   const { tree, tasks, factoryId } = input
   const root = tree.nodes.get(tree.rootGid)
@@ -93,7 +94,10 @@ export function planAsanaImport(input: {
   let tracked: AsanaImportPreview['tracked']
   const rootClash = clashOf(root.gid)
   let rootRef: ParentRef = { gid: root.gid }
-  if (rootClash?.kind === 'open') {
+  if (
+    rootClash?.kind === 'open' ||
+    (rootClash?.kind === 'done' && rootClash.task.id === input.doneParent)
+  ) {
     tracked = {
       taskId: rootClash.task.id,
       displayId: rootClash.task.displayId,
@@ -195,7 +199,9 @@ export function planAsanaImport(input: {
     else if (who.you) ownership.you++
     else ownership.others++
   }
-  const held = [...holds.values()]
+  const held = [...holds.values()].filter(
+    (h) => !('taskId' in h.parent && h.parent.taskId === input.doneParent),
+  )
   return {
     preview: {
       root: { gid: root.gid, name: root.name, url: root.url, completed: root.completed },

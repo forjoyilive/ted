@@ -5,6 +5,8 @@ export type AsanaSyncState =
   | 'other-account'
   | 'waiting-merge'
   | 'waiting-children'
+  | 'needs-answer'
+  | 'left-open'
   | 'completed-by-ted'
   | 'completed-in-asana'
   | 'archived'
@@ -19,6 +21,8 @@ export interface AsanaSync {
 export const asanaSyncing: readonly AsanaSyncState[] = [
   'waiting-merge',
   'waiting-children',
+  'needs-answer',
+  'left-open',
   'completed-by-ted',
   'completed-in-asana',
   'archived',
@@ -34,6 +38,8 @@ export interface AsanaSyncFacts {
   completeInAsana: boolean
   merged: boolean
   openChildren?: number
+  unfinishedAsked?: boolean
+  leftOpen?: boolean
   linked: number
 }
 
@@ -50,6 +56,8 @@ export function asanaSyncOf(facts: AsanaSyncFacts): AsanaSync {
       return { state: 'completed-by-ted', completedAt: facts.completedByTed }
     if (facts.completeInAsana) return { state: 'completed-in-asana' }
     if (facts.archivedUnmerged) return { state: 'archived' }
+    if (facts.merged && facts.unfinishedAsked === true) return { state: 'needs-answer' }
+    if (facts.merged && facts.leftOpen === true) return { state: 'left-open' }
     if (facts.merged && facts.openChildren !== undefined && facts.openChildren > 0)
       return { state: 'waiting-children', openChildren: facts.openChildren }
     return { state: 'waiting-merge' }

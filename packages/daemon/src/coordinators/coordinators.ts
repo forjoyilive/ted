@@ -164,6 +164,19 @@ export interface Coordinators {
   close(): Promise<void>
 }
 
+export function coordinatorNeverAnswers(comment: Comment): boolean {
+  return Boolean(
+    comment.kind === 'note' ||
+      comment.kind === 'permission' ||
+      comment.permission ||
+      comment.simulator ||
+      isTrackerGroupAsk(comment) ||
+      comment.asanaMissing ||
+      comment.asanaUnfinished ||
+      comment.cleanupFailure,
+  )
+}
+
 export function createCoordinators(options: {
   home: string
   store: TedStore
@@ -704,16 +717,7 @@ export function createCoordinators(options: {
   }
 
   function mayAnswer(comment: Comment): CoordinatorRequest['coordinatorMayAnswer'] {
-    if (
-      comment.kind === 'note' ||
-      comment.kind === 'permission' ||
-      comment.permission ||
-      comment.simulator ||
-      isTrackerGroupAsk(comment) ||
-      comment.asanaMissing ||
-      comment.cleanupFailure
-    )
-      return 'no'
+    if (coordinatorNeverAnswers(comment)) return 'no'
     if (comment.kind === 'round') return 'round answers'
     if (comment.kind === 'proposal' || comment.gate) return 'approve or request changes'
     if (comment.kind !== 'question') return 'no'
