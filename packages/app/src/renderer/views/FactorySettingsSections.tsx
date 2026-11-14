@@ -15,6 +15,7 @@ import type {
   StageId,
   StageRowView,
 } from '@ted/protocol'
+import { cleanupStepProblem } from '@ted/protocol/factory-settings'
 import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
@@ -28,6 +29,8 @@ import { StageEffort } from '../components/StageEffort.tsx'
 import { useEventValue, useSettings } from '../data.ts'
 import {
   agentEdited,
+  type CleanupStepDraft,
+  cleanupStepInput,
   driftLine,
   lastRunText,
   lastValidLine,
@@ -1330,6 +1333,199 @@ function keyed<T>(items: readonly T[], name: (item: T) => string): { key: string
   })
 }
 
+const newStep: CleanupStepDraft = {
+  name: '',
+  kind: 'instruction',
+  instruction: '',
+  command: '',
+  timeout: '',
+}
+
+function CleanupSectionView({ draft, onDraft }: { draft: SettingsDraft; onDraft: Update }) {
+  const keys = useRef<string[]>([])
+  const counter = useRef(0)
+  const touched = useRef(new Set<string>())
+  const focusLast = useRef(false)
+  const lastName = useRef<HTMLInputElement>(null)
+  const { enabled, steps } = draft.cleanup
+  while (keys.current.length < steps.length) keys.current.push(`step-${counter.current++}`)
+  if (keys.current.length > steps.length) keys.current.length = steps.length
+  useEffect(() => {
+    if (!focusLast.current) return
+    focusLast.current = false
+    lastName.current?.focus()
+  })
+  const inputs = steps.map(cleanupStepInput)
+  const setCleanup = (change: (cleanup: SettingsDraft['cleanup']) => SettingsDraft['cleanup']) =>
+    onDraft((d) => ({ ...d, cleanup: change(d.cleanup) }))
+  const setStep = (index: number, fields: Partial<CleanupStepDraft>) => {
+    const key = keys.current[index]
+    if (key !== undefined) touched.current.add(key)
+    setCleanup((c) => ({
+      ...c,
+      steps: c.steps.map((step, i) => (i === index ? { ...step, ...fields } : step)),
+    }))
+  }
+  const move = (index: number, by: number) => {
+    const to = index + by
+    const order = <T,>(list: T[]) => {
+      const next = [...list]
+      const [item] = next.splice(index, 1)
+      if (item !== undefined) next.splice(to, 0, item)
+      return next
+    }
+    keys.current = order(keys.current)
+    setCleanup((c) => ({ ...c, steps: order(c.steps) }))
+  }
+
+  return (
+    <section className={`${base.section} ${base.compactSection}`} aria-labelledby="cleanup">
+      <SectionHeading
+        id="cleanup"
+        setting="factory.cleanup"
+        title="Cleanup"
+        help="Steps that run after a Task’s pull requests merge and before it moves to Done. TED runs the command steps itself, then the Task Lead does the instruction steps."
+      />
+      <div className={base.autoStartRow} data-setting="factory.cleanup.enabled">
+        <div className={base.block}>
+          <span className={base.label}>Turn on Cleanup</span>
+          <span className={base.caption}>Adds a Cleanup column between Merge and Done.</span>
+        </div>
+        <Toggle
+          label="Turn on Cleanup"
+          checked={enabled}
+          onChange={(on) => setCleanup((c) => ({ ...c, enabled: on }))}
+        />
+      </div>
+      <div className={base.block}>
+        <span className={base.label}>Steps</span>
+        <span className={base.caption}>
+          In order. A command runs in the Task’s worktree, in the sandbox, and a failed command
+          doesn’t stop the steps after it.
+        </span>
+      </div>
+      {enabled && steps.length === 0 && (
+        <p className={styles.cleanupNotice}>Cleanup stays off until it has at least one step.</p>
+      )}
+      {steps.map((step, index) => {
+        const key = keys.current[index] ?? String(index)
+        const input = inputs[index]
+        const problem =
+          input && touched.current.has(key) ? cleanupStepProblem(input, inputs) : undefined
+        const label = step.name.trim() || `Step ${index + 1}`
+        return (
+          <div key={key} className={styles.cleanupStep}>
+            <div className={styles.cleanupHead}>
+              <span className={styles.cleanupNumber}>{index + 1}</span>
+              <input
+                ref={index === steps.length - 1 ? lastName : undefined}
+                aria-label={`Step ${index + 1} name`}
+                className={`${base.input} ${styles.cleanupName}`}
+                placeholder="Name"
+                value={step.name}
+                onChange={(event) => setStep(index, { name: event.target.value })}
+              />
+              <Select
+                aria-label={`${label} kind`}
+                controlClassName={styles.cellSelect}
+                value={step.kind}
+                onChange={(event) =>
+                  setStep(index, { kind: event.target.value as CleanupStepDraft['kind'] })
+                }
+              >
+                <option value="instruction">Instruction</option>
+                <option value="command">Command</option>
+              </Select>
+              <ActionButton
+                type="button"
+                className={base.iconButton}
+                aria-label={`Move ${label} up`}
+                disabled={index === 0}
+                onClick={() => move(index, -1)}
+              >
+                ↑
+              </ActionButton>
+              <ActionButton
+                type="button"
+                className={base.iconButton}
+                aria-label={`Move ${label} down`}
+                disabled={index === steps.length - 1}
+                onClick={() => move(index, 1)}
+              >
+                ↓
+              </ActionButton>
+              <ActionButton
+                type="button"
+                className={base.iconButton}
+                aria-label={`Remove ${label}`}
+                onClick={() => {
+                  keys.current.splice(index, 1)
+                  setCleanup((c) => ({ ...c, steps: c.steps.filter((_, i) => i !== index) }))
+                }}
+              >
+                <CloseIcon size={12} />
+              </ActionButton>
+            </div>
+            {step.kind === 'instruction' ? (
+              <label className={`${base.field} ${styles.cleanupBody}`}>
+                <span className={base.caption}>Instruction for the Task Lead</span>
+                <textarea
+                  aria-label={`${label} instruction`}
+                  className={`${base.input} ${styles.cleanupText}`}
+                  rows={3}
+                  placeholder="Post a comment on the Asana task linking the merged pull request."
+                  value={step.instruction}
+                  onChange={(event) => setStep(index, { instruction: event.target.value })}
+                />
+              </label>
+            ) : (
+              <div className={`${styles.cleanupCommand} ${styles.cleanupBody}`}>
+                <label className={base.field}>
+                  <span className={base.caption}>Command</span>
+                  <input
+                    aria-label={`${label} command`}
+                    className={`${base.input} ${base.mono}`}
+                    placeholder="docker compose down"
+                    value={step.command}
+                    onChange={(event) => setStep(index, { command: event.target.value })}
+                  />
+                </label>
+                <label className={base.field}>
+                  <span className={base.caption}>Timeout</span>
+                  <input
+                    aria-label={`${label} timeout`}
+                    className={base.input}
+                    placeholder="10m"
+                    value={step.timeout}
+                    onChange={(event) => setStep(index, { timeout: event.target.value })}
+                  />
+                </label>
+              </div>
+            )}
+            {problem !== undefined && (
+              <p className={`${base.fieldError} ${styles.cleanupBody}`} role="alert">
+                {problem}
+              </p>
+            )}
+          </div>
+        )
+      })}
+      <div>
+        <ActionButton
+          type="button"
+          className={base.link}
+          onClick={() => {
+            focusLast.current = true
+            setCleanup((c) => ({ ...c, steps: [...c.steps, { ...newStep }] }))
+          }}
+        >
+          + Add step
+        </ActionButton>
+      </div>
+    </section>
+  )
+}
+
 function sameDraft<P extends { draft: SettingsDraft }>(...fields: (keyof SettingsDraft)[]) {
   return (before: P, after: P) =>
     (Object.keys(after) as (keyof P)[]).every((name) =>
@@ -1344,6 +1540,7 @@ export const WorkflowSection = memo(
   sameDraft('stages', 'stageFiles', 'keepStageFiles'),
 )
 export const ChecksSection = memo(ChecksSectionView, sameDraft('checks', 'repos'))
+export const CleanupSection = memo(CleanupSectionView, sameDraft('cleanup'))
 export const AgentsSection = memo(AgentsSectionView, sameDraft('agents'))
 export function NotificationsSection({ factoryId }: { factoryId: string }) {
   const settings = useSettings()

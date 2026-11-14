@@ -874,3 +874,69 @@ test('Factory settings search finds both kinds of setting and marks one on this 
   await user().keyboard('{Escape}')
   expect(document.activeElement).not.toBe(field)
 })
+
+test('Cleanup turns on, adds an instruction and a command step, reorders them and saves', async () => {
+  const save = vi.fn(() => ({
+    merged: true,
+    pullRequest: { number: 1, url: 'https://github.com/acme/widgets/pull/1' },
+  }))
+  const api = open({
+    previewFactorySettings: () => ({
+      valid: true,
+      sideEffects: [],
+      turnsOnBypass: false,
+      problems: [],
+      files: [{ path: '.ted/workflow.yaml', before: '', after: 'stages: {}', lines: [] }],
+    }),
+    saveFactorySettings: save,
+  })
+  const u = user()
+  await page('Cleanup')
+  const region = await screen.findByRole('region', { name: 'Cleanup' })
+  const inside = within(region)
+  await u.click(inside.getByRole('switch', { name: 'Turn on Cleanup' }))
+  expect(inside.getByText('Cleanup stays off until it has at least one step.')).toBeTruthy()
+  expect(unsavedOn('Cleanup')).toBe(true)
+
+  await u.click(inside.getByRole('button', { name: '+ Add step' }))
+  expect(document.activeElement).toBe(inside.getByRole('textbox', { name: 'Step 1 name' }))
+  await u.type(inside.getByRole('textbox', { name: 'Step 1 name' }), 'Stop stack')
+  await u.selectOptions(inside.getByRole('combobox', { name: 'Stop stack kind' }), 'command')
+  expect(inside.getByRole('alert').textContent).toBe('Write the command.')
+  await u.type(inside.getByRole('textbox', { name: 'Stop stack command' }), 'docker compose down')
+  await u.type(inside.getByRole('textbox', { name: 'Stop stack timeout' }), '2m')
+  expect(inside.queryByRole('alert')).toBeNull()
+
+  await u.click(inside.getByRole('button', { name: '+ Add step' }))
+  await u.type(inside.getByRole('textbox', { name: 'Step 2 name' }), 'Tell Asana')
+  await u.type(
+    inside.getByRole('textbox', { name: 'Tell Asana instruction' }),
+    'Comment on the Asana task.',
+  )
+  await u.click(inside.getByRole('button', { name: 'Move Tell Asana up' }))
+  expect((inside.getByRole('textbox', { name: 'Step 1 name' }) as HTMLInputElement).value).toBe(
+    'Tell Asana',
+  )
+
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
+  const cleanup = {
+    enabled: true,
+    steps: [
+      { name: 'Tell Asana', instruction: 'Comment on the Asana task.' },
+      { name: 'Stop stack', command: 'docker compose down', timeout: '2m' },
+    ],
+  }
+  expect(api.request).toHaveBeenCalledWith(
+    'saveFactorySettings',
+    'f1',
+    expect.objectContaining({ changes: expect.objectContaining({ cleanup }) }),
+  )
+
+  const field = pageList().getByRole<HTMLInputElement>('combobox', { name: 'Search settings' })
+  fireEvent.change(field, { target: { value: 'turn on cleanup' } })
+  expect((pageList().getAllByRole('option')[0] as HTMLElement).textContent).toBe(
+    'Turn on Cleanupwidgets › Settings › Cleanup',
+  )
+})

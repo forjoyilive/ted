@@ -56,6 +56,7 @@ import styles from './FactorySettings.module.css'
 import {
   AgentsSection,
   ChecksSection,
+  CleanupSection,
   InvalidNotice,
   NotesSection,
   NotificationsSection,
@@ -96,6 +97,7 @@ const repoSections: ReadonlySet<FactorySectionId> = new Set([
   'repos',
   'workflow',
   'checks',
+  'cleanup',
   'agents',
   'permissions',
   'notes',
@@ -453,6 +455,7 @@ export function FactorySettings({
                   {section === 'checks' && (
                     <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
                   )}
+                  {section === 'cleanup' && <CleanupSection draft={draft} onDraft={onDraft} />}
                   {section === 'agents' && (
                     <AgentsSection
                       view={view}

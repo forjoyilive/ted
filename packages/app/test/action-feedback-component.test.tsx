@@ -235,6 +235,7 @@ test('Check Run now acknowledges before a remote running state and restores afte
     stages: [],
     ignoredStageFiles: [],
     checks: [],
+    cleanup: { enabled: false, steps: [] },
     tries: [],
     agents: [],
     permissions: 'auto',

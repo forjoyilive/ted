@@ -6,7 +6,10 @@ import {
   agentRoles,
   appKinds,
   type CheckInput,
+  type CleanupSettingsInput,
+  cleanupStepProblem,
   type FactorySettingsChanges,
+  isCleanupCommand,
   type RepoSettingsInput,
   type WorkflowProblem,
   type WorktreeCommandInput,
@@ -166,6 +169,11 @@ export function inputProblems(
   if (new Set(checks.map((c) => c.name.trim())).size !== checks.length) {
     add('Two Checks have the same name.')
   }
+  for (const step of changes.cleanup?.steps ?? []) {
+    const problem = cleanupStepProblem(step, changes.cleanup?.steps ?? [])
+    if (problem !== undefined)
+      add(`Cleanup step ${step.name.trim() || 'without a name'}: ${problem}`)
+  }
   const limit = changes.maxWorkingRuns
   if (typeof limit === 'number' && (!Number.isInteger(limit) || limit < 1)) {
     add('The limit on working Runs must be a whole number above 0.')
@@ -229,6 +237,7 @@ export function applyChanges(
     const kept = changes.checks.filter((c) => !removed.has(c.repo?.trim() ?? ''))
     writeChecks(doc, root, kept)
   }
+  if (changes.cleanup !== undefined) writeCleanup(doc, root, changes.cleanup)
   for (const role of agentRoles) {
     const choice = changes.agents?.[role]
     if (choice === undefined) continue
@@ -358,6 +367,47 @@ function writeChecks(doc: Document, root: YAMLMap, checks: readonly CheckInput[]
     const seq = new YAMLSeq()
     seq.items = items
     setKeepingStyle(stageMap(doc, root, 'validate'), 'checks', seq)
+  }
+}
+
+function writeCleanup(doc: Document, root: YAMLMap, cleanup: CleanupSettingsInput): void {
+  const stages: unknown = root.get('stages', true)
+  const found = isMap(stages) ? stages.get('cleanup', true) : undefined
+  if (!cleanup.enabled && cleanup.steps.length === 0) {
+    if (!isMap(found)) return
+    found.delete('steps')
+    if (found.items.every((pair) => scalarKey(pair.key) === 'enabled')) {
+      ;(stages as YAMLMap).delete('cleanup')
+      if ((stages as YAMLMap).items.length === 0) root.delete('stages')
+    } else setKeepingStyle(found, 'enabled', false)
+    return
+  }
+  const map = stageMap(doc, root, 'cleanup')
+  setKeepingStyle(map, 'enabled', cleanup.enabled)
+  const node = map.get('steps', true)
+  if (cleanup.steps.length === 0) return void map.delete('steps')
+  const old = isSeq(node) ? (node.items as unknown[]) : []
+  const items = cleanup.steps.map((step) => {
+    const name = step.name.trim()
+    const kept = old.find((item) => isMap(item) && item.get('name') === name)
+    const item = isMap(kept) ? kept : (doc.createNode({}) as YAMLMap)
+    setKeepingStyle(item, 'name', name)
+    if (isCleanupCommand(step)) {
+      item.delete('instruction')
+      setKeepingStyle(item, 'command', step.command.trim())
+      setOrDelete(item, 'timeout', step.timeout?.trim() || undefined)
+    } else {
+      item.delete('command')
+      item.delete('timeout')
+      setKeepingStyle(item, 'instruction', step.instruction.trim())
+    }
+    return item
+  })
+  if (isSeq(node)) node.items = items
+  else {
+    const seq = new YAMLSeq()
+    seq.items = items
+    map.set('steps', seq)
   }
 }
 

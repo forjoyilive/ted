@@ -585,3 +585,56 @@
   align-items: center;
   gap: 8px;
 }
+
+.cleanupNotice {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: var(--text-12-5);
+}
+
+.cleanupStep {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.cleanupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cleanupName {
+  flex: 1;
+  width: auto;
+}
+
+.cleanupNumber {
+  width: 16px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cleanupBody {
+  margin-left: 24px;
+}
+
+.cleanupText {
+  min-height: 56px;
+  resize: vertical;
+}
+
+.cleanupCommand {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px;
+  gap: 8px;
+}
