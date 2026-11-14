@@ -51,6 +51,11 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     await allTasks().click()
     expect(await backlog().getAttribute('aria-expanded')).toBe('false')
     expect(await window.getByRole('row', { name: /Remember collapsed groups/ }).count()).toBe(0)
+    const size = window.viewportSize()
+    await window.setViewportSize({ width: 900, height: 640 })
+    const statusHead = window.getByRole('columnheader', { name: 'Status', exact: true })
+    expect((await statusHead.boundingBox())?.width).toBeGreaterThanOrEqual(140)
+    if (size) await window.setViewportSize(size)
     if (process.env.TED_LIST_COLLAPSE_SCREENSHOT) {
       await window.screenshot({ path: process.env.TED_LIST_COLLAPSE_SCREENSHOT })
     }

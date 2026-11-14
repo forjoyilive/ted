@@ -984,7 +984,7 @@ export function TaskList({
                 {columns.map((column) => (
                   <th
                     key={column}
-                    className={`${styles.cell} ${rightAligned.has(column) ? styles.right : ''}`}
+                    className={`${styles.cell} ${rightAligned.has(column) ? styles.right : ''} ${column === 'status' ? styles.statusHead : ''}`}
                   >
                     {column === 'priority'
                       ? ''
