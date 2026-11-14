@@ -21,7 +21,7 @@ import {
 } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
-import { BellOffIcon, ChevronIcon } from '../components/icons.tsx'
+import { BellOffIcon, ChevronIcon, ClockIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { TaskDialog, type TaskDialogKind } from '../components/TaskActions.tsx'
 import type { ConfirmationRequest } from '../data.ts'
@@ -637,7 +637,7 @@ export function Inbox({
                               snoozeMenu(row.request.id, buttonPosition(event.currentTarget))
                             }
                           >
-                            Snooze <span className={styles.key}>H</span>
+                            <ClockIcon className={styles.snoozeIcon} />
                           </button>
                         )}
                       </li>
