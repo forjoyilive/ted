@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -104,6 +104,8 @@ test('an Automation Run drives its web App in a headless browser, at a narrow wi
         browser('color-scheme', 'dark'),
         browser('screenshot'),
         browser('navigate', 'http://example.com/'),
+        { waitFor: path.join(scratch, 'app-stopped') },
+        browser('snapshot'),
         { endTurn: true },
       ],
     }),
@@ -115,6 +117,23 @@ test('an Automation Run drives its web App in a headless browser, at a narrow wi
       )?.runId,
     'the Automation Run',
   )
+  const browserFolders = async () =>
+    (await readdir(path.join(home, 'browsers')).catch(() => [] as string[])).filter((name) =>
+      name.startsWith(runId),
+    )
+  await waitUntil(
+    async () =>
+      assistantTexts((await client.getRun(runId)).conversation).length >= 10 ? true : undefined,
+    'the browser steps',
+    90_000,
+  )
+  expect(await browserFolders()).toHaveLength(1)
+  await ok('POST', `/runs/${runId}/apps/stop`, { name: 'Web' })
+  await waitUntil(
+    async () => ((await browserFolders()).length === 0 ? true : undefined),
+    'the browser to close with its App',
+  )
+  await writeFile(path.join(scratch, 'app-stopped'), '')
   const finished = await waitUntil(
     async () =>
       (await ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
@@ -133,6 +152,7 @@ test('an Automation Run drives its web App in a headless browser, at a narrow wi
   expect(results[6]?.stdout).toContain('Attach with ted task create --attach')
   expect(results[9]?.code).not.toBe(0)
   expect(results[9]?.stderr).toContain('Navigate within this App’s origin')
+  expect(results[10]?.code).not.toBe(0)
 
   const shots = finished.screenshots ?? []
   expect(shots.map((s) => [s.name, s.mediaType])).toEqual([
@@ -145,14 +165,5 @@ test('an Automation Run drives its web App in a headless browser, at a narrow wi
     `/attachments/${shots[0]?.hash}/${encodeURIComponent('Web screenshot.png')}`,
   )
   const { width, height } = pngSize(Buffer.from(bytes.data, 'base64'))
-  expect([390, 780]).toContain(width)
-  expect(height / width).toBeCloseTo(844 / 390, 1)
-
-  await waitUntil(
-    async () =>
-      (await stat(path.join(home, 'browsers', runId)).catch(() => undefined)) === undefined
-        ? true
-        : undefined,
-    'the Run’s browser to close',
-  )
+  expect({ width, height }).toEqual({ width: 390, height: 844 })
 })

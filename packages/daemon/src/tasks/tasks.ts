@@ -890,6 +890,11 @@ export function createTasks(options: {
     }
     return appTask(id)
   }
+  const runBrowsers = createRunBrowsers({
+    dir: path.join(path.dirname(worktreesDir), 'browsers'),
+    env: () => options.env?.() ?? process.env,
+    lowPriority: () => store.settings().lowPriorityWork,
+  })
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
@@ -907,6 +912,13 @@ export function createTasks(options: {
       banners,
     },
     emit: (event) => {
+      if (event.type === 'apps-changed' && runBrowsers.opened(event.taskId)) {
+        const runId = event.taskId
+        void apps.list(runId).then(
+          (list) => runBrowsers.appsChanged(runId, list),
+          () => runBrowsers.close(runId),
+        )
+      }
       for (const listener of listeners) listener(event)
     },
     keep(taskId) {
@@ -1005,11 +1017,6 @@ export function createTasks(options: {
 
   const browser = createBrowserBroker()
   const browserApps = new Map<string, BrowserAppRef>()
-  const runBrowsers = createRunBrowsers({
-    dir: path.join(path.dirname(worktreesDir), 'browsers'),
-    env: () => options.env?.() ?? process.env,
-    lowPriority: () => store.settings().lowPriorityWork,
-  })
 
   async function browserApp(ref: string, caller: Caller, app?: BrowserAppRef) {
     const { task } = runnableApps(ref, caller)
@@ -10921,7 +10928,6 @@ export function createTasks(options: {
     },
     async stopRunApp(runId, caller, app) {
       await ownedRun(runId, caller)
-      runBrowsers.close(runId, app)
       return apps.stop(runId, app)
     },
     async showRunApp(runId, caller, app) {

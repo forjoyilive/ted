@@ -15,7 +15,7 @@ import {
   runOnPage,
 } from './browser-page.ts'
 
-type Page = GuestPage & { app: TaskApp }
+type Page = GuestPage & { app: TaskApp; view: WebContentsView }
 
 export interface BrowserBounds {
   x: number
@@ -189,11 +189,21 @@ export function createTaskBrowsers(
       checkSession()
     }
     let opened: Page | undefined
+    let view: WebContentsView | undefined
     try {
       return (await openGuest(ses, app.url as string, {
         check: checkSession,
+        host: (webPreferences) => {
+          const created = new WebContentsView({ webPreferences })
+          created.setBounds({ x: 0, y: 0, width: 1024, height: 720 })
+          view = created
+          return {
+            contents: created.webContents,
+            resize: (width, height) => created.setBounds({ x: 0, y: 0, width, height }),
+          }
+        },
         created: (guest) => {
-          opened = Object.assign(guest, { app })
+          opened = Object.assign(guest, { app, view: view as WebContentsView })
           pages.set(taskId, opened)
         },
         gone: () => {

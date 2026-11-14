@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline'
-import { type BrowserRequest, tedEnv } from '@ted/protocol'
-import { app, session } from 'electron'
+import { type BrowserRequest, browserViewport, tedEnv } from '@ted/protocol'
+import { app, BrowserWindow, session } from 'electron'
 import { closeGuest, type GuestPage, openGuest, runOnPage } from './browser-page.ts'
 
 export interface HelperCommand {
@@ -51,7 +51,22 @@ void app.whenReady().then(() => {
       check()
       const opened = await openGuest(ses, command.url, {
         check,
-        size,
+        host: (webPreferences) => {
+          // A page outside any window can’t be captured or clicked; an offscreen window can.
+          const window = new BrowserWindow({
+            show: false,
+            useContentSize: true,
+            ...size,
+            webPreferences: { ...webPreferences, offscreen: true },
+          })
+          return {
+            contents: window.webContents,
+            resize: (width, height) => window.setContentSize(width, height),
+            close: () => {
+              if (!window.isDestroyed()) window.destroy()
+            },
+          }
+        },
         created: (guest) => {
           page = guest
         },
@@ -60,10 +75,10 @@ void app.whenReady().then(() => {
         },
       })
       if (scheme)
-        await opened.view.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+        await opened.contents.debugger.sendCommand('Emulation.setEmulatedMedia', {
           features: [{ name: 'prefers-color-scheme', value: scheme }],
         })
-      return { url: opened.view.webContents.getURL(), ...(opened.error && { text: opened.error }) }
+      return { url: opened.contents.getURL(), ...(opened.error && { text: opened.error }) }
     }
     const current = page
     if (!current?.ready || current.url !== command.url)
@@ -74,8 +89,8 @@ void app.whenReady().then(() => {
       closeAfterPartialInput: drop,
     })
     if (command.request.action === 'resize') {
-      const bounds = current.view.getBounds()
-      size = { width: bounds.width, height: bounds.height }
+      const viewport = browserViewport(command.request.value ?? '')
+      if (typeof viewport !== 'string') size = viewport
     }
     if (command.request.action === 'color-scheme')
       scheme = command.request.value === 'dark' ? 'dark' : 'light'

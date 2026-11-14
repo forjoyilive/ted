@@ -27,6 +27,7 @@ interface Reply {
 
 interface Helper {
   child: ChildProcess
+  profile: string
   ready: Promise<void>
   replies: Map<string, (reply: Reply) => void>
   app?: TaskApp
@@ -37,6 +38,7 @@ export interface RunBrowsers {
   command(runId: string, app: TaskApp, request: BrowserRequest): Promise<RunBrowserResult>
   opened(runId: string): AppRef | undefined
   close(runId: string, app?: AppRef): void
+  appsChanged(runId: string, apps: readonly TaskApp[]): void
   closeAll(): void
 }
 
@@ -68,32 +70,48 @@ export function createRunBrowsers(options: {
   lowPriority: () => boolean
 }): RunBrowsers {
   const helpers = new Map<string, Helper>()
-  const starting = new Set<string>()
+  const starting = new Map<string, { canceled: boolean }>()
+  let closed = false
   const swept = removeInside(path.dirname(options.dir), path.basename(options.dir)).catch(
     () => undefined,
   )
 
+  const removeProfile = (name: string) => {
+    void removeInside(options.dir, name).catch(() => undefined)
+  }
+
   const stop = (runId: string) => {
+    const pending = starting.get(runId)
+    if (pending) pending.canceled = true
     const helper = helpers.get(runId)
     if (!helper) return
     helpers.delete(runId)
     for (const resolve of helper.replies.values())
       resolve({ id: '', error: 'The Run’s browser closed' })
     helper.replies.clear()
+    if (helper.child.exitCode !== null || helper.child.signalCode !== null)
+      removeProfile(helper.profile)
+    else helper.child.once('exit', () => removeProfile(helper.profile))
     helper.child.stdin?.end()
     try {
       if (helper.child.pid !== undefined) process.kill(-helper.child.pid, 'SIGKILL')
     } catch {
       helper.child.kill('SIGKILL')
     }
-    void removeInside(options.dir, runId).catch(() => undefined)
   }
 
-  const start = async (runId: string): Promise<Helper> => {
+  const closedError = () => new RequestError(409, 'The Run’s browser closed')
+
+  const start = async (runId: string, token: { canceled: boolean }): Promise<Helper> => {
     await swept
     await mkdir(options.dir, { recursive: true, mode: 0o700 })
-    const profile = path.join(options.dir, runId)
+    const name = `${runId}-${randomUUID()}`
+    const profile = path.join(options.dir, name)
     await mkdir(profile, { recursive: true, mode: 0o700 })
+    if (token.canceled || closed) {
+      removeProfile(name)
+      throw closedError()
+    }
     const helper = helperCommand(options.env())
     const { command, args } = workCommand(helper.command, helper.args, options.lowPriority())
     const { ELECTRON_RUN_AS_NODE: _, ...env } = options.env()
@@ -131,11 +149,12 @@ export function createRunBrowsers(options: {
         if (reply.id === 'ready') markReady()
         replies.get(reply.id)?.(reply)
       })
-    const started: Helper = { child, ready, replies, busy: true }
+    const started: Helper = { child, profile: name, ready, replies, busy: true }
     helpers.set(runId, started)
     try {
       await ready
     } catch (error) {
+      if (token.canceled) throw closedError()
       console.error(
         redactSecrets(`couldn’t start the browser of Run ${runId}: ${(error as Error).message}`),
       )
@@ -144,7 +163,10 @@ export function createRunBrowsers(options: {
     } finally {
       clearTimeout(timer)
     }
-    if (helpers.get(runId) !== started) throw new RequestError(409, 'The Run’s browser closed')
+    if (token.canceled || helpers.get(runId) !== started) {
+      if (helpers.get(runId) === started) stop(runId)
+      throw closedError()
+    }
     return started
   }
 
@@ -163,6 +185,7 @@ export function createRunBrowsers(options: {
 
   return {
     async command(runId, app, request) {
+      if (closed) throw closedError()
       let helper = helpers.get(runId)
       if (helper?.busy || starting.has(runId))
         throw new RequestError(
@@ -177,14 +200,16 @@ export function createRunBrowsers(options: {
         }
       }
       if (!helper) {
-        starting.add(runId)
+        const token = { canceled: false }
+        starting.set(runId, token)
         try {
-          helper = await start(runId)
+          helper = await start(runId, token)
         } finally {
-          starting.delete(runId)
+          if (starting.get(runId) === token) starting.delete(runId)
         }
       }
       const current = helper
+      if (helpers.get(runId) !== current) throw closedError()
       current.busy = true
       let timer: ReturnType<typeof setTimeout> | undefined
       try {
@@ -225,7 +250,15 @@ export function createRunBrowsers(options: {
         return
       stop(runId)
     },
+    appsChanged(runId, apps) {
+      const opened = helpers.get(runId)?.app
+      if (!opened) return
+      const now = apps.find((a) => a.name === opened.name && a.repo === opened.repo)
+      if (now?.state !== 'running' || now.removed || !sameApp(opened, now)) stop(runId)
+    },
     closeAll() {
+      closed = true
+      for (const token of starting.values()) token.canceled = true
       for (const runId of [...helpers.keys()]) stop(runId)
     },
   }

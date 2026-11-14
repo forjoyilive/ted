@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { type BrowserRequest, type BrowserResult, browserViewport } from '@ted/protocol'
-import { type Session, WebContentsView } from 'electron'
+import type { Session, WebContents, WebPreferences } from 'electron'
 
-export interface GuestPage {
-  view: WebContentsView
+export interface GuestHost {
+  contents: WebContents
+  resize(width: number, height: number): void
+  close?(): void
+}
+
+export interface GuestPage extends GuestHost {
   url: string
   ready: boolean
   revision: string
@@ -42,9 +47,9 @@ export async function openGuest(
   appUrl: string,
   options: {
     check(): void
+    host(webPreferences: WebPreferences): GuestHost
     created?(page: GuestPage): void
     gone(page: GuestPage): void
-    size?: { width: number; height: number }
   },
 ): Promise<GuestPage> {
   const { check } = options
@@ -54,23 +59,20 @@ export async function openGuest(
   ses.setPermissionCheckHandler(() => false)
   ses.removeAllListeners('will-download')
   ses.on('will-download', (event) => event.preventDefault())
-  const view = new WebContentsView({
-    webPreferences: {
-      session: ses,
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      webSecurity: true,
-      backgroundThrottling: false,
-      safeDialogs: true,
-      navigateOnDragDrop: false,
-    },
+  const host = options.host({
+    session: ses,
+    sandbox: true,
+    contextIsolation: true,
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    webSecurity: true,
+    backgroundThrottling: false,
+    safeDialogs: true,
+    navigateOnDragDrop: false,
   })
-  view.setBounds({ x: 0, y: 0, width: 1024, height: 720, ...options.size })
-  const page: GuestPage = { view, url: appUrl, ready: false, revision: randomUUID() }
+  const page: GuestPage = { ...host, url: appUrl, ready: false, revision: randomUUID() }
   options.created?.(page)
-  const contents = view.webContents
+  const contents = page.contents
   contents.setWindowOpenHandler(() => ({ action: 'deny' }))
   contents.on('select-client-certificate', (event, _url, _certificates, callback) => {
     event.preventDefault()
@@ -163,8 +165,8 @@ export async function openGuest(
 }
 
 export function closeGuest(page: GuestPage) {
-  if (!page.view.webContents.isDestroyed())
-    page.view.webContents.close({ waitForBeforeUnload: false })
+  if (!page.contents.isDestroyed()) page.contents.close({ waitForBeforeUnload: false })
+  page.close?.()
 }
 
 export async function runOnPage(
@@ -177,7 +179,7 @@ export async function runOnPage(
   },
 ): Promise<PageResult> {
   const { check } = options
-  const contents = page.view.webContents
+  const contents = page.contents
   const revision = page.revision
   let inputStarted = false
   const checkPage = () => {
@@ -296,7 +298,7 @@ export async function runOnPage(
     if (typeof viewport === 'string') throw new Error(viewport)
     const { width, height } = viewport
     check()
-    page.view.setBounds({ x: 0, y: 0, width, height })
+    page.resize(width, height)
     await script(
       `new Promise((resolve) => { const done = () => innerWidth === ${width} ? resolve(true) : Date.now() < ${command.expiresAt} - 1000 ? setTimeout(done, 16) : resolve(false); done(); })`,
     )
