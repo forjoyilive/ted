@@ -572,10 +572,6 @@
   line-height: 1.45;
 }
 
-.details .gatesValue:has(section) {
-  grid-column: 1 / -1;
-}
-
 @container task-details (width < 14em) {
   .details {
     grid-template-columns: minmax(0, 1fr);

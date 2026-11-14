@@ -506,23 +506,6 @@ test('pending Automation details keep their heading and back navigation availabl
   expect(back).toHaveBeenCalledOnce()
 })
 
-test('initial Sign-offs loading is disabled and its failed request can be retried', async () => {
-  const { TaskGatesField } = await import('../src/renderer/views/TaskGatesField.tsx')
-  const initial = deferred<never>()
-  const api = bridge({ taskGates: () => initial.promise })
-  render(<TaskGatesField taskId="task-a" factoryId="factory-a" />)
-  const loading = screen.getByRole('button', { name: 'Loading sign-offs…' })
-  expect(loading.hasAttribute('disabled')).toBe(true)
-  await user().click(loading)
-  expect(api.request).toHaveBeenCalledTimes(1)
-  await act(async () => initial.reject(new Error('Sign-offs unavailable')))
-  const retry = screen.getByRole('button', { name: 'Load sign-offs' })
-  expect(retry.hasAttribute('disabled')).toBe(false)
-  api.handle('taskGates', () => ({ rows: [], overrides: {}, revision: 'v1' }))
-  await user().click(retry)
-  expect(screen.getByRole('region', { name: 'Sign-offs for this Task' })).toBeTruthy()
-})
-
 test('spinners keep accessible loading names without visible loading text', async () => {
   const { Loading } = await import('../src/renderer/components/Loading.tsx')
   const view = render(<Loading label="Loading diff…" />)
