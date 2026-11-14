@@ -234,6 +234,7 @@ export function duplicateOf(automation: Automation): CreateAutomationRequest {
     agent: automation.agent,
     ...(automation.model !== undefined && { model: automation.model }),
     ...(automation.effort !== undefined && { effort: automation.effort }),
+    ...(automation.checkout && { checkout: true }),
     on: false,
   }
 }

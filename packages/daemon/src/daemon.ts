@@ -448,6 +448,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             coordinators?.deliveryAllowed(runId, admitted) === true),
       })
       let plans: Plans | undefined
+      const sandbox = createSandbox({
+        tedHome: paths.home,
+        env: environment.current,
+        ...(sandboxProgram && { program: sandboxProgram }),
+      })
       const tasks = createTasks({
         testReportingEnv: async (task, checkRunId, position, supported) => {
           const registration = await new DaemonClient(info, token, {
@@ -515,11 +520,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
         saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
         checkSlots,
-        sandbox: createSandbox({
-          tedHome: paths.home,
-          env: environment.current,
-          ...(sandboxProgram && { program: sandboxProgram }),
-        }),
+        sandbox,
       })
       taskDeliveryAllowed = (runId) => tasks.deliveryAllowed(runId)
       const shells = createShells({
@@ -550,6 +551,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         workflows,
         queue: tasks,
+        apps: tasks,
+        reposDir: paths.repos,
+        sandbox,
+        env: environment.current,
         ...(idle && { idle }),
         ...(options.clock && { clock: options.clock }),
         ...automationOptions,
@@ -585,6 +590,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         paths.simulators,
         paths.scratch,
         paths.plans,
+        paths.automationRuns,
       ]
       const excludeFromBackups =
         diskOptions.excludeFromBackups ??

@@ -19,6 +19,7 @@ const core = {
   model: 'gpt-5.5',
   effort: 'high',
   on: true,
+  checkout: true,
 } as const
 roundTrip(P.parseCreateAutomationRequest, {
   ...core,
@@ -43,6 +44,7 @@ roundTrip(P.parseAnswerAutomationRequest, { choice: 'Yes', text: 'Continue' })
 rejects(P.parseAutomationSchedule, { kind: 'daily', at: '25:00' }, 'time as HH:MM')
 rejects(P.parseCreateAutomationRequest, {}, 'name is required')
 rejects(P.parseEditAutomationRequest, { template: 'linear' }, 'template is chosen at creation')
+rejects(P.parseEditAutomationRequest, { checkout: 'yes' }, 'checkout must be true or false')
 rejects(P.parseDraftAutomationPromptRequest, {}, 'factory and request are required text')
 rejects(P.parseSchedulePreviewRequest, { schedule: { kind: 'other' } }, 'schedule.kind must be')
 rejects(P.parseAutomationCommentRequest, { body: '' }, 'body is required')

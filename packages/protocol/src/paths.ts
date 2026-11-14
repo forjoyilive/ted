@@ -29,6 +29,7 @@ export function tedPaths(home: string) {
     simulators: path.join(home, 'simulators'),
     scratch: path.join(home, 'scratch'),
     plans: path.join(home, 'plans'),
+    automationRuns: path.join(home, 'automation-runs'),
     secrets: path.join(home, 'secrets'),
     linearKeyFile: path.join(home, 'secrets', 'linear-api-key'),
   }

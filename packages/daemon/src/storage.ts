@@ -44,7 +44,7 @@ export function createStorage(options: {
   let generation = 0
 
   const categoryDirs: Record<StorageCategoryId, string[]> = {
-    worktrees: [paths.worktrees, paths.plans],
+    worktrees: [paths.worktrees, paths.plans, paths.automationRuns],
     simulators: [paths.simulators],
     clones: [paths.repos],
     'conversations-and-logs': [paths.logs, paths.runs, paths.apps],

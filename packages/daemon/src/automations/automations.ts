@@ -33,6 +33,7 @@ import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { RunManager } from '../runs/run-manager.ts'
+import type { Sandbox } from '../sandbox.ts'
 import type {
   AutomationTaskRecord,
   StoredAutomation,
@@ -41,12 +42,13 @@ import type {
 } from '../store/automations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
-import type { Caller } from '../tasks/tasks.ts'
+import type { Caller, Tasks } from '../tasks/tasks.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import { writingGuidance } from '../writing.ts'
+import { createCheckouts } from './checkout.ts'
 import { createAutomationDrafts } from './drafts.ts'
 import { automationTemplates } from './templates.ts'
 
@@ -71,6 +73,10 @@ export interface AutomationsOptions {
   banners: Banners
   workflows: Workflows
   queue: AutomationQueue
+  apps: Pick<Tasks, 'setRunAppOwner' | 'stopRunApps'>
+  reposDir: string
+  sandbox: Sandbox
+  env: () => NodeJS.ProcessEnv
   idle?: IdleTimer
   systemTimeZone?: () => string
   clock?: Clock
@@ -112,6 +118,19 @@ const maxNameLength = 100
 const failuresForBanner = 3
 const recentTasksShown = 100
 
+function checkoutPrompt(repos: readonly string[], commit: string | undefined): string {
+  const at = commit === undefined ? '' : ` at ${commit.slice(0, 7)}`
+  return [
+    '## Your checkout',
+    '',
+    `TED made a fresh copy of the default branch${at} for this Run (${repos.join(', ')}), copied the Factory’s local files into it and ran its setup. You work inside it. Edit files there if it helps, but never commit or push: TED removes the copy and your changes when this Run ends.`,
+    '',
+    '- `ted run-app [<App>] [--repo <name>]` starts one of the Factory’s Apps from this copy and prints its URL. An iOS simulator App waits until a simulator slot is free, however long that takes.',
+    '- `ted app list` shows the Apps and their state; `ted app log <App>` prints an App’s output.',
+    '- TED stops every App when this Run ends.',
+  ].join('\n')
+}
+
 const refuseRun = (caller: Caller) => {
   if (caller.kind === 'run') throw new RequestError(403, 'Ask the human to change Automations')
 }
@@ -137,6 +156,41 @@ export function createAutomations(options: AutomationsOptions): Automations {
   let timer: Timer | undefined
   let releaseIdle: (() => void) | undefined
   let closed = false
+  const checkouts = createCheckouts({
+    home: options.home,
+    reposDir: options.reposDir,
+    store,
+    banners,
+    workflows,
+    sandbox: options.sandbox,
+    env: options.env,
+    stopApps: (runId) => options.apps.stopRunApps(runId),
+  })
+  const checkoutLive = (runId: string) => saved.firing(runId)?.state === 'started'
+  const release = (runId: string) => {
+    void checkouts.release(runId)
+  }
+  const reattached = (async () => {
+    for (const firing of saved.firings()) {
+      if (firing.state !== 'started') continue
+      const automation = saved.get(firing.automationId)
+      const factory = automation && store.getFactory(automation.factoryId)
+      if (!automation?.checkout || !factory) continue
+      await checkouts.restore({
+        runId: firing.id,
+        automationId: automation.id,
+        name: automation.name,
+        factory,
+      })
+    }
+    await checkouts.sweep(checkoutLive)
+  })().catch((error: unknown) => console.error('couldn’t reattach Automation checkouts:', error))
+  options.apps.setRunAppOwner({
+    ready: reattached,
+    owns: (runId) => checkouts.get(runId) !== undefined,
+    live: (runId) => checkoutLive(runId) && store.getRun(runId)?.state !== 'finished',
+    appTask: (runId) => checkouts.appTask(runId),
+  })
 
   const factoryOf = (automation: StoredAutomation) => store.getFactory(automation.factoryId)
   const live = () => {
@@ -154,7 +208,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (stale.length === 0) return all
     const at = iso(now())
     for (const automation of stale) {
-      const { name, prompt, schedule, agent, model, effort } = automation
+      const { name, prompt, schedule, agent, model, effort, checkout } = automation
       saved.edit(
         automation.id,
         {
@@ -162,6 +216,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           prompt,
           schedule,
           agent,
+          checkout,
           timeZone,
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
@@ -364,6 +419,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const env = { TED_AUTOMATION: automation.id, TED_FACTORY: factory.key }
     if (firing.state === 'started' && firing.resume === 'queued') {
       try {
+        if (automation.checkout && !checkouts.get(id)) {
+          await checkouts.restore({
+            runId: id,
+            automationId: automation.id,
+            name: automation.name,
+            factory,
+          })
+        }
         await runs.revive(id, {
           prompt:
             'Your process stopped before you finished, so TED resumed your session. Check where you were, then carry on with your instructions.',
@@ -378,9 +441,26 @@ export function createAutomations(options: AutomationsOptions): Automations {
     }
     if (firing.state !== 'queued') return
     try {
-      const cwd = path.join(options.home, 'automations', automation.id)
-      await mkdir(cwd, { recursive: true, mode: 0o700 })
-      const prompt = runPrompt(automation, factory, firing)
+      let cwd = path.join(options.home, 'automations', automation.id)
+      let runEnv: Record<string, string> = env
+      let checkoutLine: string | undefined
+      if (automation.checkout) {
+        const checkout = await checkouts.make({
+          runId: id,
+          automationId: automation.id,
+          name: automation.name,
+          factory,
+        })
+        cwd = checkout.cwd
+        runEnv = { ...checkout.env, ...env }
+        checkoutLine = checkoutPrompt(
+          checkout.repos.map((r) => r.name),
+          checkout.commit,
+        )
+      } else {
+        await mkdir(cwd, { recursive: true, mode: 0o700 })
+      }
+      const prompt = runPrompt(automation, factory, firing, checkoutLine)
       await runs.start({
         onStarting: () => saved.began(id),
         id,
@@ -389,12 +469,15 @@ export function createAutomations(options: AutomationsOptions): Automations {
         cwd,
         name: automation.name,
         permissions: 'auto',
-        env,
+        env: runEnv,
         ...(automation.model !== undefined && { model: automation.model }),
         ...(automation.effort !== undefined && { effort: automation.effort }),
       })
     } catch (error) {
-      if (error instanceof AgentDisabledError) return
+      if (error instanceof AgentDisabledError) {
+        release(id)
+        return
+      }
       const current = saved.firing(id)
       if (current?.state === 'started' && !store.getRun(id)) {
         fail(current, `Couldn’t start: ${messageOf(error)}`)
@@ -409,6 +492,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     automation: StoredAutomation,
     factory: StoredFactory,
     firing: StoredFiring,
+    checkout?: string,
   ): string {
     const repos = factory.repos.map((r) => r.repo)
     const why: Record<AutomationTrigger, string> = {
@@ -451,6 +535,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; TED sends you their answer. `ted comment "<text>"` posts a note.',
         '- When you are done, end your turn with a short final message whose first line says what you did. TED stops this Run when you go idle with no open question.',
       ].join('\n'),
+      ...(checkout === undefined ? [] : [checkout]),
       `## Tasks this Automation has created\n\n${lines.length > 0 ? lines.join('\n') : 'None yet.'}`,
       intake,
       `## Your instructions\n\n${automation.prompt.trim()}`,
@@ -504,6 +589,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   function fail(firing: StoredFiring, error: string): void {
     saved.ended(firing.id, { outcome: 'failed', error: firstLine(error, 500) })
+    release(firing.id)
     const automation = saved.get(firing.automationId)
     if (automation) noteFailures(automation)
   }
@@ -519,6 +605,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if ((unread.get(runId)?.length ?? 0) > 0) return
     const message = finalMessage(runId)
     saved.ended(own.firing.id, { outcome: 'finished', ...(message !== undefined && { message }) })
+    release(own.firing.id)
     noteFailures(own.automation)
     runs.stop(runId).catch((error: unknown) => console.error(`couldn’t stop Run ${runId}:`, error))
   }
@@ -532,6 +619,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const message = finalMessage(runId)
     if (stopped) {
       saved.ended(runId, { outcome: 'stopped', ...(message !== undefined && { message }) })
+      release(runId)
       return
     }
     const error =
@@ -798,6 +886,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(automation.model !== undefined && { model: automation.model }),
       ...(automation.effort !== undefined && { effort: automation.effort }),
       on: automation.on,
+      ...(automation.checkout && { checkout: true as const }),
       ...(automation.template !== undefined && { template: automation.template }),
       createdAt: automation.createdAt,
       nextFirings: automation.on
@@ -1009,6 +1098,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
           on: input.on !== false,
+          checkout: input.checkout === true,
           ...(input.template !== undefined && { template: input.template }),
         },
         iso(now()),
@@ -1039,6 +1129,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           schedule,
           timeZone,
           agent,
+          checkout: input.checkout ?? automation.checkout,
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
         },
@@ -1141,6 +1232,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     drafts,
     async close() {
       await drafts.close()
+      await reattached
       closed = true
       timer?.cancel()
       unsubscribe()
@@ -1150,9 +1242,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   async function remove(automation: StoredAutomation): Promise<void> {
-    const open = saved
-      .firings(automation.id)
-      .filter((f) => f.state === 'started' && store.getRun(f.id)?.state !== 'finished')
+    const started = saved.firings(automation.id).filter((f) => f.state === 'started')
+    const open = started.filter((f) => store.getRun(f.id)?.state !== 'finished')
     saved.delete(automation.id)
     banners.clear({
       problem: automationFailingProblem,
@@ -1162,6 +1253,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
     for (const firing of open) {
       await runs.stop(firing.id).catch((error: unknown) => console.error(error))
     }
+    for (const firing of started) await checkouts.release(firing.id)
+    await checkouts.forget(automation.id)
     changed()
     pump()
   }

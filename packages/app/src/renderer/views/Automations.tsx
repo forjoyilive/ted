@@ -28,6 +28,7 @@ import {
   trigger,
 } from '../automations.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
+import type { ShownApp } from '../components/AppsSection.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -42,6 +43,7 @@ import { DotIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton, SkeletonBar } from '../components/Loading.tsx'
 import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
+import { RunAppLog, RunAppRows } from '../components/RunApps.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
@@ -50,6 +52,7 @@ import {
   useAutomationState,
   useAutomationsState,
   useAutomationTemplates,
+  useRunApps,
   useRunChatState,
 } from '../data.ts'
 import { usePendingAction } from '../pending-action.ts'
@@ -847,8 +850,15 @@ export function AutomationView({
   )
 }
 
-function runChip(run: RunSummary, waiting: boolean): ReactNode {
+function runChip(run: RunSummary, waiting: boolean, simulatorWait = false): ReactNode {
   if (run.state === 'finished') return <StatusChip tone="neutral">Finished</StatusChip>
+  if (simulatorWait && !waiting) {
+    return (
+      <StatusChip tone="waiting" glyph="waiting">
+        Waiting for a simulator
+      </StatusChip>
+    )
+  }
   if (waiting || run.state === 'waiting') {
     return (
       <StatusChip tone="waiting" glyph="waiting">
@@ -1013,6 +1023,9 @@ export function AutomationRunView({
     chatResource.retry()
   }
   const [error, setError] = useState<string>()
+  const [shownApp, setShownApp] = useState<ShownApp>()
+  const checkout = detail?.automation.checkout === true
+  const apps = useRunApps(runId, checkout)
   const requests = detail?.requests.filter((r) => r.runId === runId) ?? []
   const open = requests.filter((r) => r.kind === 'question' && r.answer === undefined)
   const requestsShown = JSON.stringify(requests)
@@ -1081,7 +1094,11 @@ export function AutomationRunView({
             <h1 className={styles.title}>
               {automation.name} · Run of {clockOf(startedAt)}
             </h1>
-            {runChip(run, open.length > 0)}
+            {runChip(
+              run,
+              open.length > 0,
+              apps.some((a) => a.state === 'waiting'),
+            )}
             <span className={views.headerSpacer} />
             {run.state !== 'finished' && (
               <Button onClick={() => act(() => ted.stopRun(run.id), setError)}>Stop</Button>
@@ -1099,9 +1116,18 @@ export function AutomationRunView({
             {error}
           </p>
         )}
-        <div className={styles.chat}>
-          <ChatBody chat={chat} onStopTask={undefined} options={options} />
-        </div>
+        {shownApp ? (
+          <RunAppLog
+            runId={runId}
+            apps={apps}
+            shown={shownApp}
+            onBack={() => setShownApp(undefined)}
+          />
+        ) : (
+          <div className={styles.chat}>
+            <ChatBody chat={chat} onStopTask={undefined} options={options} />
+          </div>
+        )}
       </section>
       <DetailsPane className={views.detailsPane} aria-label="Run details">
         <Details title={`Tasks created · ${created.length}`}>
@@ -1135,6 +1161,29 @@ export function AutomationRunView({
             })
           )}
         </Details>
+        {checkout && (
+          <Details title={`Apps · ${apps.filter((a) => a.state === 'running').length} running`}>
+            {apps.length === 0 || run.state === 'finished' ? (
+              <p className={styles.detailNote}>
+                {run.state === 'finished'
+                  ? 'TED stopped this Run’s Apps when it ended.'
+                  : 'None started yet.'}
+              </p>
+            ) : (
+              <RunAppRows runId={runId} apps={apps} shown={shownApp} onOpen={setShownApp} />
+            )}
+          </Details>
+        )}
+        {checkout && (
+          <Details title="Checkout">
+            <p className={styles.detailText}>A fresh copy of the default branch</p>
+            <p className={styles.detailNote}>
+              {run.state === 'finished'
+                ? 'Removed when the Run ended.'
+                : 'Removed when the Run ends.'}
+            </p>
+          </Details>
+        )}
         <Details title="Run">
           <p className={styles.detailText}>{runMeta(run)}</p>
           {why && <p className={styles.detailNote}>{why.text}</p>}

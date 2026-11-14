@@ -879,6 +879,7 @@ export const automations = State.SQLite.table({
     model: State.SQLite.text({ nullable: true }),
     effort: State.SQLite.text({ nullable: true }),
     on: State.SQLite.boolean(),
+    checkout: State.SQLite.boolean({ default: false }),
     template: State.SQLite.text({ nullable: true }),
     handledUntil: State.SQLite.text(),
     createdAt: State.SQLite.text(),
@@ -3069,6 +3070,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  automationCheckoutSet: Events.synced({
+    name: 'v1.AutomationCheckoutSet',
+    schema: Schema.Struct({ id: Schema.String, checkout: Schema.Boolean, at: Schema.String }),
+  }),
   automationSwitched: Events.synced({
     name: 'v1.AutomationSwitched',
     schema: Schema.Struct({ id: Schema.String, on: Schema.Boolean, at: Schema.String }),
@@ -4646,6 +4651,8 @@ const materializers = counted(
         automations.insert({ ...automation, handledUntil: at, createdAt: at }),
       'v1.AutomationEdited': ({ id, rescheduled, at, ...fields }) =>
         automations.update({ ...fields, ...(rescheduled && { handledUntil: at }) }).where({ id }),
+      'v1.AutomationCheckoutSet': ({ id, checkout }) =>
+        automations.update({ checkout }).where({ id }),
       'v1.AutomationSwitched': ({ id, on, at }) =>
         automations.update({ on, ...(on && { handledUntil: at }) }).where({ id }),
       'v1.AutomationDeleted': ({ id }) => [

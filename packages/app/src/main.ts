@@ -172,6 +172,15 @@ const requests = {
     const url = await taskBrowsers?.external(String(taskId))
     if (url) await shell.openExternal(url)
   },
+  openRunAppPreview: async (client, runId, repo, name) => {
+    const app = (await client.listRunApps(String(runId))).find(
+      (a) => a.repo === String(repo) && a.name === String(name),
+    )
+    if (app?.url === undefined || app.kind !== 'web' || !isLoopbackUrl(app.url)) {
+      throw new Error('That App isn’t running')
+    }
+    await shell.openExternal(app.url)
+  },
   openHostedPreview: async (client, taskId, repoName) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const url = task?.repos.find((r) => r.name === String(repoName))?.pullRequest?.preview?.url
@@ -276,6 +285,7 @@ const requests = {
   | 'browserState'
   | 'externalBrowser'
   | 'openHostedPreview'
+  | 'openRunAppPreview'
   | 'exportFactory'
   | 'chooseFolder'
   | 'homeFolder'
