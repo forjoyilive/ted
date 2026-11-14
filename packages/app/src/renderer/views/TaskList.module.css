@@ -299,7 +299,6 @@
 
 .table {
   display: grid;
-  column-gap: 16px;
   width: 100%;
   border-collapse: collapse;
 }
@@ -400,8 +399,8 @@
   text-align: right;
 }
 
-.statusHead {
-  min-width: 140px;
+.status {
+  white-space: normal;
 }
 
 .id {
