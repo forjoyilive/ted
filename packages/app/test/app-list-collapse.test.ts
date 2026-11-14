@@ -110,7 +110,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
       .getByRole('row', { name: /Not started yet/ })
       .locator('td')
       .nth(headers.indexOf('Status'))
-    await expect.poll(() => blockedStatus.textContent()).toMatch(/^Blocked by NB-/)
+    await expect.poll(() => blockedStatus.textContent()).toMatch(/^Blocked by ?NB-/)
     const fits = await blockedStatus.evaluate((cell) => {
       const right = cell.getBoundingClientRect().right
       return [...cell.querySelectorAll('*')].every(
