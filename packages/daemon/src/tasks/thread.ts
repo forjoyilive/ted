@@ -687,14 +687,16 @@ export function threadEvents(
       case 'v1.AppStartFailed':
         add(entry, 'failure', `${text(data.name)} couldn’t start: ${text(data.problem)}`)
         break
-      case 'v1.SimulatorShutDown': {
+      case 'v1.SimulatorShutDown':
+      case 'v1.EmulatorShutDown': {
+        const device = entry.name === 'v1.EmulatorShutDown' ? 'emulator' : 'simulator'
         const why =
           data.idle === true
             ? 'because it was idle'
             : text(data.forTask) !== ''
               ? `to free a slot for ${text(data.forTask)}`
               : 'to free a slot'
-        add(entry, 'quiet', `TED shut down ${text(data.name)}’s simulator ${why}`)
+        add(entry, 'quiet', `TED shut down ${text(data.name)}’s ${device} ${why}`)
         break
       }
       case 'v1.TaskWorktreeSetupStarted':

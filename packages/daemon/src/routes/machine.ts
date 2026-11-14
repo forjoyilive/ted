@@ -10,6 +10,7 @@ import {
   checkLimits,
   createdByKinds,
   editorIds,
+  emulatorSlotLimits,
   isLinearIntakeScope,
   isLinearTeamKey,
   isTimeZone,
@@ -324,6 +325,13 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     const { min, max } = simulatorSlotLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
       throw new HttpError(400, `maxBootedSimulators must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
+  maxRunningEmulators(value) {
+    const { min, max } = emulatorSlotLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `maxRunningEmulators must be a whole number from ${min} to ${max}`)
     }
     return value
   },

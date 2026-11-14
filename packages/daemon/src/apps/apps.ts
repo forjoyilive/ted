@@ -14,6 +14,8 @@ import {
   type AppStarter,
   appEnvName,
   type DaemonEvent,
+  isDeviceApp,
+  isEmulatorApp,
   isSimulatorApp,
   type SimulatorSlots,
   type TaskApp,
@@ -35,6 +37,12 @@ import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
 import type { AppDeclaration } from './declared.ts'
+import {
+  type AndroidTools,
+  createAndroidTools,
+  createEmulators,
+  type Emulators,
+} from './emulators.ts'
 import {
   type AppHostRecord,
   type AppLaunchFile,
@@ -81,6 +89,19 @@ export interface SimulatorOptions {
   idleMs?: number
 }
 
+export interface EmulatorOptions {
+  dir: string
+  supported?: boolean
+  tools?: AndroidTools
+  emulator?: string
+  adb?: string
+  avdmanager?: string
+  banners?: Banners
+  pollMs?: number
+  idleMs?: number
+  bootTimeoutMs?: number
+}
+
 export interface StartOptions {
   runId?: string
   shutDown?: string
@@ -100,6 +121,7 @@ export interface AppsOptions {
   stopGraceMs?: number
   logBytes?: number
   simulators?: SimulatorOptions
+  emulators?: EmulatorOptions
   sandbox: Sandbox
   sandboxProblem(factoryId: string): Promise<string | undefined>
 }
@@ -114,6 +136,7 @@ export interface Apps {
   stopRepo(taskId: string, repo: string): Promise<void>
   stopTask(taskId: string): Promise<void>
   simulators(): SimulatorSlots
+  emulators(): SimulatorSlots
   show(taskId: string, ref: AppRef): Promise<TaskApp>
   screenshot(taskId: string, ref: AppRef): Promise<{ file: string; app: TaskApp }>
   record(
@@ -201,6 +224,7 @@ const runners: Record<TaskApp['kind'], Runner> = {
   web: processRunner,
   command: processRunner,
   'ios-simulator': processRunner,
+  'android-emulator': processRunner,
 }
 
 function markers(): Record<string, string> {
@@ -270,6 +294,46 @@ export function createApps(options: AppsOptions): Apps {
     },
   })
 
+  const emulatorOptions = options.emulators ?? {
+    dir: path.join(path.dirname(appsDir), 'emulators'),
+    supported: false,
+  }
+  const emus: Emulators = createEmulators({
+    dir: emulatorOptions.dir,
+    store,
+    tools:
+      emulatorOptions.tools ??
+      createAndroidTools({
+        ...(emulatorOptions.emulator !== undefined && { emulator: emulatorOptions.emulator }),
+        ...(emulatorOptions.adb !== undefined && { adb: emulatorOptions.adb }),
+        ...(emulatorOptions.avdmanager !== undefined && {
+          avdmanager: emulatorOptions.avdmanager,
+        }),
+        env: () => options.env?.() ?? process.env,
+      }),
+    supported:
+      emulatorOptions.supported ?? (process.platform === 'darwin' || process.platform === 'linux'),
+    ...(emulatorOptions.banners !== undefined && { banners: emulatorOptions.banners }),
+    ...(options.idle !== undefined && { idle: options.idle }),
+    ...(emulatorOptions.pollMs !== undefined && { pollMs: emulatorOptions.pollMs }),
+    ...(emulatorOptions.idleMs !== undefined && { idleMs: emulatorOptions.idleMs }),
+    ...(emulatorOptions.bootTimeoutMs !== undefined && {
+      bootTimeoutMs: emulatorOptions.bootTimeoutMs,
+    }),
+    emit: options.emit,
+    async appLive(taskId, repo, name) {
+      const state = stateOf(await readInstance(dirOf(taskId, repo, name)))
+      return state === 'running' || state === 'starting' || state === 'waiting'
+    },
+    async stopApp(taskId, repo, name) {
+      await serial(keyOf(taskId, repo, name), () => stopNow(taskId, repo, name))
+    },
+  })
+
+  const devicesFor = (kind: TaskApp['kind']) => (kind === 'android-emulator' ? emus : sims)
+  const supportedApp = (app: { kind: TaskApp['kind'] }) =>
+    !isDeviceApp(app) || devicesFor(app.kind).supported
+
   const simApp = (taskId: string, task: AppTask, repo: string, app: AppDeclaration) =>
     ({
       taskId,
@@ -277,8 +341,13 @@ export function createApps(options: AppsOptions): Apps {
       factoryId: task.factoryId,
       repo,
       name: app.name,
-      device: app.device ?? 'iPhone 16',
+      device: app.device ?? (isEmulatorApp(app) ? '' : 'iPhone 16'),
     }) satisfies SimulatorApp
+
+  const deviceEnv = (app: AppDeclaration, id: string): Record<string, string> =>
+    isEmulatorApp(app)
+      ? { ANDROID_SERIAL: id, TED_EMULATOR_SERIAL: id }
+      : { TED_SIMULATOR_UDID: id }
 
   for (const taskId of safeDirs(appsDir)) {
     for (const [key, port] of Object.entries(readPortsSync(portsFile(taskId)))) {
@@ -341,7 +410,9 @@ export function createApps(options: AppsOptions): Apps {
     const state = stateOf(instance)
     const live = state === 'running' || state === 'starting'
     const ended = instance?.ended
-    const simulator = isSimulatorApp(app) ? sims.info(taskId, repo, app.name) : undefined
+    const simulator = isDeviceApp(app)
+      ? devicesFor(app.kind).info(taskId, repo, app.name)
+      : undefined
     return {
       repo,
       name: app.name,
@@ -425,7 +496,7 @@ export function createApps(options: AppsOptions): Apps {
     let dirty = false
     for (const repo of task.repos) {
       for (const app of repo.apps) {
-        if (isSimulatorApp(app)) continue
+        if (isDeviceApp(app)) continue
         const key = `${repo.name}/${slug(app.name)}`
         const owner = `${taskId}/${key}`
         const fixed = app.port
@@ -531,6 +602,18 @@ export function createApps(options: AppsOptions): Apps {
     if (isSimulatorApp(app) && !sims.supported) {
       throw new RequestError(409, `TED can’t run ${app.name}: iOS simulator Apps run only on macOS`)
     }
+    if (isEmulatorApp(app) && !emus.supported) {
+      throw new RequestError(
+        409,
+        `TED can’t run ${app.name}: Android emulator Apps run only on macOS and Linux`,
+      )
+    }
+    if (isEmulatorApp(app) && (app.device ?? '').trim() === '') {
+      throw new RequestError(
+        409,
+        `TED can’t run ${app.name}: set \`device:\` to the Android virtual device it runs on, such as Pixel_8_API_35`,
+      )
+    }
     const hold = store.newWorkHold()
     if (hold !== undefined) {
       throw new RequestError(
@@ -538,8 +621,12 @@ export function createApps(options: AppsOptions): Apps {
         `The disk is almost full, so TED holds new Apps until there’s space`,
       )
     }
-    if (isSimulatorApp(app)) {
-      const got = await sims.acquire(simApp(taskId, task, repo.name, app), by, start)
+    if (isDeviceApp(app)) {
+      const got = await devicesFor(app.kind).acquire(
+        simApp(taskId, task, repo.name, app),
+        by,
+        start,
+      )
       if ('waiting' in got) {
         const instance: Instance = {
           repo: repo.name,
@@ -557,9 +644,17 @@ export function createApps(options: AppsOptions): Apps {
         watch(taskId, key, dir)
         return toApp(taskId, repo.name, app, instance)
       }
-      return launch(taskId, task, repo, app, by, runId, restart, undefined, {
-        TED_SIMULATOR_UDID: got.udid,
-      })
+      return launch(
+        taskId,
+        task,
+        repo,
+        app,
+        by,
+        runId,
+        restart,
+        undefined,
+        deviceEnv(app, got.udid),
+      )
     }
     const ports = await allocate(taskId, task, { repo: repo.name, app })
     const port = ports[`${repo.name}/${slug(app.name)}`] as number
@@ -797,19 +892,22 @@ export function createApps(options: AppsOptions): Apps {
       return 'ended' as const
     }
     if (!found) {
-      sims.withdraw(instance.waitingFor)
+      devicesFor(instance.kind).withdraw(instance.waitingFor)
       return end('stopped')
     }
     const { task, repo, app } = found
     if (store.newWorkHold() !== undefined) return 'waiting'
-    const got = await sims.wait(instance.waitingFor, simApp(taskId, task, repo.name, app))
+    const got = await devicesFor(app.kind).wait(
+      instance.waitingFor,
+      simApp(taskId, task, repo.name, app),
+    )
     if (got.state === 'pending') return 'waiting'
     const current = await readInstance(dir)
     if (!current || current.ended || current.waitingFor !== instance.waitingFor) return 'ended'
     if (got.state === 'denied') {
       return end(
         'failed',
-        `No simulator slot: the human denied${got.text === undefined ? '' : `. They said: “${got.text}”`}`,
+        `No ${isEmulatorApp(app) ? 'emulator' : 'simulator'} slot: the human denied${got.text === undefined ? '' : `. They said: “${got.text}”`}`,
       )
     }
     if (got.state === 'gone') return end('stopped')
@@ -822,7 +920,7 @@ export function createApps(options: AppsOptions): Apps {
       instance.runId,
       instance.restart === true,
       undefined,
-      { TED_SIMULATOR_UDID: got.udid },
+      deviceEnv(app, got.udid),
     )
     return 'launched'
   }
@@ -888,7 +986,7 @@ export function createApps(options: AppsOptions): Apps {
     const apps: TaskApp[] = []
     for (const repo of task.repos) {
       for (const app of repo.apps) {
-        if (isSimulatorApp(app) && !sims.supported) continue
+        if (!supportedApp(app)) continue
         const ask = task.sandbox !== undefined && !task.outsideSandbox?.includes(app.name)
         apps.push({
           ...toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
@@ -960,7 +1058,7 @@ export function createApps(options: AppsOptions): Apps {
     if (instance && state === 'waiting' && instance.waitingFor !== undefined) {
       instance.ended = { at: new Date().toISOString(), how: 'stopped' }
       await writeInstance(dir, instance)
-      sims.withdraw(instance.waitingFor)
+      devicesFor(instance.kind).withdraw(instance.waitingFor)
       changed(taskId)
       return true
     }
@@ -979,6 +1077,17 @@ export function createApps(options: AppsOptions): Apps {
     const found = await find(taskId, ref)
     if (!isSimulatorApp(found.app) || !sims.supported) {
       throw new RequestError(409, `${found.app.name} isn’t an iOS simulator App`)
+    }
+    return found
+  }
+
+  async function deviceApp(taskId: string, ref: AppRef) {
+    const found = await find(taskId, ref)
+    if (!isDeviceApp(found.app) || !devicesFor(found.app.kind).supported) {
+      throw new RequestError(
+        409,
+        `${found.app.name} isn’t an iOS simulator or Android emulator App`,
+      )
     }
     return found
   }
@@ -1010,6 +1119,7 @@ export function createApps(options: AppsOptions): Apps {
       if (!options.keep(taskId)) {
         await stopAll(taskId).catch(() => undefined)
         await sims.remove(taskId).catch(() => undefined)
+        await emus.remove(taskId).catch(() => undefined)
         await forget(taskId).catch(() => undefined)
         continue
       }
@@ -1041,7 +1151,7 @@ export function createApps(options: AppsOptions): Apps {
         if (await stopNow(taskId, repo.name, app.name)) {
           thread.appStopped({ taskId, repo: repo.name, name: app.name })
         }
-        if (isSimulatorApp(app)) await sims.shutDown(taskId, repo.name, app.name)
+        if (isDeviceApp(app)) await devicesFor(app.kind).shutDown(taskId, repo.name, app.name)
         return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
       })
     },
@@ -1059,14 +1169,33 @@ export function createApps(options: AppsOptions): Apps {
       })
     },
     simulators: () => sims.slots(),
+    emulators: () => emus.slots(),
     async show(taskId, ref) {
-      const { repo, app } = await simulatorApp(taskId, ref)
-      await sims.show(taskId, repo.name, app.name)
+      const { repo, app } = await deviceApp(taskId, ref)
+      const key = keyOf(taskId, repo.name, app.name)
+      if (isEmulatorApp(app)) {
+        const { rebooted } = await emus.show(taskId, repo.name, app.name)
+        if (rebooted) {
+          await serial(key, async () => {
+            const instance = await readInstance(dirOf(taskId, repo.name, app.name))
+            const state = stateOf(instance)
+            if (state !== 'running' && state !== 'starting') return
+            await stopNow(taskId, repo.name, app.name)
+            await startNow(
+              taskId,
+              { repo: repo.name, name: app.name },
+              instance?.startedBy ?? 'human',
+              instance?.runId === undefined ? {} : { runId: instance.runId },
+              true,
+            )
+          })
+        }
+      } else await sims.show(taskId, repo.name, app.name)
       return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
     },
     async screenshot(taskId, ref) {
-      const { repo, app } = await simulatorApp(taskId, ref)
-      const file = await sims.screenshot(taskId, repo.name, app.name)
+      const { repo, app } = await deviceApp(taskId, ref)
+      const file = await devicesFor(app.kind).screenshot(taskId, repo.name, app.name)
       const instance = await readInstance(dirOf(taskId, repo.name, app.name))
       return { file, app: toApp(taskId, repo.name, app, instance) }
     },
@@ -1082,7 +1211,10 @@ export function createApps(options: AppsOptions): Apps {
         app: toApp(taskId, repo.name, app, instance),
       }
     },
-    withSimulatorRequest: (comment, work) => sims.withRequest(comment, work),
+    withSimulatorRequest: (comment, work) =>
+      comment.simulator?.platform === 'android'
+        ? emus.withRequest(comment, work)
+        : sims.withRequest(comment, work),
     async log(taskId, ref) {
       const { repo, app } = await findListed(taskId, ref)
       const files = appFiles(dirOf(taskId, repo.name, app.name))
@@ -1099,10 +1231,12 @@ export function createApps(options: AppsOptions): Apps {
     async stopRepo(taskId, repo) {
       await stopAll(taskId, repo)
       await sims.remove(taskId, repo)
+      await emus.remove(taskId, repo)
     },
     async stopTask(taskId) {
       await stopAll(taskId)
       await sims.remove(taskId)
+      await emus.remove(taskId)
       await forget(taskId)
       changed(taskId)
     },
@@ -1110,6 +1244,7 @@ export function createApps(options: AppsOptions): Apps {
       closed = true
       await Promise.all(watching.values())
       await sims.close()
+      await emus.close()
     },
   }
 }

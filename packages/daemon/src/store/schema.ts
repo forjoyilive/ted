@@ -1490,6 +1490,17 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  emulatorShutDown: Events.synced({
+    name: 'v1.EmulatorShutDown',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      forTask: Schema.NullOr(Schema.String),
+      idle: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
   appStartFailed: Events.synced({
     name: 'v1.AppStartFailed',
     schema: Schema.Struct({
@@ -3503,6 +3514,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { repo: args.repo, name: args.name, problem: args.problem }),
   'v1.SimulatorShutDown': (args) =>
     task(args, { repo: args.repo, name: args.name, forTask: args.forTask, idle: args.idle }),
+  'v1.EmulatorShutDown': (args) =>
+    task(args, { repo: args.repo, name: args.name, forTask: args.forTask, idle: args.idle }),
   'v1.TaskRunReleased': (args) => task(args),
   'v1.RunAutoModeUnavailable': (args) => task(args, { runId: args.runId }),
   'v1.ValidateJudged': (args) =>
@@ -3714,6 +3727,7 @@ const materializers = counted(
       'v1.AppExited': () => [],
       'v1.AppStartFailed': () => [],
       'v1.SimulatorShutDown': () => [],
+      'v1.EmulatorShutDown': () => [],
       'v1.SimulatorRequested': ({ runId, simulator, ...comment }) =>
         comments.insert({
           ...comment,

@@ -804,6 +804,13 @@ export interface TedStore extends TaskHistory {
     forTask?: string
     idle: boolean
   }): void
+  emulatorShutDown(input: {
+    taskId: string
+    repo: string
+    name: string
+    forTask?: string
+    idle: boolean
+  }): void
   requestSimulator(input: {
     taskId: string
     runId: string
@@ -4157,6 +4164,19 @@ export async function openStore({
     simulatorShutDown({ taskId, repo, name, forTask, idle }) {
       commit(
         events.simulatorShutDown({
+          taskId,
+          repo,
+          name,
+          forTask: forTask ?? null,
+          idle,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    emulatorShutDown({ taskId, repo, name, forTask, idle }) {
+      commit(
+        events.emulatorShutDown({
           taskId,
           repo,
           name,

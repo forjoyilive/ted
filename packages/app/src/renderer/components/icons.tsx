@@ -228,6 +228,20 @@ export function OpenIcon({ className }: IconProps) {
   )
 }
 
+export function CameraIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path
+        d="M1.75 4.25C1.75 3.70 2.20 3.25 2.75 3.25H4L4.75 2.25H7.25L8 3.25H9.25C9.80 3.25 10.25 3.70 10.25 4.25V8.75C10.25 9.30 9.80 9.75 9.25 9.75H2.75C2.20 9.75 1.75 9.30 1.75 8.75V4.25Z"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+        stroke="currentColor"
+      />
+      <circle cx="6" cy="6.5" r="1.75" strokeWidth="1.2" stroke="currentColor" />
+    </svg>
+  )
+}
+
 export function PlayIcon({ className }: IconProps) {
   return (
     <svg className={className} width="14" height="14" viewBox="0 0 14 14" aria-hidden>

@@ -12,12 +12,20 @@ export function runsLine(slots: RunSlots): string {
   return counts(slots)
 }
 
-export function nowLine(slots: RunSlots, simulators?: SimulatorSlots): string {
+export function nowLine(
+  slots: RunSlots,
+  simulators?: SimulatorSlots,
+  emulators?: SimulatorSlots,
+): string {
   const booted =
     simulators?.supported === true
       ? ` · ${simulators.booted.length} of ${simulators.limit} simulator${simulators.limit === 1 ? '' : 's'} booted`
       : ''
-  return `Now: ${counts(slots)}${booted}`
+  const running =
+    emulators?.supported === true
+      ? ` · ${emulators.booted.length} of ${emulators.limit} emulator${emulators.limit === 1 ? '' : 's'} running`
+      : ''
+  return `Now: ${counts(slots)}${booted}${running}`
 }
 
 export function factoryCapLine(slots: RunSlots | undefined, factoryId: string): string | undefined {

@@ -73,6 +73,7 @@ export interface MachineSettings {
   maxWorkingRuns: number
   adjustRunsToLoad: boolean
   maxBootedSimulators: number
+  maxRunningEmulators: number
   runOutputDays: number
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
@@ -116,6 +117,7 @@ export const defaultMachineSettings: MachineSettings = {
   maxWorkingRuns: 6,
   adjustRunsToLoad: false,
   maxBootedSimulators: 3,
+  maxRunningEmulators: 2,
   runOutputDays: 7,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,

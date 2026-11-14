@@ -132,7 +132,13 @@ import { agentStartHold } from '../agent-eligibility.ts'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
-import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
+import {
+  type AppsOptions,
+  type AppTask,
+  createApps,
+  type EmulatorOptions,
+  type SimulatorOptions,
+} from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import { AsanaReadError } from '../asana/asana.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree } from '../asana/tree.ts'
@@ -637,6 +643,7 @@ export interface Tasks {
   screenshotApp(ref: string, caller: Caller, app: AppRef): Promise<AppCapture>
   recordApp(ref: string, caller: Caller, request: RecordAppRequest): Promise<AppCapture>
   simulators(): SimulatorSlots
+  emulators(): SimulatorSlots
   setRunAppOwner(owner: RunAppOwner): void
   listRunApps(runId: string, caller: Caller): Promise<TaskApp[]>
   startRunApp(runId: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
@@ -708,6 +715,7 @@ export function createTasks(options: {
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
+  emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
   sandbox: Sandbox
@@ -851,6 +859,11 @@ export function createTasks(options: {
     simulators: {
       dir: path.join(path.dirname(worktreesDir), 'simulators'),
       ...options.simulators,
+      banners,
+    },
+    emulators: {
+      dir: path.join(path.dirname(worktreesDir), 'emulators'),
+      ...options.emulators,
       banners,
     },
     emit: (event) => {
@@ -10710,6 +10723,7 @@ export function createTasks(options: {
       return { attachment, recording: false }
     },
     simulators: () => apps.simulators(),
+    emulators: () => apps.emulators(),
     setRunAppOwner(owner) {
       runAppOwner = owner
       ownerSet(owner)

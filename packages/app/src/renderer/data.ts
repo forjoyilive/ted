@@ -883,6 +883,14 @@ export function useSimulators(): SimulatorSlots | undefined {
   )
 }
 
+export function useEmulators(): SimulatorSlots | undefined {
+  return useReloading(
+    () => ted.emulators(),
+    (event) => event.type === 'emulators-changed' || event.type === 'settings-changed',
+    'emulators',
+  )
+}
+
 export function useTaskApps(taskId: string): TaskApp[] {
   return (
     useShared<TaskApp[]>(

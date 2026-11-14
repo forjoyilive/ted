@@ -107,6 +107,7 @@ export interface DaemonOptions {
   apps?: { pollMs?: number; readyTimeoutMs?: number; stopGraceMs?: number; logBytes?: number }
   runs?: { stopGraceMs?: number; inputAckMs?: number }
   simulators?: { supported?: boolean; pollMs?: number; idleMs?: number }
+  emulators?: { supported?: boolean; pollMs?: number; idleMs?: number; bootTimeoutMs?: number }
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
@@ -184,6 +185,9 @@ async function readFakeFree(file: string): Promise<number> {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const xcrun = tedEnv('TED_XCRUN_BIN')
   const open = tedEnv('TED_OPEN_BIN')
+  const emulatorBin = tedEnv('TED_EMULATOR_BIN')
+  const adbBin = tedEnv('TED_ADB_BIN')
+  const avdmanagerBin = tedEnv('TED_AVDMANAGER_BIN')
   const sandboxProgram = tedEnv('TED_SANDBOX_BIN')
   const paths = tedPaths(options.home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
@@ -518,6 +522,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           ...(open && { open }),
           ...options.simulators,
         },
+        emulators: {
+          dir: paths.emulators,
+          ...(emulatorBin && { emulator: emulatorBin }),
+          ...(adbBin && { adb: adbBin }),
+          ...(avdmanagerBin && { avdmanager: avdmanagerBin }),
+          ...options.emulators,
+        },
         saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
         checkSlots,
         sandbox,
@@ -588,6 +599,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         paths.worktrees,
         paths.repos,
         paths.simulators,
+        paths.emulators,
         paths.scratch,
         paths.plans,
         paths.automationRuns,
