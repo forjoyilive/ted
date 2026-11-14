@@ -43,6 +43,7 @@ import { DetailsTabs } from '../components/DetailsTabs.tsx'
 import { AllChanges, CommitView, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { DropOverlay } from '../components/DropOverlay.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
+import { FactoryName } from '../components/FactoryIcon.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
 import { FileView } from '../components/FileView.tsx'
@@ -123,7 +124,7 @@ import { formatDate } from '../time.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
-import { factoryName, stageName } from './TaskViews.tsx'
+import { stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
 
 function leadAgent(task: Task, comment: Comment) {
@@ -1334,7 +1335,9 @@ export function TaskDetails({
                 </>
               )}
               <dt>Factory</dt>
-              <dd>{factoryName(factories, task.factoryId)}</dd>
+              <dd>
+                <FactoryName factories={factories} factoryId={task.factoryId} />
+              </dd>
               <dt>Stage</dt>
               <dd>{stageName(task.stage)}</dd>
               {task.attachments.length > 0 && (

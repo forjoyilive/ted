@@ -36,7 +36,12 @@ const banner = (changes: Partial<Banner>): Banner => ({
 })
 
 function harness(
-  options: { settings?: Partial<MachineSettings>; asksPermission?: boolean; asked?: boolean } = {},
+  options: {
+    settings?: Partial<MachineSettings>
+    asksPermission?: boolean
+    asked?: boolean
+    emoji?: Record<string, string>
+  } = {},
 ) {
   let clock = Date.parse('2026-11-09T10:00:00.000Z')
   let asked = options.asked ?? true
@@ -63,6 +68,7 @@ function harness(
     markAsked: () => {
       asked = true
     },
+    factoryEmoji: (factoryId) => options.emoji?.[factoryId],
     now: () => clock,
   })
   return {
@@ -93,6 +99,16 @@ describe('Inbox item notifications', () => {
     shown[0]?.open()
     expect(opened).toEqual([
       { kind: 'open-inbox-request', taskId: 'task-new', factoryId: 'nb', requestId: 'new' },
+    ])
+  })
+
+  test('a Factory’s emoji icon starts the title of its notifications', () => {
+    const { notifications, shown } = harness({ emoji: { nb: '🐙' } })
+    notifications.waiting([])
+    notifications.waiting([request('mine'), request('other', { factoryId: 'web' })])
+    expect(shown.map((s) => s.notice.title)).toEqual([
+      '🐙 NB-3 Add dark mode',
+      'NB-3 Add dark mode',
     ])
   })
 

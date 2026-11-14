@@ -106,6 +106,43 @@ test('automatic Backlog starting saves immediately without the repository Save d
   expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
 })
 
+test('the Icon picker saves a coloured symbol or an emoji at once and refuses an SVG upload', async () => {
+  const api = open({ setFactoryIcon: () => factory() })
+  const iconButton = () => screen.getByRole('button', { name: /^Icon/ })
+  await user().click(iconButton())
+  let picker = within(screen.getByRole('dialog', { name: /^Icon for / }))
+  await user().click(picker.getByRole('button', { name: 'Teal colour' }))
+  expect(api.request).not.toHaveBeenCalledWith(
+    'setFactoryIcon',
+    expect.anything(),
+    expect.anything(),
+  )
+  await user().type(picker.getByRole('searchbox', { name: 'Search icons' }), 'git')
+  expect(picker.queryByRole('button', { name: 'rocket' })).toBeNull()
+  await user().click(picker.getByRole('button', { name: 'git branch' }))
+  expect(api.request).toHaveBeenCalledWith('setFactoryIcon', 'f1', {
+    kind: 'symbol',
+    name: 'git-branch',
+    color: 'teal',
+  })
+  expect(screen.queryByRole('dialog', { name: /^Icon for / })).toBeNull()
+
+  await user().click(iconButton())
+  picker = within(screen.getByRole('dialog', { name: /^Icon for / }))
+  await user().click(picker.getByRole('tab', { name: 'Emoji' }))
+  await user().type(picker.getByRole('searchbox', { name: 'Search emoji' }), 'octopus')
+  await user().click(picker.getByRole('button', { name: 'octopus' }))
+  expect(api.request).toHaveBeenCalledWith('setFactoryIcon', 'f1', { kind: 'emoji', emoji: '🐙' })
+
+  await user().click(iconButton())
+  picker = within(screen.getByRole('dialog', { name: /^Icon for / }))
+  await user().click(picker.getByRole('tab', { name: 'Upload' }))
+  const svg = new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' })
+  fireEvent.change(picker.getByLabelText('Image file'), { target: { files: [svg] } })
+  expect((await picker.findByRole('alert')).textContent).toBe('Choose a PNG, JPEG, WebP or GIF.')
+  expect(api.request.mock.calls.filter(([name]) => name === 'setFactoryIcon')).toHaveLength(2)
+})
+
 test('automatic Backlog starting disables during save and keeps its value on error', async () => {
   const pending = deferred<never>()
   open({ setFactoryAutoStartBacklog: () => pending.promise })

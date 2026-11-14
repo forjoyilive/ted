@@ -20,6 +20,7 @@ import {
   useActionMenu,
 } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
+import { FactoryName } from '../components/FactoryIcon.tsx'
 import { Help } from '../components/Help.tsx'
 import { BellOffIcon, ChevronIcon, ClockIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
@@ -152,6 +153,8 @@ export function Inbox({
       </span>
     )
   const manyFactories = factories.length > 1
+  const factoryPart = (id: string): ReactNode[] =>
+    manyFactories ? [<FactoryName key="factory" factories={factories} factoryId={id} />] : []
   const [resolved, setResolved] = useState<ReadonlySet<string>>(() => new Set())
   const known = useRef(new Set<string>())
   for (const item of items) known.current.add(item.request.id)
@@ -305,10 +308,7 @@ export function Inbox({
     if (row.kind === 'plan') {
       const item = row.item
       const { request, plan } = item
-      const where = [
-        plan.title,
-        ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
-      ].join(' · ')
+      const where = [plan.title, ...factoryPart(plan.factoryId)]
       return (
         <button
           type="button"
@@ -333,7 +333,7 @@ export function Inbox({
           <span data-headline className={`${styles.headline} ${styles.unread}`}>
             {request.title ?? ''}
           </span>
-          <span className={styles.where}>{where}</span>
+          <span className={styles.where}>{joined(where)}</span>
           {until(row.request.id)}
         </button>
       )
@@ -345,8 +345,8 @@ export function Inbox({
         task.displayId,
         task.title,
         stageName(request.stage ?? task.stage),
-        ...(manyFactories ? [factoryName(factories, task.factoryId)] : []),
-      ].join(' · ')
+        ...factoryPart(task.factoryId),
+      ]
       const unread = !showAnswered && request.readAt === undefined
       return (
         <button
@@ -377,17 +377,14 @@ export function Inbox({
           >
             {headline(request)}
           </span>
-          <span className={styles.where}>{where}</span>
+          <span className={styles.where}>{joined(where)}</span>
           {until(row.request.id)}
         </button>
       )
     }
     if (row.kind === 'coordinator') {
       const confirmation = row.item
-      const where = [
-        'Coordinator',
-        ...(manyFactories ? [factoryName(factories, confirmation.factoryId)] : []),
-      ].join(' · ')
+      const where = ['Coordinator', ...factoryPart(confirmation.factoryId)]
       return (
         <button
           type="button"
@@ -407,17 +404,13 @@ export function Inbox({
           <span data-headline className={`${styles.headline} ${styles.unread}`}>
             {confirmation.headline}
           </span>
-          <span className={styles.where}>{where}</span>
+          <span className={styles.where}>{joined(where)}</span>
           {until(row.request.id)}
         </button>
       )
     }
     const question = row.item
-    const where = [
-      question.automationName,
-      'Automation',
-      ...(manyFactories ? [factoryName(factories, question.factoryId)] : []),
-    ].join(' · ')
+    const where = [question.automationName, 'Automation', ...factoryPart(question.factoryId)]
     return (
       <button
         type="button"
@@ -436,7 +429,7 @@ export function Inbox({
         <span data-headline className={`${styles.headline} ${styles.unread}`}>
           {question.body.split('\n')[0]}
         </span>
-        <span className={styles.where}>{where}</span>
+        <span className={styles.where}>{joined(where)}</span>
         {until(row.request.id)}
       </button>
     )
@@ -776,4 +769,14 @@ function DeletePlanDialog({ plan, onClose }: { plan: Plan; onClose: () => void }
       )}
     </Dialog>
   )
+}
+
+function joined(parts: readonly ReactNode[]): ReactNode {
+  return parts.map((part, index) => (
+    // biome-ignore lint/suspicious/noArrayIndexKey: the parts are a fixed short list
+    <Fragment key={index}>
+      {index > 0 && ' · '}
+      {part}
+    </Fragment>
+  ))
 }

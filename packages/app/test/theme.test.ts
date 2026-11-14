@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { factoryIconColors } from '@ted/protocol/factory-icon'
 import { describe, expect, test } from 'vitest'
 
 const rendererDir = fileURLToPath(new URL('../src/renderer', import.meta.url))
@@ -143,6 +144,10 @@ describe('theme tokens', () => {
       ['--text-primary', '--find-current', 4.5],
       ['--terminal-fg', '--terminal-bg', 4.5],
       ['--terminal-muted', '--terminal-bg', 4.5],
+      ...factoryIconColors.flatMap((color) => [
+        [`--factory-icon-${color}-fg`, `--factory-icon-${color}-bg`, 4.5] as const,
+        [`--factory-icon-${color}-fg`, '--surface-raised', 3] as const,
+      ]),
     ]
     const themes = (name: string): [light: string, dark: string] => {
       const found = defined.get(name)?.match(/^light-dark\((#[0-9a-f]{6}), (#[0-9a-f]{6})\)$/)
@@ -258,6 +263,7 @@ describe('button heights', () => {
       ['views/Inbox.module.css', 'chip', small, 'grows'],
       ['views/Inbox.module.css', 'snooze', small],
       ['components/Markdown.module.css', 'copy', small],
+      ['components/FactoryIconPicker.module.css', 'button', regular],
     ]
 
     for (const [file, name, height, grows] of buttons) {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
+import { FactoryIcon } from './FactoryIcon.tsx'
 import { FactoryMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import { ResizableSidebar } from './ResizableSidebar.tsx'
@@ -338,9 +339,7 @@ export function Sidebar({
                       return dispatch({ type: 'open-factory', factoryId: factory.id })
                     }}
                   >
-                    <span className={styles.initial} aria-hidden="true">
-                      {Array.from(factory.name)[0]}
-                    </span>
+                    <FactoryIcon factory={factory} />
                     <span className={styles.label}>{factory.name}</span>
                     {badge.failed && <DotIcon className={styles.failedDot} />}
                     {badge.stopsWork && (

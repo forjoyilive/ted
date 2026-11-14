@@ -263,6 +263,11 @@ const entries = {
   'app.developer.logs': { name: 'Log', keywords: 'logs daemon log raw output', heading: true },
 
   'factory.general': { name: 'General', heading: true },
+  'factory.general.icon': {
+    name: 'Icon',
+    keywords: 'emoji image picture symbol colour color logo',
+    help: 'Shown in the sidebar, the Inbox, ⌘K and Task details. An emoji also starts the Factory’s notifications.',
+  },
   'factory.general.name': {
     name: 'Name',
     help: 'Shown in the sidebar and the Inbox. Task IDs don’t change.',

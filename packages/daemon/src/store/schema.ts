@@ -13,6 +13,7 @@ export const factories = State.SQLite.table({
     defaultBranch: State.SQLite.text(),
     showTutorial: State.SQLite.boolean({ default: false }),
     autoStartBacklog: State.SQLite.boolean({ default: false }),
+    icon: State.SQLite.text({ nullable: true }),
     clonedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -2600,6 +2601,14 @@ export const events = {
     name: 'v1.FactoryAutoStartBacklogChanged',
     schema: Schema.Struct({ factoryId: Schema.String, enabled: Schema.Boolean, at: Schema.String }),
   }),
+  factoryIconChanged: Events.synced({
+    name: 'v1.FactoryIconChanged',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      icon: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   factoryRenamed: Events.synced({
     name: 'v1.FactoryRenamed',
     schema: Schema.Struct({ factoryId: Schema.String, name: Schema.String, at: Schema.String }),
@@ -4877,6 +4886,8 @@ const materializers = counted(
       'v1.LocalFolderCleared': ({ repo }) => localFolders.delete().where({ repo }),
       'v1.FactoryAutoStartBacklogChanged': ({ factoryId, enabled }) =>
         factories.update({ autoStartBacklog: enabled }).where({ id: factoryId }),
+      'v1.FactoryIconChanged': ({ factoryId, icon }) =>
+        factories.update({ icon }).where({ id: factoryId }),
       'v1.FactoryRenamed': ({ factoryId, name }) =>
         factories.update({ name }).where({ id: factoryId }),
       'v1.FactoryReposChanged': ({ factoryId, repos }) => [

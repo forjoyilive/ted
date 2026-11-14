@@ -1,3 +1,4 @@
+import type { FactoryIcon } from './factory-icon.ts'
 import type { PermissionMode } from './run.ts'
 export interface LocalFolder {
   path: string
@@ -32,6 +33,7 @@ export interface Factory {
   repos: FactoryRepo[]
   showTutorial: boolean
   autoStartBacklog: boolean
+  icon?: FactoryIcon
   cloned: boolean
   hasSettings?: true
   setup?: RepoSetup[]

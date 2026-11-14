@@ -28,6 +28,7 @@ import {
 import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
+import { FactoryIconPicker } from '../components/FactoryIconPicker.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { Skeleton } from '../components/Loading.tsx'
@@ -625,6 +626,7 @@ function SectionHeading({
 const GeneralSection = memo(function GeneralSection({ factory }: { factory: Factory }) {
   const nameId = useId()
   const keyId = useId()
+  const iconId = useId()
   const [autoStartBacklog, setAutoStartBacklog] = useState(factory.autoStartBacklog)
   const [savingAutoStart, setSavingAutoStart] = useState(false)
   const [autoStartError, setAutoStartError] = useState<string>()
@@ -660,6 +662,22 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
   return (
     <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="general">
       <SectionHeading id="general" setting="factory.general" title="General" where="machine" />
+      <div className={styles.field} data-setting="factory.general.icon">
+        <span className={styles.label} id={iconId}>
+          Icon{' '}
+          <Help>
+            Shown in the sidebar, the Inbox, ⌘K and Task details. An emoji also starts the Factory’s
+            notifications.
+          </Help>
+        </span>
+        <div>
+          <FactoryIconPicker
+            factory={factory}
+            labelledBy={iconId}
+            onChange={(icon) => ted.setFactoryIcon(factory.id, icon)}
+          />
+        </div>
+      </div>
       <div className={styles.fieldRow}>
         <div className={styles.field} data-setting="factory.general.name">
           <label className={styles.label} htmlFor={nameId}>

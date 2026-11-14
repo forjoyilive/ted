@@ -13,6 +13,17 @@ import type {
   SetRepoFolderRequest,
   StopCheckTryRequest,
 } from './factory.ts'
+import {
+  type FactoryIcon,
+  type FactoryIconColor,
+  type FactoryIconSymbol,
+  factoryIconColors,
+  factoryIconEmoji,
+  factoryIconImageMaxBytes,
+  factoryIconImagePrefix,
+  factoryIconSymbols,
+  type SetFactoryIconRequest,
+} from './factory-icon.ts'
 import type {
   LibraryChanges,
   MergeSettingsRequest,
@@ -413,6 +424,56 @@ export function parseRenameFactoryRequest(value: unknown): RenameFactoryRequest 
   const body = record(value)
   if (typeof body.name !== 'string') throw new HttpError(400, 'name is required')
   return { name: body.name }
+}
+
+export function parseSetFactoryIconRequest(value: unknown): SetFactoryIconRequest {
+  const body = record(value)
+  if (body.icon === null) return { icon: null }
+  return { icon: parseFactoryIcon(body.icon) }
+}
+
+const pngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+function parseFactoryIcon(value: unknown): FactoryIcon {
+  const icon = record(value)
+  const color = (): FactoryIconColor => {
+    const found = factoryIconColors.find((known) => known === icon.color)
+    if (found === undefined) throw new HttpError(400, 'icon.color is not a known colour')
+    return found
+  }
+  if (icon.kind === 'letter') return { kind: 'letter', color: color() }
+  if (icon.kind === 'symbol') {
+    const name = factoryIconSymbols.find((known): known is FactoryIconSymbol => known === icon.name)
+    if (name === undefined) throw new HttpError(400, 'icon.name is not a known icon')
+    return { kind: 'symbol', name, color: color() }
+  }
+  if (icon.kind === 'emoji') {
+    if (typeof icon.emoji !== 'string' || !factoryIconEmoji.includes(icon.emoji)) {
+      throw new HttpError(400, 'icon.emoji is not one of the offered emoji')
+    }
+    return { kind: 'emoji', emoji: icon.emoji }
+  }
+  if (icon.kind === 'image') {
+    const { dataUrl } = icon
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith(factoryIconImagePrefix)) {
+      throw new HttpError(400, 'icon.dataUrl must be a PNG data URL')
+    }
+    const encoded = dataUrl.slice(factoryIconImagePrefix.length)
+    if (encoded.length > Math.ceil(factoryIconImageMaxBytes / 3) * 4) {
+      throw new HttpError(400, 'icon image is too large')
+    }
+    let bytes: string
+    try {
+      bytes = atob(encoded)
+    } catch {
+      throw new HttpError(400, 'icon.dataUrl is not valid base64')
+    }
+    if (pngSignature.some((byte, index) => bytes.charCodeAt(index) !== byte)) {
+      throw new HttpError(400, 'icon image must be a PNG')
+    }
+    return { kind: 'image', dataUrl }
+  }
+  throw new HttpError(400, 'icon.kind must be letter, symbol, emoji or image')
 }
 
 export function parseSetRepoFolderRequest(value: unknown): SetRepoFolderRequest {

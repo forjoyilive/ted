@@ -20,6 +20,7 @@ import { readableError, ted } from '../ted.ts'
 import { factoryName } from '../views/TaskViews.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import { ConversationSearchView } from './ConversationSearchView.tsx'
+import { FactoryIcon, FactoryName } from './FactoryIcon.tsx'
 import { SearchIcon } from './icons.tsx'
 import styles from './SearchPalette.module.css'
 import { MatchedName } from './SettingsSearch.tsx'
@@ -67,7 +68,7 @@ function StateChip({ state }: { state: TaskHit['state'] }) {
 }
 
 function taskContent(hit: TaskHit, factories: readonly Factory[]) {
-  const meta = [factoryName(factories, hit.factoryId)]
+  const meta: string[] = []
   if (hit.state === 'open') meta.push(stageName(hit.stage))
   const note = fieldNotes[hit.field]
   if (note !== undefined) meta.push(note)
@@ -80,7 +81,8 @@ function taskContent(hit: TaskHit, factories: readonly Factory[]) {
       </span>
       <span className={styles.meta}>
         <StateChip state={hit.state} />
-        {meta.join(' · ')}
+        <FactoryName factories={factories} factoryId={hit.factoryId} />
+        {meta.length > 0 && <span>{`· ${meta.join(' · ')}`}</span>}
       </span>
     </>
   )
@@ -117,7 +119,7 @@ function automationContent(hit: AutomationHit, factories: readonly Factory[]) {
         <span className={styles.title}>{hit.name}</span>
       </span>
       <span className={styles.meta}>
-        <span>{factoryName(factories, hit.factoryId)}</span>
+        <FactoryName factories={factories} factoryId={hit.factoryId} />
         {!hit.on && <span>Off</span>}
       </span>
     </>
@@ -132,7 +134,7 @@ function planContent(hit: PlanHit, factories: readonly Factory[]) {
         <span className={styles.title}>{hit.title}</span>
       </span>
       <span className={styles.meta}>
-        <span>{factoryName(factories, hit.factoryId)}</span>
+        <FactoryName factories={factories} factoryId={hit.factoryId} />
         {hit.ended && <span>Ended</span>}
       </span>
     </>
@@ -153,6 +155,7 @@ function factoryContent(hit: FactoryHit) {
 function commandContent(command: Command, task: CommandContext['task']) {
   return (
     <>
+      {command.factory && <FactoryIcon factory={command.factory} size={16} />}
       <span className={styles.main}>
         <span className={styles.title}>{command.label}</span>
       </span>
@@ -227,6 +230,7 @@ export function SearchPalette({
             <span className={styles.tick} aria-hidden>
               {choice.checked ? '✓' : ''}
             </span>
+            {choice.factory && <FactoryIcon factory={choice.factory} size={16} />}
             <span className={styles.main}>
               <span className={styles.title}>{choice.label}</span>
             </span>

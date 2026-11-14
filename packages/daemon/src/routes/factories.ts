@@ -14,6 +14,7 @@ import {
   parseReorderFactoriesRequest,
   parseSaveSettingsRequest,
   parseSetFactoryAsanaIntakeRequest,
+  parseSetFactoryIconRequest,
   parseSetFactoryLinearIntakeRequest,
   parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
@@ -290,6 +291,13 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/name$/,
     async handle({ body, params: [id = ''] }, { factories }) {
       return [200, await factories.rename(id, body.name)]
+    },
+  }),
+  jsonRoute(parseSetFactoryIconRequest, {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/icon$/,
+    async handle({ body, params: [id = ''] }, { factories }) {
+      return [200, await factories.setIcon(id, body.icon)]
     },
   }),
   jsonRoute(parseSetRepoFolderRequest, {

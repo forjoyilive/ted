@@ -97,6 +97,27 @@
   --avatar-initials-bg: light-dark(#7a6a5d, #7a6a5d);
   --avatar-initials-fg: light-dark(#ffffff, #ffffff);
 
+  --factory-icon-gray-fg: light-dark(#6b6a65, #b5b3ac);
+  --factory-icon-gray-bg: light-dark(#efeee9, #2f2f2c);
+  --factory-icon-blue-fg: light-dark(#3a45b0, #9aa4f5);
+  --factory-icon-blue-bg: light-dark(#eef0fb, #262b4a);
+  --factory-icon-sky-fg: light-dark(#1f6f94, #7cc4e6);
+  --factory-icon-sky-bg: light-dark(#e5f3fa, #18303c);
+  --factory-icon-teal-fg: light-dark(#1d7a6c, #6fcfbd);
+  --factory-icon-teal-bg: light-dark(#e3f4f0, #17322d);
+  --factory-icon-green-fg: light-dark(#2e7a3a, #7fcf8a);
+  --factory-icon-green-bg: light-dark(#e8f4e8, #1c321f);
+  --factory-icon-yellow-fg: light-dark(#8a6400, #e8c25a);
+  --factory-icon-yellow-bg: light-dark(#fbf3d9, #36301a);
+  --factory-icon-orange-fg: light-dark(#a64d0d, #f0a060);
+  --factory-icon-orange-bg: light-dark(#fcecdf, #3b2718);
+  --factory-icon-red-fg: light-dark(#b4372a, #f0806f);
+  --factory-icon-red-bg: light-dark(#fbeae8, #3d201c);
+  --factory-icon-pink-fg: light-dark(#a8336f, #ee8fc0);
+  --factory-icon-pink-bg: light-dark(#fbe8f2, #3a1f2e);
+  --factory-icon-purple-fg: light-dark(#7952b3, #c4a3ee);
+  --factory-icon-purple-bg: light-dark(#f3edfc, #30243f);
+
   --shadow-popover: light-dark(#0000001f, #00000080);
   --shadow-dialog: light-dark(#0000002e, #00000099);
 
