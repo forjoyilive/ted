@@ -80,7 +80,7 @@
 }
 
 .description {
-  min-height: 80px;
+  min-height: max(80px, calc(3lh + 20px));
   padding: 10px 12px;
   font-size: var(--text-14);
   resize: vertical;

@@ -123,6 +123,11 @@ describe('New Task drafts', () => {
       .click()
     await form(window).getByLabel('Agent', { exact: true }).selectOption('codex')
     await form(window).getByLabel('Effort', { exact: true }).selectOption('high')
+    await description(window).fill(
+      `Remember this description.\nAnd this second line.${'\nMore detail.'.repeat(6)}`,
+    )
+    const saved = await boxHeight(window)
+    expect(saved).toBeGreaterThan(emptyHeight)
     await window.keyboard.press('Escape')
     await form(window).waitFor({ state: 'detached' })
     await open(window)
@@ -139,7 +144,7 @@ describe('New Task drafts', () => {
       'Keep my unfinished Task',
     )
     expect(await description(window).inputValue()).toContain('And this second line.')
-    expect(await boxHeight(window)).toBeCloseTo(short, 0)
+    expect(await boxHeight(window)).toBeCloseTo(saved, 0)
     expect(await form(window).getByLabel('Priority', { exact: true }).inputValue()).toBe('high')
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
     expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('high')

@@ -178,7 +178,7 @@
 }
 
 .prompt {
-  min-height: 110px;
+  min-height: max(110px, calc(6lh + 16px));
   font-family: var(--font-mono);
   font-size: var(--text-12-5);
   resize: vertical;

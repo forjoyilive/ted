@@ -196,7 +196,7 @@
 }
 
 .box {
-  min-height: 44px;
+  min-height: max(44px, calc(2lh + 24px));
   padding: 11px 12px;
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-control);

@@ -90,7 +90,7 @@
 .box {
   box-sizing: border-box;
   width: 100%;
-  min-height: 56px;
+  min-height: max(56px, calc(2lh + 18px));
   padding: 8px 10px;
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-control);

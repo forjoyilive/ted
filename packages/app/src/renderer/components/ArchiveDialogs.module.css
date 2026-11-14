@@ -155,7 +155,7 @@
 
 .text {
   box-sizing: border-box;
-  min-height: 80px;
+  min-height: max(80px, calc(2lh + 18px));
   padding: 8px 12px;
   border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
