@@ -87,6 +87,7 @@ const testOptions = {
     TED_ANTIGRAVITY_BIN: here('./packages/daemon/test/fixtures/no-antigravity-here'),
     TED_XCRUN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
     TED_OPEN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
+    TED_IDB_BIN: here('./packages/daemon/test/fixtures/stub-idb.ts'),
     TED_EMULATOR_BIN: here('./packages/daemon/test/fixtures/stub-emulator.ts'),
     TED_ADB_BIN: here('./packages/daemon/test/fixtures/stub-adb.ts'),
     TED_AVDMANAGER_BIN: here('./packages/daemon/test/fixtures/stub-avdmanager.ts'),

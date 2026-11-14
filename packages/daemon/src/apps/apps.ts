@@ -84,6 +84,7 @@ export interface SimulatorOptions {
   supported?: boolean
   tools?: SimulatorTools
   xcrun?: string
+  idb?: string
   open?: string
   banners?: Banners
   pollMs?: number
@@ -279,6 +280,7 @@ export function createApps(options: AppsOptions): Apps {
       simulatorOptions.tools ??
       createSimulatorTools({
         ...(simulatorOptions.xcrun !== undefined && { xcrun: simulatorOptions.xcrun }),
+        ...(simulatorOptions.idb !== undefined && { idb: simulatorOptions.idb }),
         ...(simulatorOptions.open !== undefined && { open: simulatorOptions.open }),
         env: () => options.env?.() ?? process.env,
       }),
@@ -344,7 +346,9 @@ export function createApps(options: AppsOptions): Apps {
       factoryId: task.factoryId,
       repo,
       name: app.name,
-      device: app.device ?? (isEmulatorApp(app) ? '' : 'iPhone 16'),
+      device: isEmulatorApp(app)
+        ? (app.device ?? '')
+        : (sims.deviceType(taskId, repo, app.name) ?? app.device ?? 'iPhone 16'),
     }) satisfies SimulatorApp
 
   const deviceEnv = (app: AppDeclaration, id: string): Record<string, string> =>
@@ -1214,12 +1218,54 @@ export function createApps(options: AppsOptions): Apps {
     },
     async control(taskId, request) {
       const { repo, app } = await deviceApp(taskId, request.app)
-      if (app.kind !== 'android-emulator')
+      if (isEmulatorApp(app)) return emus.control(taskId, repo.name, app.name, request)
+      if (request.action !== 'size') return sims.control(taskId, repo.name, app.name, request)
+      if (request.density !== undefined)
+        throw new RequestError(400, 'An iOS simulator’s density comes with its device type')
+      const before = sims.deviceType(taskId, repo.name, app.name)
+      const chosen = await sims.chooseDeviceType(taskId, repo.name, app.name, request.size ?? '')
+      const deviceOf = (type: string | undefined) => type ?? app.device ?? 'iPhone 16'
+      if (chosen === before) return `${app.name} already runs on ${deviceOf(chosen)}.`
+      const device = deviceOf(chosen)
+      const dir = dirOf(taskId, repo.name, app.name)
+      const instance = await readInstance(dir)
+      const state = stateOf(instance)
+      sims.setDeviceType(taskId, repo.name, app.name, chosen)
+      if (state !== 'running' && state !== 'starting' && state !== 'waiting')
+        return `${app.name} will run on ${device} when you start it with ted run-app ${app.name}.`
+      const restartOn = () =>
+        serial(keyOf(taskId, repo.name, app.name), async () => {
+          const wasLive = await stopNow(taskId, repo.name, app.name)
+          return startNow(
+            taskId,
+            { repo: repo.name, name: app.name },
+            instance?.startedBy ?? 'automation',
+            instance?.runId === undefined ? {} : { runId: instance.runId },
+            wasLive,
+          )
+        })
+      let restarted: TaskApp
+      try {
+        restarted = await restartOn()
+      } catch (error) {
+        sims.setDeviceType(taskId, repo.name, app.name, before)
+        const back = await restartOn().then(
+          () => true,
+          () => false,
+        )
+        const why = error instanceof Error ? error.message : String(error)
         throw new RequestError(
           409,
-          `TED can’t drive ${app.name} yet: only Android emulator Apps take input so far`,
+          `TED couldn’t run ${app.name} on ${device}: ${why} ${
+            back
+              ? `${app.name} runs on ${deviceOf(before)} again.`
+              : `Start it again with ted run-app ${app.name}.`
+          }`,
         )
-      return emus.control(taskId, repo.name, app.name, request)
+      }
+      return restarted.state === 'waiting'
+        ? `${app.name} will run on ${device} once a simulator slot is free; ted run-app ${app.name} waits for it.`
+        : `${app.name} now runs on ${device}. Read it again with ted app screen ${app.name}.`
     },
     async record(taskId, ref, action) {
       const { repo, app } = await simulatorApp(taskId, ref)

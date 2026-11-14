@@ -26,7 +26,13 @@ import {
 } from './app-auth.ts'
 import type { AsanaConfiguration, AsanaStatus } from './asana.ts'
 import type { AsanaImportPreview, AsanaImportRequest, AsanaImportResult } from './asana-import.ts'
-import type { AsanaIntakeRequest, AsanaIntakeResult, AsanaIntakeScope } from './asana-intake.ts'
+import type {
+  AsanaChoicesPage,
+  AsanaIntakeCheck,
+  AsanaIntakeRequest,
+  AsanaIntakeResult,
+  AsanaIntakeScope,
+} from './asana-intake.ts'
 import type { AsanaProjectList, AsanaProjectListName } from './asana-sync.ts'
 import type {
   AnswerAutomationRequest,
@@ -263,6 +269,9 @@ export class DaemonRequestError extends Error {
 export interface Subscription {
   close(): void
 }
+
+const asanaPage = (offset?: string) =>
+  offset === undefined ? '' : `?offset=${encodeURIComponent(offset)}`
 
 export class DaemonClient {
   readonly #info: DaemonInfo
@@ -1419,6 +1428,28 @@ export class DaemonClient {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/asana-intake`, {
       scope,
     })
+  }
+
+  checkFactoryAsanaIntake(factoryId: string): Promise<AsanaIntakeCheck> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/asana-intake/check`)
+  }
+
+  listAsanaWorkspaces(offset?: string): Promise<AsanaChoicesPage> {
+    return this.#request('GET', `/integrations/asana/workspaces${asanaPage(offset)}`)
+  }
+
+  listAsanaProjects(workspaceGid: string, offset?: string): Promise<AsanaChoicesPage> {
+    return this.#request(
+      'GET',
+      `/integrations/asana/workspaces/${encodeURIComponent(workspaceGid)}/projects${asanaPage(offset)}`,
+    )
+  }
+
+  listAsanaSections(projectGid: string, offset?: string): Promise<AsanaChoicesPage> {
+    return this.#request(
+      'GET',
+      `/integrations/asana/projects/${encodeURIComponent(projectGid)}/sections${asanaPage(offset)}`,
+    )
   }
 
   getAsana(): Promise<AsanaStatus> {

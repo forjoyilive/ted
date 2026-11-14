@@ -1,7 +1,21 @@
-import { type AsanaTaskUrl, asanaSyncing, parseAsanaTaskUrl } from '@ted/protocol'
+import { type AsanaTaskUrl, asanaSyncing, type Comment, parseAsanaTaskUrl } from '@ted/protocol'
 import { AsanaReadError } from '../asana/asana.ts'
 import type { Clock } from '../clock.ts'
 import type { TedStore } from '../store/index.ts'
+import { asanaTaskUrl } from './asana-import.ts'
+import {
+  coveredBy,
+  maxSubtreeRequests,
+  type ParentStep,
+  parentStep,
+  planUnfinished,
+  readSubtree,
+  stillAsked,
+  type TrackedItem,
+  unfinishedChoices,
+  unfinishedText,
+  unfinishedTitle,
+} from './asana-unfinished.ts'
 import { clean } from './github-activity.ts'
 import {
   type TrackerConnector,
@@ -44,6 +58,32 @@ export interface AsanaSyncOptions {
 export const asanaTracker = 'asana'
 const maxPages = 5
 const pageSize = '100'
+const subtaskFields = 'gid,name,completed,permalink_url,num_subtasks'
+
+export function trackedItems(store: TedStore, factoryId: string): Map<string, TrackedItem> {
+  const outlines = new Map(store.taskOutlines().map((task) => [task.id, task]))
+  const rank = { open: 3, done: 2, archived: 1 } as const
+  const found = new Map<string, { taskId: string; state: TrackedItem['state'] }>()
+  for (const { taskId, url } of store.taskSourceUrls()) {
+    const outline = outlines.get(taskId)
+    const gid = parseAsanaTaskUrl(url)?.gid
+    if (!outline || outline.factoryId !== factoryId || gid === undefined) continue
+    const state = outline.archived ? 'archived' : outline.stage === 'done' ? 'done' : 'open'
+    const before = found.get(gid)
+    if (!before || rank[state] > rank[before.state]) found.set(gid, { taskId, state })
+  }
+  const tracked = new Map<string, TrackedItem>()
+  for (const [gid, { taskId, state }] of found) {
+    const task = store.getTask(taskId)
+    if (!task) continue
+    tracked.set(gid, {
+      state,
+      displayId: task.displayId,
+      childGids: task.source?.asana?.children.map((child) => child.gid) ?? [],
+    })
+  }
+  return tracked
+}
 
 export function mentions(text: unknown, url: string): boolean {
   if (typeof text !== 'string') return false
@@ -67,6 +107,14 @@ export function asanaConnector(
 ): TrackerConnector<AsanaTaskUrl, AsanaItem> {
   let left = 0
   let start = 0
+  let cycleNo = 0
+  const treeReadIn = new Map<string, number>()
+  const starved = new Map<string, number>()
+  const readAt = (taskId: string) => treeReadIn.get(taskId) ?? 0
+  const behind = (taskId: string) =>
+    [...starved].some(
+      ([id, at]) => id !== taskId && at >= cycleNo - 1 && readAt(id) < readAt(taskId),
+    )
 
   const spend = () => {
     if (left <= 0) throw new TrackerWait(0)
@@ -75,6 +123,12 @@ export function asanaConnector(
   const stillSyncing = (taskId: string): boolean => {
     const state = store.getTask(taskId)?.asanaSync?.state
     return store.settings().asanaSync && state !== undefined && asanaSyncing.includes(state)
+  }
+  const settleParent = (taskId: string) => {
+    store.setAsanaOpenChildren(taskId, undefined)
+    store.setAsanaLeftOpen(taskId, false)
+    treeReadIn.delete(taskId)
+    starved.delete(taskId)
   }
   const waitOn = (error: unknown): never => {
     if (error instanceof AsanaReadError && error.retryAfterMs !== undefined)
@@ -86,10 +140,11 @@ export function asanaConnector(
     path: string,
     fields: string,
     found: (row: Record<string, unknown>) => boolean,
+    most = maxPages,
   ): Promise<{ rows: Record<string, unknown>[]; complete: boolean }> {
     const rows: Record<string, unknown>[] = []
     let offset: string | undefined
-    for (let page = 0; page < maxPages; page++) {
+    for (let page = 0; page < Math.min(maxPages, most); page++) {
       spend()
       const body = await asana
         .read(path, {
@@ -125,6 +180,7 @@ export function asanaConnector(
       store.setAsanaConnection(account)
       if (account === undefined) return undefined
       left = requestsPerCycle
+      cycleNo++
       const gids = [...new Set(links.map((link) => link.gid))]
       const offset = gids.length === 0 ? 0 : start % gids.length
       const order = [...gids.slice(offset), ...gids.slice(0, offset)]
@@ -163,26 +219,86 @@ export function asanaConnector(
     steps: ['completed'],
     async advance({ task, merged, item }) {
       if (!merged) return undefined
+      const asking = () =>
+        store.listComments(task.id).filter((c) => c.asanaUnfinished && c.answer === undefined)
+      const withdraw = (questions: readonly Comment[]) => {
+        for (const question of questions)
+          store.answerComment(question.id, {
+            kind: 'withdrawn',
+            at: new Date().toISOString(),
+            asanaReread: true,
+          })
+      }
       if (item.handle.completed) {
-        store.setAsanaOpenChildren(task.id, undefined)
+        withdraw(asking())
+        settleParent(task.id)
         return { step: 'completed' }
       }
+      const root = {
+        gid: item.handle.gid,
+        name: task.source?.asana?.title ?? task.title,
+        url: asanaTaskUrl(item.handle.gid),
+      }
+      let step: ParentStep = { kind: 'complete' }
       if (item.handle.subtasks > 0) {
-        const { rows, complete } = await pages(
-          `/tasks/${item.handle.gid}/subtasks`,
-          'completed',
-          () => false,
-        )
-        const open = rows.filter((row) => row.completed !== true).length
-        if (open > 0 || !complete) {
-          store.setAsanaOpenChildren(task.id, Math.max(open, 1))
+        if (behind(task.id)) return undefined
+        if (left <= Math.min(maxSubtreeRequests, Math.floor(requestsPerCycle / 2))) {
+          starved.set(task.id, cycleNo)
           return undefined
         }
+        starved.delete(task.id)
+        treeReadIn.set(task.id, cycleNo)
+        const tracked = trackedItems(store, task.factoryId)
+        const owner = (gid: string) => tracked.get(gid)
+        const budget = left
+        const tree = await readSubtree({
+          root,
+          list: (gid) =>
+            pages(
+              `/tasks/${gid}/subtasks`,
+              subtaskFields,
+              () => false,
+              maxSubtreeRequests - (budget - left),
+            ),
+          spent: () => budget - left,
+          tracked: owner,
+        })
+        const questions = store.listComments(task.id).filter((c) => c.asanaUnfinished)
+        step = parentStep(planUnfinished(root, tree, owner), coveredBy(questions))
       }
       if (!stillSyncing(task.id)) return undefined
+      const open = asking()
+      if (step.kind === 'ask') {
+        store.setAsanaOpenChildren(task.id, undefined)
+        store.setAsanaLeftOpen(task.id, false)
+        const kept = open.find((c) => stillAsked(c, step.items))
+        withdraw(open.filter((c) => c !== kept))
+        if (kept) return undefined
+        store.postComment({
+          taskId: task.id,
+          kind: 'question',
+          author: { kind: 'ted' },
+          title: unfinishedTitle,
+          body: unfinishedText(step.items),
+          choices: unfinishedChoices(step.items),
+          asanaUnfinished: { parentGid: root.gid, items: step.items },
+        })
+        return undefined
+      }
+      withdraw(open)
+      if (step.kind === 'wait') {
+        store.setAsanaLeftOpen(task.id, false)
+        store.setAsanaOpenChildren(task.id, step.waiting)
+        return undefined
+      }
+      if (step.kind === 'leave') {
+        store.setAsanaOpenChildren(task.id, undefined)
+        store.setAsanaLeftOpen(task.id, true)
+        return undefined
+      }
       spend()
       await asana.complete(item.handle.gid, item.handle.account).catch(waitOn)
-      store.setAsanaOpenChildren(task.id, undefined)
+      settleParent(task.id)
       return { step: 'completed', moved: 'Completed' }
     },
     async link(item, pullRequest, task) {

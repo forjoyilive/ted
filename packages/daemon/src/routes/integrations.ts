@@ -3,15 +3,30 @@ import {
   agentKinds,
   parseAllowAsanaProjectRequest,
   parseAllowLinearTeamRequest,
+  parseAsanaChoicesQuery,
   parseAsanaConfiguration,
   parseForgetAsanaProjectRequest,
   parseLinearLookupRequest,
   parseRunFixRequest,
   parseSaveLinearKeyRequest,
 } from '@ted/protocol'
+import { listAsanaChoices } from '../asana/intake.ts'
+import { retryingRead } from '../asana/tree.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import type { Tasks } from '../tasks/tasks.ts'
-import { jsonRoute, type Route } from './route.ts'
+import { jsonRoute, type RequestContext, type Route } from './route.ts'
+
+function asanaChoices(
+  path: (params: string[]) => string,
+  query: Record<string, string> = {},
+): Route['handle'] {
+  return async ({ req, params, caller }: RequestContext, { asana }) => {
+    if (caller.kind !== 'app')
+      throw new HttpError(403, 'only the TED app can list Asana workspaces and projects')
+    const { offset } = parseAsanaChoicesQuery(new URL(req.url ?? '/', 'http://localhost').search)
+    return [200, await listAsanaChoices(retryingRead(asana.read), path(params), query, offset)]
+  }
+}
 
 function seen(tasks: Pick<Tasks, 'asanaStatusSeen'>, status: AsanaStatus): AsanaStatus {
   tasks.asanaStatusSeen(status)
@@ -23,6 +38,23 @@ export const integrationRoutes: Route[] = [
     method: 'GET',
     path: /^\/integrations\/asana$/,
     handle: async (_, { asana, tasks }) => [200, seen(tasks, await asana.status())],
+  },
+  {
+    method: 'GET',
+    path: /^\/integrations\/asana\/workspaces(?:\?.*)?$/,
+    handle: asanaChoices(() => '/workspaces'),
+  },
+  {
+    method: 'GET',
+    path: /^\/integrations\/asana\/workspaces\/(\d{1,32})\/projects(?:\?.*)?$/,
+    handle: asanaChoices(([workspace]) => `/workspaces/${workspace}/projects`, {
+      archived: 'false',
+    }),
+  },
+  {
+    method: 'GET',
+    path: /^\/integrations\/asana\/projects\/(\d{1,32})\/sections(?:\?.*)?$/,
+    handle: asanaChoices(([project]) => `/projects/${project}/sections`),
   },
   jsonRoute(parseAsanaConfiguration, {
     method: 'PUT',

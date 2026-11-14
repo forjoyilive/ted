@@ -147,16 +147,35 @@ export async function startStubAsana() {
         failure.retryAfter === undefined ? {} : { 'retry-after': failure.retryAfter },
       )
       res.end('{}')
-    } else if (path === '/api/1.0/workspaces') {
+    } else if (
+      path === '/api/1.0/workspaces' ||
+      /^\/api\/1\.0\/(workspaces\/\d+\/projects|projects\/\d+\/sections)$/.test(path)
+    ) {
       if (req.headers.authorization !== 'Bearer access-secret-opaque') {
         res.writeHead(401)
         res.end('{}')
         return
       }
+      const [, , , kind = '', gid = ''] = path.split('/')
+      const items =
+        path === '/api/1.0/workspaces'
+          ? [...workspaces].map(([id, name]) => ({ gid: id, name }))
+          : kind === 'workspaces'
+            ? [...projects.values()]
+                .filter((p) => p.workspace === gid && !(query.archived === 'false' && p.archived))
+                .map((p) => ({ gid: p.gid, name: p.name, archived: p.archived === true }))
+            : (projects.get(gid)?.sections ?? [])
+      if (kind === 'projects' && !projects.has(gid)) {
+        res.writeHead(404)
+        res.end('{}')
+        return
+      }
+      const offset = Number(query.offset ?? '0')
+      const next = offset + pageSize
       res.end(
         JSON.stringify({
-          data: [...workspaces].map(([gid, name]) => ({ gid, name })),
-          next_page: null,
+          data: items.slice(offset, next),
+          next_page: next < items.length ? { offset: String(next) } : null,
         }),
       )
     } else if (/^\/api\/1\.0\/(workspaces|projects|sections)\//.test(path)) {
@@ -179,22 +198,6 @@ export async function startStubAsana() {
       if (!project && !section && workspace === undefined) {
         res.writeHead(404)
         res.end('{}')
-        return
-      }
-      if (workspace !== undefined && list === 'projects') {
-        const listed = [...projects.values()].filter(
-          (p) => p.workspace === gid && (query.archived !== 'false' || p.archived !== true),
-        )
-        const offset = Number(query.offset ?? '0')
-        const next = offset + pageSize
-        res.end(
-          JSON.stringify({
-            data: listed
-              .slice(offset, next)
-              .map((p) => ({ gid: p.gid, name: p.name, archived: p.archived === true })),
-            next_page: next < listed.length ? { offset: String(next) } : null,
-          }),
-        )
         return
       }
       if (list === 'tasks') {
@@ -309,7 +312,14 @@ export async function startStubAsana() {
           (task.subtasks ?? []).flatMap((child) => {
             const found = tasks.get(child)
             return found
-              ? [{ gid: found.gid, name: found.name, completed: found.completed === true }]
+              ? [
+                  {
+                    gid: found.gid,
+                    name: found.name,
+                    completed: found.completed === true,
+                    num_subtasks: (found.subtasks ?? []).length,
+                  },
+                ]
               : [{ gid: child, name: `Missing ${child}`, completed: false }]
           }),
         )

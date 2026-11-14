@@ -6,6 +6,7 @@ interface StubDevice {
   udid: string
   name: string
   state: 'Booted' | 'Shutdown'
+  appearance?: 'light' | 'dark'
   isAvailable: boolean
   deviceTypeIdentifier: string
 }
@@ -21,7 +22,7 @@ interface StubState {
   xcode?: boolean
   runtimes?: StubRuntime[]
   devices?: Record<string, StubDevice[]>
-  deviceTypes?: { name: string; identifier: string }[]
+  deviceTypes?: { name: string; identifier: string; createFails?: boolean }[]
 }
 
 const file = process.env.TED_STUB_XCRUN
@@ -30,6 +31,8 @@ const args = process.argv.slice(2)
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
+
+let heldLock: string | undefined
 
 function locked<T>(work: () => T): T {
   const lock = `${file}.lock`
@@ -42,9 +45,11 @@ function locked<T>(work: () => T): T {
       sleep(10)
     }
   }
+  heldLock = lock
   try {
     return work()
   } finally {
+    heldLock = undefined
     rmdirSync(lock)
   }
 }
@@ -63,6 +68,7 @@ function write(state: StubState): void {
 }
 
 function fail(message: string, code = 1): never {
+  if (heldLock !== undefined) rmdirSync(heldLock)
   process.stderr.write(`${message}\n`)
   process.exit(code)
 }
@@ -142,6 +148,7 @@ if (verb === 'io') {
           (t) => t.name === type || t.identifier === type,
         )
         if (!known) fail(`Invalid device type: ${type}`, 148)
+        if (known.createFails) fail(`Incompatible device: ${type}`, 148)
         const where = runtime ?? (current.runtimes ?? []).at(-1)?.identifier
         if (where === undefined) fail('No runtime', 148)
         const udid = randomUUID().toUpperCase()
@@ -173,6 +180,17 @@ if (verb === 'io') {
           fail('Unable to shutdown device in current state: Shutdown', 149)
         }
         target.state = 'Shutdown'
+        write(current)
+        return ''
+      }
+      case 'ui': {
+        const [udid = '', what, value] = rest
+        const target = device(current, udid)
+        if (target.state !== 'Booted')
+          fail('Unable to change appearance: device is not booted', 149)
+        if (what !== 'appearance' || (value !== 'light' && value !== 'dark'))
+          fail(`unknown ui setting ${what} ${value}`)
+        target.appearance = value
         write(current)
         return ''
       }

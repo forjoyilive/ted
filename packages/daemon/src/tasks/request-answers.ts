@@ -113,6 +113,12 @@ export interface RequestAnswerPort {
     choice: string | undefined,
     text: string,
   ): Promise<Comment>
+  answerAsanaUnfinished(
+    task: Task,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment>
   trackerConsents: readonly TrackerConsent[]
   answerCleanupFailure(
     task: StoredTask,
@@ -167,6 +173,7 @@ export function createRequestAnswers(
     gateName,
     firstLine,
     answerAsanaMissing,
+    answerAsanaUnfinished,
     trackerConsents,
     answerCleanupFailure,
   } = port
@@ -649,6 +656,9 @@ export function createRequestAnswers(
     }
     if (comment.purpose?.kind === 'asana-missing' && request.action === 'answer') {
       return answerAsanaMissing(task, comment, request.choice, text)
+    }
+    if (comment.purpose?.kind === 'asana-unfinished' && request.action === 'answer') {
+      return answerAsanaUnfinished(task, comment, request.choice, text)
     }
     const consent = trackerConsents.find((c) => c.asks(comment))
     if (consent && request.action === 'answer') {

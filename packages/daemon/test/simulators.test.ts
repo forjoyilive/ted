@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type {
   Automation,
   AutomationDetail,
+  AutomationTemplate,
   Banner,
   Comment,
   Factory,
@@ -59,6 +60,7 @@ interface StubDevice {
   udid: string
   name: string
   state: string
+  deviceTypeIdentifier?: string
 }
 
 async function writeStub(extra: Record<string, unknown>) {
@@ -615,6 +617,185 @@ describe('iOS simulator Apps', () => {
     expect(await gone(path.join(home, 'apps', heldRun))).toBe(true)
     expect(await gone(cache)).toBe(true)
   })
+
+  test('an Audit reads its simulator’s screen, taps through two screens and files a Task with a screenshot for the planted problem', async () => {
+    await writeStub({
+      deviceTypes: [
+        { name: 'iPhone 17', identifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17' },
+        {
+          name: 'iPhone SE (3rd generation)',
+          identifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation',
+        },
+        {
+          name: 'iPhone 6',
+          identifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-6',
+          createFails: true,
+        },
+      ],
+    })
+    const client = await start()
+    await addFactory(client)
+    const template = (await client.ok<AutomationTemplate[]>('GET', '/automations/templates')).find(
+      (t) => t.id === 'audit',
+    )
+    if (!template) throw new Error('missing audit template')
+    expect(template.prompt).toContain('`ios-simulator` App')
+    const source = 'http://localhost/audit/iPhone/details/buy-button-covers-price'
+    const app = (...args: string[]) => ({ run: ['ted', 'app', ...args] })
+    const tapLabel = (label: string) => ({
+      run: [
+        'sh',
+        '-c',
+        `ted app tap iPhone "$(ted app screen iPhone | grep 'label="${label}"' | cut -d ' ' -f 1)"`,
+      ],
+    })
+    const released = path.join(scratch, 'released')
+    const automation = await client.ok<Automation>('POST', '/automations', {
+      template: template.id,
+      name: template.name,
+      factory: 'NB',
+      schedule: template.schedule,
+      on: false,
+      checkout: true,
+      runNow: true,
+      prompt: `${template.prompt}\n${JSON.stringify({
+        steps: [
+          { run: ['ted', 'run-app', 'iPhone'] },
+          tapLabel('Open details'),
+          app('screen', 'iPhone'),
+          app('appearance', 'iPhone', 'dark'),
+          app('key', 'iPhone', 'back'),
+          { run: ['sh', '-c', `printf '%s' "-it's" | ted app type iPhone`] },
+          app('key', 'iPhone', 'enter'),
+          app('tap', 'iPhone', '5000,100'),
+          app('screen', 'Watch'),
+          {
+            run: [
+              'sh',
+              '-c',
+              `shot=$(ted app screenshot iPhone | sed -n 's/^Saved \\(.*\\.png\\)\\. Attach.*/\\1/p') && ted task create --source ${source} --description "Details screen in dark mode: the Buy button covers the price." --attach "$shot" "Buy button covers the price on Details"`,
+            ],
+          },
+          tapLabel('Back'),
+          app('size', 'iPhone', '720x1280'),
+          app('size', 'iPhone', 'iPhone SE (3rd generation)'),
+          app('screen', 'iPhone'),
+          app('size', 'iPhone', 'iPhone 6'),
+          app('size', 'iPhone', 'reset'),
+          { waitFor: released },
+          app('screen', 'iPhone'),
+          { endTurn: true },
+        ],
+      })}`,
+    })
+    const runId = await waitUntil(
+      async () =>
+        (await client.ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+          (r) => r.runId !== undefined,
+        )?.runId,
+      'the Audit Run',
+    )
+    const results = (count: number) =>
+      waitUntil(
+        async () => {
+          const texts = assistantTexts((await client.getRun(runId)).conversation)
+          return texts.length >= count
+            ? texts.map((t) => JSON.parse(t) as { code: number; stdout: string; stderr: string })
+            : undefined
+        },
+        'the Audit’s commands',
+        60_000,
+      )
+    const before = await results(16)
+    const refused = await client.call('POST', `/runs/${runId}/apps/device`, {
+      action: 'screen',
+      app: { name: 'iPhone' },
+    })
+    expect(refused.status).toBe(403)
+
+    expect(before.map((r) => r.code === 0)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+    ])
+    expect(before[1]?.stdout).toContain('Tapped 201,325')
+    const details = before[2]?.stdout ?? ''
+    expect(details).toMatch(/^<<<SCREEN [0-9a-f]{8}>>>$/m)
+    expect(details).toContain('StaticText label="Price: 10 widgets for $5" at 201,270')
+    expect(details).toContain('Button label="Buy" id="buy" clickable at 201,295')
+    expect(before[4]?.stderr).toContain('iOS has no back key')
+    expect(before[7]?.stderr).toContain('5000,100 is off the screen, which is 402x874 points')
+    expect(before[8]?.stderr).toContain('Watch’s simulator isn’t booted')
+    expect(before[9]?.stdout).toContain('Created NB-1')
+    expect(before[11]?.stderr).toContain('can’t be resized')
+    expect(before[12]?.stdout).toContain('iPhone now runs on iPhone SE (3rd generation)')
+    expect(before[13]?.stdout).toContain('label="Open details"')
+    expect(before[14]?.stderr).toContain('TED couldn’t run iPhone on iPhone 6')
+    expect(before[14]?.stderr).toContain('iPhone runs on iPhone SE (3rd generation) again.')
+    expect(before[15]?.stdout).toContain('iPhone now runs on iPhone 17')
+    const calls = await stubCalls()
+    const firstUdid = calls.find((c) => c[1] === 'ui')?.[2]
+    expect(calls).toContainEqual(['simctl', 'ui', firstUdid, 'appearance', 'dark'])
+    const state = JSON.parse(await readFile(stubState, 'utf8')) as {
+      ui: Record<string, { screen: string; typed?: string; keys?: string[] }>
+    }
+    expect(state.ui[firstUdid ?? '']).toMatchObject({ typed: "-it's", keys: ['40'] })
+    const devices = await stubDevices()
+    expect(devices.some((d) => d.udid === firstUdid)).toBe(false)
+    expect(devices.filter((d) => d.name.startsWith('TED Dev'))).toMatchObject([
+      { state: 'Booted', deviceTypeIdentifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17' },
+    ])
+
+    await writeFile(stubState, JSON.stringify({ ...state, idb: false }))
+    await writeFile(released, '')
+    const after = await results(17)
+    expect(after[16]?.code).not.toBe(0)
+    expect(after[16]?.stderr).toContain('brew install facebook/fb/idb-companion')
+
+    const finished = await waitUntil(
+      async () =>
+        (await client.ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+          (r) => r.runId === runId && r.finishedAt !== undefined,
+        ),
+      'the Audit Run to finish',
+      60_000,
+    )
+    expect(finished.result.kind).toBe('created')
+    const filed = (await client.ok<Task[]>('GET', '/tasks')).filter(
+      (t) => t.createdBy === 'automation',
+    )
+    expect(filed).toHaveLength(1)
+    expect(filed[0]).toMatchObject({
+      title: 'Buy button covers the price on Details',
+      stage: 'backlog',
+      source: { url: source },
+    })
+    const shot = filed[0]?.attachments[0]
+    expect(shot?.mediaType).toBe('image/png')
+    const bytes = await client.ok<{ data: string }>(
+      'GET',
+      `/attachments/${shot?.hash}/${encodeURIComponent(shot?.name ?? '')}`,
+    )
+    expect(Buffer.from(bytes.data, 'base64').toString()).toMatch(/^PNG of TED Dev .* iPhone$/)
+    await waitUntil(
+      async () =>
+        (await stubDevices()).some((d) => d.name.startsWith('TED Dev')) ? undefined : true,
+      'the Audit’s simulator to be deleted',
+    )
+  }, 60_000)
 
   test('missing Xcode raises a stops-work Factory banner', async () => {
     await writeStub({ xcode: false })

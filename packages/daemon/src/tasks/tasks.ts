@@ -124,6 +124,7 @@ import {
   agentShortNames,
   agentStageIds,
   archiveChoice,
+  asanaAddChoice,
   asanaSyncAllowable,
   bannerId,
   briefHeadings,
@@ -4346,17 +4347,24 @@ export function createTasks(options: {
     return { tree, user }
   }
 
-  function planAsana(tree: AsanaTree, factoryId: string, userGid: string, app: boolean) {
+  function planAsana(
+    tree: AsanaTree,
+    factoryId: string,
+    userGid: string,
+    app: boolean,
+    doneParent?: string,
+  ) {
     return planAsanaImport({
       tree,
       tasks: store.listTasks(),
       factoryId,
       userGid,
       app,
+      ...(doneParent !== undefined && { doneParent }),
       parentRefusal: (taskId) => {
         try {
           requireHierarchyIdle([taskId])
-          safeParent(find(taskId))
+          if (taskId !== doneParent || find(taskId).stage !== 'done') safeParent(find(taskId))
           return undefined
         } catch (error) {
           return error instanceof Error ? error.message : String(error)
@@ -4396,6 +4404,12 @@ export function createTasks(options: {
   interface IntakeImport {
     budget: number
     unchanged: () => void
+  }
+
+  interface AsanaClosing {
+    commentId: string
+    choice: string
+    doneParent?: string
   }
 
   function intakeAsana() {
@@ -4460,7 +4474,7 @@ export function createTasks(options: {
   function importAsana(
     input: AsanaImportRequest,
     caller: Caller = { kind: 'app' },
-    closing?: { commentId: string; choice: string },
+    closing?: AsanaClosing,
     intake?: IntakeImport,
   ): Promise<AsanaImportResult> {
     const target = asanaTarget(input, caller)
@@ -4599,7 +4613,7 @@ export function createTasks(options: {
     input: AsanaImportRequest,
     caller: Caller,
     { factory, automation, gid }: ReturnType<typeof asanaTarget>,
-    closing?: { commentId: string; choice: string },
+    closing?: AsanaClosing,
     intake?: IntakeImport,
   ): Promise<AsanaImportResult> {
     const unchanged =
@@ -4616,7 +4630,13 @@ export function createTasks(options: {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
     unchanged?.()
-    const plan = planAsana(tree, factory.id, user.gid, caller.kind === 'app' && !intake)
+    const plan = planAsana(
+      tree,
+      factory.id,
+      user.gid,
+      caller.kind === 'app' && !intake,
+      closing?.doneParent,
+    )
     if (plan.preview.refusal !== undefined) throw new RequestError(409, plan.preview.refusal)
     if (intake && plan.creates.length > intake.budget) throw new IntakeBudgetError()
     const allowance = asanaAllowance(automation)
@@ -4807,6 +4827,36 @@ export function createTasks(options: {
       wakeTask(task.id)
     } else {
       throw new RequestError(400, `answer with ${asanaRetryChoice} or ${asanaGoAheadChoice}`)
+    }
+    return store.getComment(comment.id) ?? comment
+  }
+
+  async function answerAsanaUnfinished(
+    task: Task,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment> {
+    if (comment.answer) throw new RequestError(409, 'this request has already been answered')
+    const unfinished = comment.asanaUnfinished
+    if (!unfinished) throw new RequestError(400, 'this question isn’t about Asana work')
+    const choices = comment.choices ?? []
+    if (text !== '' || choice === undefined || !choices.includes(choice)) {
+      throw new RequestError(400, `answer with ${choices.join(', ')}`)
+    }
+    if (choice === asanaAddChoice) {
+      const current = find(task.id)
+      await importAsana(
+        {
+          url: asanaTaskUrl(unfinished.parentGid),
+          factory: factoryOf(current).key,
+          addToTree: true,
+        },
+        { kind: 'app' },
+        { commentId: comment.id, choice, doneParent: current.id },
+      )
+    } else {
+      store.answerComment(comment.id, { kind: 'answered', at: new Date().toISOString(), choice })
     }
     return store.getComment(comment.id) ?? comment
   }
@@ -5562,6 +5612,7 @@ export function createTasks(options: {
         gateName,
         firstLine,
         answerAsanaMissing,
+        answerAsanaUnfinished,
         trackerConsents,
         answerCleanupFailure,
         withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),

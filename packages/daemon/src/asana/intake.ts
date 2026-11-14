@@ -1,4 +1,11 @@
-import { type AsanaIntakeScope, type AsanaRef, maxAsanaImportDepth } from '@ted/protocol'
+import {
+  type AsanaChoicesPage,
+  type AsanaIntakeCheck,
+  type AsanaIntakeScope,
+  type AsanaRef,
+  isAsanaOffset,
+  maxAsanaImportDepth,
+} from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { AsanaReadError } from './asana.ts'
@@ -36,19 +43,21 @@ const refFrom = (value: unknown, saved: AsanaRef): AsanaRef => {
 export const scopeName = (scope: AsanaIntakeScope) =>
   scope.section ? `${scope.project.name} › ${scope.section.name}` : scope.project.name
 
-export async function confirmAsanaScope(
+const staleNote = (why: string) =>
+  `The Asana intake choice for this Factory is out of date: ${why}. Choose the project again in Factory settings.`
+
+export async function checkAsanaScope(
   read: AsanaRead,
   scope: AsanaIntakeScope,
-): Promise<AsanaIntakeScope> {
-  const stale = (why: string) =>
-    new RequestError(
-      409,
-      `The Asana intake choice for this Factory is out of date: ${why}. Choose the project again in Factory settings.`,
-    )
+): Promise<Exclude<AsanaIntakeCheck, { state: 'none' }>> {
+  type Part = 'workspace' | 'project' | 'section'
+  const stale = (part: Part, reason: string) => ({ state: 'stale' as const, part, reason })
+  let part: Part = 'workspace'
   try {
     const workspace = record(
       (await read(`/workspaces/${scope.workspace.gid}`, { opt_fields: 'name' })).data,
     )
+    part = 'project'
     const project = record(
       (
         await read(`/projects/${scope.project.gid}`, {
@@ -56,36 +65,89 @@ export async function confirmAsanaScope(
         })
       ).data,
     )
-    if (gidOf(workspace) !== scope.workspace.gid) throw stale('Asana didn’t return the workspace')
-    if (gidOf(project) !== scope.project.gid) throw stale('Asana didn’t return the project')
+    if (gidOf(workspace) !== scope.workspace.gid)
+      return stale('workspace', 'Asana didn’t return the workspace')
+    if (gidOf(project) !== scope.project.gid)
+      return stale('project', 'Asana didn’t return the project')
     if (gidOf(project?.workspace) !== scope.workspace.gid)
-      throw stale(`${scope.project.name} isn’t in ${scope.workspace.name}`)
-    if (project?.archived === true) throw stale(`${scope.project.name} is archived`)
+      return stale('project', `${scope.project.name} isn’t in ${scope.workspace.name}`)
+    if (project?.archived === true) return stale('project', `${scope.project.name} is archived`)
     let section: AsanaRef | undefined
     if (scope.section) {
+      part = 'section'
       const found = record(
         (await read(`/sections/${scope.section.gid}`, { opt_fields: 'name,project' })).data,
       )
       if (gidOf(found) !== scope.section.gid || gidOf(found?.project) !== scope.project.gid)
-        throw stale(`${scope.section.name} isn’t a section of ${scope.project.name}`)
+        return stale('section', `${scope.section.name} isn’t a section of ${scope.project.name}`)
       section = refFrom(found, scope.section)
     }
     return {
-      workspace: refFrom(workspace, scope.workspace),
-      project: refFrom(project, scope.project),
-      ...(section && { section }),
+      state: 'current',
+      scope: {
+        workspace: refFrom(workspace, scope.workspace),
+        project: refFrom(project, scope.project),
+        ...(section && { section }),
+      },
     }
   } catch (error) {
-    if (error instanceof RequestError) throw error
     const status = error instanceof AsanaReadError ? error.status : undefined
     if (status === 403 || status === 404)
-      throw stale('Asana can’t find it or the connected account can’t open it')
+      return stale(part, 'Asana can’t find it or the connected account can’t open it')
+    return {
+      state: 'unreadable',
+      reason: redactSecrets(error instanceof Error ? error.message : 'unknown error'),
+    }
+  }
+}
+
+export async function confirmAsanaScope(
+  read: AsanaRead,
+  scope: AsanaIntakeScope,
+): Promise<AsanaIntakeScope> {
+  const checked = await checkAsanaScope(read, scope)
+  if (checked.state === 'current') return checked.scope
+  if (checked.state === 'stale') throw new RequestError(409, staleNote(checked.reason))
+  throw new RequestError(
+    409,
+    `Couldn’t confirm the Asana intake choice with Asana: ${checked.reason}. Try again later.`,
+  )
+}
+
+const choicesPageSize = '100'
+
+export async function listAsanaChoices(
+  read: AsanaRead,
+  path: string,
+  query: Record<string, string>,
+  offset: string | undefined,
+): Promise<AsanaChoicesPage> {
+  let body: Record<string, unknown>
+  try {
+    body = await read(path, {
+      ...query,
+      opt_fields: 'name',
+      limit: choicesPageSize,
+      ...(offset !== undefined && { offset }),
+    })
+  } catch (error) {
     throw new RequestError(
       409,
-      redactSecrets(
-        `Couldn’t confirm the Asana intake choice with Asana: ${error instanceof Error ? error.message : 'unknown error'}. Try again later.`,
-      ),
+      redactSecrets(`Couldn’t read Asana: ${reasonOf(error)}. The saved choice stays as it was.`),
     )
+  }
+  if (!Array.isArray(body.data))
+    throw new RequestError(409, 'Asana returned an incomplete list. Try again.')
+  const items = body.data.flatMap((item) => {
+    const gid = gidOf(item)
+    const name = record(item)?.name
+    const clean = typeof name === 'string' ? oneLine(name).slice(0, 500) : ''
+    return gid && clean ? [{ gid, name: clean }] : []
+  })
+  const next = record(body.next_page)?.offset
+  return {
+    items,
+    ...(typeof next === 'string' && isAsanaOffset(next) && next !== offset && { nextOffset: next }),
   }
 }
 
