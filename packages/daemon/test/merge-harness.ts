@@ -252,6 +252,10 @@ export function leadSteps(client: Client, commit = commitStep.run[2]) {
   })
 }
 
+// A Task reaches its sign-off in 3 to 6 seconds on an idle machine, took up to 14 beside five
+// other daemon test files, and passed 20 in a full `pnpm check`.
+const signoffWaitMs = 60_000
+
 export async function toSignoff(
   client: Client,
   extra: Record<string, unknown> = {},
@@ -263,12 +267,16 @@ export async function toSignoff(
     ...extra,
   })
   await client.ok('POST', `/tasks/${task.id}/start`)
-  const item = await waitUntil(async () => {
-    const items = await client.ok<InboxItem[]>('GET', '/inbox')
-    const item = items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
-    if (!item && clock?.pending.includes(100)) clock.advance(100)
-    return item
-  }, 'the Review sign-off')
+  const item = await waitUntil(
+    async () => {
+      const items = await client.ok<InboxItem[]>('GET', '/inbox')
+      const item = items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
+      if (!item && clock?.pending.includes(100)) clock.advance(100)
+      return item
+    },
+    'the Review sign-off',
+    signoffWaitMs,
+  )
   await waitUntil(
     async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.state === 'ready',
     'the pull request to be ready',
