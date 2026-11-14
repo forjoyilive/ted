@@ -60,6 +60,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_TEST_FILE: false,
   TED_TEST_RUN: false,
   TED_TIME_MACHINE: false,
+  TED_UNATTENDED_EXIT_MS: false,
   TED_UPDATE_FEED: false,
   TED_UPDATE_LOG: false,
   TED_XCRUN_BIN: false,

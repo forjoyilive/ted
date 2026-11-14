@@ -11,12 +11,15 @@ import { afterEach, beforeEach, expect, test } from 'vitest'
 import {
   api,
   appHeaders,
+  hostRecords,
+  isAlive,
   killRunHosts,
   makeTempHome,
   rawRequest,
   spawnDaemonProcess,
   stubClaudePath,
   testAppToken,
+  waitUntil,
 } from './helpers.ts'
 
 const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
@@ -133,13 +136,14 @@ test('a request still in flight keeps a daemon started with --exit-when-idle run
   expect(code).toBe(0)
 })
 
-test('an idle daemon stays up while a Run is live, and exits once it finishes', async () => {
+test('a live Run keeps an idle daemon up, and an unattended daemon stops its Runs and exits', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ted-run-cwd-'))
   try {
     child = spawnDaemonProcess(['--exit-when-idle'], {
       ...process.env,
       TED_HOME: home,
-      TED_IDLE_EXIT_MS: '500',
+      TED_IDLE_EXIT_MS: '300',
+      TED_UNATTENDED_EXIT_MS: '3000',
       TED_CLAUDE_BIN: stubClaudePath,
     })
     const exited = once(child, 'exit')
@@ -147,13 +151,22 @@ test('an idle daemon stays up while a Run is live, and exits once it finishes', 
     const client = api(port, { appKey: testAppToken })
     const finish = path.join(cwd, 'finish')
     await client.startRun([{ waitFor: finish }, { exit: 0 }], cwd)
+    const waiting = await client.startRun([{ waitFor: finish }, { endTurn: true }], cwd)
 
     await sleep(1_500)
     expect(child.exitCode).toBeNull()
 
     await writeFile(finish, '')
+    await sleep(1_000)
+    expect(child.exitCode).toBeNull()
+
     const [code] = await exited
     expect(code).toBe(0)
+    const pids = (await hostRecords(home, waiting.id))
+      .filter((record) => record.t === 'start')
+      .flatMap((start) => [start.hostPid, start.agentPid])
+    expect(pids.length).toBeGreaterThan(0)
+    await waitUntil(() => pids.every((pid) => !isAlive(Number(pid))), 'the idle Run’s host to stop')
   } finally {
     await killRunHosts(home)
     await rm(cwd, { recursive: true, force: true })

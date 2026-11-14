@@ -127,3 +127,41 @@ test('idle holds cancel a deadline and the last release starts a full new delay'
   idle.cancel()
   expect(clock.pending).toEqual([])
 })
+
+test('the unattended time runs through holds and starts again with a client or Run output', () => {
+  const clock = new ManualClock()
+  let idles = 0
+  let unattended = 0
+  const idle = startIdleTimer({
+    afterMs: 100,
+    onIdle: () => {
+      idles++
+    },
+    unattended: {
+      afterMs: 1000,
+      onUnattended: () => {
+        unattended++
+      },
+    },
+    clock,
+  })
+  const work = idle.hold()
+  clock.advance(900)
+  idle.heard()
+  clock.advance(999)
+  expect(unattended).toBe(0)
+  const client = idle.attend()
+  clock.advance(5000)
+  idle.heard()
+  expect(unattended).toBe(0)
+  client()
+  client()
+  clock.advance(999)
+  expect([idles, unattended]).toEqual([0, 0])
+  clock.advance(1)
+  expect([idles, unattended]).toEqual([0, 1])
+  work()
+  idle.cancel()
+  clock.advance(5000)
+  expect([idles, unattended]).toEqual([0, 1])
+})

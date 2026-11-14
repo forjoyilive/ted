@@ -197,7 +197,7 @@ interface Timing {
 
 export async function listen(options: BaseOptions): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
-    const release = options.idle?.hold()
+    const release = options.idle?.attend()
     if (release) res.on('close', release)
     const timing: Timing = {}
     handle(req, res, options, timing)
@@ -347,7 +347,7 @@ function streamEvents(
   if (app) appStreams.add(res)
   // Node's fetch fails a response body that sends nothing for 300 seconds.
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), keepaliveMs)
-  const release = idle?.hold()
+  const release = idle?.attend()
   res.on('close', () => {
     clearInterval(keepalive)
     unsubscribe()

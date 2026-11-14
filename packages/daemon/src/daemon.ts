@@ -74,7 +74,11 @@ export interface DaemonOptions {
   claudeBin?: string
   codexBin?: string
   antigravityBin?: string
-  idleExit?: { afterMs: number; onIdle: () => void }
+  idleExit?: {
+    afterMs: number
+    onIdle: () => void
+    unattended?: { afterMs: number; onExit: (stoppedRuns: number) => void }
+  }
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
   checkAgentsOnStart?: boolean
@@ -206,9 +210,34 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     lock.release()
     throw new QuitMarkedError()
   }
+  const unattended = options.idleExit?.unattended
   const idle =
     options.idleExit &&
-    startIdleTimer({ ...options.idleExit, ...(options.clock && { clock: options.clock }) })
+    startIdleTimer({
+      afterMs: options.idleExit.afterMs,
+      onIdle: options.idleExit.onIdle,
+      ...(unattended && {
+        unattended: {
+          afterMs: unattended.afterMs,
+          onUnattended: () =>
+            void stopUnattendedRuns()
+              .catch((error: unknown) => {
+                console.error('couldn’t stop the Runs of an unattended daemon:', error)
+                return 0
+              })
+              .then(unattended.onExit),
+        },
+      }),
+      ...(options.clock && { clock: options.clock }),
+    })
+  async function stopUnattendedRuns(): Promise<number> {
+    if (data.status().state !== 'ready') return 0
+    const services = await data.services()
+    services.tasks.stoppingForQuit()
+    const stopped = await services.runs.stopAll()
+    await services.store.persisted()
+    return stopped
+  }
   const runTokens = await loadRunTokens(paths.runTokenKey).catch((error: unknown) => {
     lock.release()
     throw error

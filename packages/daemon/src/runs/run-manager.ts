@@ -152,7 +152,7 @@ export interface RunManager {
   stop(runId: string): Promise<void>
   observe(observer: RunObserver): void
   environment(): NodeJS.ProcessEnv
-  stopAll(): Promise<void>
+  stopAll(): Promise<number>
   close(): Promise<void>
 }
 
@@ -456,6 +456,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     generation.readTo = batch.toOffset
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
       heard.set(runId, Date.now())
+      options.idle?.heard()
     }
     for (const { record } of batch.records) {
       if (record.t === 'out') {
@@ -1300,7 +1301,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     environment,
     async stopAll() {
       shuttingDown = true
-      await Promise.all([...following.keys()].map((runId) => manager.stop(runId)))
+      const live = [...following.keys()]
+      await Promise.all(live.map((runId) => manager.stop(runId)))
+      return live.length
     },
     async close() {
       shuttingDown = true

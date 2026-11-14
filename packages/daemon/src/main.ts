@@ -54,6 +54,20 @@ async function shutdown(): Promise<void> {
   process.exit(0)
 }
 
+async function leaveUnattended(stoppedRuns: number): Promise<void> {
+  if (stopping) return
+  console.log(
+    `nothing has used TED’s daemon for a while: stopped ${stoppedRuns} Runs and stopping the daemon`,
+  )
+  if (demoLinear && stoppedRuns > 0) {
+    const { checkDemoHome, markDemo } = await import('./dev/home.ts')
+    await checkDemoHome(tedHome())
+      .then((demo) => demo && markDemo(tedHome(), { ...demo, complete: false }))
+      .catch((error: unknown) => console.error('couldn’t mark the demo as stopped:', error))
+  }
+  await shutdown()
+}
+
 const claudeBin = tedEnv('TED_CLAUDE_BIN')
 const codexBin = tedEnv('TED_CODEX_BIN')
 const antigravityBin = tedEnv('TED_ANTIGRAVITY_BIN')
@@ -102,7 +116,16 @@ try {
       stallAfterMs: Number(tedEnv('TED_STALL_AFTER_MS')),
     }),
     ...(values['exit-when-idle'] && {
-      idleExit: { afterMs: Number(tedEnv('TED_IDLE_EXIT_MS')) || 60_000, onIdle: shutdown },
+      idleExit: {
+        afterMs: Number(tedEnv('TED_IDLE_EXIT_MS')) || 60_000,
+        onIdle: shutdown,
+        ...(edition === 'dev' && {
+          unattended: {
+            afterMs: Number(tedEnv('TED_UNATTENDED_EXIT_MS')) || 60 * 60_000,
+            onExit: (stoppedRuns: number) => void leaveUnattended(stoppedRuns),
+          },
+        }),
+      },
     }),
   })
   console.log(`TED daemon ${tedVersion} listening on 127.0.0.1:${daemon.port}`)
