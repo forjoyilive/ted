@@ -28,21 +28,24 @@ async function stopSessionWorkers(ses: Session) {
   await ses.clearStorageData({ storages: ['serviceworkers'] })
   if (Object.keys(ses.serviceWorkers.getAllRunning()).length === 0) return
   // Unregistering does not stop a worker kept alive by event.waitUntil().
-  const control = new WebContentsView({
+  // Electron closes a view’s page when the view is garbage collected, which fails a command
+  // still waiting on it, so every use below goes through the view to keep it referenced.
+  const view = new WebContentsView({
     webPreferences: { session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false },
-  }).webContents
+  })
+  const closeControl = () => {
+    if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false })
+  }
   // Chromium gives up on a worker that won’t stop after 5 s and only then answers, so wait longer.
-  const timer = setTimeout(() => {
-    if (!control.isDestroyed()) control.close({ waitForBeforeUnload: false })
-  }, 10_000)
+  const timer = setTimeout(closeControl, 10_000)
   try {
-    await control.loadURL('about:blank')
-    control.debugger.attach('1.3')
-    await control.debugger.sendCommand('ServiceWorker.enable')
-    await control.debugger.sendCommand('ServiceWorker.stopAllWorkers')
+    await view.webContents.loadURL('about:blank')
+    view.webContents.debugger.attach('1.3')
+    await view.webContents.debugger.sendCommand('ServiceWorker.enable')
+    await view.webContents.debugger.sendCommand('ServiceWorker.stopAllWorkers')
   } finally {
     clearTimeout(timer)
-    if (!control.isDestroyed()) control.close({ waitForBeforeUnload: false })
+    closeControl()
   }
 }
 
