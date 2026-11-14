@@ -339,9 +339,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin: -3px 0;
+  width: var(--button-height-small);
+  height: var(--button-height-small);
+  margin: -4px 0;
   padding: 0;
   border: none;
   border-radius: var(--radius-control);
