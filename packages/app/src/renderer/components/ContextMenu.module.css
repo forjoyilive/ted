@@ -66,3 +66,6 @@
 .controls {
   display: contents;
 }
+.labelWithIcon { display: inline-flex; align-items: center; gap: 10px; }
+.hint:has(.check) { display: inline-flex; align-items: center; gap: 10px; }
+.check { color: var(--text-primary); }

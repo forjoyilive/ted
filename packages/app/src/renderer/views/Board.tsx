@@ -45,7 +45,7 @@ import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
-import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { PriorityButton } from '../components/PriorityMenu.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
@@ -495,7 +495,7 @@ export function Board({
         ) : (
           <>
             <span className={styles.cardTop}>
-              {shows('priority') && <PriorityIcon priority={task.priority} />}
+              {shows('priority') && <PriorityButton task={task} />}
               <span className={styles.cardId}>{task.displayId}</span>
               <span className={styles.cardEnd}>
                 {isSelected && <SelectedTick />}

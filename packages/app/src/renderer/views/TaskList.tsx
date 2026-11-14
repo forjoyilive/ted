@@ -33,6 +33,7 @@ import markerStyles from '../components/HierarchyMarker.module.css'
 import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { PriorityButton } from '../components/PriorityMenu.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
@@ -669,7 +670,7 @@ export function TaskList({
   function cell(column: ListColumn, task: Task, nest: NestedRow): ReactNode {
     switch (column) {
       case 'priority':
-        return <PriorityIcon priority={task.priority} />
+        return <PriorityButton task={task} />
       case 'id':
         return <span className={styles.id}>{task.displayId}</span>
       case 'title':
