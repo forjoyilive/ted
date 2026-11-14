@@ -119,6 +119,7 @@ export function createPlans(options: PlansOptions): Plans {
   const starting = new Set<string>()
   const limited = new Set<string>()
   const retrying = new Set<string>()
+  const stopping = new Map<string, Promise<void>>()
   let closed = false
 
   const plansDir = path.join(options.home, 'plans')
@@ -410,17 +411,14 @@ export function createPlans(options: PlansOptions): Plans {
     cleanUp(id)
   }
 
-  function hasSession(planId: string): boolean {
-    const run = store.getRun(planId)
-    return run === undefined || run.sessionId !== undefined
-  }
-
   function resumable(plan: StoredPlan): boolean {
-    return plan.state === 'ended' && plan.outcome !== 'finished' && hasSession(plan.id)
+    if (plan.state !== 'ended' || plan.outcome === 'finished') return false
+    const run = store.getRun(plan.id)
+    return run ? run.sessionId !== undefined : plan.outcome === 'failed'
   }
 
   function withdrawUnlessResumable(planId: string): void {
-    if (!hasSession(planId)) withdrawOpen(planId)
+    if (store.getRun(planId)?.sessionId === undefined) withdrawOpen(planId)
   }
 
   function openRequestIds(planId: string): string[] {
@@ -766,8 +764,8 @@ export function createPlans(options: PlansOptions): Plans {
       if (from && from.factoryId !== factory.id) {
         throw new RequestError(400, 'plan more from a chat in the same Factory')
       }
-      if (from && (from.state !== 'ended' || from.outcome === 'failed')) {
-        throw new RequestError(409, 'plan more only from a finished or stopped planning chat')
+      if (from && from.state !== 'ended') {
+        throw new RequestError(409, 'plan more only from a planning chat that has ended')
       }
       const message = input.message.trim()
       if (message === '') throw new RequestError(400, 'say what you want to plan')
@@ -861,10 +859,18 @@ export function createPlans(options: PlansOptions): Plans {
       saved.ended(plan.id, { outcome: 'stopped' })
       endedWithout(plan, 'stopped')
       const run = store.getRun(plan.id)
-      if (run && run.state !== 'finished') {
-        await runs.stop(run.id).catch((error: unknown) => console.error(error))
+      const done = (async () => {
+        if (run && run.state !== 'finished') {
+          await runs.stop(run.id).catch((error: unknown) => console.error(error))
+        }
+        cleanUp(plan.id)
+      })()
+      stopping.set(plan.id, done)
+      try {
+        await done
+      } finally {
+        if (stopping.get(plan.id) === done) stopping.delete(plan.id)
       }
-      cleanUp(plan.id)
       pump()
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
@@ -1067,6 +1073,7 @@ export function createPlans(options: PlansOptions): Plans {
       if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is resuming')
       retrying.add(plan.id)
       try {
+        await stopping.get(plan.id)
         await cleaning.get(plan.id)
         const checkout = await checkOut(plan, factory, await entriesOf(factory)).catch(
           (error: unknown) => {

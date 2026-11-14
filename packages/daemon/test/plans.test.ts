@@ -322,15 +322,19 @@ describe('Planning chats', () => {
     expect(existsSync(run.run.cwd)).toBe(true)
 
     await waitForPlan(client, plan.id, (d) => d.plan.status === 'idle', 'the planner to go idle')
-    await client.ok('POST', `/plans/${plan.id}/stop`)
+    const stopping = client.ok('POST', `/plans/${plan.id}/stop`)
+    await waitForPlan(client, plan.id, (d) => d.plan.status === 'stopped', 'the chat to stop')
     const resumedByMessage = await client.ok<Plan>('POST', `/plans/${plan.id}/resume`, {
       message: 'Also think about teams',
     })
+    await stopping
     expect(resumedByMessage.status).not.toBe('stopped')
     await waitUntil(async () => {
       const sent = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
       return JSON.stringify(sent.conversation).includes('Also think about teams') || undefined
     }, 'the message to reach the resumed planner')
+    const revived = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+    expect(existsSync(revived.run.cwd)).toBe(true)
 
     await waitForPlan(client, plan.id, (d) => d.plan.status === 'idle', 'the planner to go idle')
     expect((await client.call('POST', `/plans/${plan.id}/finish`, {})).status).toBe(409)
@@ -352,6 +356,9 @@ describe('Planning chats', () => {
     const run = await client.call('GET', `/runs/${plan.id}`)
     if (run.status === 200) {
       expect((run.body as RunWithConversation).run.state).toBe('finished')
+    } else {
+      expect(after.plan.canResume).toBeUndefined()
+      expect((await client.call('POST', `/plans/${plan.id}/resume`, {})).status).toBe(409)
     }
     await waitUntil(
       async () => !existsSync(path.join(home, 'plans', plan.id)) || undefined,
@@ -446,6 +453,13 @@ describe('Plans list', () => {
     const folder = path.join(home, 'plans', plan.id)
     await waitUntil(async () => !existsSync(folder) || undefined, 'the checkout to go')
     await writeFile(stubState, '{}')
+    const fromFailed = await client.ok<Plan>('POST', '/plans', {
+      factory: 'NB',
+      message: 'Plan more',
+      from: plan.id,
+    })
+    expect(fromFailed.fromPlan?.id).toBe(plan.id)
+    await client.ok('POST', `/plans/${fromFailed.id}/stop`)
     const retried = await client.ok<Plan>('POST', `/plans/${plan.id}/resume`, {})
     expect(retried.status).not.toBe('failed')
     const now = await waitForPlan(

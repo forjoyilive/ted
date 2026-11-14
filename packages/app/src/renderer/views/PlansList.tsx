@@ -358,7 +358,7 @@ function RowMenu({
             setOpen(false)
             onRename()
           })}
-          {(plan.status === 'finished' || plan.status === 'stopped') &&
+          {ended &&
             item('Plan more from here', () => {
               setOpen(false)
               actions.onPlanMore(plan.id)

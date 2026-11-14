@@ -212,7 +212,7 @@ describe('Planning chats', () => {
     await window.keyboard.press('j')
     await expect
       .poll(() => window.evaluate(() => document.activeElement?.textContent))
-      .toBe('Failing plan')
+      .toBe('Quick plan')
 
     const stoppedRow = open.getByRole('row').filter({ hasText: 'Quick plan' })
     await stoppedRow.getByText('Stopped').waitFor()
