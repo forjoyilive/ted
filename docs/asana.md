@@ -1,6 +1,6 @@
 # Connect Asana with your own OAuth app
 
-In Settings → Integrations → Asana, connect one account for this TED installation. TED keeps app credentials and refresh tokens in your OS keyring. Once connected you can import Asana tasks as TED Tasks (below); synchronization and automatic intake follow in separate Tasks. Connecting and importing do not modify Asana tasks.
+In Settings → Integrations → Asana, connect one account for this TED installation. TED keeps app credentials and refresh tokens in your OS keyring. Once connected you can import Asana tasks as TED Tasks and keep them in step through Task Sync (below); automatic intake follows in a separate Task. Connecting and importing do not modify Asana tasks; only Task Sync writes to Asana, and only for Tasks allowed to sync.
 
 ## Register an app
 
@@ -13,7 +13,7 @@ In Settings → Integrations → Asana, connect one account for this TED install
    | TED Dev | `http://127.0.0.1:49175/asana/callback` |
 
    Use separate app registrations for TED and TED Dev. Their keyring services, home folders and callback listeners are separate. TED binds only the fixed IPv4 loopback address during authorization; if the port is busy, close another instance of that edition and retry. It never silently picks another port.
-3. Enable these permission scopes: `users:read`, `workspaces:read`, `projects:read`, `tasks:read`, `attachments:read`, `stories:read`, `tasks:write`, `stories:write`. These are the agreed permissions for future import and synchronization. They do not enable synchronization or grant permission to write any particular TED Task. Do not select Full permissions.
+3. Enable these permission scopes: `users:read`, `workspaces:read`, `projects:read`, `tasks:read`, `attachments:read`, `stories:read`, `tasks:write`, `stories:write`. Task Sync uses `stories:write` for its comments and `tasks:write` for completion. The scopes alone grant no permission to write any particular Task. Do not select Full permissions.
 4. Under Manage distribution, make the app available in the workspace of the account you want to authorize. Workspace-specific distribution is appropriate for personal/internal use. Follow your workspace’s app approval policy. A broadly distributed app has Asana’s additional distribution requirements; TED supplies no shared app registration or hosted authorization service.
 5. Copy the client ID and client secret into a temporary JSON file **outside every repo**:
 
@@ -53,6 +53,18 @@ Paste an Asana task URL in New Task, or run `ted task create --factory <key> --s
 - One import creates at most 100 Tasks, 10 levels deep. A bigger tree is refused whole, with the count TED found; import one of its subtasks instead. For each item TED copies up to 20,000 characters of description, 40,000 of comments (at most 100 comments) and 20 files, and says on the Task when it copied less.
 - TED creates the whole tree at once, after it has read everything and downloaded the files. If the import stops partway, nothing is created; run it again.
 
+## Task Sync
+
+Task Sync keeps an Asana task in step with the TED Task imported from it.
+
+- **Who turns it on.** Every Task an import in the app creates has Task Sync from the start, including children added later with **Add new children to the existing tree** and those a **Retry** adds; the import preview says so. A Task imported from the command line or by an Automation, and any Asana Task imported before Task Sync existed, waits until you choose **Sync with Asana** in its menu in the app. Connecting Asana or a URL an agent supplies never turns it on.
+- **Which account.** Task Sync belongs to the Asana account connected when it was turned on. TED writes only while that account is connected. While Asana is disconnected nothing is sent, and TED catches up when the same account connects again. If another account connects, the Task says Task Sync is paused until you choose **Sync with Asana** again.
+- **What TED writes.** When TED opens a pull request, it comments on the Asana task within about a minute: “TED opened a pull request for this task: owner/repo#12 https://github.com/…”. When every pull request of the Task has merged, TED completes the Asana task. It completes only the Task’s own item: a parent’s merge never completes items under it, and a parent whose Asana task has any incomplete subtask (imported or not) stays open, with the reason in the Task, until those are complete. An Asana task that is already complete gets its links and is otherwise left alone. TED never moves sections, sets custom fields, reopens tasks or completes a task for a Task archived without merging. Before each comment TED reads the task’s comments and skips a link already there, so a lost reply or a restart never posts it twice.
+- **Completed in Asana.** The first read after Task Sync starts is a baseline, so a task imported already complete isn’t archived. Later, when someone completes the task in Asana, TED archives a Task with no parent, no Tasks under it, no live Run and not yet at Merge; otherwise it asks **Archive** or **Keep going** while work continues, naming any Tasks under it that Archive would also archive. The question goes away if the task is reopened or the Task finishes. Completion in Asana never marks unmerged work Done.
+- **The Task Sync row** in the Task’s details shows where it stands: not syncing, syncing (waiting for merge), not completed yet (waiting for items under it), completed by TED, completed in Asana by someone else, or paused (another account, Asana not connected, or Task Sync turned off).
+- **Turning it off.** The **Task Sync** switch in Settings → Integrations → Asana, on by default, stops every Asana read and write. Turning it back on catches up on links and completions that came due.
+- **Requests.** TED checks Asana once a minute and sends at most 100 requests per check, waits as long as a `Retry-After` answer says, and tries any failed request again on the next check.
+
 ## Real-account smoke procedure (manual only)
 
 Use a disposable Asana account/workspace and separate test app registrations. Never put a real credential into automated fixtures. Record only the edition, pass/fail result and safe error summary.
@@ -65,8 +77,22 @@ Use a disposable Asana account/workspace and separate test app registrations. Ne
 6. Cancel an authorization and revisit its browser callback: it must not connect an account. Open Dev beside release with separate registrations and confirm neither callback or stored identity affects the other edition.
 7. Remove configuration and confirm there is no connected account or stored client secret. Delete disposable registrations and credentials. Do not include callback query strings or tokens in reports.
 
+### Task Sync with a real account (manual only)
+
+Use the disposable workspace, a disposable repo for the Factory and Asana tasks you can delete afterwards. TED checks Asana once a minute, so allow a minute or two after each step.
+
+1. In a disposable Asana project, make a parent task with two subtasks. Connect the account, paste the parent’s URL in New Task and confirm the preview says Task Sync is on. Create the Tasks. Each shows **Task Sync: Syncing** in its details.
+2. Import a separate task with `pnpm ted task create --factory <key> --source <URL>`. Its Task Sync row says **Not syncing**. Choose **Sync with Asana** in its menu and confirm the row changes to **Syncing**. Nothing appears in Asana until a pull request opens.
+3. Carry one child Task to Validate so TED opens its draft pull request. Within a minute or two the child’s Asana task has one comment with the pull request’s link. Restart TED (Quit, then open it again) and confirm no second comment appears.
+4. Merge the child’s pull request through TED. Its Asana task becomes complete and the row says **Completed by TED**. The parent’s Asana task and the other child stay open.
+5. Carry the parent to Merge and merge it while the other subtask is still open in Asana. The parent’s Asana task stays open and its row says **Not completed yet**. Complete the remaining subtask in Asana; within a minute or two TED completes the parent.
+6. In Asana, complete the task behind an idle Task that hasn’t started and has no parent or children: TED archives it. Complete the task behind a working Task, or one with Tasks under it: TED asks **Archive** or **Keep going**, naming any Tasks under it. Reopen the task in Asana and confirm the question goes away.
+7. Turn off **Task Sync** in Settings → Integrations → Asana and open a pull request for an allowed Task: no comment appears and the row says **Paused: Task Sync is off**. Turn it back on and confirm the comment appears. Disconnect Asana and repeat: the row says **Paused: Asana isn’t connected**, and the comment appears after you reconnect the same account.
+8. Reconnect as a second disposable account. Allowed Tasks say **Paused** and nothing is written as either account. Choose **Sync with Asana** on one of them and confirm it resumes under the new account.
+9. Archive an allowed Task without merging and confirm its Asana task is never completed. Delete the disposable tasks, repo and registrations afterwards.
+
 ## Validation and review
 
-Automated coverage contacts loopback stubs only: `packages/daemon/test/asana.test.ts`, `packages/daemon/test/asana-security.test.ts`, `packages/daemon/test/asana-import.test.ts`, `packages/daemon/test/asana-import-plan.test.ts` and `packages/app/test/asana.test.ts`. The stub verifies the S256 verifier, records token/identity/revocation requests, and simulates expiry, revocation, denial, redirects and network errors. Native app coverage stubs the file picker and browser launch. Tests are reserved for Validate under this Factory’s workflow.
+Automated coverage contacts loopback stubs only: `packages/daemon/test/asana.test.ts`, `packages/daemon/test/asana-security.test.ts`, `packages/daemon/test/asana-import.test.ts`, `packages/daemon/test/asana-import-plan.test.ts`, `packages/daemon/test/asana-sync.test.ts` (Task Sync against a fake Asana and a controlled clock) and `packages/app/test/asana.test.ts`. The stub verifies the S256 verifier, records token/identity/revocation requests, and simulates expiry, revocation, denial, redirects and network errors. Native app coverage stubs the file picker and browser launch. Tests are reserved for Validate under this Factory’s workflow.
 
 Before merging, complete an independent code and credential/network security review of the final diff. Review app/Run authority, private-file import, edition/account isolation, callback integrity and listener cleanup, serialized refresh/account replacement, late-response invalidation, bounded requests with redirects forbidden, and absence of secrets in IPC results, events, Runs, logs and diagnostics. The design threat assessment and these instructions do not count as a completed review. Keep its findings and final disposition with the Task evidence.
