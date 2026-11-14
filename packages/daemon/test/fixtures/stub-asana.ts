@@ -141,6 +141,37 @@ export async function startStubAsana() {
         failure.retryAfter === undefined ? {} : { 'retry-after': failure.retryAfter },
       )
       res.end('{}')
+    } else if (
+      path === '/api/1.0/workspaces' ||
+      /^\/api\/1\.0\/(workspaces\/\d+\/projects|projects\/\d+\/sections)$/.test(path)
+    ) {
+      if (req.headers.authorization !== 'Bearer access-secret-opaque') {
+        res.writeHead(401)
+        res.end('{}')
+        return
+      }
+      const [, , , kind = '', gid = ''] = path.split('/')
+      const items =
+        path === '/api/1.0/workspaces'
+          ? [...workspaces].map(([id, name]) => ({ gid: id, name }))
+          : kind === 'workspaces'
+            ? [...projects.values()]
+                .filter((p) => p.workspace === gid && !(query.archived === 'false' && p.archived))
+                .map((p) => ({ gid: p.gid, name: p.name }))
+            : (projects.get(gid)?.sections ?? [])
+      if (kind === 'projects' && !projects.has(gid)) {
+        res.writeHead(404)
+        res.end('{}')
+        return
+      }
+      const offset = Number(query.offset ?? '0')
+      const next = offset + pageSize
+      res.end(
+        JSON.stringify({
+          data: items.slice(offset, next),
+          next_page: next < items.length ? { offset: String(next) } : null,
+        }),
+      )
     } else if (/^\/api\/1\.0\/(workspaces|projects|sections)\//.test(path)) {
       if (req.headers.authorization !== 'Bearer access-secret-opaque') {
         res.writeHead(401)

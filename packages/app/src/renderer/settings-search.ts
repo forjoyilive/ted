@@ -16,6 +16,7 @@ export const settingsPageNames: Record<SettingsSectionId, string> = {
 export const factorySections = [
   ['general', 'General'],
   ['linear-intake', 'Linear intake'],
+  ['asana-intake', 'Asana intake'],
   ['repos', 'Repos'],
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
@@ -273,6 +274,16 @@ const entries = {
     heading: true,
   },
   'factory.linear-intake.scope': { name: 'Scope', keywords: 'team project' },
+  'factory.asana-intake': {
+    name: 'Asana intake',
+    detail:
+      'Choose which Asana tasks Automations can bring into this Factory: one workspace, one project and, optionally, one section. Asana intake imports unfinished tasks assigned to you there, with the tasks under them, when its Automation runs.',
+    heading: true,
+  },
+  'factory.asana-intake.scope': {
+    name: 'Asana workspace, project and section',
+    keywords: 'asana workspace project section intake',
+  },
   'factory.repos': { name: 'Repos', heading: true },
   'factory.repos.base-branch': { name: 'Base branch' },
   'factory.repos.merge-method': { name: 'Merge method' },

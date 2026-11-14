@@ -164,6 +164,16 @@ test('parseCoordinatorTaskQuery keeps every field and coordinatorTaskSearch writ
   })
   expect(P.coordinatorTaskSearch({})).toBe('')
 })
+test('parseAsanaChoicesQuery keeps the offset and refuses anything else', () => {
+  const query: AllFields<P.AsanaChoicesQuery> = {
+    offset: 'eyJ0eXAiOiJKV1Qi.LCJhbGc-iOi_JIUzI1NiJ9',
+  }
+  expect(P.parseAsanaChoicesQuery(`?offset=${encodeURIComponent(query.offset)}`)).toEqual(query)
+  expect(P.parseAsanaChoicesQuery('')).toEqual({})
+  expect(() => P.parseAsanaChoicesQuery('?offset=a&offset=b')).toThrow('given once')
+  expect(() => P.parseAsanaChoicesQuery('?offset=a%20b')).toThrow('next page')
+  expect(() => P.parseAsanaChoicesQuery('?limit=5')).toThrow('unknown query parameter limit')
+})
 const taskQueryRejections: [string, string][] = [
   ['stage=queued', 'unknown Stage queued'],
   ['status=idle', 'unknown status idle'],

@@ -1,4 +1,5 @@
 import {
+  type AsanaIntakeCheck,
   agentStageIds,
   factoryNotifications,
   parseAddFactoryRequest,
@@ -20,7 +21,7 @@ import {
   parseSetRepoFolderRequest,
   parseStopCheckTryRequest,
 } from '@ted/protocol'
-import { confirmAsanaScope } from '../asana/intake.ts'
+import { checkAsanaScope, confirmAsanaScope } from '../asana/intake.ts'
 import { retryingRead } from '../asana/tree.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { factoryExport } from '../export.ts'
@@ -116,6 +117,20 @@ export const factoryRoutes: Route[] = [
       ]
     },
   }),
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/asana-intake\/check$/,
+    async handle({ params: [id = ''], caller }, { store, asana }) {
+      if (caller.kind !== 'app')
+        throw new HttpError(403, 'only the TED app can check the Asana intake choice')
+      if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
+      const scope = store.settings().asanaIntakeScopes[id]
+      const check: AsanaIntakeCheck = scope
+        ? await checkAsanaScope(retryingRead(asana.read), scope)
+        : { state: 'none' }
+      return [200, check]
+    },
+  },
   jsonRoute(parseSetFactoryAsanaIntakeRequest, {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/asana-intake$/,

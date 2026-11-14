@@ -231,6 +231,27 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
   asanaWorld()
 
   const refused = (promise: Promise<unknown>) => promise.then(() => '', String)
+  const app = api(daemon?.port ?? 0, { appKey: daemon?.appToken ?? '' })
+  const fileToken = api(daemon?.port ?? 0, (await readDaemonInfo(home))?.token ?? '')
+  expect((await fileToken.call('GET', '/integrations/asana/workspaces')).status).toBe(403)
+  expect((await fileToken.call('GET', `/factories/${factory.id}/asana-intake/check`)).status).toBe(
+    403,
+  )
+  expect(await client.checkFactoryAsanaIntake(factory.id)).toEqual({ state: 'none' })
+  stub.setPageSize(1)
+  const first = await client.listAsanaWorkspaces()
+  expect(first).toEqual({ items: [{ gid: '1', name: 'Acme' }], nextOffset: '1' })
+  expect(await client.listAsanaWorkspaces(first.nextOffset)).toEqual({
+    items: [{ gid: '2', name: 'Elsewhere' }],
+  })
+  expect((await client.listAsanaProjects('1')).items).toEqual([{ gid: '9', name: 'Roadmap' }])
+  expect(await client.listAsanaSections('9', '1')).toEqual({
+    items: [{ gid: '92', name: 'Later' }],
+  })
+  stub.setPageSize(2)
+  stub.failNext('/api/1.0/projects/9/sections', 400)
+  expect(await refused(client.listAsanaSections('9'))).toContain('saved choice stays as it was')
+  expect((await app.call('GET', '/integrations/asana/workspaces?offset=a%20b')).status).toBe(400)
   expect(
     await refused(
       client.setFactoryAsanaIntake(factory.id, {
@@ -245,6 +266,9 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
     ),
   ).toContain('isn’t a section of Roadmap')
   await client.setFactoryAsanaIntake(factory.id, scope)
+  expect(await client.checkFactoryAsanaIntake(factory.id)).toEqual({ state: 'current', scope })
+  stub.failNext('/api/1.0/workspaces/1', 400)
+  expect(await client.checkFactoryAsanaIntake(factory.id)).toMatchObject({ state: 'unreadable' })
   stub.failNext('/api/1.0/workspaces/1', 400)
   expect(
     await refused(
@@ -276,6 +300,11 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
   await client.setFactoryAsanaIntake(factory.id, scope)
   stub.setProjects([{ gid: '9', name: 'Roadmap', workspace: '1', archived: true, sections: [] }])
   expect(await refused(client.runAsanaIntake({ factory: 'NB' }))).toContain('out of date')
+  expect(await client.checkFactoryAsanaIntake(factory.id)).toEqual({
+    state: 'stale',
+    part: 'project',
+    reason: 'Roadmap is archived',
+  })
   asanaWorld()
 
   let local = api(daemon?.port ?? 0, { appKey: daemon?.appToken ?? '' })

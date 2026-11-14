@@ -69,6 +69,9 @@ export {
   parseAsanaTaskUrl,
 } from './asana-import.ts'
 export {
+  type AsanaChoicesPage,
+  type AsanaChoicesQuery,
+  type AsanaIntakeCheck,
   type AsanaIntakeImported,
   type AsanaIntakeRequest,
   type AsanaIntakeResult,
@@ -76,7 +79,9 @@ export {
   type AsanaIntakeSkipped,
   type AsanaRef,
   isAsanaIntakeScope,
+  isAsanaOffset,
   maxAsanaIntakeTasks,
+  parseAsanaChoicesQuery,
   parseAsanaIntakeRequest,
   parseSetFactoryAsanaIntakeRequest,
   type SetFactoryAsanaIntakeRequest,
