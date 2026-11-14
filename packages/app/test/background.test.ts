@@ -195,6 +195,29 @@ describe('the app menu holds every menu-bar item', () => {
     for (const label of commands(statusMenu(state, now))) expect(menu).toContain(label)
   })
 
+  test.each(['darwin', 'linux'] as const)(
+    'on %s, a Go menu opens the Inbox and All Tasks',
+    (platform) => {
+      const menu = appMenu(platform, state, now)
+      const go = menu.find((e) => e.type === 'submenu' && e.label === 'Go')
+
+      expect(go).toMatchObject({
+        submenu: [
+          { label: 'Inbox', command: { kind: 'open-inbox' }, accelerator: 'CmdOrCtrl+Shift+I' },
+          {
+            label: 'All Tasks',
+            command: { kind: 'open-all-tasks' },
+            accelerator: 'CmdOrCtrl+Shift+A',
+          },
+        ],
+      })
+      if (platform === 'darwin') {
+        const names = menu.flatMap((e) => (e.type === 'submenu' ? [e.label] : []))
+        expect(names.slice(-3)).toEqual(['Edit', 'Go', 'Window'])
+      }
+    },
+  )
+
   test('on Linux, a TED menu holds the menu-bar items in the same order', () => {
     const [ted] = appMenu('linux', state, now)
 

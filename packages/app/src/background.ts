@@ -18,6 +18,7 @@ export const appName = identity().name
 export type MenuCommand =
   | { kind: 'open-inbox' }
   | { kind: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
+  | { kind: 'open-all-tasks' }
   | { kind: 'open-ted' }
   | { kind: 'new-task' }
   | { kind: 'settings'; section?: string }
@@ -98,6 +99,14 @@ const openTed = () => item('Open TED', { kind: 'open-ted' })
 const newTask = () => item('New Task…', { kind: 'new-task' }, 'CmdOrCtrl+N')
 const settings = () => item('Settings…', { kind: 'settings' }, 'CmdOrCtrl+,')
 const quit = () => item('Quit TED completely', { kind: 'quit' }, 'CmdOrCtrl+Q')
+const go = (): MenuEntry => ({
+  type: 'submenu',
+  label: 'Go',
+  submenu: [
+    item('Inbox', { kind: 'open-inbox' }, 'CmdOrCtrl+Shift+I'),
+    item('All Tasks', { kind: 'open-all-tasks' }, 'CmdOrCtrl+Shift+A'),
+  ],
+})
 
 function statusLines(
   { activity, waiting, banners, updateReady }: MenuState,
@@ -127,7 +136,7 @@ const role = (name: MenuRole): MenuEntry => ({ type: 'role', role: name })
 export function appMenu(platform: Platform, state: MenuState, now: Date = new Date()): MenuEntry[] {
   const edit: MenuEntry = { type: 'submenu', label: 'Edit', role: 'editMenu', submenu: [] }
   if (platform !== 'darwin') {
-    return [{ type: 'submenu', label: appName, submenu: statusMenu(state, now) }, edit]
+    return [{ type: 'submenu', label: appName, submenu: statusMenu(state, now) }, edit, go()]
   }
   return [
     {
@@ -153,6 +162,7 @@ export function appMenu(platform: Platform, state: MenuState, now: Date = new Da
       submenu: [newTask(), separator, role('close')],
     },
     edit,
+    go(),
     {
       type: 'submenu',
       label: 'Window',
