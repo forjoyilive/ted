@@ -318,6 +318,31 @@
   overflow-wrap: anywhere;
 }
 
+.relatedTasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-13);
+}
+
+.relatedTasks dt {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.relatedTasks dd {
+  min-width: 0;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+
+.relatedTasks dd:last-child {
+  margin-bottom: 0;
+}
+
 .segmented {
   position: relative;
   display: inline-flex;

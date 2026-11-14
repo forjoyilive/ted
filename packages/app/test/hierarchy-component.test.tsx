@@ -109,6 +109,8 @@ test('a parent shows nested children, merged progress, who it waits for and arch
   const f = family()
   const all = Object.values(f)
   const open = details(f.parent, all)
+  const labels = screen.getAllByRole('term').map((t) => t.textContent)
+  expect(labels.slice(labels.indexOf('Parent'))).toEqual(['Parent', 'Children', 'Blocked by'])
   const children = within(screen.getByRole('region', { name: 'Children' }))
   expect(children.getByText('1 of 3 merged')).toBeTruthy()
   const waiting = children.getByRole('status')
@@ -146,6 +148,16 @@ test('a parent shows nested children, merged progress, who it waits for and arch
     parentId: 'p',
     factoryId: 'f1',
   })
+})
+
+test('a Task without children shows only the buttons to add them', () => {
+  bridge(detailsHandlers)
+  const f = family()
+  details(f.loose, Object.values(f))
+  const children = within(screen.getByRole('region', { name: 'Children' }))
+  expect(children.getByRole('button', { name: 'Create child' })).toBeTruthy()
+  expect(children.getByRole('button', { name: 'Add existing Task' })).toBeTruthy()
+  expect(screen.queryByText(/No children/)).toBeNull()
 })
 
 test('attaching an existing Task sends the current revision and shows the daemon’s refusal in the picker', async () => {
