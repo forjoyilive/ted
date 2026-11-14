@@ -266,7 +266,7 @@ export function threadEvents(
         const children = Array.isArray(data.childIds)
           ? data.childIds.map((id) => context.displayIdOf(text(id)))
           : []
-        const made = data.from === 'plan' ? 'The plan created' : 'Split into'
+        const made = data.from === 'split' ? 'Split into' : 'The plan created'
         add(entry, 'done', `${made} ${joinAnd(children)}. This Task waits for them to merge.`)
         break
       }

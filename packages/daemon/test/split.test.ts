@@ -164,7 +164,7 @@ const tooBig = {
 }
 const propose = (file: string) => ({ run: ['ted', 'task', 'propose', '--file', file] })
 const advance = { run: ['ted', 'outcome', 'advance'] }
-const toDone = JSON.stringify({ steps: [{ everyMessage: [{ run: advance }] }, { run: advance }] })
+const toDone = JSON.stringify({ steps: [{ everyMessage: [advance] }, advance] })
 
 describe('Size check', () => {
   test('a too-big Task asks with four choices', async () => {
@@ -332,7 +332,7 @@ describe('Split it', () => {
     expect(await threadLines(client, sync)).toContain(`Split from ${task.displayId}`)
   })
 
-  test('Start the unblocked ones starts them; Request changes sends the text to the Task Lead; the parent finishes when they merge', async () => {
+  test('Start the unblocked ones starts them; Request changes sends the text to the Task Lead; the parent finishes when one child merged and the other is archived', async () => {
     const client = await start()
     const two = await client.file(
       'two.json',
@@ -340,7 +340,11 @@ describe('Split it', () => {
         title: 'Two pieces',
         tasks: [
           { title: 'First piece', scope: 'The first part.', description: toDone },
-          { title: 'Second piece', scope: 'The second part.', description: toDone },
+          {
+            title: 'Second piece',
+            scope: 'The second part.',
+            description: steps({ endTurn: true }),
+          },
         ],
       }),
     )
@@ -376,14 +380,25 @@ describe('Split it', () => {
     })
     const piece = (await allTasks(client)).find((t) => t.title === 'Second piece')
     expect(piece?.stage).not.toBe('backlog')
+    await waitUntil(async () => {
+      const done = (await allTasks(client)).find((t) => t.title === 'First piece')
+      return done?.stage === 'done' || undefined
+    }, 'the first child to merge')
+    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    await client.ok('POST', `/tasks/${piece?.id}/archive`, {})
     const parent = await waitUntil(async () => {
       const now = await getTask(client, task.id)
       return now.stage === 'done' ? now : undefined
-    }, 'the parent to finish after its child Tasks merge')
+    }, 'the parent to finish once its last unfinished child is archived')
     expect(parent.runs.filter((r) => r.state !== 'finished')).toEqual([])
     expect(
-      (await allTasks(client)).filter((t) => t.parentId === task.id).map((t) => t.stage),
-    ).toEqual(['done', 'done'])
+      (await allTasks(client))
+        .filter((t) => t.parentId === task.id)
+        .map((t) => [t.title, t.stage, t.archived !== undefined]),
+    ).toEqual([
+      ['First piece', 'done', false],
+      ['Second piece', 'intake', true],
+    ])
     expect(await threadLines(client, task)).toContain(
       'Every Task under this one has merged and it had no work of its own, so TED finished it.',
     )

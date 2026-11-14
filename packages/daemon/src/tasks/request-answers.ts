@@ -60,11 +60,8 @@ export interface RequestAnswerPort {
   mergeSendBack(id: string, findings: string): Promise<unknown>
   startTask(id: string): Promise<unknown>
   planOutside(task: StoredTask, comment: Comment): void
-  waitForChildren(
-    taskId: string,
-    childIds: readonly string[],
-    from: 'split' | 'plan',
-  ): Promise<void>
+  stopLeadForChildren(taskId: string): Promise<void>
+  waitForChildren(taskId: string, childIds: readonly string[], from: 'split'): void
   planning?: () =>
     | {
         fromTask(input: {
@@ -136,6 +133,7 @@ export function createRequestAnswers(
     mergeSendBack,
     startTask,
     planOutside,
+    stopLeadForChildren,
     waitForChildren,
     planning,
     resumeByHand,
@@ -258,12 +256,13 @@ export function createRequestAnswers(
       unanswered(comment)
       const current = find(task.id)
       if (current.archived) throw new RequestError(409, `${task.displayId} is archived`)
+      await stopLeadForChildren(task.id)
       const created = await createProposalTasks(store, proposal, plan, {
         parentId: task.id,
         factoryId: current.factoryId,
         fields: () => ({ ...(current.lead && { lead: current.lead }), splitFrom: task.id }),
       })
-      await waitForChildren(
+      waitForChildren(
         task.id,
         created.map((c) => c.id),
         'split',

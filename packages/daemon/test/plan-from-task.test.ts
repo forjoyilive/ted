@@ -240,6 +240,7 @@ describe('Plan in chat from a Task', () => {
       stage: 'clarify',
       title: task.title,
       description: task.description,
+      createdBy: 'human',
     })
     await waitUntil(
       async () => (await client.getRun(leadBefore ?? '')).run.state === 'finished',

@@ -768,7 +768,11 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     input: { pieceIds: string[]; narrowedTo: string; description: string },
   ): void
-  childTasksCreated(taskId: string, childIds: readonly string[], from: 'split' | 'plan'): void
+  childTasksCreated(
+    taskId: string,
+    childIds: readonly string[],
+    from: 'split' | 'plan' | 'plan-task',
+  ): void
   madeParent(taskId: string): boolean
   parentFinishedWithChildren(taskId: string): void
   taskPlanEnded(

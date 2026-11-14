@@ -56,7 +56,10 @@ beforeEach(async () => {
     planOutside: () => {
       effects.push('plan-outside')
     },
-    waitForChildren: async (id) => {
+    stopLeadForChildren: async (id) => {
+      effects.push(`stop-lead:${id}:${store.listTasks().length} Tasks`)
+    },
+    waitForChildren: (id) => {
       effects.push(`wait-for-children:${id}`)
     },
     resumeByHand: unexpected,
@@ -718,6 +721,7 @@ test('proposal approval creates every row as a child of this Task, which waits, 
   const independent = pieces.find((t) => t.title === 'An independent piece')
   expect(dependent && store.blockers(dependent.id).map((b) => b.blockerId)).toEqual([first?.id])
   expect(effects).toEqual([
+    `stop-lead:${taskId}:1 Tasks`,
     `wait-for-children:${taskId}`,
     'delivered',
     `start:${first?.id}`,

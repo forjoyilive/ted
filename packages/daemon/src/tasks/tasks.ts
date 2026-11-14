@@ -660,6 +660,7 @@ export interface Tasks {
   runAppLog(runId: string, caller: Caller, app: AppRef): Promise<AppLog>
   stopRunApps(runId: string): Promise<void>
   planApproved(taskId: string, input: PlanApproval): Promise<void>
+  stopLeadForChildren(taskId: string): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
 }
@@ -5124,10 +5125,10 @@ export function createTasks(options: {
   async function planApproved(taskId: string, input: PlanApproval): Promise<void> {
     const task = store.getTask(taskId)
     if (!task || task.archived) return
-    await waitForChildren(
+    waitForChildren(
       task.id,
       input.created.tasks.map((c) => c.id),
-      'plan',
+      'plan-task',
     )
     store.taskPlanEnded(task.id, input.planId, 'approved')
     await tellLeadAboutPlan(task.id, input.planId, planApprovedLeadMessage(input))
@@ -5217,6 +5218,7 @@ export function createTasks(options: {
           mergeSendBack(id, findings, undefined, false, { counted: false }),
         startTask: (id) => start(id),
         planOutside,
+        stopLeadForChildren,
         waitForChildren,
         ...(options.planning && { planning: options.planning }),
       },
@@ -6781,6 +6783,14 @@ export function createTasks(options: {
       (task.preparation !== 'ready' || store.childrenOf(taskId).length > 0)
     )
       return
+    if (
+      unmergedBlockers(taskId).length === 0 &&
+      store.madeParent(taskId) &&
+      store.childrenOf(taskId).some((c) => store.isMerged(c))
+    ) {
+      wakeTask(taskId)
+      return
+    }
     if (task.stage === 'backlog') {
       if (task.startRequested) store.setStartRequested(taskId, false)
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
@@ -7839,14 +7849,16 @@ export function createTasks(options: {
     )
   }
 
-  async function waitForChildren(
+  async function stopLeadForChildren(taskId: string): Promise<void> {
+    const run = liveLead(find(taskId))
+    if (run) await runs.stop(run.id)
+  }
+
+  function waitForChildren(
     taskId: string,
     childIds: readonly string[],
-    from: 'split' | 'plan',
-  ): Promise<void> {
-    const task = find(taskId)
-    const run = liveLead(task)
-    if (run) await runs.stop(run.id)
+    from: 'split' | 'plan-task',
+  ): void {
     store.childTasksCreated(taskId, childIds, from)
     if (!find(taskId).waitsForBlockers) store.waitForBlockers(taskId)
   }
@@ -7911,7 +7923,7 @@ export function createTasks(options: {
       if (!(await lstat(repo.worktree).catch(() => undefined))?.isDirectory()) continue
       const base = repoEntry(entries, repo)?.baseBranch ?? (await git.defaultBranch(repo.worktree))
       const changes = await git.workingChanges(repo.worktree, `origin/${base}`)
-      if (changes.files.length > 0) return true
+      if (changes.files.length > 0 || changes.head !== changes.mergeBase) return true
     }
     return false
   }
@@ -10623,6 +10635,7 @@ export function createTasks(options: {
       return () => void pump()
     },
     planApproved,
+    stopLeadForChildren,
     planEnded,
 
     async close() {

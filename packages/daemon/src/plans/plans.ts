@@ -72,6 +72,7 @@ export interface PlansOptions {
   isCloned?: (factoryId: string) => boolean
   startTask: (taskId: string) => Promise<unknown>
   planApproved?: (taskId: string, input: PlanApproval) => Promise<void>
+  stopLeadForChildren?: (taskId: string) => Promise<void>
   planEnded?: (taskId: string, input: PlanEnd) => Promise<void>
 }
 
@@ -651,6 +652,7 @@ export function createPlans(options: PlansOptions): Plans {
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
     const lead = linkedTask(plan)?.lead
+    if (task) await options.stopLeadForChildren?.(task.id)
     const parent =
       task ??
       (await store.createTask({
