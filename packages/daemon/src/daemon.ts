@@ -486,8 +486,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         asana: {
           read: (path, query) => asana.read(path, query),
           user: () => asana.user(),
-          comment: (gid, text) => asana.comment(gid, text),
-          complete: (gid) => asana.complete(gid),
+          comment: (gid, text, account) => asana.comment(gid, text, account),
+          complete: (gid, account) => asana.complete(gid, account),
           account: () => asana.account(),
           files: {
             dir: paths.attachments,

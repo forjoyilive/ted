@@ -369,10 +369,13 @@ export function createAsana(options: AsanaOptions) {
     method: 'POST' | 'PUT',
     path: string,
     data: Record<string, string | boolean>,
+    account: string,
   ): Promise<Record<string, unknown>> {
-    const { access } = await accessToken().catch((error: unknown) => {
+    const { access, user } = await accessToken().catch((error: unknown) => {
       throw new AsanaReadError(error instanceof Error ? error.message : 'Couldn’t reach Asana')
     })
+    if (user.gid !== account)
+      throw new AsanaReadError('A different Asana account is connected now, so TED sent nothing.')
     try {
       return await request(
         new URL(`/api/1.0${path}?opt_fields=gid`, api).href,
@@ -399,13 +402,13 @@ export function createAsana(options: AsanaOptions) {
   }
   return {
     read,
-    async comment(gid: string, text: string): Promise<void> {
+    async comment(gid: string, text: string, account: string): Promise<void> {
       if (text.length === 0 || text.length > maxAsanaCommentLength)
         throw new AsanaReadError('TED tried to post a comment of an unexpected length')
-      await write('POST', `/tasks/${taskGid(gid)}/stories`, { text })
+      await write('POST', `/tasks/${taskGid(gid)}/stories`, { text }, account)
     },
-    async complete(gid: string): Promise<void> {
-      await write('PUT', `/tasks/${taskGid(gid)}`, { completed: true })
+    async complete(gid: string, account: string): Promise<void> {
+      await write('PUT', `/tasks/${taskGid(gid)}`, { completed: true }, account)
     },
     async account(): Promise<string | undefined> {
       const current = await serial(status)

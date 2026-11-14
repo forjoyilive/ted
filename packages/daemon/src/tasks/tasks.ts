@@ -729,8 +729,8 @@ export function createTasks(options: {
     user(): Promise<{ gid: string; name: string }>
     files?: FileStore
     allowLoopbackFiles?: boolean
-    comment?(gid: string, text: string): Promise<void>
-    complete?(gid: string): Promise<void>
+    comment?(gid: string, text: string, account: string): Promise<void>
+    complete?(gid: string, account: string): Promise<void>
     account?(): Promise<string | undefined>
   }
   asanaSyncMs?: number

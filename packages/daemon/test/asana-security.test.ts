@@ -357,8 +357,8 @@ test('Asana writes go only to fixed task paths as JSON, refuse redirects, honour
     expect(await asana.account()).toBe('100')
     const text =
       'TED opened a pull request for this task: acme/notes#7 https://github.com/acme/notes/pull/7'
-    await asana.comment('501', text)
-    await asana.complete('501')
+    await asana.comment('501', text, '100')
+    await asana.complete('501', '100')
     expect(
       stub.requests
         .filter((r) => r.method !== 'GET' && r.path.startsWith('/api/1.0/tasks/'))
@@ -388,24 +388,27 @@ test('Asana writes go only to fixed task paths as JSON, refuse redirects, honour
     expect(stub.task('501')).toMatchObject({ completed: true, comments: [{ text }] })
 
     const sent = stub.requests.length
-    await expect(asana.comment('501/../../users/me', 'hi')).rejects.toThrow('unexpected task')
-    await expect(asana.complete('1e3')).rejects.toThrow('unexpected task')
-    await expect(asana.comment('501', 'x'.repeat(2001))).rejects.toThrow('unexpected length')
+    await expect(asana.comment('501/../../users/me', 'hi', '100')).rejects.toThrow(
+      'unexpected task',
+    )
+    await expect(asana.complete('1e3', '100')).rejects.toThrow('unexpected task')
+    await expect(asana.comment('501', 'x'.repeat(2001), '100')).rejects.toThrow('unexpected length')
+    await expect(asana.complete('501', '200')).rejects.toThrow('different Asana account')
     expect(stub.requests.length).toBe(sent)
 
     stub.failNextWrite({ status: 429, retryAfter: '30' })
-    await expect(asana.complete('501')).rejects.toMatchObject({ retryAfterMs: 30_000 })
+    await expect(asana.complete('501', '100')).rejects.toMatchObject({ retryAfterMs: 30_000 })
     stub.failNextWrite({ status: 500 })
-    await expect(asana.complete('501')).rejects.toMatchObject({ retryAfterMs: undefined })
+    await expect(asana.complete('501', '100')).rejects.toMatchObject({ retryAfterMs: undefined })
     stub.setRedirect(true)
-    await expect(asana.complete('501')).rejects.toBeInstanceOf(AsanaReadError)
+    await expect(asana.complete('501', '100')).rejects.toBeInstanceOf(AsanaReadError)
     expect(stub.requests.some((r) => r.path === '/leak')).toBe(false)
     stub.setRedirect(false)
 
     await asana.disconnect()
     expect(await asana.account()).toBeUndefined()
     const before = stub.requests.length
-    await expect(asana.comment('501', 'hi')).rejects.toBeInstanceOf(AsanaReadError)
+    await expect(asana.comment('501', 'hi', '100')).rejects.toBeInstanceOf(AsanaReadError)
     expect(stub.requests.length).toBe(before)
   } finally {
     await asana.close()

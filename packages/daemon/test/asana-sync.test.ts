@@ -61,7 +61,8 @@ const api: AsanaSyncApi = {
       }
     return { data: { completed: task.completed, num_subtasks: task.subtasks.length } }
   },
-  async comment(gid, text) {
+  async comment(gid, text, writer) {
+    if (writer !== account) throw new AsanaReadError('another account')
     const failing = failNext?.kind === 'comment' ? failNext : undefined
     if (failing) failNext = undefined
     if (failing && !failing.applied) throw failing.error
@@ -69,7 +70,8 @@ const api: AsanaSyncApi = {
     asana.get(gid)?.stories.push(text)
     if (failing) throw failing.error
   },
-  async complete(gid) {
+  async complete(gid, writer) {
+    if (writer !== account) throw new AsanaReadError('another account')
     const failing = failNext?.kind === 'complete' ? failNext : undefined
     if (failing) failNext = undefined
     if (failing && !failing.applied) throw failing.error
@@ -236,6 +238,8 @@ test('the Task Sync state follows permission, the switch, the connection and wha
   expect(mentions(`see ${prUrl(12)}`, prUrl(1))).toBe(false)
   expect(mentions(`see ${prUrl(1)}.`, prUrl(1))).toBe(true)
   expect(mentions(`${prUrl(1)}/files`, prUrl(1))).toBe(false)
+  expect(mentions(`https://example.com/${prUrl(1)}`, prUrl(1))).toBe(false)
+  expect(mentions(`(${prUrl(1)})`, prUrl(1))).toBe(true)
   expect(asanaComment({ url: prUrl(7), title: 'acme/notes#7' })).toBe(
     `TED opened a pull request for this task: acme/notes#7 ${prUrl(7)}`,
   )

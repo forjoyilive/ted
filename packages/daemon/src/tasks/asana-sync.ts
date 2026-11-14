@@ -17,8 +17,8 @@ import {
 
 export interface AsanaSyncApi {
   read(path: string, query?: Record<string, string>): Promise<Record<string, unknown>>
-  comment(gid: string, text: string): Promise<void>
-  complete(gid: string): Promise<void>
+  comment(gid: string, text: string, account: string): Promise<void>
+  complete(gid: string, account: string): Promise<void>
   account(): Promise<string | undefined>
 }
 
@@ -26,6 +26,7 @@ export interface AsanaItem {
   gid: string
   completed: boolean
   subtasks: number
+  account: string
 }
 
 export interface AsanaSyncOptions {
@@ -45,7 +46,8 @@ const pageSize = '100'
 export function mentions(text: unknown, url: string): boolean {
   if (typeof text !== 'string') return false
   for (let at = text.indexOf(url); at !== -1; at = text.indexOf(url, at + 1)) {
-    if (!/[\w/]/.test(text[at + url.length] ?? '')) return true
+    const before = at === 0 ? '' : (text[at - 1] ?? '')
+    if (!/[\w/]/.test(text[at + url.length] ?? '') && !/[^\s(<[{"'“‘]/.test(before)) return true
   }
   return false
 }
@@ -140,7 +142,7 @@ export function asanaConnector(
         items.set(gid, {
           closed: data.completed,
           state: data.completed ? 'Completed' : 'Open',
-          handle: { gid, completed: data.completed, subtasks },
+          handle: { gid, completed: data.completed, subtasks, account },
         })
       }
       start = offset + read
@@ -166,7 +168,7 @@ export function asanaConnector(
         }
       }
       spend()
-      await asana.complete(item.handle.gid).catch(waitOn)
+      await asana.complete(item.handle.gid, item.handle.account).catch(waitOn)
       store.setAsanaOpenChildren(task.id, undefined)
       return { step: 'completed', moved: 'Completed' }
     },
@@ -179,7 +181,9 @@ export function asanaConnector(
       if (rows.some((row) => mentions(row.text, pullRequest.url))) return
       if (!complete) throw new Error('too many comments to check for an earlier link')
       spend()
-      await asana.comment(item.handle.gid, asanaComment(pullRequest)).catch(waitOn)
+      await asana
+        .comment(item.handle.gid, asanaComment(pullRequest), item.handle.account)
+        .catch(waitOn)
     },
     texts: {
       closedTitle: () => 'Its Asana task was marked complete',
